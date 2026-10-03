@@ -112,6 +112,7 @@
   "removedHolidaysEmpty": "Keine Feiertage entfernt",
   "holidayRestore": "Wiederherstellen",
   "holidayRestored": "Feiertag wiederhergestellt",
+  "holidayRestoreFailed": "Der Feiertag konnte nicht wiederhergestellt werden",
   "eventCategoryGym": "Training",
   "eventCategoryCardio": "Cardio",
   "eventCategoryRest": "Ruhetag",
@@ -127,7 +128,6 @@
   "editCategory": "Kategorie bearbeiten",
   "categoryName": "Name",
   "categoryNameHint": "z. B. Dehnen",
-  "categoryColor": "Farbe",
   "categoryDefault": "Integrierte Kategorie",
   "deleteCategory": "Kategorie löschen",
   "deleteCategoryConfirm": "„{name}“ löschen? Ereignisse damit werden zu „Sonstiges“ verschoben.",
@@ -332,7 +332,6 @@
   "fastingColorDefault": "Standardfarbe",
   "fastingIconDefault": "Standardsymbol",
   "fastingPreviewLabel": "Vorschau",
-  "fastingPlacementHint": "Legt fest, wo die Zeile zwischen Terminen, Feiertagen und Wochenende steht",
   "fastingTitleOverrideLabel": "Eigener Titel",
   "fastingDescriptionLabel": "Beschreibung",
   "fastingDescriptionHint": "Wird unter der Regel angezeigt — Markdown möglich",
@@ -650,10 +649,6 @@
   "markdownShortcutsDesc": "Symbolleisten-Schaltflächen und Aktionen anpassen",
   "@markdownShortcutsDesc": {
     "description": "Markdown shortcuts settings description"
-  },
-  "resetToDefault": "Auf Standard zurücksetzen",
-  "@resetToDefault": {
-    "description": "Reset to default button text"
   },
   "removeAllCustom": "Alle benutzerdefinierten entfernen",
   "@removeAllCustom": {
@@ -2514,11 +2509,10 @@
   "colorPaletteDesc": "Alle Farben, die die Kalender-Auswahlen anbieten. Hinzugefügte Farben erscheinen überall.",
   "colorPaletteDefaultsLabel": "Vorgegebene Farben",
   "colorPaletteCustomLabel": "Deine Farben",
-  "colorPaletteBuiltIn": "Vorgegebene Farbe",
   "colorPaletteEmpty": "Noch keine eigenen Farben. Füge eine hinzu und sie erscheint in jeder Auswahl.",
-  "colorPaletteEditHint": "Tippe auf eine Farbe, um sie zu ändern. Alles, was sie bereits nutzt, behält seine Farbe.",
   "colorPaletteReset": "Farben zurücksetzen",
   "colorPaletteResetConfirm": "Alle hinzugefügten Farben löschen und nur die vorgegebenen behalten?",
+  "colorPaletteResetDone": "Palette zurückgesetzt",
   "colorPaletteFull": "Deine Palette ist voll. Lösche eine Farbe, um eine weitere hinzuzufügen.",
   "colorAlreadyInPalette": "Diese Farbe ist bereits in der Palette",
   "colorPaletteCount": "{count, plural, =0{Keine eigenen Farben} =1{1 eigene Farbe} other{{count} eigene Farben}}",

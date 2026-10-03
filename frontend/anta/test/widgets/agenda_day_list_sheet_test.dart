@@ -1,22 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import 'package:anta/constants/calendar_colors.dart';
-import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/row_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
-import 'package:anta/models/calendar_appearance.dart';
-import 'package:anta/widgets/agenda_day_list_sheet.dart';
-import 'package:anta/widgets/calendar_day_bars.dart';
-import 'package:anta/widgets/calendar_day_cell.dart';
-import 'package:anta/widgets/month_dot_matrix.dart';
-import 'package:anta/widgets/month_year_picker_sheet.dart';
+
+import 'support/day_list_robot.dart';
+import 'support/layout_errors.dart';
 
 /// The sheet renders a pre-resolved list — it reads no facade and localizes
 /// only its own chrome — so what is worth pinning is exactly that contract: it
 /// draws what it was handed, in order, dates its groups itself, and hands back
 /// the day that was tapped.
+///
+/// Every case drives the sheet through [DayListRobot] (`support/`), so a
+/// rebuild of the chrome rewrites the robot and leaves these bodies alone.
 void main() {
   /// Far from any real "today", so a header can never read Today/Tomorrow.
   final today = DateTime.utc(2026, 8, 1);
@@ -45,40 +48,17 @@ void main() {
   );
 
   /// Opens the sheet the way the agenda does and captures its result.
-  Future<_Picked> openSheet(WidgetTester tester, AgendaDayList list) async {
-    final picked = _Picked();
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () async {
-                picked.result = await AgendaDayListSheet.show(
-                  context,
-                  list,
-                  resolve: (_, _) => const [],
-                  appearance: const CalendarAppearance(),
-                  today: today,
-                  windowStart: DateTime.utc(2026, 8, 1),
-                  windowEnd: DateTime.utc(2026, 12, 31),
-                );
-                picked.returned = true;
-              },
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ),
+  Future<DayListOutcome> openSheet(DayListRobot robot, AgendaDayList list) {
+    return robot.show(
+      list,
+      resolve: (_, _) => const [],
+      today: today,
+      windowStart: DateTime.utc(2026, 8, 1),
+      windowEnd: DateTime.utc(2026, 12, 31),
     );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    return picked;
   }
 
-  // --- Fixtures and helpers for the list/month/year mode group below. ---
+  // --- Fixtures for the list/month/year mode group below. ---
 
   /// Same "today" and window as `list` above, spread across 3 of the 5 window
   /// months (Aug, Oct, Dec) with two of them (Aug) sharing a month, so the
@@ -141,60 +121,14 @@ void main() {
     ...modesEntries,
   ];
 
-  /// The segmented button that switches modes, scoped so a tap can never land
-  /// on some other same-named control the sheet might grow later.
-  final modeControl = find.byWidgetPredicate(
-    (w) => w is SegmentedButton<AgendaDayListMode>,
-  );
-
-  /// Switches mode by the segment's icon rather than its label, so the same
-  /// helper works whatever locale the sheet was opened in.
-  Future<void> tapMode(WidgetTester tester, IconData icon) async {
-    await tester.tap(
-      find.descendant(of: modeControl, matching: find.byIcon(icon)),
-    );
-    await tester.pumpAndSettle();
-  }
-
-  /// Scrolls the month body's `CustomScrollView` to its end directly on the
-  /// `ScrollPosition`, so the rows below the nav row and grid come into the
-  /// lazy sliver's build range — `find.text` cannot see a `SliverList` item
-  /// that has never been laid out. A position jump rather than a drag
-  /// gesture: a drag's synthetic pointer travels across the day grid on the
-  /// way down, and this sheet's grid is interactive.
-  Future<void> scrollMonthBody(WidgetTester tester) async {
-    final scrollable = find.descendant(
-      of: find.byType(CustomScrollView),
-      matching: find.byType(Scrollable),
-    );
-    final state = tester.state<ScrollableState>(scrollable.first);
-    state.position.jumpTo(state.position.maxScrollExtent);
-    await tester.pumpAndSettle();
-  }
-
-  /// Whether the "Whole month" action is currently usable. The button stays
-  /// in the tree even with no day selected (`Visibility(maintainState:
-  /// true)`, so the section header never resizes when a day is picked) —
-  /// merely invisible and disabled — so `find.text('Whole month')` alone
-  /// cannot tell "selected" from "not selected"; its `onPressed` can.
-  bool wholeMonthActive(WidgetTester tester) {
-    final button = tester.widget<TextButton>(
-      find.ancestor(
-        of: find.text('Whole month'),
-        matching: find.byType(TextButton),
-      ),
-    );
-    return button.onPressed != null;
-  }
-
   /// Opens the sheet on the mode-testing fixture, optionally in a given
   /// locale, with an `onModeChanged` spy and with a resolver spy standing in
   /// for the agenda's own re-scan.
-  Future<_Picked> openModesSheet(
-    WidgetTester tester, {
+  Future<DayListOutcome> openModesSheet(
+    DayListRobot robot, {
     Locale locale = const Locale('en'),
     ValueChanged<AgendaDayListMode>? onModeChanged,
-    _ResolverSpy? spy,
+    ResolverSpy? spy,
     AgendaDayList? list,
     AgendaDayListMode initialMode = AgendaDayListMode.list,
     DateTime? windowStart,
@@ -202,117 +136,24 @@ void main() {
     bool settle = true,
     AgendaDayMarkResolver? resolveMarks,
     AgendaYearBounds? yearBounds,
-  }) async {
-    final picked = _Picked();
-    final resolve = spy ?? _ResolverSpy(resolverPool);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: locale,
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () async {
-                picked.result = await AgendaDayListSheet.show(
-                  context,
-                  list ?? modesList,
-                  resolve: resolve.resolve,
-                  resolveMarks: resolveMarks,
-                  yearBounds: yearBounds,
-                  appearance: const CalendarAppearance(),
-                  today: today,
-                  windowStart: windowStart ?? DateTime.utc(2026, 8, 1),
-                  windowEnd: windowEnd ?? DateTime.utc(2026, 12, 31),
-                  initialMode: initialMode,
-                  onModeChanged: onModeChanged,
-                );
-                picked.returned = true;
-              },
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    if (settle) {
-      await tester.pumpAndSettle();
-    } else {
-      await tester.pump();
-    }
-    return picked;
-  }
-
-  /// Steps the month navigation. Addressed by icon so the helper survives a
-  /// locale change, and settled so the resolver has run before the assertion.
-  Future<void> tapNav(
-    WidgetTester tester,
-    IconData icon, {
-    int times = 1,
-  }) async {
-    for (var i = 0; i < times; i++) {
-      await tester.tap(find.widgetWithIcon(IconButton, icon));
-      await tester.pumpAndSettle();
-    }
-  }
-
-  IconButton navButton(WidgetTester tester, IconData icon) =>
-      tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
-
-  /// The month nav row's two lines. It is the first sliver of the month body,
-  /// so its texts lead the `CustomScrollView`'s in tree order — the title
-  /// first, its whole-month count second.
-  List<String> monthNav(WidgetTester tester) {
-    return tester
-        .widgetList<Text>(
-          find.descendant(
-            of: find.byType(CustomScrollView),
-            matching: find.byType(Text),
-          ),
-        )
-        .take(2)
-        .map((text) => text.data ?? '')
-        .toList();
-  }
-
-  /// The year tiles' month labels, in grid order. The count beside each label
-  /// is a bare number, so anything unparseable is a label.
-  List<String> yearTileLabels(WidgetTester tester) {
-    return [
-      for (final text in tester.widgetList<Text>(
-        find.descendant(of: find.byType(GridView), matching: find.byType(Text)),
-      ))
-        if (int.tryParse(text.data ?? '') == null) text.data ?? '',
-    ];
-  }
-
-  /// The year overview's scope selector — typed, so it can never be confused
-  /// with the mode selector in the header above it.
-  final scopeControl = find.byWidgetPredicate(
-    (w) => w is SegmentedButton<AgendaDayListYearScope>,
-  );
-
-  /// Switches the year overview's scope by position rather than by label, so
-  /// the helper works in every locale.
-  Future<void> tapScope(WidgetTester tester, int index) async {
-    await tester.tap(
-      find.descendant(of: scopeControl, matching: find.byType(Text)).at(index),
-    );
-    await tester.pumpAndSettle();
-  }
-
-  /// The dot matrix of a year tile, addressed by the month label beside it.
-  /// `find.ancestor` walks outward from the label, so the first `Material` is
-  /// the tile's own.
-  MonthDotMatrix matrixFor(WidgetTester tester, String label) {
-    return tester.widget<MonthDotMatrix>(
-      find.descendant(
-        of: find
-            .ancestor(of: find.text(label), matching: find.byType(Material))
-            .first,
-        matching: find.byType(MonthDotMatrix),
-      ),
+    double? textScale,
+    Size? surface,
+  }) {
+    final resolve = spy ?? ResolverSpy(resolverPool);
+    return robot.show(
+      list ?? modesList,
+      resolve: resolve.resolve,
+      resolveMarks: resolveMarks,
+      yearBounds: yearBounds,
+      today: today,
+      windowStart: windowStart ?? DateTime.utc(2026, 8, 1),
+      windowEnd: windowEnd ?? DateTime.utc(2026, 12, 31),
+      initialMode: initialMode,
+      onModeChanged: onModeChanged,
+      locale: locale,
+      textScale: textScale,
+      surface: surface,
+      settle: settle,
     );
   }
 
@@ -320,65 +161,61 @@ void main() {
     testWidgets('switching modes via the segmented button changes the body', (
       tester,
     ) async {
-      await openModesSheet(tester);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
 
-      expect(find.byType(ListView), findsOneWidget);
+      expect(robot.drawnMode, AgendaDayListMode.list);
 
-      await tapMode(tester, Icons.calendar_view_month_rounded);
-      expect(find.byType(ListView), findsNothing);
-      expect(find.byType(CustomScrollView), findsOneWidget);
+      await robot.pickMode(AgendaDayListMode.month);
+      expect(robot.drawnMode, AgendaDayListMode.month);
 
-      await tapMode(tester, Icons.grid_view_rounded);
-      expect(find.byType(CustomScrollView), findsNothing);
-      expect(find.byType(GridView), findsOneWidget);
+      await robot.pickMode(AgendaDayListMode.year);
+      expect(robot.drawnMode, AgendaDayListMode.year);
 
-      await tapMode(tester, Icons.format_list_bulleted_rounded);
-      expect(find.byType(GridView), findsNothing);
-      expect(find.byType(ListView), findsOneWidget);
+      await robot.pickMode(AgendaDayListMode.list);
+      expect(robot.drawnMode, AgendaDayListMode.list);
     });
 
     testWidgets('year mode shows one tile per window month with counts', (
       tester,
     ) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
 
-      final handle = tester.ensureSemantics();
-      expect(find.bySemanticsLabel('Aug 2026, 2 entries'), findsOneWidget);
-      expect(find.bySemanticsLabel('Sep 2026, 0 entries'), findsOneWidget);
-      expect(find.bySemanticsLabel('Oct 2026, 1 entry'), findsOneWidget);
-      expect(find.bySemanticsLabel('Nov 2026, 0 entries'), findsOneWidget);
-      expect(find.bySemanticsLabel('Dec 2026, 1 entry'), findsOneWidget);
-      handle.dispose();
+      expect(robot.announcesTile('Aug 2026, 2 entries'), isTrue);
+      expect(robot.announcesTile('Sep 2026, 0 entries'), isTrue);
+      expect(robot.announcesTile('Oct 2026, 1 entry'), isTrue);
+      expect(robot.announcesTile('Nov 2026, 0 entries'), isTrue);
+      expect(robot.announcesTile('Dec 2026, 1 entry'), isTrue);
     });
 
     testWidgets(
       'tapping a year tile opens that month in month mode with a back arrow',
       (tester) async {
-        await openModesSheet(tester);
-        await tapMode(tester, Icons.grid_view_rounded);
-        expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+        final robot = DayListRobot(tester);
+        await openModesSheet(robot);
+        await robot.pickMode(AgendaDayListMode.year);
+        expect(robot.showsBack, isFalse);
 
-        await tester.tap(find.text('Oct 2026'));
-        await tester.pumpAndSettle();
+        await robot.tapTile('Oct 2026');
 
-        expect(find.byType(CustomScrollView), findsOneWidget);
-        expect(find.text('October 2026'), findsOneWidget);
-        expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+        expect(robot.drawnMode, AgendaDayListMode.month);
+        expect(robot.shows('October 2026'), isTrue);
+        expect(robot.showsBack, isTrue);
       },
     );
 
     testWidgets('the back arrow returns to year mode', (tester) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tester.tap(find.text('Oct 2026'));
-      await tester.pumpAndSettle();
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.tapTile('Oct 2026');
 
-      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
-      await tester.pumpAndSettle();
+      await robot.back();
 
-      expect(find.byType(GridView), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+      expect(robot.drawnMode, AgendaDayListMode.year);
+      expect(robot.showsBack, isFalse);
     });
 
     testWidgets('system back closes the sheet even while drilled', (
@@ -387,15 +224,14 @@ void main() {
       // The arrow is the only "back to the year overview" affordance. Back
       // means dismiss here exactly as it does on every sibling sheet, and the
       // caller gets the same null a scrim tap gives it.
-      final picked = await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tester.tap(find.text('Oct 2026'));
-      await tester.pumpAndSettle();
+      final robot = DayListRobot(tester);
+      final picked = await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.tapTile('Oct 2026');
 
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      await robot.systemBack();
 
-      expect(find.byType(AgendaDayListSheet), findsNothing);
+      expect(robot.isOpen, isFalse);
       expect(picked.returned, isTrue);
       expect(picked.result, isNull);
     });
@@ -403,15 +239,14 @@ void main() {
     testWidgets('a scrim tap while drilled dismisses the sheet', (
       tester,
     ) async {
-      final picked = await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tester.tap(find.text('Oct 2026'));
-      await tester.pumpAndSettle();
+      final robot = DayListRobot(tester);
+      final picked = await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.tapTile('Oct 2026');
 
-      await tester.tapAt(const Offset(400, 40));
-      await tester.pumpAndSettle();
+      await robot.tapBarrier();
 
-      expect(find.byType(AgendaDayListSheet), findsNothing);
+      expect(robot.isOpen, isFalse);
       expect(picked.returned, isTrue);
       expect(picked.result, isNull);
     });
@@ -419,59 +254,58 @@ void main() {
     testWidgets(
       'tapping a marked day narrows the rows; whole month restores them',
       (tester) async {
-        await openModesSheet(tester);
-        await tapMode(tester, Icons.calendar_view_month_rounded);
+        final robot = DayListRobot(tester);
+        await openModesSheet(robot);
+        await robot.pickMode(AgendaDayListMode.month);
 
         // Day 5 is marked (Task A); narrow to it. The grid is still at the
         // top here (no scroll happened yet), so its day numbers are on
         // screen without scrolling.
-        await tester.tap(find.text('5'));
-        await tester.pumpAndSettle();
+        await robot.tapDay(5);
 
         // Selecting a day scrolls the body back to the top, so the section
         // header and the (now single) row need a scroll to come into view.
-        await scrollMonthBody(tester);
-        expect(find.text('Task A'), findsOneWidget);
-        expect(find.text('Task B'), findsNothing);
-        expect(wholeMonthActive(tester), isTrue);
+        await robot.scrollMonthBody();
+        expect(robot.shows('Task A'), isTrue);
+        expect(robot.shows('Task B'), isFalse);
+        expect(robot.wholeMonthActive, isTrue);
 
-        await tester.tap(find.text('Whole month'));
-        await tester.pumpAndSettle();
+        await robot.wholeMonth();
 
-        await scrollMonthBody(tester);
-        expect(find.text('Task A'), findsOneWidget);
-        expect(find.text('Task B'), findsOneWidget);
-        expect(wholeMonthActive(tester), isFalse);
+        await robot.scrollMonthBody();
+        expect(robot.shows('Task A'), isTrue);
+        expect(robot.shows('Task B'), isTrue);
+        expect(robot.wholeMonthActive, isFalse);
       },
     );
 
     testWidgets('tapping an unmarked day leaves the rows unchanged', (
       tester,
     ) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
       // Day 6 carries no entry, so table_calendar treats it as disabled
       // (`enabledDayPredicate`) and the tap is a no-op: no selection, no
       // scroll-to-top, no "Whole month" action becoming usable.
-      await tester.tap(find.text('6'));
-      await tester.pumpAndSettle();
+      await robot.tapDay(6);
 
-      await scrollMonthBody(tester);
-      expect(find.text('Task A'), findsOneWidget);
-      expect(find.text('Task B'), findsOneWidget);
-      expect(wholeMonthActive(tester), isFalse);
+      await robot.scrollMonthBody();
+      expect(robot.shows('Task A'), isTrue);
+      expect(robot.shows('Task B'), isTrue);
+      expect(robot.wholeMonthActive, isFalse);
     });
 
     testWidgets('tapping a row in month mode pops with that day', (
       tester,
     ) async {
-      final picked = await openModesSheet(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      final picked = await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
-      await scrollMonthBody(tester);
-      await tester.tap(find.text('Task A'));
-      await tester.pumpAndSettle();
+      await robot.scrollMonthBody();
+      await robot.tapEntry('Task A');
 
       expect(picked.result?.focusDay, DateTime.utc(2026, 8, 5));
       expect(picked.result?.edit, isNull);
@@ -480,63 +314,58 @@ void main() {
     testWidgets('the month chevrons page across a year boundary', (
       tester,
     ) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
       // The whole navigable calendar is browsable — a tile of any year has
       // to open its month — so neither chevron ever disables near the window.
-      await tapNav(tester, Icons.chevron_left_rounded, times: 8);
-      expect(monthNav(tester).first, 'December 2025');
-      expect(
-        navButton(tester, Icons.chevron_left_rounded).onPressed,
-        isNotNull,
-      );
+      await robot.previous(times: 8);
+      expect(robot.navTitle, 'December 2025');
+      expect(robot.canGoPrevious, isTrue);
 
-      await tapNav(tester, Icons.chevron_right_rounded, times: 13);
-      expect(monthNav(tester).first, 'January 2027');
-      expect(
-        navButton(tester, Icons.chevron_right_rounded).onPressed,
-        isNotNull,
-      );
+      await robot.next(times: 13);
+      expect(robot.navTitle, 'January 2027');
+      expect(robot.canGoNext, isTrue);
     });
 
     testWidgets('the today button jumps back and is inert on today\'s month', (
       tester,
     ) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
       // The selector opens month mode on today's month, so the jump is
       // already where it would take you.
-      expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
+      expect(robot.canJumpToToday, isFalse);
 
-      await tapNav(tester, Icons.chevron_left_rounded, times: 3);
-      expect(monthNav(tester).first, 'May 2026');
-      expect(navButton(tester, Icons.today_rounded).onPressed, isNotNull);
+      await robot.previous(times: 3);
+      expect(robot.navTitle, 'May 2026');
+      expect(robot.canJumpToToday, isTrue);
 
-      await tapNav(tester, Icons.today_rounded);
-      expect(monthNav(tester).first, 'August 2026');
-      expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
+      await robot.jumpToToday();
+      expect(robot.navTitle, 'August 2026');
+      expect(robot.canJumpToToday, isFalse);
     });
 
     testWidgets('onModeChanged fires only from the segmented button', (
       tester,
     ) async {
+      final robot = DayListRobot(tester);
       final calls = <AgendaDayListMode>[];
-      await openModesSheet(tester, onModeChanged: calls.add);
+      await openModesSheet(robot, onModeChanged: calls.add);
 
-      await tapMode(tester, Icons.grid_view_rounded);
+      await robot.pickMode(AgendaDayListMode.year);
       expect(calls, [AgendaDayListMode.year]);
 
       // Drilling into a month from a year tile is navigation, not a mode
       // pick, so it must not fire a second time.
-      await tester.tap(find.text('Oct 2026'));
-      await tester.pumpAndSettle();
+      await robot.tapTile('Oct 2026');
       expect(calls, [AgendaDayListMode.year]);
 
       // Nor does the back arrow that undoes it.
-      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
-      await tester.pumpAndSettle();
+      await robot.back();
       expect(calls, [AgendaDayListMode.year]);
     });
 
@@ -564,11 +393,12 @@ void main() {
           ],
         );
 
-        await openSheet(tester, singleMonthList);
+        final robot = DayListRobot(tester);
+        await openSheet(robot, singleMonthList);
 
-        expect(find.text('Task E'), findsOneWidget);
-        expect(find.text('Task F'), findsOneWidget);
-        expect(find.text('September'), findsNothing);
+        expect(robot.shows('Task E'), isTrue);
+        expect(robot.shows('Task F'), isTrue);
+        expect(robot.countOf('September'), 0);
       },
     );
 
@@ -581,49 +411,68 @@ void main() {
           tester.view.physicalSize = size;
           tester.view.devicePixelRatio = 1;
 
-          await openModesSheet(tester, locale: Locale(localeCode));
+          final robot = DayListRobot(tester);
+          await openModesSheet(robot, locale: Locale(localeCode));
           expect(tester.takeException(), isNull);
 
-          await tapMode(tester, Icons.calendar_view_month_rounded);
+          await robot.pickMode(AgendaDayListMode.month);
           expect(tester.takeException(), isNull);
 
-          await tapMode(tester, Icons.grid_view_rounded);
+          await robot.pickMode(AgendaDayListMode.year);
           expect(tester.takeException(), isNull);
 
-          await tapScope(tester, 1);
+          await robot.pickScope(AgendaDayListYearScope.calendarYear);
           expect(tester.takeException(), isNull);
 
-          await tapScope(tester, 0);
+          await robot.pickScope(AgendaDayListYearScope.upcoming);
           expect(tester.takeException(), isNull);
 
-          await tapMode(tester, Icons.format_list_bulleted_rounded);
+          await robot.pickMode(AgendaDayListMode.list);
           expect(tester.takeException(), isNull);
         });
       }
     }
 
-    testWidgets('the year scope selector fits on one row at 320dp', (
-      tester,
-    ) async {
-      // The chip pair this replaced measured 336-378dp against 288-328dp of
-      // usable width and wrapped in every locale.
-      addTearDown(tester.view.reset);
-      tester.view.physicalSize = const Size(320, 568);
-      tester.view.devicePixelRatio = 1;
-
-      await openModesSheet(tester, locale: const Locale('de'));
-      await tapMode(tester, Icons.grid_view_rounded);
-
-      final labels = find.descendant(
-        of: scopeControl,
-        matching: find.byType(Text),
+    testWidgets('the year scope chips keep their labels whole in 48 dp runs '
+        'at 320dp, and share one row where the font allows', (tester) async {
+      // The segmented button this replaced (itself replacing a ChoiceChip
+      // pair that wrapped in every locale) ellipsized its labels to fit one
+      // row; a FormChip never cuts a label — it wraps to a second 48 dp run
+      // instead (Tier 3 D1). The test font draws every glyph a full em wide,
+      // about twice a phone's, so how many runs "Demnächst" and
+      // "Kalenderjahr" take at 320 is the font's to say: what holds at any
+      // font is whole labels in whole runs, and the one row shows on a
+      // surface wide enough for the test font's chips.
+      final robot = DayListRobot(tester);
+      await openModesSheet(
+        robot,
+        locale: const Locale('de'),
+        surface: const Size(320, 568),
       );
-      expect(labels, findsNWidgets(2));
+      await robot.pickMode(AgendaDayListMode.year);
+
+      expect(robot.scopeLabelRects, hasLength(2));
+      expect(robot.scopeChipsWhole, isTrue);
+      expect(robot.scopeControlRect.height % FormMetrics.rowMinHeight, 0);
+      expect(tester.takeException(), isNull);
+
+      await robot.close();
+      await openModesSheet(
+        robot,
+        locale: const Locale('de'),
+        surface: const Size(400, 568),
+      );
+      await robot.pickMode(AgendaDayListMode.year);
+
+      final labels = robot.scopeLabelRects;
+      expect(labels[0].top, labels[1].top);
+      expect(robot.scopeControlRect.height, FormMetrics.rowMinHeight);
       expect(
-        tester.getRect(labels.at(0)).top,
-        tester.getRect(labels.at(1)).top,
+        robot.scopeChipsRect.width,
+        lessThanOrEqualTo(
+          400 - RowMetrics.groupInset - FormMetrics.rowEndPadding,
+        ),
       );
-      expect(tester.getRect(scopeControl).width, lessThanOrEqualTo(288));
     });
 
     testWidgets('the fixed header never moves between modes or states', (
@@ -637,68 +486,55 @@ void main() {
       tester.view.physicalSize = const Size(360, 640);
       tester.view.devicePixelRatio = 1;
 
-      await openModesSheet(tester);
-      final inList = tester.getRect(modeControl);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      final inList = robot.pinnedHeaderRect;
       // Pinned so a future padding change has to be deliberate; what matters
-      // is that the three assertions below see this same rect.
-      expect(inList.left, closeTo(16, 0.5));
-      expect(inList.top, closeTo(179, 0.5));
-      expect(inList.right, closeTo(344, 0.5));
-      expect(inList.bottom, closeTo(227, 0.5));
+      // is that the three assertions below see this same rect. The mode chip
+      // row spans the sheet (Tier 3 D1) under the handle, the 48 dp header
+      // and the card's one-line caption with its 8 dp of air.
+      expect(inList.left, closeTo(0, 0.5));
+      expect(inList.top, closeTo(147.2, 0.5));
+      expect(inList.right, closeTo(360, 0.5));
+      expect(inList.bottom, closeTo(195.2, 0.5));
 
-      await tapMode(tester, Icons.calendar_view_month_rounded);
-      expect(tester.getRect(modeControl), inList);
+      await robot.pickMode(AgendaDayListMode.month);
+      expect(robot.pinnedHeaderRect, inList);
 
-      await tapMode(tester, Icons.grid_view_rounded);
-      expect(tester.getRect(modeControl), inList);
+      await robot.pickMode(AgendaDayListMode.year);
+      expect(robot.pinnedHeaderRect, inList);
 
-      await tester.tap(find.text('Oct 2026'));
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
-      expect(tester.getRect(modeControl), inList);
+      await robot.tapTile('Oct 2026');
+      expect(robot.showsBack, isTrue);
+      expect(robot.pinnedHeaderRect, inList);
     });
 
     testWidgets('the back arrow and today button are full touch targets', (
       tester,
     ) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tester.tap(find.text('Oct 2026'));
-      await tester.pumpAndSettle();
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.tapTile('Oct 2026');
 
-      expect(
-        tester.getSize(find.byIcon(Icons.arrow_back_rounded).hitTestable()),
-        const Size(24, 24),
-      );
-      for (final icon in [Icons.arrow_back_rounded, Icons.today_rounded]) {
-        final button = tester.getSize(
-          find.ancestor(
-            of: find.byIcon(icon),
-            matching: find.byType(IconButton),
-          ),
-        );
+      expect(robot.backGlyphSize, const Size(24, 24));
+      for (final button in [robot.backTargetSize, robot.todayTargetSize]) {
         expect(button.width, greaterThanOrEqualTo(48));
         expect(button.height, greaterThanOrEqualTo(48));
       }
     });
 
     testWidgets('an empty day is faded and today never is', (tester) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
-
-      CalendarDayCell cellFor(String day) => tester.widget<CalendarDayCell>(
-        find.ancestor(
-          of: find.text(day),
-          matching: find.byType(CalendarDayCell),
-        ),
-      );
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
       // Day 5 carries Task A; day 6 carries nothing; day 1 is `today` and
       // carries nothing either — and must still read as the day it is.
-      expect(cellFor('5').isOutside, isFalse);
-      expect(cellFor('6').isOutside, isTrue);
-      expect(cellFor('1').isToday, isTrue);
-      expect(cellFor('1').isOutside, isFalse);
+      expect(robot.isDayFaded(5), isFalse);
+      expect(robot.isDayFaded(6), isTrue);
+      expect(robot.isDayToday(1), isTrue);
+      expect(robot.isDayFaded(1), isFalse);
     });
   });
 
@@ -709,13 +545,14 @@ void main() {
       // Both are the window's own scope, and the window arrived pre-resolved:
       // reaching for the resolver here would be work with nothing to show for
       // it.
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
       expect(spy.calls, isEmpty);
 
-      await tapMode(tester, Icons.grid_view_rounded);
+      await robot.pickMode(AgendaDayListMode.year);
       expect(spy.calls, isEmpty);
-      expect(yearTileLabels(tester), [
+      expect(robot.tileLabels, [
         'Aug 2026',
         'Sep 2026',
         'Oct 2026',
@@ -727,16 +564,17 @@ void main() {
     testWidgets('month mode resolves once per month and caches it', (
       tester,
     ) async {
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
 
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      await robot.pickMode(AgendaDayListMode.month);
       expect(spy.calls, [
         (DateTime.utc(2026, 8, 1), DateTime.utc(2026, 8, 31)),
       ]);
 
-      await tapNav(tester, Icons.chevron_left_rounded, times: 6);
-      expect(monthNav(tester).first, 'February 2026');
+      await robot.previous(times: 6);
+      expect(robot.navTitle, 'February 2026');
       // One call per month stepped through, and only one.
       expect(spy.calls, hasLength(7));
       expect(spy.calls.last, (
@@ -744,25 +582,27 @@ void main() {
         DateTime.utc(2026, 2, 28),
       ));
 
-      await tapNav(tester, Icons.chevron_right_rounded, times: 6);
-      expect(monthNav(tester).first, 'August 2026');
+      await robot.next(times: 6);
+      expect(robot.navTitle, 'August 2026');
       expect(spy.calls, hasLength(7));
     });
 
     testWidgets('a past month shows the resolver rows and counts them all', (
       tester,
     ) async {
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
-      await tapNav(tester, Icons.chevron_left_rounded, times: 6);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.month);
+      await robot.previous(times: 6);
 
       // February is entirely outside the window the card counted, so the
       // window index knows nothing about it — the row and the count above it
       // can only have come from the resolver.
-      expect(monthNav(tester), ['February 2026', '1 entry']);
-      await scrollMonthBody(tester);
-      expect(find.text('Task Past'), findsOneWidget);
+      expect(robot.navTitle, 'February 2026');
+      expect(robot.navCount, '1 entry');
+      await robot.scrollMonthBody();
+      expect(robot.shows('Task Past'), isTrue);
     });
 
     testWidgets('the first window month shows all of itself, not the slice', (
@@ -771,59 +611,40 @@ void main() {
       // A window starting mid-month is the case month mode must not inherit:
       // the month header counts the calendar month, so the days before the
       // window's first day are real days with real rows.
-      final spy = _ResolverSpy(resolverPool);
-      final picked = _Picked();
-      await tester.pumpWidget(
-        MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          locale: const Locale('en'),
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () async {
-                  picked.result = await AgendaDayListSheet.show(
-                    context,
-                    AgendaDayList(
-                      title: 'Gym',
-                      subtitle: '1 event',
-                      source: const AgendaDayListCategorySource('gym'),
-                      color: gymColor,
-                      entries: [modesEntries[1]],
-                    ),
-                    resolve: spy.resolve,
-                    appearance: const CalendarAppearance(),
-                    today: DateTime.utc(2026, 8, 18),
-                    windowStart: DateTime.utc(2026, 8, 18),
-                    windowEnd: DateTime.utc(2026, 9, 30),
-                  );
-                  picked.returned = true;
-                },
-                child: const Text('open'),
-              ),
-            ),
-          ),
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await robot.show(
+        AgendaDayList(
+          title: 'Gym',
+          subtitle: '1 event',
+          source: const AgendaDayListCategorySource('gym'),
+          color: gymColor,
+          entries: [modesEntries[1]],
         ),
+        resolve: spy.resolve,
+        today: DateTime.utc(2026, 8, 18),
+        windowStart: DateTime.utc(2026, 8, 18),
+        windowEnd: DateTime.utc(2026, 9, 30),
       );
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      await robot.pickMode(AgendaDayListMode.month);
 
       // Aug 5 falls before the window's Aug 18 start; the card counted one
       // August entry, the month counts two.
-      expect(monthNav(tester), ['August 2026', '2 entries']);
-      await scrollMonthBody(tester);
-      expect(find.text('Task A'), findsOneWidget);
-      expect(find.text('Task B'), findsOneWidget);
+      expect(robot.navTitle, 'August 2026');
+      expect(robot.navCount, '2 entries');
+      await robot.scrollMonthBody();
+      expect(robot.shows('Task A'), isTrue);
+      expect(robot.shows('Task B'), isTrue);
     });
 
     testWidgets('This year resolves the whole year in one call, then warms '
         'its neighbours', (tester) async {
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.grid_view_rounded);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.year);
 
-      await tapScope(tester, 1);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
       // The shown year first, in one call; the two neighbours once the page
       // has settled, so the next swipe finds them ready.
       expect(spy.calls, [
@@ -831,7 +652,7 @@ void main() {
         (DateTime.utc(2025, 1, 1), DateTime.utc(2025, 12, 31)),
         (DateTime.utc(2027, 1, 1), DateTime.utc(2027, 12, 31)),
       ]);
-      expect(yearTileLabels(tester), [
+      expect(robot.tileLabels, [
         'Jan 2026',
         'Feb 2026',
         'Mar 2026',
@@ -846,18 +667,16 @@ void main() {
         'Dec 2026',
       ]);
 
-      final handle = tester.ensureSemantics();
-      expect(find.bySemanticsLabel('Jan 2026, 0 entries'), findsOneWidget);
-      expect(find.bySemanticsLabel('Feb 2026, 1 entry'), findsOneWidget);
-      expect(find.bySemanticsLabel('Aug 2026, 2 entries'), findsOneWidget);
-      expect(find.bySemanticsLabel('Dec 2026, 1 entry'), findsOneWidget);
-      handle.dispose();
+      expect(robot.announcesTile('Jan 2026, 0 entries'), isTrue);
+      expect(robot.announcesTile('Feb 2026, 1 entry'), isTrue);
+      expect(robot.announcesTile('Aug 2026, 2 entries'), isTrue);
+      expect(robot.announcesTile('Dec 2026, 1 entry'), isTrue);
 
       // Going back is a pure re-render of the window index — no further
       // call, and the card's own months again.
-      await tapScope(tester, 0);
+      await robot.pickScope(AgendaDayListYearScope.upcoming);
       expect(spy.calls, hasLength(3));
-      expect(yearTileLabels(tester), [
+      expect(robot.tileLabels, [
         'Aug 2026',
         'Sep 2026',
         'Oct 2026',
@@ -869,64 +688,65 @@ void main() {
     testWidgets('paging to a warm year costs nothing and warms the next', (
       tester,
     ) async {
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
-      expect(find.text('2026'), findsOneWidget);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
+      expect(robot.navTitle, '2026');
       List<int> resolvedYears() => [for (final c in spy.calls) c.$1.year];
 
-      await tapNav(tester, Icons.chevron_left_rounded);
-      expect(find.text('2025'), findsOneWidget);
+      await robot.previous();
+      expect(robot.navTitle, '2025');
       // 2025 was warm; settling on it warms 2024 and nothing else.
       expect(resolvedYears(), [2026, 2025, 2027, 2024]);
-      expect(yearTileLabels(tester).first, 'Jan 2025');
-      expect(yearTileLabels(tester), hasLength(12));
+      expect(robot.tileLabels.first, 'Jan 2025');
+      expect(robot.tileLabels, hasLength(12));
 
-      await tapNav(tester, Icons.chevron_right_rounded);
-      expect(find.text('2026'), findsOneWidget);
+      await robot.next();
+      expect(robot.navTitle, '2026');
       expect(resolvedYears(), [2026, 2025, 2027, 2024]);
     });
 
     testWidgets('a swipe pages the years too', (tester) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
 
-      await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
-      await tester.pumpAndSettle();
-      expect(find.text('2027'), findsOneWidget);
+      await robot.flingYears(const Offset(-300, 0));
+      expect(robot.navTitle, '2027');
 
-      await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
-      await tester.pumpAndSettle();
-      expect(find.text('2026'), findsOneWidget);
+      await robot.flingYears(const Offset(300, 0));
+      expect(robot.navTitle, '2026');
     });
 
     testWidgets('the year bounds stop the chevrons and the pager', (
       tester,
     ) async {
-      await openModesSheet(tester, yearBounds: (first: 2025, last: 2026));
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot, yearBounds: (first: 2025, last: 2026));
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
 
-      expect(navButton(tester, Icons.chevron_right_rounded).onPressed, isNull);
-      await tapNav(tester, Icons.chevron_left_rounded);
-      expect(find.text('2025'), findsOneWidget);
-      expect(navButton(tester, Icons.chevron_left_rounded).onPressed, isNull);
+      expect(robot.canGoNext, isFalse);
+      await robot.previous();
+      expect(robot.navTitle, '2025');
+      expect(robot.canGoPrevious, isFalse);
 
       // A fling past the first page goes nowhere.
-      await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
-      await tester.pumpAndSettle();
-      expect(find.text('2025'), findsOneWidget);
+      await robot.flingYears(const Offset(300, 0));
+      expect(robot.navTitle, '2025');
     });
 
     testWidgets('a marks resolver feeds the year pages and no rows resolve', (
       tester,
     ) async {
-      final spy = _ResolverSpy(resolverPool);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
       final marks = <(DateTime, DateTime)>[];
       await openModesSheet(
-        tester,
+        robot,
         spy: spy,
         resolveMarks: (start, end) {
           marks.add((start, end));
@@ -941,96 +761,94 @@ void main() {
           ];
         },
       );
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
 
       // The tiles came from marks alone: one call for the year, the row
       // resolver untouched.
       expect(marks.first, (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 12, 31)));
       expect(spy.calls, isEmpty);
-      final handle = tester.ensureSemantics();
-      expect(find.bySemanticsLabel('Feb 2026, 1 entry'), findsOneWidget);
-      handle.dispose();
+      expect(robot.announcesTile('Feb 2026, 1 entry'), isTrue);
 
       // Opening a month is the first time rows are needed.
-      await tester.tap(find.text('Feb 2026'));
-      await tester.pumpAndSettle();
+      await robot.tapTile('Feb 2026');
       expect(spy.calls, [
         (DateTime.utc(2026, 2, 1), DateTime.utc(2026, 2, 28)),
       ]);
     });
 
     testWidgets('the year title opens the jump picker', (tester) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
 
-      await tester.tap(find.text('2026'));
-      await tester.pumpAndSettle();
-      expect(find.byType(MonthYearPickerSheet), findsOneWidget);
+      await robot.pickDate();
+      expect(robot.jumpPickerOpen, isTrue);
     });
 
     testWidgets('the year nav\'s this-year button returns to today\'s year', (
       tester,
     ) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
-      expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
+      expect(robot.canJumpToToday, isFalse);
 
-      await tapNav(tester, Icons.chevron_left_rounded, times: 2);
-      expect(find.text('2024'), findsOneWidget);
-      expect(navButton(tester, Icons.today_rounded).onPressed, isNotNull);
+      await robot.previous(times: 2);
+      expect(robot.navTitle, '2024');
+      expect(robot.canJumpToToday, isTrue);
 
-      await tapNav(tester, Icons.today_rounded);
-      expect(find.text('2026'), findsOneWidget);
-      expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
+      await robot.jumpToToday();
+      expect(robot.navTitle, '2026');
+      expect(robot.canJumpToToday, isFalse);
     });
 
     testWidgets('a tile of another year opens that month', (tester) async {
-      await openModesSheet(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
-      await tapNav(tester, Icons.chevron_left_rounded);
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
+      await robot.previous();
 
-      await tester.tap(find.text('Feb 2025'));
-      await tester.pumpAndSettle();
+      await robot.tapTile('Feb 2025');
 
-      expect(monthNav(tester).first, 'February 2025');
-      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+      expect(robot.navTitle, 'February 2025');
+      expect(robot.showsBack, isTrue);
     });
 
     testWidgets('a This year tile opens that month, already resolved', (
       tester,
     ) async {
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
 
-      await tester.tap(find.text('Feb 2026'));
-      await tester.pumpAndSettle();
+      await robot.tapTile('Feb 2026');
 
-      expect(monthNav(tester), ['February 2026', '1 entry']);
+      expect(robot.navTitle, 'February 2026');
+      expect(robot.navCount, '1 entry');
       // Drilled into, not switched to: the back arrow returns to the tiles.
-      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+      expect(robot.showsBack, isTrue);
       // The whole year was resolved by the scope switch (and its neighbours
       // warmed), so the tile tap adds nothing.
       expect(spy.calls, hasLength(3));
     });
 
     testWidgets('the scope survives a drill-down and back', (tester) async {
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.grid_view_rounded);
-      await tapScope(tester, 1);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
 
-      await tester.tap(find.text('Feb 2026'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
-      await tester.pumpAndSettle();
+      await robot.tapTile('Feb 2026');
+      await robot.back();
 
-      expect(yearTileLabels(tester), hasLength(12));
+      expect(robot.tileLabels, hasLength(12));
       expect(spy.calls, hasLength(3));
     });
 
@@ -1039,23 +857,22 @@ void main() {
     ) async {
       // The number on the card is the window's, so the first thing the sheet
       // shows must be that number — the scope is session-only.
-      final spy = _ResolverSpy(resolverPool);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.grid_view_rounded);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.year);
 
-      final scope = tester.widget<SegmentedButton<AgendaDayListYearScope>>(
-        scopeControl,
-      );
-      expect(scope.selected, {AgendaDayListYearScope.upcoming});
+      expect(robot.currentScope, AgendaDayListYearScope.upcoming);
     });
 
     testWidgets('a sheet opened in month mode resolves that month before its '
         'first frame', (tester) async {
       // The persisted mode can be `month`, and a month that resolved a frame
       // late would show an empty grid and a zero count first.
-      final spy = _ResolverSpy(resolverPool);
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy(resolverPool);
       await openModesSheet(
-        tester,
+        robot,
         spy: spy,
         initialMode: AgendaDayListMode.month,
         settle: false,
@@ -1066,9 +883,10 @@ void main() {
       ]);
 
       await tester.pumpAndSettle();
-      expect(monthNav(tester), ['August 2026', '2 entries']);
-      await scrollMonthBody(tester);
-      expect(find.text('Task A'), findsOneWidget);
+      expect(robot.navTitle, 'August 2026');
+      expect(robot.navCount, '2 entries');
+      await robot.scrollMonthBody();
+      expect(robot.shows('Task A'), isTrue);
     });
 
     testWidgets('month mode opens on a month the card actually covered', (
@@ -1091,23 +909,25 @@ void main() {
           ),
         ],
       );
+      final robot = DayListRobot(tester);
       await openModesSheet(
-        tester,
+        robot,
         list: pinned,
-        spy: _ResolverSpy(const []),
+        spy: ResolverSpy(const []),
         windowStart: DateTime.utc(2020, 1, 1),
         windowEnd: DateTime.utc(2020, 12, 31),
       );
 
-      await tapMode(tester, Icons.calendar_view_month_rounded);
-      expect(monthNav(tester).first, 'December 2020');
+      await robot.pickMode(AgendaDayListMode.month);
+      expect(robot.navTitle, 'December 2020');
     });
 
     testWidgets('a mid-swipe frame keeps both months\' bars', (tester) async {
       // The marker builder answers for the cell's **own** month, read from the
       // cache — during a page animation two months are on screen at once, and
       // keying the bars off the focused month alone blanked one of them.
-      final spy = _ResolverSpy([
+      final robot = DayListRobot(tester);
+      final spy = ResolverSpy([
         ...resolverPool,
         AgendaDayListEntry(
           day: DateTime.utc(2026, 9, 8),
@@ -1116,23 +936,20 @@ void main() {
           title: 'Task September',
         ),
       ]);
-      await openModesSheet(tester, spy: spy);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
-      expect(find.byType(CalendarDayBars), findsNWidgets(2));
+      await openModesSheet(robot, spy: spy);
+      await robot.pickMode(AgendaDayListMode.month);
+      expect(robot.dayBarCount, 2);
 
-      await tester.drag(
-        find.byType(TableCalendar<void>),
-        const Offset(-400, 0),
-      );
+      await robot.dragGrid(const Offset(-400, 0));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
       // August's two and September's one, all drawn from the cache: the
       // outgoing month did not go blank when the page index changed.
-      expect(find.byType(CalendarDayBars), findsNWidgets(3));
+      expect(robot.dayBarCount, 3);
 
       await tester.pumpAndSettle();
-      expect(monthNav(tester).first, 'September 2026');
+      expect(robot.navTitle, 'September 2026');
     });
   });
 
@@ -1163,118 +980,95 @@ void main() {
       entries: missedEntries,
     );
 
-    Future<void> openMissed(WidgetTester tester) async {
+    Future<void> openMissed(DayListRobot robot) async {
       await openModesSheet(
-        tester,
+        robot,
         list: missedList,
-        spy: _ResolverSpy(missedEntries),
+        spy: ResolverSpy(missedEntries),
       );
     }
 
     testWidgets('a missed occurrence is dimmed rather than dropped', (
       tester,
     ) async {
-      await openMissed(tester);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
 
-      final faded = tester.widget<Opacity>(
-        find
-            .ancestor(of: find.text('Task B'), matching: find.byType(Opacity))
-            .first,
-      );
-      expect(faded.opacity, CalendarColors.missedEventAlpha);
-      expect(
-        find.ancestor(of: find.text('Task A'), matching: find.byType(Opacity)),
-        findsNothing,
-      );
+      expect(robot.entryOpacity('Task B'), CalendarColors.missedEventAlpha);
+      expect(robot.entryOpacity('Task A'), isNull);
     });
 
     testWidgets('a day header counts what was attended', (tester) async {
-      await openMissed(tester);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
 
       // Aug 5 was attended, Aug 20 was not — and the day it was on still gets
       // its header and its faded row.
-      expect(find.text('Saturday, August 15'), findsNothing);
-      expect(find.text('1 entry'), findsOneWidget);
-      expect(find.text('0 entries · 1 missed'), findsOneWidget);
+      expect(robot.countOf('Saturday, August 15'), 0);
+      expect(robot.shows('1 entry'), isTrue);
+      expect(robot.shows('0 entries · 1 missed'), isTrue);
     });
 
     testWidgets('the month count names the missed occurrences beside it', (
       tester,
     ) async {
-      await openMissed(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
-      // The nav row above the grid and the section header below it both carry
-      // it; the header only comes into view once the body is scrolled.
-      expect(monthNav(tester), ['August 2026', '1 entry · 1 missed']);
-      await scrollMonthBody(tester);
-      expect(
-        find.descendant(
-          of: find
-              .ancestor(
-                of: find.text('Whole month'),
-                matching: find.byType(Row),
-              )
-              .first,
-          matching: find.text('1 entry · 1 missed'),
-        ),
-        findsOneWidget,
-      );
+      // The nav row above the grid carries the month's; the section header
+      // that repeated it under the grid is gone (Tier 3 D8), so a day's own
+      // count is read off its read row once the day is picked — a row that
+      // only comes into view once the body is scrolled.
+      expect(robot.navTitle, 'August 2026');
+      expect(robot.navCount, '1 entry · 1 missed');
+      await robot.tapDay(20);
+      await robot.scrollMonthBody();
+      expect(robot.pickedDayCount, '0 entries · 1 missed');
     });
 
     testWidgets('a selected missed day counts zero and says why', (
       tester,
     ) async {
-      await openMissed(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
-      await tester.tap(find.text('20'));
-      await tester.pumpAndSettle();
-      await scrollMonthBody(tester);
+      await robot.tapDay(20);
+      await robot.scrollMonthBody();
 
-      expect(find.text('0 entries · 1 missed'), findsOneWidget);
-      expect(find.text('Task B'), findsOneWidget);
+      expect(robot.shows('0 entries · 1 missed'), isTrue);
+      expect(robot.shows('Task B'), isTrue);
     });
 
     testWidgets('a missed day is still openable', (tester) async {
-      await openMissed(tester);
-      await tapMode(tester, Icons.calendar_view_month_rounded);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
+      await robot.pickMode(AgendaDayListMode.month);
 
-      final cell = tester.widget<CalendarDayCell>(
-        find.ancestor(
-          of: find.text('20'),
-          matching: find.byType(CalendarDayCell),
-        ),
-      );
-      expect(cell.isOutside, isFalse);
+      expect(robot.isDayFaded(20), isFalse);
     });
 
     testWidgets('a year tile counts attendance and announces the rest', (
       tester,
     ) async {
-      await openMissed(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
+      await robot.pickMode(AgendaDayListMode.year);
 
-      final handle = tester.ensureSemantics();
-      expect(
-        find.bySemanticsLabel('Aug 2026, 1 entry · 1 missed'),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(robot.announcesTile('Aug 2026, 1 entry · 1 missed'), isTrue);
       // The bare number beside the label is the attendance count alone.
-      expect(
-        find.descendant(of: find.byType(GridView), matching: find.text('1')),
-        findsOneWidget,
-      );
+      expect(robot.tileCounts.where((count) => count == '1'), hasLength(1));
     });
 
     testWidgets('the dot matrix marks a missed day apart from a kept one', (
       tester,
     ) async {
-      await openMissed(tester);
-      await tapMode(tester, Icons.grid_view_rounded);
+      final robot = DayListRobot(tester);
+      await openMissed(robot);
+      await robot.pickMode(AgendaDayListMode.year);
 
-      final matrix = matrixFor(tester, 'Aug 2026');
+      final matrix = robot.matrixOf('Aug 2026');
       // Both days are marked; only the 20th — nothing kept on it — is missed.
       expect(matrix.markedMask, (1 << 4) | (1 << 19));
       expect(matrix.missedMask, 1 << 19);
@@ -1293,18 +1087,19 @@ void main() {
         tester.view.physicalSize = const Size(320, 568);
         tester.view.devicePixelRatio = 1;
 
+        final robot = DayListRobot(tester);
         await openModesSheet(
-          tester,
+          robot,
           locale: Locale(localeCode),
           list: missedList,
-          spy: _ResolverSpy(missedEntries),
+          spy: ResolverSpy(missedEntries),
         );
         expect(tester.takeException(), isNull);
 
-        await tapMode(tester, Icons.calendar_view_month_rounded);
+        await robot.pickMode(AgendaDayListMode.month);
         expect(tester.takeException(), isNull);
 
-        await tapMode(tester, Icons.grid_view_rounded);
+        await robot.pickMode(AgendaDayListMode.year);
         expect(tester.takeException(), isNull);
       });
     }
@@ -1321,8 +1116,9 @@ void main() {
           title: 'Task C',
         ),
       ];
+      final robot = DayListRobot(tester);
       await openModesSheet(
-        tester,
+        robot,
         list: AgendaDayList(
           title: 'Gym',
           subtitle: '2 events',
@@ -1330,28 +1126,30 @@ void main() {
           color: gymColor,
           entries: mixed,
         ),
-        spy: _ResolverSpy(mixed),
+        spy: ResolverSpy(mixed),
       );
-      await tapMode(tester, Icons.grid_view_rounded);
+      await robot.pickMode(AgendaDayListMode.year);
 
-      final matrix = matrixFor(tester, 'Aug 2026');
+      final matrix = robot.matrixOf('Aug 2026');
       expect(matrix.markedMask, 1 << 19);
       expect(matrix.missedMask, 0);
     });
   });
 
   testWidgets('the header repeats the card that opened it', (tester) async {
-    await openSheet(tester, list);
+    final robot = DayListRobot(tester);
+    await openSheet(robot, list);
 
     // Same title and same subtitle as the card, so the count the user tapped
     // is the count they are now looking at.
-    expect(find.text('Holidays'), findsOneWidget);
-    expect(find.text('2 holidays · Aug 15 – Dec 25'), findsOneWidget);
+    expect(robot.headerTitle, 'Holidays');
+    expect(robot.headerSubtitle, '2 holidays · Aug 15 – Dec 25');
   });
 
   testWidgets('every entry is drawn, title and subtitle', (tester) async {
+    final robot = DayListRobot(tester);
     await openSheet(
-      tester,
+      robot,
       AgendaDayList(
         title: 'Gym',
         subtitle: '2 events · Aug 15 – Dec 25',
@@ -1376,49 +1174,51 @@ void main() {
       ),
     );
 
-    expect(find.text('Leg day'), findsOneWidget);
-    expect(find.text('Weekly · 07:00 – 08:00'), findsOneWidget);
-    expect(find.text('Pull day'), findsOneWidget);
-    expect(find.text('Weekly · 18:00 – 19:00'), findsOneWidget);
+    expect(robot.shows('Leg day'), isTrue);
+    expect(robot.shows('Weekly · 07:00 – 08:00'), isTrue);
+    expect(robot.shows('Pull day'), isTrue);
+    expect(robot.shows('Weekly · 18:00 – 19:00'), isTrue);
   });
 
   testWidgets('the date leaves the rows and heads a group', (tester) async {
     // The row content is now the agenda row's content, so the sheet is what
     // dates it — one header per day, under a month separator when the entries
     // span more than one.
-    await openSheet(tester, list);
+    final robot = DayListRobot(tester);
+    await openSheet(robot, list);
 
-    expect(find.text('Saturday, August 15'), findsOneWidget);
-    expect(find.text('Friday, December 25'), findsOneWidget);
-    expect(find.text('August'), findsOneWidget);
-    expect(find.text('December'), findsOneWidget);
-    expect(find.text('1 entry'), findsNWidgets(2));
+    expect(robot.shows('Saturday, August 15'), isTrue);
+    expect(robot.shows('Friday, December 25'), isTrue);
+    expect(robot.shows('August'), isTrue);
+    expect(robot.shows('December'), isTrue);
+    expect(robot.countOf('1 entry'), 2);
   });
 
   testWidgets('tapping an entry returns its day', (tester) async {
-    final picked = await openSheet(tester, list);
+    final robot = DayListRobot(tester);
+    final picked = await openSheet(robot, list);
 
-    await tester.tap(find.text('Christmas Day'));
-    await tester.pumpAndSettle();
+    await robot.tapEntry('Christmas Day');
 
     expect(picked.result?.focusDay, DateTime.utc(2026, 12, 25));
   });
 
   testWidgets('dismissing returns null rather than a day', (tester) async {
-    final picked = await openSheet(tester, list);
+    final robot = DayListRobot(tester);
+    final picked = await openSheet(robot, list);
 
     // Tapping the scrim is how a user backs out; the caller must be able to
     // tell that apart from a pick, or it would focus a day nobody chose.
-    await tester.tapAt(const Offset(400, 40));
-    await tester.pumpAndSettle();
+    await robot.tapBarrier();
 
     expect(picked.returned, isTrue);
     expect(picked.result, isNull);
   });
 
   testWidgets('an entry with no subtitle still renders', (tester) async {
+    final robot = DayListRobot(tester);
     await openSheet(
-      tester,
+      robot,
       AgendaDayList(
         title: 'Holidays',
         subtitle: '1 holiday',
@@ -1435,7 +1235,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Assumption of Mary'), findsOneWidget);
+    expect(robot.shows('Assumption of Mary'), isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -1444,17 +1244,19 @@ void main() {
   ) async {
     // Holiday and fasting days have no editor to open, so their rows must not
     // grow an empty action strip.
-    await openSheet(tester, list);
+    final robot = DayListRobot(tester);
+    await openSheet(robot, list);
 
-    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(robot.editButtonCount, 0);
   });
 
   testWidgets('a row with an action offers it and resolves it', (tester) async {
     // Collapsing the events layer must never put editing further away than it
     // was in the list it replaced.
     var ran = 0;
+    final robot = DayListRobot(tester);
     final picked = await openSheet(
-      tester,
+      robot,
       AgendaDayList(
         title: 'Gym',
         subtitle: '1 event · Aug 15',
@@ -1473,8 +1275,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byIcon(Icons.edit_outlined));
-    await tester.pumpAndSettle();
+    await robot.tapEdit('Leg day');
 
     // The sheet resolves the intent rather than running it, so the caller can
     // open the editor after this sheet is gone instead of stacked on it.
@@ -1493,8 +1294,9 @@ void main() {
     // fasting schedule, an occurrence hidden as missed — and list mode has no
     // month grid or year tiles to explain an empty body on its own. A blank
     // 88%-tall sheet reads as a broken app, which is the bug this closes.
+    final robot = DayListRobot(tester);
     await openSheet(
-      tester,
+      robot,
       AgendaDayList(
         title: 'Holidays',
         subtitle: '2 holidays · Aug 15 – Dec 25',
@@ -1504,43 +1306,36 @@ void main() {
       ),
     );
 
-    expect(find.text('Nothing in this range'), findsOneWidget);
+    expect(robot.emptyCaption, 'Nothing in this range');
     // The header and the mode switch survive, so the other two scopes stay
     // reachable from an empty window.
-    expect(find.text('Holidays'), findsOneWidget);
-    expect(modeControl, findsOneWidget);
+    expect(robot.headerTitle, 'Holidays');
+    expect(robot.modeControlShown, isTrue);
   });
 
   testWidgets('a second tap on a row pops nothing more', (tester) async {
     // Two taps can be delivered in one frame, before anything has rebuilt —
     // and the second pop would take the page underneath the sheet with it.
-    // Fired straight at the tile's callback because that is exactly what a
+    // Fired straight at the row's callback because that is exactly what a
     // same-frame double tap does; a second `tester.tap` cannot reproduce it,
     // since the route stops hit-testing the instant the first pop starts.
-    final picked = await openSheet(tester, list);
-    final tile = tester.widget<ListTile>(
-      find
-          .ancestor(
-            of: find.text('Christmas Day'),
-            matching: find.byType(ListTile),
-          )
-          .first,
-    );
+    final robot = DayListRobot(tester);
+    final picked = await openSheet(robot, list);
 
-    tile.onTap!();
-    tile.onTap!();
+    robot.tapEntryTwiceInOneFrame('Christmas Day');
     await tester.pumpAndSettle();
 
     expect(picked.result?.focusDay, DateTime.utc(2026, 12, 25));
     // The page the sheet was opened from is still there.
-    expect(find.text('open'), findsOneWidget);
+    expect(robot.hostVisible, isTrue);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('a second tap on a row action pops nothing more', (tester) async {
     var ran = 0;
+    final robot = DayListRobot(tester);
     final picked = await openSheet(
-      tester,
+      robot,
       AgendaDayList(
         title: 'Gym',
         subtitle: '1 event · Aug 15',
@@ -1557,43 +1352,258 @@ void main() {
         ],
       ),
     );
-    final button = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.edit_outlined),
-    );
 
-    button.onPressed!();
-    button.onPressed!();
+    robot.tapEditTwiceInOneFrame('Leg day');
     await tester.pumpAndSettle();
 
     expect(picked.result?.edit, isNotNull);
-    expect(find.text('open'), findsOneWidget);
+    expect(robot.hostVisible, isTrue);
     expect(tester.takeException(), isNull);
     // Still an intent, resolved once by the caller.
     expect(ran, 0);
   });
-}
 
-/// Mutable holder for the sheet's result — it is awaited inside a button
-/// callback, so the value arrives after the tap that dismissed the sheet.
-class _Picked {
-  AgendaDayListResult? result;
-  bool returned = false;
-}
+  group('the chrome of the language', () {
+    // Tier 3, slice 2 (`docs/calendar-language-tier-3-roadmap.md` §3.2): the
+    // filler shape with the ✕ it never had, the mode and scope chips, the
+    // rows of the language, and the large-text matrix the device walk of
+    // 2026-10-03 found cut.
 
-/// Stands in for the agenda's own widened re-scan, recording every range the
-/// sheet asks for so the tests can pin *when* resolution happens as well as
-/// what it returns.
-class _ResolverSpy {
-  final List<(DateTime, DateTime)> calls = [];
-  final List<AgendaDayListEntry> pool;
+    /// A card with one editable entry, the shape every event card opens.
+    final editableList = AgendaDayList(
+      title: 'Gym',
+      subtitle: '1 event · Aug 15',
+      source: const AgendaDayListCategorySource('gym'),
+      color: gymColor,
+      entries: [
+        AgendaDayListEntry(
+          day: DateTime.utc(2026, 8, 15),
+          icon: Icons.fitness_center,
+          color: gymColor,
+          title: 'Leg day',
+          subtitle: 'Weekly · 07:00 – 08:00',
+          onEdit: () {},
+        ),
+      ],
+    );
 
-  _ResolverSpy(this.pool);
+    testWidgets('the ✕ returns null: from the list, from a month opened by '
+        'its chip, and once ← has returned from a drilled month', (
+      tester,
+    ) async {
+      final robot = DayListRobot(tester);
+      var picked = await openModesSheet(robot);
+      expect(robot.showsClose, isTrue);
+      await robot.close();
+      expect(robot.isOpen, isFalse);
+      expect(picked.returned, isTrue);
+      expect(picked.result, isNull);
 
-  List<AgendaDayListEntry> resolve(DateTime start, DateTime end) {
-    calls.add((start, end));
-    return [
-      for (final entry in pool)
-        if (!entry.day.isBefore(start) && !entry.day.isAfter(end)) entry,
-    ];
-  }
+      picked = await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
+      await robot.close();
+      expect(picked.returned, isTrue);
+      expect(picked.result, isNull);
+
+      picked = await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.tapTile('Oct 2026');
+      await robot.back();
+      await robot.close();
+      expect(picked.returned, isTrue);
+      expect(picked.result, isNull);
+    });
+
+    testWidgets('← takes the header\'s leading slot while drilled, replacing '
+        'the ✕, and the ✕ is back after it', (tester) async {
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      expect(robot.headerLeadingIdentifier, SemanticsIds.dayListClose);
+      expect(robot.showsClose, isTrue);
+      expect(robot.showsBack, isFalse);
+
+      await robot.pickMode(AgendaDayListMode.year);
+      await robot.tapTile('Oct 2026');
+      expect(robot.headerLeadingIdentifier, SemanticsIds.dayListBack);
+      expect(robot.showsBack, isTrue);
+      expect(robot.showsClose, isFalse);
+
+      await robot.back();
+      expect(robot.headerLeadingIdentifier, SemanticsIds.dayListClose);
+      expect(robot.showsClose, isTrue);
+      expect(robot.showsBack, isFalse);
+    });
+
+    testWidgets('the mode and scope chips carry their ids and announce the '
+        'selection, and the body carries its own', (tester) async {
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      expect(robot.bodyNodeShown, isTrue);
+      for (final mode in AgendaDayListMode.values) {
+        expect(
+          robot.modeChipSelected(mode, announced: true),
+          mode == AgendaDayListMode.list,
+          reason: '$mode',
+        );
+      }
+
+      await robot.pickMode(AgendaDayListMode.year);
+      for (final mode in AgendaDayListMode.values) {
+        expect(
+          robot.modeChipSelected(mode, announced: true),
+          mode == AgendaDayListMode.year,
+          reason: '$mode',
+        );
+      }
+      for (final scope in AgendaDayListYearScope.values) {
+        expect(
+          robot.scopeChipSelected(scope, announced: true),
+          scope == AgendaDayListYearScope.upcoming,
+          reason: '$scope',
+        );
+      }
+
+      await robot.pickScope(AgendaDayListYearScope.calendarYear);
+      for (final scope in AgendaDayListYearScope.values) {
+        expect(
+          robot.scopeChipSelected(scope, announced: true),
+          scope == AgendaDayListYearScope.calendarYear,
+          reason: '$scope',
+        );
+      }
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(robot.currentScope, AgendaDayListYearScope.calendarYear);
+    });
+
+    testWidgets('a picked day\'s read row carries the ✕, and tapping it '
+        'restores the month\'s groups', (tester) async {
+      final robot = DayListRobot(tester);
+      await openModesSheet(robot);
+      await robot.pickMode(AgendaDayListMode.month);
+      expect(robot.wholeMonthActive, isFalse);
+
+      await robot.tapDay(5);
+      await robot.scrollMonthBody();
+      expect(robot.wholeMonthActive, isTrue);
+      expect(robot.showsReadRow('Wednesday, August 5'), isTrue);
+      expect(robot.pickedDayCount, '1 entry');
+      expect(robot.showsReadRow('Thursday, August 20'), isFalse);
+
+      await robot.wholeMonth();
+      await robot.scrollMonthBody();
+      expect(robot.wholeMonthActive, isFalse);
+      expect(robot.showsReadRow('Wednesday, August 5'), isTrue);
+      expect(robot.showsReadRow('Thursday, August 20'), isTrue);
+    });
+
+    testWidgets('a day\'s read row is inert, has no chevron and is one node', (
+      tester,
+    ) async {
+      final robot = DayListRobot(tester);
+      await openSheet(robot, list);
+
+      const label = 'Saturday, August 15';
+      expect(robot.readRowInert(label), isTrue);
+      expect(robot.readRowShowsChevron(label), isFalse);
+      final node = robot.readRowNode(label);
+      expect(node.label, contains(label));
+      expect(node.label, contains('1 entry'));
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+    });
+
+    testWidgets('an entry row is one node that taps, plus the pencil\'s', (
+      tester,
+    ) async {
+      final robot = DayListRobot(tester);
+      await openSheet(robot, editableList);
+
+      expect(robot.entryShowsChevron('Leg day'), isFalse);
+      final row = robot.entryNode('Leg day');
+      expect(row.label, contains('Leg day'));
+      expect(row.label, contains('Weekly · 07:00 – 08:00'));
+      expect(row.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      final pencil = robot.pencilNode('Leg day');
+      expect(pencil.id, isNot(row.id));
+      expect(pencil.tooltip, 'Edit event');
+      expect(pencil.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    });
+
+    testWidgets('German at text scale 2.0 on 360 × 780 lays out every mode '
+        'and scope with no error, and nothing is cut', (tester) async {
+      // What the device walk of 2026-10-03 found cut at this scale: the
+      // weekday row, two-digit day numbers, the month title, the card's line
+      // and a day label. The test font draws every glyph a full em wide,
+      // about twice a phone's, so a month title the device fits on two lines
+      // needs three here and ellipsizes; what holds at any font is the two
+      // lines it may take and the row they are measured for.
+      const subtitle = '2 Termine · 12× im Zeitraum · 3. Okt. – 1. Nov.';
+      const dayLabel = 'Mittwoch, 5. August';
+      final robot = DayListRobot(tester);
+      final errors = await layoutErrorsDuring(() async {
+        await openModesSheet(
+          robot,
+          locale: const Locale('de'),
+          list: AgendaDayList(
+            title: 'Training',
+            subtitle: subtitle,
+            source: const AgendaDayListCategorySource('gym'),
+            color: gymColor,
+            entries: modesEntries,
+          ),
+          textScale: 2.0,
+          surface: const Size(360, 780),
+        );
+        expect(robot.headerSubtitleWrapsFreely, isTrue);
+        expect(robot.headerSubtitleWhole, isTrue);
+        expect(robot.headerSubtitleLines, greaterThan(1));
+        expect(robot.textWhole(dayLabel), isTrue);
+        expect(robot.textLines(dayLabel), greaterThan(1));
+        expect(robot.modeChipsWhole, isTrue);
+
+        await robot.pickMode(AgendaDayListMode.month);
+        expect(robot.navTitle, 'August 2026');
+        expect(robot.navTitleMayWrap, isTrue);
+        expect(robot.navTitleLines, FormMetrics.periodTitleMaxLines);
+        final monday = DateFormat.E('de').format(DateTime(2026, 8, 3));
+        expect(robot.weekdayShown(monday), isTrue);
+        expect(robot.dayNumberWhole(20), isTrue);
+        expect(robot.dayNumberWhole(5), isTrue);
+
+        await robot.pickMode(AgendaDayListMode.year);
+        expect(robot.scopeChipsWhole, isTrue);
+        await robot.pickScope(AgendaDayListYearScope.calendarYear);
+        expect(robot.navTitle, '2026');
+        expect(robot.navTitleLines, 1);
+        await robot.pickScope(AgendaDayListYearScope.upcoming);
+        await robot.pickMode(AgendaDayListMode.list);
+      });
+      expect(errors, isEmpty);
+    });
+
+    testWidgets('at text scale 2.0 the pinned chrome keeps its rect across '
+        'modes and the back state too', (tester) async {
+      final robot = DayListRobot(tester);
+      await openModesSheet(
+        robot,
+        locale: const Locale('de'),
+        textScale: 2.0,
+        surface: const Size(360, 780),
+      );
+      final header = robot.headerRect;
+      final chips = robot.pinnedHeaderRect;
+
+      await robot.pickMode(AgendaDayListMode.month);
+      expect(robot.headerRect, header);
+      expect(robot.pinnedHeaderRect, chips);
+
+      await robot.pickMode(AgendaDayListMode.year);
+      expect(robot.headerRect, header);
+      expect(robot.pinnedHeaderRect, chips);
+
+      await robot.tapTile(DateFormat.yMMM('de').format(DateTime(2026, 10)));
+      expect(robot.showsBack, isTrue);
+      expect(robot.headerRect, header);
+      expect(robot.pinnedHeaderRect, chips);
+    });
+  });
 }

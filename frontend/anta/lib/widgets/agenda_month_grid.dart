@@ -5,6 +5,7 @@ import '../constants/calendar_weekend.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/day_bar.dart';
+import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
@@ -51,19 +52,21 @@ class AgendaMonthGrid extends StatelessWidget {
   static int maxBarsFor(CalendarAppearance appearance) =>
       appearance.maxDayBars.clamp(1, 3);
 
-  static double rowHeightFor(CalendarAppearance appearance) {
-    final strip = CalendarDayBars.stripHeight(
-      maxBarsFor(appearance),
-      appearance.markerStyle,
-    );
-    final height = CalendarDayCell.chipZoneHeight + strip + 6;
-    return height < 52 ? 52 : height.ceilToDouble();
-  }
+  /// The page's row rule for the same strip — one definition, so the mini
+  /// grid's rows can never drift from the cells they are drawn with.
+  static double rowHeightFor(CalendarAppearance appearance) =>
+      CalendarDayCell.rowHeightFor(
+        CalendarDayBars.stripHeight(
+          maxBarsFor(appearance),
+          appearance.markerStyle,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final accent = appearance.accentOr(Theme.of(context).colorScheme.primary);
+    final theme = Theme.of(context);
+    final accent = appearance.accentOr(theme.colorScheme.primary);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: TableCalendar<void>(
@@ -76,7 +79,14 @@ class AgendaMonthGrid extends StatelessWidget {
         weekendDays: CalendarWeekend.days,
         weekNumbersVisible: appearance.showWeekNumbers,
         rowHeight: rowHeightFor(appearance),
-        daysOfWeekHeight: 24,
+        // The page's weekday row (Tier 1's deferral, Tier 3 D6): the
+        // package's default style has no size of its own and was cut through
+        // the middle at 200 % on the device.
+        daysOfWeekHeight: CalendarDaysOfWeek.height,
+        daysOfWeekStyle: CalendarDaysOfWeek.style(
+          theme,
+          highlightWeekends: appearance.highlightWeekends,
+        ),
         locale: l10n.localeName,
         availableGestures: AvailableGestures.horizontalSwipe,
         selectedDayPredicate: (day) =>

@@ -402,6 +402,44 @@ void main() {
       );
     });
 
+    testWidgets("a glyph row's caption clamps at captionMaxLines with an "
+        'ellipsis, and wraps freely without it', (tester) async {
+      const long =
+          'Keep it light and simple, fish on the weekends, no meat on '
+          'Wednesdays and Fridays, oil and wine only on the feast days of the '
+          'period, and nothing at all on the strict days before the great '
+          'feast at the end';
+      Widget row({int? maxLines}) => FormPickerRow(
+        glyph: Icons.notes_rounded,
+        label: 'Description',
+        caption: long,
+        captionMaxLines: maxLines,
+        onTap: () {},
+      );
+      await tester.pumpWidget(page(row(maxLines: FormMetrics.valueMaxLines)));
+      final clamped = tester.widget<Text>(find.text(long));
+      expect(clamped.maxLines, FormMetrics.valueMaxLines);
+      expect(clamped.overflow, TextOverflow.ellipsis);
+      expect(
+        tester.renderObject<RenderParagraph>(find.text(long)).didExceedMaxLines,
+        isTrue,
+      );
+      final clampedHeight = tester.getSize(find.byType(FormPickerRow)).height;
+
+      await tester.pumpWidget(page(row()));
+      final free = tester.widget<Text>(find.text(long));
+      expect(free.maxLines, isNull);
+      expect(
+        tester.renderObject<RenderParagraph>(find.text(long)).didExceedMaxLines,
+        isFalse,
+      );
+      expect(
+        tester.getSize(find.byType(FormPickerRow)).height,
+        greaterThan(clampedHeight),
+        reason: 'unclamped, the caption takes every line it needs',
+      );
+    });
+
     testWidgets('a value dot is a circle of the value-dot size in its colour, '
         'before the value and out of the row\'s announcement', (tester) async {
       const color = Color(0xFF2E7D32);
@@ -719,6 +757,150 @@ void main() {
       expect(find.text('AUSSERDEM ANZEIGEN'), findsOneWidget);
     });
 
+    testWidgets('a section label carries a trailing count in its own '
+        'capitals at the row\'s end, on the same line, in one node', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                FormSectionLabel(text: 'Deine Farben', trailing: '24 of 24'),
+              ],
+            ),
+          ),
+        ),
+      );
+      final label = find.text('DEINE FARBEN');
+      final count = find.text('24 OF 24');
+      expect(label, findsOneWidget);
+      expect(count, findsOneWidget);
+      expect(tester.getTopLeft(count).dy, tester.getTopLeft(label).dy);
+      expect(
+        tester.getRect(count).right,
+        tester.getRect(find.byType(FormSectionLabel)).right -
+            RowMetrics.sectionLabelInset,
+      );
+      final labelStyle = tester.widget<Text>(label).style!;
+      final countStyle = tester.widget<Text>(count).style!;
+      expect(countStyle.fontSize, labelStyle.fontSize);
+      expect(countStyle.letterSpacing, labelStyle.letterSpacing);
+      expect(countStyle.color, labelStyle.color);
+      // One node: the section and its count are one line to a screen
+      // reader.
+      final node = tester.getSemantics(label);
+      expect(node.id, tester.getSemantics(count).id);
+      expect(node.label, contains('DEINE FARBEN'));
+      expect(node.label, contains('24 OF 24'));
+    });
+
+    testWidgets('a section label with a count wraps its own text rather '
+        'than pushing the count off the line', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Row(
+              children: [
+                SizedBox(
+                  width: 200,
+                  child: FormSectionLabel(
+                    text: 'A long section label that wraps',
+                    trailing: '24 of 24',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final label = find.text('A LONG SECTION LABEL THAT WRAPS');
+      final count = find.text('24 OF 24');
+      final oneLine = tester.getSize(count).height;
+      expect(tester.getSize(label).height, greaterThan(oneLine));
+      expect(tester.getTopLeft(count).dy, tester.getTopLeft(label).dy);
+      expect(
+        tester.getRect(count).right,
+        tester.getRect(find.byType(FormSectionLabel)).right -
+            RowMetrics.sectionLabelInset,
+      );
+      expect(tester.getRect(label).right, lessThan(tester.getRect(count).left));
+    });
+
+    testWidgets('a swatch row is a container node over its dots, at the '
+        'plain indent, with the strip\'s own air', (tester) async {
+      await tester.pumpWidget(
+        host(
+          FormSwatchRow(
+            identifier: 'swatch-row',
+            child: Row(
+              key: const Key('strip'),
+              children: [
+                for (var i = 0; i < 3; i++)
+                  Semantics(
+                    button: true,
+                    label: 'dot $i',
+                    child: SizedBox.square(
+                      dimension: FormMetrics.trailingButtonSize,
+                      child: InkWell(onTap: () {}),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final rowFinder = find.byType(FormSwatchRow);
+      expect(
+        tester.widget<FormSwatchRow>(rowFinder).dividerIndent,
+        FormMetrics.dividerIndentPlain,
+      );
+      // Three dots stay three nodes under the row's: never a merge.
+      final node = tester.getSemantics(find.bySemanticsIdentifier('swatch-row'));
+      expect(node.childrenCount, 3);
+      expect(
+        tester
+            .getSemantics(find.bySemanticsLabel('dot 1'))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
+      final row = tester.getRect(rowFinder);
+      final strip = tester.getRect(find.byKey(const Key('strip')));
+      expect(strip.left, row.left + RowMetrics.groupInset);
+      expect(strip.right, row.right - RowMetrics.groupInset);
+      expect(strip.top, row.top + FormMetrics.swatchRowTopPadding);
+      expect(strip.bottom, row.bottom - FormMetrics.swatchRowBottomPadding);
+      // The Look sheet's height for one run of dots.
+      expect(
+        row.height,
+        FormMetrics.swatchRowTopPadding +
+            FormMetrics.trailingButtonSize +
+            FormMetrics.swatchRowBottomPadding,
+      );
+    });
+
+    testWidgets('a swatch row without an identifier adds no node of its own', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          FormSwatchRow(
+            child: Semantics(
+              button: true,
+              label: 'dot',
+              child: SizedBox.square(
+                dimension: FormMetrics.trailingButtonSize,
+                child: InkWell(onTap: () {}),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.bySemanticsIdentifier('swatch-row'), findsNothing);
+      expect(find.bySemanticsLabel('dot'), findsOneWidget);
+    });
+
     testWidgets('a check row is one node with its checked state and id, and '
         'toggles from the id', (tester) async {
       bool? received;
@@ -964,6 +1146,66 @@ void main() {
       expect(picks, 0);
       await tester.tap(find.bySemanticsIdentifier('filter-preset-p1'));
       expect(picks, 1);
+    });
+
+    testWidgets("a picker row's handle is a third node at the row's start, "
+        'the text at the glyph column, the hairline with it', (tester) async {
+      var taps = 0;
+      var deletes = 0;
+      await tester.pumpWidget(
+        host(
+          FormPickerRow(
+            label: '#3F51B5',
+            identifier: 'palette-row-3f51b5',
+            showChevron: false,
+            onTap: () => taps++,
+            handle: const FormDragHandle(
+              label: 'Drag to reorder',
+              identifier: 'palette-handle-3f51b5',
+            ),
+            trailingButton: FormTrailingButton(
+              icon: Icons.delete_outline_rounded,
+              tooltip: 'Delete color',
+              identifier: 'palette-delete-3f51b5',
+              onPressed: () => deletes++,
+            ),
+          ),
+        ),
+      );
+      final handle = dataOf(tester, 'palette-handle-3f51b5');
+      expect(handle.label, 'Drag to reorder');
+      final row = dataOf(tester, 'palette-row-3f51b5');
+      expect(row.label, contains('#3F51B5'));
+      expect(row.label, isNot(contains('Drag to reorder')));
+      expect(dataOf(tester, 'palette-delete-3f51b5').tooltip, 'Delete color');
+      // The check row's geometry, mirrored: the 48 dp slot leads the row and
+      // the text sits at the glyph column, where the hairline starts.
+      final slot = find.byType(FormDragHandle);
+      final rowFinder = find.byType(FormPickerRow);
+      expect(
+        tester.getSize(slot),
+        const Size(FormMetrics.dragHandleSlot, FormMetrics.dragHandleSlot),
+      );
+      expect(tester.getTopLeft(slot).dx, tester.getTopLeft(rowFinder).dx);
+      expect(
+        tester.getTopLeft(find.text('#3F51B5')).dx,
+        tester.getTopLeft(rowFinder).dx + FormMetrics.dividerIndentGlyph,
+      );
+      expect(tester.getSize(rowFinder).height, FormMetrics.rowMinHeight);
+      expect(
+        tester.widget<FormPickerRow>(rowFinder).dividerIndent,
+        FormMetrics.dividerIndentGlyph,
+      );
+      final delete = find.bySemanticsIdentifier('palette-delete-3f51b5');
+      expect(tester.getRect(delete).right, tester.getRect(rowFinder).right);
+      // Three targets, each its own: the handle is not a tap, the delete is
+      // not the row's.
+      await tester.tap(find.bySemanticsIdentifier('palette-handle-3f51b5'));
+      expect(taps, 0);
+      await tester.tap(find.bySemanticsIdentifier('palette-row-3f51b5'));
+      expect(taps, 1);
+      await tester.tap(find.bySemanticsIdentifier('palette-delete-3f51b5'));
+      expect((taps, deletes), (1, 1));
     });
 
     testWidgets('a locked handle greys in place and drags nothing', (
@@ -1709,6 +1951,7 @@ void main() {
       FocusNode? focusNode,
       TextCapitalization textCapitalization = TextCapitalization.none,
       ValueChanged<String>? onSubmitted,
+      String? warning,
     }) => FormTitleRow(
       leading: const EventAvatar(
         icon: Icons.alarm_outlined,
@@ -1724,6 +1967,7 @@ void main() {
       textCapitalization: textCapitalization,
       onSubmitted: onSubmitted,
       identifier: 'template-name',
+      warning: warning,
     );
 
     TextEditingController controllerOf([String text = '']) {
@@ -1847,6 +2091,70 @@ void main() {
         FormMetrics.titleRowMinHeight,
       );
       expect(find.text('7/60'), findsNothing);
+    });
+
+    testWidgets('a warning is a line of the row\'s own under the field, in '
+        'the error colour at the caption size, and shares its line with the '
+        'counter near the limit', (tester) async {
+      const text = 'A category named "Legs" already exists';
+      final controller = controllerOf('Legs');
+      await tester.pumpWidget(host(titleRow(controller, warning: text)));
+      final field = find.byType(TextField);
+      final colorScheme = Theme.of(tester.element(field)).colorScheme;
+
+      final warning = find.text(text);
+      expect(warning, findsOneWidget);
+      final style = tester.widget<Text>(warning).style!;
+      expect(style.color, colorScheme.error);
+      expect(style.fontSize, FormMetrics.captionSize);
+      expect(find.text('4/60'), findsNothing);
+      // Under the field, starting where it starts.
+      expect(
+        tester.getTopLeft(warning).dy,
+        greaterThanOrEqualTo(tester.getBottomLeft(field).dy),
+      );
+      expect(tester.getTopLeft(warning).dx, tester.getTopLeft(field).dx);
+      final alone = tester.getSize(find.byType(FormTitleRow)).height;
+      expect(alone, greaterThan(FormMetrics.titleRowMinHeight));
+
+      // Near the limit the counter joins the warning on its line, keeping
+      // the end it has on every title row, and the row grows by no second
+      // line. A title that long wraps the field in the test font, so the
+      // height is compared with the same title under no warning.
+      final long = 'a' * 55;
+      await tester.pumpWidget(host(titleRow(controllerOf(long))));
+      final counterOnly = tester.getSize(find.byType(FormTitleRow)).height;
+      await tester.pumpWidget(
+        host(titleRow(controllerOf(long), warning: text)),
+      );
+      final counter = find.text('55/60');
+      expect(counter, findsOneWidget);
+      expect(
+        tester.getTopLeft(counter).dy,
+        closeTo(tester.getTopLeft(warning).dy, 2),
+      );
+      expect(
+        tester.getRect(counter).right,
+        moreOrLessEquals(tester.getRect(field).right, epsilon: 0.01),
+      );
+      expect(
+        tester.getRect(warning).right,
+        lessThanOrEqualTo(
+          tester.getRect(counter).left - FormMetrics.gap + 0.01,
+        ),
+      );
+      // The warning's caption line stands in for the counter's; a line of
+      // its own would add at least the counter's 16 px again.
+      final both = tester.getSize(find.byType(FormTitleRow)).height;
+      expect(both - counterOnly, inInclusiveRange(0, 16 - 0.01));
+
+      // Without a warning the row is what it always was.
+      await tester.pumpWidget(host(titleRow(controllerOf('Legs'))));
+      expect(find.text(text), findsNothing);
+      expect(
+        tester.getSize(find.byType(FormTitleRow)).height,
+        FormMetrics.titleRowMinHeight,
+      );
     });
 
     testWidgets('the title is one field that wraps and refuses a line break', (

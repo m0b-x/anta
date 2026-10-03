@@ -3,7 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/calendar_colors.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/agenda_day_list_mode.dart';
@@ -16,6 +20,8 @@ import 'agenda_month_grid.dart';
 import 'agenda_period_nav.dart';
 import 'agenda_year_grid.dart';
 import 'agenda_year_pager.dart';
+import 'event_avatar.dart';
+import 'form_rows.dart';
 import 'month_year_picker_sheet.dart';
 
 /// Drill-down behind an agenda summary card: every entry the card stands for,
@@ -39,6 +45,15 @@ import 'month_year_picker_sheet.dart';
 /// tiles), caller-built closures applying exactly the card's own filters,
 /// called **on navigation only** and cached for the life of the sheet. Only
 /// its own chrome is localized here.
+///
+/// The sheet is a filler of the UI language (Tier 3 of
+/// `docs/calendar-language-adoption-roadmap.md`, D4): the form sheet's fixed
+/// box without its guard — route drag, **no `PopScope`**, never
+/// `FormSheetFrame` — because back and the scrim must dismiss it with null
+/// even while a year tile has drilled it into a month. The handle, the
+/// header, the card's line and the mode chips are pinned; only the body
+/// changes between List, Month and Year, so nothing moves under the finger
+/// that switched it.
 class AgendaDayListSheet extends StatefulWidget {
   final AgendaDayList list;
 
@@ -68,8 +83,8 @@ class AgendaDayListSheet extends StatefulWidget {
 
   final AgendaDayListMode initialMode;
 
-  /// Fired when the viewer picks a mode from the segmented button, so the
-  /// panel can persist it. Drilling into a month from the year overview is a
+  /// Fired when the viewer picks a mode from the mode chips, so the panel
+  /// can persist it. Drilling into a month from the year overview is a
   /// navigation step, not a choice of presentation, and does not fire.
   final ValueChanged<AgendaDayListMode>? onModeChanged;
 
@@ -106,13 +121,23 @@ class AgendaDayListSheet extends StatefulWidget {
     ValueChanged<AgendaDayListMode>? onModeChanged,
     bool hapticFeedback = false,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<AgendaDayListResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      // The form sheet's fixed box rather than a content-tall sub-sheet: a
+      // sheet that changed height between List, Month and Year would move
+      // under the finger (the Dates sheet's and the icon picker's shape).
       builder: (_) => FractionallySizedBox(
-        heightFactor: 0.88,
+        heightFactor: FormMetrics.sheetHeightFactor,
         child: AgendaDayListSheet(
           list: list,
           resolve: resolve,
@@ -156,8 +181,6 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
   int _highlightToken = 0;
   Timer? _prewarm;
 
-  static const double _sectionHeaderHeight = 40;
-  static const double _headerSlot = AgendaPeriodNav.slot;
   static const Duration _pageDuration = Duration(milliseconds: 260);
   static const Duration _prewarmDelay = Duration(milliseconds: 250);
 
@@ -466,201 +489,293 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
 
   bool get _showsBack => _mode == AgendaDayListMode.month && _cameFromYear;
 
+  static String _modeLabel(AppLocalizations l10n, AgendaDayListMode mode) {
+    return switch (mode) {
+      AgendaDayListMode.list => l10n.dayListModeList,
+      AgendaDayListMode.month => l10n.dayListModeMonth,
+      AgendaDayListMode.year => l10n.dayListModeYear,
+    };
+  }
+
+  static String _modeIdentifier(AgendaDayListMode mode) {
+    return switch (mode) {
+      AgendaDayListMode.list => SemanticsIds.dayListModeList,
+      AgendaDayListMode.month => SemanticsIds.dayListModeMonth,
+      AgendaDayListMode.year => SemanticsIds.dayListModeYear,
+    };
+  }
+
+  static String _yearScopeLabel(
+    AppLocalizations l10n,
+    AgendaDayListYearScope scope,
+  ) {
+    return switch (scope) {
+      AgendaDayListYearScope.upcoming => l10n.dayListScopeUpcoming,
+      AgendaDayListYearScope.calendarYear => l10n.dayListScopeCalendarYear,
+    };
+  }
+
+  static String _yearScopeIdentifier(AgendaDayListYearScope scope) {
+    return switch (scope) {
+      AgendaDayListYearScope.upcoming => SemanticsIds.dayListScopeUpcoming,
+      AgendaDayListYearScope.calendarYear =>
+        SemanticsIds.dayListScopeCalendarYear,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildHeader(l10n, theme, colorScheme),
-        // The keyboard inset is read under its own builder, so a frame of the
-        // keyboard's dismissal re-lays the body out without rebuilding the
-        // header above it.
+        const FormSheetHandle(),
+        _buildHeader(l10n),
+        // The card's own line (D2), pinned under the header in every mode
+        // and free to wrap: it is what says which card the sheet stands for.
+        FormCaption(
+          text: widget.list.subtitle,
+          padding: const EdgeInsets.fromLTRB(
+            RowMetrics.groupInset,
+            0,
+            RowMetrics.groupInset,
+            FormMetrics.headerCaptionBottomPadding,
+          ),
+        ),
+        FormChipRow(
+          indented: false,
+          chips: [
+            for (final mode in AgendaDayListMode.values)
+              FormChip(
+                label: _modeLabel(l10n, mode),
+                selected: _mode == mode,
+                onTap: () => _selectMode(mode),
+                identifier: _modeIdentifier(mode),
+              ),
+          ],
+        ),
         Expanded(
-          child: Builder(
-            builder: (context) {
-              final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-              final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-              return _buildBody(
-                l10n,
-                theme,
-                colorScheme,
-                viewInsets > viewPadding ? viewInsets : viewPadding,
-              );
-            },
+          child: Semantics(
+            container: true,
+            identifier: SemanticsIds.dayListBody,
+            // The keyboard inset is read under its own builder, so a frame of
+            // the keyboard's dismissal re-lays the body out without
+            // rebuilding the chrome above it.
+            child: Builder(
+              builder: (context) {
+                final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+                final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+                return _buildBody(
+                  l10n,
+                  viewInsets > viewPadding ? viewInsets : viewPadding,
+                );
+              },
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHeader(
-    AppLocalizations l10n,
-    ThemeData theme,
-    ColorScheme colorScheme,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: _headerSlot,
-                height: _headerSlot,
-                child: _showsBack
-                    ? IconButton(
-                        tooltip: l10n.dayListBackToYear,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        onPressed: _backToYear,
-                      )
-                    : null,
-              ),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      widget.list.title,
-                      style: theme.textTheme.titleLarge,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.list.subtitle,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: _headerSlot, height: _headerSlot),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<AgendaDayListMode>(
-            segments: [
-              ButtonSegment<AgendaDayListMode>(
-                value: AgendaDayListMode.list,
-                icon: const Icon(Icons.format_list_bulleted_rounded),
-                label: Text(
-                  l10n.dayListModeList,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              ButtonSegment<AgendaDayListMode>(
-                value: AgendaDayListMode.month,
-                icon: const Icon(Icons.calendar_view_month_rounded),
-                label: Text(
-                  l10n.dayListModeMonth,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              ButtonSegment<AgendaDayListMode>(
-                value: AgendaDayListMode.year,
-                icon: const Icon(Icons.grid_view_rounded),
-                label: Text(
-                  l10n.dayListModeYear,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-            selected: {_mode},
-            showSelectedIcon: false,
-            onSelectionChanged: (selection) => _selectMode(selection.first),
-          ),
-        ],
-      ),
+  /// One leading icon, replaced and never joined (D5): the ✕ that pops null,
+  /// or — while a year tile has drilled into a month — the ← back to the
+  /// tiles, which is navigation inside the sheet and pops nothing.
+  Widget _buildHeader(AppLocalizations l10n) {
+    final showsBack = _showsBack;
+    return FormSheetHeader(
+      leadingIcon: showsBack ? Icons.arrow_back_rounded : Icons.close_rounded,
+      leadingTooltip: showsBack ? l10n.dayListBackToYear : l10n.cancel,
+      onLeading: showsBack ? _backToYear : () => Navigator.pop(context),
+      leadingIdentifier: showsBack
+          ? SemanticsIds.dayListBack
+          : SemanticsIds.dayListClose,
+      title: widget.list.title,
+      // A row tap pops with its day and the pencil pops the edit intent:
+      // nothing to confirm, so the trailing slot stays empty — with the
+      // inset the two fillers this sheet copies pass beside theirs. No
+      // hairline either: the caption and the chips sit between the header
+      // and the scrolling body, and a rule under the title read as stray.
+      trailing: const SizedBox.shrink(),
+      trailingInset: FormMetrics.headerActionInset,
     );
   }
 
-  Widget _buildBody(
-    AppLocalizations l10n,
-    ThemeData theme,
-    ColorScheme colorScheme,
-    double bottomClearance,
-  ) {
+  Widget _buildBody(AppLocalizations l10n, double bottomClearance) {
     switch (_mode) {
       case AgendaDayListMode.list:
+        final padding = EdgeInsets.fromLTRB(
+          RowMetrics.groupInset,
+          FormMetrics.bodyTop,
+          RowMetrics.groupInset,
+          FormMetrics.bodyBottom + bottomClearance,
+        );
         if (_rows.isEmpty) {
           return ListView(
-            padding: EdgeInsets.fromLTRB(16, 32, 16, 16 + bottomClearance),
+            padding: padding,
             children: [
-              Text(
-                l10n.dayListEmptyRange,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+              FormCaption(
+                text: l10n.dayListEmptyRange,
+                padding: FormMetrics.groupCaptionPadding,
               ),
             ],
           );
         }
         return ListView.builder(
-          padding: EdgeInsets.fromLTRB(8, 4, 8, 16 + bottomClearance),
+          padding: padding,
           itemCount: _rows.length,
-          itemBuilder: (context, index) => _buildRow(index),
+          itemBuilder: (context, index) => _buildRow(l10n, index),
         );
       case AgendaDayListMode.month:
+        final selected = _selectedDay;
+        // With a day picked the rows are its entries alone (`_recompute`
+        // groups by day only for the whole month), so the day's own read
+        // row — the one carrying "Whole month" — is built in front of them
+        // here, from the bucket's counts.
+        final leadingRows = selected == null ? 0 : 1;
         return CustomScrollView(
           controller: _monthScroll,
           slivers: [
             SliverToBoxAdapter(child: _buildMonthNav(l10n)),
             SliverToBoxAdapter(child: _buildMonthGrid()),
-            SliverToBoxAdapter(
-              child: _buildSectionHeader(l10n, theme, colorScheme),
-            ),
-            if (_rows.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 32),
-                  child: Text(
-                    l10n.dayListEmptyMonth,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => _buildRow(index),
-                    childCount: _rows.length,
-                  ),
-                ),
+            SliverPadding(
+              // The group gap above the first group: the grid's last row of
+              // cells ends flush, and a rounded group straight under it
+              // read as part of the grid.
+              padding: const EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                RowMetrics.groupGap,
+                RowMetrics.groupInset,
+                0,
               ),
-            SliverToBoxAdapter(child: SizedBox(height: 16 + bottomClearance)),
+              sliver: _rows.isEmpty
+                  ? SliverToBoxAdapter(
+                      child: FormCaption(
+                        text: l10n.dayListEmptyMonth,
+                        padding: FormMetrics.groupCaptionPadding,
+                      ),
+                    )
+                  : SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => selected != null && index == 0
+                            ? _buildPickedDayRow(l10n, selected)
+                            : _buildRow(l10n, index - leadingRows),
+                        childCount: _rows.length + leadingRows,
+                      ),
+                    ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(height: FormMetrics.bodyBottom + bottomClearance),
+            ),
           ],
         );
       case AgendaDayListMode.year:
-        return _buildYearBody(l10n, colorScheme, bottomClearance);
+        return _buildYearBody(l10n, bottomClearance);
     }
   }
 
-  Widget _buildRow(int index) {
-    return AgendaDayListRowView(
-      rows: _rows,
-      index: index,
-      today: widget.today,
-      onEntryTap: (entry) => _popDay(entry.day),
-      onEntryEdit: (entry) => _popEdit(entry.onEdit!),
+  /// One row of [_rows] in its shell: a month separator as a section label,
+  /// a day as the head of its group, an entry under it. The hairline rule
+  /// and the corners are the shell's; the gap between groups rides the last
+  /// row of each, as `FormRowGroup` carries it, and the list's last row
+  /// carries none — the body's own bottom padding follows it.
+  Widget _buildRow(AppLocalizations l10n, int index) {
+    final row = _rows[index];
+    final isLast = index == _rows.length - 1;
+    switch (row) {
+      case AgendaDayListMonthRow(:final month, :final showYear):
+        return FormSectionLabel(
+          text: AgendaListView.monthLabel(
+            l10n.localeName,
+            month,
+            withYear: showYear,
+          ),
+        );
+      case AgendaDayListDayRow(:final day, :final count, :final missed):
+        // A day row is never a group's last: the builder emits one only
+        // above the day's entries.
+        return FormRowShell(
+          first: true,
+          last: false,
+          child: _buildReadRow(l10n, day: day, kept: count, missed: missed),
+        );
+      case AgendaDayListEntryRow(:final entry):
+        return FormRowShell(
+          first: false,
+          last: isLast || _rows[index + 1] is! AgendaDayListEntryRow,
+          trailingGap: !isLast,
+          child: _buildEntryRow(l10n, entry),
+        );
+    }
+  }
+
+  /// The picked day's head in month mode: its read row with "Whole month" as
+  /// the second target (D3), above its entries.
+  Widget _buildPickedDayRow(AppLocalizations l10n, DateTime day) {
+    final kept = _monthBucket.keptCountForDay(day);
+    return FormRowShell(
+      first: true,
+      last: false,
+      child: _buildReadRow(
+        l10n,
+        day: day,
+        kept: kept,
+        missed: _monthBucket.countForDay(day) - kept,
+        trailingButton: FormTrailingButton(
+          icon: Icons.close_rounded,
+          tooltip: l10n.dayListWholeMonth,
+          identifier: SemanticsIds.dayListWholeMonth,
+          onPressed: () => _toggleSelectedDay(day),
+        ),
+      ),
+    );
+  }
+
+  /// A day's head: its label and its attendance count as a read row — fully
+  /// drawn and inert, never dimmed, since there is nothing a tap could do.
+  Widget _buildReadRow(
+    AppLocalizations l10n, {
+    required DateTime day,
+    required int kept,
+    required int missed,
+    FormTrailingButton? trailingButton,
+  }) {
+    return FormPickerRow(
+      label: AgendaListView.dayHeaderLabel(l10n, day, widget.today),
+      value: agendaDayListCountLabel(l10n, kept, missed),
+      onTap: null,
+      showChevron: false,
+      dividerIndent: FormMetrics.dividerIndentPlain,
+      trailingButton: trailingButton,
+    );
+  }
+
+  /// An entry: the event's look, its title over the agenda row's own
+  /// subtitle, the pencil as the second target where the entry carries an
+  /// edit. No chevron in either case — a tap selects the entry's day on the
+  /// calendar under the sheet and opens nothing.
+  Widget _buildEntryRow(AppLocalizations l10n, AgendaDayListEntry entry) {
+    final onEdit = entry.onEdit;
+    final row = FormPickerRow(
+      leading: EventAvatar(icon: entry.icon, color: entry.color),
+      label: entry.title,
+      caption: entry.subtitle,
+      onTap: () => _popDay(entry.day),
+      showChevron: false,
+      trailingButton: onEdit == null
+          ? null
+          : FormTrailingButton(
+              icon: Icons.edit_outlined,
+              tooltip: l10n.upcomingEditEvent,
+              onPressed: () => _popEdit(onEdit),
+            ),
+    );
+    if (!entry.missed) return row;
+    // The shell reads the hairline's indent off a `FormDividedRow` alone, so
+    // the faded row hands its title indent out through the wrapper.
+    return FormIndentedRow(
+      dividerIndent: FormMetrics.dividerIndentTitle,
+      child: Opacity(opacity: CalendarColors.missedEventAlpha, child: row),
     );
   }
 
@@ -669,6 +784,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     final todayMonth = AgendaMonthStore.monthOf(widget.today);
     return AgendaPeriodNav(
       title: AgendaListView.monthLabel(l10n.localeName, _month, withYear: true),
+      month: _month,
       subtitle: agendaDayListCountLabel(
         l10n,
         _monthBucket.keptCount,
@@ -688,6 +804,10 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
       onToday: order == AgendaMonthStore.monthOrder(todayMonth)
           ? null
           : () => _goToMonth(todayMonth),
+      previousIdentifier: SemanticsIds.dayListNavPrevious,
+      nextIdentifier: SemanticsIds.dayListNavNext,
+      todayIdentifier: SemanticsIds.dayListNavToday,
+      titleIdentifier: SemanticsIds.dayListNavTitle,
     );
   }
 
@@ -706,92 +826,27 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     );
   }
 
-  Widget _buildSectionHeader(
-    AppLocalizations l10n,
-    ThemeData theme,
-    ColorScheme colorScheme,
-  ) {
-    final selected = _selectedDay;
-    final label = selected == null
-        ? AgendaListView.monthLabel(l10n.localeName, _month, withYear: false)
-        : AgendaListView.dayHeaderLabel(l10n, selected, widget.today);
-    final total = selected == null
-        ? _monthBucket.count
-        : _monthBucket.countForDay(selected);
-    final kept = selected == null
-        ? _monthBucket.keptCount
-        : _monthBucket.keptCountForDay(selected);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
-      child: SizedBox(
-        height: _sectionHeaderHeight,
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text(
-              agendaDayListCountLabel(l10n, kept, total - kept),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(width: 4),
-            Visibility(
-              visible: selected != null,
-              maintainSize: true,
-              maintainAnimation: true,
-              maintainState: true,
-              child: TextButton(
-                onPressed: selected == null
-                    ? null
-                    : () => _toggleSelectedDay(selected),
-                child: Text(l10n.dayListWholeMonth),
-              ),
-            ),
-          ],
-        ),
-      ),
+  Widget _buildYearBody(AppLocalizations l10n, double bottomClearance) {
+    final padding = EdgeInsets.fromLTRB(
+      RowMetrics.groupInset,
+      0,
+      RowMetrics.groupInset,
+      FormMetrics.bodyBottom + bottomClearance,
     );
-  }
-
-  Widget _buildYearBody(
-    AppLocalizations l10n,
-    ColorScheme colorScheme,
-    double bottomClearance,
-  ) {
-    final padding = EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomClearance);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SegmentedButton<AgendaDayListYearScope>(
-            segments: [
-              for (final scope in AgendaDayListYearScope.values)
-                ButtonSegment<AgendaDayListYearScope>(
-                  value: scope,
-                  label: Text(
-                    _yearScopeLabel(l10n, scope),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            selected: {_yearScope},
-            showSelectedIcon: false,
-            onSelectionChanged: (selection) =>
-                _selectYearScope(selection.first),
-          ),
+        FormChipRow(
+          indented: false,
+          chips: [
+            for (final scope in AgendaDayListYearScope.values)
+              FormChip(
+                label: _yearScopeLabel(l10n, scope),
+                selected: _yearScope == scope,
+                onTap: () => _selectYearScope(scope),
+                identifier: _yearScopeIdentifier(scope),
+              ),
+          ],
         ),
         if (_yearScope == AgendaDayListYearScope.upcoming)
           Expanded(
@@ -820,6 +875,10 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
             onToday: _year == widget.today.year
                 ? null
                 : () => _goToYear(widget.today.year),
+            previousIdentifier: SemanticsIds.dayListNavPrevious,
+            nextIdentifier: SemanticsIds.dayListNavNext,
+            todayIdentifier: SemanticsIds.dayListNavToday,
+            titleIdentifier: SemanticsIds.dayListNavTitle,
           ),
           Expanded(
             child: AgendaYearPager(
@@ -840,15 +899,5 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
         ],
       ],
     );
-  }
-
-  static String _yearScopeLabel(
-    AppLocalizations l10n,
-    AgendaDayListYearScope scope,
-  ) {
-    return switch (scope) {
-      AgendaDayListYearScope.upcoming => l10n.dayListScopeUpcoming,
-      AgendaDayListYearScope.calendarYear => l10n.dayListScopeCalendarYear,
-    };
   }
 }

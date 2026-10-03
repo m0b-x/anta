@@ -4,7 +4,7 @@
 audits; no tier outside the calendar has started and the tier order in §6 is
 a proposal the owner has not decided. The calendar runs from its own master,
 `docs/calendar-language-adoption-roadmap.md` (Tier 1 committed `7e0423b`,
-Tier 2 in progress since 2026-10-02). Written because the owner said on
+Tier 2 committed `daf361a`, Tier 3 in progress since 2026-10-03). Written because the owner said on
 2026-10-02 that the whole UI is to be reworked, slowly, the way the calendar
 was. Line numbers below are from that read; re-grep every one before a tier
 is planned.
@@ -257,7 +257,7 @@ waits on decision 1 and is the largest.
 
 | Tier | Status |
 | --- | --- |
-| Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 IMPLEMENTED and REVIEWED 2026-10-03, uncommitted; Tiers 3–4 not started |
+| Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 COMMITTED `daf361a` (2026-10-03); Tier 3 IMPLEMENTED and REVIEWED 2026-10-03, uncommitted; Tier 4 not started |
 | A – G | PLAN — the order is not decided |
 
 ## 8. Defects the audit found, outside any tier
@@ -303,10 +303,20 @@ emulator, API 36), app-wide and not fixed there:
   drawn on the page under the sheet**, where nobody sees them. Fixed in the
   calendar's Tier 2 for the editor's "Template saved", the template form's
   "Save failed", the alert sheet's "no sound picker" and the two filter
-  sheets' messages (`OverlaySnackbar`; the rule is in `ui-language`). Still
-  so in `category_editor_sheet.dart:180`, `color_palette_sheet.dart:60 / 69 /
-  80 / 117`, `color_picker_sheet.dart:232`, `removed_holidays_sheet.dart:58`
-  (calendar Tier 3) and `pairing_sheet.dart:299` (sync).
+  sheets' messages (`OverlaySnackbar`; the rule is in `ui-language`). The
+  calendar's Tier 3 (2026-10-03) fixed the six sites this list carried
+  (`category_editor_sheet.dart:180`, `color_palette_sheet.dart:60 / 69 / 80 /
+  117`, `color_picker_sheet.dart:232`, `removed_holidays_sheet.dart:58`) and
+  two more its explorer found in `color_swatch_picker.dart` (`:128`, `:156`,
+  raised inside whichever sheet embeds the strip). Still so in
+  `pairing_sheet.dart:299` (sync).
+- **The overlay bar sits a fixed 80 dp above the screen's bottom** for its
+  whole life, so over a sheet with one row (the removed-holidays sheet after
+  a restore) it lands on the sheet's header and a ✕ tapped during "Holiday
+  restored" hits the bar instead. Found by the calendar's Tier 3 device pass
+  (2026-10-03, iPhone 17 Pro simulator). `OverlaySnackbar` is app-wide; an
+  owner call — raise the bar above a short sheet, or shorten its life over
+  one.
 
 - **Seen once on the device, unreproduced**: after saving a preset from the
   saved-filters sheet (Tier 1's surface), the new row's ⋮ did nothing until

@@ -39,6 +39,10 @@ abstract final class FormMetrics {
   /// a large accessibility scale on a narrow phone, where a 28 px
   /// "Bearbeiten" beside a 48 dp close button otherwise overflows.
   static const double headerActionMaxShare = 0.6;
+
+  /// Under the caption band a filler pins beneath its header — the day
+  /// list's card line — so the chip row after it starts clear of the text.
+  static const double headerCaptionBottomPadding = 8;
   static const double bodyTop = 8;
   static const double bodyBottom = 24;
 
@@ -46,10 +50,12 @@ abstract final class FormMetrics {
   static const double twoLineRowMinHeight = RowMetrics.twoLineMinHeight;
   static const double titleRowMinHeight = 56;
 
-  /// The title row's own geometry (`FormTitleRow`): the air above and below
-  /// its 40 dp avatar, which is what makes the row 56; the inset that drops
-  /// the field's first 26 px line onto the avatar's centre line; and the gap
-  /// between the field and the counter under it.
+  /// The title row's own geometry (`FormTitleRow`, and the Look sheet's Icon
+  /// row, the same 56 dp avatar row with a label · value pair in the field's
+  /// place): the air above and below its 40 dp avatar, which is what makes
+  /// the row 56; the inset that drops the field's first 26 px line onto the
+  /// avatar's centre line; and the gap between the field and the counter
+  /// under it.
   static const double titleRowVerticalPadding = 8;
   static const double titleFieldTopInset = 7;
   static const double titleCounterTopInset = 2;
@@ -105,6 +111,22 @@ abstract final class FormMetrics {
   /// it is [dividerIndentGlyph]: the glyph rows' column, so the search row
   /// and the action row above and below line up with the names.
   static const double dragHandleSlot = trailingButtonSize;
+
+  /// A colour dot's painted circle (`ColorSwatchDot`), inside the trailing
+  /// button's 48 dp target: 44, so the circles read as dots while a field of
+  /// them still keeps Material's target floor.
+  static const double swatchDiameter = 44;
+
+  /// Between the strip's dots — the Look sheet's own number, hoisted (Tier 3,
+  /// D13): 2, so eighteen colours fit three runs of a phone's width.
+  static const double swatchSpacing = 2;
+
+  /// Above and below the strip inside its row (`FormSwatchRow`): each target
+  /// already carries 2 dp of air around its circle, so the row needs less
+  /// above than a text row and a little more below, where the next hairline
+  /// would otherwise sit on the last run's targets.
+  static const double swatchRowTopPadding = 8;
+  static const double swatchRowBottomPadding = 12;
   static const double subRowInset = RowMetrics.dividerIndentWithGlyph;
   static const double rowEndPadding = 12;
   static const double pairVerticalPadding = 6;

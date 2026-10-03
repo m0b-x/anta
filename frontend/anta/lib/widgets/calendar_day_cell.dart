@@ -268,6 +268,22 @@ class CalendarDayCell extends StatelessWidget {
 
     final diameter = chipDiameterFor(railStyle);
 
+    // One line at any text scale. At 200 % two digits outgrow the 34 px
+    // chip, and a `Text` that cannot fit breaks between the digits and loses
+    // the second one under the chip's edge — the day list's mini grid on the
+    // device (Tier 3, D7), and this very widget on the page. Scaled down to
+    // the chip instead, never wrapped and never clipped; wherever the number
+    // fits, the box is the text's own and nothing moves.
+    final number = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        '${day.day}',
+        style: numberStyle,
+        softWrap: false,
+        maxLines: 1,
+      ),
+    );
+
     Widget chip;
     if (isSelected && isToday) {
       // Filled selection core plus a detached ring: "selected, and it is
@@ -285,7 +301,7 @@ class CalendarDayCell extends StatelessWidget {
           height: diameter - 7,
           decoration: BoxDecoration(shape: BoxShape.circle, color: chipAccent),
           alignment: Alignment.center,
-          child: Text('${day.day}', style: numberStyle),
+          child: number,
         ),
       );
     } else {
@@ -312,7 +328,7 @@ class CalendarDayCell extends StatelessWidget {
         height: diameter,
         decoration: decoration,
         alignment: Alignment.center,
-        child: Text('${day.day}', style: numberStyle),
+        child: number,
       );
     }
 

@@ -454,6 +454,10 @@
   "@holidayRestored": {
     "description": "Snackbar message after restoring a removed public holiday"
   },
+  "holidayRestoreFailed": "Couldn't restore the holiday",
+  "@holidayRestoreFailed": {
+    "description": "Message over the removed-holidays sheet when restoring a holiday throws"
+  },
   "eventCategoryGym": "Gym",
   "@eventCategoryGym": {
     "description": "Calendar event category: gym session"
@@ -513,10 +517,6 @@
   "categoryNameHint": "e.g. Stretching",
   "@categoryNameHint": {
     "description": "Hint for the category name field"
-  },
-  "categoryColor": "Color",
-  "@categoryColor": {
-    "description": "Label for the category color picker"
   },
   "categoryDefault": "Built-in category",
   "@categoryDefault": {
@@ -1402,7 +1402,7 @@
   "@fastingPlacementLast": {
     "description": "Fasting row placement: below everything"
   },
-  "fastingColorDefault": "Default colour",
+  "fastingColorDefault": "Default color",
   "@fastingColorDefault": {
     "description": "Swatch restoring the shared fasting violet"
   },
@@ -1413,10 +1413,6 @@
   "fastingPreviewLabel": "Preview",
   "@fastingPreviewLabel": {
     "description": "Label above the live preview of a fasting day row"
-  },
-  "fastingPlacementHint": "Decides where the row sits among events, holidays and the weekend",
-  "@fastingPlacementHint": {
-    "description": "Hint under the fasting row placement chips"
   },
   "fastingTitleOverrideLabel": "Custom title",
   "@fastingTitleOverrideLabel": {
@@ -2029,10 +2025,6 @@
   "markdownShortcutsDesc": "Customize toolbar buttons and actions",
   "@markdownShortcutsDesc": {
     "description": "Markdown shortcuts settings description"
-  },
-  "resetToDefault": "Reset to Default",
-  "@resetToDefault": {
-    "description": "Reset to default button text"
   },
   "removeAllCustom": "Remove All Custom",
   "@removeAllCustom": {
@@ -3854,7 +3846,7 @@
   "@calendarCellStyleTitle": {
     "description": "Setting title for how the event color fills a day cell, chosen per theme"
   },
-  "calendarCellStyleDesc": "How an event's colour fills the day cell. Each theme keeps its own choice.",
+  "calendarCellStyleDesc": "How an event's color fills the day cell. Each theme keeps its own choice.",
   "@calendarCellStyleDesc": {
     "description": "Setting subtitle explaining that the day cell style is stored separately for light and dark"
   },
@@ -5636,17 +5628,9 @@
   "@colorPaletteCustomLabel": {
     "description": "Section label above the swatches the user added"
   },
-  "colorPaletteBuiltIn": "Built-in color",
-  "@colorPaletteBuiltIn": {
-    "description": "Tooltip on a built-in swatch, which cannot be edited or deleted"
-  },
   "colorPaletteEmpty": "No colors of your own yet. Add one and it appears in every picker.",
   "@colorPaletteEmpty": {
     "description": "Empty state when the user has added no colours"
-  },
-  "colorPaletteEditHint": "Tap a color to change it. Anything already using it keeps its color.",
-  "@colorPaletteEditHint": {
-    "description": "Hint above the editable list of the user's own colours"
   },
   "colorPaletteReset": "Reset colors",
   "@colorPaletteReset": {
@@ -5655,6 +5639,10 @@
   "colorPaletteResetConfirm": "Delete all the colors you added and keep only the built-in ones?",
   "@colorPaletteResetConfirm": {
     "description": "Confirmation for resetting the colour palette"
+  },
+  "colorPaletteResetDone": "Palette reset",
+  "@colorPaletteResetDone": {
+    "description": "Message over the palette sheet after the custom colours were removed"
   },
   "colorPaletteFull": "Your palette is full. Delete a color to add another.",
   "@colorPaletteFull": {

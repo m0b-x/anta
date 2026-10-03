@@ -4,12 +4,17 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../constants/app_spacing.dart';
+import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/color_picker_mode.dart';
 import '../services/settings_service.dart';
-import '../utils/custom_snackbar.dart';
+import 'automation_id.dart';
+import 'form_rows.dart';
+import 'overlay_snackbar.dart';
 
 /// Dependency-free HSV colour picker: a saturation/brightness square, a hue
 /// slider, and a hex field, returning an opaque 32-bit ARGB int (or `null` on
@@ -33,7 +38,10 @@ import '../utils/custom_snackbar.dart';
 /// **A sheet rather than a dialog.** The hex field summons the keyboard, which
 /// covers a centred `AlertDialog`; a sheet rises with it. It also retires the
 /// `IntrinsicWidth`/`LayoutBuilder` conflict the dialog had to size its wheel
-/// around — a sheet's content gets real width constraints.
+/// around — a sheet's content gets real width constraints. Since Tier 3
+/// (`docs/calendar-language-tier-3-roadmap.md`, D22) it wears the sub-sheet
+/// chrome of the UI language — ✕ · Custom color · Select, the Square / Wheel
+/// choice as a chip row — around a body that is the picker's own.
 ///
 /// **No alpha.** Every calendar surface applies its own `withValues(alpha:)`
 /// for washes, stripes and dimmed states, so a user-chosen opacity would
@@ -77,13 +85,25 @@ class ColorPickerSheet extends StatefulWidget {
       _opening = false;
     }
     if (!context.mounted) return null;
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) =>
-          ColorPickerSheet(initialColor: initialColor, initialMode: mode),
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
+        child: ColorPickerSheet(initialColor: initialColor, initialMode: mode),
+      ),
     );
   }
 
@@ -131,6 +151,7 @@ class _ColorPickerSheetState extends State<ColorPickerSheet> {
   late final TextEditingController _hexController;
   final FocusNode _hexFocus = FocusNode();
   bool _hexInvalid = false;
+  final FormHeaderHairline _hairline = FormHeaderHairline();
 
   @override
   void initState() {
@@ -153,6 +174,7 @@ class _ColorPickerSheetState extends State<ColorPickerSheet> {
 
   @override
   void dispose() {
+    _hairline.dispose();
     _hexController.dispose();
     _hexFocus.dispose();
     super.dispose();
@@ -225,11 +247,17 @@ class _ColorPickerSheetState extends State<ColorPickerSheet> {
     _applyHsv(hue: hsv.hue, saturation: hsv.saturation, value: hsv.value);
   }
 
+  /// "Copied" in the overlay, not the page's `Scaffold`: this sheet is a
+  /// route above that page, and a bar raised there is drawn under the sheet.
   Future<void> _copyHex() async {
     final l10n = AppLocalizations.of(context)!;
     await Clipboard.setData(ClipboardData(text: _hexOf(_color)));
     if (!mounted) return;
-    CustomSnackbar.showSuccess(context, l10n.colorHexCopied);
+    OverlaySnackbar.show(
+      context,
+      l10n.colorHexCopied,
+      duration: AppConstants.snackbarSuccessDuration,
+    );
   }
 
   /// Switching geometry is a view change and nothing else: the HSV state
@@ -354,223 +382,239 @@ class _ColorPickerSheetState extends State<ColorPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
     final initial = widget.initialColor;
-    // The sheet, not just the scroll view, takes the clearance: the actions
-    // sit at its bottom edge and have to stay reachable. It is the **larger**
-    // of the keyboard inset and the system's bottom inset, never just the
-    // keyboard — `useSafeArea: true` wraps the route in `SafeArea(bottom:
-    // false)`, so with no keyboard up this sheet's Cancel/Select row runs
-    // underneath the gesture pill or the three-button bar.
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the rule every calendar sheet
+    // follows (`sheet_bottom_clearance_test.dart`): the box is a fixed
+    // fraction of the screen, and a tall IME would collapse a padded Column
+    // to nothing. The header is the first child, so Select stays reachable
+    // whatever the inset.
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomClearance),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.eventColorCustomTitle,
-                    style: theme.textTheme.titleLarge,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                // Icon-only: the two names are wide in German, and the row has
-                // to hold a title as well. The tooltips carry the names, and
-                // with them the semantics labels.
-                SegmentedButton<ColorPickerMode>(
-                  segments: [
-                    ButtonSegment(
-                      value: ColorPickerMode.square,
-                      icon: const Icon(Icons.gradient_rounded),
-                      tooltip: l10n.colorModeSquare,
-                    ),
-                    ButtonSegment(
-                      value: ColorPickerMode.wheel,
-                      icon: const Icon(Icons.donut_large_rounded),
-                      tooltip: l10n.colorModeWheel,
-                    ),
-                  ],
-                  selected: {_mode},
-                  showSelectedIcon: false,
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onSelectionChanged: (selection) => _setMode(selection.first),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _GeometryBox(
-              mode: _mode,
-              fadeDuration: _modeFade,
-              maxHeight: _maxSquareHeight,
-              square: (size) => _SaturationBrightnessSquare(
-                size: size,
-                hue: _hue,
-                saturation: _saturation,
-                value: _value,
-                semanticLabel: l10n.colorSaturationBrightness,
-                // All three are required together: a semantics node carrying
-                // an increase action must declare what the value becomes, or
-                // the framework asserts.
-                semanticValue: _semanticValue(l10n, _value),
-                semanticIncreasedValue: _semanticValue(
-                  l10n,
-                  (_value + _semanticStep).clamp(0.0, 1.0),
-                ),
-                semanticDecreasedValue: _semanticValue(
-                  l10n,
-                  (_value - _semanticStep).clamp(0.0, 1.0),
-                ),
-                onChanged: _setFromSquare,
-                onKeyEvent: _onSquareKey,
-                onSemanticIncrease: () =>
-                    _applyHsv(value: _value + _semanticStep),
-                onSemanticDecrease: () =>
-                    _applyHsv(value: _value - _semanticStep),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.colorPickerClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.eventColorCustomTitle,
+          scrolled: _hairline.scrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          trailing: FormHeaderTextButton(
+            label: l10n.select,
+            identifier: SemanticsIds.colorPickerSelect,
+            onPressed: () => Navigator.of(context).pop(_color.toARGB32()),
+          ),
+        ),
+        Flexible(
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
               ),
-              wheel: (size) => _HueSaturationWheel(
-                diameter: size.height,
-                hue: _hue,
-                saturation: _saturation,
-                value: _value,
-                semanticLabel: l10n.colorHueSaturation,
-                semanticValue: _wheelSemanticValue(l10n, _saturation),
-                semanticIncreasedValue: _wheelSemanticValue(
-                  l10n,
-                  (_saturation + _semanticStep).clamp(0.0, 1.0),
-                ),
-                semanticDecreasedValue: _wheelSemanticValue(
-                  l10n,
-                  (_saturation - _semanticStep).clamp(0.0, 1.0),
-                ),
-                onChanged: _setFromWheel,
-                onKeyEvent: _onWheelKey,
-                onSemanticIncrease: () =>
-                    _applyHsv(saturation: _saturation + _semanticStep),
-                onSemanticDecrease: () =>
-                    _applyHsv(saturation: _saturation - _semanticStep),
-              ),
+              child: _buildBody(l10n, colorScheme, initial),
             ),
-            const SizedBox(height: AppSpacing.md),
-            // One slider row in both modes, same metrics, so the toggle moves
-            // nothing below it. The wheel owns hue, so its slider takes the
-            // axis the wheel has no room for.
-            if (_mode == ColorPickerMode.square)
-              _GradientSlider(
-                value: _hue,
-                max: 360,
-                label: l10n.colorHue,
-                trackColors: const [
-                  Color(0xFFFF0000),
-                  Color(0xFFFFFF00),
-                  Color(0xFF00FF00),
-                  Color(0xFF00FFFF),
-                  Color(0xFF0000FF),
-                  Color(0xFFFF00FF),
-                  Color(0xFFFF0000),
-                ],
-                thumbColor: HSVColor.fromAHSV(1, _hue, 1, 1).toColor(),
-                formatValue: (v) => '${v.round()}°',
-                onChanged: (hue) => _applyHsv(hue: hue),
-              )
-            else
-              _GradientSlider(
-                value: _value,
-                max: 1,
-                label: l10n.colorBrightness,
-                // The track previews exactly what dragging it does to the
-                // colour currently chosen on the wheel.
-                trackColors: [
-                  Colors.black,
-                  HSVColor.fromAHSV(1, _hue, _saturation, 1).toColor(),
-                ],
-                thumbColor: _color,
-                formatValue: (v) => '${(v * 100).round()}%',
-                onChanged: (value) => _applyHsv(value: value),
-              ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                if (initial != null) ...[
-                  _PreviewDot(
-                    color: Color(initial),
-                    tooltip: l10n.colorPickerCurrent,
-                    onTap: _revertToInitial,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.xs,
-                    ),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 16,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-                _PreviewDot(color: _color, tooltip: l10n.colorPickerNew),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: TextField(
-                    controller: _hexController,
-                    focusNode: _hexFocus,
-                    // `#` + eight digits: long enough to *accept* a pasted
-                    // ARGB code so the error can explain that this picker has
-                    // no alpha. A cap of 7 would have the length formatter
-                    // reject the paste with no keystroke and no explanation.
-                    maxLength: 9,
-                    textInputAction: TextInputAction.done,
-                    textCapitalization: TextCapitalization.characters,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    style: const TextStyle(fontFamily: 'monospace'),
-                    decoration: InputDecoration(
-                      labelText: l10n.colorHexLabel,
-                      counterText: '',
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                      errorText: _hexInvalid ? l10n.colorHexInvalid : null,
-                    ),
-                    onChanged: _onHexChanged,
-                    onSubmitted: (_) => _hexFocus.unfocus(),
-                  ),
-                ),
-                IconButton(
-                  tooltip: l10n.colorCopyHex,
-                  icon: const Icon(Icons.copy_rounded),
-                  onPressed: _copyHex,
-                ),
-              ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The geometry choice as the body's first row (D22): two chips, one on,
+  /// over the picker's own box, slider and hex row.
+  Widget _buildModeRow(AppLocalizations l10n) {
+    return FormRowGroup(
+      children: [
+        FormChipRow(
+          indented: false,
+          chips: [
+            FormChip(
+              label: l10n.colorModeSquare,
+              selected: _mode == ColorPickerMode.square,
+              identifier: SemanticsIds.colorModeSquare,
+              onTap: () => _setMode(ColorPickerMode.square),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(l10n.cancel),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(_color.toARGB32()),
-                  child: Text(l10n.select),
-                ),
-              ],
+            FormChip(
+              label: l10n.colorModeWheel,
+              selected: _mode == ColorPickerMode.wheel,
+              identifier: SemanticsIds.colorModeWheel,
+              onTap: () => _setMode(ColorPickerMode.wheel),
             ),
           ],
         ),
-      ),
+      ],
+    );
+  }
+
+  Widget _buildBody(
+    AppLocalizations l10n,
+    ColorScheme colorScheme,
+    int? initial,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildModeRow(l10n),
+        _GeometryBox(
+          mode: _mode,
+          fadeDuration: _modeFade,
+          maxHeight: _maxSquareHeight,
+          square: (size) => _SaturationBrightnessSquare(
+            size: size,
+            hue: _hue,
+            saturation: _saturation,
+            value: _value,
+            semanticLabel: l10n.colorSaturationBrightness,
+            // All three are required together: a semantics node carrying
+            // an increase action must declare what the value becomes, or
+            // the framework asserts.
+            semanticValue: _semanticValue(l10n, _value),
+            semanticIncreasedValue: _semanticValue(
+              l10n,
+              (_value + _semanticStep).clamp(0.0, 1.0),
+            ),
+            semanticDecreasedValue: _semanticValue(
+              l10n,
+              (_value - _semanticStep).clamp(0.0, 1.0),
+            ),
+            onChanged: _setFromSquare,
+            onKeyEvent: _onSquareKey,
+            onSemanticIncrease: () => _applyHsv(value: _value + _semanticStep),
+            onSemanticDecrease: () => _applyHsv(value: _value - _semanticStep),
+          ),
+          wheel: (size) => _HueSaturationWheel(
+            diameter: size.height,
+            hue: _hue,
+            saturation: _saturation,
+            value: _value,
+            semanticLabel: l10n.colorHueSaturation,
+            semanticValue: _wheelSemanticValue(l10n, _saturation),
+            semanticIncreasedValue: _wheelSemanticValue(
+              l10n,
+              (_saturation + _semanticStep).clamp(0.0, 1.0),
+            ),
+            semanticDecreasedValue: _wheelSemanticValue(
+              l10n,
+              (_saturation - _semanticStep).clamp(0.0, 1.0),
+            ),
+            onChanged: _setFromWheel,
+            onKeyEvent: _onWheelKey,
+            onSemanticIncrease: () =>
+                _applyHsv(saturation: _saturation + _semanticStep),
+            onSemanticDecrease: () =>
+                _applyHsv(saturation: _saturation - _semanticStep),
+          ),
+        ),
+        const SizedBox(height: FormMetrics.gap),
+        // One slider row in both modes, same metrics, so the toggle moves
+        // nothing below it. The wheel owns hue, so its slider takes the
+        // axis the wheel has no room for.
+        if (_mode == ColorPickerMode.square)
+          _GradientSlider(
+            value: _hue,
+            max: 360,
+            label: l10n.colorHue,
+            trackColors: const [
+              Color(0xFFFF0000),
+              Color(0xFFFFFF00),
+              Color(0xFF00FF00),
+              Color(0xFF00FFFF),
+              Color(0xFF0000FF),
+              Color(0xFFFF00FF),
+              Color(0xFFFF0000),
+            ],
+            thumbColor: HSVColor.fromAHSV(1, _hue, 1, 1).toColor(),
+            formatValue: (v) => '${v.round()}°',
+            onChanged: (hue) => _applyHsv(hue: hue),
+          )
+        else
+          _GradientSlider(
+            value: _value,
+            max: 1,
+            label: l10n.colorBrightness,
+            // The track previews exactly what dragging it does to the
+            // colour currently chosen on the wheel.
+            trackColors: [
+              Colors.black,
+              HSVColor.fromAHSV(1, _hue, _saturation, 1).toColor(),
+            ],
+            thumbColor: _color,
+            formatValue: (v) => '${(v * 100).round()}%',
+            onChanged: (value) => _applyHsv(value: value),
+          ),
+        const SizedBox(height: FormMetrics.gap),
+        Row(
+          children: [
+            if (initial != null) ...[
+              _PreviewDot(
+                color: Color(initial),
+                tooltip: l10n.colorPickerCurrent,
+                onTap: _revertToInitial,
+              ),
+              // The dots' 48 dp targets leave the arrow its own air on
+              // both sides, so it carries no padding of its own.
+              Icon(
+                Icons.arrow_forward_rounded,
+                size: 16,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+            _PreviewDot(color: _color, tooltip: l10n.colorPickerNew),
+            const SizedBox(width: FormMetrics.gap),
+            Expanded(
+              // The id on the field's own node, as the search row lands
+              // its own: what a device script types a code into.
+              child: AutomationId(
+                identifier: SemanticsIds.colorHex,
+                child: TextField(
+                  controller: _hexController,
+                  focusNode: _hexFocus,
+                  // `#` + eight digits: long enough to *accept* a pasted
+                  // ARGB code so the error can explain that this picker
+                  // has no alpha. A cap of 7 would have the length
+                  // formatter reject the paste with no keystroke and no
+                  // explanation.
+                  maxLength: 9,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.characters,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                  decoration: InputDecoration(
+                    labelText: l10n.colorHexLabel,
+                    counterText: '',
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    errorText: _hexInvalid ? l10n.colorHexInvalid : null,
+                  ),
+                  onChanged: _onHexChanged,
+                  onSubmitted: (_) => _hexFocus.unfocus(),
+                ),
+              ),
+            ),
+            AutomationId(
+              identifier: SemanticsIds.colorCopyHex,
+              child: IconButton(
+                tooltip: l10n.colorCopyHex,
+                icon: const Icon(Icons.copy_rounded),
+                onPressed: _copyHex,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -1068,7 +1112,9 @@ class _GradientTrackShape extends SliderTrackShape with BaseSliderTrackShape {
   }
 }
 
-/// A colour sample big enough to judge, with a 44px touch target around it.
+/// A colour sample big enough to judge, in the trailing button's 48 dp
+/// target — Material's floor, and what every other round target in the
+/// sheets around it takes.
 class _PreviewDot extends StatelessWidget {
   final Color color;
   final String tooltip;
@@ -1085,7 +1131,7 @@ class _PreviewDot extends StatelessWidget {
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: SizedBox.square(
-          dimension: 44,
+          dimension: FormMetrics.trailingButtonSize,
           child: Center(
             child: Container(
               width: 36,

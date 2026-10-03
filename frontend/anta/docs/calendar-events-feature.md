@@ -6438,3 +6438,344 @@ roadmap's session 6); a typed custom offset; the templates page's rows and
 delete confirm (Tier 4); the two wordings for seven days ("A week before"
 in the menu, "7 days before" in the rows); the quick alarm growing with the
 keyboard, as every content-tall sheet with a field does.
+
+## Addendum 2026-10-03 — Tier 3 of the UI language: the agenda day list and the setup sheets
+
+Record: `docs/calendar-language-tier-3-roadmap.md` (D1–D22, the spec per
+surface, the slice ledger). Plan: `docs/calendar-language-adoption-roadmap.md`.
+Canvas: "Day List Mocks",
+https://claude.ai/artifact/483vfCNb6m6GwBvq441pvW. Rules: the
+`calendar-events` skill (the day list, the category editor, the fasting
+sheets, the colour bullet), `ui-language` (the primitives, the filler shape)
+and `calendar-ui` (the ids, the nav).
+
+**Why.** Eight surfaces, each reached from a migrated one — the Upcoming
+summary cards open the day list, the category picker opens the category
+editor, the Look sheet embeds the swatch strip and opens the colour picker,
+Calendar settings opens the two fasting sheets and the removed-holidays
+sheet, the appearance page opens the palette — still spoke the older chrome
+(the stock drag band, centred or oversized titles, `Card`s, `ListTile`s,
+`ChoiceChip`s, `FilterChip`s, `SegmentedButton`s, outlined fields, a bottom
+Cancel / Select bar). None carried a semantics id or was walked by a saved
+flow, and three had no widget suite. The device walk before any code found
+more than chrome. The day list had no close button and two segmented buttons
+of different widths; its month count sat about 100 px short of the day
+counts because an invisible "Whole month" kept its width; and at German
+200 % the period title cut to "Oktober 20…", the weekday row was clipped
+through the middle and **two-digit day numbers wrapped and lost their second
+digit**. The category editor drew its name counter in the warning colour and
+moved every swatch one place in edit mode. The fasting chips widened when
+selected and reflowed the run under the finger. The fasting style's default
+swatch could not be told from the #8E24AA swatch beside it. Removed holidays
+had no close, and at German 200 % its Restore button squeezed a holiday's
+name into an 80 px column. The palette had two add controls and announced
+all eighteen built-ins as "Built-in color". The swatch strip came in three
+densities. And eight messages were raised through `CustomSnackbar` from
+inside a sheet — drawn on the page under it, where nobody saw them.
+
+**The owner's three decisions** (asked as lettered options on the canvas,
+each answered with the recommended one; D4–D22 were taken as recommended):
+
+1. *List / Month / Year is a standalone chip row pinned under the header*,
+   and the year scope a second chip row at the top of the year body — the
+   grammar Tier 2 set for a short exclusive choice. A menu row would cost a
+   tap per switch and scroll away with the body; keeping the two segmented
+   buttons would have made this the one sheet still drawing them.
+2. *The card's own line* (its count and window) *stays, as a caption pinned
+   under the header* in every mode: it is what says which card the sheet
+   stands for, and a second line inside the 48 dp header was rejected in
+   Tier 1.
+3. *Every day is one group* — a read row ("Today · 2 entries") over one
+   picker row per entry — rather than uppercase day labels: the read row
+   keeps 15 px text where an 11 px section label would wrap a long German
+   date over three lines at 200 %.
+
+**How it was built.** Tier 2's method. Slice 0 changed no app code: eight
+robots (`test/widgets/support/`: `DayListRobot`, `CategoryEditorRobot`,
+`FastingScheduleRobot`, `FastingStyleRobot`, `RemovedHolidaysRobot`,
+`PaletteRobot`, `SwatchRobot`, `ColorPickerRobot`) went between the suites
+and the widgets, the existing suites moved onto them with names, order and
+expectations unchanged, and three new suites pinned what the category
+editor, the fasting style sheet and the removed-holidays sheet did. Each
+rebuild rewrote only its robot; a test body changed only where the record's
+§4.2 names a deliberate change. Slice 1 built the primitives, the ids and
+the copy; slices 2–5 rebuilt the surfaces; slice 6 swept what was left of the
+old UI and four dead keys.
+
+**What shipped.**
+
+- *The day list* (`AgendaDayListSheet`) is a **filler**: the form sheet's
+  fixed box at `FormMetrics.sheetHeightFactor` without its guard, the Dates
+  sheet's and the icon picker's shape (its 0.88 retired), so the sheet never
+  changes height between List, Month and Year. Route drag, **no `PopScope`
+  and never `FormSheetFrame`**: back and the scrim still pop `null` while a
+  year tile has drilled into a month. The header is ✕ (`cancel`) · the
+  card's title · an empty trailing slot — a row tap pops with its day and
+  the pencil pops the edit intent, so there is nothing to confirm — and the
+  ✕ is **replaced** by ← "Back to months" while drilled, never joined. Under
+  it, pinned, sit the card's subtitle as a caption that wraps freely and the
+  List / Month / Year chips. The header carries no hairline: with the
+  caption and the chips between it and the scrolling body, a rule under the
+  title read as stray. Every day is one group — its read row
+  (`FormPickerRow(onTap: null)`: `dayHeaderLabel` and the attendance count)
+  over one picker row per entry, with the `EventAvatar` leading, the agenda
+  row's subtitle as the caption, the pencil as the second target and no
+  chevron (a tap selects a day; it navigates nowhere), a missed entry faded
+  at `CalendarColors.missedEventAlpha`. Month separators are section labels
+  when the listed days span more than one month. In month mode a picked
+  day's read row carries ✕ "Whole month" as its second target, and the
+  month-level header is gone — the nav already carries the month's count,
+  and that header was the row an invisible button misaligned. Empty states
+  are the picker's no-match caption. Behind the rows nothing changed: the
+  two scopes, `_initialMonth`, the `AgendaMonthStore`, the resolvers, the
+  prewarm, the haptics, the jump picker, the `_popped` guard, and the mode
+  persisted by a chip pick alone. `AgendaDayListRowView` stays in the tree for the overview
+  page only (D10: the overview is a page, and its idiom is Tier 4's call);
+  `buildAgendaDayListRows` and `agendaDayListCountLabel` stay shared. Ids:
+  `day-list-close` / `-back`, `day-list-mode-list` / `-month` / `-year`,
+  `day-list-scope-upcoming` / `-calendar-year`, `day-list-whole-month`,
+  `day-list-body`, the nav's `day-list-nav-previous` / `-next` / `-today` /
+  `-title`, and each summary card's "Show every day" button
+  `agenda-card-days-<key>` — the card itself is not restyled.
+- *The shared pieces*, which the overview page took in the same change with
+  no behaviour change there. `AgendaPeriodNav` gained four optional
+  identifiers (null on every nav but the day list's) and a title that may
+  take two lines (`FormMetrics.periodTitleMaxLines`) in a box as tall as
+  the tallest title the row will show: the new optional `month:` names the
+  month a month nav heads, and the box is measured over that year's twelve
+  titles — the Dates sheet's idiom — so paging never moves the grid; a year
+  nav passes nothing and measures its one title. The twelve are laid out
+  once per key and remembered in a bounded static cache (the review, below),
+  so a rebuild lays out only the shown title. Its count is a node of its own
+  and shrinks to fit one line (both from the device pass, below).
+  `AgendaMonthGrid` reads the page's weekday row through
+  `CalendarDaysOfWeek` (Tier 1's deferral) and its row height through
+  `CalendarDayCell.rowHeightFor` instead of a copy of the formula. And
+  **`CalendarDayCell` draws its day number on one line, fitted into the
+  chip** (`FittedBox(scaleDown)`, never wrapped, the chip's geometry
+  unchanged): the page's own cells wrapped at 200 % too — a wrapping `Text`
+  in a fixed 34 px chip, with no text-scale clamp anywhere on the page — so
+  the fix landed in the cell, for the page, the Dates sheet, the appearance
+  preview and the mini grid at once.
+- *The category editor* (`CategoryEditorSheet`) is an unguarded sub-sheet in
+  the quick alarm's shape: ✕ · Create / Edit category · Save as a
+  `FormHeaderTextButton` (the filled Save stays the event editor's), over
+  one group. A custom category's name is a `FormTitleRow` with the draft's
+  avatar as its live preview and the counter from `kCategoryNameCounterFrom`
+  (30, of `kCategoryNameMaxLength` 40). The duplicate warning ("… already
+  exists", or "… already exists but is hidden") is the row's own line in the
+  error colour under the field (`FormTitleRow(warning:)`), sharing the
+  counter's line, and still never blocks Save. A built-in's localized name
+  is a read row with "Built-in category" as its caption — its stored name is
+  never the field's to edit. Then the Icon row, which drops the focus before
+  the picker opens, and the swatch strip with no default dot. **No delete
+  was added**: the categories page's row menu owns delete (Tier 4's
+  surface), and the master's line had described a control the editor never
+  had. The save is still written inside the sheet before the pop; a failure
+  re-enables Save and says so over the sheet.
+- *The fasting schedule* (`FastingScheduleSheet`) still applies live: ✕
+  with the `close` tooltip, an empty trailing slot, dismissing never
+  discards. The weekdays and the months are standalone rows of multi-select
+  chips whose width never changes with their state; under each, Select all
+  and None are action rows disabled in place when they would change
+  nothing; each scope is a labelled chip pair whose caption is a
+  `FormCaptionSlot` over both hints, showing the selected scope's, so the
+  rows below never move (the scope row stays with all twelve months
+  ticked). The exception dates are two picker rows — Days off, Extra fast
+  days — reading the count back and opening the Dates sheet additively as
+  before; at the cap of 200 the row reads "Limit reached" and is disabled
+  whole. Each is followed by one sub-row per date with a ✕.
+- *The fasting style* (`FastingStyleSheet`) applies live too. The preview
+  leads, drawn on its group with no `Card`, its sample number fitted on one
+  line so the 44 × 52 cell cannot overflow at any scale. Then Show on the
+  grid and Order in the day panel as two menu rows (the placement hint
+  went: a row reading "After holidays" needs no sentence); the Icon row with
+  a reset as its second target while an icon is set; the strip, whose
+  default dot now draws its glyph (`format_color_reset_rounded`) so the
+  fasting violet is told apart from the #8E24AA beside it; Custom title, a
+  row opening `AppDialogs.textInput` with the computed period name as the
+  field's hint ("Default" is the row's value while none is set, and a ✕
+  clears one); and Description, a row opening `EventDescriptionSheet` on
+  `kFastingDescriptionMaxLength` (500), its markdown read back as plain text
+  clamped at two lines. A confirmed dialog or Done writes at once and a
+  cancel writes nothing, so the 400 ms debounce and its dispose flush went
+  with the inline fields. What is persisted did not change.
+- *Removed holidays* (`RemovedHolidaysSheet`): ✕ · Removed holidays · an
+  empty slot; one group of read rows — the holiday's name, its date — with
+  Restore as the second target. A restore that throws re-reads the list (a
+  delete that threw may or may not have landed) and says
+  `holidayRestoreFailed` over the sheet.
+- *The palette* (`ColorPaletteSheet`): YOUR COLORS carries "n of 24" as its
+  label's own trailing count; each custom colour is a row on `FormRowShell`
+  — drag handle, swatch, hex, a delete button — that recolours on a tap and
+  lifts by its handle or a long press anywhere; one Add color row closes the
+  run, disabled in place at the cap (the header `+` and the body's second
+  add button are gone); BUILT-IN COLORS is a read-only strip of the same
+  dots, each announced by its hex; Reset colors is a destructive action row
+  last, dimmed while nothing is custom, and says `colorPaletteResetDone`
+  once it has run. Delete and reset keep `AppDialogs.confirm(isDestructive:
+  true)` — the open app-wide dialog decision.
+- *The swatch strip* (`ColorSwatchPicker`) has one geometry in every sheet
+  that embeds it — the Look sheet's, hoisted as `FormSwatchRow`
+  (`FormMetrics.swatchSpacing`, every colour shown, never collapsed) — while
+  the appearance page keeps its own spacing and its collapse. Its long-press
+  menu is a popup of `FormMenuItemRow`s (Edit color · Delete color · Manage
+  colors) hung from the dot at the preset ⋮'s floor, and **its delete now
+  asks first**, as the palette's always did. It drops the focus before every
+  sheet and menu it opens, raises its two refusals (the palette full, the
+  colour already in it) through `OverlaySnackbar` over whichever sheet
+  embeds it, and its default, add and manage dots carry `swatch-default` /
+  `-add` / `-manage`.
+- *The colour picker* (`ColorPickerSheet`) took the chrome only: ✕ · Custom
+  color · Select in the header, the Square / Wheel choice a chip row at the
+  top of the body (the icon-only segmented toggle in the title row and the
+  Cancel / Select bar are gone), the before/after dots on 48 dp targets,
+  "Copied" over the sheet. The geometry box, the slider, the hex field and
+  every picking rule are untouched, so the markdown colours page — its one
+  caller outside the calendar — is unaffected, and is now pinned by
+  `test/pages/markdown_colors_page_test.dart`.
+- *Messages and focus.* All eight `CustomSnackbar` sites inside a sheet
+  moved to `OverlaySnackbar`, and the focus is dropped before every picker,
+  dialog and sheet these surfaces open.
+
+**Primitives.** `FormSwatchRow` (the strip as a row of a group: plain
+indent, the strip's own air, and a `Semantics(identifier:)` container —
+never a merge over its dots — carrying `look-color` on the Look sheet and
+`swatch-row` elsewhere); `FormSectionLabel(trailing:)` (a count in the
+label's own capitals at its end, one node with the label);
+`FormPickerRow(handle:)` (a `FormDragHandle` in a 48 dp slot flush with the
+row's start and the content at the glyph column — the saved filters'
+geometry; with a `leading`, as on the palette's rows, the text starts past
+it and the hairline takes the title indent) and
+`FormPickerRow(captionMaxLines:)` (a glyph row's caption clamped like a
+value); `FormTitleRow(warning:)`. Five
+`FormMetrics` names: `swatchDiameter` (44), `swatchSpacing` (2),
+`swatchRowTopPadding` (8), `swatchRowBottomPadding` (12),
+`headerCaptionBottomPadding` (8). Two constants files in the
+`event_title.dart` pattern: `lib/constants/category_name.dart`
+(`kCategoryNameMaxLength`, `kCategoryNameCounterFrom`) and
+`lib/constants/fasting_style_limits.dart` (`kFastingTitleMaxLength` 120,
+`kFastingDescriptionMaxLength` 500). `ColorSwatchDot` takes `identifier:`,
+and its bare form — the palette's built-ins — lays out in the 48 dp
+footprint with its hex as its node's label. The Look sheet's `_PaletteRow`
+and `_LookMetrics` are gone, and the strip's own drawing numbers live in a
+private `_SwatchMetrics`. Every height factor these sheets carried of their
+own (0.88, 0.85, 0.6 and three of 0.86), every generic `AppSpacing` read and
+every `CustomSnackbar` call left the nine sheet files.
+
+**Copy.** Two keys added in three locales: `colorPaletteResetDone` ("Palette
+reset") and `holidayRestoreFailed` ("Couldn't restore the holiday"). Four
+retired, each after a grep found no reader: `colorPaletteEditHint`,
+`fastingPlacementHint`, `categoryColor`, `colorPaletteBuiltIn`;
+`colorPaletteDesc` (the appearance page's search keywords) and
+`colorShowAll` (the collapsed strip's "more" dot, still the appearance
+page's) keep their readers. `fastingColorDefault` and `calendarCellStyleDesc`
+lost their British "colour" — the app's English is American everywhere
+else. `resetToDefault` was defined twice in every ARB, the later "Reset to
+Default" in effect; one entry is left, "Reset to default" (ro "Resetează la
+implicit", de unchanged), read at five places: the Markdown Shortcuts
+page's reset item, the Look sheet's icon reset, the fasting style's icon
+reset and title clear, and the event editor's Absent-from clear.
+
+**QA.** The fixture gained a suppressed German built-in (Christmas Day on a
+relative day, `{{today+60}}` — the placeholder grammar has no fixed
+calendar date, and `suppressedHolidays()` lists a suppressed built-in
+whatever its date) and one custom colour (#3F51B5), so the removed-holidays
+row, the palette's rows and the swatch menu are reachable;
+`test/qa/calendar_fixture_test.dart` pins both. Six flows joined:
+`17_day_list` (the agenda's event rows set to one card per category, the
+Strength card's days opened by its id, List · Month with today picked and
+Whole month · Year in both scopes · a tile drilled and ← back · List, then
+the agenda's filters reset), `18_category_editor` (the Strength edit form
+and its icon picker, the create form's duplicate warning),
+`19_fasting_schedule` (a weekday toggled twice, the weekday scope's two
+hints, the exception rows, Days off into the Dates sheet and out),
+`20_fasting_style` (the grid menu's four items, the title dialog's hint and
+its Cancel), `21_removed_holidays` (the seeded suppression restored and the
+empty caption — it consumes the seed, so a lone re-run needs `qa relaunch
+--fresh --seed`) and `22_palette` (the custom row's three ids, Add color
+into both picker modes, the Look sheet's swatch menu by long press). The
+QA tool's `scroll-to` now settles on the agent path until no frame is
+scheduled (`_flingSettleMs`, 2500 ms at most, returning the moment the
+frames stop): the swipe op settled for at most 500 ms and a fling under iOS
+physics outlived it, so the row a flow had found ended at the viewport's
+edge and the next tap's pointer-down stopped the list instead of pressing
+the row (`15_templates` on the iPhone 17 Pro simulator, which on that
+874 dp screen also scrolls its name back before an `expect`).
+
+**Device pass** (the iPhone 17 Pro simulator, 2026-10-03): the seventeen
+saved flows green after the tool's fix above and the scroll-back in
+`15_templates` (15 of 17 before — `16_alert_defaults` had failed only
+because `15_templates` left the app on the settings page), then all
+twenty-three green twice, `qa errors` clean after both runs and after the
+matrix, and every id of the record seen on its control in the dumps. The
+matrix — dark, German, 200 % and then 130 % — shot every surface: "Oktober
+2026" on two lines over its count, the weekday row and every two-digit
+number whole, "Weihnachten" with its date and Restore whole, the schedule's
+chips whole and its scope chips growing in place. **Found and fixed** in
+`AgendaPeriodNav`, with two cases in its suite: the count had no node of
+its own under the day list's `day-list-body` container (in the
+Calendar-year scope the body itself was announced as "33 entries · 1
+missed", before the scope chips), and at German 200 % it cut to "32
+Einträge · 1 verpa…" between the chevrons and the today slot. It is now a
+node of its own and shrinks to fit — the cell's `FittedBox(scaleDown)`
+idiom — inside a box of its one-line height, so a month with a longer count
+is no taller. Not verifiable on the simulator: anything Android-only (the
+navigation bar's colour, Gboard's inset).
+
+**Review.** A fresh read-only reviewer read the working tree against
+`daf361a` and confirmed no defect: every line of the record's
+must-not-change list held against the old and the new code, every new
+primitive parameter is optional (existing callers build the same tree),
+every id is present, unique and on its control, no retired key has a
+reader. Of its ten gaps, three went to a fix round the same day. The month
+nav laid out its year's twelve titles — thirteen `TextPainter`s with the
+shown one — on every rebuild, and every `setState` of the day list or the
+overview rebuilds it; the tallest of the twelve now lives in a static
+`LruCache` (`lib/utils/lru_cache.dart`, `AgendaPeriodNav.yearTitleCacheSize`
+32) keyed on everything that lays them out — locale, year, width, text
+scaler, style, direction and line limit — static so that it outlives one
+opening of the sheet and serves the overview's nav too.
+`FormPickerRow.handle`'s doc described the no-`leading` geometry only. And
+the strip's two refusals took the overlay bar's 4 s default where the
+palette sheet shows the same two messages for
+`AppConstants.snackbarErrorDuration` (3 s). Noted and left: the day list's ✕
+pops outside the `_popped` guard, as every sub-sheet's ✕ does (a route
+animating out ignores pointers); the German 200 % day-list case proves the
+two-line box, not a whole title (the device pass proved that); the hex
+field's id folds its decorator's label into the field's node (the
+`FormSearchRow` precedent); the overview's weekday row and nav title
+changed with the shared widgets, by design. The fixed build was re-checked
+on the simulator: `00_open` and `17_day_list` green, "Oktober 2026" on two
+lines over "8 Einträge" with the row's height unchanged, the year count its
+own node.
+
+**Tests.** `flutter test` went from 6670 passed / 7 skipped (the baseline
+on the Mac) to 6810 / 7 / 0 (6807 after the device pass, three more from
+the fix round). The new ones: the three new sheet suites,
+`agenda_period_nav_test.dart`, `agenda_month_grid_test.dart` and
+`test/pages/markdown_colors_page_test.dart`; new cases in the day-list,
+schedule, palette, strip, picker, `form_rows_test` and clearance suites —
+every sheet of the tier has its clearance case; and German at 2.0 on a
+360 × 780 surface with no layout error for every sheet.
+`PublicHolidayService` cannot be faked and reads on a background isolate,
+so the removed-holidays suite drains every read through `runAsync` (its
+robot owns that) and makes a restore throw with a `BEFORE DELETE` trigger
+it installs and drops.
+
+**Deferred** (the record's §8): the overview page's rows, its own copy of
+the old month header and its Year / Month / List order (Tier 4, with
+`AgendaDayListRowView`); the confirm dialog's style (the open app-wide
+decision); a two-line header at 200 % (the owner's open call since Tier 1 —
+"Kategorie bearbeiten" ellipsizes); the Upcoming year tile reading "Nov 2026
+· 0" for a window that ends on the 1st (the agenda's window, raised for
+Tier 4); the jump picker's day wheel; the colour picker's outlined hex
+field; the appearance page's own strip and preview; the Text colors page;
+Calendar settings' "Holiday set" row; the Markdown Shortcuts page at German
+200 %; "Termin" beside "Ereignis" in the German copy; `OverlaySnackbar`'s
+fixed 80 dp offset, which keeps "Holiday restored" over the one-row sheet's
+header for its 2 s (app-wide, so `21_removed_holidays` waits it out);
+`YearMonthTile`'s titles ellipsizing beside their counts at German 1.3 and
+2.0; and three clamps kept by the language's own rules — the fasting
+preview's one-line sample title, the day list's two-line entry captions and
+the sheet headers' titles.

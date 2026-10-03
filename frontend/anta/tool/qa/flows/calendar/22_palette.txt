@@ -1,0 +1,59 @@
+# The palette (docs/calendar-language-tier-3-roadmap.md §3.7) from the
+# appearance page's Colors row: the seeded custom colour's row by id, Add
+# color into the colour picker (§3.9: ✕ · Custom color · Select, the mode
+# chips), the picker and the palette left through their ✕; then the swatch
+# strip's long-press menu (§3.8) on the Look sheet of a new event, left
+# through back, and the clean event closed without a question.
+# - "Appearance" is the settings page's section header and "Colors" is a
+#   substring of four nodes on the appearance page: both rows are named by
+#   their own second lines.
+# - The appearance page has a "Search settings" field of its own, so the
+#   page is waited for by its Today highlight group.
+# - The built-in strip's dots are read rows named by their hex; the picker's
+#   Select is never tapped, so the palette keeps its one custom colour.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "Preview and tune how the grid looks"
+tap "Preview and tune how the grid looks"
+wait "Today highlight"
+scroll-to "Highlight color"
+tap "of your own"
+wait id:palette-close
+expect id:palette-row-3f51b5 id:palette-handle-3f51b5 id:palette-delete-3f51b5 id:palette-add id:palette-reset "YOUR COLORS" "BUILT-IN COLORS" "#1E88E5"
+shot 22_palette
+tap id:palette-add
+wait id:color-picker-close
+expect id:color-picker-select id:color-mode-square id:color-mode-wheel id:color-hex id:color-copy-hex "Custom color"
+shot 22_color_picker_square
+tap id:color-mode-wheel
+wait id:color-picker-close
+expect "Brightness"
+shot 22_color_picker_wheel
+tap id:color-mode-square
+wait id:color-picker-close
+expect "Hue"
+tap id:color-picker-close
+wait id:palette-close
+tap id:palette-close
+wait "Highlight color"
+key back
+wait "Search settings"
+key back
+wait id:calendar-add-event
+tap id:calendar-add-event
+wait id:event-title
+tap id:event-look
+wait id:look-done
+longpress "#3F51B5"
+wait id:swatch-menu-edit
+expect id:swatch-menu-delete id:swatch-menu-manage
+shot 22_swatch_menu
+key back
+wait id:look-done
+tap id:look-close
+wait id:event-close
+tap id:event-close
+wait id:calendar-add-event
+errors

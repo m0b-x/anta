@@ -1,23 +1,37 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/category_name.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/category_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
-import '../utils/custom_snackbar.dart';
 import 'color_swatch_picker.dart';
+import 'event_avatar.dart';
+import 'form_rows.dart';
 import 'icon_picker_sheet.dart';
+import 'overlay_snackbar.dart';
 
 const int _defaultCategoryColor = 0xFFFB8C00;
 const String _defaultCategoryIconKey = 'event';
 
-/// Bottom-sheet form for creating or editing a [CalendarCategory].
+/// The form for creating or editing a [CalendarCategory]: a sub-sheet of the
+/// UI language (Tier 3, D12) in the quick alarm's shape — ✕ · title · Save
+/// over one group of the name, an Icon row and the colour strip.
 ///
-/// Persists through [CategoryService] and returns the saved category (or
-/// `null` if cancelled). Built-in categories keep their localized name (the
-/// name field is read-only) but their color and icon remain editable.
+/// Persists through [CategoryService] inside the sheet and returns the saved
+/// category, or `null` when dismissed. The row is written before the pop
+/// because the callers rely on it: the categories page refreshes from the
+/// service, the picker ticks the returned id. A built-in keeps its stored
+/// name — its localized label is a read row — while its colour and icon stay
+/// editable. Unguarded, as every sub-sheet: a draft is three taps to redo.
 class CategoryEditorSheet extends StatefulWidget {
   final CalendarCategory? initial;
 
@@ -33,12 +47,23 @@ class CategoryEditorSheet extends StatefulWidget {
     CalendarCategory? initial,
     String? initialName,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<CalendarCategory>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.85,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
         child: CategoryEditorSheet(initial: initial, initialName: initialName),
       ),
     );
@@ -50,6 +75,7 @@ class CategoryEditorSheet extends StatefulWidget {
 
 class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   late final TextEditingController _nameController;
+  final FormHeaderHairline _hairline = FormHeaderHairline();
   late int _colorValue;
   late String _iconKey;
   bool _saving = false;
@@ -64,6 +90,9 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   bool get _isEditing => widget.initial != null;
   bool get _isBuiltIn => widget.initial?.isBuiltIn ?? false;
 
+  IconData get _icon =>
+      CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +106,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
 
   @override
   void dispose() {
+    _hairline.dispose();
     _nameController.dispose();
     super.dispose();
   }
@@ -89,10 +119,11 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// learns hiding exists. It never blocks Save — a custom *Cardio* beside the
   /// built-in one may be exactly what someone wants.
   ///
-  /// Memoized on the folded text and the catalog revision, because `build`
-  /// runs on every keystroke *and* on every colour tap and icon pick, and the
-  /// scan folds two strings per category over the whole set. The revision is
-  /// what keeps a category created from another sheet from going unnoticed.
+  /// Memoized on the folded text and the catalog revision, because the name
+  /// row is rebuilt on every keystroke *and* on every colour tap and icon
+  /// pick, and the scan folds two strings per category over the whole set.
+  /// The revision is what keeps a category created from another sheet from
+  /// going unnoticed.
   CalendarCategory? _duplicateOf(AppLocalizations l10n) {
     if (_isBuiltIn) return null;
     final typed = normalizeForSearch(_nameController.text.trim());
@@ -123,13 +154,31 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     return null;
   }
 
+  /// The line under the name while another category folds equal to it, or
+  /// null while none does (D14).
+  String? _duplicateWarning(AppLocalizations l10n) {
+    final duplicate = _duplicateOf(l10n);
+    if (duplicate == null) return null;
+    final label = CalendarCategories.labelOf(duplicate, l10n);
+    return duplicate.isHidden
+        ? l10n.categoryNameExistsHidden(label)
+        : l10n.categoryNameExists(label);
+  }
+
   bool get _canSave {
     if (_saving) return false;
     if (_isBuiltIn) return true; // name fixed/localized, always valid
     return _nameController.text.trim().isNotEmpty;
   }
 
+  void _blur() => FocusManager.instance.primaryFocus?.unfocus();
+
   Future<void> _pickIcon() async {
+    // Before the picker opens: the route under it remembers a focused name
+    // field as its focused child and hands the focus — and the keyboard —
+    // straight back when the picker closes, over a sheet the user had left
+    // the field in.
+    _blur();
     final picked = await IconPickerSheet.show(
       context,
       tint: Color(_colorValue),
@@ -177,162 +226,139 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       debugPrint('[CategoryEditorSheet] Save failed: $e');
       if (!mounted) return;
       setState(() => _saving = false);
-      CustomSnackbar.showError(context, l10n.categorySaveFailed);
+      // In the overlay, not the page's `Scaffold`: this sheet is a route
+      // above that page, and a bar raised there is drawn under the sheet.
+      OverlaySnackbar.show(
+        context,
+        l10n.categorySaveFailed,
+        duration: AppConstants.snackbarErrorDuration,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final tint = Color(_colorValue);
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
-    final builtInLabel = _isBuiltIn && widget.initial != null
-        ? CalendarCategories.labelOf(widget.initial!, l10n)
-        : null;
-    final duplicate = _duplicateOf(l10n);
-    final duplicateWarning = duplicate == null
-        ? null
-        : (duplicate.isHidden
-              ? l10n.categoryNameExistsHidden(
-                  CalendarCategories.labelOf(duplicate, l10n),
-                )
-              : l10n.categoryNameExists(
-                  CalendarCategories.labelOf(duplicate, l10n),
-                ));
-
-    // The clearance goes on the scroll view's bottom padding, never on the
-    // whole body: the sheet's box is a fixed fraction of the screen and does
-    // not shrink for the keyboard, so padding the body subtracts the inset
-    // from the content and a tall IME collapses the Column to nothing — a
-    // blank sheet that hit-tests nothing. Padded this way the header always
-    // renders and stays tappable.
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the rule every calendar sheet
+    // follows (`sheet_bottom_clearance_test.dart`): the box is a fixed
+    // fraction of the screen, and a tall IME would collapse a padded Column
+    // to nothing.
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: l10n.cancel,
-                icon: const Icon(Icons.close_rounded),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-              Expanded(
-                child: Text(
-                  _isEditing ? l10n.editCategory : l10n.createCategory,
-                  style: theme.textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: FilledButton(
-                  onPressed: _canSave ? _onSave : null,
-                  child: Text(l10n.save),
-                ),
-              ),
-            ],
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.categoryEditorClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: _isEditing ? l10n.editCategory : l10n.createCategory,
+          scrolled: _hairline.scrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          // The name is typed without a rebuild of the form; Save follows
+          // its controller instead.
+          trailing: ListenableBuilder(
+            listenable: _nameController,
+            builder: (context, _) => FormHeaderTextButton(
+              label: l10n.save,
+              identifier: SemanticsIds.categoryEditorSave,
+              onPressed: _canSave ? _onSave : null,
+            ),
           ),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Live preview of the category's avatar.
-                Center(
-                  child: CircleAvatar(
-                    radius: 28,
-                    backgroundColor: tint.withValues(alpha: 0.18),
-                    foregroundColor: tint,
-                    child: Icon(
-                      CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded,
-                      size: 28,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_isBuiltIn)
-                  TextFormField(
-                    key: const ValueKey('builtin-name'),
-                    initialValue: builtInLabel,
-                    enabled: false,
-                    decoration: InputDecoration(
-                      labelText: l10n.categoryName,
-                      helperText: l10n.categoryDefault,
-                      border: const OutlineInputBorder(),
-                    ),
-                  )
-                else
-                  TextField(
-                    controller: _nameController,
-                    autofocus: !_isEditing,
-                    maxLength: 40,
-                    textInputAction: TextInputAction.done,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      labelText: l10n.categoryName,
-                      hintText: l10n.categoryNameHint,
-                      helperText: duplicateWarning,
-                      helperMaxLines: 2,
-                      helperStyle: TextStyle(color: theme.colorScheme.tertiary),
-                      border: const OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                _SectionLabel(text: l10n.iconLabel),
-                Card(
-                  margin: EdgeInsets.zero,
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: tint.withValues(alpha: 0.18),
-                      foregroundColor: tint,
-                      child: Icon(
-                        CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded,
-                      ),
-                    ),
-                    title: Text(l10n.pickIcon),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: _pickIcon,
-                  ),
-                ),
-                _SectionLabel(text: l10n.categoryColor),
-                // No "default" dot: a category *is* the colour everything
-                // else falls back to, so there is nothing behind it to
-                // inherit.
-                ColorSwatchPicker(
-                  value: _colorValue,
-                  onChanged: (value) =>
-                      setState(() => _colorValue = value ?? _colorValue),
-                ),
-              ],
+        Flexible(
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              child: FormRowGroup(
+                trailingGap: false,
+                children: [
+                  _buildNameRow(l10n),
+                  _buildIconRow(l10n),
+                  _buildColorRow(),
+                ],
+              ),
             ),
           ),
         ),
       ],
     );
   }
-}
 
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel({required this.text});
+  /// The live preview of the draft: its icon in its colour, where the event
+  /// editor's title row previews the event.
+  Widget _buildAvatar() => EventAvatar(icon: _icon, color: Color(_colorValue));
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-      child: Text(
-        text,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
+  /// A custom category's name as the title field; a built-in's localized
+  /// label as a read row (D14), since its stored name is never the field's
+  /// to edit.
+  Widget _buildNameRow(AppLocalizations l10n) {
+    final initial = widget.initial;
+    if (_isBuiltIn && initial != null) {
+      return FormPickerRow(
+        leading: _buildAvatar(),
+        label: CalendarCategories.labelOf(initial, l10n),
+        caption: l10n.categoryDefault,
+        onTap: null,
+        showChevron: false,
+      );
+    }
+    // The warning is a line of the row's own and follows the typed text, so
+    // the row is rebuilt off the controller rather than the whole form. The
+    // group reads a hairline indent off a `FormDividedRow` alone, and the
+    // builder in between would hand it the glyph indent.
+    return FormIndentedRow(
+      dividerIndent: FormMetrics.dividerIndentTitle,
+      child: ListenableBuilder(
+        listenable: _nameController,
+        builder: (context, _) => FormTitleRow(
+          leading: _buildAvatar(),
+          controller: _nameController,
+          hint: l10n.categoryNameHint,
+          maxLength: kCategoryNameMaxLength,
+          counterFrom: kCategoryNameCounterFrom,
+          counterLabel: l10n.eventTitleCount,
+          autofocus: !_isEditing,
+          textCapitalization: TextCapitalization.sentences,
+          warning: _duplicateWarning(l10n),
+          identifier: SemanticsIds.categoryEditorName,
         ),
+      ),
+    );
+  }
+
+  Widget _buildIconRow(AppLocalizations l10n) {
+    return FormPickerRow(
+      glyph: Icons.emoji_symbols_rounded,
+      label: l10n.iconLabel,
+      value: l10n.pickIcon,
+      onTap: _pickIcon,
+      identifier: SemanticsIds.categoryEditorIcon,
+    );
+  }
+
+  /// No default dot: a category *is* the colour everything else falls back
+  /// to, so there is nothing behind it to inherit.
+  Widget _buildColorRow() {
+    return FormSwatchRow(
+      identifier: SemanticsIds.swatchRow,
+      child: ColorSwatchPicker(
+        value: _colorValue,
+        onChanged: (value) =>
+            setState(() => _colorValue = value ?? _colorValue),
+        spacing: FormMetrics.swatchSpacing,
+        collapsible: false,
       ),
     );
   }

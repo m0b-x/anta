@@ -1,0 +1,42 @@
+# The category editor (docs/calendar-language-tier-3-roadmap.md §3.3) from
+# Calendar settings' Categories page: the seeded Strength category opens the
+# edit form on its ids (the name field, the Icon row, the swatch strip with
+# its add and manage dots), the icon picker is opened and closed, the form
+# left through its ✕; then the page's + opens the create form, a duplicate
+# name shows its warning under the field, and the form is left unsaved.
+# - "Categories" is the settings page's section header (an exact match);
+#   the page row is named by its own second line.
+# - A built-in's name is a read row; Strength is custom, so its name is the
+#   text field id:category-editor-name.
+# - The editor is an unguarded sub-sheet: ✕ leaves without asking.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap "Create and customize event categories"
+wait "Create category"
+scroll-to "Strength"
+tap "Strength"
+wait id:category-editor-name
+expect id:category-editor-close id:category-editor-save id:category-editor-icon id:swatch-row id:swatch-add id:swatch-manage "Edit category" "#3F51B5"
+shot 18_category_edit
+tap id:category-editor-icon
+wait id:icon-pick-close
+shot 18_category_icon_picker
+tap id:icon-pick-close
+wait id:category-editor-name
+tap id:category-editor-close
+wait "Create category"
+tap "Create category"
+wait id:category-editor-name
+expect "Create category" id:category-editor-save --absent "already exists"
+type "Strength"
+expect '"Strength" already exists'
+shot 18_category_create_duplicate
+tap id:category-editor-close
+wait "Create category"
+key back
+wait "Search settings"
+key back
+wait id:calendar-add-event
+errors

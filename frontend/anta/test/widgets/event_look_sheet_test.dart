@@ -22,6 +22,7 @@ import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/swatch_robot.dart';
 
 class _Outcome {
   EventLookDraft? result;
@@ -33,7 +34,7 @@ void main() {
 
   const surface = Size(800, 1400);
   const tintLabel = 'Tint icon with color';
-  const resetTooltip = 'Reset to Default';
+  const resetTooltip = 'Reset to default';
   const categoryDefaultTooltip = 'Category color';
 
   late Directory tempDir;
@@ -126,6 +127,10 @@ void main() {
     (widget) => widget is ColorSwatchDot && widget.color?.toARGB32() == argb,
   );
 
+  /// The colour strip inside the sheet, driven by its robot.
+  SwatchRobot swatches(WidgetTester tester) =>
+      SwatchRobot(tester, within: find.byType(EventLookSheet));
+
   Future<void> tapAndSettle(WidgetTester tester, Finder finder) async {
     await tester.tap(finder);
     await tester.pumpAndSettle();
@@ -146,7 +151,7 @@ void main() {
     final swatch = otherSwatch();
     final outcome = await openSheet(tester);
 
-    await tapAndSettle(tester, swatchDot(swatch));
+    await swatches(tester).tap(swatch);
     await done(tester);
 
     expect(outcome.returned, isTrue);
@@ -177,7 +182,7 @@ void main() {
   ) async {
     final swatch = otherSwatch();
     final outcome = await openSheet(tester);
-    await tapAndSettle(tester, swatchDot(swatch));
+    await swatches(tester).tap(swatch);
 
     await tapAndSettle(tester, find.byIcon(Icons.close_rounded));
 
@@ -189,7 +194,7 @@ void main() {
   testWidgets('the system back returns null', (tester) async {
     final swatch = otherSwatch();
     final outcome = await openSheet(tester);
-    await tapAndSettle(tester, swatchDot(swatch));
+    await swatches(tester).tap(swatch);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
@@ -210,7 +215,7 @@ void main() {
     expect(tintSwitch(tester).value, isTrue);
     expect(avatar(tester).color, gym().color);
 
-    await tapAndSettle(tester, swatchDot(swatch));
+    await swatches(tester).tap(swatch);
 
     expect(find.text(tintLabel), findsOneWidget);
     expect(tintSwitch(tester).onChanged, isNotNull);
@@ -221,7 +226,7 @@ void main() {
     expect(tintSwitch(tester).value, isFalse);
     expect(avatar(tester).color, gym().color);
 
-    await tapAndSettle(tester, find.byTooltip(categoryDefaultTooltip));
+    await swatches(tester).tapDefault();
 
     expect(find.text(tintLabel), findsOneWidget);
     expect(tintSwitch(tester).onChanged, isNull);
@@ -305,24 +310,17 @@ void main() {
     tester,
   ) async {
     await openSheet(tester);
+    final strip = swatches(tester);
 
-    expect(find.byIcon(Icons.more_horiz_rounded), findsNothing);
-    expect(
-      find.byType(ColorSwatchDot),
-      findsNWidgets(CalendarPalette.all.length + 3),
-    );
+    expect(strip.isCollapsed, isFalse);
+    expect(strip.dots(), hasLength(CalendarPalette.all.length + 3));
     for (final argb in CalendarPalette.all) {
-      expect(swatchDot(argb), findsAtLeastNWidgets(1));
+      expect(strip.hasSwatch(argb), isTrue);
     }
-    expect(find.byTooltip(categoryDefaultTooltip), findsOneWidget);
-    expect(find.byTooltip('Add color'), findsOneWidget);
-    expect(find.byTooltip('Manage colors'), findsOneWidget);
-    expect(
-      tester
-          .widget<ColorSwatchPicker>(find.byType(ColorSwatchPicker))
-          .collapsible,
-      isFalse,
-    );
+    expect(strip.hasDefault, isTrue);
+    expect(strip.hasAdd, isTrue);
+    expect(strip.hasManage, isTrue);
+    expect(strip.collapsible, isFalse);
   });
 
   testWidgets('the sheet is content-sized and keeps its height', (

@@ -48,6 +48,13 @@ import 'package:anta/widgets/event_look_sheet.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/event_template_editor_sheet.dart';
 import 'package:anta/widgets/event_template_picker_sheet.dart';
+import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/models/fasting_appearance.dart';
+import 'package:anta/models/fasting_schedule.dart';
+import 'package:anta/services/public_holiday_service.dart';
+import 'package:anta/widgets/fasting_schedule_sheet.dart';
+import 'package:anta/widgets/fasting_style_sheet.dart';
+import 'package:anta/widgets/removed_holidays_sheet.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
@@ -179,10 +186,13 @@ void main() {
     return view.padding!.resolve(TextDirection.ltr).bottom;
   }
 
+  /// [settle] false stops after the first frame, for a sheet whose body is
+  /// still loading — a spinner never settles.
   Future<void> openFrom(
     WidgetTester tester,
-    Future<void> Function(BuildContext context) open,
-  ) async {
+    Future<void> Function(BuildContext context) open, {
+    bool settle = true,
+  }) async {
     await tester.pumpWidget(
       // Above the `MaterialApp`, as `main.dart` provides it: a sheet is a
       // route, so a provider inside `home` sits below it in the tree and the
@@ -205,7 +215,11 @@ void main() {
       ),
     );
     await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+    }
   }
 
   testWidgets('the event detail sheet clears the navigation bar', (
@@ -285,7 +299,7 @@ void main() {
     // the rows under the mini calendar end on.
     sizeSurfaceWithNavBar(tester);
     await openDayListSheet(tester);
-    await tester.tap(find.byIcon(Icons.calendar_view_month_rounded));
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.dayListModeMonth));
     await tester.pumpAndSettle();
 
     final spacer =
@@ -304,7 +318,7 @@ void main() {
     // what runs under the bar without it.
     sizeSurfaceWithNavBar(tester);
     await openDayListSheet(tester);
-    await tester.tap(find.byIcon(Icons.grid_view_rounded));
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.dayListModeYear));
     await tester.pumpAndSettle();
 
     final padding = tester
@@ -353,17 +367,32 @@ void main() {
     await openFrom(tester, (context) => ColorPickerSheet.show(context));
     await tester.pumpAndSettle();
 
-    // This sheet ends in a fixed action row rather than a scrollable, so the
-    // clearance is on the whole sheet: the assertion is that Select sits
-    // clear of the bar, not that some padding value exists.
-    final selectBottom = tester
-        .getRect(find.widgetWithText(FilledButton, 'Select'))
-        .bottom;
+    // Since Tier 3 the actions are the header's and the body is a scroll
+    // view: the clearance is on its padding, and the hex row — the last
+    // thing in it — sits clear of the bar.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
     expect(
-      selectBottom,
-      lessThanOrEqualTo(tester.view.physicalSize.height - navBar),
-      reason: 'Cancel and Select ran under the gesture bar',
+      tester.getRect(find.bySemanticsIdentifier(SemanticsIds.colorHex)).bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the hex row ran under the gesture bar',
     );
+  });
+
+  testWidgets('the colour picker sheet keeps its header when the keyboard is '
+      'taller than the sheet', (tester) async {
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFrom(tester, (context) => ColorPickerSheet.show(context));
+    await tester.pumpAndSettle();
+
+    final box = tester.getSize(find.byType(ColorPickerSheet));
+    expect(box.height.isFinite, isTrue);
+    expect(box.height, greaterThan(0));
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(1180));
+    final select = find.bySemanticsIdentifier(SemanticsIds.colorPickerSelect);
+    expect(select, findsOneWidget);
+    await tester.tap(select);
+    await tester.pumpAndSettle();
+    expect(find.byType(ColorPickerSheet), findsNothing);
   });
 
   testWidgets('the colour palette sheet clears the navigation bar', (
@@ -379,6 +408,15 @@ void main() {
         .resolve(TextDirection.ltr)
         .bottom;
     expect(padding, greaterThanOrEqualTo(navBar));
+    // Reset colors is the last row, and a sheet as tall as its rows ends
+    // right under it: exactly what a nav bar eats.
+    expect(
+      tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.paletteReset))
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the Reset colors row ran under the gesture bar',
+    );
   });
 
   testWidgets('the category editor sheet clears the navigation bar', (
@@ -387,7 +425,14 @@ void main() {
     sizeSurfaceWithNavBar(tester);
     await openFrom(tester, (context) => CategoryEditorSheet.show(context));
 
+    // The colour strip is the last row, and a sheet as tall as its rows
+    // ends right under it: exactly what a nav bar eats.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester.getRect(find.bySemanticsIdentifier(SemanticsIds.swatchRow)).bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the colour strip ran under the gesture bar',
+    );
   });
 
   testWidgets('the category editor sheet keeps its header when the keyboard is '
@@ -922,6 +967,203 @@ void main() {
     await tester.tap(find.bySemanticsIdentifier(SemanticsIds.iconPickClose));
     await tester.pumpAndSettle();
     expect(find.byType(IconPickerSheet), findsNothing);
+  });
+
+  Future<void> openFastingSchedule(WidgetTester tester) => openFrom(
+    tester,
+    (context) => FastingScheduleSheet.show(
+      context,
+      initialSchedule: const FastingSchedule(),
+      appearance: const CalendarAppearance(),
+      onChanged: (_) {},
+    ),
+  );
+
+  testWidgets('the fasting schedule sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFastingSchedule(tester);
+
+    // The Extra fast days row is the last row of a sheet as tall as its
+    // rows, which ends right under it: exactly what a nav bar eats.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.fastingExtraDays))
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the last row ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the fasting schedule sheet keeps its header when the keyboard '
+      'is taller than the sheet', (tester) async {
+    // The sheet is clamped at a fraction of the screen, so the inset has to
+    // ride the scroll view's padding or the body is nothing.
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFastingSchedule(tester);
+
+    final box = tester.getSize(find.byType(FastingScheduleSheet));
+    expect(box.height.isFinite, isTrue);
+    expect(box.height, greaterThan(0));
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(1180));
+    final body = tester.getSize(
+      find
+          .descendant(
+            of: find.byType(FastingScheduleSheet),
+            matching: find.byType(Column),
+          )
+          .first,
+    );
+    expect(
+      body.height,
+      box.height,
+      reason: 'the body was shortened by the inset instead of the scrollable',
+    );
+
+    // Present *and* reachable: a `RenderErrorBox` is also "present".
+    final close = find.bySemanticsIdentifier(SemanticsIds.fastingScheduleClose);
+    expect(close, findsOneWidget);
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(find.byType(FastingScheduleSheet), findsNothing);
+  });
+
+  Future<void> openFastingStyle(WidgetTester tester) => openFrom(
+    tester,
+    (context) => FastingStyleSheet.show(
+      context,
+      tradition: FastingTradition.orthodox,
+      initialStyle: const FastingTraditionStyle(),
+      onChanged: (_) {},
+    ),
+  );
+
+  testWidgets('the fasting style sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFastingStyle(tester);
+
+    // The Description row is the last row of a sheet as tall as its rows,
+    // which ends right under it: exactly what a nav bar eats.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester
+          .getRect(
+            find.bySemanticsIdentifier(SemanticsIds.fastingStyleDescription),
+          )
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the last row ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the fasting style sheet keeps its header when the keyboard is '
+      'taller than the sheet', (tester) async {
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFastingStyle(tester);
+
+    final box = tester.getSize(find.byType(FastingStyleSheet));
+    expect(box.height.isFinite, isTrue);
+    expect(box.height, greaterThan(0));
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(1180));
+    final body = tester.getSize(
+      find
+          .descendant(
+            of: find.byType(FastingStyleSheet),
+            matching: find.byType(Column),
+          )
+          .first,
+    );
+    expect(
+      body.height,
+      box.height,
+      reason: 'the body was shortened by the inset instead of the scrollable',
+    );
+
+    // Present *and* reachable: a `RenderErrorBox` is also "present".
+    final close = find.bySemanticsIdentifier(SemanticsIds.fastingStyleClose);
+    expect(close, findsOneWidget);
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(find.byType(FastingStyleSheet), findsNothing);
+  });
+
+  group('the removed holidays sheet', () {
+    late PublicHolidayService holidays;
+
+    setUp(() async {
+      // Warmed here, in the real async zone, and given one row: the service
+      // has no in-memory binding, it opens the file-backed database, and
+      // that open never completes under a test body's `FakeAsync`.
+      holidays = await PublicHolidayService.getInstance();
+      await holidays.importData([
+        {
+          'dateMs': DateTime.utc(2026, 12, 25).millisecondsSinceEpoch,
+          'nameKey': PublicHoliday.christmasDay.name,
+          'profile': 'germany',
+          'customLabel': null,
+          'suppressed': true,
+        },
+      ]);
+    });
+
+    tearDown(PublicHolidayService.reset);
+
+    /// The sheet reads its rows from the database's background isolate, a
+    /// round trip the fake-async zone never completes: the open stops before
+    /// the spinner and the read is drained in short slices of the real
+    /// event loop, on a fake-clock tap, never a tap inside `runAsync`.
+    Future<void> openRemovedHolidays(WidgetTester tester) async {
+      await openFrom(
+        tester,
+        (context) => RemovedHolidaysSheet.show(context, holidays),
+        settle: false,
+      );
+      for (var i = 0; i < 50; i++) {
+        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) break;
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('clears the navigation bar', (tester) async {
+      sizeSurfaceWithNavBar(tester);
+      await openRemovedHolidays(tester);
+
+      // The one row is the last thing in the sheet, and a sheet as tall as
+      // its rows ends right under it: exactly what a nav bar eats.
+      final restore = find.bySemanticsIdentifier(
+        SemanticsIds.holidayRestoreButton(
+          PublicHoliday.christmasDay.name,
+          DateTime.utc(2026, 12, 25),
+        ),
+      );
+      expect(restore, findsOneWidget);
+      expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+      expect(
+        tester.getRect(restore).bottom,
+        lessThanOrEqualTo(surface.height - navBar),
+        reason: 'the holiday row ran under the gesture bar',
+      );
+    });
+
+    testWidgets('keeps its box finite when the keyboard is taller than the '
+        'sheet', (tester) async {
+      sizeSurfaceWithTallKeyboard(tester);
+      await openRemovedHolidays(tester);
+
+      final box = tester.getSize(find.byType(RemovedHolidaysSheet));
+      expect(box.height.isFinite, isTrue);
+      expect(box.height, greaterThan(0));
+      expect(scrollBottomPadding(tester), greaterThanOrEqualTo(1180));
+    });
   });
 
   testWidgets('the bar switcher clears the navigation bar', (tester) async {

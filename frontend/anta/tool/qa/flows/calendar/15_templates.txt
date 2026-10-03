@@ -58,6 +58,10 @@ wait "Unsaved changes"
 shot 15_template_discard
 tap "Keep editing"
 wait id:template-save
+# The form is still scrolled to Priority from the step above; on an 874 dp
+# phone (the iPhone 17 Pro) that leaves the name above the fold, where
+# `expect` counts it absent (2026-10-03), so it is scrolled back first.
+scroll-to id:template-name --up
 expect "Leg day B"
 tap id:template-close
 wait "Unsaved changes"

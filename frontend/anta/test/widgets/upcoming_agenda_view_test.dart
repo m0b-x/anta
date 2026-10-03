@@ -8,6 +8,7 @@ import 'package:anta/constants/calendar_colors.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
@@ -16,10 +17,10 @@ import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/utils/event_agenda.dart';
-import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
-import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/upcoming_agenda_view.dart';
+
+import 'support/day_list_robot.dart';
 
 /// Widget tests for [UpcomingAgendaView], driven against fakes with no
 /// database — the agenda scan is pure and the row facades
@@ -107,43 +108,15 @@ void main() {
   /// icon the current Material version draws there.
   final removeFilter = find.byTooltip('Remove filter');
 
-  /// Scrolls the drill-down sheet's month body so the rows under the mini
-  /// calendar are laid out.
-  ///
-  /// Scoped to the sheet on purpose: the agenda underneath is a
-  /// `CustomScrollView` too, and it is the one an unscoped finder reaches
-  /// first.
-  Future<void> scrollSheetBody(WidgetTester tester) async {
-    final state = tester.state<ScrollableState>(
-      find
-          .descendant(
-            of: find.descendant(
-              of: find.byType(AgendaDayListSheet),
-              matching: find.byType(CustomScrollView),
-            ),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    state.position.jumpTo(state.position.maxScrollExtent);
-    await tester.pumpAndSettle();
-  }
-
-  /// Switches the drill-down's year overview to the calendar year. Addressed
-  /// through the typed selector, so it can never hit the mode selector above
-  /// it, and by position rather than label.
-  Future<void> tapThisYear(WidgetTester tester) async {
-    await tester.tap(
-      find
-          .descendant(
-            of: find.byWidgetPredicate(
-              (w) => w is SegmentedButton<AgendaDayListYearScope>,
-            ),
-            matching: find.byType(Text),
-          )
-          .at(1),
-    );
-    await tester.pumpAndSettle();
+  /// Opens the drill-down from the one summary card on screen and switches
+  /// its year overview to the calendar year, where every month of the year
+  /// is a tile.
+  Future<DayListRobot> openCalendarYear(WidgetTester tester) async {
+    final dayList = DayListRobot(tester);
+    await dayList.openFromCard();
+    await dayList.pickMode(AgendaDayListMode.year);
+    await dayList.pickScope(AgendaDayListYearScope.calendarYear);
+    return dayList;
   }
 
   testWidgets('anchor change with no custom range moves the window', (
@@ -506,16 +479,15 @@ void main() {
         onDaySelected: (day) => selected = day,
       );
 
-      await tester.tap(find.byTooltip('Show every day'));
-      await tester.pumpAndSettle();
+      final dayList = DayListRobot(tester);
+      await dayList.openFromCard();
 
       // Same two holidays the card counted, now named and dated.
-      expect(find.text('Assumption of Mary'), findsOneWidget);
-      expect(find.text("All Saints' Day"), findsOneWidget);
-      expect(find.text('Saturday, August 15'), findsOneWidget);
+      expect(dayList.shows('Assumption of Mary'), isTrue);
+      expect(dayList.shows("All Saints' Day"), isTrue);
+      expect(dayList.shows('Saturday, August 15'), isTrue);
 
-      await tester.tap(find.text("All Saints' Day"));
-      await tester.pumpAndSettle();
+      await dayList.tapEntry("All Saints' Day");
 
       expect(selected, DateTime.utc(2026, 11, 1));
     });
@@ -670,6 +642,30 @@ void main() {
       expect(header(tester), contains('30 entries'));
     });
 
+    testWidgets("the card's Show every day carries an id keyed by the card, "
+        'on its own node, and opens the drill-down from it', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(eventDisplay: AgendaEventDisplay.summary),
+      );
+
+      // Every card's button wears the same tooltip; the id tells them apart
+      // (Tier 3, D11) and lands on the button's node, not the card's.
+      final id = find.bySemanticsIdentifier(
+        SemanticsIds.agendaCardDays('category:gym'),
+      );
+      expect(id, findsOneWidget);
+      final node = tester.getSemantics(id).getSemanticsData();
+      expect(node.tooltip, 'Show every day');
+      expect(node.label, isNot(contains('Gym')));
+
+      final dayList = DayListRobot(tester);
+      await tester.tap(id);
+      await tester.pumpAndSettle();
+      expect(dayList.isOpen, isTrue);
+    });
+
     testWidgets('the drill-down lists the occurrences and can edit them', (
       tester,
     ) async {
@@ -685,18 +681,17 @@ void main() {
         },
       );
 
-      await tester.tap(find.byTooltip('Show every day'));
-      await tester.pumpAndSettle();
-      expect(find.text('Leg day'), findsWidgets);
+      final dayList = DayListRobot(tester);
+      await dayList.openFromCard();
+      expect(dayList.countOf('Leg day'), greaterThan(0));
 
       // Collapsing must never put editing further away than a row tap.
-      await tester.tap(find.byIcon(Icons.edit_outlined).first);
-      await tester.pumpAndSettle();
+      await dayList.tapEdit('Leg day');
 
       expect(edited?.id, 'e1');
       expect(editedDay, anchor);
       // The sheet closed first, so the editor never stacks on top of it.
-      expect(find.text('Show every day'), findsNothing);
+      expect(dayList.isOpen, isFalse);
     });
 
     testWidgets('per-event mode still collapses repeats to one row', (
@@ -1093,7 +1088,7 @@ void main() {
 
     /// Opens the one summary card's drill-down and switches its year overview
     /// to the calendar year, where every month of the year is a tile.
-    Future<void> openThisYear(
+    Future<DayListRobot> openThisYear(
       WidgetTester tester,
       UpcomingAgendaFilters filters,
     ) async {
@@ -1106,87 +1101,62 @@ void main() {
       // A query debounces the rescan; let it land before the card is read.
       await tester.pump(const Duration(milliseconds: 250));
 
-      await tester.tap(find.byTooltip('Show every day'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.grid_view_rounded));
-      await tester.pumpAndSettle();
-      await tapThisYear(tester);
+      return openCalendarYear(tester);
     }
 
     testWidgets('This year reaches a past month with the card\'s own rows', (
       tester,
     ) async {
-      await openThisYear(tester, summary);
+      final dayList = await openThisYear(tester, summary);
 
-      final handle = tester.ensureSemantics();
       // 31 daily occurrences plus the one-time January session. The dentist is
       // in the same month and is not this card's category, so it is not here.
-      expect(
-        find.bySemanticsLabel('${januaryTile()}, 32 entries'),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(dayList.announcesTile('${januaryTile()}, 32 entries'), isTrue);
 
-      await tester.tap(find.text(januaryTile()));
-      await tester.pumpAndSettle();
+      await dayList.tapTile(januaryTile());
       // Narrow to the one day that carries both, so the assertion does not
       // depend on where a lazy list stopped building.
-      await tester.tap(find.text('14'));
-      await tester.pumpAndSettle();
-      await scrollSheetBody(tester);
+      await dayList.tapDay(14);
+      await dayList.scrollMonthBody();
 
-      expect(find.text('Winter session'), findsOneWidget);
-      expect(find.text('Leg day'), findsOneWidget);
-      expect(find.text('Dentist'), findsNothing);
+      expect(dayList.shows('Winter session'), isTrue);
+      expect(dayList.shows('Leg day'), isTrue);
+      expect(dayList.countOf('Dentist'), 0);
     });
 
     testWidgets('the priority filter excludes a past occurrence too', (
       tester,
     ) async {
-      await openThisYear(
+      final dayList = await openThisYear(
         tester,
         summary.copyWith(priorities: const {kDefaultEventPriority}),
       );
 
-      final handle = tester.ensureSemantics();
       // The daily event alone: the P1 session no longer passes the filter the
       // card was built under, so the month it was in must not count it.
-      expect(
-        find.bySemanticsLabel('${januaryTile()}, 31 entries'),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(dayList.announcesTile('${januaryTile()}, 31 entries'), isTrue);
 
-      await tester.tap(find.text(januaryTile()));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('14'));
-      await tester.pumpAndSettle();
-      await scrollSheetBody(tester);
+      await dayList.tapTile(januaryTile());
+      await dayList.tapDay(14);
+      await dayList.scrollMonthBody();
 
-      expect(find.text('Leg day'), findsOneWidget);
-      expect(find.text('Winter session'), findsNothing);
+      expect(dayList.shows('Leg day'), isTrue);
+      expect(dayList.countOf('Winter session'), 0);
     });
 
     testWidgets('the text query excludes a past occurrence too', (
       tester,
     ) async {
-      await openThisYear(tester, summary.copyWith(query: 'leg'));
+      final dayList = await openThisYear(tester, summary.copyWith(query: 'leg'));
 
-      final handle = tester.ensureSemantics();
-      expect(
-        find.bySemanticsLabel('${januaryTile()}, 31 entries'),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(dayList.announcesTile('${januaryTile()}, 31 entries'), isTrue);
 
-      await tester.tap(find.text(januaryTile()));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('14'));
-      await tester.pumpAndSettle();
-      await scrollSheetBody(tester);
+      await dayList.tapTile(januaryTile());
+      await dayList.tapDay(14);
+      await dayList.scrollMonthBody();
 
-      expect(find.text('Leg day'), findsOneWidget);
-      expect(find.text('Winter session'), findsNothing);
+      expect(dayList.shows('Leg day'), isTrue);
+      expect(dayList.countOf('Winter session'), 0);
     });
   });
 
@@ -1211,25 +1181,15 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byTooltip('Show every day'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.grid_view_rounded));
-      await tester.pumpAndSettle();
-      await tapThisYear(tester);
+      final dayList = await openCalendarYear(tester);
 
-      final handle = tester.ensureSemantics();
       // New Year's Day and Epiphany.
-      expect(
-        find.bySemanticsLabel('${januaryTile()}, 2 entries'),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(dayList.announcesTile('${januaryTile()}, 2 entries'), isTrue);
 
-      await tester.tap(find.text(januaryTile()));
-      await tester.pumpAndSettle();
-      await scrollSheetBody(tester);
+      await dayList.tapTile(januaryTile());
+      await dayList.scrollMonthBody();
 
-      expect(find.text("New Year's Day"), findsOneWidget);
+      expect(dayList.shows("New Year's Day"), isTrue);
     });
   });
 
@@ -1259,22 +1219,16 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byTooltip('Show every day'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.grid_view_rounded));
-      await tester.pumpAndSettle();
-      await tapThisYear(tester);
+      final dayList = await openCalendarYear(tester);
 
       // The year-round Wednesday/Friday rule alone marks eight or nine days a
       // month, and January carries no span fast in most years — the exact
       // number is the calendar's business, but a January tile counted from the
       // window would read zero.
-      final handle = tester.ensureSemantics();
       expect(
-        find.bySemanticsLabel(RegExp('^${januaryTile()}, \\d+ entries\$')),
-        findsOneWidget,
+        dayList.announcesTile(RegExp('^${januaryTile()}, \\d+ entries\$')),
+        isTrue,
       );
-      handle.dispose();
     });
   });
 
@@ -1326,7 +1280,7 @@ void main() {
       EventPresence.resetCache();
     });
 
-    Future<void> openJanuary(
+    Future<DayListRobot> openJanuary(
       WidgetTester tester,
       CalendarMissedDisplay display,
     ) async {
@@ -1337,71 +1291,41 @@ void main() {
         events: [tracked],
         missedDisplay: display,
       );
-      await tester.tap(find.byTooltip('Show every day'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.grid_view_rounded));
-      await tester.pumpAndSettle();
-      await tapThisYear(tester);
+      return openCalendarYear(tester);
     }
-
-    CalendarDayCell cellFor(WidgetTester tester, String day) =>
-        tester.widget<CalendarDayCell>(
-          find.ancestor(
-            of: find.text(day),
-            matching: find.byType(CalendarDayCell),
-          ),
-        );
 
     testWidgets(
       'faded keeps a missed occurrence out of the count and dims it',
       (tester) async {
-        await openJanuary(tester, CalendarMissedDisplay.faded);
+        final dayList = await openJanuary(tester, CalendarMissedDisplay.faded);
 
         // 31 January occurrences, one of them missed.
-        final handle = tester.ensureSemantics();
         expect(
-          find.bySemanticsLabel('${januaryTile()}, 30 entries · 1 missed'),
-          findsOneWidget,
+          dayList.announcesTile('${januaryTile()}, 30 entries · 1 missed'),
+          isTrue,
         );
-        handle.dispose();
 
-        await tester.tap(find.text(januaryTile()));
-        await tester.pumpAndSettle();
-        expect(cellFor(tester, '14').isOutside, isFalse);
+        await dayList.tapTile(januaryTile());
+        expect(dayList.isDayFaded(14), isFalse);
 
-        await tester.tap(find.text('14'));
-        await tester.pumpAndSettle();
-        await scrollSheetBody(tester);
+        await dayList.tapDay(14);
+        await dayList.scrollMonthBody();
 
-        final faded = tester.widget<Opacity>(
-          find
-              .ancestor(
-                of: find.text('Leg day'),
-                matching: find.byType(Opacity),
-              )
-              .first,
-        );
-        expect(faded.opacity, CalendarColors.missedEventAlpha);
+        expect(dayList.entryOpacity('Leg day'), CalendarColors.missedEventAlpha);
       },
     );
 
     testWidgets('hidden drops it from the rows, the count and the grid', (
       tester,
     ) async {
-      await openJanuary(tester, CalendarMissedDisplay.hidden);
+      final dayList = await openJanuary(tester, CalendarMissedDisplay.hidden);
 
-      final handle = tester.ensureSemantics();
-      expect(
-        find.bySemanticsLabel('${januaryTile()}, 30 entries'),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(dayList.announcesTile('${januaryTile()}, 30 entries'), isTrue);
 
-      await tester.tap(find.text(januaryTile()));
-      await tester.pumpAndSettle();
+      await dayList.tapTile(januaryTile());
       // Nothing is left on the 14th, so the grid treats it as an empty day.
-      expect(cellFor(tester, '14').isOutside, isTrue);
-      expect(cellFor(tester, '15').isOutside, isFalse);
+      expect(dayList.isDayFaded(14), isTrue);
+      expect(dayList.isDayFaded(15), isFalse);
     });
   });
 }

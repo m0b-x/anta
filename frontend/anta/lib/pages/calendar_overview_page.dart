@@ -923,6 +923,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final todayMonth = AgendaMonthStore.monthOf(_today);
     return AgendaPeriodNav(
       title: AgendaListView.monthLabel(l10n.localeName, _month, withYear: true),
+      month: _month,
       subtitle: agendaDayListCountLabel(
         l10n,
         bucket.keptCount,

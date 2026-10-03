@@ -15,6 +15,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_alert_service.dart';
@@ -163,11 +164,27 @@ void main() {
     expect(presets.map((p) => p.name), ['Top priority', 'Tracked']);
     final holiday = PublicHolidays.holidayOn(day(20));
     expect(holiday, isNotNull, reason: 'the custom holiday is 20 days out');
+    // One removed built-in, so the removed-holidays sheet has a row to
+    // restore. The placeholder grammar has no fixed calendar date, so the
+    // row rides a relative day that is no holiday: the service lists any
+    // suppressed built-in whatever its date.
+    final suppressed = await (await PublicHolidayService.getInstance())
+        .suppressedHolidays();
+    expect(suppressed, hasLength(1));
+    expect(suppressed.single.holiday, PublicHoliday.christmasDay);
+    expect(suppressed.single.date, day(60));
   });
 
   test('the seeded settings are what the flows assume', () async {
     expect(await db.userSettingsDao.getValue('holiday_profile'), 'germany');
     expect(await db.userSettingsDao.getValue('calendar_fasting_traditions'), 'orthodox');
     expect(await db.userSettingsDao.getValue('money_ledger_enabled'), 'true');
+    // One colour of the user's own, so the palette's rows, its reorder and
+    // the swatch menu are reachable.
+    expect(await db.userSettingsDao.getValue('calendar_custom_colors'), '4282339765');
+    expect(
+      (await CalendarPaletteService.getInstance()).customColors,
+      [0xFF3F51B5],
+    );
   });
 }

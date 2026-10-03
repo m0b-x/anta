@@ -1,21 +1,30 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../constants/app_spacing.dart';
+import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../services/recurrence_formatter.dart';
 import 'calendar_date_picker_sheet.dart';
+import 'form_rows.dart';
 
 /// Editor for the personal fasting practice: the weekdays kept, the months
-/// kept, what a disabled month suppresses, and the exception dates.
+/// kept, what a disabled month suppresses, and the exception dates — a
+/// sub-sheet of the UI language (Tier 3, D15–D17): two labelled groups of
+/// chips with their bulk actions and scope, then the two exception lists as
+/// picker rows with one removable sub-row per date.
 ///
 /// Applies **live** through [onChanged] rather than gating behind a Save,
 /// exactly like [FastingStyleSheet] — every control is a settings toggle and
 /// the caller persists on each change, so dismissing keeps the edits. Nothing
-/// here is a text field, so there is no debounce to flush either.
+/// here is a text field, so nothing is pending when the sheet goes, and the
+/// sheet is unguarded like every sub-sheet.
 class FastingScheduleSheet extends StatefulWidget {
   final FastingSchedule initialSchedule;
 
@@ -39,15 +48,28 @@ class FastingScheduleSheet extends StatefulWidget {
     required CalendarAppearance appearance,
     required ValueChanged<FastingSchedule> onChanged,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => FastingScheduleSheet(
-        initialSchedule: initialSchedule,
-        appearance: appearance,
-        onChanged: onChanged,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
+        child: FastingScheduleSheet(
+          initialSchedule: initialSchedule,
+          appearance: appearance,
+          onChanged: onChanged,
+        ),
       ),
     );
   }
@@ -58,11 +80,33 @@ class FastingScheduleSheet extends StatefulWidget {
 
 class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
   late FastingSchedule _schedule;
+  final FormHeaderHairline _hairline = FormHeaderHairline();
+
+  /// The anchor year the month labels are formatted against. Any year
+  /// serves — only the month matters — and one fixed year keeps the labels
+  /// identical across sessions.
+  static const int _monthLabelAnchorYear = 2024;
+
+  /// The ids' names for the two exception lists, keyed into
+  /// [SemanticsIds.fastingDateRemove].
+  static const String _skipKind = 'skip';
+  static const String _forceKind = 'force';
+
+  static final Set<int> _everyWeekday = {
+    for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++)
+      weekday,
+  };
 
   @override
   void initState() {
     super.initState();
     _schedule = widget.initialSchedule;
+  }
+
+  @override
+  void dispose() {
+    _hairline.dispose();
+    super.dispose();
   }
 
   void _apply(FastingSchedule next) {
@@ -127,153 +171,275 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
-    // bar — same fix as `CategoryPickerSheet`.
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
-
-    return FractionallySizedBox(
-      heightFactor: 0.86,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 16, 4),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: l10n.close,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                Expanded(
-                  child: Text(
-                    l10n.fastingScheduleTitle,
-                    style: theme.textTheme.titleLarge,
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the rule every calendar sheet
+    // follows (`sheet_bottom_clearance_test.dart`): the box is a fixed
+    // fraction of the screen, and a tall IME would collapse a padded Column
+    // to nothing.
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.close,
+          leadingIdentifier: SemanticsIds.fastingScheduleClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.fastingScheduleTitle,
+          scrolled: _hairline.scrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          // Nothing to confirm: every control has already written.
+          trailing: const SizedBox.shrink(),
+        ),
+        Flexible(
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FormSectionLabel(text: l10n.fastingWeekdayDaysTitle),
+                  FormRowGroup(
+                    children: [
+                      _buildWeekdayChips(l10n),
+                      ..._buildBulkRows(
+                        l10n,
+                        allIdentifier: SemanticsIds.fastingWeekdaysAll,
+                        noneIdentifier: SemanticsIds.fastingWeekdaysNone,
+                        complete: _schedule.weekdays.containsAll(_everyWeekday),
+                        empty: _schedule.weekdays.isEmpty,
+                        onAll: () =>
+                            _apply(_schedule.copyWith(weekdays: _everyWeekday)),
+                        onNone: () =>
+                            _apply(_schedule.copyWith(weekdays: const {})),
+                      ),
+                      _buildScopeRow(
+                        label: l10n.fastingWeekdayScopeTitle,
+                        weekly:
+                            _schedule.weekdayScope ==
+                            FastingWeekdayScope.weeklyOnly,
+                        weeklyHint: l10n.fastingWeekdayScopeHintWeekly,
+                        allHint: l10n.fastingWeekdayScopeHintAll,
+                        chips: [
+                          for (final scope in FastingWeekdayScope.values)
+                            FormChip(
+                              label: _weekdayScopeLabel(scope, l10n),
+                              selected: _schedule.weekdayScope == scope,
+                              identifier: _weekdayScopeId(scope),
+                              onTap: () => _apply(
+                                _schedule.copyWith(weekdayScope: scope),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
-              children: [
-                _labelRow(
-                  theme,
-                  l10n.fastingWeekdayDaysTitle,
-                  l10n,
-                  onAll: () => _apply(
-                    _schedule.copyWith(weekdays: {1, 2, 3, 4, 5, 6, 7}),
-                  ),
-                  onNone: () => _apply(_schedule.copyWith(weekdays: const {})),
-                ),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (var weekday = 1; weekday <= 7; weekday++)
-                      FilterChip(
-                        label: Text(
-                          RecurrenceFormatter.weekdayShort(
-                            weekday,
-                            l10n.localeName,
-                          ),
+                  FormSectionLabel(text: l10n.fastingMonthsTitle),
+                  FormRowGroup(
+                    children: [
+                      _buildMonthChips(l10n),
+                      ..._buildBulkRows(
+                        l10n,
+                        allIdentifier: SemanticsIds.fastingMonthsAll,
+                        noneIdentifier: SemanticsIds.fastingMonthsNone,
+                        complete: _schedule.keepsEveryMonth,
+                        empty: _schedule.months.isEmpty,
+                        onAll: () => _apply(
+                          _schedule.copyWith(months: FastingSchedule.allMonths),
                         ),
-                        selected: _schedule.weekdays.contains(weekday),
-                        onSelected: (_) => _toggleWeekday(weekday),
+                        onNone: () =>
+                            _apply(_schedule.copyWith(months: const {})),
                       ),
-                  ],
-                ),
-                _hint(theme, l10n.fastingWeekdayDaysDesc),
-                _label(theme, l10n.fastingWeekdayScopeTitle),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (final scope in FastingWeekdayScope.values)
-                      ChoiceChip(
-                        label: Text(_weekdayScopeLabel(scope, l10n)),
-                        selected: _schedule.weekdayScope == scope,
-                        onSelected: (selected) {
-                          if (selected) {
-                            _apply(_schedule.copyWith(weekdayScope: scope));
-                          }
-                        },
+                      // Stays with all twelve months ticked: the user has to
+                      // see what turning a month off will do before turning
+                      // one off.
+                      _buildScopeRow(
+                        label: l10n.fastingMonthScopeTitle,
+                        weekly:
+                            _schedule.monthScope ==
+                            FastingMonthScope.weeklyOnly,
+                        weeklyHint: l10n.fastingMonthScopeHintWeekly,
+                        allHint: l10n.fastingMonthScopeHintAll,
+                        chips: [
+                          for (final scope in FastingMonthScope.values)
+                            FormChip(
+                              label: _scopeLabel(scope, l10n),
+                              selected: _schedule.monthScope == scope,
+                              identifier: _monthScopeId(scope),
+                              onTap: () =>
+                                  _apply(_schedule.copyWith(monthScope: scope)),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
-                _hint(theme, _weekdayScopeHint(_schedule.weekdayScope, l10n)),
-                _labelRow(
-                  theme,
-                  l10n.fastingMonthsTitle,
-                  l10n,
-                  onAll: () => _apply(
-                    _schedule.copyWith(months: FastingSchedule.allMonths),
+                    ],
                   ),
-                  onNone: () => _apply(_schedule.copyWith(months: const {})),
-                ),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (var month = 1; month <= 12; month++)
-                      FilterChip(
-                        label: Text(_monthLabel(month, l10n.localeName)),
-                        selected: _schedule.months.contains(month),
-                        onSelected: (_) => _toggleMonth(month),
-                      ),
-                  ],
-                ),
-                _label(theme, l10n.fastingMonthScopeTitle),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (final scope in FastingMonthScope.values)
-                      ChoiceChip(
-                        label: Text(_scopeLabel(scope, l10n)),
-                        selected: _schedule.monthScope == scope,
-                        onSelected: (selected) {
-                          if (selected) {
-                            _apply(_schedule.copyWith(monthScope: scope));
-                          }
-                        },
-                      ),
-                  ],
-                ),
-                _hint(theme, _monthScopeHint(_schedule.monthScope, l10n)),
-                _ExceptionSection(
-                  title: l10n.fastingExceptionsSkipTitle,
-                  hint: l10n.fastingExceptionsSkipHint,
-                  icon: Icons.event_busy_rounded,
-                  dates: _schedule.skipDates,
-                  onAdd: () => _addDates(skip: true),
-                  onRemove: (date) => _removeDate(date, skip: true),
-                ),
-                _ExceptionSection(
-                  title: l10n.fastingExceptionsForceTitle,
-                  hint: l10n.fastingExceptionsForceHint,
-                  icon: Icons.event_available_rounded,
-                  dates: _schedule.forceDates,
-                  onAdd: () => _addDates(skip: false),
-                  onRemove: (date) => _removeDate(date, skip: false),
-                ),
-              ],
+                  FormRowGroup(
+                    trailingGap: false,
+                    children: [
+                      ..._buildExceptionRows(l10n, skip: true),
+                      ..._buildExceptionRows(l10n, skip: false),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  /// The seven weekdays, Monday first, each a chip whose width never changes
+  /// with its state (D16) — the old filter chips grew a check glyph when
+  /// selected and reflowed the whole run under the finger.
+  Widget _buildWeekdayChips(AppLocalizations l10n) {
+    return FormChipRow(
+      indented: false,
+      chips: [
+        for (final weekday in _everyWeekday)
+          FormChip(
+            label: RecurrenceFormatter.weekdayShort(weekday, l10n.localeName),
+            selected: _schedule.weekdays.contains(weekday),
+            identifier: SemanticsIds.fastingWeekday(weekday),
+            onTap: () => _toggleWeekday(weekday),
+          ),
+      ],
+      caption: FormCaption(text: l10n.fastingWeekdayDaysDesc),
+    );
+  }
+
+  Widget _buildMonthChips(AppLocalizations l10n) {
+    return FormChipRow(
+      indented: false,
+      chips: [
+        for (var month = DateTime.january; month <= DateTime.december; month++)
+          FormChip(
+            label: _monthLabel(month, l10n.localeName),
+            selected: _schedule.months.contains(month),
+            identifier: SemanticsIds.fastingMonth(month),
+            onTap: () => _toggleMonth(month),
+          ),
+      ],
+    );
+  }
+
+  /// Select all and None as two action rows under a chip run, each disabled
+  /// **in place** while it would change nothing (the category picker's
+  /// rule): a row that vanished would move the scope row under the finger.
+  List<Widget> _buildBulkRows(
+    AppLocalizations l10n, {
+    required String allIdentifier,
+    required String noneIdentifier,
+    required bool complete,
+    required bool empty,
+    required VoidCallback onAll,
+    required VoidCallback onNone,
+  }) {
+    return [
+      FormActionRow(
+        glyph: Icons.done_all_rounded,
+        label: l10n.selectAll,
+        identifier: allIdentifier,
+        onTap: complete ? null : onAll,
+      ),
+      FormActionRow(
+        glyph: Icons.remove_done_rounded,
+        label: l10n.selectNone,
+        identifier: noneIdentifier,
+        onTap: empty ? null : onNone,
+      ),
+    ];
+  }
+
+  /// A scope as a labelled chip pair over the line that reads the choice
+  /// back. The line sits in a slot as tall as the longer of the two hints,
+  /// so switching the scope never moves the rows under it.
+  Widget _buildScopeRow({
+    required String label,
+    required bool weekly,
+    required String weeklyHint,
+    required String allHint,
+    required List<Widget> chips,
+  }) {
+    final weeklyCaption = FormCaption(text: weeklyHint);
+    final allCaption = FormCaption(text: allHint);
+    return FormChipRow(
+      glyph: Icons.tune_rounded,
+      label: label,
+      chips: chips,
+      caption: FormCaptionSlot(
+        candidates: [weeklyCaption, allCaption],
+        child: weekly ? weeklyCaption : allCaption,
       ),
     );
+  }
+
+  /// One exception list: the picker row carrying the count — "Limit reached"
+  /// and disabled at the cap, the add row never hidden — then one sub-row
+  /// per date, ascending, each with its own remove button (D17, the
+  /// editor's explicit-dates shape).
+  List<Widget> _buildExceptionRows(
+    AppLocalizations l10n, {
+    required bool skip,
+  }) {
+    final dates = skip ? _schedule.skipDates : _schedule.forceDates;
+    final full = dates.length >= FastingSchedule.maxExceptionDates;
+    final sorted = dates.toList()..sort();
+    final formatter = DateFormat.yMMMEd(l10n.localeName);
+    final kind = skip ? _skipKind : _forceKind;
+    return [
+      FormPickerRow(
+        glyph: skip ? Icons.event_busy_rounded : Icons.event_available_rounded,
+        label: skip
+            ? l10n.fastingExceptionsSkipTitle
+            : l10n.fastingExceptionsForceTitle,
+        value: full
+            ? l10n.fastingExceptionsFull
+            : dates.isEmpty
+            ? l10n.selectNone
+            : l10n.fastingExceptionsCount(dates.length),
+        caption: skip
+            ? l10n.fastingExceptionsSkipHint
+            : l10n.fastingExceptionsForceHint,
+        enabled: !full,
+        onTap: () => _addDates(skip: skip),
+        identifier: skip
+            ? SemanticsIds.fastingDaysOff
+            : SemanticsIds.fastingExtraDays,
+      ),
+      for (final date in sorted)
+        FormPickerRow(
+          subRow: true,
+          label: formatter.format(date),
+          onTap: null,
+          showChevron: false,
+          trailingButton: FormTrailingButton(
+            icon: Icons.close_rounded,
+            tooltip: l10n.remove,
+            identifier: SemanticsIds.fastingDateRemove(kind, date),
+            onPressed: () => _removeDate(date, skip: skip),
+          ),
+        ),
+    ];
   }
 
   /// Locale-specific abbreviated month name, derived from `intl` against an
   /// anchor date — never an ARB month matrix, the same rule the week-start
   /// dropdown and the month/year wheel already follow.
   String _monthLabel(int month, String localeName) {
-    final name = DateFormat.MMM(localeName).format(DateTime.utc(2024, month));
+    final name = DateFormat.MMM(
+      localeName,
+    ).format(DateTime.utc(_monthLabelAnchorYear, month));
     return toBeginningOfSentenceCase(name, localeName) ?? name;
   }
 
@@ -284,157 +450,30 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
     };
   }
 
+  static String _monthScopeId(FastingMonthScope scope) => switch (scope) {
+    FastingMonthScope.weeklyOnly => SemanticsIds.fastingMonthScopeWeekly,
+    FastingMonthScope.allFasts => SemanticsIds.fastingMonthScopeAll,
+  };
+
+  static String _weekdayScopeId(FastingWeekdayScope scope) => switch (scope) {
+    FastingWeekdayScope.weeklyOnly => SemanticsIds.fastingWeekdayScopeWeekly,
+    FastingWeekdayScope.allFasts => SemanticsIds.fastingWeekdayScopeAll,
+  };
+
   /// Shares the month scope's option labels: the two scopes answer the same
   /// question about a different axis, and inventing a second wording for
   /// "weekly fast only" would read as a different meaning.
-  /// The hint has to describe the **selected** scope, not the section: under
-  /// `weeklyOnly` a multi-day fast still marks every one of its days, so a
-  /// flat "a day you turn off is never marked" told the exact opposite of what
-  /// the default configuration does — which is what made a Wed/Fri practice
-  /// look broken every August, when the Dormition fast covers half the month.
-  String _weekdayScopeHint(FastingWeekdayScope scope, AppLocalizations l10n) {
-    return switch (scope) {
-      FastingWeekdayScope.weeklyOnly => l10n.fastingWeekdayScopeHintWeekly,
-      FastingWeekdayScope.allFasts => l10n.fastingWeekdayScopeHintAll,
-    };
-  }
-
-  /// The month twin of [_weekdayScopeHint], and wrong in the same way before.
-  String _monthScopeHint(FastingMonthScope scope, AppLocalizations l10n) {
-    return switch (scope) {
-      FastingMonthScope.weeklyOnly => l10n.fastingMonthScopeHintWeekly,
-      FastingMonthScope.allFasts => l10n.fastingMonthScopeHintAll,
-    };
-  }
-
+  ///
+  /// The hint under each pair has to describe the **selected** scope, not
+  /// the section: under `weeklyOnly` a multi-day fast still marks every one
+  /// of its days, so a flat "a day you turn off is never marked" told the
+  /// exact opposite of what the default configuration does — which is what
+  /// made a Wed/Fri practice look broken every August, when the Dormition
+  /// fast covers half the month. The month twin was wrong in the same way.
   String _weekdayScopeLabel(FastingWeekdayScope scope, AppLocalizations l10n) {
     return switch (scope) {
       FastingWeekdayScope.weeklyOnly => l10n.fastingMonthScopeWeekly,
       FastingWeekdayScope.allFasts => l10n.fastingMonthScopeAll,
     };
-  }
-
-  Widget _label(ThemeData theme, String text) => Padding(
-    padding: const EdgeInsets.fromLTRB(0, AppSpacing.lg, 0, AppSpacing.sm),
-    child: Text(
-      text,
-      style: theme.textTheme.labelLarge?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-    ),
-  );
-
-  /// A section label with the two bulk actions on its trailing edge, so
-  /// clearing or filling a twelve-chip row is one tap rather than twelve.
-  Widget _labelRow(
-    ThemeData theme,
-    String text,
-    AppLocalizations l10n, {
-    required VoidCallback onAll,
-    required VoidCallback onNone,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, AppSpacing.lg, 0, AppSpacing.xs),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          TextButton(onPressed: onAll, child: Text(l10n.selectAll)),
-          TextButton(onPressed: onNone, child: Text(l10n.selectNone)),
-        ],
-      ),
-    );
-  }
-
-  Widget _hint(ThemeData theme, String text) => Padding(
-    padding: const EdgeInsets.only(top: AppSpacing.sm),
-    child: Text(
-      text,
-      style: theme.textTheme.bodySmall?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-    ),
-  );
-}
-
-/// One exception-date list: a label, an add button and the picked dates as
-/// removable rows. Both lists behave identically, so they share this.
-class _ExceptionSection extends StatelessWidget {
-  final String title;
-  final String hint;
-  final IconData icon;
-  final Set<DateTime> dates;
-  final VoidCallback onAdd;
-  final ValueChanged<DateTime> onRemove;
-
-  const _ExceptionSection({
-    required this.title,
-    required this.hint,
-    required this.icon,
-    required this.dates,
-    required this.onAdd,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final full = dates.length >= FastingSchedule.maxExceptionDates;
-    final sorted = dates.toList()..sort();
-    final formatter = DateFormat.yMMMEd(l10n.localeName);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            0,
-            AppSpacing.lg,
-            0,
-            AppSpacing.sm,
-          ),
-          child: Text(
-            title,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        OutlinedButton.icon(
-          onPressed: full ? null : onAdd,
-          icon: Icon(icon),
-          label: Text(full ? l10n.fastingExceptionsFull : l10n.fastingAddDates),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: AppSpacing.sm),
-          child: Text(
-            hint,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        for (final date in sorted)
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(icon, color: colorScheme.onSurfaceVariant),
-            title: Text(formatter.format(date)),
-            trailing: IconButton(
-              tooltip: l10n.remove,
-              icon: const Icon(Icons.close_rounded),
-              onPressed: () => onRemove(date),
-            ),
-          ),
-      ],
-    );
   }
 }

@@ -1,0 +1,40 @@
+# The fasting schedule sheet (docs/calendar-language-tier-3-roadmap.md §3.4)
+# from Calendar settings' "My practice" row: the weekday chips by id (Monday
+# toggled on and off again, so the seed's Wed, Fri are left as they were),
+# the weekday scope's hint following the selected chip, the exception rows
+# scrolled into view, Days off opening the Dates sheet and its Cancel, then
+# the sheet's ✕ — every write is live, so nothing is confirmed.
+# - The row lives under the Religious fasting section, below the fold of
+#   the settings page: scroll-to brings it up.
+# - The sheet's own scroll view is the first scrollable while it is up, so
+#   scroll-to needs no --in here.
+# - The months' Select all is disabled in place with all twelve ticked: it
+#   is checked present, never tapped.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "My practice"
+tap "My practice"
+wait id:fasting-schedule-close
+expect id:fasting-weekday-1 id:fasting-weekday-7 id:fasting-weekdays-all id:fasting-weekdays-none id:fasting-weekday-scope-weekly id:fasting-weekday-scope-all id:fasting-month-1 id:fasting-month-12 id:fasting-months-all id:fasting-months-none "Multi-day fasts still mark every one of their days"
+shot 19_fasting_schedule
+tap id:fasting-weekday-1
+tap id:fasting-weekday-1
+tap id:fasting-weekday-scope-all
+expect "A day you turn off is never marked"
+tap id:fasting-weekday-scope-weekly
+expect "Multi-day fasts still mark every one of their days"
+scroll-to id:fasting-days-off
+expect id:fasting-extra-days id:fasting-month-scope-weekly id:fasting-month-scope-all
+shot 19_fasting_exceptions
+tap id:fasting-days-off
+wait id:date-picker-cancel
+shot 19_fasting_days_off_picker
+tap id:date-picker-cancel
+wait id:fasting-schedule-close
+tap id:fasting-schedule-close
+wait "Search settings"
+key back
+wait id:calendar-add-event
+errors

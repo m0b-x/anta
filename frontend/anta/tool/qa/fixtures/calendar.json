@@ -29,7 +29,8 @@
   "settings": {
     "money_ledger_enabled": "true",
     "holiday_profile": "germany",
-    "calendar_fasting_traditions": "orthodox"
+    "calendar_fasting_traditions": "orthodox",
+    "calendar_custom_colors": "4282339765"
   },
   "counterData": {
     "counters": "[{\"id\":\"qa-counter-sets\",\"name\":\"Sets\",\"counterStartValue\":1,\"counterStep\":1,\"counterScope\":\"global\",\"isPinned\":true,\"createdAt\":\"2026-01-01T09:00:00.000\"},{\"id\":\"qa-counter-reps\",\"name\":\"Reps\",\"counterStartValue\":0,\"counterStep\":5,\"counterScope\":\"perNote\",\"isPinned\":false,\"createdAt\":\"2026-01-01T09:00:00.000\"}]",
@@ -404,6 +405,13 @@
       "profile": "germany",
       "customLabel": "Club anniversary",
       "suppressed": false
+    },
+    {
+      "dateMs": "{{today+60}}",
+      "nameKey": "christmasDay",
+      "profile": "germany",
+      "customLabel": null,
+      "suppressed": true
     }
   ]
 }

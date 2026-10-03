@@ -1915,6 +1915,11 @@ class WaitCommand extends TargetCommand {
 }
 
 class ScrollToCommand extends TargetCommand {
+  /// The longest a swipe's fling is waited out before the next dump: a
+  /// strong fling under iOS physics runs about 1.5 s, and the agent returns
+  /// early the moment the frames stop.
+  static const int _flingSettleMs = 2500;
+
   ScrollToCommand() {
     argParser
       ..addOption('max', defaultsTo: '8', help: 'Maximum swipes to try.')
@@ -1967,11 +1972,23 @@ class ScrollToCommand extends TargetCommand {
         direction: direction,
       );
       await driver.swipePath(path);
-      await Future<void>.delayed(
-        driver.name == 'agent'
-            ? const Duration(milliseconds: 150)
-            : const Duration(milliseconds: 400),
-      );
+      // The agent's swipe op settles for at most 500 ms and a fling under
+      // iOS physics outlives that: the dump would then see a row the fling is
+      // still carrying (so the row a flow found ends up at the viewport's
+      // edge, or off it) and the next tap's pointer-down stops the list
+      // instead of pressing the row (15_templates on the iPhone 17 Pro
+      // simulator, 2026-10-03). The settle op returns as soon as no frame is
+      // scheduled, so a scroll that stopped on its own costs nothing here.
+      final agent = driver.name == 'agent' ? await ctx.agentOrNull() : null;
+      if (agent != null) {
+        await agent.settle(ms: _flingSettleMs);
+      } else {
+        await Future<void>.delayed(
+          driver.name == 'agent'
+              ? const Duration(milliseconds: 150)
+              : const Duration(milliseconds: 400),
+        );
+      }
     }
     throw TargetFailure(
       '"$wanted" not reachable after $maxSwipes swipe(s). '

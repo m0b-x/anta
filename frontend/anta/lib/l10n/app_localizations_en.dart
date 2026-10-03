@@ -337,6 +337,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get holidayRestored => 'Holiday restored';
 
   @override
+  String get holidayRestoreFailed => 'Couldn\'t restore the holiday';
+
+  @override
   String get eventCategoryGym => 'Gym';
 
   @override
@@ -380,9 +383,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get categoryNameHint => 'e.g. Stretching';
-
-  @override
-  String get categoryColor => 'Color';
 
   @override
   String get categoryDefault => 'Built-in category';
@@ -671,7 +671,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pickIcon => 'Choose icon';
 
   @override
-  String get resetToDefault => 'Reset to Default';
+  String get resetToDefault => 'Reset to default';
 
   @override
   String get eventDate => 'Start date';
@@ -1153,17 +1153,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fastingPlacementLast => 'Last';
 
   @override
-  String get fastingColorDefault => 'Default colour';
+  String get fastingColorDefault => 'Default color';
 
   @override
   String get fastingIconDefault => 'Default icon';
 
   @override
   String get fastingPreviewLabel => 'Preview';
-
-  @override
-  String get fastingPlacementHint =>
-      'Decides where the row sits among events, holidays and the weekend';
 
   @override
   String get fastingTitleOverrideLabel => 'Custom title';
@@ -3117,7 +3113,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calendarCellStyleDesc =>
-      'How an event\'s colour fills the day cell. Each theme keeps its own choice.';
+      'How an event\'s color fills the day cell. Each theme keeps its own choice.';
 
   @override
   String get calendarCellStyleLight => 'Light';
@@ -4486,15 +4482,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get colorPaletteCustomLabel => 'Your colors';
 
   @override
-  String get colorPaletteBuiltIn => 'Built-in color';
-
-  @override
   String get colorPaletteEmpty =>
       'No colors of your own yet. Add one and it appears in every picker.';
-
-  @override
-  String get colorPaletteEditHint =>
-      'Tap a color to change it. Anything already using it keeps its color.';
 
   @override
   String get colorPaletteReset => 'Reset colors';
@@ -4502,6 +4491,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get colorPaletteResetConfirm =>
       'Delete all the colors you added and keep only the built-in ones?';
+
+  @override
+  String get colorPaletteResetDone => 'Palette reset';
 
   @override
   String get colorPaletteFull =>

@@ -95,34 +95,39 @@ calendar state around today:
 
 ```bash
 ./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
-./tool/qa/qa flows calendar                                           # seventeen flows; about 90 s on the Windows emulator (ANTA_QA_VIA=agent there)
+./tool/qa/qa flows calendar                                           # twenty-three flows since Tier 3 (the seventeen of Tier 2 took about 90 s on the Windows emulator; ANTA_QA_VIA=agent there)
 ./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
 ```
 
 `tool/qa/fixtures/calendar.json` is written with **relative dates** —
 `"startDateMs": "{{today-28}}"`, `"dayMs": "{{today+7}}"` — that the tool
-resolves against the run's clock before pushing (`(60 placeholders
+resolves against the run's clock before pushing (`(63 placeholders
 resolved)` in the push line); the resolved copy lands in
 `build/qa/seed_resolved.json`, the fixture in the repo is never edited. It
 seeds a weekly session with presence marks, a skipped day and a per-day
 description, a daily walk carrying five alerts (the cap), six pinned dates,
 a yearly birthday with a custom colour, a workdays event that assumes
 absence, an ended one-time event, an event in a hidden category, a template,
-a saved filter, a custom holiday, the German holiday profile and Orthodox
-fasting. `test/qa/calendar_fixture_test.dart` pins that every piece imports
-and occurs where the flows expect it. `--setting key=value` (repeatable)
+a saved filter, a custom holiday, a suppressed German built-in (Christmas
+Day on `{{today+60}}`, for the removed-holidays sheet), one custom colour
+(#3F51B5, for the palette and the swatch menu), the German holiday profile
+and Orthodox fasting. `test/qa/calendar_fixture_test.dart` pins that every
+piece imports and occurs where the flows expect it. `--setting key=value` (repeatable)
 overrides a settings key in the seed before it is pushed — `--setting
 locale=de --setting theme_mode=dark` is the matrix at launch.
 
 The flows live in `tool/qa/flows/calendar/*.txt`, one per checklist item
 (open, new event, editor sub-sheets and the dirty guard, the Dates sheet,
 the alert cap, the overview page, the accessibility matrix, the detail sheet,
-the header's view menu and ⋮), each ending in
-`expect`s, a `shot` and `errors`. **A flow is updated in the same slice that
+the header's view menu and ⋮, then one per surface each tier of the
+language adoption rebuilt — `ls tool/qa/flows/calendar/` names them), each
+ending in `expect`s, a `shot` and `errors`. **A flow is updated in the same slice that
 changes its screen**, and the last slice of a calendar rework runs
 `flows calendar` (the `ui-revamp` gate). Every flow starts and ends on the
 calendar page except `00_open`, which starts at the root — so a full pass
-starts from a fresh launch.
+starts from a fresh launch. `21_removed_holidays` consumes the seed (it
+restores the suppressed holiday, which cannot be removed again from the
+day panel), so a lone re-run of it needs `relaunch --fresh --seed` first.
 
 Placeholders work in step files too: `tap "{{longdate+1}}"` taps tomorrow's
 day cell by the label the grid gives it.
@@ -159,19 +164,40 @@ resolve — that is what they are for.
 its chrome (`event-close`, `event-save`, `event-save-as-template`,
 `event-delete`) and its scrolling body (`event-form`); the sub-sheets' Done
 (`repeat-done`, `look-done`); the Dates sheet (`date-picker-save`,
-`date-picker-cancel`); the detail sheet (`event-detail-edit`, `event-detail-close`, and since 2026-09-26 `event-detail-description`, `event-detail-present`, `event-detail-missed`, `event-detail-skip`, `event-detail-add-date`, `event-detail-dates`, `event-detail-note`); the header (2026-09-26): the title's view menu `calendar-view-menu` with its rows `calendar-view-calendar`, `calendar-overview-open`, `calendar-format-month` / `-two-weeks` / `-week`, and the ⋮ `calendar-more` with `calendar-alerts-open`, `calendar-export`, `calendar-settings-open` — the same ids on the overview; since Tier 1 of the language adoption (2026-09-27): the Upcoming panel's tune button `agenda-filter-open` and the agenda filters sheet's `agenda-filter-*` rows (`-period`, `-follow`, `-events`, `-categories`, `-priority`, `-holidays`, `-fasting`, `-event-rows`, `-fasting-rows`, `-holiday-rows`, `-reset`, `-close`, `-apply`, the body `agenda-filter-sheet`, and one id per menu item such as `agenda-filter-period-90` / `agenda-filter-events-none`), the Dates sheet's `date-picker-today`, the month/year picker's `month-year-close` / `-apply` / `-today` / `-typed`, the description sheet's `description-close` / `-done`, the template picker's `template-pick-close` / `-blank` / `template-pick-<id>`, the icon picker's `icon-pick-close` / `-search`, the sound sheet's `sound-close` / `-inherit` / `-phone-default` / `-from-phone`; and **a day-panel row by its event id**
+`date-picker-cancel`); the detail sheet (`event-detail-edit`, `event-detail-close`, and since 2026-09-26 `event-detail-description`, `event-detail-present`, `event-detail-missed`, `event-detail-skip`, `event-detail-add-date`, `event-detail-dates`, `event-detail-note`); the header (2026-09-26): the title's view menu `calendar-view-menu` with its rows `calendar-view-calendar`, `calendar-overview-open`, `calendar-format-month` / `-two-weeks` / `-week`, and the ⋮ `calendar-more` with `calendar-alerts-open`, `calendar-export`, `calendar-settings-open` — the same ids on the overview; since Tier 1 of the language adoption (2026-09-27): the Upcoming panel's tune button `agenda-filter-open` and the agenda filters sheet's `agenda-filter-*` rows (`-period`, `-follow`, `-events`, `-categories`, `-priority`, `-holidays`, `-fasting`, `-event-rows`, `-fasting-rows`, `-holiday-rows`, `-reset`, `-close`, `-apply`, the body `agenda-filter-sheet`, and one id per menu item such as `agenda-filter-period-90` / `agenda-filter-events-none`), the Dates sheet's `date-picker-today`, the month/year picker's `month-year-close` / `-apply` / `-today` / `-typed`, the description sheet's `description-close` / `-done`, the template picker's `template-pick-close` / `-blank` / `template-pick-<id>`, the icon picker's `icon-pick-close` / `-search`, the sound sheet's `sound-close` / `-inherit` / `-phone-default` / `-from-phone`; since Tier 3 (2026-10-03): the day list's `day-list-*` (its nav `day-list-nav-*`) and each summary card's `agenda-card-days-<key>`, the category editor's `category-editor-*`, the swatch strip's `swatch-row` / `-default` / `-add` / `-manage` and `swatch-menu-*`, both fasting sheets' `fasting-*` (a date's remove `fasting-skip-remove-{{day+N}}`), `removed-holidays-close` and `holiday-restore-<nameKey>-{{day+N}}`, the palette's `palette-*` (a row `palette-row-<rrggbb>`), the colour picker's `color-picker-close` / `-select`, `color-mode-square` / `-wheel`, `color-hex`, `color-copy-hex` — the full list in `calendar-ui`; and **a day-panel row by its event id**
 (`event-row-<eventId>`, e.g. `id:event-row-qa-cal-lift` for the seed's
 weekly session). A title is never a safe target on the calendar page:
 every marked day cell's marker label carries the titles of its events, so
 `tap "Morning walk"` is ambiguous twelve ways.
 
-Calendar traps, all seen 2026-09-26:
+Calendar traps, seen 2026-09-26 unless dated:
 
 - **`scroll-to` swipes inside the first scrollable in the tree**, which in
   the editor is the header strip — eight swipes and nothing moves. Pass
   `--in id:event-form` for anything below the fold (`scroll-to
   id:event-priority --in id:event-form`), and scroll before an `--absent`
   check so absence means gone, not off-screen.
+- **`scroll-to` on the agent path settles until no frame is scheduled**
+  before each dump (2026-10-03; `_flingSettleMs`, 2500 ms at most, returned
+  the moment the frames stop). It used to wait 150 ms after the swipe op's
+  own settle of at most 500 ms, and a fling under iOS physics outlived it:
+  the row a flow found ended at the viewport's edge and the next tap's
+  pointer-down stopped the list instead of pressing the row (`15_templates`
+  on the iPhone 17 Pro simulator). The converse of the `--absent` rule
+  holds too: a row a previous step scrolled past is absent to `expect`
+  until it is scrolled back (`scroll-to id:template-name --up` on that
+  874 dp screen).
+- **A settings page's section header wins the exact label pass**
+  (2026-10-03): on Calendar settings "Categories" and "Appearance" are
+  section headers as well as row titles, and on the appearance page
+  "Colors" matches four nodes and the page has a "Search settings" field of
+  its own. Tap a row by its own second line ("Create and customize event
+  categories", "Subtle tint · After holidays", "of your own"), and wait for
+  the appearance page by "Today highlight".
+- **The overlay bar sits 80 dp above the screen's bottom for its 2 s**
+  (2026-10-03): over a one-row sheet that is the header, so a ✕ tapped
+  while "Holiday restored" shows hits the bar — `21_removed_holidays` waits
+  for the bar to go (`wait "Holiday restored" --gone`) first.
 - **Day cells are label-only.** `table_calendar` wraps each cell with
   excluded semantics, so an id inside the cell never reaches the tree; tap a
   day by `"{{longdate+N}}"`.

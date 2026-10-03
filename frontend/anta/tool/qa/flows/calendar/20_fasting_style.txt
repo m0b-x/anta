@@ -1,0 +1,40 @@
+# The fasting style sheet (docs/calendar-language-tier-3-roadmap.md §3.5)
+# from Calendar settings' Orthodox "Appearance" row: every row by id, the
+# Show on the grid menu with its four items (Subtle tint picked back, so
+# the seed's style is kept), the Custom title row into its dialog and out
+# through Cancel, then the sheet's ✕ — every write is live.
+# - "Appearance" is both a section header and the appearance page's row on
+#   this page; the fasting row is named by its own second line, which reads
+#   the current style and placement back.
+# - The title dialog's hint is the computed period name of the preview's
+#   sample period ("Great Lent" for Orthodox); its Cancel writes nothing.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "Subtle tint · After holidays"
+tap "Subtle tint · After holidays"
+wait id:fasting-style-close
+expect id:fasting-style-grid id:fasting-style-placement id:fasting-style-icon id:swatch-row id:swatch-default id:swatch-add id:swatch-manage "Great Lent" "PREVIEW"
+shot 20_fasting_style
+tap id:fasting-style-grid
+wait id:fasting-style-grid-bar
+expect id:fasting-style-grid-tint id:fasting-style-grid-strong id:fasting-style-grid-none
+shot 20_fasting_style_grid_menu
+tap id:fasting-style-grid-tint
+wait id:fasting-style-close
+expect "Subtle tint"
+scroll-to id:fasting-style-title
+expect id:fasting-style-description "Default"
+shot 20_fasting_style_text_rows
+tap id:fasting-style-title
+wait id:sheet-cancel
+expect id:sheet-confirm "Great Lent"
+shot 20_fasting_style_title_dialog
+tap id:sheet-cancel
+wait id:fasting-style-close
+tap id:fasting-style-close
+wait "Search settings"
+key back
+wait id:calendar-add-event
+errors

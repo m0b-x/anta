@@ -2,12 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
+import '../constants/app_theme.dart';
 import '../constants/calendar_palette.dart';
+import '../constants/form_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/calendar_palette_service.dart';
-import '../utils/custom_snackbar.dart';
+import 'app_dialogs.dart';
+import 'automation_id.dart';
 import 'color_palette_sheet.dart';
 import 'color_picker_sheet.dart';
+import 'form_menu_item.dart';
+import 'overlay_snackbar.dart';
 
 /// The leading dot standing for "no colour of my own" — the theme's accent,
 /// the category's colour, the fasting default. Every surface means something
@@ -19,6 +27,35 @@ class ColorSwatchDefault {
   final String? tooltip;
 
   const ColorSwatchDefault({required this.color, this.icon, this.tooltip});
+}
+
+/// The dot's own drawing, and the sample that stands in for one at a row's
+/// start. Private because none of it is a form row's geometry: a row sees
+/// only the dot's [ColorSwatchDot.tapTarget] footprint and its diameter,
+/// which `FormMetrics` names.
+abstract final class _SwatchMetrics {
+  /// The gap between the dots when the caller sets none: the strip's
+  /// spacing before the Look sheet closed it to `FormMetrics.swatchSpacing`
+  /// so eighteen colours fit three runs. Every sheet of the language passes
+  /// that one and the appearance page its own, so this reaches only a bare
+  /// strip.
+  static const double looseSpacing = 8;
+
+  /// A hairline in `outlineVariant` around every dot, so a swatch near the
+  /// surface's own colour still has an edge; the selected one's ring in
+  /// `onSurface` at two and a half times that, so the selection reads from
+  /// across the strip without leaning on the check glyph alone.
+  static const double ringWidth = 1;
+  static const double selectedRingWidth = 2.5;
+
+  /// The check or glyph inside a dot, as a share of its diameter: half, so
+  /// the fill stays what the eye reads and the glyph is a mark on it.
+  static const double glyphShare = 0.5;
+
+  /// The sample at a row's start — the palette's rows — inside the row's
+  /// `rowLeadingSize` box: smaller than the 40 dp avatar the box is cut for,
+  /// so the row reads as a colour beside its hex rather than an avatar row.
+  static const double previewDiameter = 24;
 }
 
 /// The one colour-choosing row in the app.
@@ -54,7 +91,7 @@ class ColorSwatchPicker extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.defaultOption,
-    this.spacing = 8,
+    this.spacing = _SwatchMetrics.looseSpacing,
     this.collapsible = true,
   });
 
@@ -110,10 +147,27 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
     if (widget.value == recolor.$1) widget.onChanged(recolor.$2);
   }
 
+  /// Drops the focus before anything modal opens over the strip. The strip
+  /// sits under a text field in the category editor and the fasting style
+  /// sheet, and a field still focused when the modal returns raises the
+  /// keyboard again and scrolls the sheet back up to it.
+  static void _blur() => FocusManager.instance.primaryFocus?.unfocus();
+
+  /// A refusal raised over whatever sheet embeds the strip, up for the error
+  /// duration the palette sheet gives these same two refusals. A `Scaffold`
+  /// snackbar is drawn on the page under the modal route, where nobody saw
+  /// "Your palette is full" from the Look sheet.
+  void _refuse(String message) => OverlaySnackbar.show(
+    context,
+    message,
+    duration: AppConstants.snackbarErrorDuration,
+  );
+
   Future<void> _addFromPicker() async {
     if (_sheetOpen) return;
     _sheetOpen = true;
     try {
+      _blur();
       final picked = await ColorPickerSheet.show(
         context,
         initialColor: widget.value,
@@ -125,10 +179,7 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
       final added = await service.add(picked);
       if (added || !mounted) return;
       // The only way `add` refuses a colour the palette does not already carry.
-      CustomSnackbar.showError(
-        context,
-        AppLocalizations.of(context)!.colorPaletteFull,
-      );
+      _refuse(AppLocalizations.of(context)!.colorPaletteFull);
     } finally {
       _sheetOpen = false;
     }
@@ -141,6 +192,7 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
     if (_sheetOpen) return;
     _sheetOpen = true;
     try {
+      _blur();
       await ColorPaletteSheet.show(context);
     } finally {
       _sheetOpen = false;
@@ -148,22 +200,40 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
   }
 
   Future<void> _editCustom(int color) async {
+    _blur();
     final picked = await ColorPickerSheet.show(context, initialColor: color);
     if (picked == null || picked == color || !mounted) return;
     final service = await CalendarPaletteService.getInstance();
     final changed = await service.update(color, picked);
     if (changed || !mounted) return;
-    CustomSnackbar.showError(
-      context,
-      AppLocalizations.of(context)!.colorAlreadyInPalette,
-    );
+    _refuse(AppLocalizations.of(context)!.colorAlreadyInPalette);
   }
 
-  Future<void> _openMenu(int color) async {
+  /// Asks first, as the palette sheet's delete does (Tier 3, D21): the
+  /// strip's menu is one long press from a dot in a field of dots, and an
+  /// unconfirmed delete there took a colour off every event wearing it.
+  Future<void> _deleteCustom(int color) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.deleteColor,
+      content: l10n.deleteColorConfirm,
+      confirmText: l10n.delete,
+      icon: Icons.delete_outline_rounded,
+      isDestructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    final service = await CalendarPaletteService.getInstance();
+    await service.remove(color);
+  }
+
+  /// [anchor] is the long-pressed dot's own element, which is where the menu
+  /// hangs.
+  Future<void> _openMenu(BuildContext anchor, int color) async {
     if (_sheetOpen) return;
     _sheetOpen = true;
     try {
-      await _menuBody(color);
+      await _menuBody(anchor, color);
     } finally {
       _sheetOpen = false;
     }
@@ -171,43 +241,71 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
 
   /// Unguarded body of [_openMenu]: the editor and the manage sheet it routes
   /// into are part of the same trip and already hold the slot.
-  Future<void> _menuBody(int color) async {
+  ///
+  /// A popup of the language's menu rows at the dot — the preset ⋮'s
+  /// anatomy and anchor rule — never a bottom sheet of list tiles, so the
+  /// strip's one menu reads like every other menu in the app.
+  Future<void> _menuBody(BuildContext anchor, int color) async {
     final l10n = AppLocalizations.of(context)!;
-    final action = await showModalBottomSheet<_SwatchAction>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: ColorSwatchPreview(color: Color(color)),
-              title: Text(l10n.editColor),
-              onTap: () => Navigator.of(context).pop(_SwatchAction.edit),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline_rounded),
-              title: Text(l10n.deleteColor),
-              onTap: () => Navigator.of(context).pop(_SwatchAction.delete),
-            ),
-            ListTile(
-              leading: const Icon(Icons.palette_outlined),
-              title: Text(l10n.manageColors),
-              onTap: () => Navigator.of(context).pop(_SwatchAction.manage),
-            ),
-          ],
-        ),
+    final colorScheme = Theme.of(context).colorScheme;
+    _blur();
+    final action = await showMenu<_SwatchAction>(
+      context: anchor,
+      positionBuilder: (_, constraints) => formMenuPosition(
+        anchor,
+        constraints,
+        menuHeight: formMenuHeight(_SwatchAction.values.length),
       ),
+      color: colorScheme.menuSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+      ),
+      menuPadding: FormMetrics.menuPadding,
+      // The preset ⋮'s floor, not a choice menu's: an actions menu floors
+      // at the app's menu width and grows for a label that needs it.
+      constraints: const BoxConstraints(
+        minWidth: AppTheme.menuWidth,
+        maxWidth: FormMetrics.menuMaxWidth,
+      ),
+      items: [
+        PopupMenuItem<_SwatchAction>(
+          value: _SwatchAction.edit,
+          height: FormMetrics.menuRowHeight,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.swatchMenuEdit,
+            icon: Icons.edit_outlined,
+            label: l10n.editColor,
+          ),
+        ),
+        PopupMenuItem<_SwatchAction>(
+          value: _SwatchAction.delete,
+          height: FormMetrics.menuRowHeight,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.swatchMenuDelete,
+            icon: Icons.delete_outline_rounded,
+            label: l10n.deleteColor,
+            color: colorScheme.error,
+          ),
+        ),
+        PopupMenuItem<_SwatchAction>(
+          value: _SwatchAction.manage,
+          height: FormMetrics.menuRowHeight,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.swatchMenuManage,
+            icon: Icons.palette_outlined,
+            label: l10n.manageColors,
+          ),
+        ),
+      ],
     );
     if (action == null || !mounted) return;
     switch (action) {
       case _SwatchAction.edit:
         await _editCustom(color);
       case _SwatchAction.delete:
-        final service = await CalendarPaletteService.getInstance();
-        await service.remove(color);
+        await _deleteCustom(color);
       case _SwatchAction.manage:
-        if (!mounted) return;
+        _blur();
         await ColorPaletteSheet.show(context);
     }
   }
@@ -229,9 +327,13 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
           if (defaultOption != null)
             ColorSwatchDot(
               color: defaultOption.color,
-              icon: defaultOption.icon,
+              // Always a glyph: a default dot drawn bare is identical to a
+              // swatch of the same colour beside it (the fasting violet next
+              // to #8E24AA on the device).
+              icon: defaultOption.icon ?? Icons.format_color_reset_rounded,
               tooltip: defaultOption.tooltip,
               selected: selected == null,
+              identifier: SemanticsIds.swatchDefault,
               onTap: () => widget.onChanged(null),
             ),
           if (orphan)
@@ -247,12 +349,14 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
             icon: Icons.colorize_rounded,
             tooltip: l10n.addColor,
             selected: false,
+            identifier: SemanticsIds.swatchAdd,
             onTap: _addFromPicker,
           ),
           ColorSwatchDot(
             icon: Icons.palette_outlined,
             tooltip: l10n.manageColors,
             selected: false,
+            identifier: SemanticsIds.swatchManage,
             onTap: _openPaletteSheet,
           ),
         ];
@@ -281,15 +385,25 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
               children: [
                 ...leading,
                 for (final swatch in shown)
-                  ColorSwatchDot(
-                    color: Color(swatch),
-                    semanticLabel: CalendarPalette.hexOf(swatch),
-                    selected: selected == swatch,
-                    onTap: () => widget.onChanged(swatch),
-                    onLongPress: CalendarPalette.isDefault(swatch)
-                        ? null
-                        : () => _openMenu(swatch),
-                  ),
+                  if (CalendarPalette.isDefault(swatch))
+                    ColorSwatchDot(
+                      color: Color(swatch),
+                      semanticLabel: CalendarPalette.hexOf(swatch),
+                      selected: selected == swatch,
+                      onTap: () => widget.onChanged(swatch),
+                    )
+                  else
+                    // An element of its own, so the long-press menu can hang
+                    // from the dot's render box.
+                    Builder(
+                      builder: (dotContext) => ColorSwatchDot(
+                        color: Color(swatch),
+                        semanticLabel: CalendarPalette.hexOf(swatch),
+                        selected: selected == swatch,
+                        onTap: () => widget.onChanged(swatch),
+                        onLongPress: () => _openMenu(dotContext, swatch),
+                      ),
+                    ),
                 if (collapsed)
                   ColorSwatchDot(
                     icon: Icons.more_horiz_rounded,
@@ -346,10 +460,10 @@ enum _SwatchAction { edit, delete, manage }
 /// round things where a near-miss picks the wrong one.
 class ColorSwatchDot extends StatelessWidget {
   /// Diameter of the painted circle.
-  static const double diameter = 44;
+  static const double diameter = FormMetrics.swatchDiameter;
 
   /// Footprint of an interactive dot, and therefore the row's grid unit.
-  static const double tapTarget = 48;
+  static const double tapTarget = FormMetrics.trailingButtonSize;
 
   final Color? color;
   final IconData? icon;
@@ -367,9 +481,17 @@ class ColorSwatchDot extends StatelessWidget {
 
   /// A null [onTap] renders the swatch as a sample rather than a choice — the
   /// built-in list in the management sheet, where tapping would promise an
-  /// edit that is not on offer.
+  /// edit that is not on offer. A sample still takes the [tapTarget]
+  /// footprint and carries its [semanticLabel] as a plain node, so the
+  /// palette's read-only strip sits on the pickers' grid and reads each
+  /// colour's hex to a screen reader instead of eighteen silent circles.
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+
+  /// A `SemanticsIds` value for a dot a device script hits by id — the
+  /// default, add and manage dots, whose tooltips change with the locale.
+  /// Lands on the dot's one node beside its label and its selected state.
+  final String? identifier;
 
   const ColorSwatchDot({
     super.key,
@@ -380,6 +502,7 @@ class ColorSwatchDot extends StatelessWidget {
     required this.selected,
     this.onTap,
     this.onLongPress,
+    this.identifier,
     this.size = diameter,
   });
 
@@ -400,16 +523,38 @@ class ColorSwatchDot extends StatelessWidget {
         shape: BoxShape.circle,
         border: Border.all(
           color: selected ? colorScheme.onSurface : colorScheme.outlineVariant,
-          width: selected ? 2.5 : 1,
+          width: selected
+              ? _SwatchMetrics.selectedRingWidth
+              : _SwatchMetrics.ringWidth,
         ),
       ),
       child: selected
-          ? Icon(Icons.check_rounded, size: size * 0.5, color: onFill)
-          : (icon == null ? null : Icon(icon, size: size * 0.5, color: onFill)),
+          ? Icon(
+              Icons.check_rounded,
+              size: size * _SwatchMetrics.glyphShare,
+              color: onFill,
+            )
+          : (icon == null
+                ? null
+                : Icon(
+                    icon,
+                    size: size * _SwatchMetrics.glyphShare,
+                    color: onFill,
+                  )),
     );
     if (tooltip != null) dot = Tooltip(message: tooltip!, child: dot);
-    if (onTap == null && onLongPress == null) return dot;
-    return Semantics(
+    final footprint = size > tapTarget ? size : tapTarget;
+    if (onTap == null && onLongPress == null) {
+      final sample = SizedBox.square(
+        dimension: footprint,
+        child: Center(child: dot),
+      );
+      if (semanticLabel case final label?) {
+        return Semantics(label: label, child: sample);
+      }
+      return sample;
+    }
+    final node = Semantics(
       button: true,
       selected: selected,
       label: semanticLabel,
@@ -417,12 +562,13 @@ class ColorSwatchDot extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         customBorder: const CircleBorder(),
-        child: SizedBox.square(
-          dimension: size > tapTarget ? size : tapTarget,
-          child: Center(child: dot),
-        ),
+        child: SizedBox.square(dimension: footprint, child: Center(child: dot)),
       ),
     );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: node);
+    }
+    return node;
   }
 }
 
@@ -435,8 +581,8 @@ class ColorSwatchPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 24,
-      height: 24,
+      width: _SwatchMetrics.previewDiameter,
+      height: _SwatchMetrics.previewDiameter,
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
