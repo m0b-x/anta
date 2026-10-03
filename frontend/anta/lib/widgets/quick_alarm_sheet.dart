@@ -1,23 +1,37 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/calendar_categories.dart';
+import '../constants/calendar_icons.dart';
+import '../constants/event_title.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../services/event_time_formatter.dart';
 import '../utils/quick_alarm.dart';
 import 'agenda_list_view.dart';
-import 'automation_id.dart';
+import 'alert_type_row.dart';
+import 'event_avatar.dart';
+import 'form_rows.dart';
 import 'time_pad_sheet.dart';
 import 'value_change_highlight.dart';
 
 enum _QuickAlarmPreset { in20Minutes, in1Hour, tonight }
 
-/// The quick-alarm sheet (parent roadmap §5.8, Session 6): a big time, three
-/// presets, a name, the tier and the remove-after switch — the fewest taps
-/// between "I need an alarm" and one that is armed.
+/// The quick-alarm sheet (parent roadmap §5.8, Session 6): the time first
+/// and large, three presets under it, a name, the tier and the remove-after
+/// switch — the fewest taps between "I need an alarm" and one that is armed.
 ///
 /// Reports a [QuickAlarmDraft] on Save and `null` on dismiss; the page mints
 /// the event and its alert from the draft. The sheet never touches a service.
+///
+/// A sub-sheet of the UI language, and one the tier never resizes: both
+/// tiers show the same rows, the remove switch dimmed rather than taken away
+/// on the one that cannot use it.
 class QuickAlarmSheet extends StatefulWidget {
   /// The day the sheet was opened for, date-only UTC. Where the alarm lands
   /// while its time is still ahead on that day; [quickAlarmDayFor] rolls a
@@ -27,19 +41,34 @@ class QuickAlarmSheet extends StatefulWidget {
   /// The clock, a seam so the defaults and the presets can be tested.
   final DateTime Function() now;
 
-  const QuickAlarmSheet({super.key, required this.day, this.now = DateTime.now});
+  const QuickAlarmSheet({
+    super.key,
+    required this.day,
+    this.now = DateTime.now,
+  });
 
   static Future<QuickAlarmDraft?> show(
     BuildContext context, {
     required DateTime day,
     DateTime Function() now = DateTime.now,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<QuickAlarmDraft>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.7,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
         child: QuickAlarmSheet(day: day, now: now),
       ),
     );
@@ -53,10 +82,16 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
   late DateTime _day;
   late int _minute;
   AlertMode _mode = AlertMode.ring;
+
+  /// What the remove switch shows on the Alarm tier. A tier change leaves it
+  /// alone: on the Reminder tier the switch is drawn off and dimmed, and
+  /// going back to Alarm shows what it showed before. Clearing it with the
+  /// tier would lose the default on a round trip through Reminder.
   bool _removeAfter = true;
   _QuickAlarmPreset? _preset;
   final TextEditingController _name = TextEditingController();
   bool _nameSeeded = false;
+  final FormHeaderHairline _hairline = FormHeaderHairline();
 
   @override
   void initState() {
@@ -78,9 +113,12 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
 
   @override
   void dispose() {
+    _hairline.dispose();
     _name.dispose();
     super.dispose();
   }
+
+  void _blur() => FocusManager.instance.primaryFocus?.unfocus();
 
   QuickAlarmMoment? _momentFor(_QuickAlarmPreset preset) {
     final now = widget.now();
@@ -108,6 +146,10 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
   }
 
   Future<void> _pickTime() async {
+    // Before the pad opens: a name field left focused takes the focus back
+    // when the pad closes, and the keyboard comes up over a sheet the user
+    // had finished typing in.
+    _blur();
     final l10n = AppLocalizations.of(context)!;
     final now = widget.now();
     final today = DateTime.utc(now.year, now.month, now.day);
@@ -132,6 +174,11 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
     });
   }
 
+  void _setMode(AlertMode mode) {
+    if (mode == _mode) return;
+    setState(() => _mode = mode);
+  }
+
   DateTime get _resolvedDay =>
       quickAlarmDayFor(day: _day, minute: _minute, now: widget.now());
 
@@ -152,196 +199,164 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
-    final isAlarm = _mode == AlertMode.ring;
-    final now = widget.now();
-    final today = DateTime.utc(now.year, now.month, now.day);
-    final captionStyle = theme.textTheme.bodySmall?.copyWith(
-      color: colorScheme.onSurfaceVariant,
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the rule every calendar sheet
+    // follows (`sheet_bottom_clearance_test.dart`).
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
     );
-
-    // The clearance rides the scroll view rather than the whole body, the
-    // rule every calendar sheet follows — see `sheet_bottom_clearance_test`.
+    final now = widget.now();
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: l10n.cancel,
-                icon: const Icon(Icons.close_rounded),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-              Expanded(
-                child: Text(
-                  l10n.quickAlarmTitle,
-                  style: theme.textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: AutomationId(
-                  identifier: SemanticsIds.quickAlarmSave,
-                  child: FilledButton(
-                    onPressed: _save,
-                    child: Text(l10n.save),
-                  ),
-                ),
-              ),
-            ],
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.quickAlarmClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.quickAlarmTitle,
+          scrolled: _hairline.scrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          trailing: FormHeaderTextButton(
+            label: l10n.save,
+            identifier: SemanticsIds.quickAlarmSave,
+            onPressed: _save,
           ),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: ValueChangeHighlight(
-                    value: _minute,
-                    borderRadius: const BorderRadius.all(Radius.circular(28)),
-                    child: AutomationId(
-                      identifier: SemanticsIds.quickAlarmTime,
-                      child: Tooltip(
-                        message: l10n.quickAlarmPickTime,
-                        child: TextButton(
-                          onPressed: _pickTime,
-                          child: Text(
-                            EventTimeFormatter.formatMinute(_minute, context),
-                            style: theme.textTheme.displayLarge?.copyWith(
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                              color: colorScheme.onSurface,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+        Flexible(
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FormRowGroup(
+                    children: [
+                      _buildTimeRow(l10n, now),
+                      _buildPresetRow(l10n, now),
+                    ],
                   ),
-                ),
-                Text(
-                  AgendaListView.shortDayLabel(l10n, _resolvedDay, today),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    ChoiceChip(
-                      label: Text(l10n.quickAlarmIn20Min),
-                      selected: _preset == _QuickAlarmPreset.in20Minutes,
-                      onSelected: (_) =>
-                          _applyPreset(_QuickAlarmPreset.in20Minutes),
-                    ),
-                    ChoiceChip(
-                      label: Text(l10n.quickAlarmIn1Hour),
-                      selected: _preset == _QuickAlarmPreset.in1Hour,
-                      onSelected: (_) =>
-                          _applyPreset(_QuickAlarmPreset.in1Hour),
-                    ),
-                    ChoiceChip(
-                      label: Text(
-                        l10n.quickAlarmTonight(
-                          EventTimeFormatter.formatMinute(
-                            kQuickAlarmTonightMinute,
-                            context,
-                          ),
-                        ),
-                      ),
-                      selected: _preset == _QuickAlarmPreset.tonight,
-                      // Disabled once 21:00 has passed: the chip must not
-                      // quietly mean tomorrow night.
-                      onSelected: quickAlarmTonightFor(now) == null
-                          ? null
-                          : (_) => _applyPreset(_QuickAlarmPreset.tonight),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                AutomationId(
-                  identifier: SemanticsIds.quickAlarmName,
-                  child: TextField(
-                    controller: _name,
-                    textCapitalization: TextCapitalization.sentences,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      labelText: l10n.eventTitle,
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  l10n.eventAlertTypeSection,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SegmentedButton<AlertMode>(
-                  segments: [
-                    ButtonSegment(
-                      value: AlertMode.ring,
-                      icon: const Icon(Icons.alarm_rounded),
-                      label: Text(l10n.eventAlertModeRing),
-                    ),
-                    ButtonSegment(
-                      value: AlertMode.notify,
-                      icon: const Icon(Icons.notifications_active_rounded),
-                      label: Text(l10n.eventAlertModeNotify),
-                    ),
-                  ],
-                  selected: {_mode},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (selection) => setState(() {
-                    _mode = selection.first;
-                    // The editor's rule: the switch belongs to the alarm tier.
-                    if (_mode != AlertMode.ring) _removeAfter = false;
-                  }),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isAlarm ? l10n.eventAlertRingHint : l10n.eventAlertNotifyHint,
-                  style: captionStyle,
-                ),
-                if (isAlarm) ...[
-                  const SizedBox(height: 16),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: AutomationId(
-                      identifier: SemanticsIds.quickAlarmRemoveAfter,
-                      child: SwitchListTile(
-                        value: _removeAfter,
-                        onChanged: (value) =>
-                            setState(() => _removeAfter = value),
-                        secondary: const CircleAvatar(
-                          child: Icon(Icons.auto_delete_outlined),
-                        ),
-                        title: Text(l10n.eventAlertRemoveAfter),
-                        subtitle: Text(l10n.eventAlertRemoveAfterHint),
-                      ),
-                    ),
+                  FormRowGroup(children: [_buildTitleRow(l10n)]),
+                  FormRowGroup(
+                    trailingGap: false,
+                    children: [_buildTypeRow(), _buildRemoveAfterRow(l10n)],
                   ),
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTimeRow(AppLocalizations l10n, DateTime now) {
+    final today = DateTime.utc(now.year, now.month, now.day);
+    // The highlight stands between the group and the row, so the group
+    // cannot read the row's hairline indent through it.
+    return FormIndentedRow(
+      dividerIndent: FormMetrics.dividerIndentPlain,
+      child: ValueChangeHighlight(
+        value: _minute,
+        // The group's own radius: this is the group's first row, and a flash
+        // on a tighter corner than the group's clip lost its top corners.
+        borderRadius: const BorderRadius.all(
+          Radius.circular(RowMetrics.groupRadius),
+        ),
+        child: FormHeroRow(
+          glyph: Icons.alarm_outlined,
+          value: EventTimeFormatter.formatMinute(_minute, context),
+          caption: AgendaListView.shortDayLabel(l10n, _resolvedDay, today),
+          tooltip: l10n.quickAlarmPickTime,
+          identifier: SemanticsIds.quickAlarmTime,
+          onTap: _pickTime,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPresetRow(AppLocalizations l10n, DateTime now) {
+    return FormChipRow(
+      indented: false,
+      chips: [
+        FormChip(
+          label: l10n.quickAlarmIn20Min,
+          selected: _preset == _QuickAlarmPreset.in20Minutes,
+          identifier: SemanticsIds.quickAlarmPreset20,
+          onTap: () => _applyPreset(_QuickAlarmPreset.in20Minutes),
+        ),
+        FormChip(
+          label: l10n.quickAlarmIn1Hour,
+          selected: _preset == _QuickAlarmPreset.in1Hour,
+          identifier: SemanticsIds.quickAlarmPreset60,
+          onTap: () => _applyPreset(_QuickAlarmPreset.in1Hour),
+        ),
+        FormChip(
+          label: l10n.quickAlarmTonight(
+            EventTimeFormatter.formatMinute(kQuickAlarmTonightMinute, context),
+          ),
+          selected: _preset == _QuickAlarmPreset.tonight,
+          identifier: SemanticsIds.quickAlarmPresetTonight,
+          // Disabled once 21:00 has passed: the chip must not quietly mean
+          // tomorrow night.
+          onTap: quickAlarmTonightFor(now) == null
+              ? null
+              : () => _applyPreset(_QuickAlarmPreset.tonight),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTitleRow(AppLocalizations l10n) {
+    final category = CalendarCategories.resolve(kFallbackCategoryId);
+    return FormTitleRow(
+      // What the event Save makes will wear (`buildQuickAlarmEvent`): the
+      // alarm icon as its own override, in the fallback category's colour.
+      leading: EventAvatar(
+        icon:
+            CalendarIcons.forKey(kQuickAlarmIconKey) ??
+            CalendarIcons.forKey(category.iconKey) ??
+            Icons.event_rounded,
+        color: category.color,
+      ),
+      controller: _name,
+      hint: l10n.eventTitle,
+      maxLength: kEventTitleMaxLength,
+      counterFrom: kEventTitleCounterFrom,
+      counterLabel: l10n.eventTitleCount,
+      textCapitalization: TextCapitalization.sentences,
+      identifier: SemanticsIds.quickAlarmName,
+    );
+  }
+
+  Widget _buildTypeRow() {
+    return AlertTypeRow(
+      mode: _mode,
+      onChanged: _setMode,
+      reminderIdentifier: SemanticsIds.quickAlarmTypeReminder,
+      alarmIdentifier: SemanticsIds.quickAlarmTypeAlarm,
+    );
+  }
+
+  Widget _buildRemoveAfterRow(AppLocalizations l10n) {
+    final isAlarm = _mode == AlertMode.ring;
+    return FormSwitchRow(
+      glyph: Icons.auto_delete_outlined,
+      label: l10n.eventAlertRemoveAfter,
+      subtitle: l10n.eventAlertRemoveAfterHint,
+      identifier: SemanticsIds.quickAlarmRemoveAfter,
+      value: isAlarm && _removeAfter,
+      onChanged: isAlarm
+          ? (value) => setState(() => _removeAfter = value)
+          : null,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsData;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:re_editor/re_editor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/markdown_bar_service.dart';
@@ -109,5 +111,55 @@ void main() {
 
     final after = tester.element(find.byType(CodeEditor));
     expect(identical(before, after), isTrue);
+  });
+
+  testWidgets('a tap in the title row beside its text — its bottom-left '
+      'area, under the avatar — focuses the title', (tester) async {
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    bool focused() => tester
+        .widget<EditableText>(
+          find.descendant(
+            of: find.byType(FormTitleRow),
+            matching: find.byType(EditableText),
+          ),
+        )
+        .focusNode
+        .hasFocus;
+    // A new event opens on its title; dropped first, so the tap is what
+    // focuses it.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+    expect(focused(), isFalse);
+
+    final row = tester.getRect(find.byType(FormTitleRow));
+    final field = tester.getRect(
+      find.descendant(
+        of: find.byType(FormTitleRow),
+        matching: find.byType(TextField),
+      ),
+    );
+    final point = Offset(row.left + 8, row.bottom - 4);
+    expect(field.contains(point), isFalse);
+    await tester.tapAt(point);
+    await tester.pump();
+
+    expect(focused(), isTrue);
+  });
+
+  testWidgets('the title is named by its hint for a screen reader, empty and '
+      'typed', (tester) async {
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    SemanticsData data() => tester
+        .getSemantics(find.bySemanticsIdentifier(SemanticsIds.eventTitle))
+        .getSemanticsData();
+    expect(data().label, 'Title');
+    expect(data().flagsCollection.isTextField, isTrue);
+
+    await tester.enterText(find.byType(TextField), 'Leg day');
+    await tester.pumpAndSettle();
+    expect(data().label, 'Title');
+    expect(data().value, 'Leg day');
   });
 }

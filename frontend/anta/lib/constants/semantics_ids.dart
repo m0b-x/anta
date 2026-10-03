@@ -300,6 +300,34 @@ abstract final class SemanticsIds {
   static const String alertSheetSave = 'alert-sheet-save';
   static const String eventAlertRemoveAfter = 'event-alert-remove-after';
 
+  /// The alert sheet's ✕ and rows (Tier 2,
+  /// `docs/calendar-language-tier-2-roadmap.md`); its header action keeps
+  /// [alertSheetSave]. A When menu item is keyed by what it stores — minutes
+  /// before the start for a timed event, days before for an all-day one —
+  /// because its label is a phrase that changes with the locale.
+  static const String alertSheetClose = 'alert-sheet-close';
+  static const String alertTypeReminder = 'alert-type-reminder';
+  static const String alertTypeAlarm = 'alert-type-alarm';
+  static const String alertWhen = 'alert-when';
+  static String alertWhenItem(int minutes) => 'alert-when-$minutes';
+  static String alertWhenDayItem(int days) => 'alert-when-day-$days';
+  static const String alertWhenCustom = 'alert-when-custom';
+  static const String alertWhenDayCustom = 'alert-when-day-custom';
+  static const String alertTimeOfDay = 'alert-time-of-day';
+  static const String alertSound = 'alert-sound';
+  static const String alertRemoveAfter = 'alert-remove-after';
+  static const String alertRemove = 'alert-remove';
+
+  /// The Custom sub-sheet behind the When menu's last item: its ✕ and Done,
+  /// the three unit chips a timed event gets and the stepper's two buttons.
+  static const String alertCustomClose = 'alert-custom-close';
+  static const String alertCustomDone = 'alert-custom-done';
+  static const String alertCustomUnitMinutes = 'alert-custom-unit-minutes';
+  static const String alertCustomUnitHours = 'alert-custom-unit-hours';
+  static const String alertCustomUnitDays = 'alert-custom-unit-days';
+  static const String alertCustomLess = 'alert-custom-less';
+  static const String alertCustomMore = 'alert-custom-more';
+
   /// The quick-alarm sheet (parent Session 6) and the picker row that opens
   /// it: a device pass sets an alarm in whatever language the phone is in.
   static const String quickAlarmRow = 'quick-alarm-row';
@@ -307,6 +335,44 @@ abstract final class SemanticsIds {
   static const String quickAlarmName = 'quick-alarm-name';
   static const String quickAlarmSave = 'quick-alarm-save';
   static const String quickAlarmRemoveAfter = 'quick-alarm-remove-after';
+
+  /// The quick alarm's ✕, its three presets and its two tier chips (Tier 2).
+  /// The tier chips are the alert sheet's words on a second sheet, so they
+  /// take ids of their own rather than sharing [alertTypeReminder].
+  static const String quickAlarmClose = 'quick-alarm-close';
+  static const String quickAlarmPreset20 = 'quick-alarm-preset-20';
+  static const String quickAlarmPreset60 = 'quick-alarm-preset-60';
+  static const String quickAlarmPresetTonight = 'quick-alarm-preset-tonight';
+  static const String quickAlarmTypeReminder = 'quick-alarm-type-reminder';
+  static const String quickAlarmTypeAlarm = 'quick-alarm-type-alarm';
+
+  /// The template form (Tier 2): its ✕ and Save and every row. The form is
+  /// the event editor's twin and wears the editor's labels, so its rows are
+  /// told apart from the editor's by id — the editor's `event-…` as
+  /// `template-…`.
+  static const String templateClose = 'template-close';
+  static const String templateSave = 'template-save';
+  static const String templateName = 'template-name';
+  static const String templateCategory = 'template-category';
+  static const String templateLook = 'template-look';
+  static const String templateDescription = 'template-description';
+  static const String templateAllDay = 'template-all-day';
+  static const String templateStarts = 'template-starts';
+  static const String templateEnds = 'template-ends';
+  static const String templateEndsClear = 'template-ends-clear';
+  static const String templateRepeat = 'template-repeat';
+  static const String templateCount = 'template-count';
+  static const String templateCountStyleNumbered =
+      'template-count-style-numbered';
+  static const String templateCountStyleElapsed =
+      'template-count-style-elapsed';
+  static const String templatePresence = 'template-presence';
+  static const String templateAssumePresent = 'template-assume-present';
+  static const String templateAssumeAbsent = 'template-assume-absent';
+  static const String templatePerDay = 'template-per-day';
+  static const String templatePriority = 'template-priority';
+  static String templatePriorityItem(int priority) =>
+      'template-priority-$priority';
 
   static const String timePadCancel = 'time-pad-cancel';
   static const String timePadDone = 'time-pad-done';

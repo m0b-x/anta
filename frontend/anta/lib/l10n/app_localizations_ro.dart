@@ -30,12 +30,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventAllDay => 'Toată ziua';
 
   @override
-  String get eventAllDayHint => 'Evenimentul durează toată ziua';
-
-  @override
-  String get eventTimeSection => 'Ora';
-
-  @override
   String get eventStartTime => 'Ora de început';
 
   @override
@@ -609,10 +603,6 @@ class AppLocalizationsRo extends AppLocalizations {
       'Descriere separată pentru fiecare zi';
 
   @override
-  String get eventPerOccurrenceDescriptionsDesc =>
-      'Acest eveniment păstrează câte o descriere pentru fiecare zi. Descrierea evenimentului devine șablonul de la care pornește fiecare zi.';
-
-  @override
   String get eventDescriptionScopeAllDays => 'Toate zilele';
 
   @override
@@ -695,12 +685,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventDate => 'Data de început';
 
   @override
-  String get repeatMode => 'Repetare';
-
-  @override
-  String get repeatOnce => 'O singură dată';
-
-  @override
   String get recurrenceWorkdays => 'Zile lucrătoare';
 
   @override
@@ -773,10 +757,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get recurrenceIntervalLabel => 'Repetă la fiecare';
 
   @override
-  String get recurrenceIntervalDecrement => 'Mai rar';
+  String get recurrenceIntervalDecrement => 'Mai des';
 
   @override
-  String get recurrenceIntervalIncrement => 'Mai des';
+  String get recurrenceIntervalIncrement => 'Mai rar';
 
   @override
   String recurrenceUnitDays(int count) {
@@ -833,17 +817,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get recurrenceScopeLabel => 'Apariții';
 
   @override
-  String get recurrenceScopeFromStart => 'De la această dată';
-
-  @override
   String get recurrenceScopeAlways => 'Întotdeauna';
 
   @override
   String get recurrenceScopeEveryYear => 'În fiecare an';
-
-  @override
-  String get recurrenceScopeHint =>
-      'Apare și în zilele potrivite dinaintea datei de început';
 
   @override
   String recurrenceScopeAlwaysSuffix(String rule) {
@@ -854,21 +831,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventTrackPresence => 'Urmărește prezența';
 
   @override
-  String get eventTrackPresenceDesc => 'Marchează zilele sărite.';
-
-  @override
   String get eventAssumePresent => 'Prezent implicit';
 
   @override
   String get eventAssumeAbsent => 'Absent implicit';
-
-  @override
-  String get eventAssumePresentHint =>
-      'Zilele contează ca prezente până le marchezi ca ratate.';
-
-  @override
-  String get eventAssumeAbsentHint =>
-      'Zilele contează ca ratate până le marchezi ca prezente.';
 
   @override
   String get eventAssumeAbsentFrom => 'Absent din';
@@ -902,10 +868,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventCountOccurrences => 'Numără aparițiile';
-
-  @override
-  String get eventCountOccurrencesHint =>
-      'Fiecare apariție primește o etichetă care numără de la data de început. Pentru vârste și aniversări, numără de la 0.';
 
   @override
   String get eventCountStyleNumbered => 'Numără de la 1';
@@ -3026,9 +2988,9 @@ class AppLocalizationsRo extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'cu $count de min înainte',
-      few: 'cu $count min înainte',
-      one: 'cu 1 min înainte',
+      other: 'Cu $count de min înainte',
+      few: 'Cu $count min înainte',
+      one: 'Cu 1 min înainte',
     );
     return '$_temp0';
   }
@@ -3038,9 +3000,9 @@ class AppLocalizationsRo extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'cu $count de ore înainte',
-      few: 'cu $count ore înainte',
-      one: 'cu 1 oră înainte',
+      other: 'Cu $count de ore înainte',
+      few: 'Cu $count ore înainte',
+      one: 'Cu 1 oră înainte',
     );
     return '$_temp0';
   }
@@ -3050,9 +3012,9 @@ class AppLocalizationsRo extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'cu $count de zile înainte',
-      few: 'cu $count zile înainte',
-      one: 'cu o zi înainte',
+      other: 'Cu $count de zile înainte',
+      few: 'Cu $count zile înainte',
+      one: 'Cu o zi înainte',
     );
     return '$_temp0';
   }
@@ -3072,9 +3034,9 @@ class AppLocalizationsRo extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'cu $count de zile înainte, $time',
-      few: 'cu $count zile înainte, $time',
-      one: 'cu o zi înainte, $time',
+      other: 'Cu $count de zile înainte, $time',
+      few: 'Cu $count zile înainte, $time',
+      one: 'Cu o zi înainte, $time',
     );
     return '$_temp0';
   }
@@ -3094,9 +3056,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get templateName => 'Numele șablonului';
-
-  @override
-  String get templateNameHint => 'Zi de împins';
 
   @override
   String get saveAsTemplate => 'Salvează ca șablon';
@@ -5156,6 +5115,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventAlertCustom => 'Personalizat';
 
   @override
+  String get eventAlertCustomItem => 'Personalizat…';
+
+  @override
   String get eventAlertUnitMinutes => 'Minute';
 
   @override
@@ -5484,6 +5446,10 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get recurrenceBeforeStartYearlyHint => 'Și în anii anteriori';
+
+  @override
+  String get recurrenceBeforeStartTemplateHint =>
+      'Și în zilele potrivite dinaintea zilei în care este adăugat';
 
   @override
   String recurrenceUntilSuffix(String rule, String date) {

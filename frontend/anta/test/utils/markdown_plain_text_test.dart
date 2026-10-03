@@ -106,6 +106,56 @@ void main() {
     });
   });
 
+  group('MarkdownPlainText.strip without a ledger', () {
+    String strip(String content) =>
+        MarkdownPlainText.strip(content, money: false);
+
+    test('a dollar-led line is kept as the text it was typed as', () {
+      expect(strip('\$= 500'), '\$= 500');
+      expect(strip('\$= 500 start'), '\$= 500 start');
+      expect(strip('\$+ 45.00 chalk'), '\$+ 45.00 chalk');
+      expect(strip('\$- blue: 30 taxi'), '\$- blue: 30 taxi');
+      expect(
+        strip('\$= Net worth: 5000 lei as of today'),
+        '\$= Net worth: 5000 lei as of today',
+      );
+    });
+
+    test('a display row keeps its marker and its count', () {
+      expect(strip('\$\$ Total'), '\$\$ Total');
+      expect(strip('\$^ 3 Recent'), '\$^ 3 Recent');
+    });
+
+    test('the shapes around such a line are still unwrapped', () {
+      expect(strip('- \$+ 12.50 coffee'), '\$+ 12.50 coffee');
+      expect(strip('## \$= 500 start'), '\$= 500 start');
+      expect(strip('> \$= 500'), '\$= 500');
+      expect(strip('>> - \$+ 12.50 coffee'), '\$+ 12.50 coffee');
+    });
+
+    test('its inline markers are still dropped', () {
+      expect(strip('\$= 500 **start**'), '\$= 500 start');
+      // The emphasis wrapper of a money row is plain emphasis here.
+      expect(strip('*\$= 500*'), '\$= 500');
+    });
+
+    test('every other line strips as it does for a note', () {
+      const content =
+          '# Title\n- [x] done\n> [!tip] Careful\n**b** `c` [[Leg Day]]\n'
+          '| a | b |\n- \$100 coffee';
+
+      expect(strip(content), MarkdownPlainText.strip(content));
+      expect(strip(''), '');
+      expect(strip('---'), '---');
+    });
+
+    test('with a ledger, which is the default, the same lines are rows', () {
+      expect(MarkdownPlainText.strip('\$= 500'), '500');
+      expect(MarkdownPlainText.strip('\$= 500', money: true), '500');
+      expect(MarkdownPlainText.strip('> \$\$ Total'), 'Total');
+    });
+  });
+
   group('MarkdownPlainText.strip output shape', () {
     test('falls back to the raw collapse when every line strips empty', () {
       const content = '---\n***\n```\nonly fence\n```';

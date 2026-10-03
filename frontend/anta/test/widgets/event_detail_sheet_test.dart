@@ -69,6 +69,7 @@ void main() {
     Locale locale = const Locale('en'),
     Size size = const Size(412, 1800),
     double textScale = 1,
+    bool use24HourFormat = true,
     void Function(DateTime day, bool missed)? onPresenceChanged,
     Future<String?> Function(String noteId)? resolveNoteTitle,
   }) async {
@@ -86,7 +87,7 @@ void main() {
           // neutral strings the rest of the calendar prints.
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(textScale),
-            alwaysUse24HourFormat: true,
+            alwaysUse24HourFormat: use24HourFormat,
           ),
           child: child!,
         ),
@@ -396,6 +397,33 @@ void main() {
         event(time: const EventTime(startMinute: 450), removeAfterAlert: true),
       );
       expect(find.text('Remove after it rings'), findsOneWidget);
+    });
+
+    testWidgets("an all-day alert's time follows the phone's clock", (
+      tester,
+    ) async {
+      EventAlerts.updateCache(
+        byEvent: {
+          'e1': const [
+            EventAlert(
+              id: 'a1',
+              eventId: 'e1',
+              daysBefore: 1,
+              dayMinute: 20 * 60,
+            ),
+          ],
+        },
+      );
+      await openSheet(tester, event());
+      expect(find.text('The day before, 20:00'), findsOneWidget);
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.eventDetailClose),
+      );
+      await tester.pumpAndSettle();
+      await openSheet(tester, event(), use24HourFormat: false);
+      expect(find.text('The day before, 8:00 PM'), findsOneWidget);
+      expect(find.text('The day before, 20:00'), findsNothing);
     });
   });
 

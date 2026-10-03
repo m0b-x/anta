@@ -46,6 +46,28 @@ abstract final class FormMetrics {
   static const double twoLineRowMinHeight = RowMetrics.twoLineMinHeight;
   static const double titleRowMinHeight = 56;
 
+  /// The title row's own geometry (`FormTitleRow`): the air above and below
+  /// its 40 dp avatar, which is what makes the row 56; the inset that drops
+  /// the field's first 26 px line onto the avatar's centre line; and the gap
+  /// between the field and the counter under it.
+  static const double titleRowVerticalPadding = 8;
+  static const double titleFieldTopInset = 7;
+  static const double titleCounterTopInset = 2;
+
+  /// The value a sheet leads with — the quick alarm's time — and the line it
+  /// sits on.
+  static const double heroValueSize = 40;
+  static const double heroValueLineHeight = 46;
+
+  /// The hero row (`FormHeroRow`): the two-line row's padding around a
+  /// [heroValueLineHeight] line, the 2 dp line gap and an 18 px caption line.
+  static const double heroRowMinHeight = 84;
+
+  /// The stepper row's value box (`FormStepperRow`). A floor rather than the
+  /// text's own width, so the minus button does not slide under the thumb as
+  /// "9 weeks" becomes "10 weeks".
+  static const double stepperValueMinWidth = 96;
+
   /// The box a row's leading widget sits in — an `EventAvatar`'s diameter —
   /// so a row that carries one keeps the title row's 56 dp shape and its
   /// divider indent whatever the widget draws.
@@ -69,6 +91,11 @@ abstract final class FormMetrics {
   );
   static const double captionSize = RowMetrics.secondLineFontSize;
   static const double counterSize = 12;
+
+  /// The colour dot before a row's value — what Icon & color reads back —
+  /// at the browser's label dot, so a colour dot is one size on every row
+  /// that shows one.
+  static const double valueDotSize = RowMetrics.labelDotSize;
   static const double trailingIconSize = 20;
   static const double trailingButtonSize = 48;
 
@@ -82,6 +109,11 @@ abstract final class FormMetrics {
   static const double rowEndPadding = 12;
   static const double pairVerticalPadding = 6;
   static const double pairRunSpacing = 2;
+
+  /// The lines a row's value may take before it ellipsizes — the value of a
+  /// label · value pair, a description read back as a row. Two, so a long
+  /// value still reads as a value and its row never turns into a paragraph.
+  static const int valueMaxLines = 2;
 
   /// A caption line that belongs to the row above it (the next occurrences
   /// after "Next occurrence", the adherence lines under the presence chips):
@@ -132,6 +164,9 @@ abstract final class FormMetrics {
   static const double dividerIndentPlain = RowMetrics.dividerIndentPlain;
   static const double dividerIndentTitle = 70;
 
+  /// A chip's height while its label's line fits it, which is up to 160 %
+  /// text; past that it is the chip's minimum and the chip grows with the
+  /// line, so a label is never cut.
   static const double chipHeight = 32;
   static const double chipRadius = 8;
   static const double chipFontSize = 14;

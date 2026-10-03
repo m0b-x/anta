@@ -1,0 +1,48 @@
+# The quick alarm (docs/calendar-language-tier-2-roadmap.md §3.4): a long
+# press on today, the picker's Alarm… row, the sheet on its ids — the time
+# row into the pad and out through its ✕, a preset, a typed title, Type to
+# Reminder and back — then Save, the snackbar and its Undo, which deletes the
+# event again; the Alerts hub is where the deletion is read.
+# - Nothing here asserts the time or the day: the sheet opens on the next
+#   quarter hour, "In 20 min" lands tomorrow in the last minutes of a day
+#   (and the grid then selects tomorrow, so the flow ends on Go to today),
+#   and Tonight is switched off (in place) once 21:00 has passed.
+# - The sheet opens on Alarm; the quick alarm has no full-screen warning, so
+#   the line under the chips names the tier on both.
+# - The snackbar stays three seconds: Undo is the step right after it shows.
+# - The saved alarm's row may sit below the day panel's fold, where a node
+#   counts as absent. The hub lists the soonest alert first, so "Tea timer"
+#   absent there means the event and its alert are gone.
+longpress "{{longdate}}"
+wait id:quick-alarm-row
+tap id:quick-alarm-row
+wait id:quick-alarm-save
+expect id:quick-alarm-close id:quick-alarm-time id:quick-alarm-preset-20 id:quick-alarm-preset-60 id:quick-alarm-preset-tonight id:quick-alarm-name id:quick-alarm-type-reminder id:quick-alarm-type-alarm id:quick-alarm-remove-after "Plays on the alarm stream until you stop or snooze it."
+shot 14_quick_alarm
+tap id:quick-alarm-time
+wait id:time-pad-done
+tap id:time-pad-cancel
+wait id:quick-alarm-save
+tap id:quick-alarm-preset-20
+tap id:quick-alarm-name
+type "Tea timer" --replace
+tap id:quick-alarm-type-reminder
+expect "Sits in the shade with Snooze and Done. Silent mode and Focus apply." "Tea timer"
+shot 14_quick_alarm_reminder
+tap id:quick-alarm-type-alarm
+expect "Plays on the alarm stream until you stop or snooze it."
+tap id:quick-alarm-save
+wait "UNDO"
+expect "Tea timer set for"
+shot 14_quick_alarm_set
+tap "UNDO"
+wait "UNDO" --gone
+tap id:calendar-more
+wait id:calendar-alerts-open
+tap id:calendar-alerts-open
+wait id:calendar-add-event --gone
+expect "Alerts" --absent "Tea timer"
+key back
+wait id:calendar-add-event
+tap id:calendar-today
+errors

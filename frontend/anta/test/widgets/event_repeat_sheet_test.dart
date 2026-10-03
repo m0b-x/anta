@@ -1,10 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +30,14 @@ void main() {
     await initializeDateFormatting('en');
   });
 
-  Future<_Outcome> open(WidgetTester tester, EventRepeatDraft draft) async {
+  /// [forTemplate] opens the template variant. Left false the call is the
+  /// event editor's own, argument for argument, so every case that does not
+  /// ask for the variant also proves the default.
+  Future<_Outcome> open(
+    WidgetTester tester,
+    EventRepeatDraft draft, {
+    bool forTemplate = false,
+  }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = surface;
@@ -39,12 +51,20 @@ void main() {
           body: Builder(
             builder: (context) => TextButton(
               onPressed: () async {
-                final result = await EventRepeatSheet.show(
-                  context,
-                  draft: draft,
-                  startDate: startDate,
-                  appearance: const CalendarAppearance(),
-                );
+                final result = forTemplate
+                    ? await EventRepeatSheet.show(
+                        context,
+                        draft: draft,
+                        startDate: startDate,
+                        appearance: const CalendarAppearance(),
+                        forTemplate: true,
+                      )
+                    : await EventRepeatSheet.show(
+                        context,
+                        draft: draft,
+                        startDate: startDate,
+                        appearance: const CalendarAppearance(),
+                      );
                 outcome.record(result);
               },
               child: const Text('open'),
@@ -234,21 +254,21 @@ void main() {
     );
 
     expect(shown('1 week'), findsOneWidget);
-    expect(stepAction(tester, 'Less frequent'), isNull);
-    expect(stepAction(tester, 'More frequent'), isNotNull);
-
-    await tap(tester, find.byTooltip('More frequent').hitTestable());
-
-    expect(shown('2 weeks'), findsOneWidget);
-    expect(shown('1 week'), findsNothing);
+    expect(stepAction(tester, 'More frequent'), isNull);
     expect(stepAction(tester, 'Less frequent'), isNotNull);
 
     await tap(tester, find.byTooltip('Less frequent').hitTestable());
 
-    expect(shown('1 week'), findsOneWidget);
-    expect(stepAction(tester, 'Less frequent'), isNull);
+    expect(shown('2 weeks'), findsOneWidget);
+    expect(shown('1 week'), findsNothing);
+    expect(stepAction(tester, 'More frequent'), isNotNull);
 
     await tap(tester, find.byTooltip('More frequent').hitTestable());
+
+    expect(shown('1 week'), findsOneWidget);
+    expect(stepAction(tester, 'More frequent'), isNull);
+
+    await tap(tester, find.byTooltip('Less frequent').hitTestable());
     await tap(tester, done());
 
     expect(outcome.result!.interval, 2);
@@ -265,13 +285,46 @@ void main() {
     );
 
     expect(shown('99 days'), findsOneWidget);
-    expect(stepAction(tester, 'More frequent'), isNull);
-    expect(stepAction(tester, 'Less frequent'), isNotNull);
+    expect(stepAction(tester, 'Less frequent'), isNull);
+    expect(stepAction(tester, 'More frequent'), isNotNull);
 
-    await tap(tester, find.byTooltip('Less frequent').hitTestable());
+    await tap(tester, find.byTooltip('More frequent').hitTestable());
 
     expect(shown('98 days'), findsOneWidget);
-    expect(stepAction(tester, 'More frequent'), isNotNull);
+    expect(stepAction(tester, 'Less frequent'), isNotNull);
+  });
+
+  testWidgets('the stepper\'s buttons say what they do to the event: minus '
+      'makes it more frequent, plus less', (tester) async {
+    // A smaller interval is a more frequent event, so the names run against
+    // the signs. A screen reader has only the names.
+    final outcome = await open(
+      tester,
+      const EventRepeatDraft(
+        recurring: true,
+        kind: RepeatKind.daily,
+        interval: 3,
+      ),
+    );
+
+    IconButton buttonWith(IconData icon) => tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(icon).hitTestable(),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(buttonWith(Icons.remove_rounded).tooltip, 'More frequent');
+    expect(buttonWith(Icons.add_rounded).tooltip, 'Less frequent');
+
+    await tap(tester, find.byTooltip('More frequent').hitTestable());
+    expect(shown('2 days'), findsOneWidget);
+
+    await tap(tester, find.byTooltip('Less frequent').hitTestable());
+    await tap(tester, find.byTooltip('Less frequent').hitTestable());
+    expect(shown('4 days'), findsOneWidget);
+
+    await tap(tester, done());
+    expect(outcome.result!.interval, 4);
   });
 
   testWidgets('the unit follows the kind', (tester) async {
@@ -586,6 +639,415 @@ void main() {
     final result = outcome.result!;
     expect(result.weekdays, {4});
     expect(() => result.weekdays.add(2), throwsUnsupportedError);
+  });
+
+  group('the template variant', () {
+    const templateHint = 'Also on matching days before the day it is added';
+    const datedHint = 'Shows on matching days before Sep 25, 2026';
+    const recurringLabels = [
+      'Daily',
+      'Weekly',
+      'Monthly',
+      'Yearly',
+      'Workdays',
+      'Weekends',
+    ];
+    const oneTime = EventRepeatDraft(recurring: false, kind: RepeatKind.daily);
+
+    testWidgets('lists seven options in order: Public holidays only is not '
+        'offered', (tester) async {
+      await open(tester, oneTime, forTemplate: true);
+
+      var previousTop = double.negativeInfinity;
+      for (final label in ['Does not repeat', ...recurringLabels]) {
+        expect(find.text(label), findsOneWidget);
+        final top = tester.getTopLeft(find.text(label)).dy;
+        expect(top, greaterThan(previousTop), reason: '$label is out of order');
+        previousTop = top;
+      }
+      expect(find.text('Public holidays only'), findsNothing);
+    });
+
+    testWidgets('has no Ends row for any kind and keeps the before-start '
+        'switch', (tester) async {
+      await open(tester, oneTime, forTemplate: true);
+      expect(shown('Also before the start date'), findsNothing);
+
+      for (final label in recurringLabels) {
+        await tap(tester, find.text(label));
+        // Nowhere in the tree: the copy that sizes the area has no Ends row
+        // either, so no room is kept for one.
+        expect(find.text('Ends'), findsNothing, reason: '$label offers Ends');
+        expect(find.text('Never'), findsNothing, reason: '$label offers Ends');
+        expect(
+          shown('Also before the start date'),
+          findsOneWidget,
+          reason: '$label lost the switch',
+        );
+      }
+    });
+
+    testWidgets('a draft that arrives with an end date shows none and hands '
+        'it back untouched', (tester) async {
+      final endDate = DateTime.utc(2026, 12, 31);
+      final outcome = await open(
+        tester,
+        EventRepeatDraft(
+          recurring: true,
+          kind: RepeatKind.monthly,
+          endDate: endDate,
+        ),
+        forTemplate: true,
+      );
+
+      expect(find.text('Ends'), findsNothing);
+      expect(find.byTooltip('Remove end date'), findsNothing);
+      expect(find.text('Dec 31, 2026'), findsNothing);
+
+      await tap(tester, done());
+
+      expect(outcome.result!.endDate, endDate);
+    });
+
+    testWidgets('the before-start switch reads the template hint and never '
+        'names the start date', (tester) async {
+      await open(
+        tester,
+        const EventRepeatDraft(recurring: true, kind: RepeatKind.monthly),
+        forTemplate: true,
+      );
+
+      expect(shown(templateHint), findsOneWidget);
+      expect(find.text(datedHint), findsNothing);
+
+      await tap(tester, find.text('Yearly'));
+
+      expect(shown('Also in earlier years'), findsOneWidget);
+      expect(shown(templateHint), findsNothing);
+
+      for (final label in ['Daily', 'Weekly', 'Workdays', 'Weekends']) {
+        await tap(tester, find.text(label));
+        expect(shown(templateHint), findsOneWidget, reason: label);
+        expect(find.text(datedHint), findsNothing, reason: label);
+      }
+    });
+
+    testWidgets('no weekday is pre-selected, so Weekly keeps Done disabled '
+        'until one is picked', (tester) async {
+      final outcome = await open(tester, oneTime, forTemplate: true);
+      expect(doneAction(tester), isNotNull);
+
+      await tap(tester, find.text('Weekly'));
+
+      expect(doneAction(tester), isNull);
+      expect(shown('Pick at least one weekday'), findsOneWidget);
+      for (final name in weekdayNames) {
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(name)),
+          matchesSemantics(
+            label: name,
+            isButton: true,
+            hasSelectedState: true,
+            isSelected: false,
+            hasTapAction: true,
+            hasFocusAction: true,
+            isFocusable: true,
+          ),
+          reason: '$name is pre-selected',
+        );
+      }
+
+      await tap(tester, find.bySemanticsLabel('Wednesday'));
+
+      expect(doneAction(tester), isNotNull);
+      expect(shown('Pick at least one weekday'), findsNothing);
+      expect(shown('Wed'), findsOneWidget);
+
+      await tap(tester, done());
+
+      final result = outcome.result!;
+      expect(result.recurring, isTrue);
+      expect(result.kind, RepeatKind.weekly);
+      expect(result.weekdays, {3});
+    });
+
+    testWidgets('the interval and the switch round-trip through Done', (
+      tester,
+    ) async {
+      final outcome = await open(
+        tester,
+        const EventRepeatDraft(recurring: true, kind: RepeatKind.monthly),
+        forTemplate: true,
+      );
+
+      expect(shown('1 month'), findsOneWidget);
+      await tap(tester, find.byTooltip('Less frequent').hitTestable());
+      expect(shown('2 months'), findsOneWidget);
+      await tap(tester, shown('Also before the start date'));
+      await tap(tester, done());
+
+      final result = outcome.result!;
+      expect(result.recurring, isTrue);
+      expect(result.kind, RepeatKind.monthly);
+      expect(result.interval, 2);
+      expect(result.retroactive, isTrue);
+      expect(result.endDate, isNull);
+      expect(find.byType(EventRepeatSheet), findsNothing);
+    });
+
+    testWidgets('the close button returns null', (tester) async {
+      final outcome = await open(tester, oneTime, forTemplate: true);
+
+      await tap(tester, find.text('Monthly'));
+      await tap(tester, find.byTooltip('Cancel'));
+
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+    });
+
+    testWidgets('the sheet keeps one height across kinds, weekdays and the '
+        'switch', (tester) async {
+      await open(
+        tester,
+        const EventRepeatDraft(recurring: true, kind: RepeatKind.daily),
+        forTemplate: true,
+      );
+      final height = sheetHeight(tester);
+      expect(height, lessThan(surface.height * 0.92));
+
+      void check(String step) {
+        expect(sheetHeight(tester), height, reason: 'moved after $step');
+      }
+
+      await tap(tester, find.text('Weekly'));
+      check('weekly with no weekday');
+      expect(shown('Pick at least one weekday'), findsOneWidget);
+
+      for (final name in weekdayNames) {
+        await tap(tester, find.bySemanticsLabel(name));
+      }
+      check('seven weekdays');
+
+      await tap(tester, shown('Also before the start date'));
+      check('switching retroactive on');
+
+      for (final label in [
+        'Monthly',
+        'Yearly',
+        'Workdays',
+        'Weekends',
+        'Does not repeat',
+        'Daily',
+      ]) {
+        await tap(tester, find.text(label));
+        check(label);
+      }
+    });
+
+    testWidgets('it is shorter than the editor\'s sheet by exactly the two '
+        'rows it never shows', (tester) async {
+      const draft = EventRepeatDraft(recurring: true, kind: RepeatKind.daily);
+      await open(tester, draft);
+      final editorHeight = sheetHeight(tester);
+      await tap(tester, find.byTooltip('Cancel'));
+
+      await open(tester, draft, forTemplate: true);
+
+      // The Public holidays only row and the Ends row, each with the
+      // hairline that came with it.
+      expect(
+        editorHeight - sheetHeight(tester),
+        2 * (FormMetrics.rowMinHeight + 1),
+      );
+    });
+
+    testWidgets('without forTemplate the sheet is the editor\'s: eight '
+        'kinds, Ends and the dated hint', (tester) async {
+      await open(
+        tester,
+        const EventRepeatDraft(recurring: true, kind: RepeatKind.monthly),
+      );
+
+      expect(find.text('Public holidays only'), findsOneWidget);
+      expect(shown('Ends'), findsOneWidget);
+      expect(shown('Never'), findsOneWidget);
+      expect(shown(datedHint), findsOneWidget);
+      expect(find.text(templateHint), findsNothing);
+    });
+
+    testWidgets('German at text scale 2.0 on a 360 × 780 phone lays out '
+        'without overflow, the hint in full', (tester) async {
+      await initializeDateFormatting('de');
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => EventRepeatSheet.show(
+                  context,
+                  draft: const EventRepeatDraft(
+                    recurring: true,
+                    kind: RepeatKind.weekly,
+                    weekdays: {1, 4},
+                  ),
+                  startDate: startDate,
+                  appearance: const CalendarAppearance(),
+                  forTemplate: true,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(sheetHeight(tester), lessThanOrEqualTo(780 * 0.92));
+
+      // The visible copy is the later of the two; the first only sizes.
+      const hint = 'Auch an passenden Tagen vor dem Tag des Hinzufügens';
+      final shownHint = find.text(hint).last;
+      await tester.ensureVisible(shownHint);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final text = tester.widget<Text>(shownHint);
+      expect(text.maxLines, isNull);
+      expect(text.overflow, isNull);
+      // Wrapped under the switch's label, inside the group.
+      expect(tester.getSize(shownHint).height, greaterThan(18 * 2.0));
+      expect(
+        tester.getRect(shownHint).right,
+        lessThanOrEqualTo(360 - RowMetrics.groupInset),
+      );
+      expect(find.text('Endet'), findsNothing);
+      expect(find.text('Nur an Feiertagen'), findsNothing);
+    });
+
+    testWidgets('German at text scale 2.0 on a 360 × 780 phone: stepping the '
+        'interval from 1 to 12 moves neither button, the label stays whole '
+        'under no stepper, and the sheet keeps its height', (tester) async {
+      await initializeDateFormatting('de');
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => EventRepeatSheet.show(
+                  context,
+                  draft: const EventRepeatDraft(
+                    recurring: true,
+                    kind: RepeatKind.weekly,
+                    weekdays: {1, 4},
+                  ),
+                  startDate: startDate,
+                  appearance: const CalendarAppearance(),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final height = sheetHeight(tester);
+
+      // The live row's parts are the last of each: the sizer lays its copies
+      // out first, one per kind, unseen and under the fold or not.
+      Finder less() => find.byTooltip('Häufiger').last;
+      Finder more() => find.byTooltip('Seltener').last;
+      Finder label() => find.text('Wiederholen alle').last;
+      Future<void> reveal(Finder finder) async {
+        await tester.ensureVisible(finder);
+        await tester.pumpAndSettle();
+      }
+
+      await reveal(label());
+      // The label is whole — never broken inside a word while its row can
+      // hold the word; the test font, a full em a glyph, makes "Wiederholen"
+      // wider than the row itself at this scale, and then the label is the
+      // row's whole width — and has the stepper under it, not beside it.
+      void expectLabelWholeOverTheStepper() {
+        final paragraph = tester.renderObject<RenderParagraph>(label());
+        final rowWidth =
+            tester.getSize(find.byType(FormStepperRow).last).width -
+            RowMetrics.groupInset;
+        expect(
+          paragraph.size.width,
+          greaterThanOrEqualTo(
+            math.min(
+                  paragraph.getMinIntrinsicWidth(double.infinity),
+                  rowWidth,
+                ) -
+                0.01,
+          ),
+        );
+        expect(
+          tester.getRect(less()).top,
+          greaterThanOrEqualTo(tester.getRect(label()).bottom),
+        );
+      }
+
+      expectLabelWholeOverTheStepper();
+      expect(shown('1 Woche'), findsOneWidget);
+      // Where the buttons stand across the row: the value box is sized for
+      // "99 Wochen" from the start. (Their height on the row is the test
+      // font's to vary: a two-digit "Wochen" is wider than the row can give
+      // the box here and wraps inside it, which a phone's font never does.)
+      final lessLeft = tester.getRect(less()).left;
+      final moreLeft = tester.getRect(more()).left;
+      expect(
+        tester.getRect(more()).right,
+        360 - RowMetrics.groupInset,
+        reason: 'the stepper is end-aligned',
+      );
+
+      for (var interval = 2; interval <= 12; interval++) {
+        await reveal(more());
+        await tester.tap(more());
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: '$interval');
+        expect(shown('$interval Wochen'), findsOneWidget);
+        expect(sheetHeight(tester), height, reason: 'moved at $interval');
+        expect(tester.getRect(less()).left, lessLeft, reason: '$interval');
+        expect(tester.getRect(more()).left, moreLeft, reason: '$interval');
+        expectLabelWholeOverTheStepper();
+      }
+
+      for (final kind in ['Monatlich', 'Täglich', 'Jährlich', 'Wöchentlich']) {
+        await reveal(find.text(kind));
+        await tester.tap(find.text(kind));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: kind);
+        expect(sheetHeight(tester), height, reason: 'moved after $kind');
+      }
+    });
   });
 
   test('the draft compares by value with the weekday set unordered', () {

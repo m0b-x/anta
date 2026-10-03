@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
@@ -65,6 +66,29 @@ class FormRowGroup extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A row that is not one of the primitives — a description cell, a row
+/// inside a `ValueChangeHighlight` — carrying the hairline indent the group
+/// draws under it.
+///
+/// [FormRowGroup] reads the indent off a [FormDividedRow] and off nothing
+/// else, so a wrapped row falls back to the glyph indent whatever the row
+/// inside it says.
+class FormIndentedRow extends FormDividedRow {
+  final Widget child;
+
+  @override
+  final double dividerIndent;
+
+  const FormIndentedRow({
+    super.key,
+    required this.dividerIndent,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) => child;
 }
 
 /// One row of a rounded group, drawn on its own — the row-at-a-time twin of
@@ -206,6 +230,8 @@ class FormSheetHeader extends StatelessWidget {
 
   final double trailingInset;
 
+  /// Whether the body has scrolled under the header, which draws the
+  /// hairline along its bottom edge — a sheet's [FormHeaderHairline.scrolled].
   final ValueListenable<bool>? scrolled;
 
   final String? leadingIdentifier;
@@ -292,6 +318,49 @@ class FormSheetHeader extends StatelessWidget {
   }
 }
 
+/// Whether a sheet's body has scrolled under its header — what draws the
+/// hairline of [FormSheetHeader.scrolled].
+///
+/// The sheet's state owns one, wraps its scroll view in [watch], hands
+/// [scrolled] to the header and disposes it. A notifier, never `setState`:
+/// a scroll frame rebuilds a 1 px line and not the rows.
+///
+/// It follows the body's scroll notifications and its metrics, and the
+/// metrics are the point. A scroll view whose content gets shorter under it
+/// — the keyboard going down over a body that no longer needs to scroll —
+/// corrects its offset without telling a scroll controller's listeners, so
+/// a hairline fed by a listener alone stayed on over a body at its top.
+class FormHeaderHairline {
+  final ValueNotifier<bool> _scrolled = ValueNotifier<bool>(false);
+
+  /// True while content of the body lies above its top edge.
+  ValueListenable<bool> get scrolled => _scrolled;
+
+  /// [child], the sheet's scroll view, reporting its position here.
+  Widget watch({required Widget child}) {
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (notification) =>
+          _report(notification.depth, notification.metrics),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) =>
+            _report(notification.depth, notification.metrics),
+        child: child,
+      ),
+    );
+  }
+
+  /// Depth 0 and vertical is the body itself: a text field inside it reports
+  /// one level down, a strip of chips sideways.
+  bool _report(int depth, ScrollMetrics metrics) {
+    if (depth == 0 && metrics.axis == Axis.vertical) {
+      _scrolled.value = metrics.extentBefore > 0;
+    }
+    return false;
+  }
+
+  void dispose() => _scrolled.dispose();
+}
+
 /// The header's trailing text action: a sub-sheet's Done, the detail
 /// sheet's Edit. One widget rather than three hand-rolled `TextButton`s so
 /// the sheets in the detail loop share one size, one weight and one inset;
@@ -350,17 +419,31 @@ class FormLabelValue extends StatelessWidget {
     this.labelWeight = FontWeight.w400,
   });
 
+  /// The label's style — [FormMetrics.labelSize] on its 20 px line — as one
+  /// definition, so a row that has to measure a label the way it is drawn
+  /// (the stepper row, deciding whether its label fits beside the stepper)
+  /// measures the same text.
+  static TextStyle labelStyle(
+    Color color, {
+    FontWeight weight = FontWeight.w400,
+  }) {
+    return TextStyle(
+      fontSize: FormMetrics.labelSize,
+      height: FormMetrics.labelLineHeight / FormMetrics.labelSize,
+      fontWeight: weight,
+      color: color,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final labelText = Text(
       label,
-      style: TextStyle(
-        fontSize: FormMetrics.labelSize,
-        height: 20 / FormMetrics.labelSize,
-        fontWeight: labelWeight,
-        color: labelColor ?? colorScheme.onSurface,
+      style: labelStyle(
+        labelColor ?? colorScheme.onSurface,
+        weight: labelWeight,
       ),
     );
     final valueString = value;
@@ -374,7 +457,7 @@ class FormLabelValue extends StatelessWidget {
     }
     final valueText = Text(
       valueString,
-      maxLines: 2,
+      maxLines: FormMetrics.valueMaxLines,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: FormMetrics.labelSize,
@@ -446,6 +529,29 @@ class FormChevron extends StatelessWidget {
       Icons.chevron_right,
       size: FormMetrics.chevronSize,
       color: Theme.of(context).colorScheme.outline,
+    );
+  }
+}
+
+/// The colour dot before a row's value — a `valueLeading:` — which is how
+/// Icon & color reads back the colour an event or a template wears.
+///
+/// One widget on [FormMetrics.valueDotSize], so a colour dot is the same dot
+/// on every row that shows one. Kept out of semantics: the row announces its
+/// value, and a colour has no name to add to it.
+class FormValueDot extends StatelessWidget {
+  final Color color;
+
+  const FormValueDot({super.key, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: Container(
+        width: FormMetrics.valueDotSize,
+        height: FormMetrics.valueDotSize,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
     );
   }
 }
@@ -729,6 +835,367 @@ class FormPickerRow extends FormDividedRow {
   }
 }
 
+/// The row a form opens with: `[avatar] title` as one field that wraps and,
+/// from [counterFrom] characters on, a counter under it — the event editor's
+/// title, the quick alarm's, the template form's name.
+///
+/// A long title is read, not scrolled, so the field takes as many lines as
+/// its text needs and refuses a line break: Enter is the keyboard's Done.
+/// The counter is a line of the row's own because a collapsed decoration has
+/// no counter slot, and it exists only near the limit, so an ordinary title
+/// leaves the row at its 56 dp.
+class FormTitleRow extends FormDividedRow {
+  /// A 40 dp widget — an `EventAvatar` — previewing what the title names.
+  /// Boxed to [FormMetrics.rowLeadingSize], so the field and the hairline
+  /// under the row start where they do whatever the widget draws.
+  final Widget leading;
+  final TextEditingController controller;
+
+  /// The field's focus node. Left out, the row owns one: the whole row is the
+  /// field's tap target, and it needs the node to hand the focus over.
+  final FocusNode? focusNode;
+
+  /// The placeholder, and the field's accessible name whether or not it is
+  /// drawn.
+  final String hint;
+  final int maxLength;
+
+  /// The length the counter line appears from.
+  final int counterFrom;
+
+  /// The counter's text for a length and [maxLength] — passed in like every
+  /// other label here, so the primitives stay free of the localizations.
+  final String Function(int length, int maxLength) counterLabel;
+  final bool autofocus;
+  final TextCapitalization textCapitalization;
+  final ValueChanged<String>? onSubmitted;
+
+  /// Lands on the field's own text-field node, which is what a device script
+  /// types into by id.
+  final String? identifier;
+
+  const FormTitleRow({
+    super.key,
+    required this.leading,
+    required this.controller,
+    this.focusNode,
+    required this.hint,
+    required this.maxLength,
+    required this.counterFrom,
+    required this.counterLabel,
+    this.autofocus = false,
+    this.textCapitalization = TextCapitalization.none,
+    this.onSubmitted,
+    this.identifier,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentTitle;
+
+  @override
+  Widget build(BuildContext context) => _FormTitleRowBody(row: this);
+}
+
+/// The title row's state: the focus node the row owns when its caller passes
+/// none. The collapsed field is one text line in a 56 dp row, and a thumb
+/// landing above or below that line, right of it or on the avatar focused
+/// nothing (the Tier 2 device pass); the whole row is the target now, as the
+/// search row's padded field makes its whole row one.
+class _FormTitleRowBody extends StatefulWidget {
+  final FormTitleRow row;
+
+  const _FormTitleRowBody({required this.row});
+
+  @override
+  State<_FormTitleRowBody> createState() => _FormTitleRowBodyState();
+}
+
+class _FormTitleRowBodyState extends State<_FormTitleRowBody> {
+  FocusNode? _ownedNode;
+
+  FocusNode get _focusNode =>
+      widget.row.focusNode ??
+      (_ownedNode ??= FocusNode(debugLabel: 'FormTitleRow'));
+
+  @override
+  void dispose() {
+    _ownedNode?.dispose();
+    super.dispose();
+  }
+
+  /// What a tap on the field's own line does, for the rest of the row. A
+  /// field that already holds the focus is asked for its keyboard rather than
+  /// for focus: Android's back leaves a focused field under no keyboard, and
+  /// a tap on the text brings it back — so a tap beside the text does too.
+  void _focusField() {
+    final node = _focusNode;
+    if (node.hasFocus) {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      return;
+    }
+    node.requestFocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final row = widget.row;
+    final controller = row.controller;
+    final hint = row.hint;
+    final colorScheme = Theme.of(context).colorScheme;
+    Widget field = TextField(
+      controller: controller,
+      focusNode: _focusNode,
+      autofocus: row.autofocus,
+      maxLines: null,
+      keyboardType: TextInputType.text,
+      textInputAction: TextInputAction.done,
+      textCapitalization: row.textCapitalization,
+      inputFormatters: [FilteringTextInputFormatter.deny('\n')],
+      maxLength: row.maxLength,
+      buildCounter:
+          (context, {required currentLength, required isFocused, maxLength}) =>
+              null,
+      style: TextStyle(
+        fontSize: FormMetrics.titleFontSize,
+        fontWeight: FontWeight.w500,
+        height: FormMetrics.titleLineHeight,
+        color: colorScheme.onSurface,
+      ),
+      decoration: InputDecoration.collapsed(
+        hintText: hint,
+        // The field is as tall as what it shows. A decoration keeps its
+        // hint's size by default, so a hint that wraps — a long word at a
+        // large text scale — left a typed title over the blank line the
+        // hint had needed.
+        maintainHintSize: false,
+        hintStyle: TextStyle(
+          fontSize: FormMetrics.titleFontSize,
+          fontWeight: FontWeight.w400,
+          height: FormMetrics.titleLineHeight,
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+      onSubmitted: row.onSubmitted,
+    );
+    // A collapsed decoration names the field through its hint alone, and the
+    // hint goes with the first character typed — a screen reader then heard
+    // the title and no name for it. The name is restored as a label, but only
+    // while the field holds text: beside a drawn hint it would be said twice.
+    field = ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) => Semantics(
+        label: controller.text.isEmpty ? null : hint,
+        child: child,
+      ),
+      child: field,
+    );
+    if (row.identifier case final id?) {
+      field = AutomationId(identifier: id, child: field);
+    }
+    // A tap on the text line is the field's own (its recogniser wins the
+    // arena); anywhere else in the row it is this one. Not a node of its own:
+    // the field's node is where a screen reader already focuses the title.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      onTap: _focusField,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: FormMetrics.titleRowMinHeight,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: RowMetrics.groupInset,
+            vertical: FormMetrics.titleRowVerticalPadding,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox.square(
+                dimension: FormMetrics.rowLeadingSize,
+                child: Center(child: row.leading),
+              ),
+              const SizedBox(width: FormMetrics.gap),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                    top: FormMetrics.titleFieldTopInset,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      field,
+                      ListenableBuilder(
+                        listenable: controller,
+                        builder: (context, _) {
+                          final length = controller.text.characters.length;
+                          if (length < row.counterFrom) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(
+                              top: FormMetrics.titleCounterTopInset,
+                            ),
+                            child: Text(
+                              row.counterLabel(length, row.maxLength),
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                fontSize: FormMetrics.counterSize,
+                                height: 16 / FormMetrics.counterSize,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                                color: length >= row.maxLength
+                                    ? colorScheme.error
+                                    : colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// `[glyph] value / caption ›` — the one value a sheet leads with, drawn
+/// large: the quick alarm's time over the day it lands on.
+///
+/// One target and one announcement. The node reads "value, caption" and
+/// carries [tooltip] as its hint, which a screen reader speaks on focus; a
+/// tooltip beside a label is not spoken on Android 9 and later. The value is
+/// fitted to one line: at 200 % a 12-hour time is wider than a narrow
+/// phone's row, and a time that wraps or ellipsizes is no longer read at a
+/// glance.
+///
+/// The row is as tall as the text scale makes it and never as the string
+/// does: the fitted value sits on a line reserved at its full size, so
+/// "9:30 AM" becoming "10:20 AM" moves nothing under the row.
+class FormHeroRow extends FormDividedRow {
+  final IconData glyph;
+  final String value;
+  final String caption;
+
+  /// What a tap does, as the node's hint. Never drawn.
+  final String tooltip;
+  final VoidCallback onTap;
+  final String? identifier;
+
+  const FormHeroRow({
+    super.key,
+    required this.glyph,
+    required this.value,
+    required this.caption,
+    required this.tooltip,
+    required this.onTap,
+    this.identifier,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentPlain;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final valueStyle = TextStyle(
+      fontSize: FormMetrics.heroValueSize,
+      height: FormMetrics.heroValueLineHeight / FormMetrics.heroValueSize,
+      fontWeight: FontWeight.w400,
+      color: colorScheme.onSurface,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(
+        minHeight: FormMetrics.heroRowMinHeight,
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: RowMetrics.groupInset,
+          top: RowMetrics.twoLinePadding.top,
+          right: FormMetrics.rowEndPadding,
+          bottom: RowMetrics.twoLinePadding.bottom,
+        ),
+        child: Row(
+          children: [
+            FormGlyph(icon: glyph),
+            const SizedBox(width: FormMetrics.gap),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // A fitted box is only as tall as its child's aspect ratio
+                  // leaves it, so on its own a wider time made a shorter row.
+                  // One digit, laid out at full size and never drawn, holds
+                  // the line open and the value is fitted inside that —
+                  // measured, not worked out from the text scale, because
+                  // the text engine rounds a line's height.
+                  SizedBox(
+                    width: double.infinity,
+                    child: Stack(
+                      children: [
+                        Opacity(
+                          opacity: 0,
+                          child: Text('0', maxLines: 1, style: valueStyle),
+                        ),
+                        Positioned.fill(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: AlignmentDirectional.centerStart,
+                            child: Text(
+                              value,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: valueStyle,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: RowMetrics.lineGap),
+                  Text(
+                    caption,
+                    style: TextStyle(
+                      fontSize: FormMetrics.captionSize,
+                      height: 18 / FormMetrics.captionSize,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: FormMetrics.gap),
+            const FormChevron(),
+          ],
+        ),
+      ),
+    );
+    final Widget well = Semantics(
+      button: true,
+      enabled: true,
+      label: '$value, $caption',
+      hint: tooltip,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: InkWell(onTap: onTap, child: row),
+      ),
+    );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: well);
+    }
+    return MergeSemantics(child: well);
+  }
+}
+
 class FormSwitchRow extends FormDividedRow {
   final IconData? glyph;
   final String label;
@@ -882,6 +1349,176 @@ class FormActionRow extends FormDividedRow {
       return AutomationId(identifier: id, child: well);
     }
     return well;
+  }
+}
+
+/// `label … [−] value [+]` — a small number stepped one at a time: the
+/// Repeat sheet's interval, a custom alert offset.
+///
+/// The row holds no number and no bounds. [value] is the text to show, and a
+/// null [onDecrement] or [onIncrement] *is* the bound, drawn as that button
+/// disabled in place — so the caller's rule decides where stepping stops and
+/// the row cannot disagree with it.
+///
+/// Nothing about the row follows the number (the Tier 2 device pass, German
+/// at 200 %, found both): the value box is as wide as [widestValue] laid out
+/// unseen, so the minus button stands still while the user steps; and when
+/// the label cannot sit beside the stepper without a word breaking, the
+/// stepper drops under the label, end-aligned — decided from the locale, the
+/// text scale and the row's width, never from the value on show.
+class FormStepperRow extends FormDividedRow {
+  final String label;
+  final String value;
+
+  /// The widest text [value] will ever be — the unit's ceiling in its longer
+  /// plural, "99 weeks" — which sizes the value box once for every value,
+  /// never past what the row holds beside its two buttons (a value wider
+  /// than that wraps inside the box). Left out, the box is
+  /// [FormMetrics.stepperValueMinWidth] and grows with a wider value.
+  final String? widestValue;
+  final VoidCallback? onDecrement;
+  final VoidCallback? onIncrement;
+  final String decrementTooltip;
+  final String incrementTooltip;
+
+  /// `SemanticsIds` values for the two buttons, whose tooltips change with
+  /// the locale.
+  final String? decrementIdentifier;
+  final String? incrementIdentifier;
+
+  const FormStepperRow({
+    super.key,
+    required this.label,
+    required this.value,
+    this.widestValue,
+    required this.onDecrement,
+    required this.onIncrement,
+    required this.decrementTooltip,
+    required this.incrementTooltip,
+    this.decrementIdentifier,
+    this.incrementIdentifier,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentPlain;
+
+  /// [text] laid out as its `Text` lays it out here — the ambient default
+  /// style and bold-text setting merged in, the text scale, the direction —
+  /// so a width read off it is the width the drawn text has. The caller
+  /// disposes it.
+  static TextPainter _measure(
+    BuildContext context,
+    String text,
+    TextStyle style,
+  ) {
+    var effective = DefaultTextStyle.of(context).style.merge(style);
+    if (MediaQuery.boldTextOf(context)) {
+      effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    return TextPainter(
+      text: TextSpan(text: text, style: effective),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+    )..layout();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final valueStyle = TextStyle(
+      fontSize: FormMetrics.labelSize,
+      height: FormMetrics.labelLineHeight / FormMetrics.labelSize,
+      fontWeight: FontWeight.w500,
+      color: colorScheme.onSurface,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    var widestWidth = 0.0;
+    if (widestValue case final widest?) {
+      final painter = _measure(context, widest, valueStyle);
+      widestWidth = painter.width;
+      painter.dispose();
+    }
+    // The widest run the label cannot break: its longest word, as the text
+    // engine sees it.
+    final labelPainter = _measure(
+      context,
+      label,
+      FormLabelValue.labelStyle(colorScheme.onSurface),
+    );
+    final labelWordWidth = labelPainter.minIntrinsicWidth;
+    labelPainter.dispose();
+
+    const buttons = 2 * FormMetrics.trailingButtonSize;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
+      child: Padding(
+        padding: const EdgeInsets.only(left: RowMetrics.groupInset),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final bounded = constraints.hasBoundedWidth;
+            // The floor, or the widest value — but never past what the row
+            // leaves beside the two buttons: a value box the row cannot hold
+            // would overflow it, where a value wrapped inside the box only
+            // takes a second line, on a phone narrower than any this was
+            // drawn for.
+            var boxWidth = widestWidth > FormMetrics.stepperValueMinWidth
+                ? widestWidth
+                : FormMetrics.stepperValueMinWidth;
+            final room = constraints.maxWidth - buttons;
+            if (bounded && boxWidth > room) boxWidth = room > 0 ? room : 0;
+            final stepper = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FormTrailingButton(
+                  icon: Icons.remove_rounded,
+                  tooltip: decrementTooltip,
+                  color: colorScheme.primary,
+                  identifier: decrementIdentifier,
+                  onPressed: onDecrement,
+                ),
+                ConstrainedBox(
+                  constraints: widestValue == null
+                      ? BoxConstraints(minWidth: boxWidth)
+                      : BoxConstraints.tightFor(width: boxWidth),
+                  child: Text(
+                    value,
+                    textAlign: TextAlign.center,
+                    style: valueStyle,
+                  ),
+                ),
+                FormTrailingButton(
+                  icon: Icons.add_rounded,
+                  tooltip: incrementTooltip,
+                  color: colorScheme.primary,
+                  identifier: incrementIdentifier,
+                  onPressed: onIncrement,
+                ),
+              ],
+            );
+            final beside =
+                !bounded ||
+                labelWordWidth <= constraints.maxWidth - buttons - boxWidth;
+            if (beside) {
+              return Row(
+                children: [
+                  Expanded(child: FormLabelValue(label: label)),
+                  stepper,
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FormLabelValue(label: label),
+                Align(alignment: AlignmentDirectional.centerEnd, child: stepper),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 }
 
@@ -1162,7 +1799,12 @@ class FormCheckRow extends FormDividedRow {
 class FormChip extends StatelessWidget {
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+
+  /// Null draws the chip at the disabled opacity with no ink and no tap, its
+  /// node marked disabled — a choice that is off the table for now (Tonight
+  /// once 21:00 has passed) keeps its place, so the chips beside it do not
+  /// close up under the finger.
+  final VoidCallback? onTap;
   final double tapTarget;
 
   /// A `SemanticsIds` value for a chip a device script has to hit by id —
@@ -1187,38 +1829,50 @@ class FormChip extends StatelessWidget {
         color: selected ? Colors.transparent : colorScheme.outlineVariant,
       ),
     );
-    final chip = Semantics(
-      button: true,
-      selected: selected,
-      child: _TapTargetPadding(
-        minHeight: tapTarget,
-        child: Material(
-          color: selected ? colorScheme.secondaryContainer : Colors.transparent,
-          shape: shape,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: SizedBox(
-              height: FormMetrics.chipHeight,
-              child: Padding(
-                padding: FormMetrics.chipPadding,
-                child: Center(
-                  widthFactor: 1,
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: FormMetrics.chipFontSize,
-                      fontWeight: FontWeight.w500,
-                      color: selected
-                          ? colorScheme.onSurface
-                          : colorScheme.onSurfaceVariant,
-                    ),
-                  ),
+    final enabled = onTap != null;
+    final Widget body = Material(
+      color: selected ? colorScheme.secondaryContainer : Colors.transparent,
+      shape: shape,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        // A minimum, never a fixed height: past 160 % the label's line is
+        // taller than the chip, and a fixed box cut its descenders. Up to
+        // there the chip is its 32 dp; past it the 48 dp target around the
+        // chip still has room at 200 %, so no row moves.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: FormMetrics.chipHeight),
+          child: Padding(
+            padding: FormMetrics.chipPadding,
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: FormMetrics.chipFontSize,
+                  fontWeight: FontWeight.w500,
+                  color: selected
+                      ? colorScheme.onSurface
+                      : colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
           ),
         ),
+      ),
+    );
+    final chip = Semantics(
+      button: true,
+      selected: selected,
+      // Only a disabled chip says so: an enabled one keeps the node it has
+      // always had, with no enabled state on it.
+      enabled: enabled ? null : false,
+      child: _TapTargetPadding(
+        minHeight: tapTarget,
+        child: enabled
+            ? body
+            : Opacity(opacity: FormMetrics.disabledOpacity, child: body),
       ),
     );
     if (identifier case final id?) {
@@ -1295,9 +1949,16 @@ class FormChipRow extends FormDividedRow {
   /// With a [label] the row stands on its own — `[glyph] label … chips` on
   /// one line, the chips dropping under the label when the two do not fit
   /// (the `FormLabelValue` wrap) — instead of being the sub-row a switch
-  /// reveals. The detail sheet's presence pair is the one such row.
+  /// reveals: the detail sheet's presence pair, an alert's Type.
   final IconData? glyph;
   final String? label;
+
+  /// Read only without a [label]. True is the sub-row a switch reveals, set
+  /// in under the switch's label. False is a chip row that stands alone — a
+  /// custom offset's units, the quick alarm's presets: it starts at the
+  /// group's inset, is one 48 dp row per run of chips and draws its hairline
+  /// from the group's edge.
+  final bool indented;
 
   const FormChipRow({
     super.key,
@@ -1305,10 +1966,13 @@ class FormChipRow extends FormDividedRow {
     this.caption,
     this.glyph,
     this.label,
+    this.indented = true,
   });
 
   @override
-  double get dividerIndent => FormMetrics.dividerIndentGlyph;
+  double get dividerIndent => label == null && !indented
+      ? FormMetrics.dividerIndentPlain
+      : FormMetrics.dividerIndentGlyph;
 
   @override
   Widget build(BuildContext context) {
@@ -1318,7 +1982,7 @@ class FormChipRow extends FormDividedRow {
       children: chips,
     );
     final labelText = label;
-    if (labelText == null) {
+    if (labelText == null && indented) {
       return Padding(
         padding: FormMetrics.chipRowPadding,
         child: Column(
@@ -1332,10 +1996,13 @@ class FormChipRow extends FormDividedRow {
       );
     }
     final colorScheme = Theme.of(context).colorScheme;
-    final icon = glyph;
+    final icon = labelText == null ? null : glyph;
     final labelIndent = icon == null
         ? 0.0
         : FormMetrics.glyphSize + FormMetrics.gap;
+    // A standalone row is the labelled row without its label: the same line
+    // at the group's inset, with no air of its own because every chip already
+    // carries a 48 dp target.
     final line = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
       child: Padding(
@@ -1343,50 +2010,52 @@ class FormChipRow extends FormDividedRow {
           left: RowMetrics.groupInset,
           right: FormMetrics.rowEndPadding,
         ),
-        child: Row(
-          children: [
-            if (icon != null) ...[
-              FormGlyph(icon: icon),
-              const SizedBox(width: FormMetrics.gap),
-            ],
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) => Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: FormMetrics.gap,
-                  runSpacing: 0,
-                  children: [
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: FormMetrics.pairVerticalPadding,
-                        ),
-                        child: Text(
-                          labelText,
-                          style: TextStyle(
-                            fontSize: FormMetrics.labelSize,
-                            height: 20 / FormMetrics.labelSize,
-                            color: colorScheme.onSurface,
-                          ),
-                        ),
-                      ),
-                    ),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth,
-                      ),
-                      child: chipWrap,
-                    ),
+        child: labelText == null
+            ? chipWrap
+            : Row(
+                children: [
+                  if (icon != null) ...[
+                    FormGlyph(icon: icon),
+                    const SizedBox(width: FormMetrics.gap),
                   ],
-                ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: FormMetrics.gap,
+                        runSpacing: 0,
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: FormMetrics.pairVerticalPadding,
+                              ),
+                              child: Text(
+                                labelText,
+                                style: TextStyle(
+                                  fontSize: FormMetrics.labelSize,
+                                  height: 20 / FormMetrics.labelSize,
+                                  color: colorScheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth,
+                            ),
+                            child: chipWrap,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
     final captionWidget = caption;
@@ -1442,6 +2111,45 @@ class FormCaption extends StatelessWidget {
           color: error ? colorScheme.error : colorScheme.onSurfaceVariant,
         ),
       ),
+    );
+  }
+}
+
+/// A caption in a slot as tall as the tallest thing it may ever say, so the
+/// text can change — with a choice, or with an answer that arrives after the
+/// sheet has opened — and nothing under it moves.
+///
+/// Every one of [candidates] is laid out invisibly under [child] at the
+/// width the slot is given, which is what sizes it for the locale and the
+/// text scale in use rather than for a guessed line count. Only [child] is
+/// drawn, focusable and announced.
+class FormCaptionSlot extends StatelessWidget {
+  /// Everything the slot may show, [child]'s own twin included.
+  final List<Widget> candidates;
+
+  /// What the slot shows now.
+  final Widget child;
+
+  const FormCaptionSlot({
+    super.key,
+    required this.candidates,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        for (final candidate in candidates)
+          ExcludeSemantics(
+            child: ExcludeFocus(
+              child: IgnorePointer(
+                child: Opacity(opacity: 0, child: candidate),
+              ),
+            ),
+          ),
+        child,
+      ],
     );
   }
 }

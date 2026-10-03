@@ -1,6 +1,6 @@
 ---
 name: anta-context
-description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events + calendar-ui, markdown-engine, drift-migrations, l10n; ui-revamp for any UI rework) on top of this one when the task touches those areas.
+description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events + calendar-ui, markdown-engine, drift-migrations, l10n; ui-language for any visual work and ui-revamp for any UI rework) on top of this one when the task touches those areas.
 ---
 
 # ANTA Context
@@ -25,7 +25,7 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift database
 - Services (`lib/services/`) own workflows (note storage, counters, settings, backup, auto-save, import/export, calendar events...).
 - Repositories (`lib/repositories/`) provide cached/reactive access over DAOs — invalidate caches after create/update/delete/move/reorder.
 - DAOs (`lib/database/daos/`) own SQL/Drift, transactions, soft deletes, FTS, migrations.
-- Constants live in `lib/constants/` — use existing spacing/text/icon/settings-key/JSON-key constants, never magic values.
+- Constants live in `lib/constants/` — use existing spacing/text/icon/settings-key/JSON-key constants, never magic values. A surface on the UI language reads the role-named metrics (`FormMetrics`, `RowMetrics`, `AppBarMetrics`) and none of the generic `AppSpacing` scale — the `ui-language` skill.
 - DI is `get_it` via `lib/core/di/injection.dart`.
 
 ## 3. Non-negotiable rules

@@ -16,6 +16,7 @@ import '../models/event_alert.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
 import '../services/day_summary_resolver.dart';
+import '../services/event_time_formatter.dart';
 import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/agenda_list_view.dart';
@@ -420,7 +421,12 @@ class _AlertHubRow extends StatelessWidget {
       entry.event,
       CalendarCategories.resolve(entry.event.categoryId),
     );
-    final describe = entry.alert.describe(l10n, entry.event);
+    final describe = entry.alert.describe(
+      l10n,
+      entry.event,
+      formatMinute: (minute) =>
+          EventTimeFormatter.formatMinute(minute, context),
+    );
 
     return Card(
       margin: const EdgeInsets.symmetric(
@@ -591,7 +597,12 @@ class _AlertHistoryRow extends StatelessWidget {
           );
     final describe = event == null || alert == null
         ? null
-        : alert.describe(l10n, event);
+        : alert.describe(
+            l10n,
+            event,
+            formatMinute: (minute) =>
+                EventTimeFormatter.formatMinute(minute, context),
+          );
     final subtitle = describe == null
         ? labelFor(l10n, entry.outcome)
         : '${labelFor(l10n, entry.outcome)} · $describe';

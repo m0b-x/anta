@@ -112,17 +112,28 @@ void main() {
     EventAlerts.resetCache();
   });
 
+  /// [use24HourFormat] sets the phone's clock; left out, the app is pumped
+  /// exactly as it always was, with no `MediaQuery` of the suite's own.
   Future<void> pumpHub(
     WidgetTester tester,
     List<AlertHubEntry> Function() entries, {
     AlertHistoryLoader? loadRecent,
     PermissionService? permissions,
+    bool? use24HourFormat,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('en'),
+        builder: use24HourFormat == null
+            ? null
+            : (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(alwaysUse24HourFormat: use24HourFormat),
+                child: child!,
+              ),
         home: BlocProvider<CalendarBloc>.value(
           value: bloc,
           child: AlertsPage.forTesting(
@@ -235,6 +246,56 @@ void main() {
     expect(find.text('At start'), findsOneWidget);
     expect(find.byIcon(Icons.alarm_rounded), findsOneWidget);
     expect(find.byIcon(Icons.notifications_active_rounded), findsOneWidget);
+  });
+
+  testWidgets("an all-day alert's time follows the phone's clock, on a live "
+      'row and on a Recent one', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(800, 1800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final birthday = CalendarEvent(
+      id: 'e3',
+      title: 'Birthday',
+      categoryId: 'gym',
+      startDate: fireDay,
+      rule: const OneTimeRecurrence(),
+    );
+    const dayBefore = EventAlert(
+      id: 'c1',
+      eventId: 'e3',
+      daysBefore: 1,
+      dayMinute: 20 * 60,
+    );
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    List<AlertHubEntry> live() => [
+      entryOf(event: birthday, alert: dayBefore, hour: 20, minute: 0),
+    ];
+    Future<List<AlertHistoryEntry>> recent() async => [
+      AlertHistoryEntry(
+        event: birthday,
+        alert: dayBefore,
+        day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
+        fireAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 20),
+        settledAt: DateTime(
+          yesterday.year,
+          yesterday.month,
+          yesterday.day,
+          20,
+          1,
+        ),
+        outcome: AlertOutcome.stopped,
+      ),
+    ];
+
+    await pumpHub(tester, live, loadRecent: recent, use24HourFormat: false);
+    expect(find.text('The day before, 8:00 PM'), findsOneWidget);
+    expect(find.text('Stopped · The day before, 8:00 PM'), findsOneWidget);
+
+    await pumpHub(tester, live, loadRecent: recent, use24HourFormat: true);
+    expect(find.text('The day before, 20:00'), findsOneWidget);
+    expect(find.text('Stopped · The day before, 20:00'), findsOneWidget);
+    expect(find.textContaining('8:00 PM'), findsNothing);
   });
 
   testWidgets('the switch dispatches ToggleEventAlert and moves at once', (

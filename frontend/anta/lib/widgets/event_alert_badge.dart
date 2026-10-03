@@ -4,6 +4,7 @@ import '../constants/event_alerts.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../services/event_time_formatter.dart';
 
 /// The 14 dp glyphs that say an event will speak up — a bell for a reminder,
 /// a clock for an alarm (§5.4).
@@ -44,7 +45,7 @@ class EventAlertBadges extends StatelessWidget {
         if (hasAlarm) ...[
           const SizedBox(width: _gap),
           Tooltip(
-            message: _describe(l10n, AlertMode.ring),
+            message: _describe(context, l10n, AlertMode.ring),
             child: Icon(
               Icons.alarm_rounded,
               size: _size,
@@ -55,7 +56,7 @@ class EventAlertBadges extends StatelessWidget {
         if (hasReminder) ...[
           const SizedBox(width: _gap),
           Tooltip(
-            message: _describe(l10n, AlertMode.notify),
+            message: _describe(context, l10n, AlertMode.notify),
             child: Icon(
               Icons.notifications_active_rounded,
               size: _size,
@@ -70,10 +71,20 @@ class EventAlertBadges extends StatelessWidget {
   /// Every enabled alert of one tier, in the one formatter. Joined with the
   /// same separator the subtitles use, so an event with two alarms reads as
   /// one sentence rather than as a badge that names only the first.
-  String _describe(AppLocalizations l10n, AlertMode mode) {
+  String _describe(
+    BuildContext context,
+    AppLocalizations l10n,
+    AlertMode mode,
+  ) {
     final parts = <String>[
       for (final alert in EventAlerts.alertsFor(event.id))
-        if (alert.enabled && alert.mode == mode) alert.describe(l10n, event),
+        if (alert.enabled && alert.mode == mode)
+          alert.describe(
+            l10n,
+            event,
+            formatMinute: (minute) =>
+                EventTimeFormatter.formatMinute(minute, context),
+          ),
     ];
     return parts.join(' · ');
   }

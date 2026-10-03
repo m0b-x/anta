@@ -716,7 +716,12 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
           glyph: alert.isAlarm
               ? Icons.alarm_outlined
               : Icons.notifications_outlined,
-          label: alert.describe(l10n, event),
+          label: alert.describe(
+            l10n,
+            event,
+            formatMinute: (minute) =>
+                EventTimeFormatter.formatMinute(minute, context),
+          ),
           value: _alertValue(context, alert, l10n, localeName),
           onTap: () => _close(EventDetailAction.edit),
         ),

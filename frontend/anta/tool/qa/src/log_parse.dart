@@ -172,13 +172,20 @@ String? emulatorFatalLine(String logText) {
 /// Log lines that look like errors but are not the app's fault.
 /// Firebase with no signed-in user logs two lines, not one — the "Exception
 /// encountered" header and the "decryption failed" body — so the whole tag is
-/// the pattern.
+/// the pattern. The engine's accessibility bridge logs one line per node it
+/// is asked about before its first layout — scrolling a settings page with
+/// semantics on does it — and only that line is noise, so the message is the
+/// pattern, not the tag.
 final List<RegExp> knownNoisePatterns = [
   RegExp('FirebearStorageCryptoHelper'),
+  RegExp(
+    r'AccessibilityBridge\(\s*\d+\): transform has not been initialized for id = \d+',
+  ),
 ];
 
 /// Whether a line is one of the errors that is always there and never means
-/// anything — Firebase with no signed-in user, so far.
+/// anything — Firebase with no signed-in user, the accessibility bridge's
+/// uninitialised transform, so far.
 bool isKnownNoise(String line) =>
     knownNoisePatterns.any((pattern) => pattern.hasMatch(line));
 

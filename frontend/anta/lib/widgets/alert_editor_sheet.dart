@@ -1,8 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
 import '../constants/event_alerts.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_sound.dart';
@@ -12,9 +17,11 @@ import '../models/event_alert.dart';
 import '../services/alert_gateway.dart';
 import '../services/event_time_formatter.dart';
 import '../services/permission_service.dart';
-import '../utils/custom_snackbar.dart';
+import 'alert_offset_sheet.dart';
 import 'alert_sound_sheet.dart';
-import 'automation_id.dart';
+import 'alert_type_row.dart';
+import 'form_rows.dart';
+import 'overlay_snackbar.dart';
 import 'time_pad_sheet.dart';
 import 'value_change_highlight.dart';
 
@@ -42,20 +49,7 @@ class AlertEditorRemoved extends AlertEditorResult {
   const AlertEditorRemoved();
 }
 
-/// Which free-form unit the custom offset row is counting in. Only ever a
-/// *view* of [EventAlert.offsetMinutes] — the model stores minutes and nothing
-/// else, so a unit can never be persisted out of step with a number.
-enum _OffsetUnit {
-  minutes(1),
-  hours(Duration.minutesPerHour),
-  days(EventAlert.minutesPerDay);
-
-  final int multiplier;
-
-  const _OffsetUnit(this.multiplier);
-}
-
-/// Draft-and-Save editor for exactly one [EventAlert] (§5.2).
+/// Draft-and-Done editor for exactly one [EventAlert] (§5.2).
 ///
 /// Nothing here writes: the sheet pops with an [AlertEditorResult] and the
 /// surface that owns the event — the event editor, or the Calendar settings
@@ -63,10 +57,14 @@ enum _OffsetUnit {
 /// sheet edit an alert on an event and the template a new event is seeded
 /// from, without either path growing a second copy of the timing controls.
 ///
-/// [event] is what decides whether the timing section asks for minutes before
-/// a start or for a day and a time: the derived [CalendarEvent.allDay], never
-/// a flag of its own. Both offset sets survive the edit either way, exactly as
+/// [event] is what decides whether the When row asks for minutes before a
+/// start or for a day and a time: the derived [CalendarEvent.allDay], never a
+/// flag of its own. Both offset sets survive the edit either way, exactly as
 /// [EventAlert] promises.
+///
+/// A sub-sheet of the UI language, and one that never changes height: every
+/// row the caller offers is there on both tiers, switched off rather than
+/// taken away on the one that cannot use it.
 class AlertEditorSheet extends StatefulWidget {
   /// The alert being edited. A brand-new one arrives seeded, so there is no
   /// "create" mode to tell apart.
@@ -76,9 +74,10 @@ class AlertEditorSheet extends StatefulWidget {
   /// [CalendarEvent.allDay] shape when a settings default is being edited.
   final CalendarEvent event;
 
-  /// Whether the footer offers to remove this alert. False for the settings
-  /// defaults, where removal means something else entirely ("no default"), and
-  /// true everywhere an alert actually exists on an event.
+  /// Whether the sheet offers to remove this alert. False for a brand-new
+  /// one, where closing the sheet already means "no", and true everywhere an
+  /// alert exists — the settings defaults included, where removal means "no
+  /// default".
   final bool canRemove;
 
   /// Whether the Sound row is offered at all.
@@ -89,9 +88,10 @@ class AlertEditorSheet extends StatefulWidget {
   /// page is the control that actually means something.
   final bool showSound;
 
-  /// Whether the **event-level** remove-after-it-rings switch is offered here.
-  /// Only for a one-time event, and only while the alert is an alarm — the
-  /// same rule the event editor's own copy of the switch follows.
+  /// Whether the **event-level** remove-after-it-rings switch is offered
+  /// here: for a one-time event only, the rule the event editor's own copy of
+  /// the switch follows. Offered, it stays in place on the Reminder tier,
+  /// switched off and dimmed.
   final bool showRemoveAfter;
 
   final bool removeAfterAlert;
@@ -115,12 +115,23 @@ class AlertEditorSheet extends StatefulWidget {
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<AlertEditorResult>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.7,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
         child: AlertEditorSheet(
           alert: alert,
           event: event,
@@ -172,9 +183,9 @@ class AlertEditorSheet extends StatefulWidget {
 }
 
 class _AlertEditorSheetState extends State<AlertEditorSheet> {
-  /// Offsets the timed chips offer, in minutes. "At start" is the leading
-  /// zero; everything else is what a calendar app is expected to have without
-  /// a trip through Custom.
+  /// Offsets the When menu offers a timed event, in minutes. "At start" is
+  /// the leading zero; everything else is what a calendar app is expected to
+  /// have without a trip through Custom.
   static const List<int> _timedPresets = [
     0,
     5,
@@ -185,26 +196,33 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     EventAlert.minutesPerDay,
   ];
 
-  /// Whole days the all-day chips offer.
-  static const List<int> _allDayPresets = [0, 1, 7];
+  /// Whole days the When menu offers an all-day event.
+  static const List<int> _allDayPresets = [0, 1, DateTime.daysPerWeek];
 
-  /// Ceilings for the custom row, per unit. Generous rather than principled:
-  /// the horizon (30 days) is what actually bounds a usable offset, and these
-  /// only keep the stepper from running away under a held finger.
-  static const Map<_OffsetUnit, int> _customMax = {
-    _OffsetUnit.minutes: 59,
-    _OffsetUnit.hours: 23,
-    _OffsetUnit.days: 30,
-  };
+  /// The menu's last item, which names no offset: it opens the Custom
+  /// sub-sheet. A popup route answers a dismissal with `null`, so the item
+  /// needs a value of its own, and one no preset can be.
+  static const int _customItem = -1;
 
   late AlertMode _mode;
   late int _offsetMinutes;
   late int _daysBefore;
   late int? _dayMinute;
+
+  /// What the remove switch shows on the Alarm tier. A tier change leaves it
+  /// alone: on the Reminder tier the switch is drawn off and dimmed, and
+  /// going back to Alarm shows what it showed before.
   late bool _removeAfter;
 
+  /// Whether this sheet has turned the alert into a reminder. A reminder
+  /// cannot be what deletes an event, so an alarm made a reminder here takes
+  /// the removal with it — while an alert that arrived a reminder and stays
+  /// one hands the event's flag back as it came, because that flag belongs to
+  /// whichever of the event's alerts rings.
+  bool _demoted = false;
+
   /// The alert's own sound, `null` for "follow the app setting". Kept across a
-  /// flip to the reminder tier exactly as both offset sets are: the row hides,
+  /// flip to the reminder tier exactly as both offset sets are: the row dims,
   /// the value survives, and switching back restores the reading it had.
   late String? _sound;
 
@@ -213,18 +231,18 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   String? _soundTitle;
   bool _soundTitleResolved = false;
 
-  /// Whether the free-form row is open. Sticky once opened, so a value that
-  /// happens to land on a preset does not fold the row away mid-edit.
-  late bool _customOpen;
-  late _OffsetUnit _customUnit;
-  late int _customValue;
-
   /// Whether the platform will let an alarm take over the screen. Null until
   /// the gateway has answered; the warning only appears on a definite "no",
   /// so a slow round trip never accuses a phone that is fine.
   bool? _fullScreenAllowed;
 
+  final FormHeaderHairline _hairline = FormHeaderHairline();
+
   bool get _allDay => widget.event.allDay;
+
+  /// The number the When row edits: minutes before the start for a timed
+  /// event, whole days before for an all-day one.
+  int get _whenValue => _allDay ? _daysBefore : _offsetMinutes;
 
   @override
   void initState() {
@@ -236,14 +254,14 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     _dayMinute = alert.dayMinute;
     _sound = alert.sound;
     _removeAfter = widget.removeAfterAlert;
-    _customOpen = _allDay
-        ? !_allDayPresets.contains(_daysBefore)
-        : !_timedPresets.contains(_offsetMinutes);
-    final unit = _unitFor(_allDay ? _daysBefore * EventAlert.minutesPerDay : _offsetMinutes);
-    _customUnit = _allDay ? _OffsetUnit.days : unit;
-    _customValue = _customValueFor(_customUnit);
     _resolvePermissions();
     _resolveSoundTitle();
+  }
+
+  @override
+  void dispose() {
+    _hairline.dispose();
+    super.dispose();
   }
 
   /// Asks the phone what it calls the picked sound this alert holds, once.
@@ -263,9 +281,10 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     });
   }
 
-  /// Opens the shared chooser. The picker-missing case is reported by the sheet
-  /// rather than shown inside it, so the snackbar is raised here — after the
-  /// modal route is gone and the `Scaffold` that hosts it is on top again.
+  /// Opens the shared chooser. The picker-missing case is reported by the
+  /// sound sheet rather than shown inside it, and raised here in the
+  /// overlay: this sheet is itself a route above the page, so a `SnackBar`
+  /// on the page's `Scaffold` would be drawn under it.
   Future<void> _pickSound() async {
     final result = await AlertSoundSheet.show(
       context,
@@ -275,7 +294,11 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     if (result == null || !mounted) return;
     switch (result) {
       case AlertSoundPickerMissing():
-        CustomSnackbar.showError(context, _l10nOf.alertSoundPickerUnavailable);
+        OverlaySnackbar.show(
+          context,
+          _l10nOf.alertSoundPickerUnavailable,
+          duration: AppConstants.snackbarErrorDuration,
+        );
       case AlertSoundPicked(:final value, :final title):
         setState(() {
           _sound = value;
@@ -304,46 +327,44 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     });
   }
 
-  static _OffsetUnit _unitFor(int minutes) {
-    if (minutes > 0 && minutes % EventAlert.minutesPerDay == 0) {
-      return _OffsetUnit.days;
-    }
-    if (minutes > 0 && minutes % Duration.minutesPerHour == 0) {
-      return _OffsetUnit.hours;
-    }
-    return _OffsetUnit.minutes;
-  }
-
-  int _customValueFor(_OffsetUnit unit) {
-    final minutes = _allDay
-        ? _daysBefore * EventAlert.minutesPerDay
-        : _offsetMinutes;
-    final value = minutes ~/ unit.multiplier;
-    return value.clamp(1, _customMax[unit]!);
-  }
-
-  void _setCustomUnit(_OffsetUnit unit) {
+  void _setMode(AlertMode mode) {
+    if (mode == _mode) return;
     setState(() {
-      _customUnit = unit;
-      _customValue = _customValue.clamp(1, _customMax[unit]!);
-      _applyCustom();
+      _mode = mode;
+      if (mode == AlertMode.notify) _demoted = true;
     });
   }
 
-  void _setCustomValue(int value) {
+  void _setWhenValue(int value) {
     setState(() {
-      _customValue = value;
-      _applyCustom();
+      if (_allDay) {
+        _daysBefore = value;
+      } else {
+        _offsetMinutes = value;
+      }
     });
   }
 
-  void _applyCustom() {
-    final minutes = _customValue * _customUnit.multiplier;
-    if (_allDay) {
-      _daysBefore = _customUnit == _OffsetUnit.days ? _customValue : 0;
-    } else {
-      _offsetMinutes = minutes;
+  /// A preset is written at once. Custom writes nothing until its own sheet
+  /// is confirmed: opening it on "At start" and backing out leaves the alert
+  /// at start, and a value the stepper cannot count is kept until Done hands
+  /// back the one it clamped to.
+  Future<void> _onWhenSelected(int item) async {
+    if (item != _customItem) {
+      _setWhenValue(item);
+      return;
     }
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await AlertOffsetSheet.show(
+      context,
+      initial: _whenValue,
+      allDay: _allDay,
+      // The When row's own wording, so the sub-sheet shows before Done what
+      // this row says after it.
+      readBack: (stored) => _whenLabel(l10n, stored),
+    );
+    if (picked == null || !mounted) return;
+    _setWhenValue(picked);
   }
 
   Future<void> _pickDayMinute() async {
@@ -358,9 +379,9 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   }
 
   /// The alert as the sheet currently describes it. Both offset sets ride
-  /// along untouched — the timing section edits the one this event's shape
-  /// asks for, and the other keeps whatever it said, which is exactly what
-  /// makes flipping an event to all-day and back non-destructive.
+  /// along untouched — the When row edits the one this event's shape asks
+  /// for, and the other keeps whatever it said, which is exactly what makes
+  /// flipping an event to all-day and back non-destructive.
   EventAlert get _draft => widget.alert.copyWith(
     mode: _mode,
     offsetMinutes: _offsetMinutes,
@@ -371,234 +392,77 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     clearSound: _sound == null,
   );
 
+  /// The event-level removal the result carries: the switch on the Alarm
+  /// tier, and on the Reminder tier whatever [_demoted] leaves of it.
+  bool get _removeAfterResult =>
+      _mode == AlertMode.ring ? _removeAfter : _removeAfter && !_demoted;
+
   void _save() {
     Navigator.of(
       context,
-    ).pop(AlertEditorSaved(_draft, removeAfterAlert: _removeAfter));
+    ).pop(AlertEditorSaved(_draft, removeAfterAlert: _removeAfterResult));
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
-    final isAlarm = _mode == AlertMode.ring;
-    final captionStyle = theme.textTheme.bodySmall?.copyWith(
-      color: colorScheme.onSurfaceVariant,
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the rule every calendar sheet
+    // follows (`sheet_bottom_clearance_test.dart`).
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
     );
-
-    // The clearance rides the scroll view rather than the whole body: the box
-    // is a fixed fraction of the screen and does not shrink for the keyboard,
-    // so padding the body would collapse the content under a tall IME and
-    // leave a blank sheet that hit-tests nothing.
+    // A group exists only while it holds a row: the settings defaults are
+    // offered neither a sound nor the removal, and a brand-new alert has
+    // nothing to remove.
+    final groups = <List<Widget>>[
+      [_buildTypeRow(l10n)],
+      [_buildWhenRow(l10n), if (_allDay) _buildTimeOfDayRow(l10n)],
+      [
+        if (widget.showSound) _buildSoundRow(l10n),
+        if (widget.showRemoveAfter) _buildRemoveAfterRow(l10n),
+      ],
+      [if (widget.canRemove) _buildRemoveRow(l10n)],
+    ].where((rows) => rows.isNotEmpty).toList();
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: l10n.cancel,
-                icon: const Icon(Icons.close_rounded),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-              Expanded(
-                child: Text(
-                  l10n.eventAlert,
-                  style: theme.textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: AutomationId(
-                  identifier: SemanticsIds.alertSheetSave,
-                  child: FilledButton(
-                    onPressed: _save,
-                    child: Text(l10n.save),
-                  ),
-                ),
-              ),
-            ],
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.alertSheetClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.eventAlert,
+          scrolled: _hairline.scrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          trailing: FormHeaderTextButton(
+            label: l10n.eventDescriptionDone,
+            identifier: SemanticsIds.alertSheetSave,
+            onPressed: _save,
           ),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _SectionLabel(text: l10n.eventAlertTypeSection),
-                SegmentedButton<AlertMode>(
-                  segments: [
-                    ButtonSegment(
-                      value: AlertMode.notify,
-                      icon: const Icon(Icons.notifications_active_rounded),
-                      label: Text(l10n.eventAlertModeNotify),
+        Flexible(
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (index, rows) in groups.indexed)
+                    FormRowGroup(
+                      trailingGap: index < groups.length - 1,
+                      children: rows,
                     ),
-                    ButtonSegment(
-                      value: AlertMode.ring,
-                      icon: const Icon(Icons.alarm_rounded),
-                      label: Text(l10n.eventAlertModeRing),
-                    ),
-                  ],
-                  selected: {_mode},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (selection) => setState(() {
-                    _mode = selection.first;
-                    // A reminder cannot be what deletes an event: the switch
-                    // belongs to the alarm tier, and leaving it armed while
-                    // the tier that honours it is gone would be a promise
-                    // nothing keeps.
-                    if (_mode != AlertMode.ring) _removeAfter = false;
-                  }),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isAlarm ? l10n.eventAlertRingHint : l10n.eventAlertNotifyHint,
-                  style: captionStyle,
-                ),
-                if (isAlarm && _fullScreenAllowed == false) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    l10n.eventAlertFullScreenOff,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.tertiary,
-                    ),
-                  ),
                 ],
-                _SectionLabel(text: l10n.eventAlertWhenSection),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _allDay
-                      ? _allDayChips(l10n)
-                      : _timedChips(l10n),
-                ),
-                if (_customOpen) ...[
-                  const SizedBox(height: 12),
-                  if (!_allDay)
-                    SegmentedButton<_OffsetUnit>(
-                      segments: [
-                        ButtonSegment(
-                          value: _OffsetUnit.minutes,
-                          label: Text(l10n.eventAlertUnitMinutes),
-                        ),
-                        ButtonSegment(
-                          value: _OffsetUnit.hours,
-                          label: Text(l10n.eventAlertUnitHours),
-                        ),
-                        ButtonSegment(
-                          value: _OffsetUnit.days,
-                          label: Text(l10n.eventAlertUnitDays),
-                        ),
-                      ],
-                      selected: {_customUnit},
-                      showSelectedIcon: false,
-                      style: const ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onSelectionChanged: (selection) =>
-                          _setCustomUnit(selection.first),
-                    ),
-                  const SizedBox(height: 8),
-                  _OffsetStepper(
-                    value: _customValue,
-                    min: 1,
-                    max: _customMax[_customUnit]!,
-                    unitLabel: _describe(l10n),
-                    decrementTooltip: l10n.eventAlertOffsetDecrement,
-                    incrementTooltip: l10n.eventAlertOffsetIncrement,
-                    onChanged: _setCustomValue,
-                  ),
-                ],
-                if (_allDay) ...[
-                  const SizedBox(height: 12),
-                  ValueChangeHighlight(
-                    value: _dayMinute ?? EventAlerts.defaultDayMinute,
-                    child: Card(
-                      margin: EdgeInsets.zero,
-                      child: ListTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.schedule_rounded),
-                        ),
-                        title: Text(
-                          EventTimeFormatter.formatRange(
-                            EventTime(
-                              startMinute:
-                                  _dayMinute ?? EventAlerts.defaultDayMinute,
-                            ),
-                            l10n,
-                          ),
-                        ),
-                        subtitle: Text(l10n.eventAlertTimeOfDay),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: _pickDayMinute,
-                      ),
-                    ),
-                  ),
-                ],
-                // Alarm tier only: the reminder tier plays through a
-                // notification channel whose sound Android froze at creation,
-                // so offering a choice there would be a control that does
-                // nothing.
-                if (isAlarm && widget.showSound) ...[
-                  const SizedBox(height: 16),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.music_note_rounded),
-                      ),
-                      title: Text(l10n.alertsSound),
-                      subtitle: Text(
-                        AlertSoundSheet.labelFor(
-                          l10n,
-                          _sound,
-                          title: _soundTitle,
-                          titleResolved: _soundTitleResolved,
-                        ),
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: _pickSound,
-                    ),
-                  ),
-                ],
-                if (widget.showRemoveAfter && isAlarm) ...[
-                  const SizedBox(height: 16),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: SwitchListTile(
-                      value: _removeAfter,
-                      onChanged: (value) =>
-                          setState(() => _removeAfter = value),
-                      secondary: const CircleAvatar(
-                        child: Icon(Icons.auto_delete_outlined),
-                      ),
-                      title: Text(l10n.eventAlertRemoveAfter),
-                      subtitle: Text(l10n.eventAlertRemoveAfterHint),
-                    ),
-                  ),
-                ],
-                if (widget.canRemove) ...[
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: colorScheme.errorContainer,
-                      foregroundColor: colorScheme.onErrorContainer,
-                    ),
-                    onPressed: () => Navigator.of(
-                      context,
-                    ).pop(const AlertEditorRemoved()),
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text(l10n.eventAlertRemove),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
         ),
@@ -606,146 +470,131 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     );
   }
 
-  /// The one formatter, again: the chips, the stepper's unit label and every
-  /// other surface read [EventAlert.describe] rather than composing their own
-  /// sentence out of the same numbers.
-  String _describe(AppLocalizations l10n) => _draft.describe(l10n, widget.event);
+  Widget _buildTypeRow(AppLocalizations l10n) {
+    return AlertTypeRow(
+      mode: _mode,
+      onChanged: _setMode,
+      reminderIdentifier: SemanticsIds.alertTypeReminder,
+      alarmIdentifier: SemanticsIds.alertTypeAlarm,
+      alarmWarning: l10n.eventAlertFullScreenOff,
+      showAlarmWarning: _fullScreenAllowed == false,
+    );
+  }
 
-  List<Widget> _timedChips(AppLocalizations l10n) {
-    return [
-      for (final preset in _timedPresets)
-        ChoiceChip(
-          label: Text(
-            widget.alert
-                .copyWith(offsetMinutes: preset)
-                .describe(l10n, widget.event),
+  Widget _buildWhenRow(AppLocalizations l10n) {
+    final presets = _allDay ? _allDayPresets : _timedPresets;
+    final value = _whenValue;
+    return FormMenuRow<int>(
+      glyph: Icons.timer_outlined,
+      label: l10n.eventAlertWhenSection,
+      value: _whenLabel(l10n, value),
+      selected: presets.contains(value) ? value : _customItem,
+      identifier: SemanticsIds.alertWhen,
+      menuWidth: FormMetrics.menuWidth,
+      items: [
+        for (final preset in presets)
+          FormMenuItem(
+            value: preset,
+            label: _whenLabel(l10n, preset),
+            identifier: _allDay
+                ? SemanticsIds.alertWhenDayItem(preset)
+                : SemanticsIds.alertWhenItem(preset),
           ),
-          selected: !_customOpen && _offsetMinutes == preset,
-          onSelected: (_) => setState(() {
-            _customOpen = false;
-            _offsetMinutes = preset;
-          }),
+        FormMenuItem(
+          value: _customItem,
+          label: l10n.eventAlertCustomItem,
+          identifier: _allDay
+              ? SemanticsIds.alertWhenDayCustom
+              : SemanticsIds.alertWhenCustom,
         ),
-      ChoiceChip(
-        label: Text(l10n.eventAlertCustom),
-        selected: _customOpen,
-        onSelected: (_) => setState(() {
-          _customOpen = true;
-          _customUnit = _unitFor(_offsetMinutes);
-          _customValue = _customValueFor(_customUnit);
-          _applyCustom();
-        }),
-      ),
-    ];
+      ],
+      onSelected: _onWhenSelected,
+    );
   }
 
-  List<Widget> _allDayChips(AppLocalizations l10n) {
-    return [
-      for (final preset in _allDayPresets)
-        ChoiceChip(
-          label: Text(_allDayLabel(l10n, preset)),
-          selected: !_customOpen && _daysBefore == preset,
-          onSelected: (_) => setState(() {
-            _customOpen = false;
-            _daysBefore = preset;
-          }),
-        ),
-      ChoiceChip(
-        label: Text(l10n.eventAlertCustom),
-        selected: _customOpen,
-        onSelected: (_) => setState(() {
-          _customOpen = true;
-          _customUnit = _OffsetUnit.days;
-          _customValue = _customValueFor(_OffsetUnit.days);
-          _applyCustom();
-        }),
-      ),
-    ];
-  }
-
-  static String _allDayLabel(AppLocalizations l10n, int daysBefore) {
-    return switch (daysBefore) {
-      0 => l10n.eventAlertOnTheDay,
+  /// How an offset reads on the When row, in its menu and under the Custom
+  /// sub-sheet's stepper — one wording for the three. A timed one goes
+  /// through [EventAlert.describe], the one formatter every other surface
+  /// reads. An all-day one is named without its time of day, which has the
+  /// row under this one to itself.
+  String _whenLabel(AppLocalizations l10n, int value) {
+    if (!_allDay) {
+      return widget.alert
+          .copyWith(offsetMinutes: value)
+          .describe(l10n, widget.event);
+    }
+    return switch (value) {
+      <= 0 => l10n.eventAlertOnTheDay,
       1 => l10n.eventAlertTheDayBefore,
-      _ => l10n.eventAlertAWeekBefore,
+      DateTime.daysPerWeek => l10n.eventAlertAWeekBefore,
+      _ => l10n.eventAlertDaysBefore(value),
     };
   }
-}
 
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-      child: Text(
-        text,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
+  Widget _buildTimeOfDayRow(AppLocalizations l10n) {
+    final minute = _dayMinute ?? EventAlerts.defaultDayMinute;
+    // The highlight stands between the group and the row, so the group
+    // cannot read the row's hairline indent through it.
+    return FormIndentedRow(
+      dividerIndent: FormMetrics.dividerIndentGlyph,
+      child: ValueChangeHighlight(
+        value: minute,
+        // The group's own radius: this is the group's last row, and a flash
+        // on a tighter corner than the group's clip lost its bottom corners.
+        borderRadius: const BorderRadius.all(
+          Radius.circular(RowMetrics.groupRadius),
+        ),
+        child: FormPickerRow(
+          glyph: Icons.schedule_outlined,
+          label: l10n.eventAlertTimeOfDay,
+          value: EventTimeFormatter.formatMinute(minute, context),
+          identifier: SemanticsIds.alertTimeOfDay,
+          onTap: _pickDayMinute,
         ),
       ),
     );
   }
-}
 
-/// "− N +" with the alert's own description beside it, the event editor's
-/// interval stepper in the one shape this sheet needs.
-class _OffsetStepper extends StatelessWidget {
-  final int value;
-  final int min;
-  final int max;
-  final String unitLabel;
-  final String decrementTooltip;
-  final String incrementTooltip;
-  final ValueChanged<int> onChanged;
-
-  const _OffsetStepper({
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.unitLabel,
-    required this.decrementTooltip,
-    required this.incrementTooltip,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
-          children: [
-            IconButton.filledTonal(
-              tooltip: decrementTooltip,
-              icon: const Icon(Icons.remove_rounded),
-              onPressed: value > min ? () => onChanged(value - 1) : null,
-            ),
-            SizedBox(
-              width: 40,
-              child: Text(
-                '$value',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleLarge,
-              ),
-            ),
-            IconButton.filledTonal(
-              tooltip: incrementTooltip,
-              icon: const Icon(Icons.add_rounded),
-              onPressed: value < max ? () => onChanged(value + 1) : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(unitLabel, style: theme.textTheme.bodyLarge),
-            ),
-          ],
-        ),
+  Widget _buildSoundRow(AppLocalizations l10n) {
+    return FormPickerRow(
+      glyph: Icons.music_note_outlined,
+      label: l10n.alertsSound,
+      value: AlertSoundSheet.labelFor(
+        l10n,
+        _sound,
+        title: _soundTitle,
+        titleResolved: _soundTitleResolved,
       ),
+      identifier: SemanticsIds.alertSound,
+      // Alarm tier only: the reminder tier plays through a notification
+      // channel whose sound Android froze at creation, so a choice there
+      // would be a control that does nothing.
+      enabled: _mode == AlertMode.ring,
+      onTap: _pickSound,
+    );
+  }
+
+  Widget _buildRemoveAfterRow(AppLocalizations l10n) {
+    final isAlarm = _mode == AlertMode.ring;
+    return FormSwitchRow(
+      glyph: Icons.auto_delete_outlined,
+      label: l10n.eventAlertRemoveAfter,
+      subtitle: l10n.eventAlertRemoveAfterHint,
+      identifier: SemanticsIds.alertRemoveAfter,
+      value: isAlarm && _removeAfter,
+      onChanged: isAlarm
+          ? (value) => setState(() => _removeAfter = value)
+          : null,
+    );
+  }
+
+  Widget _buildRemoveRow(AppLocalizations l10n) {
+    return FormActionRow(
+      glyph: Icons.delete_outline_rounded,
+      label: l10n.eventAlertRemove,
+      destructive: true,
+      identifier: SemanticsIds.alertRemove,
+      onTap: () => Navigator.of(context).pop(const AlertEditorRemoved()),
     );
   }
 }

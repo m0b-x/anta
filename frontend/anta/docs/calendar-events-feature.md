@@ -6324,3 +6324,117 @@ one case in
 (the agent owns the text channel), so the caret follow is pinned by the
 widget suite, which raises one through the view's insets; the rail was
 checked on the simulator in light, dark and German at 200 %.
+
+## Addendum (2026-10-02): Tier 2 of the language adoption — the alert sheet, the quick alarm and the template form
+
+Record: `docs/calendar-language-tier-2-roadmap.md` (D1–D14, the spec, the
+slice ledger). Plan: `docs/calendar-language-adoption-roadmap.md`. Canvas:
+"Editor Satellites Mocks",
+https://claude.ai/artifact/X4dZF5d2DsmLrK5GvadzuW. Rules: the
+`calendar-events` skill ("The alert sheet and the quick alarm", the
+template bullet) and `ui-language` (the primitives).
+
+**Why.** The migrated event editor opened three sheets in the older chrome
+— the stock drag band, a centred title, a filled Save, `Card`s,
+`ChoiceChip`s, `SegmentedButton`s, `SwitchListTile`s — so the seam sat in
+the app's most-used flow. A device walk before any code found more than
+chrome: three clocks (the alert editor's Time of day was 24-hour only while
+its own time pad followed the phone), two tier orders, rows that appeared
+and disappeared with the tier, a full-screen warning that arrived after the
+sheet had opened and pushed everything down, a custom offset that rewrote
+the alert the moment it was opened, and a template editor with no test.
+
+**The owner's four decisions** (asked as lettered options on the canvas,
+each answered with the recommended one):
+
+1. *The template editor is its own form sheet, not a mode of the event
+   editor.* A template has no date, no alerts, no note and no skips, so a
+   mode would have hidden about fifteen rows behind a flag and added a
+   second result type and a second save path to the app's most-used form.
+   The twin is built from the editor's rows and the editor's own
+   sub-sheets, and its regressions land in the twin.
+2. *An alert's When is one menu row* ending in "Custom…", which opens a
+   small sub-sheet. Inline chips took three lines and Custom revealed two
+   more rows under the finger; the menu costs one more tap per preset and
+   the sheet never changes height.
+3. *The quick alarm leads with the time* at 40 px, the day under it. It is
+   the one value checked at a glance.
+4. *The template form reaches parity with the editor*: count-style chips, a
+   markdown description with the editor's limit, weekly needing a weekday.
+
+**How it was built, and why that order.** Slice 0 came first and changed no
+app code: a driver per sheet ("robot", `test/widgets/support/`) was put
+between the suites and the widgets, the alert and quick-alarm suites were
+moved onto their robots with names, order and expectations untouched, and
+a 75-test suite pinned what the template editor wrote. Each later slice
+rebuilt a sheet and rewrote only its robot; a test body changed only where
+the record names a deliberate change. That is the proof that the sheets
+write what they wrote: the same assertions, before and after. Slice 0 also
+found what nobody had looked for — a close during an in-flight save still
+created the template, the time rows raised a framework error in debug
+builds, and a template made in its own editor could store what the event
+editor refuses.
+
+**What shipped.**
+
+- *The alert sheet* (`AlertEditorSheet`): a sub-sheet, ✕ · Alert · Done.
+  Type is a labelled chip row, Reminder then Alarm, whose caption reads the
+  choice back in a slot as tall as its tallest text — the late full-screen
+  warning takes that slot, so nothing moves when the permission answer
+  arrives. When is a menu row; Custom… opens `AlertOffsetSheet` over the
+  pure `AlertOffset`, and writes only on Done. On the Reminder tier the
+  sound row and the remove-after switch stay in place at 38 %. The call,
+  its six parameters and its three outcomes are untouched, for the editor
+  and for Calendar settings' defaults.
+- *The quick alarm* (`QuickAlarmSheet`): the time in a `FormHeroRow`, the
+  presets a chip row, the title row with the alarm's avatar, the shared
+  Type row, the switch. What Save creates is byte-for-byte what it created.
+- *The template form* (`EventTemplateEditorSheet`): a form sheet on
+  `FormSheetFrame` with the editor's groups, the description as a row that
+  opens the full description sheet, Repeat through the Repeat sheet's new
+  template variant, the discard guard.
+- *Shared*: `FormStepperRow`, `FormTitleRow`, `FormHeroRow`,
+  `FormCaptionSlot`, `FormIndentedRow`, `FormValueDot`,
+  `FormHeaderHairline`, `FormChipRow(indented:)`, a `FormChip` that can be
+  disabled in place and whose height is a minimum; `AlertTypeRow`;
+  `EventAlert.describe` reading the phone's clock in widgets.
+
+**Three corrections worth remembering.**
+
+- *Remove after it rings is the event's flag, not the alert's.* The first
+  spec had the sheet return `false` whenever the tier was Reminder. That
+  would have disarmed an event each time a reminder was edited beside an
+  alarm, because the editor adopts whatever the sheet hands back. The
+  implementer kept the old pass-through and pinned it: the result is
+  `false` only when this sheet turned an alarm into a reminder.
+- *A rule the user did not change goes back as the object it arrived as.*
+  The Repeat sheet cannot show every rule a template may hold (an interval
+  past 99; a stored count on a Workdays rule). Marking the rule "touched"
+  on any Done would have rewritten such a template on an untouched edit and
+  made a clean form ask to discard; it is touched only by a Done that
+  changed the draft.
+- *A chip's 32 dp is a minimum.* The Type and unit chips replaced segmented
+  buttons that scaled with the text; at 200 % the chips cut their labels.
+  The same cut had been shipping in the editor's count-style and assume
+  chips and in the detail sheet's presence chips. Above 160 % a chip now
+  grows with its label; below, nothing changed.
+
+**What two reviews and a device pass found after the rebuilds.** The hero
+row changed height with the time's length once the value was fitted (a
+12-hour clock at large text: "9:30 AM" to "10:20 AM" moved the presets
+under the finger) — the row now holds its line open at full size. A
+header's hairline stayed on after the keyboard closed over a body that no
+longer scrolled — `FormHeaderHairline` listens to the scroll metrics too.
+The Repeat stepper's tooltips said the opposite of what each button does
+("Less frequent" on the button that makes an event more frequent), in all
+three locales and since the editor's redesign. The title row's field was
+one text line tall inside its 56 dp row and lost its accessible name once
+it held text — true of the editor's title as well. On the device, Calendar
+settings went blank in German at 200 % (a trailing dropdown consuming its
+tile), on the way to the default alerts and the templates page.
+
+**Deliberately left.** Template alerts (the schema half of the alerts
+roadmap's session 6); a typed custom offset; the templates page's rows and
+delete confirm (Tier 4); the two wordings for seven days ("A week before"
+in the menu, "7 days before" in the rows); the quick alarm growing with the
+keyboard, as every content-tall sheet with a field does.

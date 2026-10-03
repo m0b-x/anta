@@ -30,12 +30,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventAllDay => 'All day';
 
   @override
-  String get eventAllDayHint => 'Event spans the entire day';
-
-  @override
-  String get eventTimeSection => 'Time';
-
-  @override
   String get eventStartTime => 'Start time';
 
   @override
@@ -601,10 +595,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventPerOccurrenceDescriptions => 'Separate description per day';
 
   @override
-  String get eventPerOccurrenceDescriptionsDesc =>
-      'This event keeps its own description for each day. The event\'s description becomes the template every day starts from.';
-
-  @override
   String get eventDescriptionScopeAllDays => 'All days';
 
   @override
@@ -687,12 +677,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventDate => 'Start date';
 
   @override
-  String get repeatMode => 'Repeats';
-
-  @override
-  String get repeatOnce => 'One time';
-
-  @override
   String get recurrenceWorkdays => 'Workdays';
 
   @override
@@ -760,10 +744,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recurrenceIntervalLabel => 'Repeat every';
 
   @override
-  String get recurrenceIntervalDecrement => 'Less frequent';
+  String get recurrenceIntervalDecrement => 'More frequent';
 
   @override
-  String get recurrenceIntervalIncrement => 'More frequent';
+  String get recurrenceIntervalIncrement => 'Less frequent';
 
   @override
   String recurrenceUnitDays(int count) {
@@ -816,17 +800,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recurrenceScopeLabel => 'Occurrences';
 
   @override
-  String get recurrenceScopeFromStart => 'From this date on';
-
-  @override
   String get recurrenceScopeAlways => 'Always';
 
   @override
   String get recurrenceScopeEveryYear => 'Every year';
-
-  @override
-  String get recurrenceScopeHint =>
-      'Also shows on matching days before the start date';
 
   @override
   String recurrenceScopeAlwaysSuffix(String rule) {
@@ -837,21 +814,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventTrackPresence => 'Track presence';
 
   @override
-  String get eventTrackPresenceDesc => 'Mark the days you skip.';
-
-  @override
   String get eventAssumePresent => 'Assume present';
 
   @override
   String get eventAssumeAbsent => 'Assume absent';
-
-  @override
-  String get eventAssumePresentHint =>
-      'Days count as attended unless you mark them missed.';
-
-  @override
-  String get eventAssumeAbsentHint =>
-      'Days count as missed until you mark them present.';
 
   @override
   String get eventAssumeAbsentFrom => 'Absent from';
@@ -885,10 +851,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventCountOccurrences => 'Count occurrences';
-
-  @override
-  String get eventCountOccurrencesHint =>
-      'Each occurrence gets a label counting from the start date. Count from 0 for ages and anniversaries.';
 
   @override
   String get eventCountStyleNumbered => 'Count from 1';
@@ -3045,9 +3007,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get templateName => 'Template name';
 
   @override
-  String get templateNameHint => 'Push day';
-
-  @override
   String get saveAsTemplate => 'Save as template';
 
   @override
@@ -5062,6 +5021,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventAlertCustom => 'Custom';
 
   @override
+  String get eventAlertCustomItem => 'Custom…';
+
+  @override
   String get eventAlertUnitMinutes => 'Minutes';
 
   @override
@@ -5386,6 +5348,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recurrenceBeforeStartYearlyHint => 'Also in earlier years';
+
+  @override
+  String get recurrenceBeforeStartTemplateHint =>
+      'Also on matching days before the day it is added';
 
   @override
   String recurrenceUntilSuffix(String rule, String date) {

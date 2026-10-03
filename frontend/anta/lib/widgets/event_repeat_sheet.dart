@@ -89,12 +89,22 @@ class EventRepeatSheet extends StatefulWidget {
   final CalendarAppearance appearance;
   final PickerDayLoad? dayLoad;
 
+  /// The repeat of an event template rather than of an event. Two rows are
+  /// left out — left out and not disabled, since a template never offers
+  /// them: Ends, because a template stores no end date, and the Public
+  /// holidays only kind, which a template collapses to one-time. The
+  /// before-start switch stays, and its second line stops naming a start
+  /// date: it says what the switch will mean on whatever day the template is
+  /// added. [startDate] is then shown nowhere.
+  final bool forTemplate;
+
   const EventRepeatSheet({
     super.key,
     required this.draft,
     required this.startDate,
     required this.appearance,
     this.dayLoad,
+    this.forTemplate = false,
   });
 
   static Future<EventRepeatDraft?> show(
@@ -103,6 +113,7 @@ class EventRepeatSheet extends StatefulWidget {
     required DateTime startDate,
     required CalendarAppearance appearance,
     PickerDayLoad? dayLoad,
+    bool forTemplate = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<EventRepeatDraft>(
@@ -126,6 +137,7 @@ class EventRepeatSheet extends StatefulWidget {
           startDate: startDate,
           appearance: appearance,
           dayLoad: dayLoad,
+          forTemplate: forTemplate,
         ),
       ),
     );
@@ -267,11 +279,12 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
           onTap: () => _select(null),
         ),
         for (final kind in RepeatKind.values)
-          FormRadioRow(
-            label: EventRepeatSheet.kindLabel(kind, l10n),
-            selected: _draft.recurring && _draft.kind == kind,
-            onTap: () => _select(kind),
-          ),
+          if (!widget.forTemplate || kind != RepeatKind.holidays)
+            FormRadioRow(
+              label: EventRepeatSheet.kindLabel(kind, l10n),
+              selected: _draft.recurring && _draft.kind == kind,
+              onTap: () => _select(kind),
+            ),
       ],
     );
   }
@@ -288,6 +301,7 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
                 child: _DependentGroup(
                   draft: _template,
                   startDate: widget.startDate,
+                  forTemplate: widget.forTemplate,
                   template: true,
                 ),
               ),
@@ -298,6 +312,7 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
           _DependentGroup(
             draft: _draft,
             startDate: widget.startDate,
+            forTemplate: widget.forTemplate,
             onStepInterval: _stepInterval,
             onToggleWeekday: _toggleWeekday,
             onPickEndDate: _pickEndDate,
@@ -312,6 +327,10 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
 class _DependentGroup extends StatelessWidget {
   final EventRepeatDraft draft;
   final DateTime startDate;
+
+  /// [EventRepeatSheet.forTemplate]. Not [template], which marks the
+  /// invisible copy that sizes the area.
+  final bool forTemplate;
   final bool template;
   final ValueChanged<int>? onStepInterval;
   final ValueChanged<int>? onToggleWeekday;
@@ -322,6 +341,7 @@ class _DependentGroup extends StatelessWidget {
   const _DependentGroup({
     required this.draft,
     required this.startDate,
+    required this.forTemplate,
     this.template = false,
     this.onStepInterval,
     this.onToggleWeekday,
@@ -340,6 +360,26 @@ class _DependentGroup extends StatelessWidget {
     };
   }
 
+  /// The interval row for [kind]. Its value box is sized once, by the
+  /// two-digit ceiling in the unit's longer plural, so the minus button
+  /// stands still while the user steps. The sizer shows that ceiling as its
+  /// value, so the area is as tall as the widest value makes the row.
+  Widget _buildStepper(AppLocalizations l10n, RepeatKind kind) {
+    final step = onStepInterval;
+    final interval = draft.interval;
+    const ceiling = EventRepeatDraft.maxInterval;
+    final shown = template ? ceiling : interval;
+    return FormStepperRow(
+      label: l10n.recurrenceIntervalLabel,
+      value: '$shown ${_unitLabel(l10n, kind, shown)}',
+      widestValue: '$ceiling ${_unitLabel(l10n, kind, ceiling)}',
+      decrementTooltip: l10n.recurrenceIntervalDecrement,
+      incrementTooltip: l10n.recurrenceIntervalIncrement,
+      onDecrement: step != null && interval > 1 ? () => step(-1) : null,
+      onIncrement: step != null && interval < ceiling ? () => step(1) : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -349,105 +389,53 @@ class _DependentGroup extends StatelessWidget {
       trailingGap: false,
       children: [
         if (draft.kind.supportsInterval)
-          _IntervalRow(
-            interval: draft.interval,
-            unit: _unitLabel(l10n, draft.kind, draft.interval),
-            onStep: onStepInterval,
-          ),
+          template
+              // The sizer holds every kind's stepper at once: a kind whose
+              // widest value leaves the label no room drops the stepper under
+              // it, and the sheet has to be as tall as that kind whichever
+              // one is live.
+              ? FormIndentedRow(
+                  dividerIndent: FormMetrics.dividerIndentPlain,
+                  child: Stack(
+                    children: [
+                      for (final kind in RepeatKind.values)
+                        if (kind.supportsInterval) _buildStepper(l10n, kind),
+                    ],
+                  ),
+                )
+              : _buildStepper(l10n, draft.kind),
         if (draft.kind == RepeatKind.weekly)
           _WeekdayRow(
             weekdays: draft.weekdays,
             template: template,
             onToggle: onToggleWeekday,
           ),
-        FormPickerRow(
-          label: l10n.recurrenceEnds,
-          value: endDate == null ? l10n.never : dateFormat.format(endDate),
-          onTap: onPickEndDate,
-          dividerIndent: FormMetrics.dividerIndentPlain,
-          trailingButton: endDate == null
-              ? null
-              : FormTrailingButton(
-                  icon: Icons.close_rounded,
-                  tooltip: l10n.recurrenceEndDateRemove,
-                  onPressed: onClearEndDate,
-                ),
-        ),
+        if (!forTemplate)
+          FormPickerRow(
+            label: l10n.recurrenceEnds,
+            value: endDate == null ? l10n.never : dateFormat.format(endDate),
+            onTap: onPickEndDate,
+            dividerIndent: FormMetrics.dividerIndentPlain,
+            trailingButton: endDate == null
+                ? null
+                : FormTrailingButton(
+                    icon: Icons.close_rounded,
+                    tooltip: l10n.recurrenceEndDateRemove,
+                    onPressed: onClearEndDate,
+                  ),
+          ),
         FormSwitchRow(
           label: l10n.recurrenceBeforeStart,
           subtitle: draft.kind == RepeatKind.yearly
               ? l10n.recurrenceBeforeStartYearlyHint
+              : forTemplate
+              ? l10n.recurrenceBeforeStartTemplateHint
               : l10n.recurrenceBeforeStartHint(dateFormat.format(startDate)),
           value: draft.retroactive,
           onChanged: onRetroactive,
           dividerIndent: FormMetrics.dividerIndentPlain,
         ),
       ],
-    );
-  }
-}
-
-class _IntervalRow extends FormDividedRow {
-  final int interval;
-  final String unit;
-  final ValueChanged<int>? onStep;
-
-  const _IntervalRow({
-    required this.interval,
-    required this.unit,
-    required this.onStep,
-  });
-
-  static const double valueMinWidth = 96;
-
-  @override
-  double get dividerIndent => FormMetrics.dividerIndentPlain;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-    final step = onStep;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
-      child: Padding(
-        padding: const EdgeInsets.only(left: RowMetrics.groupInset),
-        child: Row(
-          children: [
-            Expanded(
-              child: FormLabelValue(label: l10n.recurrenceIntervalLabel),
-            ),
-            FormTrailingButton(
-              icon: Icons.remove_rounded,
-              tooltip: l10n.recurrenceIntervalDecrement,
-              color: colorScheme.primary,
-              onPressed: step != null && interval > 1 ? () => step(-1) : null,
-            ),
-            ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: valueMinWidth),
-              child: Text(
-                '$interval $unit',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: FormMetrics.labelSize,
-                  height: 20 / FormMetrics.labelSize,
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.onSurface,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ),
-            FormTrailingButton(
-              icon: Icons.add_rounded,
-              tooltip: l10n.recurrenceIntervalIncrement,
-              color: colorScheme.primary,
-              onPressed: step != null && interval < EventRepeatDraft.maxInterval
-                  ? () => step(1)
-                  : null,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

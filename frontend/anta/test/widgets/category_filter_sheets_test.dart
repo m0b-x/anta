@@ -614,6 +614,9 @@ void main() {
       expect(find.byType(CalendarFilterSheet), findsOneWidget);
       expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Skipped');
       expect(bookmark(tester).onPressed, isNull);
+      // Said above the sheet, where a finger can reach it — a bar on the
+      // page's `Scaffold` would be drawn under this route.
+      expect(find.text('Saved as "Skipped"').hitTestable(), findsOneWidget);
     });
 
     testWidgets('the saved-filter row opens the presets and a pick replaces '

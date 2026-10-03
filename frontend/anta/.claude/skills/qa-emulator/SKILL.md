@@ -95,7 +95,7 @@ calendar state around today:
 
 ```bash
 ./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
-./tool/qa/qa flows calendar                                           # thirteen flows, ~45 s on the simulator, ~60 s on the Windows emulator (ANTA_QA_VIA=agent there)
+./tool/qa/qa flows calendar                                           # seventeen flows; about 90 s on the Windows emulator (ANTA_QA_VIA=agent there)
 ./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
 ```
 

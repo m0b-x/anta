@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
@@ -16,11 +17,11 @@ import '../models/upcoming_agenda_filters.dart';
 import '../services/filter_preset_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
-import '../utils/custom_snackbar.dart';
 import 'category_picker_sheet.dart';
 import 'filter_check_list_sheet.dart';
 import 'filter_preset_sheet.dart';
 import 'form_rows.dart';
+import 'overlay_snackbar.dart';
 
 /// Bottom-sheet that narrows the grid — by category, priority, recurrence,
 /// time of day and the boolean traits — and switches the day annotations.
@@ -219,9 +220,15 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     });
   }
 
+  /// In the overlay, not the page's `Scaffold`: this sheet is a route above
+  /// that page, and a bar raised there is drawn under the sheet.
   void _report(String message) {
     if (!mounted) return;
-    CustomSnackbar.show(context, message);
+    OverlaySnackbar.show(
+      context,
+      message,
+      duration: AppConstants.snackbarDuration,
+    );
   }
 
   /// Clears every filter but leaves the panel preference alone

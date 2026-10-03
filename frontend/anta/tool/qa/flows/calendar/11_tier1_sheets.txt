@@ -5,8 +5,9 @@
 # is opened, shot and left through its ✕.
 # - The Look sheet's Icon row is id:look-icon (fix round, D24): "Icon" alone
 #   is a substring of three nodes there (the title, the row, the Tint switch).
-# - The sound row exists only on the Alarm tier, so the alert editor is
-#   switched to "Alarm" first; the alert editor is then backed out unsaved.
+# - The sound row is switched off on the Reminder tier (Tier 2: in place,
+#   dimmed), so the alert sheet's Alarm chip is tapped first; the alert sheet
+#   is then backed out without its Done.
 # - The editor stays clean throughout (Look's Done returns an equal draft),
 #   so its ✕ returns to the detail sheet without asking.
 # - The grid title's label is the month and year, which no placeholder
@@ -37,9 +38,9 @@ wait id:event-close
 scroll-to id:event-alert-add --in id:event-form
 tap id:event-alert-add
 wait id:alert-sheet-save
-tap "Alarm"
-scroll-to "Alarm sound"
-tap "Alarm sound"
+tap id:alert-type-alarm
+scroll-to id:alert-sound
+tap id:alert-sound
 wait id:sound-phone-default
 shot 11_sound
 tap id:sound-close
