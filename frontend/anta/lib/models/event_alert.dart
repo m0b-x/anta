@@ -152,12 +152,22 @@ class EventAlert extends Equatable {
   /// [event] is what decides which offset set is being described, through the
   /// derived [CalendarEvent.allDay] — so an event flipped to all-day is
   /// described by its all-day offsets without either set being rewritten.
-  String describe(AppLocalizations l10n, CalendarEvent event) {
+  ///
+  /// [formatMinute] writes an all-day alert's time of day. A widget passes
+  /// `EventTimeFormatter.formatMinute` with its context, so the label follows
+  /// the phone's 12 / 24-hour setting like every other time on the screen.
+  /// Left out, the time is the neutral 24-hour text — all a caller with no
+  /// `BuildContext` can produce.
+  String describe(
+    AppLocalizations l10n,
+    CalendarEvent event, {
+    String Function(int minute)? formatMinute,
+  }) {
     if (event.allDay) {
-      final label = EventTimeFormatter.formatRange(
-        EventTime(startMinute: dayMinute ?? EventAlerts.defaultDayMinute),
-        l10n,
-      );
+      final minute = dayMinute ?? EventAlerts.defaultDayMinute;
+      final label =
+          formatMinute?.call(minute) ??
+          EventTimeFormatter.formatRange(EventTime(startMinute: minute), l10n);
       if (daysBefore <= 0) return l10n.eventAlertAllDayOnDay(label);
       if (daysBefore == 1) return l10n.eventAlertAllDayDayBefore(label);
       return l10n.eventAlertAllDayDaysBefore(daysBefore, label);

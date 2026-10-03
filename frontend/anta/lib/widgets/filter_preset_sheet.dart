@@ -13,10 +13,10 @@ import '../models/calendar_grid_filters.dart';
 import '../services/filter_preset_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
-import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
 import 'form_menu_item.dart';
 import 'form_rows.dart';
+import 'overlay_snackbar.dart';
 import 'settings_reorder.dart';
 
 /// Bottom-sheet listing the user's saved filters: "No filter" first, then
@@ -289,9 +289,15 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     setState(() => _presets = _service?.presets ?? const []);
   }
 
+  /// In the overlay, not the page's `Scaffold`: this sheet is a route above
+  /// that page, and a bar raised there is drawn under the sheet.
   void _report(String message) {
     if (!mounted) return;
-    CustomSnackbar.show(context, message);
+    OverlaySnackbar.show(
+      context,
+      message,
+      duration: AppConstants.snackbarDuration,
+    );
   }
 
   /// Re-points a saved preset at whatever the calendar is filtered by now —

@@ -1,6 +1,8 @@
 # Calendar UI Language Adoption — Roadmap for the remaining surfaces (2026-09-27)
 
-**Status: PLAN, not started.** Written at the end of the Filters sheet
+**Status: IN PROGRESS — Tier 1 COMMITTED `7e0423b` (2026-09-28); Tier 2
+IMPLEMENTED and REVIEWED 2026-10-03, uncommitted (the owner commits); Tiers
+3 and 4 not started. §9 is the table, §2.4 the corrections of 2026-10-02.** Written at the end of the Filters sheet
 rework (`docs/calendar-filters-redesign-roadmap.md`, shipped uncommitted the
 same day) after the owner asked which calendar components still need the new
 UI language and said to write everything down so the long process can start
@@ -32,7 +34,9 @@ In practice:
   and `docs/calendar-filters-redesign-roadmap.md` (the most recent, with its
   D22–D24 deviations, the review round and the device pass — copy its shape).
 - **Skills to load** in the implementing session: `anta-context`,
-  `calendar-events`, `calendar-ui`, `ui-revamp`, `verify`, `l10n`,
+  `calendar-events`, `ui-language` (since 2026-10-02 the app-wide rulebook —
+  the rows, the chrome, the metrics and the tests moved there out of
+  `calendar-ui`), `calendar-ui`, `ui-revamp`, `verify`, `l10n`,
   `qa-emulator`; `markdown-engine` only for the description sheet.
 - **The gate after every slice:** `dart analyze lib test` clean; the whole
   `flutter test` green in one run (`test/qa/host_devices_test.dart` has one
@@ -139,9 +143,13 @@ None uses `ContentRowShell` or any form-row primitive.
 ### 2.3 Calendar dialogs
 
 All confirmations go through `widgets/app_dialogs.dart:33` (`AppDialogs.confirm`),
-shared app-wide; the language's rule (an `AlertDialog` with a `TextButton`
-cancel and a `FilledButton.tonal` confirm) is what it already draws — check,
-do not rebuild. Inline dialogs: delete event and the unsaved-changes guard in
+shared app-wide. **Corrected 2026-10-02:** it does *not* draw the language's
+rule (an `AlertDialog` with a `TextButton` cancel and a `FilledButton.tonal`
+confirm). `confirm(isDestructive: true)` draws an error-filled `FilledButton`
+under a 48 dp icon (`app_dialogs.dart:53–61, 74–85`); only the editor's own
+delete dialog and `AppDialogs.confirmDiscard` are tonal, so the confirmations
+listed below differ from the editor's. Which style is the language's is an
+app-wide decision (about 77 call sites in 31 files) — §2.4. Inline dialogs: delete event and the unsaved-changes guard in
 `event_editor_sheet.dart:1669, 1844`; the preset name dialog
 `filter_preset_sheet.dart:562`. Confirmations: remove holiday
 (`calendar_page.dart:1877`), delete category (`calendar_categories_page.dart:174`),
@@ -149,6 +157,60 @@ reset settings / delete all events (`calendar_settings_page.dart:1132, 1147`),
 reset appearance (`calendar_appearance_page.dart:873`), cancel an alarm
 (`alerts_page.dart:163`), delete template (`event_templates_page.dart:69`),
 palette delete / reset (`color_palette_sheet.dart:88, 106`).
+
+### 2.4 Corrections and additions (2026-10-02)
+
+From a read-only audit of the tree at `d501f42`, before Tier 2. Every Tier 2–4
+file was unchanged since the inventory above, line counts included.
+
+- **Counts.** §1 says "twenty calendar sheets, three pages and two panels"; the
+  tables above list nineteen sheets, five pages and four panels. The tables
+  are right.
+- **Three surfaces the inventory missed**, with the tier each joins:
+
+  | Surface | File | Today | Tier |
+  | --- | --- | --- | --- |
+  | The templates page | `pages/event_templates_page.dart` | `Card` + `ListTile` + `CircleAvatar` rows (:112–117), delete through `AppDialogs.confirm` (:69) | 4 — a list page takes the browser's rows. It hosts Tier 2's template editor, so its entry points are must-not-change there |
+  | The upcoming agenda's search field and summary strip | `widgets/upcoming_agenda_view.dart` | a raw `TextField` under an `OutlineInputBorder` (:1199), `InputChip`s (:1269, :1306) | 4, with the overview's rows — decide there whether the strip's chips stay, as the grid's filter strip keeps its `InputChip`s |
+  | The full-screen alarm | `pages/alarm_page.dart` | `FilledButton.icon` / `OutlinedButton.icon` (:233, :245) | none — a ring screen is not a form. Raise it with the owner at Tier 4 |
+
+- **The confirm dialog** (§2.3, corrected in place). Two styles exist: the
+  editor's delete dialog and `confirmDiscard` are tonal, every
+  `AppDialogs.confirm(isDestructive: true)` is error-filled under a 48 dp
+  icon. It is one file and it restyles every confirmation in the app, so it
+  is recorded as an open app-wide decision in
+  `docs/ui-language-adoption-roadmap.md`; until it is taken a migrated sheet
+  keeps the dialog its old version showed.
+- **Seams that stay until their tier**: the Look sheet embeds the old
+  `ColorSwatchPicker` (`event_look_sheet.dart:191`, Tier 3); the category
+  picker opens the old category editor (`category_picker_sheet.dart:201`,
+  Tier 3) and its file still hosts `CategoryFilterTile` (:421, Tier 4); the
+  agenda filters sheet still opens Material's `showDateRangePicker` (:254,
+  the Dates sheet's range mode, deferred to the owner in Tier 1).
+- **Two leftovers inside migrated sheets**: `month_year_picker_sheet.dart`
+  still reads `AppSpacing.md` / `.sm` once each, and the Dates sheet's repeat
+  panel keeps an inline Cancel + `FilledButton` Apply pair
+  (`calendar_date_picker_sheet.dart:1033–1046`) with literal numbers around
+  it. Neither is in a tier; take them in the first tier that opens the file.
+- **Tier 2's rows, re-read.** The three sheets' chrome is ✕ plus a header
+  `FilledButton` Save, not the "Cancel+Save" of §2.1, and the template
+  editor's "Reset" is only its icon row's clear button. `EventAlert` has no
+  repeat or snooze field — snooze is the one global setting
+  `alert_snooze_minutes` — so the "repeat / snooze switches" of §3 have
+  nothing to bind without a schema change and are **not part of Tier 2**.
+  The template editor has no widget suite and none of the three sheets has a
+  German 200 % or a 360 × 780 test, so Tier 2 opens with the safety net of
+  `ui-revamp`'s slice 0. The flow name `11_templates.txt` suggested in §3 is
+  taken (`11_tier1_sheets.txt`, `12_description.txt`); Tier 2's flows start
+  at 13. Entry points moved: the editor's alert handlers are
+  `event_editor_sheet.dart:1377–1444` and its rows `:2687–2725`; "Save as
+  template" is `:1561–1606` (row `:2910–2920`); the time pad's callers are
+  the editor `:1293` / `:1321`, the alert editor `:351`, the template editor
+  `:221` and the quick alarm `:114`.
+- **The rulebook moved.** The rows, the chrome, the metrics and the tests are
+  in the `ui-language` skill; `calendar-ui` keeps the calendar's own widgets,
+  ids and device pass. Where this roadmap says "the `calendar-ui` skill" for
+  a row or chrome rule, read `ui-language`.
 
 ## 3. The plan — tiers, in order
 
@@ -410,7 +472,7 @@ the next tier starts on a clean tree.
 
 | Tier | Status |
 | --- | --- |
-| 1 | **done 2026-09-27, uncommitted — the owner reviews and commits.** Record `docs/calendar-language-tier-1-roadmap.md` (D1–D25), canvas "Agenda Filters Mocks" https://claude.ai/artifact/FGLdxuNj5a3ATaDCpiaKYo. The agenda sheet rebuilt as the Filters sheet's twin (Events one menu over the whole axis), the seven chrome-only sheets migrated in three shapes (sub-sheet · the form box without its guard for the two fillers · the form sheet), `FormSheetFrame` hoisted from the editor, the description sheet guarded; gate: `dart analyze lib test` clean, `flutter test` 6137 / 7 skipped / the one known Windows case, `untranslated.txt` `{}`, `qa flows calendar` 12 / 12, `qa errors` clean after the matrix; the review confirmed no defect, its nits and the device pass's nine 200 % findings fixed the same day (D23–D25). Deferred to later tiers: `CategoryFilterTile` (Tier 4), the day-list's mini grid weekday style (Tier 3); to the owner: a two-line header at 200 %, a range mode for the Dates sheet |
-| 2 | not started |
+| 1 | **done 2026-09-27, COMMITTED `7e0423b` (2026-09-28).** Record `docs/calendar-language-tier-1-roadmap.md` (D1–D25), canvas "Agenda Filters Mocks" https://claude.ai/artifact/FGLdxuNj5a3ATaDCpiaKYo. The agenda sheet rebuilt as the Filters sheet's twin (Events one menu over the whole axis), the seven chrome-only sheets migrated in three shapes (sub-sheet · the form box without its guard for the two fillers · the form sheet), `FormSheetFrame` hoisted from the editor, the description sheet guarded; gate: `dart analyze lib test` clean, `flutter test` 6137 / 7 skipped / the one known Windows case, `untranslated.txt` `{}`, `qa flows calendar` 12 / 12, `qa errors` clean after the matrix; the review confirmed no defect, its nits and the device pass's nine 200 % findings fixed the same day (D23–D25). Deferred to later tiers: `CategoryFilterTile` (Tier 4), the day-list's mini grid weekday style (Tier 3); to the owner: a two-line header at 200 %, a range mode for the Dates sheet |
+| 2 | **IMPLEMENTED and REVIEWED 2026-10-03, uncommitted — the owner reviews and commits.** Record `docs/calendar-language-tier-2-roadmap.md` (D1–D14; the owner answered D1–D4 with the recommended option each: the template editor as its own sheet, the alert's When as a menu row with a Custom sub-sheet, the quick alarm's hero time, template parity with the editor), canvas "Editor Satellites Mocks" https://claude.ai/artifact/X4dZF5d2DsmLrK5GvadzuW. The alert sheet with its Custom sub-sheet, the quick alarm and the template form rebuilt on the language with what they return untouched (a robot per sheet in `test/widgets/support/` is the proof); eight primitives added or hoisted (`FormStepperRow`, `FormTitleRow`, `FormHeroRow`, `FormCaptionSlot`, `FormIndentedRow`, `FormValueDot`, `FormHeaderHairline`, `FormChipRow(indented:)`), `FormChip` disabled in place and a minimum height, `AlertTypeRow`, `AlertOffset`; gate `flutter test` 6669 / 7 skipped / the known Windows case (6251 before), `qa flows calendar` 17 / 17 with four new flows, the independent review's and the device pass's findings fixed. Also fixed on the way: Calendar settings blank in German at 200 % and its default-alert rows at large text (a yielding tile, the kit untouched), the Repeat stepper's inverted tooltips, messages drawn under their sheets. Deferred to Tier 3 / 4 / the owner: the record's §8 |
 | 3 | not started |
 | 4 | not started |

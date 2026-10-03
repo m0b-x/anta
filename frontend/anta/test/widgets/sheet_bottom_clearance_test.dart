@@ -25,6 +25,7 @@ import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
+import 'package:anta/widgets/alert_offset_sheet.dart';
 import 'package:anta/widgets/alert_sound_sheet.dart';
 import 'package:anta/widgets/bar_switcher_sheet.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
@@ -432,6 +433,28 @@ void main() {
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 
+  testWidgets('the event template editor sheet keeps its header when the '
+      'keyboard is taller than the sheet', (tester) async {
+    // A blank form opens with its name focused, so this is the state it opens
+    // in on a short screen. The form sheet's box is a fixed share of the
+    // screen: the inset has to go on the scroll view or the body is nothing.
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFrom(tester, (context) => EventTemplateEditorSheet.show(context));
+
+    final box = tester.getSize(find.byType(EventTemplateEditorSheet));
+    expect(box.height, surface.height * 0.92);
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(1180));
+
+    // Present *and* reachable: a `RenderErrorBox` is also "present".
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.templateSave),
+      findsOneWidget,
+    );
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.templateClose));
+    await tester.pumpAndSettle();
+    expect(find.byType(EventTemplateEditorSheet), findsNothing);
+  });
+
   testWidgets('the event editor sheet clears the navigation bar', (
     tester,
   ) async {
@@ -506,9 +529,35 @@ void main() {
       ),
     );
 
-    // The footer's Remove button is the last thing in the scroll view, and it
-    // is exactly what a nav bar eats.
+    // The Remove alert row is the last thing in the scroll view, and it is
+    // exactly what a nav bar eats.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the custom alert offset sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => AlertOffsetSheet.show(
+        context,
+        initial: 45,
+        allDay: false,
+        readBack: (stored) => '$stored min before',
+      ),
+    );
+
+    // Two rows and a line of text: it never scrolls, which is exactly the
+    // shape that forgets the clearance, and the read-back is the last thing
+    // in it. The sheet also lays the line out unseen to hold its height; the
+    // one on screen is the last in the tree.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester.getRect(find.text('45 min before').last).bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the read-back ran under the gesture bar',
+    );
   });
 
   testWidgets('the quick-alarm sheet clears the navigation bar', (
@@ -521,8 +570,18 @@ void main() {
           QuickAlarmSheet.show(context, day: DateTime.utc(2026, 9, 23)),
     );
 
-    // The remove-after card is the last thing in the scroll view.
+    // The remove-after switch is the last row, and a sheet as tall as its
+    // rows ends right under it: exactly what a nav bar eats.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester
+          .getRect(
+            find.bySemanticsIdentifier(SemanticsIds.quickAlarmRemoveAfter),
+          )
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the remove-after switch ran under the gesture bar',
+    );
   });
 
   testWidgets('the time pad clears the navigation bar', (tester) async {

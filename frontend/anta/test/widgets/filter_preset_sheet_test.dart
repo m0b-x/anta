@@ -322,6 +322,31 @@ void main() {
       expect(saveRow(tester).onTap, isNotNull);
     });
 
+    testWidgets('at the limit it says so above the sheet, where a finger can '
+        'reach the message, and saves nothing', (tester) async {
+      for (var i = 0; i < FilterPresetService.maxPresets; i++) {
+        await service.create(
+          name: 'Filler $i',
+          filters: CalendarGridFilters(priorities: {i % 5 + 1}),
+        );
+      }
+      // Tall enough for the save row, the last of fifty-one, to be on screen.
+      await pumpSheet(tester, current: tracked, height: 4400);
+      expect(saveRow(tester).onTap, isNotNull);
+
+      await tap(tester, find.text('Save the current filter'));
+
+      // A bar on the page's `Scaffold` would be drawn under this route.
+      expect(
+        find.text('You can save up to 50 filters').hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      // No name was asked for: the only dialog the sheet opens has none up.
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(service.presets, hasLength(FilterPresetService.maxPresets));
+    });
+
     testWidgets('saves without closing the sheet', (tester) async {
       await pumpSheet(tester, current: tracked);
 

@@ -1,0 +1,57 @@
+# The alert sheet's second caller (docs/calendar-language-tier-2-roadmap.md
+# §3.2, §4.1): Calendar settings' two default-alert rows. The timed default
+# opens the sheet without the Alarm sound row and without Remove after it
+# rings, takes a preset from the When menu and is read back on the settings
+# row as "Tier · offset"; the all-day default shows Time of day and is
+# confirmed as it opened. Both are then set back to none through the sheet's
+# Remove alert, which here means "no default" — the fixture ships both as
+# none, and a default left behind would seed an alert into every event the
+# other flows create.
+# - The settings rows carry no ids: each is named by its own first line and
+#   read by its last one, the tier and the timing or "No alert".
+# - The all-day row's time follows the phone's clock, so only "On the day"
+#   is read, never the hour.
+# - A default is no event: the sheet offers Remove alert even while the
+#   default is none, and Done on an untouched sheet writes the draft.
+# - Scrolling this page with the semantics tree on makes the Android engine
+#   log `E/AccessibilityBridge: transform has not been initialized` (see
+#   15_templates.txt); the agent's own buffer stays clean.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "All-day events" --max 14
+expect "Timed events" "All-day events" "No alert" --absent "min before" --absent "On the day"
+tap "Timed events"
+wait id:alert-sheet-save
+expect id:alert-sheet-close id:alert-type-reminder id:alert-type-alarm id:alert-when id:alert-remove "10 min before" --absent id:alert-sound --absent id:alert-remove-after --absent id:alert-time-of-day
+shot 16_alert_default_timed
+tap id:alert-when
+wait id:alert-when-custom
+tap id:alert-when-30
+wait id:alert-sheet-save
+expect "30 min before"
+tap id:alert-sheet-save
+wait id:alert-sheet-save --gone
+expect "Reminder · 30 min before"
+tap "All-day events"
+wait id:alert-sheet-save
+expect id:alert-when id:alert-time-of-day id:alert-remove "On the day" --absent id:alert-sound --absent id:alert-remove-after
+shot 16_alert_default_allday
+tap id:alert-sheet-save
+wait id:alert-sheet-save --gone
+expect "Reminder · 30 min before" "Reminder · On the day"
+shot 16_alert_defaults_set
+tap "Timed events"
+wait id:alert-sheet-save
+expect "30 min before"
+tap id:alert-remove
+wait id:alert-sheet-save --gone
+tap "All-day events"
+wait id:alert-sheet-save
+tap id:alert-remove
+wait id:alert-sheet-save --gone
+expect "Timed events" "All-day events" "No alert" --absent "min before" --absent "On the day"
+key back
+wait id:calendar-add-event
+errors

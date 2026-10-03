@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
@@ -9,12 +8,14 @@ import 'package:re_editor/re_editor.dart';
 import 'package:uuid/uuid.dart';
 
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
+import '../constants/app_constants.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/event_skips.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_alerts.dart';
 import '../constants/event_priorities.dart';
+import '../constants/event_title.dart';
 import '../constants/font_constants.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/row_metrics.dart';
@@ -36,7 +37,6 @@ import '../repositories/note_repository.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
-import '../utils/custom_snackbar.dart';
 import '../utils/editor_render_context.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -56,6 +56,7 @@ import 'form_rows.dart';
 import 'markdown_bar.dart';
 import 'modern_editor_wrapper.dart';
 import 'note_picker_dialog.dart';
+import 'overlay_snackbar.dart';
 import 'scroll_progress_indicator.dart';
 import 'simple_markdown_preview.dart';
 import 'time_pad_sheet.dart';
@@ -255,12 +256,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   static const int _defaultDurationMinutes = 60;
 
   static const int _maxInlineDates = 3;
-  static const double _titleTopInset = 7;
-  static const double _titleRowVerticalPadding = 8;
-  static const double _counterTopInset = 2;
   static const double _descriptionCounterTopInset = 4;
-  static const int _titleMaxLength = 120;
-  static const int _titleCounterFrom = 100;
   static const int _descriptionMaxLines = 10;
   static const double _scopeStripHeight = 44;
   static const double _priorityMenuWidth = FormMetrics.menuWidth;
@@ -1599,9 +1595,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
     final saved = await EventTemplateEditorSheet.show(context, draft: draft);
     if (saved == null || !mounted) return;
-    CustomSnackbar.showSuccess(
+    // In the overlay, not the page's `Scaffold`: this sheet is a route above
+    // that page, and a bar raised there is drawn under the sheet.
+    OverlaySnackbar.show(
       context,
       AppLocalizations.of(context)!.templateSaved,
+      duration: AppConstants.snackbarSuccessDuration,
     );
   }
 
@@ -1972,109 +1971,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     Navigator.of(context).pop(widget.showBack ? const EventEditorBack() : null);
   }
 
-  Widget _buildTitleRow(
-    AppLocalizations l10n,
-    ThemeData theme,
-    IconData icon,
-    Color accent,
-  ) {
-    final colorScheme = theme.colorScheme;
-    return _IndentedRow(
-      dividerIndent: FormMetrics.dividerIndentTitle,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          minHeight: FormMetrics.titleRowMinHeight,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: RowMetrics.groupInset,
-            vertical: _titleRowVerticalPadding,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              EventAvatar(icon: icon, color: accent),
-              const SizedBox(width: FormMetrics.gap),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: _titleTopInset),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AutomationId(
-                        identifier: SemanticsIds.eventTitle,
-                        child: TextField(
-                        controller: _titleController,
-                        autofocus: !_isEditing,
-                        maxLines: null,
-                        keyboardType: TextInputType.text,
-                        textInputAction: TextInputAction.done,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.deny('\n'),
-                        ],
-                        maxLength: _titleMaxLength,
-                        buildCounter:
-                            (
-                              context, {
-                              required currentLength,
-                              required isFocused,
-                              maxLength,
-                            }) => null,
-                        style: TextStyle(
-                          fontSize: FormMetrics.titleFontSize,
-                          fontWeight: FontWeight.w500,
-                          height: FormMetrics.titleLineHeight,
-                          color: colorScheme.onSurface,
-                        ),
-                        decoration: InputDecoration.collapsed(
-                          hintText: l10n.eventTitle,
-                          hintStyle: TextStyle(
-                            fontSize: FormMetrics.titleFontSize,
-                            fontWeight: FontWeight.w400,
-                            height: FormMetrics.titleLineHeight,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                      ),
-                      ListenableBuilder(
-                        listenable: _titleController,
-                        builder: (context, _) {
-                          final length =
-                              _titleController.text.characters.length;
-                          if (length < _titleCounterFrom) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(
-                              top: _counterTopInset,
-                            ),
-                            child: Text(
-                              l10n.eventTitleCount(length, _titleMaxLength),
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                fontSize: FormMetrics.counterSize,
-                                height: 16 / FormMetrics.counterSize,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                                color: length >= _titleMaxLength
-                                    ? colorScheme.error
-                                    : colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _buildTitleRow(AppLocalizations l10n, IconData icon, Color accent) {
+    return FormTitleRow(
+      leading: EventAvatar(icon: icon, color: accent),
+      controller: _titleController,
+      hint: l10n.eventTitle,
+      maxLength: kEventTitleMaxLength,
+      counterFrom: kEventTitleCounterFrom,
+      counterLabel: l10n.eventTitleCount,
+      autofocus: !_isEditing,
+      identifier: SemanticsIds.eventTitle,
     );
   }
 
@@ -2182,7 +2088,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         ),
       );
     }
-    return _IndentedRow(
+    return FormIndentedRow(
       dividerIndent: FormMetrics.dividerIndentPlain,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2691,7 +2597,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           glyph: alert.isAlarm
               ? Icons.alarm_outlined
               : Icons.notifications_outlined,
-          label: alert.describe(l10n, _alertPreviewEvent),
+          label: alert.describe(
+            l10n,
+            _alertPreviewEvent,
+            formatMinute: (minute) =>
+                EventTimeFormatter.formatMinute(minute, context),
+          ),
           value: alert.isAlarm
               ? l10n.eventAlertModeRing
               : l10n.eventAlertModeNotify,
@@ -2843,7 +2754,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                 children: [
                   FormRowGroup(
                     children: [
-                      _buildTitleRow(l10n, theme, icon, accent),
+                      _buildTitleRow(l10n, icon, accent),
                       FormPickerRow(
                         glyph: Icons.label_outlined,
                         identifier: SemanticsIds.eventCategory,
@@ -2858,7 +2769,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         value: _iconKey != null || _colorValue != null
                             ? l10n.eventLookCustom
                             : l10n.eventLookDefault,
-                        valueLeading: _ColorDot(color: eventColor),
+                        valueLeading: FormValueDot(color: eventColor),
                         onTap: _pickLook,
                         dividerIndent: FormMetrics.dividerIndentPlain,
                       ),
@@ -2949,37 +2860,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     return NotificationListener<ScrollMetricsNotification>(
       onNotification: _onFormMetrics,
       child: frame,
-    );
-  }
-}
-
-class _IndentedRow extends FormDividedRow {
-  final Widget child;
-
-  @override
-  final double dividerIndent;
-
-  const _IndentedRow({required this.dividerIndent, required this.child});
-
-  @override
-  Widget build(BuildContext context) => child;
-}
-
-class _ColorDot extends StatelessWidget {
-  static const double size = 10;
-
-  final Color color;
-
-  const _ColorDot({required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return ExcludeSemantics(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      ),
     );
   }
 }

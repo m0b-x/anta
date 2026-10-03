@@ -27,14 +27,6 @@
   "@eventAllDay": {
     "description": "Label for an all-day calendar event"
   },
-  "eventAllDayHint": "Event spans the entire day",
-  "@eventAllDayHint": {
-    "description": "Subtitle hint under the All day toggle in the event editor"
-  },
-  "eventTimeSection": "Time",
-  "@eventTimeSection": {
-    "description": "Section label for time-of-day controls in the event editor"
-  },
   "eventStartTime": "Start time",
   "@eventStartTime": {
     "description": "Label for the event start-time picker"
@@ -785,10 +777,6 @@
   "@eventPerOccurrenceDescriptions": {
     "description": "Title of the switch enabling per-occurrence event descriptions"
   },
-  "eventPerOccurrenceDescriptionsDesc": "This event keeps its own description for each day. The event's description becomes the template every day starts from.",
-  "@eventPerOccurrenceDescriptionsDesc": {
-    "description": "Subtitle explaining per-occurrence event descriptions"
-  },
   "eventDescriptionScopeAllDays": "All days",
   "@eventDescriptionScopeAllDays": {
     "description": "Segment label: edit the shared template description"
@@ -895,14 +883,6 @@
   "@eventDate": {
     "description": "Section label in the event editor for the recurring event start date"
   },
-  "repeatMode": "Repeats",
-  "@repeatMode": {
-    "description": "Section label for the one-time / recurring toggle"
-  },
-  "repeatOnce": "One time",
-  "@repeatOnce": {
-    "description": "Segmented control option: event occurs only once"
-  },
   "recurrenceWorkdays": "Workdays",
   "@recurrenceWorkdays": {
     "description": "Recurrence option: every Mon-Fri excluding public holidays"
@@ -955,13 +935,13 @@
   "@recurrenceIntervalLabel": {
     "description": "Section label above the recurrence interval stepper"
   },
-  "recurrenceIntervalDecrement": "Less frequent",
+  "recurrenceIntervalDecrement": "More frequent",
   "@recurrenceIntervalDecrement": {
-    "description": "Tooltip for the button that decreases the recurrence interval"
+    "description": "Tooltip for the button that decreases the recurrence interval: a smaller interval is a more frequent event"
   },
-  "recurrenceIntervalIncrement": "More frequent",
+  "recurrenceIntervalIncrement": "Less frequent",
   "@recurrenceIntervalIncrement": {
-    "description": "Tooltip for the button that increases the recurrence interval"
+    "description": "Tooltip for the button that increases the recurrence interval: a larger interval is a less frequent event"
   },
   "recurrenceUnitDays": "{count, plural, =1{day} other{days}}",
   "@recurrenceUnitDays": {
@@ -999,10 +979,6 @@
   "@recurrenceScopeLabel": {
     "description": "Section label for the recurrence scope chips (forward-only vs retroactive)"
   },
-  "recurrenceScopeFromStart": "From this date on",
-  "@recurrenceScopeFromStart": {
-    "description": "Recurrence scope option: the rule only fires on or after the start date"
-  },
   "recurrenceScopeAlways": "Always",
   "@recurrenceScopeAlways": {
     "description": "Recurrence scope option for non-yearly rules: also fires before the start date"
@@ -1010,10 +986,6 @@
   "recurrenceScopeEveryYear": "Every year",
   "@recurrenceScopeEveryYear": {
     "description": "Recurrence scope option shown for yearly rules: also fires in previous years"
-  },
-  "recurrenceScopeHint": "Also shows on matching days before the start date",
-  "@recurrenceScopeHint": {
-    "description": "Explanation under the recurrence scope chips when the retroactive option is picked"
   },
   "recurrenceScopeAlwaysSuffix": "{rule} · also before",
   "@recurrenceScopeAlwaysSuffix": {
@@ -1026,10 +998,6 @@
   "@eventTrackPresence": {
     "description": "Switch in the event editor: the event records which days were missed"
   },
-  "eventTrackPresenceDesc": "Mark the days you skip.",
-  "@eventTrackPresenceDesc": {
-    "description": "Explanation under the track-presence switch"
-  },
   "eventAssumePresent": "Assume present",
   "@eventAssumePresent": {
     "description": "Segment label: unmarked days count as attended"
@@ -1037,14 +1005,6 @@
   "eventAssumeAbsent": "Assume absent",
   "@eventAssumeAbsent": {
     "description": "Segment label: unmarked days count as missed"
-  },
-  "eventAssumePresentHint": "Days count as attended unless you mark them missed.",
-  "@eventAssumePresentHint": {
-    "description": "Hint under the presence-default control, assume-present selected"
-  },
-  "eventAssumeAbsentHint": "Days count as missed until you mark them present.",
-  "@eventAssumeAbsentHint": {
-    "description": "Hint under the presence-default control, assume-absent selected"
   },
   "eventAssumeAbsentFrom": "Absent from",
   "@eventAssumeAbsentFrom": {
@@ -1089,10 +1049,6 @@
   "eventCountOccurrences": "Count occurrences",
   "@eventCountOccurrences": {
     "description": "Switch in the event editor: each occurrence shows the elapsed time since the start date"
-  },
-  "eventCountOccurrencesHint": "Each occurrence gets a label counting from the start date. Count from 0 for ages and anniversaries.",
-  "@eventCountOccurrencesHint": {
-    "description": "Explanation under the count-occurrences switch; the origin chips below it show concrete examples"
   },
   "eventCountStyleNumbered": "Count from 1",
   "@eventCountStyleNumbered": {
@@ -3747,10 +3703,6 @@
   "@templateName": {
     "description": "Label of the template name field; doubles as the created event's title"
   },
-  "templateNameHint": "Push day",
-  "@templateNameHint": {
-    "description": "Placeholder example for the template name field"
-  },
   "saveAsTemplate": "Save as template",
   "@saveAsTemplate": {
     "description": "Button in the event editor that stores the current form as a reusable template"
@@ -6361,6 +6313,10 @@
   "@eventAlertCustom": {
     "description": "Chip that opens the free-form alert offset row"
   },
+  "eventAlertCustomItem": "Custom…",
+  "@eventAlertCustomItem": {
+    "description": "Last item of an alert's When menu, which opens the custom offset sheet"
+  },
   "eventAlertUnitMinutes": "Minutes",
   "@eventAlertUnitMinutes": {
     "description": "Unit of a custom alert offset"
@@ -6782,6 +6738,10 @@
   "recurrenceBeforeStartYearlyHint": "Also in earlier years",
   "@recurrenceBeforeStartYearlyHint": {
     "description": "Second line of the retroactive switch for a yearly rule"
+  },
+  "recurrenceBeforeStartTemplateHint": "Also on matching days before the day it is added",
+  "@recurrenceBeforeStartTemplateHint": {
+    "description": "Second line of the retroactive switch in an event template's repeat sheet, where there is no start date to name"
   },
   "recurrenceUntilSuffix": "{rule} · until {date}",
   "@recurrenceUntilSuffix": {

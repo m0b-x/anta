@@ -1,13 +1,16 @@
 import 'dart:ui' show CheckedState, SemanticsRole, Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/value_change_highlight.dart';
 
 /// The grouped-row primitives every calendar sheet is built from. These pin
 /// the contract the `calendar-ui` skill states: an `identifier` lands on the
@@ -399,6 +402,50 @@ void main() {
       );
     });
 
+    testWidgets('a value dot is a circle of the value-dot size in its colour, '
+        'before the value and out of the row\'s announcement', (tester) async {
+      const color = Color(0xFF2E7D32);
+      await tester.pumpWidget(
+        page(
+          FormPickerRow(
+            glyph: Icons.palette_outlined,
+            label: 'Icon & color',
+            value: 'Custom',
+            valueLeading: const FormValueDot(color: color),
+            identifier: 'event-look',
+            onTap: () {},
+          ),
+        ),
+      );
+      final dot = find.byType(FormValueDot);
+      expect(tester.getSize(dot), const Size.square(FormMetrics.valueDotSize));
+      // The browser's label dot, so a colour dot is one size everywhere.
+      expect(FormMetrics.valueDotSize, RowMetrics.labelDotSize);
+      final decoration =
+          tester
+                  .widget<Container>(
+                    find.descendant(of: dot, matching: find.byType(Container)),
+                  )
+                  .decoration!
+              as BoxDecoration;
+      expect(decoration.color, color);
+      expect(decoration.shape, BoxShape.circle);
+      // Before the value on the value's own line, and nothing a screen
+      // reader stops on: the row still reads its label and its value.
+      final value = tester.getRect(find.text('Custom'));
+      final rect = tester.getRect(dot);
+      expect(rect.right, lessThan(value.left));
+      expect(rect.center.dy, moreOrLessEquals(value.center.dy, epsilon: 0.01));
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier('event-look'))
+          .getSemanticsData();
+      expect(data.label, 'Icon & color\nCustom');
+      expect(
+        find.descendant(of: dot, matching: find.byType(ExcludeSemantics)),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a labelled chip row keeps the label and the chips on one '
         'line while they fit', (tester) async {
       // The test font draws every glyph 15 px wide, so the phone width that
@@ -501,6 +548,161 @@ void main() {
       expect(data.hasAction(SemanticsAction.tap), isTrue);
       await tester.tap(find.bySemanticsIdentifier('event-detail-present'));
       expect(taps, 1);
+    });
+
+    List<Widget> unitChips() => [
+      FormChip(label: 'Minuten', selected: true, onTap: () {}),
+      FormChip(label: 'Stunden', selected: false, onTap: () {}),
+      FormChip(label: 'Tage', selected: false, onTap: () {}),
+    ];
+
+    testWidgets('a chip row under a switch is set in at the sub-row inset '
+        'with its own air, the hairline from the glyph column', (tester) async {
+      // The shape every chip row had before `indented` existed, and the one
+      // it still has when nothing is said.
+      final row = FormChipRow(chips: unitChips());
+      await tester.pumpWidget(page(row, width: 600));
+
+      expect(row.indented, isTrue);
+      final rowRect = tester.getRect(find.byType(FormChipRow));
+      final first = tester.getRect(find.byType(FormChip).first);
+      expect(first.left - rowRect.left, FormMetrics.subRowInset);
+      expect(first.top - rowRect.top, FormMetrics.chipRowPadding.top);
+      expect(
+        rowRect.height,
+        FormMetrics.chipTapTarget + FormMetrics.chipRowPadding.vertical,
+      );
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentGlyph);
+    });
+
+    testWidgets('a standalone chip row starts at the group inset, is one '
+        '48 dp row and draws a plain hairline', (tester) async {
+      final row = FormChipRow(indented: false, chips: unitChips());
+      await tester.pumpWidget(page(row, width: 600));
+
+      final rowRect = tester.getRect(find.byType(FormChipRow));
+      expect(rowRect.height, FormMetrics.rowMinHeight);
+      final chips = [
+        for (final chip in find.byType(FormChip).evaluate())
+          tester.getRect(find.byWidget(chip.widget)),
+      ];
+      expect(chips.first.left - rowRect.left, RowMetrics.groupInset);
+      for (final chip in chips) {
+        // No air of the row's own: a chip's 48 dp target is the row.
+        expect(chip.top, rowRect.top);
+        expect(chip.height, FormMetrics.chipTapTarget);
+      }
+      expect(chips[1].left - chips[0].right, FormMetrics.chipSpacing);
+      expect(chips[2].left - chips[1].right, FormMetrics.chipSpacing);
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentPlain);
+    });
+
+    testWidgets('a standalone chip row wraps to whole 48 dp runs short of '
+        "the row's end, its caption from the group inset", (tester) async {
+      await tester.pumpWidget(
+        page(
+          FormChipRow(
+            indented: false,
+            chips: unitChips(),
+            caption: const FormCaption(text: '45 Min. vorher'),
+          ),
+          width: 300,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      final rowRect = tester.getRect(find.byType(FormChipRow));
+      final chips = [
+        for (final chip in find.byType(FormChip).evaluate())
+          tester.getRect(find.byWidget(chip.widget)),
+      ];
+      // Two fit the first run, the third starts the second at the same inset.
+      expect(chips[1].top, rowRect.top);
+      expect(chips[2].top, rowRect.top + FormMetrics.chipTapTarget);
+      expect(chips[2].left, chips[0].left);
+      for (final chip in chips) {
+        expect(
+          chip.right,
+          lessThanOrEqualTo(rowRect.right - FormMetrics.rowEndPadding),
+        );
+      }
+      final caption = tester.getRect(find.text('45 Min. vorher'));
+      expect(caption.left - rowRect.left, RowMetrics.groupInset);
+      expect(caption.top, rowRect.top + 2 * FormMetrics.chipTapTarget);
+      expect(
+        rowRect.bottom - caption.bottom,
+        FormMetrics.rowCaptionBottomPadding,
+      );
+    });
+
+    testWidgets('a labelled chip row is the same row whatever indented says', (
+      tester,
+    ) async {
+      FormChipRow labelled({required bool indented}) => FormChipRow(
+        glyph: Icons.notifications_outlined,
+        label: 'Type',
+        indented: indented,
+        chips: [
+          FormChip(label: 'Reminder', selected: true, onTap: () {}),
+          FormChip(label: 'Alarm', selected: false, onTap: () {}),
+        ],
+        caption: const FormCaption(text: 'Sits in the shade.'),
+      );
+      Map<String, Rect> rects() => {
+        for (final text in ['Type', 'Reminder', 'Alarm', 'Sits in the shade.'])
+          text: tester.getRect(find.text(text)),
+        'row': tester.getRect(find.byType(FormChipRow)),
+      };
+
+      await tester.pumpWidget(page(labelled(indented: true), width: 600));
+      final indentedRects = rects();
+      await tester.pumpWidget(page(labelled(indented: false), width: 600));
+
+      expect(rects(), indentedRects);
+      expect(
+        FormRowGroup.indentOf(labelled(indented: false)),
+        FormMetrics.dividerIndentGlyph,
+      );
+    });
+
+    testWidgets('an indented row hands the group the hairline indent its '
+        'child cannot, and draws nothing of its own', (tester) async {
+      Widget group(Widget first) => MaterialApp(
+        home: Scaffold(
+          body: FormRowGroup(
+            children: [
+              first,
+              FormPickerRow(label: 'Ends', value: 'None', onTap: () {}),
+            ],
+          ),
+        ),
+      );
+      final highlighted = ValueChangeHighlight(
+        value: 18 * 60,
+        child: FormPickerRow(
+          label: 'Starts',
+          value: '18:00',
+          dividerIndent: FormMetrics.dividerIndentPlain,
+          onTap: () {},
+        ),
+      );
+      Divider hairline() => tester.widget<Divider>(find.byType(Divider));
+
+      // Bare, the group cannot see the row through the highlight and falls
+      // back to the glyph indent, whatever the row inside says.
+      await tester.pumpWidget(group(highlighted));
+      expect(hairline().indent, FormMetrics.dividerIndentGlyph);
+      final bare = tester.getRect(find.byType(ValueChangeHighlight));
+
+      final indented = FormIndentedRow(
+        dividerIndent: FormMetrics.dividerIndentPlain,
+        child: highlighted,
+      );
+      await tester.pumpWidget(group(indented));
+      expect(hairline().indent, FormMetrics.dividerIndentPlain);
+      expect(FormRowGroup.indentOf(indented), FormMetrics.dividerIndentPlain);
+      expect(tester.getRect(find.byType(ValueChangeHighlight)), bare);
+      expect(tester.getRect(find.byType(FormIndentedRow)), bare);
     });
   });
 
@@ -1241,6 +1443,1279 @@ void main() {
     });
   });
 
+  SemanticsData dataOf(WidgetTester tester, String id) =>
+      tester.getSemantics(find.bySemanticsIdentifier(id)).getSemanticsData();
+
+  /// A 360 × 780 phone at 200 % (or [textScale]), the group inset from the
+  /// edges and free to grow downwards, as a sheet's scrolling body holds it.
+  Future<void> pumpOnNarrowPhoneAtDouble(
+    WidgetTester tester,
+    Widget row, {
+    double textScale = 2.0,
+  }) async {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(360, 780);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: RowMetrics.groupInset,
+            ),
+            child: FormRowGroup(children: [row]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  group('stepper row', () {
+    const less = 'alert-custom-less';
+    const more = 'alert-custom-more';
+
+    FormStepperRow stepper({
+      String value = '45',
+      VoidCallback? onDecrement,
+      VoidCallback? onIncrement,
+    }) => FormStepperRow(
+      label: 'Minutes',
+      value: value,
+      decrementTooltip: 'Less time before',
+      incrementTooltip: 'More time before',
+      decrementIdentifier: less,
+      incrementIdentifier: more,
+      onDecrement: onDecrement,
+      onIncrement: onIncrement,
+    );
+
+    testWidgets('each button carries its id and its tooltip and steps its own '
+        'way', (tester) async {
+      var value = 45;
+      await tester.pumpWidget(
+        host(stepper(onDecrement: () => value--, onIncrement: () => value++)),
+      );
+      final lessData = dataOf(tester, less);
+      expect(lessData.identifier, less);
+      expect(lessData.tooltip, 'Less time before');
+      expect(lessData.hasAction(SemanticsAction.tap), isTrue);
+      final moreData = dataOf(tester, more);
+      expect(moreData.identifier, more);
+      expect(moreData.tooltip, 'More time before');
+      expect(moreData.hasAction(SemanticsAction.tap), isTrue);
+      // The label and the value stay out of both buttons' nodes.
+      expect(lessData.label, isEmpty);
+      expect(moreData.label, isEmpty);
+      expect(find.text('Minutes'), findsOneWidget);
+      expect(find.text('45'), findsOneWidget);
+
+      await tester.tap(find.bySemanticsIdentifier(more));
+      await tester.tap(find.bySemanticsIdentifier(more));
+      expect(value, 47);
+      await tester.tap(find.bySemanticsIdentifier(less));
+      expect(value, 46);
+    });
+
+    testWidgets('each button is disabled on its own, in place', (tester) async {
+      await tester.pumpWidget(
+        host(stepper(onDecrement: () {}, onIncrement: () {})),
+      );
+      final lessRect = tester.getRect(find.byTooltip('Less time before'));
+      final moreRect = tester.getRect(find.byTooltip('More time before'));
+
+      Future<void> expectOnly(
+        String enabledId, {
+        required String disabledId,
+      }) async {
+        final disabled = dataOf(tester, disabledId);
+        expect(disabled.hasAction(SemanticsAction.tap), isFalse);
+        expect(disabled.flagsCollection.isEnabled, Tristate.isFalse);
+        final enabled = dataOf(tester, enabledId);
+        expect(enabled.hasAction(SemanticsAction.tap), isTrue);
+        expect(enabled.flagsCollection.isEnabled, Tristate.isTrue);
+        // Disabled, never hidden: both buttons are where they were.
+        expect(tester.getRect(find.byTooltip('Less time before')), lessRect);
+        expect(tester.getRect(find.byTooltip('More time before')), moreRect);
+      }
+
+      var steps = 0;
+      await tester.pumpWidget(host(stepper(onIncrement: () => steps++)));
+      await expectOnly(more, disabledId: less);
+      await tester.tap(find.bySemanticsIdentifier(less), warnIfMissed: false);
+      expect(steps, 0);
+      await tester.tap(find.bySemanticsIdentifier(more));
+      expect(steps, 1);
+
+      await tester.pumpWidget(host(stepper(onDecrement: () => steps--)));
+      await expectOnly(less, disabledId: more);
+      await tester.tap(find.bySemanticsIdentifier(more), warnIfMissed: false);
+      expect(steps, 1);
+      await tester.tap(find.bySemanticsIdentifier(less));
+      expect(steps, 0);
+    });
+
+    testWidgets('the row is 48 dp with a plain hairline, and the value box '
+        'keeps the minus button still while the text changes', (tester) async {
+      final row = stepper(
+        value: '1 day',
+        onDecrement: () {},
+        onIncrement: () {},
+      );
+      await tester.pumpWidget(host(row));
+      expect(
+        tester.getSize(find.byType(FormStepperRow)).height,
+        FormMetrics.rowMinHeight,
+      );
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentPlain);
+      expect(tester.getTopLeft(find.text('Minutes')).dx, RowMetrics.groupInset);
+      const button = Size(
+        FormMetrics.trailingButtonSize,
+        FormMetrics.trailingButtonSize,
+      );
+      expect(tester.getSize(find.byTooltip('Less time before')), button);
+      expect(tester.getSize(find.byTooltip('More time before')), button);
+      final lessRect = tester.getRect(find.byTooltip('Less time before'));
+      final moreRect = tester.getRect(find.byTooltip('More time before'));
+      // "1 day" is narrower than the box, so the box is what parts the two.
+      expect(moreRect.left - lessRect.right, FormMetrics.stepperValueMinWidth);
+      final valueStyle = tester.widget<Text>(find.text('1 day')).style!;
+      expect(valueStyle.fontSize, FormMetrics.labelSize);
+      expect(valueStyle.fontWeight, FontWeight.w500);
+      expect(valueStyle.fontFeatures, const [FontFeature.tabularFigures()]);
+
+      await tester.pumpWidget(
+        host(stepper(value: '9 days', onDecrement: () {}, onIncrement: () {})),
+      );
+      expect(tester.getRect(find.byTooltip('Less time before')), lessRect);
+      expect(tester.getRect(find.byTooltip('More time before')), moreRect);
+    });
+
+    testWidgets('the value box is as wide as the widest value, laid out '
+        'unseen, and the buttons stand still from the narrowest value to '
+        'that one', (tester) async {
+      FormStepperRow weeks(String value) => FormStepperRow(
+        label: 'Repeat every',
+        value: value,
+        widestValue: '99 weeks',
+        decrementTooltip: 'More frequent',
+        incrementTooltip: 'Less frequent',
+        onDecrement: () {},
+        onIncrement: () {},
+      );
+      double box() =>
+          tester.getRect(find.byTooltip('Less frequent')).left -
+          tester.getRect(find.byTooltip('More frequent')).right;
+
+      await tester.pumpWidget(host(weeks('1 week')));
+      final lessRect = tester.getRect(find.byTooltip('More frequent'));
+      final moreRect = tester.getRect(find.byTooltip('Less frequent'));
+      final width = box();
+      // Wider than the floor: "99 weeks" is, in the test font.
+      expect(width, greaterThan(FormMetrics.stepperValueMinWidth));
+      expect(find.text('99 weeks'), findsNothing);
+
+      for (final value in ['12 weeks', '99 weeks', '1 week']) {
+        await tester.pumpWidget(host(weeks(value)));
+        expect(box(), width, reason: value);
+        expect(
+          tester.getRect(find.byTooltip('More frequent')),
+          lessRect,
+          reason: value,
+        );
+        expect(
+          tester.getRect(find.byTooltip('Less frequent')),
+          moreRect,
+          reason: value,
+        );
+      }
+    });
+
+    testWidgets('at 200 % on a narrow phone a label that cannot sit beside '
+        'the stepper whole drops it under itself, end-aligned, and nothing '
+        'overflows', (tester) async {
+      await pumpOnNarrowPhoneAtDouble(
+        tester,
+        FormStepperRow(
+          label: 'Minuten',
+          value: '45',
+          widestValue: '59',
+          decrementTooltip: 'Weniger Vorlauf',
+          incrementTooltip: 'Mehr Vorlauf',
+          onDecrement: () {},
+          onIncrement: () {},
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      // "Minuten" is one word, wider at this scale than the stepper leaves
+      // beside it: whole on its one line, with the stepper under it.
+      final label = tester.getRect(find.text('Minuten'));
+      expect(
+        label.height,
+        moreOrLessEquals(FormMetrics.labelLineHeight * 2.0, epsilon: 1),
+      );
+      final less = tester.getRect(find.byTooltip('Weniger Vorlauf'));
+      final more = tester.getRect(find.byTooltip('Mehr Vorlauf'));
+      expect(less.top, greaterThanOrEqualTo(label.bottom));
+      expect(less.size, const Size.square(FormMetrics.trailingButtonSize));
+      expect(more.size, const Size.square(FormMetrics.trailingButtonSize));
+      expect(more.right, tester.getRect(find.byType(FormStepperRow)).right);
+      expect(
+        more.left - less.right,
+        greaterThanOrEqualTo(FormMetrics.stepperValueMinWidth),
+      );
+      expect(
+        tester.getSize(find.byType(FormStepperRow)).height,
+        greaterThanOrEqualTo(label.height + FormMetrics.trailingButtonSize),
+      );
+    });
+
+    testWidgets('at 100 % the same row keeps its stepper beside the label: '
+        'the drop follows the scale, not the value', (tester) async {
+      await pumpOnNarrowPhoneAtDouble(
+        tester,
+        FormStepperRow(
+          label: 'Minuten',
+          value: '45',
+          widestValue: '59',
+          decrementTooltip: 'Weniger Vorlauf',
+          incrementTooltip: 'Mehr Vorlauf',
+          onDecrement: () {},
+          onIncrement: () {},
+        ),
+        textScale: 1.0,
+      );
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.byType(FormStepperRow)).height,
+        FormMetrics.rowMinHeight,
+      );
+      final label = tester.getRect(find.text('Minuten'));
+      final less = tester.getRect(find.byTooltip('Weniger Vorlauf'));
+      expect(less.top, lessThan(label.bottom));
+      expect(less.left, greaterThanOrEqualTo(label.right));
+    });
+  });
+
+  group('title row', () {
+    FormTitleRow titleRow(
+      TextEditingController controller, {
+      bool autofocus = false,
+      FocusNode? focusNode,
+      TextCapitalization textCapitalization = TextCapitalization.none,
+      ValueChanged<String>? onSubmitted,
+    }) => FormTitleRow(
+      leading: const EventAvatar(
+        icon: Icons.alarm_outlined,
+        color: Colors.blue,
+      ),
+      controller: controller,
+      focusNode: focusNode,
+      hint: 'Template name',
+      maxLength: 60,
+      counterFrom: 50,
+      counterLabel: (length, max) => '$length/$max',
+      autofocus: autofocus,
+      textCapitalization: textCapitalization,
+      onSubmitted: onSubmitted,
+      identifier: 'template-name',
+    );
+
+    TextEditingController controllerOf([String text = '']) {
+      final controller = TextEditingController(text: text);
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    testWidgets('the row is 56 dp with the field at the title indent and the '
+        'hairline under it', (tester) async {
+      final row = titleRow(controllerOf());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FormRowGroup(
+              children: [
+                row,
+                FormPickerRow(label: 'Category', onTap: () {}),
+              ],
+            ),
+          ),
+        ),
+      );
+      final rect = tester.getRect(find.byType(FormTitleRow));
+      expect(rect.height, FormMetrics.titleRowMinHeight);
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentTitle);
+      expect(
+        tester.widget<Divider>(find.byType(Divider)).indent,
+        FormMetrics.dividerIndentTitle,
+      );
+      // The avatar's 40 dp box sits at the group inset, the field one gap
+      // past it — on the hairline's indent.
+      final avatar = tester.getRect(find.byType(EventAvatar));
+      expect(avatar.left, RowMetrics.groupInset);
+      expect(avatar.size, const Size.square(FormMetrics.rowLeadingSize));
+      final field = tester.getRect(find.byType(TextField));
+      expect(field.left, FormMetrics.dividerIndentTitle);
+      // One 26 px line, dropped so it centres on the avatar.
+      expect(
+        field.height,
+        moreOrLessEquals(
+          FormMetrics.titleFontSize * FormMetrics.titleLineHeight,
+          epsilon: 0.01,
+        ),
+      );
+      expect(
+        field.center.dy,
+        moreOrLessEquals(avatar.center.dy, epsilon: 0.01),
+      );
+      expect(find.text('Template name'), findsOneWidget);
+    });
+
+    testWidgets('the typed text is 20 / 500 and the hint 20 / 400', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host(titleRow(controllerOf())));
+      final field = tester.widget<TextField>(find.byType(TextField));
+      final colorScheme = Theme.of(
+        tester.element(find.byType(TextField)),
+      ).colorScheme;
+      expect(field.style!.fontSize, FormMetrics.titleFontSize);
+      expect(field.style!.fontWeight, FontWeight.w500);
+      expect(field.style!.color, colorScheme.onSurface);
+      final hint = field.decoration!.hintStyle!;
+      expect(hint.fontSize, FormMetrics.titleFontSize);
+      expect(hint.fontWeight, FontWeight.w400);
+      // `onSurfaceVariant`, never `outline`: a hint is text.
+      expect(hint.color, colorScheme.onSurfaceVariant);
+    });
+
+    testWidgets('the counter appears at counterFrom and turns to the error '
+        'colour at the limit', (tester) async {
+      await tester.pumpWidget(host(titleRow(controllerOf())));
+      final colorScheme = Theme.of(
+        tester.element(find.byType(TextField)),
+      ).colorScheme;
+
+      await tester.enterText(find.byType(TextField), 'a' * 49);
+      await tester.pump();
+      expect(find.text('49/60'), findsNothing);
+      final withoutCounter = tester.getSize(find.byType(FormTitleRow)).height;
+
+      await tester.enterText(find.byType(TextField), 'a' * 50);
+      await tester.pump();
+      final counter = tester.widget<Text>(find.text('50/60'));
+      expect(counter.style!.color, colorScheme.onSurfaceVariant);
+      expect(counter.style!.fontSize, FormMetrics.counterSize);
+      expect(counter.textAlign, TextAlign.end);
+      // The counter is a line under the field: it adds to the row rather
+      // than taking room from the title.
+      expect(
+        tester.getSize(find.byType(FormTitleRow)).height,
+        greaterThan(withoutCounter),
+      );
+      expect(
+        tester.getTopLeft(find.text('50/60')).dy,
+        greaterThanOrEqualTo(tester.getBottomLeft(find.byType(TextField)).dy),
+      );
+
+      await tester.enterText(find.byType(TextField), 'a' * 59);
+      await tester.pump();
+      expect(
+        tester.widget<Text>(find.text('59/60')).style!.color,
+        colorScheme.onSurfaceVariant,
+      );
+
+      await tester.enterText(find.byType(TextField), 'a' * 60);
+      await tester.pump();
+      expect(
+        tester.widget<Text>(find.text('60/60')).style!.color,
+        colorScheme.error,
+      );
+    });
+
+    testWidgets('a short title leaves the row at 56 dp, with no counter line', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host(titleRow(controllerOf('Leg day'))));
+      expect(
+        tester.getSize(find.byType(FormTitleRow)).height,
+        FormMetrics.titleRowMinHeight,
+      );
+      expect(find.text('7/60'), findsNothing);
+    });
+
+    testWidgets('the title is one field that wraps and refuses a line break', (
+      tester,
+    ) async {
+      final controller = controllerOf();
+      await tester.pumpWidget(host(titleRow(controller)));
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.maxLines, isNull);
+      expect(field.textInputAction, TextInputAction.done);
+      expect(field.maxLength, 60);
+
+      await tester.enterText(find.byType(TextField), 'Leg\nday');
+      await tester.pump();
+      expect(controller.text, 'Legday');
+    });
+
+    testWidgets('a seeded title longer than the limit is kept and counted', (
+      tester,
+    ) async {
+      final controller = controllerOf('a' * 70);
+      await tester.pumpWidget(host(titleRow(controller)));
+      expect(controller.text, hasLength(70));
+      final colorScheme = Theme.of(
+        tester.element(find.byType(TextField)),
+      ).colorScheme;
+      expect(
+        tester.widget<Text>(find.text('70/60')).style!.color,
+        colorScheme.error,
+      );
+    });
+
+    testWidgets('the id lands on the text-field node, and the field takes '
+        'focus only when asked to', (tester) async {
+      await tester.pumpWidget(host(titleRow(controllerOf())));
+      await tester.pump();
+      final data = dataOf(tester, 'template-name');
+      expect(data.identifier, 'template-name');
+      expect(data.flagsCollection.isTextField, isTrue);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).autofocus,
+        isFalse,
+      );
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isFalse,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(host(titleRow(controllerOf(), autofocus: true)));
+      await tester.pump();
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+    });
+
+    testWidgets('a tap anywhere in the row focuses the field: its top edge, '
+        'its bottom edge, its far right and the avatar', (tester) async {
+      await tester.pumpWidget(host(titleRow(controllerOf())));
+      bool focused() => tester
+          .widget<EditableText>(find.byType(EditableText))
+          .focusNode
+          .hasFocus;
+      final row = tester.getRect(find.byType(FormTitleRow));
+      final field = tester.getRect(find.byType(TextField));
+      final avatar = tester.getRect(find.byType(EventAvatar));
+      for (final MapEntry(key: name, value: point) in {
+        'the top edge': Offset(field.center.dx, row.top + 1),
+        'the bottom edge': Offset(field.center.dx, row.bottom - 1),
+        'the far right': Offset(row.right - 1, row.center.dy),
+        'the avatar': avatar.center,
+      }.entries) {
+        // Each point on its own, from an unfocused field — and outside the
+        // field's own line, which focuses itself.
+        FocusManager.instance.primaryFocus?.unfocus();
+        await tester.pump();
+        expect(focused(), isFalse, reason: 'before $name');
+        expect(field.contains(point), isFalse, reason: name);
+        await tester.tapAt(point);
+        await tester.pump();
+        expect(focused(), isTrue, reason: name);
+      }
+    });
+
+    testWidgets('a tap in the row brings the keyboard back to a field that '
+        'kept the focus under a dismissed one', (tester) async {
+      await tester.pumpWidget(host(titleRow(controllerOf())));
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+
+      tester.testTextInput.hide();
+      expect(tester.testTextInput.isVisible, isFalse);
+      final row = tester.getRect(find.byType(FormTitleRow));
+      await tester.tapAt(Offset(row.center.dx, row.bottom - 1));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      expect(tester.testTextInput.isVisible, isTrue);
+    });
+
+    testWidgets('the field is named by its hint, empty and typed, and never '
+        'twice', (tester) async {
+      await tester.pumpWidget(host(titleRow(controllerOf())));
+      expect(dataOf(tester, 'template-name').label, 'Template name');
+
+      await tester.enterText(find.byType(TextField), 'Push day');
+      await tester.pumpAndSettle();
+      final typed = dataOf(tester, 'template-name');
+      expect(typed.label, 'Template name');
+      expect(typed.value, 'Push day');
+      expect(typed.flagsCollection.isTextField, isTrue);
+
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pumpAndSettle();
+      expect(dataOf(tester, 'template-name').label, 'Template name');
+    });
+
+    testWidgets('the focus node, the capitalization and the submit callback '
+        'reach the field', (tester) async {
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      String? submitted;
+      await tester.pumpWidget(
+        host(
+          titleRow(
+            controllerOf(),
+            focusNode: focusNode,
+            textCapitalization: TextCapitalization.sentences,
+            onSubmitted: (value) => submitted = value,
+          ),
+        ),
+      );
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.focusNode, focusNode);
+      expect(field.textCapitalization, TextCapitalization.sentences);
+
+      focusNode.requestFocus();
+      await tester.pump();
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      await tester.enterText(find.byType(TextField), 'Alarm');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(submitted, 'Alarm');
+    });
+
+    testWidgets('a long German title at 200 % on a narrow phone wraps without '
+        'overflow, its counter under it', (tester) async {
+      final controller = controllerOf(
+        'Krankengymnastik und Rückenschule im Gesundheitszentrum',
+      );
+      await pumpOnNarrowPhoneAtDouble(tester, titleRow(controller));
+      expect(tester.takeException(), isNull);
+      expect(find.text('55/60'), findsOneWidget);
+      expect(
+        tester.getSize(find.byType(TextField)).height,
+        greaterThan(
+          FormMetrics.titleFontSize * FormMetrics.titleLineHeight * 2.0,
+        ),
+      );
+    });
+
+    testWidgets('a hint that wraps at 200 % does not hold its lines open '
+        'under a typed title: empty the row is as tall as the hint, typed as '
+        'tall as one line', (tester) async {
+      const line =
+          FormMetrics.titleFontSize * FormMetrics.titleLineHeight * 2.0;
+      const around =
+          2 * FormMetrics.titleRowVerticalPadding +
+          FormMetrics.titleFieldTopInset;
+      double fieldHeight() => tester.getSize(find.byType(TextField)).height;
+      double rowHeight() => tester.getSize(find.byType(FormTitleRow)).height;
+
+      await pumpOnNarrowPhoneAtDouble(tester, titleRow(controllerOf()));
+      expect(tester.takeException(), isNull);
+      final hintHeight = tester.getSize(find.text('Template name')).height;
+      // More than one line, or the typed row below would prove nothing.
+      expect(hintHeight, greaterThanOrEqualTo(2 * line - 0.01));
+      expect(fieldHeight(), moreOrLessEquals(hintHeight, epsilon: 0.01));
+      expect(rowHeight(), moreOrLessEquals(around + hintHeight, epsilon: 0.01));
+
+      await tester.enterText(find.byType(TextField), 'Legs');
+      await tester.pumpAndSettle();
+      expect(fieldHeight(), moreOrLessEquals(line, epsilon: 0.01));
+      expect(rowHeight(), moreOrLessEquals(around + line, epsilon: 0.01));
+
+      // Emptied again, the hint is back with the room it needs.
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pumpAndSettle();
+      expect(fieldHeight(), moreOrLessEquals(hintHeight, epsilon: 0.01));
+      expect(rowHeight(), moreOrLessEquals(around + hintHeight, epsilon: 0.01));
+    });
+
+    testWidgets('under a one-line hint the row is as tall empty as typed, at '
+        '1.0, 1.3 and 2.0', (tester) async {
+      // The event editor's own case: "Title" fits one line at every scale,
+      // so whether the hint keeps its size cannot show there.
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+
+      for (final textScale in const [1.0, 1.3, 2.0]) {
+        final controller = controllerOf();
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: RowMetrics.groupInset,
+                ),
+                child: FormRowGroup(
+                  children: [
+                    FormTitleRow(
+                      leading: const EventAvatar(
+                        icon: Icons.event_rounded,
+                        color: Colors.blue,
+                      ),
+                      controller: controller,
+                      hint: 'Title',
+                      maxLength: 120,
+                      counterFrom: 100,
+                      counterLabel: (length, max) => '$length/$max',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        // One line as the text engine lays it out, which rounds it: within
+        // a pixel of 26 times the scale.
+        final line = tester.getSize(find.text('Title')).height;
+        expect(
+          line,
+          moreOrLessEquals(
+            FormMetrics.titleFontSize * FormMetrics.titleLineHeight * textScale,
+            epsilon: 1,
+          ),
+          reason: 'the hint is one line at $textScale',
+        );
+        final empty = tester.getSize(find.byType(FormTitleRow));
+
+        await tester.enterText(find.byType(TextField), 'Legs');
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSize(find.byType(FormTitleRow)),
+          empty,
+          reason: 'at $textScale',
+        );
+        expect(
+          tester.getSize(find.byType(TextField)).height,
+          moreOrLessEquals(line, epsilon: 0.01),
+          reason: 'at $textScale',
+        );
+      }
+    });
+  });
+
+  group('hero row', () {
+    FormHeroRow hero({
+      String value = '7:15',
+      String caption = 'Today',
+      VoidCallback? onTap,
+    }) => FormHeroRow(
+      glyph: Icons.alarm_outlined,
+      value: value,
+      caption: caption,
+      tooltip: 'Pick a time',
+      identifier: 'quick-alarm-time',
+      onTap: onTap ?? () {},
+    );
+
+    testWidgets('the row is one button node reading "value, caption" with '
+        'the tooltip as its hint', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(host(hero(onTap: () => taps++)));
+      final data = dataOf(tester, 'quick-alarm-time');
+      expect(data.identifier, 'quick-alarm-time');
+      expect(data.label, '7:15, Today');
+      expect(data.hint, 'Pick a time');
+      expect(data.tooltip, isEmpty);
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      // The two texts are drawn and belong to the row's node, not to nodes
+      // of their own.
+      expect(find.text('7:15'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.semantics.byLabel('7:15'), findsNothing);
+      expect(find.semantics.byLabel('Today'), findsNothing);
+      expect(find.semantics.byLabel(RegExp('7:15')), findsOne);
+      // Said, never drawn: a `Tooltip` would take the row's long press.
+      expect(find.byType(Tooltip), findsNothing);
+
+      await tester.tap(find.bySemanticsIdentifier('quick-alarm-time'));
+      expect(taps, 1);
+      // One ink well, so a tap on the caption or the chevron is the same tap.
+      expect(
+        find.descendant(
+          of: find.byType(FormHeroRow),
+          matching: find.byType(InkWell),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Today'));
+      await tester.tap(find.byType(FormChevron));
+      expect(taps, 3);
+    });
+
+    testWidgets('a row without an id is still one node', (tester) async {
+      await tester.pumpWidget(
+        host(
+          FormHeroRow(
+            glyph: Icons.alarm_outlined,
+            value: '7:15',
+            caption: 'Today',
+            tooltip: 'Pick a time',
+            onTap: () {},
+          ),
+        ),
+      );
+      expect(find.semantics.byLabel('7:15, Today'), findsOne);
+      expect(find.semantics.byLabel('Today'), findsNothing);
+    });
+
+    testWidgets('the row is 84 dp: the value at 40 on a 46 px line over a '
+        'caption line, a plain hairline under it', (tester) async {
+      final row = hero();
+      await tester.pumpWidget(host(row));
+      final rect = tester.getRect(find.byType(FormHeroRow));
+      expect(
+        rect.height,
+        moreOrLessEquals(FormMetrics.heroRowMinHeight, epsilon: 0.01),
+      );
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentPlain);
+      final value = tester.widget<Text>(find.text('7:15'));
+      expect(value.style!.fontSize, FormMetrics.heroValueSize);
+      expect(value.style!.fontWeight, FontWeight.w400);
+      expect(value.style!.fontFeatures, const [FontFeature.tabularFigures()]);
+      expect(
+        tester.getSize(find.text('7:15')).height,
+        moreOrLessEquals(FormMetrics.heroValueLineHeight, epsilon: 0.01),
+      );
+      final caption = tester.widget<Text>(find.text('Today'));
+      expect(caption.style!.fontSize, FormMetrics.captionSize);
+      // Glyph, then the value and the caption in one column, then the
+      // chevron at the row's end padding.
+      final glyph = tester.getRect(find.byIcon(Icons.alarm_outlined));
+      expect(glyph.left, RowMetrics.groupInset);
+      expect(glyph.center.dy, moreOrLessEquals(rect.center.dy, epsilon: 0.01));
+      final valueRect = tester.getRect(find.text('7:15'));
+      final captionRect = tester.getRect(find.text('Today'));
+      expect(valueRect.left, glyph.right + FormMetrics.gap);
+      expect(captionRect.left, valueRect.left);
+      expect(
+        captionRect.top,
+        moreOrLessEquals(valueRect.bottom + RowMetrics.lineGap, epsilon: 0.01),
+      );
+      expect(
+        tester.getRect(find.byType(FormChevron)).right,
+        rect.right - FormMetrics.rowEndPadding,
+      );
+    });
+
+    testWidgets('the value stays on one line at 200 % on a narrow phone', (
+      tester,
+    ) async {
+      await pumpOnNarrowPhoneAtDouble(
+        tester,
+        hero(value: '12:45 PM', caption: 'Morgen'),
+      );
+      expect(tester.takeException(), isNull);
+      final value = tester.widget<Text>(find.text('12:45 PM'));
+      expect(value.maxLines, 1);
+      expect(value.softWrap, isFalse);
+      // Laid out at its full size on one 92 px line, then fitted into the
+      // column: the painted box ends before the chevron.
+      expect(
+        tester.getSize(find.text('12:45 PM')).height,
+        moreOrLessEquals(FormMetrics.heroValueLineHeight * 2.0, epsilon: 0.01),
+      );
+      final painted = tester.getRect(find.text('12:45 PM'));
+      final chevron = tester.getRect(find.byType(FormChevron));
+      expect(
+        painted.right,
+        lessThanOrEqualTo(chevron.left - FormMetrics.gap + 0.01),
+      );
+      expect(painted.height, lessThan(FormMetrics.heroValueLineHeight * 2.0));
+      expect(
+        tester.getSize(find.byType(FormHeroRow)).height,
+        greaterThanOrEqualTo(FormMetrics.heroRowMinHeight),
+      );
+      // The caption is not fitted: it scales with the text and may wrap.
+      expect(
+        tester.getSize(find.text('Morgen')).height,
+        greaterThanOrEqualTo(18 * 2.0),
+      );
+    });
+
+    testWidgets('the row is as tall for a long value as for a short one at '
+        '1.0, 1.3 and 2.0: the fit shrinks the value, never the row', (
+      tester,
+    ) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      const values = ['7:15', '9:30 AM', '10:20 AM'];
+
+      for (final textScale in const [1.0, 1.3, 2.0]) {
+        final heights = <String, double>{};
+        for (final value in values) {
+          await tester.pumpWidget(
+            MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: RowMetrics.groupInset,
+                  ),
+                  child: FormRowGroup(children: [hero(value: value)]),
+                ),
+              ),
+            ),
+          );
+          expect(tester.takeException(), isNull, reason: '$value, $textScale');
+          heights[value] = tester.getSize(find.byType(FormHeroRow)).height;
+        }
+
+        // The longest value is fitted at every one of these scales, or equal
+        // heights would prove nothing: it is drawn narrower than it was laid
+        // out. (Still on screen: the last value pumped.)
+        final long = find.text(values.last);
+        expect(
+          tester.getRect(long).width,
+          lessThan(tester.getSize(long).width),
+          reason: 'at $textScale',
+        );
+
+        expect(
+          heights.values.toSet(),
+          hasLength(1),
+          reason: 'at $textScale: $heights',
+        );
+        // And that one height is the text scale's: the row's padding around
+        // the value's whole line as the text engine lays it out unfitted
+        // (which rounds it, so within a pixel of 46 times the scale), the
+        // gap and the caption.
+        final line = tester.getSize(long).height;
+        expect(
+          line,
+          moreOrLessEquals(
+            FormMetrics.heroValueLineHeight * textScale,
+            epsilon: 1,
+          ),
+          reason: 'at $textScale',
+        );
+        expect(
+          heights.values.first,
+          moreOrLessEquals(
+            RowMetrics.twoLinePadding.vertical +
+                line +
+                RowMetrics.lineGap +
+                tester.getSize(find.text('Today')).height,
+            epsilon: 0.01,
+          ),
+          reason: 'at $textScale',
+        );
+      }
+    });
+
+    testWidgets('a value that fits is drawn at its full size, where it was '
+        'before the line was reserved', (tester) async {
+      // Reserving the line must not touch the common case: no scale, and the
+      // value's box starting at the column's start and top.
+      await tester.pumpWidget(host(hero(value: '7:15')));
+      final value = find.text('7:15');
+      expect(tester.getRect(value).size, tester.getSize(value));
+      final glyph = tester.getRect(find.byIcon(Icons.alarm_outlined));
+      final row = tester.getRect(find.byType(FormHeroRow));
+      expect(tester.getRect(value).left, glyph.right + FormMetrics.gap);
+      expect(
+        tester.getRect(value).top,
+        moreOrLessEquals(
+          row.top + RowMetrics.twoLinePadding.top,
+          epsilon: 0.01,
+        ),
+      );
+      // The digit that holds the line open is never drawn.
+      expect(
+        tester
+            .widget<Opacity>(
+              find.ancestor(of: find.text('0'), matching: find.byType(Opacity)),
+            )
+            .opacity,
+        0,
+      );
+      expect(find.semantics.byLabel('0'), findsNothing);
+    });
+  });
+
+  group('caption slot', () {
+    Widget boxed(Widget child) => MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(width: 200, child: child),
+        ),
+      ),
+    );
+
+    const captions = [
+      FormCaption(text: 'Short'),
+      FormCaption(text: 'A hint that runs on to more than one line'),
+      FormCaption(
+        text:
+            'A warning that arrives late and is long enough to need more '
+            'lines than either hint at this width',
+        error: true,
+      ),
+    ];
+
+    testWidgets('the slot is as tall as its tallest candidate, whichever one '
+        'it shows', (tester) async {
+      final heights = <double>[];
+      for (final caption in captions) {
+        await tester.pumpWidget(boxed(caption));
+        heights.add(tester.getSize(find.byType(FormCaption)).height);
+      }
+      expect(heights[0], lessThan(heights[1]));
+      expect(heights[1], lessThan(heights[2]));
+
+      for (final shown in captions) {
+        await tester.pumpWidget(
+          boxed(FormCaptionSlot(candidates: captions, child: shown)),
+        );
+        expect(
+          tester.getSize(find.byType(FormCaptionSlot)).height,
+          heights[2],
+          reason: 'showing "${shown.text}"',
+        );
+        // The shown caption starts at the slot's top, as a bare one would.
+        expect(
+          tester.getTopLeft(find.text(shown.text).hitTestable()),
+          tester.getTopLeft(find.byType(FormCaptionSlot)),
+        );
+      }
+    });
+
+    testWidgets('only the shown caption is drawn, announced and hit', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        boxed(FormCaptionSlot(candidates: captions, child: captions[0])),
+      );
+      expect(find.semantics.byLabel('Short'), findsOne);
+      expect(find.semantics.byLabel(RegExp('A hint that')), findsNothing);
+      expect(find.semantics.byLabel(RegExp('A warning')), findsNothing);
+      // Every candidate is in the tree, which is what sizes the slot, and
+      // none of them is on screen.
+      expect(find.text('Short'), findsNWidgets(2));
+      expect(find.text('Short').hitTestable(), findsOneWidget);
+      expect(find.text(captions[1].text), findsOneWidget);
+      expect(find.text(captions[1].text).hitTestable(), findsNothing);
+      expect(find.text(captions[2].text).hitTestable(), findsNothing);
+      for (final opacity in tester.widgetList<Opacity>(
+        find.descendant(
+          of: find.byType(FormCaptionSlot),
+          matching: find.byType(Opacity),
+        ),
+      )) {
+        expect(opacity.opacity, 0);
+      }
+    });
+
+    testWidgets("a chip row keeps its height across the choice when its "
+        'caption is a slot', (tester) async {
+      const reminder =
+          'Sits in the shade with Snooze and Done. Silent mode and Focus '
+          'apply.';
+      const alarm = 'Plays on the alarm stream until you stop or snooze it.';
+      Widget row(Widget caption) => host(
+        FormChipRow(
+          glyph: Icons.notifications_outlined,
+          label: 'Type',
+          chips: [
+            FormChip(label: 'Reminder', selected: true, onTap: () {}),
+            FormChip(label: 'Alarm', selected: false, onTap: () {}),
+          ],
+          caption: caption,
+        ),
+      );
+      double rowHeight() => tester.getSize(find.byType(FormChipRow)).height;
+
+      // Bare, the two hints take a different number of lines, so the row
+      // under the chips would move with the tier.
+      await tester.pumpWidget(row(const FormCaption(text: reminder)));
+      final tall = rowHeight();
+      await tester.pumpWidget(row(const FormCaption(text: alarm)));
+      expect(rowHeight(), lessThan(tall));
+
+      const candidates = [
+        FormCaption(text: reminder),
+        FormCaption(text: alarm),
+      ];
+      for (final shown in candidates) {
+        await tester.pumpWidget(
+          row(FormCaptionSlot(candidates: candidates, child: shown)),
+        );
+        expect(rowHeight(), tall, reason: 'showing "${shown.text}"');
+      }
+    });
+  });
+
+  group('disabled chip', () {
+    Widget presets({required VoidCallback? onTonight, bool selected = false}) =>
+        host(
+          FormChipRow(
+            chips: [
+              FormChip(label: 'In 20 min', selected: false, onTap: () {}),
+              FormChip(
+                label: 'Tonight',
+                selected: selected,
+                identifier: 'quick-alarm-preset-tonight',
+                onTap: onTonight,
+              ),
+              FormChip(label: 'In 1 hour', selected: false, onTap: () {}),
+            ],
+          ),
+        );
+
+    Finder chip(String label) => find.widgetWithText(FormChip, label);
+
+    testWidgets('an enabled chip carries no enabled state and no opacity '
+        'layer', (tester) async {
+      await tester.pumpWidget(presets(onTonight: () {}));
+      final data = dataOf(tester, 'quick-alarm-preset-tonight');
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.none);
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      expect(
+        find.descendant(of: chip('Tonight'), matching: find.byType(Opacity)),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a disabled chip keeps its place and its 48 dp target, '
+        'faded, inert and announced disabled', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(presets(onTonight: () => taps++));
+      final enabledRect = tester.getRect(chip('Tonight'));
+      final nextRect = tester.getRect(chip('In 1 hour'));
+
+      await tester.pumpWidget(presets(onTonight: null));
+      // In place: neither the chip nor the one after it has moved.
+      expect(tester.getRect(chip('Tonight')), enabledRect);
+      expect(tester.getRect(chip('In 1 hour')), nextRect);
+      expect(tester.getSize(chip('Tonight')).height, FormMetrics.chipTapTarget);
+      final opacity = tester.widget<Opacity>(
+        find.descendant(of: chip('Tonight'), matching: find.byType(Opacity)),
+      );
+      expect(opacity.opacity, FormMetrics.disabledOpacity);
+      final well = tester.widget<InkWell>(
+        find.descendant(of: chip('Tonight'), matching: find.byType(InkWell)),
+      );
+      expect(well.onTap, isNull);
+
+      final data = dataOf(tester, 'quick-alarm-preset-tonight');
+      expect(data.label, 'Tonight');
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(data.flagsCollection.isSelected, Tristate.isFalse);
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+
+      await tester.tap(chip('Tonight'), warnIfMissed: false);
+      // The padded target outside the 32 dp chip is inert too.
+      await tester.tapAt(
+        tester.getRect(chip('Tonight')).topCenter + const Offset(0, 2),
+      );
+      expect(taps, 0);
+      // The chips either side still work.
+      expect(
+        tester
+            .widget<InkWell>(
+              find.descendant(
+                of: chip('In 20 min'),
+                matching: find.byType(InkWell),
+              ),
+            )
+            .onTap,
+        isNotNull,
+      );
+    });
+
+    testWidgets('a disabled chip that is the selected one still says so', (
+      tester,
+    ) async {
+      await tester.pumpWidget(presets(onTonight: null, selected: true));
+      final data = dataOf(tester, 'quick-alarm-preset-tonight');
+      expect(data.flagsCollection.isSelected, Tristate.isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+    });
+  });
+
+  group('a chip at a large text scale', () {
+    FormChip tage() => FormChip(label: 'Tage', selected: true, onTap: () {});
+
+    /// The three shapes a chip row has in the app: standing alone (a custom
+    /// offset's units), under a switch (the editor's count-style and assume
+    /// pairs) and beside a label (the detail sheet's presence pair, an
+    /// alert's Type).
+    final shapes = <String, FormChipRow Function()>{
+      'standing alone': () => FormChipRow(indented: false, chips: [tage()]),
+      'under a switch': () => FormChipRow(chips: [tage()]),
+      'beside a label': () => FormChipRow(
+        glyph: Icons.how_to_reg_outlined,
+        label: 'Art',
+        chips: [tage()],
+      ),
+    };
+
+    Future<void> pumpAt(
+      WidgetTester tester,
+      double scale,
+      FormChipRow row,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(body: FormRowGroup(children: [row])),
+        ),
+      );
+    }
+
+    RenderParagraph labelOf(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(find.text('Tage'));
+
+    /// The height the label's one line needs, whatever box it was given.
+    double lineOf(RenderParagraph label) =>
+        label.getMaxIntrinsicHeight(label.size.width);
+
+    /// The chip's own box — the filled or outlined shape — and not the
+    /// 48 dp target around it.
+    double boxHeightOf(WidgetTester tester) => tester
+        .getSize(
+          find.descendant(
+            of: find.byType(FormChip),
+            matching: find.byType(Material),
+          ),
+        )
+        .height;
+
+    double targetHeightOf(WidgetTester tester) =>
+        tester.getSize(find.byType(FormChip)).height;
+
+    testWidgets('up to 160 % the chip is its 32 dp with its label whole, '
+        'inside its 48 dp target', (tester) async {
+      for (final shape in shapes.entries) {
+        for (final scale in [1.0, 1.3]) {
+          final reason = '${shape.key} at $scale';
+          await pumpAt(tester, scale, shape.value());
+          final label = labelOf(tester);
+          expect(boxHeightOf(tester), FormMetrics.chipHeight, reason: reason);
+          expect(label.size.height, lineOf(label), reason: reason);
+          expect(
+            targetHeightOf(tester),
+            FormMetrics.chipTapTarget,
+            reason: reason,
+          );
+        }
+        // At 160 % the label's line is the chip's 32 dp to a rounding error.
+        await pumpAt(tester, 1.6, shape.value());
+        final label = labelOf(tester);
+        expect(
+          boxHeightOf(tester),
+          moreOrLessEquals(FormMetrics.chipHeight, epsilon: 0.01),
+          reason: shape.key,
+        );
+        expect(
+          label.size.height,
+          moreOrLessEquals(lineOf(label), epsilon: 0.01),
+          reason: shape.key,
+        );
+      }
+    });
+
+    testWidgets('at 200 % the chip grows with its label and cuts nothing, '
+        'still inside its 48 dp target', (tester) async {
+      // A 14 px label takes a 40 px line here. The chip used to stay 32 dp
+      // and clip it, a descender losing its tail (found 2026-10-02 on the
+      // alert sheet's Type chips drawn with a phone's font); the 32 dp is a
+      // minimum since.
+      for (final shape in shapes.entries) {
+        await pumpAt(tester, 2.0, shape.value());
+        final label = labelOf(tester);
+        expect(
+          lineOf(label),
+          greaterThan(FormMetrics.chipHeight),
+          reason: shape.key,
+        );
+        expect(
+          label.size.height,
+          moreOrLessEquals(lineOf(label), epsilon: 0.01),
+          reason: shape.key,
+        );
+        expect(
+          boxHeightOf(tester),
+          moreOrLessEquals(lineOf(label), epsilon: 0.01),
+          reason: shape.key,
+        );
+        expect(
+          targetHeightOf(tester),
+          FormMetrics.chipTapTarget,
+          reason: shape.key,
+        );
+      }
+    });
+
+    testWidgets('a chip row under a switch and one standing alone are as '
+        'tall at 200 % as at 100 %', (tester) async {
+      // The taller chip lives inside the target it already had, so the rows
+      // the editor and the Custom sub-sheet draw do not move.
+      for (final shape in ['standing alone', 'under a switch']) {
+        await pumpAt(tester, 1.0, shapes[shape]!());
+        final height = tester.getSize(find.byType(FormChipRow)).height;
+        await pumpAt(tester, 2.0, shapes[shape]!());
+        expect(
+          tester.getSize(find.byType(FormChipRow)).height,
+          height,
+          reason: shape,
+        );
+      }
+    });
+  });
+
   group('form sheet frame', () {
     var leaves = 0;
     var dismisses = 0;
@@ -1382,4 +2857,205 @@ void main() {
       expect(find.byType(FormSheetFrame), findsOneWidget);
     });
   });
+
+  group('header hairline', () {
+    Future<void> pumpSheet(
+      WidgetTester tester,
+      Widget body, {
+      Axis scrollDirection = Axis.vertical,
+    }) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: _HairlineSheet(scrollDirection: scrollDirection, body: body),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final body = find.byType(SingleChildScrollView);
+
+    bool scrolled(WidgetTester tester) => tester
+        .widget<FormSheetHeader>(find.byType(FormSheetHeader))
+        .scrolled!
+        .value;
+
+    /// The 1 px line itself, as the header paints it.
+    Color? lineColor(WidgetTester tester) => tester
+        .widget<Container>(
+          find.descendant(
+            of: find.byType(FormSheetHeader),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is Container && widget.constraints?.maxHeight == 1,
+            ),
+          ),
+        )
+        .color;
+
+    Color dividerColor(WidgetTester tester) => Theme.of(
+      tester.element(find.byType(FormSheetHeader)),
+    ).colorScheme.rowDivider;
+
+    double offsetOf(WidgetTester tester, Finder scrollView) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(of: scrollView, matching: find.byType(Scrollable))
+              .first,
+        )
+        .position
+        .pixels;
+
+    testWidgets('off over a body at rest, on once it has scrolled, off again '
+        'back at the top', (tester) async {
+      await pumpSheet(tester, const SizedBox(height: 1500));
+      expect(scrolled(tester), isFalse);
+      expect(lineColor(tester), Colors.transparent);
+
+      await tester.drag(body, const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, body), greaterThan(0));
+      expect(scrolled(tester), isTrue);
+      expect(lineColor(tester), dividerColor(tester));
+
+      await tester.drag(body, const Offset(0, 400));
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, body), 0);
+      expect(scrolled(tester), isFalse);
+      expect(lineColor(tester), Colors.transparent);
+    });
+
+    testWidgets('it follows a body that gets shorter under it: the keyboard '
+        'goes down over content that no longer scrolls, and the hairline '
+        'goes with it', (tester) async {
+      // 600 dp of rows fit under the header on their own and scroll only
+      // while the keyboard's inset pads them.
+      await pumpSheet(tester, const SizedBox(height: 600));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pumpAndSettle();
+      expect(scrolled(tester), isFalse);
+
+      await tester.drag(body, const Offset(0, -150));
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, body), greaterThan(0));
+      expect(scrolled(tester), isTrue);
+
+      // The scroll view puts itself back at its top without a scroll: no
+      // scroll controller's listener hears of it.
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, body), 0);
+      expect(scrolled(tester), isFalse);
+      expect(lineColor(tester), Colors.transparent);
+    });
+
+    testWidgets('a scrollable inside the body does not draw it: a list of its '
+        'own, a strip that scrolls sideways', (tester) async {
+      await pumpSheet(
+        tester,
+        Column(
+          children: [
+            SizedBox(
+              height: 120,
+              child: ListView(
+                key: const ValueKey('inner'),
+                children: const [SizedBox(height: 600)],
+              ),
+            ),
+            SizedBox(
+              height: 48,
+              child: ListView(
+                key: const ValueKey('strip'),
+                scrollDirection: Axis.horizontal,
+                children: const [SizedBox(width: 900)],
+              ),
+            ),
+          ],
+        ),
+      );
+      final inner = find.byKey(const ValueKey('inner'));
+      final strip = find.byKey(const ValueKey('strip'));
+
+      await tester.drag(inner, const Offset(0, -80));
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, inner), greaterThan(0));
+      expect(scrolled(tester), isFalse);
+
+      await tester.drag(strip, const Offset(-200, 0));
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, strip), greaterThan(0));
+      expect(scrolled(tester), isFalse);
+      expect(lineColor(tester), Colors.transparent);
+    });
+
+    testWidgets('nor does a scroll view that runs sideways, watched '
+        'directly: nothing has gone under the header', (tester) async {
+      await pumpSheet(
+        tester,
+        const SizedBox(width: 900, height: 48),
+        scrollDirection: Axis.horizontal,
+      );
+
+      await tester.drag(body, const Offset(-200, 0));
+      await tester.pumpAndSettle();
+      expect(offsetOf(tester, body), greaterThan(0));
+      expect(scrolled(tester), isFalse);
+    });
+  });
+}
+
+/// A sub-sheet's shape around a [FormHeaderHairline]: the header over a
+/// scroll view as tall as its content, its bottom padded by the keyboard's
+/// inset.
+class _HairlineSheet extends StatefulWidget {
+  final Axis scrollDirection;
+  final Widget body;
+
+  const _HairlineSheet({required this.scrollDirection, required this.body});
+
+  @override
+  State<_HairlineSheet> createState() => _HairlineSheetState();
+}
+
+class _HairlineSheetState extends State<_HairlineSheet> {
+  final FormHeaderHairline _hairline = FormHeaderHairline();
+
+  @override
+  void dispose() {
+    _hairline.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: 'Cancel',
+          onLeading: () {},
+          title: 'Sheet',
+          trailing: const SizedBox.shrink(),
+          scrolled: _hairline.scrolled,
+        ),
+        Flexible(
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              scrollDirection: widget.scrollDirection,
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: widget.body,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

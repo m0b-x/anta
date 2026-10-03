@@ -16,10 +16,10 @@ import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
-import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/alert_sheet_robot.dart';
 
 /// The editor is a **draft** surface for alerts exactly as it is for skips:
 /// nothing is written, the set rides the result, and the page dispatches it.
@@ -146,7 +146,7 @@ void main() {
   testWidgets('a new event starts with no alert as shipped', (tester) async {
     final results = await open(tester);
 
-    expect(find.text('On the day, 09:00'), findsNothing);
+    expect(find.text('On the day, 9:00 AM'), findsNothing);
     await typeTitle(tester);
     final saved = await saveAnd(tester, results);
     expect(saved.alerts, isEmpty);
@@ -163,7 +163,7 @@ void main() {
 
     final results = await open(tester);
 
-    expect(find.text('On the day, 09:00'), findsOneWidget);
+    expect(find.text('On the day, 9:00 AM'), findsOneWidget);
 
     await typeTitle(tester);
     final saved = await saveAnd(tester, results);
@@ -178,7 +178,7 @@ void main() {
 
     final results = await open(tester);
 
-    expect(find.text('On the day, 09:00'), findsNothing);
+    expect(find.text('On the day, 9:00 AM'), findsNothing);
     await typeTitle(tester);
     final saved = await saveAnd(tester, results);
     expect(saved.alerts, isEmpty);
@@ -219,17 +219,11 @@ void main() {
     await tester.ensureVisible(find.text('Add alert'));
     await tester.tap(find.text('Add alert'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Alarm'));
-    await tester.pumpAndSettle();
-    // Two Saves on screen while the alert sheet is up — the form's and the
-    // sheet's — so this one is addressed through the sheet that owns it.
-    await tester.tap(
-      find.descendant(
-        of: find.byType(AlertEditorSheet),
-        matching: find.widgetWithText(FilledButton, 'Save'),
-      ),
-    );
-    await tester.pumpAndSettle();
+    final alertSheet = AlertSheetRobot(tester);
+    await alertSheet.chooseTier(AlertMode.ring);
+    // The sheet confirms with a Done of its own while the form's Save sits
+    // under it, so this one is addressed through the sheet that owns it.
+    await alertSheet.save();
 
     final removeSwitch = find.text('Remove after it rings');
     await tester.ensureVisible(removeSwitch);
@@ -240,6 +234,35 @@ void main() {
     final saved = await saveAnd(tester, results);
     expect(saved.event.removeAfterAlert, isTrue);
     expect(saved.alerts!.where((a) => a.isAlarm), hasLength(1));
+  });
+
+  testWidgets('a reminder added beside an alarm leaves the removal armed', (
+    tester,
+  ) async {
+    EventAlerts.updateCache(
+      byEvent: {
+        'e1': List<EventAlert>.unmodifiable(const [
+          EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring),
+        ]),
+      },
+    );
+
+    final results = await open(
+      tester,
+      initial: eventOf(removeAfterAlert: true),
+    );
+
+    await tester.ensureVisible(find.text('Add alert'));
+    await tester.tap(find.text('Add alert'));
+    await tester.pumpAndSettle();
+    // The new alert opens as a reminder, where the sheet's own remove switch
+    // stands switched off. That says nothing about the alarm beside it: the
+    // event's flag comes back as it went in.
+    await AlertSheetRobot(tester).save();
+
+    final saved = await saveAnd(tester, results);
+    expect(saved.alerts, hasLength(2));
+    expect(saved.event.removeAfterAlert, isTrue);
   });
 
   testWidgets('a recurring event never persists the removal flag', (
@@ -329,6 +352,6 @@ void main() {
       ),
     );
 
-    expect(find.text('The day before, 09:00'), findsOneWidget);
+    expect(find.text('The day before, 9:00 AM'), findsOneWidget);
   });
 }

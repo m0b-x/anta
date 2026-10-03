@@ -43,10 +43,17 @@ class MarkdownPlainText {
   /// meaningful line leads. A note whose every line strips to nothing
   /// (a lone `---`, a fenced-only note) falls back to the raw whitespace
   /// collapse, so a non-empty note never previews blank.
+  ///
+  /// [money] is whether the text has a ledger. A note does, so a `$`-led
+  /// line is one of its rows and loses its marker. An event's or a
+  /// template's description has none — money is off there on every surface
+  /// that renders it — and with [money] false such a line stays the text it
+  /// was typed as, `$= 500` and not `500`.
   static String strip(
     String content, {
     MarkdownColorPalette palette = MarkdownColorPalette.presets,
     int maxLength = 200,
+    bool money = true,
   }) {
     if (content.isEmpty) return '';
 
@@ -60,7 +67,7 @@ class MarkdownPlainText {
       }
       if (inFence) continue;
       final before = out.length;
-      _line(line, out, palette, 0);
+      _line(line, out, palette, 0, money);
       if (out.length > before) out.write(' ');
     }
 
@@ -85,6 +92,7 @@ class MarkdownPlainText {
     StringBuffer out,
     MarkdownColorPalette palette,
     int depth,
+    bool money,
   ) {
     if (line.trim().isEmpty) return;
     if (MarkdownLineShape.isHorizontalRule(line)) return;
@@ -107,14 +115,22 @@ class MarkdownPlainText {
     final quote = MarkdownCalloutSyntax.quoteMarkers(line);
     if (quote != null) {
       if (depth < _maxBlockDepth) {
-        _line(line.substring(quote.contentStart), out, palette, depth + 1);
+        _line(
+          line.substring(quote.contentStart),
+          out,
+          palette,
+          depth + 1,
+          money,
+        );
       } else {
         _inline(line, quote.contentStart, line.length, out, palette, ghosts, 0);
       }
       return;
     }
 
-    if (MarkdownMoneySyntax.leadsWithMoney(line)) {
+    // Without a ledger the line falls through to the shapes below, so its
+    // heading or list marker is still dropped and the `$` stays text.
+    if (money && MarkdownMoneySyntax.leadsWithMoney(line)) {
       final match = MarkdownMoneySyntax.parse(line);
       if (match != null) {
         _moneyRow(line, match, out, palette, ghosts);

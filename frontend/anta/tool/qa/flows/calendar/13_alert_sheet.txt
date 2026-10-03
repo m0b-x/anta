@@ -1,0 +1,69 @@
+# The alert sheet and its Custom sub-sheet (docs/calendar-language-tier-2-roadmap.md
+# §3.2–§3.3), from a new event's Add alert: every row by id, Type to Alarm
+# and back, the When menu with a preset, then Custom… (a unit, the stepper up
+# and down, Done) read back on the When row, the Alarm sound row into the
+# sound sheet and back, Done — and the editor's own row for the alert. The
+# editor is left through its discard question, so nothing is written.
+# - All day is switched off first: a timed event's When counts minutes and
+#   its Custom sub-sheet has the unit chips. The event stays one-time, which
+#   is what offers Remove after it rings.
+# - A new alert has nothing to remove, and Time of day is an all-day event's
+#   row: both are checked absent.
+# - On the Alarm tier the line under the chips is the alarm hint or, on a
+#   device that refuses full-screen alarms, the warning — so the tier is read
+#   from the Reminder hint, present or absent.
+# - The sound row is switched off on the Reminder tier (in place, dimmed), so
+#   the sound sheet is opened from the Alarm tier.
+# - A menu or a sub-sheet on top takes the sheet under it out of the tree:
+#   waiting for id:alert-sheet-save is waiting for the menu, the Custom
+#   sub-sheet or the sound sheet to be gone.
+tap id:calendar-add-event
+wait id:event-title
+tap id:event-all-day
+wait id:event-starts
+scroll-to id:event-alert-add --in id:event-form
+tap id:event-alert-add
+wait id:alert-sheet-save
+expect id:alert-sheet-close id:alert-type-reminder id:alert-type-alarm id:alert-when id:alert-sound id:alert-remove-after "10 min before" --absent id:alert-remove --absent id:alert-time-of-day
+shot 13_alert_sheet
+tap id:alert-type-alarm
+expect id:alert-sheet-save --absent "Sits in the shade with Snooze and Done. Silent mode and Focus apply."
+tap id:alert-type-reminder
+expect "Sits in the shade with Snooze and Done. Silent mode and Focus apply."
+tap id:alert-when
+wait id:alert-when-custom
+expect id:alert-when-0 id:alert-when-5 id:alert-when-10 id:alert-when-15 id:alert-when-30 id:alert-when-60 id:alert-when-1440
+shot 13_when_menu
+tap id:alert-when-5
+wait id:alert-sheet-save
+expect "5 min before"
+tap id:alert-when
+wait id:alert-when-custom
+tap id:alert-when-custom
+wait id:alert-custom-done
+expect id:alert-custom-close id:alert-custom-unit-minutes id:alert-custom-unit-hours id:alert-custom-unit-days id:alert-custom-less id:alert-custom-more "5 min before"
+tap id:alert-custom-unit-hours
+expect "5 h before"
+tap id:alert-custom-more
+tap id:alert-custom-more
+tap id:alert-custom-less
+expect "6 h before"
+shot 13_custom
+tap id:alert-custom-done
+wait id:alert-sheet-save
+expect "6 h before"
+tap id:alert-type-alarm
+tap id:alert-sound
+wait id:sound-phone-default
+tap id:sound-close
+wait id:alert-sheet-save
+tap id:alert-sheet-save
+wait id:event-close
+scroll-to id:event-alert-remove-after --in id:event-form
+expect "6 h before" "Remove alert" id:event-alert-add id:event-alert-remove-after
+shot 13_alert_in_editor
+tap id:event-close
+wait "Unsaved changes"
+tap "Discard changes"
+wait id:calendar-add-event
+errors

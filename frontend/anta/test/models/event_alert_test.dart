@@ -236,6 +236,71 @@ void main() {
     });
   });
 
+  // A widget hands `describe` the phone's clock, so the one formatter can
+  // write a time in 12 or 24 hours without knowing which. Everything above
+  // leaves the formatter out and reads the neutral text a service gets.
+  group("describe with the caller's clock", () {
+    tearDown(() => EventAlerts.configureDefaultDayMinute(null));
+
+    String clock(int minute) => '<$minute>';
+
+    test("writes an all-day alert's time through it", () {
+      expect(
+        alert(
+          dayMinute: 20 * 60,
+        ).describe(l10n, eventOf(), formatMinute: clock),
+        'On the day, <1200>',
+      );
+      expect(
+        alert(
+          daysBefore: 1,
+          dayMinute: 20 * 60,
+        ).describe(l10n, eventOf(), formatMinute: clock),
+        'The day before, <1200>',
+      );
+      expect(
+        alert(
+          daysBefore: 7,
+          dayMinute: 8 * 60,
+        ).describe(l10n, eventOf(), formatMinute: clock),
+        '7 days before, <480>',
+      );
+    });
+
+    test('hands it the settings default for an alert with no time of its '
+        'own', () {
+      expect(
+        alert(dayMinute: null).describe(l10n, eventOf(), formatMinute: clock),
+        'On the day, <$kDefaultAlertDayMinute>',
+      );
+
+      EventAlerts.configureDefaultDayMinute(7 * 60 + 30);
+
+      expect(
+        alert(dayMinute: null).describe(l10n, eventOf(), formatMinute: clock),
+        'On the day, <450>',
+      );
+    });
+
+    test('never asks it about a timed event', () {
+      expect(
+        alert(offsetMinutes: 10, dayMinute: 20 * 60).describe(
+          l10n,
+          eventOf(time: timed),
+          formatMinute: (_) => fail('a timed alert has no time of day'),
+        ),
+        '10 min before',
+      );
+    });
+
+    test('left out, the time is the neutral 24-hour text', () {
+      expect(
+        alert(dayMinute: 20 * 60).describe(l10n, eventOf()),
+        'On the day, 20:00',
+      );
+    });
+  });
+
   group('an alert with no time of its own', () {
     tearDown(() => EventAlerts.configureDefaultDayMinute(null));
 

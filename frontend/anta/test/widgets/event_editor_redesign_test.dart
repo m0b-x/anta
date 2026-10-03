@@ -25,7 +25,6 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
-import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/event_avatar.dart';
@@ -37,6 +36,7 @@ import 'package:anta/widgets/scroll_progress_indicator.dart';
 import 'package:anta/widgets/simple_markdown_preview.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/alert_sheet_robot.dart';
 
 class _StubNoteRepository extends NoteRepository {
   _StubNoteRepository({required super.database});
@@ -1620,13 +1620,7 @@ void main() {
       final before = tester.getRect(find.text('ALERTS'));
 
       await tapText(tester, 'Add alert');
-      await tester.tap(
-        find.descendant(
-          of: find.byType(AlertEditorSheet),
-          matching: find.widgetWithText(FilledButton, 'Save'),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await AlertSheetRobot(tester).save();
 
       expect(find.text('Reminder'), findsOneWidget);
       expect(
@@ -1684,7 +1678,7 @@ void main() {
         dayMinute: 9 * 60,
       ));
       final results = await open(tester);
-      expect(find.text('On the day, 09:00'), findsOneWidget);
+      expect(find.text('On the day, 9:00 AM'), findsOneWidget);
 
       await tapTooltip(tester, 'Cancel');
       expect(dialog, findsNothing);
@@ -1723,13 +1717,7 @@ void main() {
         initial: eventOf(time: const EventTime(startMinute: 18 * 60)),
       );
       await tapText(tester, '30 min before');
-      await tester.tap(
-        find.descendant(
-          of: find.byType(AlertEditorSheet),
-          matching: find.widgetWithText(FilledButton, 'Save'),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await AlertSheetRobot(tester).save();
       await tapTooltip(tester, 'Cancel');
       expect(dialog, findsNothing);
       expect(results.single, isNull);

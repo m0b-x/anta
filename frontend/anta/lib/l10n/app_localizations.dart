@@ -142,18 +142,6 @@ abstract class AppLocalizations {
   /// **'All day'**
   String get eventAllDay;
 
-  /// Subtitle hint under the All day toggle in the event editor
-  ///
-  /// In en, this message translates to:
-  /// **'Event spans the entire day'**
-  String get eventAllDayHint;
-
-  /// Section label for time-of-day controls in the event editor
-  ///
-  /// In en, this message translates to:
-  /// **'Time'**
-  String get eventTimeSection;
-
   /// Label for the event start-time picker
   ///
   /// In en, this message translates to:
@@ -1138,12 +1126,6 @@ abstract class AppLocalizations {
   /// **'Separate description per day'**
   String get eventPerOccurrenceDescriptions;
 
-  /// Subtitle explaining per-occurrence event descriptions
-  ///
-  /// In en, this message translates to:
-  /// **'This event keeps its own description for each day. The event\'s description becomes the template every day starts from.'**
-  String get eventPerOccurrenceDescriptionsDesc;
-
   /// Segment label: edit the shared template description
   ///
   /// In en, this message translates to:
@@ -1294,18 +1276,6 @@ abstract class AppLocalizations {
   /// **'Start date'**
   String get eventDate;
 
-  /// Section label for the one-time / recurring toggle
-  ///
-  /// In en, this message translates to:
-  /// **'Repeats'**
-  String get repeatMode;
-
-  /// Segmented control option: event occurs only once
-  ///
-  /// In en, this message translates to:
-  /// **'One time'**
-  String get repeatOnce;
-
   /// Recurrence option: every Mon-Fri excluding public holidays
   ///
   /// In en, this message translates to:
@@ -1360,16 +1330,16 @@ abstract class AppLocalizations {
   /// **'Repeat every'**
   String get recurrenceIntervalLabel;
 
-  /// Tooltip for the button that decreases the recurrence interval
-  ///
-  /// In en, this message translates to:
-  /// **'Less frequent'**
-  String get recurrenceIntervalDecrement;
-
-  /// Tooltip for the button that increases the recurrence interval
+  /// Tooltip for the button that decreases the recurrence interval: a smaller interval is a more frequent event
   ///
   /// In en, this message translates to:
   /// **'More frequent'**
+  String get recurrenceIntervalDecrement;
+
+  /// Tooltip for the button that increases the recurrence interval: a larger interval is a less frequent event
+  ///
+  /// In en, this message translates to:
+  /// **'Less frequent'**
   String get recurrenceIntervalIncrement;
 
   /// Unit shown next to the interval stepper for daily recurrence
@@ -1408,12 +1378,6 @@ abstract class AppLocalizations {
   /// **'Occurrences'**
   String get recurrenceScopeLabel;
 
-  /// Recurrence scope option: the rule only fires on or after the start date
-  ///
-  /// In en, this message translates to:
-  /// **'From this date on'**
-  String get recurrenceScopeFromStart;
-
   /// Recurrence scope option for non-yearly rules: also fires before the start date
   ///
   /// In en, this message translates to:
@@ -1425,12 +1389,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Every year'**
   String get recurrenceScopeEveryYear;
-
-  /// Explanation under the recurrence scope chips when the retroactive option is picked
-  ///
-  /// In en, this message translates to:
-  /// **'Also shows on matching days before the start date'**
-  String get recurrenceScopeHint;
 
   /// Recurrence label suffixed to mark a rule that also fires before its start date
   ///
@@ -1444,12 +1402,6 @@ abstract class AppLocalizations {
   /// **'Track presence'**
   String get eventTrackPresence;
 
-  /// Explanation under the track-presence switch
-  ///
-  /// In en, this message translates to:
-  /// **'Mark the days you skip.'**
-  String get eventTrackPresenceDesc;
-
   /// Segment label: unmarked days count as attended
   ///
   /// In en, this message translates to:
@@ -1461,18 +1413,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Assume absent'**
   String get eventAssumeAbsent;
-
-  /// Hint under the presence-default control, assume-present selected
-  ///
-  /// In en, this message translates to:
-  /// **'Days count as attended unless you mark them missed.'**
-  String get eventAssumePresentHint;
-
-  /// Hint under the presence-default control, assume-absent selected
-  ///
-  /// In en, this message translates to:
-  /// **'Days count as missed until you mark them present.'**
-  String get eventAssumeAbsentHint;
 
   /// Label of the tile picking the day the assume-absent default starts
   ///
@@ -1539,12 +1479,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Count occurrences'**
   String get eventCountOccurrences;
-
-  /// Explanation under the count-occurrences switch; the origin chips below it show concrete examples
-  ///
-  /// In en, this message translates to:
-  /// **'Each occurrence gets a label counting from the start date. Count from 0 for ages and anniversaries.'**
-  String get eventCountOccurrencesHint;
 
   /// Counting origin chip: the start day is the first occurrence, so labels read Day 1 / Week 3
   ///
@@ -5200,12 +5134,6 @@ abstract class AppLocalizations {
   /// **'Template name'**
   String get templateName;
 
-  /// Placeholder example for the template name field
-  ///
-  /// In en, this message translates to:
-  /// **'Push day'**
-  String get templateNameHint;
-
   /// Button in the event editor that stores the current form as a reusable template
   ///
   /// In en, this message translates to:
@@ -8632,6 +8560,12 @@ abstract class AppLocalizations {
   /// **'Custom'**
   String get eventAlertCustom;
 
+  /// Last item of an alert's When menu, which opens the custom offset sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Custom…'**
+  String get eventAlertCustomItem;
+
   /// Unit of a custom alert offset
   ///
   /// In en, this message translates to:
@@ -9177,6 +9111,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Also in earlier years'**
   String get recurrenceBeforeStartYearlyHint;
+
+  /// Second line of the retroactive switch in an event template's repeat sheet, where there is no start date to name
+  ///
+  /// In en, this message translates to:
+  /// **'Also on matching days before the day it is added'**
+  String get recurrenceBeforeStartTemplateHint;
 
   /// The repeat row's value when an end date is set: the rule label followed by the end date
   ///

@@ -109,4 +109,48 @@ void main() {
       '10 min before · 1 h before',
     );
   });
+
+  testWidgets("an all-day alert's time follows the phone's clock", (
+    tester,
+  ) async {
+    final allDay = CalendarEvent(
+      id: 'e1',
+      title: 'Birthday',
+      categoryId: 'other',
+      startDate: DateTime.utc(2026, 9, 20),
+      rule: const OneTimeRecurrence(),
+    );
+    publish(const [
+      EventAlert(id: 'a1', eventId: 'e1', daysBefore: 1, dayMinute: 20 * 60),
+    ]);
+
+    Future<void> pumpWithClock({required bool use24Hour}) {
+      return tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(alwaysUse24HourFormat: use24Hour),
+            child: child!,
+          ),
+          home: Scaffold(body: EventAlertBadges(event: allDay)),
+        ),
+      );
+    }
+
+    await pumpWithClock(use24Hour: false);
+    expect(
+      tester.widget<Tooltip>(find.byType(Tooltip)).message,
+      'The day before, 8:00 PM',
+    );
+
+    await pumpWithClock(use24Hour: true);
+    expect(
+      tester.widget<Tooltip>(find.byType(Tooltip)).message,
+      'The day before, 20:00',
+    );
+  });
 }

@@ -1,0 +1,86 @@
+# The template form (docs/calendar-language-tier-2-roadmap.md §3.5–§3.6)
+# through the calendar's ⋮, Calendar settings and the Event templates page:
+# the seeded "Leg day" opens the form on its ids; the name is changed, Repeat,
+# Icon & color and the description are each opened and cancelled, ✕ asks,
+# Keep editing stays, ✕ and Discard leave the template as it was. Then a new
+# template is named, saved, listed and deleted through the page, so the
+# fixture's one template is all that is left.
+# - The settings page's rows carry no ids; "Event templates" is its row's
+#   own first line. Scrolling that page while the semantics tree is on makes
+#   the Android engine log `E/AccessibilityBridge: transform has not been
+#   initialized` (debug builds, seen 2026-10-02): the `errors` step at the end
+#   prints that line from the run log, the agent's own buffer stays clean.
+# - The Repeat sheet has no id on its ✕; nothing else is in the tree while it
+#   is up, so its tooltip "Cancel" names it. The template variant is read
+#   from what it leaves out — the "Public holidays only" kind and the Ends
+#   row, whose value would be "Never" ("Ends" itself is inside "Weekends") —
+#   and from the hint that names no date.
+# - Count occurrences is off in the seed, so the count-style chips are not
+#   on this form; Starts, Ends and its ✕ are there because it is timed.
+# - "New template" is the page's button and the new form's title: the page
+#   is waited for by the button only while no new form is up, and by
+#   id:template-save gone after the new form's Save.
+# - The page's delete buttons share a tooltip; the new template is the last
+#   row, and the dialog names what it is about to delete before the confirm.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "Event templates"
+tap "Event templates"
+wait "New template"
+expect "Leg day"
+shot 15_templates_page
+tap "Leg day"
+wait id:template-save
+expect id:template-close id:template-name id:template-category id:template-look id:template-description id:template-all-day id:template-starts id:template-ends id:template-ends-clear id:template-repeat "Edit template"
+shot 15_template_form
+tap id:template-name
+type "Leg day B" --replace
+tap id:template-repeat
+wait id:repeat-done
+expect "Weekly" "Mon, Thu" "Also on matching days before the day it is added" --absent "Public holidays only" --absent "Never"
+shot 15_template_repeat
+tap "Cancel"
+wait id:template-save
+tap id:template-look
+wait id:look-done
+tap id:look-close
+wait id:template-save
+tap id:template-description
+wait id:description-done
+tap id:description-close
+wait id:template-save
+scroll-to id:template-priority
+expect id:template-count id:template-presence id:template-assume-present id:template-assume-absent id:template-per-day id:template-priority
+tap id:template-close
+wait "Unsaved changes"
+shot 15_template_discard
+tap "Keep editing"
+wait id:template-save
+expect "Leg day B"
+tap id:template-close
+wait "Unsaved changes"
+tap "Discard changes"
+wait "New template"
+expect "Leg day" --absent "Leg day B"
+tap "New template"
+wait id:template-save
+expect id:template-name id:template-all-day id:template-repeat id:template-priority --absent id:template-starts --absent id:template-count
+shot 15_template_new
+tap id:template-name
+type "QA flow template"
+tap id:template-save
+wait id:template-save --gone
+expect "QA flow template"
+shot 15_template_listed
+tap "Delete template" --nth 1
+wait 'Delete "QA flow template"? Events already created from it are not affected.'
+tap id:sheet-confirm
+wait "Template deleted"
+expect "Leg day" --absent "QA flow template"
+key back
+wait "Search settings"
+key back
+wait id:calendar-add-event
+errors

@@ -319,6 +319,31 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
       );
     });
 
+    test("the accessibility bridge's uninitialised transform is noise, and "
+        'only that line of its tag', () {
+      expect(
+        isKnownNoise(
+          'E/AccessibilityBridge(12345): transform has not been initialized '
+          'for id = 42',
+        ),
+        isTrue,
+      );
+      expect(
+        isKnownNoise(
+          'E/AccessibilityBridge( 1234): transform has not been initialized '
+          'for id = 7',
+        ),
+        isTrue,
+      );
+      expect(
+        isKnownNoise(
+          'E/AccessibilityBridge(12345): Attempted to set selection on a '
+          'removed node',
+        ),
+        isFalse,
+      );
+    });
+
     test('partitionKnownNoise keeps order within each half', () {
       final (real, noise) = partitionKnownNoise([
         'E/flutter: Exception A',
