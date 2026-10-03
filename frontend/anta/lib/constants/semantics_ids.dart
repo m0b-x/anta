@@ -374,6 +374,131 @@ abstract final class SemanticsIds {
   static String templatePriorityItem(int priority) =>
       'template-priority-$priority';
 
+  /// The agenda day list (Tier 3, `docs/calendar-language-tier-3-roadmap.md`):
+  /// its ✕ and the ← that replaces it under a drilled month, the mode chips,
+  /// the year-scope chips, a picked day's "Whole month" ✕, the scrolling
+  /// body, and the navigation row's four controls — one set, since the month
+  /// nav and the year nav never share a screen. "Previous month" and "This
+  /// year" repeat across surfaces, so none of them is a label a flow can use.
+  static const String dayListClose = 'day-list-close';
+  static const String dayListBack = 'day-list-back';
+  static const String dayListModeList = 'day-list-mode-list';
+  static const String dayListModeMonth = 'day-list-mode-month';
+  static const String dayListModeYear = 'day-list-mode-year';
+  static const String dayListScopeUpcoming = 'day-list-scope-upcoming';
+  static const String dayListScopeCalendarYear = 'day-list-scope-calendar-year';
+  static const String dayListWholeMonth = 'day-list-whole-month';
+  static const String dayListBody = 'day-list-body';
+  static const String dayListNavPrevious = 'day-list-nav-previous';
+  static const String dayListNavNext = 'day-list-nav-next';
+  static const String dayListNavToday = 'day-list-nav-today';
+  static const String dayListNavTitle = 'day-list-nav-title';
+
+  /// The "Show every day" button of an agenda summary card, keyed by the
+  /// card's summary key (`category:<id>`, `holiday`, `fasting:<tradition>`)
+  /// with its colon folded: every card's button wears the same tooltip, and
+  /// a flow has to open one card among several.
+  static String agendaCardDays(String key) =>
+      'agenda-card-days-${key.replaceAll(':', '-')}';
+
+  /// The category editor's ✕ and Save, its name field and its Icon row.
+  static const String categoryEditorClose = 'category-editor-close';
+  static const String categoryEditorSave = 'category-editor-save';
+  static const String categoryEditorName = 'category-editor-name';
+  static const String categoryEditorIcon = 'category-editor-icon';
+
+  /// The colour strip wherever a sheet embeds it: the row as a container
+  /// above the swatches' own nodes (the Look sheet's keeps [lookColor]), the
+  /// three dots whose tooltips change with the locale, and the three items
+  /// of a custom swatch's long-press menu. A swatch itself is found by the
+  /// hex it announces.
+  static const String swatchRow = 'swatch-row';
+  static const String swatchDefault = 'swatch-default';
+  static const String swatchAdd = 'swatch-add';
+  static const String swatchManage = 'swatch-manage';
+  static const String swatchMenuEdit = 'swatch-menu-edit';
+  static const String swatchMenuDelete = 'swatch-menu-delete';
+  static const String swatchMenuManage = 'swatch-menu-manage';
+
+  /// The fasting schedule's ✕, its weekday chips (ISO 1–7) and month chips
+  /// (1–12), the Select all / None rows under each, the two scope pairs, the
+  /// two exception rows, and each exception date's remove button keyed by
+  /// the list it is in (`skip` or `force`) and the date.
+  static const String fastingScheduleClose = 'fasting-schedule-close';
+  static String fastingWeekday(int weekday) => 'fasting-weekday-$weekday';
+  static const String fastingWeekdaysAll = 'fasting-weekdays-all';
+  static const String fastingWeekdaysNone = 'fasting-weekdays-none';
+  static const String fastingWeekdayScopeWeekly =
+      'fasting-weekday-scope-weekly';
+  static const String fastingWeekdayScopeAll = 'fasting-weekday-scope-all';
+  static String fastingMonth(int month) => 'fasting-month-$month';
+  static const String fastingMonthsAll = 'fasting-months-all';
+  static const String fastingMonthsNone = 'fasting-months-none';
+  static const String fastingMonthScopeWeekly = 'fasting-month-scope-weekly';
+  static const String fastingMonthScopeAll = 'fasting-month-scope-all';
+  static const String fastingDaysOff = 'fasting-days-off';
+  static const String fastingExtraDays = 'fasting-extra-days';
+  static String fastingDateRemove(String kind, DateTime date) =>
+      'fasting-$kind-remove-${_isoDate(date)}';
+
+  /// The fasting style's ✕, its two menu rows with their items, the Icon
+  /// row and its reset, the Custom title row and its clear, and the
+  /// Description row.
+  static const String fastingStyleClose = 'fasting-style-close';
+  static const String fastingStyleGrid = 'fasting-style-grid';
+  static const String fastingStyleGridTint = 'fasting-style-grid-tint';
+  static const String fastingStyleGridBar = 'fasting-style-grid-bar';
+  static const String fastingStyleGridStrong = 'fasting-style-grid-strong';
+  static const String fastingStyleGridNone = 'fasting-style-grid-none';
+  static const String fastingStylePlacement = 'fasting-style-placement';
+  static const String fastingStylePlacementFirst =
+      'fasting-style-placement-first';
+  static const String fastingStylePlacementBeforeHolidays =
+      'fasting-style-placement-before-holidays';
+  static const String fastingStylePlacementAfterHolidays =
+      'fasting-style-placement-after-holidays';
+  static const String fastingStylePlacementLast =
+      'fasting-style-placement-last';
+  static const String fastingStyleIcon = 'fasting-style-icon';
+  static const String fastingStyleIconReset = 'fasting-style-icon-reset';
+  static const String fastingStyleTitle = 'fasting-style-title';
+  static const String fastingStyleTitleClear = 'fasting-style-title-clear';
+  static const String fastingStyleDescription = 'fasting-style-description';
+
+  /// The removed-holidays sheet's ✕ and each row's Restore, keyed by the
+  /// holiday's name key and the date it was removed on.
+  static const String removedHolidaysClose = 'removed-holidays-close';
+  static String holidayRestoreButton(String nameKey, DateTime date) =>
+      'holiday-restore-$nameKey-${_isoDate(date)}';
+
+  /// The palette's ✕, its Add color and Reset colors rows, and each custom
+  /// colour's row, handle and delete, keyed by the colour's six hex digits —
+  /// what `CalendarPalette.hexOf` prints, its `#` dropped and lower-cased.
+  static const String paletteClose = 'palette-close';
+  static const String paletteAdd = 'palette-add';
+  static const String paletteReset = 'palette-reset';
+  static String paletteRow(String hex) => 'palette-row-${_hexKey(hex)}';
+  static String paletteHandle(String hex) => 'palette-handle-${_hexKey(hex)}';
+  static String paletteDelete(String hex) => 'palette-delete-${_hexKey(hex)}';
+
+  /// The colour picker's ✕ and Select, its two geometry chips, the hex field
+  /// and the copy button.
+  static const String colorPickerClose = 'color-picker-close';
+  static const String colorPickerSelect = 'color-picker-select';
+  static const String colorModeSquare = 'color-mode-square';
+  static const String colorModeWheel = 'color-mode-wheel';
+  static const String colorHex = 'color-hex';
+  static const String colorCopyHex = 'color-copy-hex';
+
+  /// `yyyy-MM-dd` by hand: an id is a contract with the driver and never
+  /// follows the locale a formatter would.
+  static String _isoDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  static String _hexKey(String hex) => hex.replaceFirst('#', '').toLowerCase();
+
   static const String timePadCancel = 'time-pad-cancel';
   static const String timePadDone = 'time-pad-done';
   static const String timePadHour = 'time-pad-hour';

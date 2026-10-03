@@ -5,9 +5,10 @@ import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
-import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
+
+import 'support/category_editor_robot.dart';
 
 /// The picker serves two arities off one sheet, and the properties worth
 /// pinning are the ones a reader would otherwise copy wrong from its date
@@ -299,16 +300,9 @@ void main() {
     await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate));
     await tester.pumpAndSettle();
 
-    expect(find.byType(CategoryEditorSheet), findsOneWidget);
-    final nameField = tester.widget<TextField>(
-      find
-          .descendant(
-            of: find.byType(CategoryEditorSheet),
-            matching: find.byType(TextField),
-          )
-          .first,
-    );
-    expect(nameField.controller?.text, 'Dentist');
+    final editor = CategoryEditorRobot(tester);
+    expect(editor.isOpen, isTrue);
+    expect(editor.nameText, 'Dentist');
   });
 
   testWidgets('the Create category row is last and opens the editor', (
@@ -329,7 +323,7 @@ void main() {
     await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate));
     await tester.pumpAndSettle();
 
-    expect(find.byType(CategoryEditorSheet), findsOneWidget);
+    expect(CategoryEditorRobot(tester).isOpen, isTrue);
   });
 
   testWidgets('multi mode returns null from the close button', (tester) async {

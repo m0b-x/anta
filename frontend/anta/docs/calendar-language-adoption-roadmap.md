@@ -1,8 +1,10 @@
 # Calendar UI Language Adoption — Roadmap for the remaining surfaces (2026-09-27)
 
 **Status: IN PROGRESS — Tier 1 COMMITTED `7e0423b` (2026-09-28); Tier 2
-IMPLEMENTED and REVIEWED 2026-10-03, uncommitted (the owner commits); Tiers
-3 and 4 not started. §9 is the table, §2.4 the corrections of 2026-10-02.** Written at the end of the Filters sheet
+COMMITTED `daf361a` (2026-10-03); Tier 3 IMPLEMENTED and REVIEWED
+2026-10-03, uncommitted (record `docs/calendar-language-tier-3-roadmap.md`;
+the owner commits); Tier 4 not started. §9 is the table, §2.4 the
+corrections of 2026-10-02 and §2.5 those of 2026-10-03.** Written at the end of the Filters sheet
 rework (`docs/calendar-filters-redesign-roadmap.md`, shipped uncommitted the
 same day) after the owner asked which calendar components still need the new
 UI language and said to write everything down so the long process can start
@@ -211,6 +213,57 @@ file was unchanged since the inventory above, line counts included.
   in the `ui-language` skill; `calendar-ui` keeps the calendar's own widgets,
   ids and device pass. Where this roadmap says "the `calendar-ui` skill" for
   a row or chrome rule, read `ui-language`.
+
+### 2.5 Corrections from Tier 3 (2026-10-03)
+
+From Tier 3's explorer pass over the tree at `daf361a` and its slices
+(`docs/calendar-language-tier-3-roadmap.md` §5, §9):
+
+- **§3 Tier 3 described two controls that never existed.** The category
+  editor has **no delete** — delete is the categories page's row menu
+  (`calendar_categories_page.dart:159–188`, Tier 4's surface) and stays
+  there; the Look sheet has **no "Colour ›" picker row** — its colour is the
+  inline swatch strip, hoisted in Tier 3 as `FormSwatchRow` and embedded by
+  the category editor and the fasting style sheet the same way.
+- **The palette is not shared with colour labels.** Labels copy
+  `CalendarPaletteService`'s facade *pattern*; the only non-calendar reader
+  of the service is the backup service, and the only non-calendar caller of
+  a Tier 3 sheet is the markdown colours page (the colour picker,
+  `markdown_colors_page.dart:76`, `:83` — the second call was missing from
+  §7).
+- **Two more messages were drawn under their sheets** than
+  `docs/ui-language-adoption-roadmap.md` §8 listed: `color_swatch_picker.dart`
+  raised two refusals through `CustomSnackbar` inside whichever sheet
+  embedded it. All eight sites moved to `OverlaySnackbar` in Tier 3.
+- **`AgendaMonthGrid` (the day list's mini grid) was not on the Tier 3 list**
+  although the Tier 1 ledger deferred its weekday style to Tier 3; it is
+  shared with the overview page, which took the `CalendarDaysOfWeek` row,
+  the nav's two-line title and the fitted day number with it (no behaviour
+  change; its suite passes unedited). `CalendarDayCell` itself wrapped
+  two-digit numbers at 200 % on the calendar page as well — the fix landed
+  in the cell for every grid.
+- **"See `docs/` day-list notes in memory" pointed at nothing.** The traps
+  are in the memory note `anta-day-list-test-traps` and the Tier 3 record
+  §5: no `PopScope` by design (two tests pin dismissal while drilled), the
+  pinned header rect, the lazy slivers' position jump; the `Visibility`-held
+  button is gone.
+- **Line numbers.** `upcoming_agenda_view.dart:1017` (not 1015);
+  `calendar_settings_page.dart:415` for the removed-holidays opener (not
+  445); the category editor's edit caller `calendar_categories_page.dart:150`
+  was missing; the colour picker has **one** slider, not three; the template
+  editor no longer calls the swatch picker or the icon picker directly (since
+  Tier 2 it goes through the Look sheet).
+- **For Tier 4.** `AgendaDayListRowView` and the overview page's own copy of
+  the day list's old section header (`calendar_overview_page.dart:986–998`,
+  the `Visibility`-held "Whole month") stay for the overview's rework; the
+  overview orders its modes Year / Month / List where the day list's chips
+  read List / Month / Year; `YearMonthTile`'s titles ellipsize beside their
+  counts at German 1.3 and 2.0 on the overview, the Dates sheet's year view
+  and the day list alike.
+- **The QA tool.** `scroll-to` returned mid-fling on iOS (the agent's swipe
+  settled for 500 ms; a fling under iOS physics runs longer), which the
+  Pixel's slower adb path had hidden; it now settles until no frame is
+  scheduled. Found by the Tier 3 device pass on `15_templates.txt`.
 
 ## 3. The plan — tiers, in order
 
@@ -473,6 +526,6 @@ the next tier starts on a clean tree.
 | Tier | Status |
 | --- | --- |
 | 1 | **done 2026-09-27, COMMITTED `7e0423b` (2026-09-28).** Record `docs/calendar-language-tier-1-roadmap.md` (D1–D25), canvas "Agenda Filters Mocks" https://claude.ai/artifact/FGLdxuNj5a3ATaDCpiaKYo. The agenda sheet rebuilt as the Filters sheet's twin (Events one menu over the whole axis), the seven chrome-only sheets migrated in three shapes (sub-sheet · the form box without its guard for the two fillers · the form sheet), `FormSheetFrame` hoisted from the editor, the description sheet guarded; gate: `dart analyze lib test` clean, `flutter test` 6137 / 7 skipped / the one known Windows case, `untranslated.txt` `{}`, `qa flows calendar` 12 / 12, `qa errors` clean after the matrix; the review confirmed no defect, its nits and the device pass's nine 200 % findings fixed the same day (D23–D25). Deferred to later tiers: `CategoryFilterTile` (Tier 4), the day-list's mini grid weekday style (Tier 3); to the owner: a two-line header at 200 %, a range mode for the Dates sheet |
-| 2 | **IMPLEMENTED and REVIEWED 2026-10-03, uncommitted — the owner reviews and commits.** Record `docs/calendar-language-tier-2-roadmap.md` (D1–D14; the owner answered D1–D4 with the recommended option each: the template editor as its own sheet, the alert's When as a menu row with a Custom sub-sheet, the quick alarm's hero time, template parity with the editor), canvas "Editor Satellites Mocks" https://claude.ai/artifact/X4dZF5d2DsmLrK5GvadzuW. The alert sheet with its Custom sub-sheet, the quick alarm and the template form rebuilt on the language with what they return untouched (a robot per sheet in `test/widgets/support/` is the proof); eight primitives added or hoisted (`FormStepperRow`, `FormTitleRow`, `FormHeroRow`, `FormCaptionSlot`, `FormIndentedRow`, `FormValueDot`, `FormHeaderHairline`, `FormChipRow(indented:)`), `FormChip` disabled in place and a minimum height, `AlertTypeRow`, `AlertOffset`; gate `flutter test` 6669 / 7 skipped / the known Windows case (6251 before), `qa flows calendar` 17 / 17 with four new flows, the independent review's and the device pass's findings fixed. Also fixed on the way: Calendar settings blank in German at 200 % and its default-alert rows at large text (a yielding tile, the kit untouched), the Repeat stepper's inverted tooltips, messages drawn under their sheets. Deferred to Tier 3 / 4 / the owner: the record's §8 |
-| 3 | not started |
+| 2 | **done 2026-10-03, COMMITTED `daf361a` (2026-10-03).** Record `docs/calendar-language-tier-2-roadmap.md` (D1–D14; the owner answered D1–D4 with the recommended option each: the template editor as its own sheet, the alert's When as a menu row with a Custom sub-sheet, the quick alarm's hero time, template parity with the editor), canvas "Editor Satellites Mocks" https://claude.ai/artifact/X4dZF5d2DsmLrK5GvadzuW. The alert sheet with its Custom sub-sheet, the quick alarm and the template form rebuilt on the language with what they return untouched (a robot per sheet in `test/widgets/support/` is the proof); eight primitives added or hoisted (`FormStepperRow`, `FormTitleRow`, `FormHeroRow`, `FormCaptionSlot`, `FormIndentedRow`, `FormValueDot`, `FormHeaderHairline`, `FormChipRow(indented:)`), `FormChip` disabled in place and a minimum height, `AlertTypeRow`, `AlertOffset`; gate `flutter test` 6669 / 7 skipped / the known Windows case (6251 before), `qa flows calendar` 17 / 17 with four new flows, the independent review's and the device pass's findings fixed. Also fixed on the way: Calendar settings blank in German at 200 % and its default-alert rows at large text (a yielding tile, the kit untouched), the Repeat stepper's inverted tooltips, messages drawn under their sheets. Deferred to Tier 3 / 4 / the owner: the record's §8 |
+| 3 | **IMPLEMENTED and REVIEWED 2026-10-03, uncommitted — the owner reviews and commits.** Record `docs/calendar-language-tier-3-roadmap.md` (D1–D22; the owner answered D1–D3 with the recommended option each: the modes as a chip row pinned under the header, the card's line as a caption under it, read rows over avatar rows with the pencil as a second target), canvas "Day List Mocks" https://claude.ai/artifact/483vfCNb6m6GwBvq441pvW. The agenda day list rebuilt as a filler (no `PopScope`, ✕ replaced by ← when a tile opens a month, the ✕ Whole month on a picked day's row, the month-level header gone); the category editor, both fasting sheets, removed holidays, the palette and the colour picker's chrome as sub-sheets; the swatch strip's menu, confirmed delete, focus drop and ids with one geometry in every sheet; the shared `AgendaPeriodNav` (ids, `month:`, a two-line measured and cached title, the count's own node), `AgendaMonthGrid` on `CalendarDaysOfWeek`, `CalendarDayCell`'s number fitted (the page's cells wrapped at 200 % too); `FormSwatchRow` hoisted and four primitives extended (`FormSectionLabel(trailing:)`, `FormPickerRow(handle:, captionMaxLines:)`, `FormTitleRow(warning:)`); eight messages moved over their sheets; two keys added, four retired, `resetToDefault` reduced; eight robots and three new suites as the safety net. Gate: `dart analyze lib test tool test_driver` clean, `flutter test` 6810 / 7 skipped / 0 failed (6670 before — the Windows-only case passes on the Mac), `untranslated.txt` `{}`, `qa flows calendar` 23 / 23 with six new flows, `qa errors` clean after the matrix; the review confirmed no defect and its three actionable gaps were fixed; the device pass's two nav defects fixed and the QA tool's `scroll-to` settle repaired. Deferred to Tier 4 / the owner: the record's §8 — the overview's rows and its copy of the old section header, `YearMonthTile`'s ellipsis at large text, the overlay bar over a one-row sheet, the two-line header, the Upcoming tile for a window ending on the 1st, the jump picker's day wheel, the appearance page's strip |
 | 4 | not started |

@@ -1,0 +1,27 @@
+# The removed-holidays sheet (docs/calendar-language-tier-3-roadmap.md §3.6)
+# from Calendar settings: the seeded suppressed Christmas Day (on a relative
+# day, {{day+60}}) in its read row with the Restore button by id, the
+# restore, the message over the sheet and the empty caption, then ✕.
+# - This flow consumes the seed: the restored day is a built-in that no
+#   longer falls on a holiday, so it cannot be removed again from the day
+#   panel. A lone re-run needs `qa relaunch --fresh --seed`.
+# - The overlay bar is drawn 80 dp above the screen's bottom, which on this
+#   one-row sheet is the header: ✕ is tapped once the bar has left.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap "Removed holidays"
+wait id:holiday-restore-christmasDay-{{day+60}}
+expect id:removed-holidays-close "Christmas Day" --absent "No holidays removed"
+shot 21_removed_holidays
+tap id:holiday-restore-christmasDay-{{day+60}}
+wait "Holiday restored"
+expect "No holidays removed" --absent "Christmas Day"
+shot 21_removed_holidays_empty
+wait "Holiday restored" --gone
+tap id:removed-holidays-close
+wait "Search settings"
+key back
+wait id:calendar-add-event
+errors

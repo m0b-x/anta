@@ -340,6 +340,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get holidayRestored => 'Sărbătoare restaurată';
 
   @override
+  String get holidayRestoreFailed => 'Sărbătoarea nu a putut fi restaurată';
+
+  @override
   String get eventCategoryGym => 'Sală';
 
   @override
@@ -384,9 +387,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get categoryNameHint => 'ex. Stretching';
-
-  @override
-  String get categoryColor => 'Culoare';
 
   @override
   String get categoryDefault => 'Categorie integrată';
@@ -679,7 +679,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get pickIcon => 'Alege pictogramă';
 
   @override
-  String get resetToDefault => 'Resetează la Implicit';
+  String get resetToDefault => 'Resetează la implicit';
 
   @override
   String get eventDate => 'Data de început';
@@ -1180,10 +1180,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get fastingPreviewLabel => 'Previzualizare';
-
-  @override
-  String get fastingPlacementHint =>
-      'Stabilește unde stă rândul între evenimente, sărbători și weekend';
 
   @override
   String get fastingTitleOverrideLabel => 'Titlu personalizat';
@@ -4568,15 +4564,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get colorPaletteCustomLabel => 'Culorile tale';
 
   @override
-  String get colorPaletteBuiltIn => 'Culoare implicită';
-
-  @override
   String get colorPaletteEmpty =>
       'Încă nu ai culori proprii. Adaugă una și va apărea în fiecare selector.';
-
-  @override
-  String get colorPaletteEditHint =>
-      'Atinge o culoare pentru a o schimba. Tot ce o folosește deja își păstrează culoarea.';
 
   @override
   String get colorPaletteReset => 'Resetează culorile';
@@ -4584,6 +4573,9 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get colorPaletteResetConfirm =>
       'Ștergi toate culorile adăugate și păstrezi doar cele implicite?';
+
+  @override
+  String get colorPaletteResetDone => 'Paleta a fost resetată';
 
   @override
   String get colorPaletteFull =>

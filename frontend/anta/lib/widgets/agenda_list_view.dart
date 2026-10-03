@@ -9,6 +9,7 @@ import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/event_priorities.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
@@ -18,6 +19,7 @@ import '../models/day_summary_entry.dart';
 import '../models/fasting_appearance.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'automation_id.dart';
 import 'event_alert_badge.dart';
 import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
@@ -1293,10 +1295,17 @@ class _AgendaCard extends StatelessWidget {
                               onPressed: onEdit,
                             ),
                           if (onShowAll != null)
-                            IconButton(
-                              tooltip: l10n.upcomingShowAllDays,
-                              icon: const Icon(Icons.list_rounded),
-                              onPressed: onShowAll,
+                            // Keyed by the card: every summary card's button
+                            // wears this tooltip, and a flow opens one.
+                            AutomationId(
+                              identifier: SemanticsIds.agendaCardDays(
+                                entry.key,
+                              ),
+                              child: IconButton(
+                                tooltip: l10n.upcomingShowAllDays,
+                                icon: const Icon(Icons.list_rounded),
+                                onPressed: onShowAll,
+                              ),
                             ),
                         ],
                       ),

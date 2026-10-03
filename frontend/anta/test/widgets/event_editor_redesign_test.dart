@@ -1538,7 +1538,7 @@ void main() {
       );
       expect(find.text('Custom'), findsOneWidget);
       await tapText(tester, 'Icon & color');
-      await tapTooltip(tester, 'Reset to Default');
+      await tapTooltip(tester, 'Reset to default');
       await tapText(tester, 'Tint icon with color');
       await tapText(tester, 'Done');
       expect(find.text('Custom'), findsOneWidget);

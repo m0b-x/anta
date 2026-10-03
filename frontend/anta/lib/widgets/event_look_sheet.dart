@@ -42,17 +42,6 @@ class EventLookDraft extends Equatable {
   List<Object?> get props => [iconKey, colorValue, tintIcon];
 }
 
-abstract final class _LookMetrics {
-  static const EdgeInsets iconRowPadding = EdgeInsets.symmetric(vertical: 8);
-  static const EdgeInsets paletteRowPadding = EdgeInsets.fromLTRB(
-    RowMetrics.groupInset,
-    8,
-    RowMetrics.groupInset,
-    12,
-  );
-  static const double swatchSpacing = 2;
-}
-
 class EventLookSheet extends StatefulWidget {
   final EventLookDraft draft;
   final CalendarCategory category;
@@ -187,11 +176,12 @@ class _EventLookSheetState extends State<EventLookSheet> {
                         )
                       : null,
                 ),
-                _PaletteRow(
+                FormSwatchRow(
+                  identifier: SemanticsIds.lookColor,
                   child: ColorSwatchPicker(
                     value: _draft.colorValue,
                     onChanged: _setColor,
-                    spacing: _LookMetrics.swatchSpacing,
+                    spacing: FormMetrics.swatchSpacing,
                     collapsible: false,
                     defaultOption: ColorSwatchDefault(
                       color: category.color,
@@ -247,9 +237,13 @@ class _IconRow extends FormDividedRow {
           minHeight: FormMetrics.titleRowMinHeight,
         ),
         child: Padding(
-          padding: _LookMetrics.iconRowPadding.copyWith(
-            left: RowMetrics.groupInset,
-            right: button == null ? RowMetrics.groupInset : 0,
+          // The title row's air around its 40 dp avatar: this row is that
+          // shape with a label · value pair in the field's place.
+          padding: EdgeInsets.fromLTRB(
+            RowMetrics.groupInset,
+            FormMetrics.titleRowVerticalPadding,
+            button == null ? RowMetrics.groupInset : 0,
+            FormMetrics.titleRowVerticalPadding,
           ),
           child: Row(
             children: [
@@ -275,27 +269,6 @@ class _IconRow extends FormDividedRow {
         Expanded(child: row),
         button,
       ],
-    );
-  }
-}
-
-class _PaletteRow extends FormDividedRow {
-  final Widget child;
-
-  const _PaletteRow({required this.child});
-
-  @override
-  double get dividerIndent => FormMetrics.dividerIndentPlain;
-
-  @override
-  Widget build(BuildContext context) {
-    // A container node above the swatches, never a merge: eighteen colour
-    // buttons folded into one node would leave a screen reader nothing to
-    // pick — `AutomationId`'s own rule for a colour strip. A driver finds
-    // the row by its id and each swatch by its name.
-    return Semantics(
-      identifier: SemanticsIds.lookColor,
-      child: Padding(padding: _LookMetrics.paletteRowPadding, child: child),
     );
   }
 }

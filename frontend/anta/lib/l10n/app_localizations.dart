@@ -730,6 +730,12 @@ abstract class AppLocalizations {
   /// **'Holiday restored'**
   String get holidayRestored;
 
+  /// Message over the removed-holidays sheet when restoring a holiday throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t restore the holiday'**
+  String get holidayRestoreFailed;
+
   /// Calendar event category: gym session
   ///
   /// In en, this message translates to:
@@ -819,12 +825,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'e.g. Stretching'**
   String get categoryNameHint;
-
-  /// Label for the category color picker
-  ///
-  /// In en, this message translates to:
-  /// **'Color'**
-  String get categoryColor;
 
   /// Badge shown on built-in categories that cannot be deleted
   ///
@@ -1264,10 +1264,10 @@ abstract class AppLocalizations {
   /// **'Choose icon'**
   String get pickIcon;
 
-  /// Reset to default button text
+  /// Tooltip on the button that clears the custom icon override
   ///
   /// In en, this message translates to:
-  /// **'Reset to Default'**
+  /// **'Reset to default'**
   String get resetToDefault;
 
   /// Section label in the event editor for the recurring event start date
@@ -1969,7 +1969,7 @@ abstract class AppLocalizations {
   /// Swatch restoring the shared fasting violet
   ///
   /// In en, this message translates to:
-  /// **'Default colour'**
+  /// **'Default color'**
   String get fastingColorDefault;
 
   /// Shown when a tradition uses its built-in icon
@@ -1983,12 +1983,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Preview'**
   String get fastingPreviewLabel;
-
-  /// Hint under the fasting row placement chips
-  ///
-  /// In en, this message translates to:
-  /// **'Decides where the row sits among events, holidays and the weekend'**
-  String get fastingPlacementHint;
 
   /// Field replacing the computed fast name in the day panel row
   ///
@@ -5317,7 +5311,7 @@ abstract class AppLocalizations {
   /// Setting subtitle explaining that the day cell style is stored separately for light and dark
   ///
   /// In en, this message translates to:
-  /// **'How an event\'s colour fills the day cell. Each theme keeps its own choice.'**
+  /// **'How an event\'s color fills the day cell. Each theme keeps its own choice.'**
   String get calendarCellStyleDesc;
 
   /// Label above the day cell style buttons that apply to the light theme
@@ -7708,23 +7702,11 @@ abstract class AppLocalizations {
   /// **'Your colors'**
   String get colorPaletteCustomLabel;
 
-  /// Tooltip on a built-in swatch, which cannot be edited or deleted
-  ///
-  /// In en, this message translates to:
-  /// **'Built-in color'**
-  String get colorPaletteBuiltIn;
-
   /// Empty state when the user has added no colours
   ///
   /// In en, this message translates to:
   /// **'No colors of your own yet. Add one and it appears in every picker.'**
   String get colorPaletteEmpty;
-
-  /// Hint above the editable list of the user's own colours
-  ///
-  /// In en, this message translates to:
-  /// **'Tap a color to change it. Anything already using it keeps its color.'**
-  String get colorPaletteEditHint;
 
   /// Button that removes every colour the user added
   ///
@@ -7737,6 +7719,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delete all the colors you added and keep only the built-in ones?'**
   String get colorPaletteResetConfirm;
+
+  /// Message over the palette sheet after the custom colours were removed
+  ///
+  /// In en, this message translates to:
+  /// **'Palette reset'**
+  String get colorPaletteResetDone;
 
   /// Error shown when the custom colour cap is reached
   ///

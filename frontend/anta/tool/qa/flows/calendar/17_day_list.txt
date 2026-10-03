@@ -1,0 +1,69 @@
+# The agenda's day list (docs/calendar-language-tier-3-roadmap.md §3.2): the
+# Upcoming panel's event rows set to one card per category, the Strength
+# card's "Show every day" by its id, then the sheet on its ids — List, Month
+# (a marked day picked in the mini grid and Whole month restoring the
+# groups), Year in both scopes, a tile drilled into its month and Back to
+# months, List again — ✕, and the agenda put back (Reset filters, the panel
+# on Day). The persisted day-list mode is left on List.
+# - The mini grid's cells are label-only, like the page's: today's cell is
+#   tapped by {{longdate}}, which is always a Lifting day in this seed.
+# - An Upcoming tile is named by its month and count ("Oct 2026, 9 entries");
+#   no placeholder renders a month name, so the first tile carrying this
+#   year is the current month's (--nth 0 picks it when two tiles match).
+# - The scope chips are the year body's first row: waiting for
+#   id:day-list-scope-calendar-year is waiting for year mode.
+tap "Upcoming"
+wait id:agenda-filter-open
+tap id:agenda-filter-open
+wait id:agenda-filter-apply
+tap id:agenda-filter-event-rows
+wait id:agenda-filter-event-rows-summary
+tap id:agenda-filter-event-rows-summary
+wait id:agenda-filter-apply
+tap id:agenda-filter-apply
+wait id:agenda-card-days-category-qa-cal-strength
+tap id:agenda-card-days-category-qa-cal-strength
+wait id:day-list-close
+expect id:day-list-mode-list id:day-list-mode-month id:day-list-mode-year id:day-list-body "Lifting session" "Edit event"
+shot 17_day_list_list
+tap id:day-list-mode-month
+wait id:day-list-nav-title
+expect id:day-list-nav-previous id:day-list-nav-next id:day-list-nav-today "{{longdate}}"
+shot 17_day_list_month
+tap "{{longdate}}"
+wait id:day-list-whole-month
+expect "Lifting session"
+shot 17_day_list_month_day
+tap id:day-list-whole-month
+wait id:day-list-whole-month --gone
+tap id:day-list-mode-year
+wait id:day-list-scope-calendar-year
+expect id:day-list-scope-upcoming "{{year}}"
+shot 17_day_list_year_upcoming
+tap id:day-list-scope-calendar-year
+wait id:day-list-nav-title
+expect id:day-list-nav-previous id:day-list-nav-next id:day-list-nav-today
+shot 17_day_list_year_calendar
+tap id:day-list-scope-upcoming
+wait id:day-list-nav-title --gone
+tap "{{year}}" --nth 0
+wait id:day-list-back
+expect id:day-list-nav-title "{{longdate}}" --absent id:day-list-close
+shot 17_day_list_drilled
+tap id:day-list-back
+wait id:day-list-close
+expect id:day-list-scope-upcoming --absent id:day-list-back
+tap id:day-list-mode-list
+wait id:day-list-nav-title --gone
+expect "Lifting session"
+shot 17_day_list_list_again
+tap id:day-list-close
+wait id:agenda-filter-open
+tap id:agenda-filter-open
+wait id:agenda-filter-reset
+tap id:agenda-filter-reset
+tap id:agenda-filter-apply
+wait id:agenda-filter-open
+tap "Day"
+wait id:calendar-add-event
+errors

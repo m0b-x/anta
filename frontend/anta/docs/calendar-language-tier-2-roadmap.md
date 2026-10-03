@@ -1,7 +1,6 @@
 # Calendar UI Language — Tier 2 record: the alert sheet, the quick alarm and the template editor (2026-10-02)
 
-**Status: IMPLEMENTED and REVIEWED 2026-10-03, uncommitted — the owner
-reviews and commits; Tier 3 starts on a clean tree.** Slices 0–6, a fix
+**Status: COMMITTED `daf361a` (2026-10-03).** Slices 0–6, a fix
 round and a device re-check are in the tree: `dart analyze lib test tool
 test_driver` clean, `flutter test` 6669 passed / 7 skipped / the known
 Windows-only `host_devices_test` case (6251 before the tier),

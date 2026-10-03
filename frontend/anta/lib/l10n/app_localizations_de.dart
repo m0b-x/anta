@@ -338,6 +338,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get holidayRestored => 'Feiertag wiederhergestellt';
 
   @override
+  String get holidayRestoreFailed =>
+      'Der Feiertag konnte nicht wiederhergestellt werden';
+
+  @override
   String get eventCategoryGym => 'Training';
 
   @override
@@ -382,9 +386,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get categoryNameHint => 'z. B. Dehnen';
-
-  @override
-  String get categoryColor => 'Farbe';
 
   @override
   String get categoryDefault => 'Integrierte Kategorie';
@@ -1162,10 +1163,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get fastingPreviewLabel => 'Vorschau';
-
-  @override
-  String get fastingPlacementHint =>
-      'Legt fest, wo die Zeile zwischen Terminen, Feiertagen und Wochenende steht';
 
   @override
   String get fastingTitleOverrideLabel => 'Eigener Titel';
@@ -4520,15 +4517,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get colorPaletteCustomLabel => 'Deine Farben';
 
   @override
-  String get colorPaletteBuiltIn => 'Vorgegebene Farbe';
-
-  @override
   String get colorPaletteEmpty =>
       'Noch keine eigenen Farben. Füge eine hinzu und sie erscheint in jeder Auswahl.';
-
-  @override
-  String get colorPaletteEditHint =>
-      'Tippe auf eine Farbe, um sie zu ändern. Alles, was sie bereits nutzt, behält seine Farbe.';
 
   @override
   String get colorPaletteReset => 'Farben zurücksetzen';
@@ -4536,6 +4526,9 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get colorPaletteResetConfirm =>
       'Alle hinzugefügten Farben löschen und nur die vorgegebenen behalten?';
+
+  @override
+  String get colorPaletteResetDone => 'Palette zurückgesetzt';
 
   @override
   String get colorPaletteFull =>

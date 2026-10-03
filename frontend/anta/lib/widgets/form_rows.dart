@@ -91,6 +91,41 @@ class FormIndentedRow extends FormDividedRow {
   Widget build(BuildContext context) => child;
 }
 
+/// The colour strip as a row of a group — the Look sheet's row, hoisted in
+/// Tier 3 (D13) so the category editor, the fasting style sheet and the
+/// palette draw the one strip the same way: `ColorSwatchPicker` at the plain
+/// indent inside the row's own air, under a node carrying [identifier].
+///
+/// That node is a container, never a merge: `AutomationId` would fold
+/// eighteen colour buttons into one and leave a screen reader nothing to
+/// pick. A driver finds the row by its id and each swatch by its name.
+class FormSwatchRow extends FormDividedRow {
+  final Widget child;
+  final String? identifier;
+
+  const FormSwatchRow({super.key, required this.child, this.identifier});
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentPlain;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = Padding(
+      padding: const EdgeInsets.fromLTRB(
+        RowMetrics.groupInset,
+        FormMetrics.swatchRowTopPadding,
+        RowMetrics.groupInset,
+        FormMetrics.swatchRowBottomPadding,
+      ),
+      child: child,
+    );
+    if (identifier case final id?) {
+      return Semantics(identifier: id, child: row);
+    }
+    return row;
+  }
+}
+
 /// One row of a rounded group, drawn on its own — the row-at-a-time twin of
 /// [FormRowGroup] for a list a `Column` cannot hold: a reorderable list, a
 /// sliver. Same tokens, same hairline rule (under every row but the last, at
@@ -164,11 +199,32 @@ class FormRowShell extends StatelessWidget {
 class FormSectionLabel extends StatelessWidget {
   final String text;
 
-  const FormSectionLabel({super.key, required this.text});
+  /// A count at the label's end, in the label's own capitals — the palette's
+  /// "24 of 24" — so a section can say how full it is without a row of its
+  /// own. The label takes what the count leaves, and the two are one node:
+  /// a screen reader hears the section and its count as one line.
+  final String? trailing;
+
+  const FormSectionLabel({super.key, required this.text, this.trailing});
+
+  /// Dart's `toUpperCase` is the simple case mapping, which leaves ß alone:
+  /// "Außerdem anzeigen" came out "AUßERDEM ANZEIGEN" on the device. German
+  /// capitals write it SS.
+  static String _capitals(String text) =>
+      text.toUpperCase().replaceAll('ß', 'SS');
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final style = theme.textTheme.labelSmall?.copyWith(
+      fontSize: RowMetrics.sectionLabelFontSize,
+      height: 14 / RowMetrics.sectionLabelFontSize,
+      color: theme.colorScheme.onSurfaceVariant,
+      letterSpacing: RowMetrics.sectionLabelLetterSpacing,
+      fontWeight: RowMetrics.sectionLabelFontWeight,
+    );
+    final label = Text(_capitals(text), style: style);
+    final count = trailing;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         RowMetrics.sectionLabelInset,
@@ -176,19 +232,18 @@ class FormSectionLabel extends StatelessWidget {
         RowMetrics.sectionLabelInset,
         RowMetrics.sectionLabelBottomPadding,
       ),
-      child: Text(
-        // Dart's `toUpperCase` is the simple case mapping, which leaves ß
-        // alone: "Außerdem anzeigen" came out "AUßERDEM ANZEIGEN" on the
-        // device. German capitals write it SS.
-        text.toUpperCase().replaceAll('ß', 'SS'),
-        style: theme.textTheme.labelSmall?.copyWith(
-          fontSize: RowMetrics.sectionLabelFontSize,
-          height: 14 / RowMetrics.sectionLabelFontSize,
-          color: theme.colorScheme.onSurfaceVariant,
-          letterSpacing: RowMetrics.sectionLabelLetterSpacing,
-          fontWeight: RowMetrics.sectionLabelFontWeight,
-        ),
-      ),
+      child: count == null
+          ? label
+          : MergeSemantics(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: label),
+                  const SizedBox(width: FormMetrics.gap),
+                  Text(_capitals(count), style: style),
+                ],
+              ),
+            ),
     );
   }
 }
@@ -662,12 +717,32 @@ class FormPickerRow extends FormDividedRow {
   /// and semantics node, so the row stays one target and one announcement.
   final String? caption;
 
+  /// Clamps a glyph row's [caption] like a value, ellipsizing past the limit
+  /// — the fasting style's description read back at two lines, where a
+  /// 500-character text would otherwise run the row to a paragraph. Null
+  /// wraps freely. The stacked shape under a [leading] widget keeps its own
+  /// two lines whatever is passed: its caption is the second line of a 62 dp
+  /// row, not a line under a pair.
+  final int? captionMaxLines;
+
   /// False draws the row at the disabled opacity with no ink and no tap and
   /// marks its one node disabled — a control the form has switched off, the
   /// shape `FormMenuRow` takes without a handler. A read row (the next
   /// occurrences) passes `onTap: null` instead and stays fully drawn, so a
   /// value the user cannot act on never looks like one they may not.
   final bool enabled;
+
+  /// A [FormDragHandle] in a [FormMetrics.dragHandleSlot] target flush with
+  /// the row's start — the shape [FormCheckRow.handle] gives a reorderable
+  /// list's rows, for a list of picker rows (the palette's colours): a third
+  /// node beside the row's own and its [trailingButton]. The row's content
+  /// starts 4 dp past the slot, at [FormMetrics.dividerIndentGlyph]. With
+  /// nothing before the label, the text starts there and the hairline indents
+  /// to it, as on the saved filters' check rows. With a [leading] the text
+  /// starts past the slot and the leading column, and the hairline takes the
+  /// title indent ([FormMetrics.dividerIndentTitle]) as under any [leading]
+  /// — the palette's rows.
+  final Widget? handle;
 
   final double? _dividerIndent;
 
@@ -688,7 +763,9 @@ class FormPickerRow extends FormDividedRow {
     this.identifier,
     this.subRow = false,
     this.caption,
+    this.captionMaxLines,
     this.enabled = true,
+    this.handle,
     double? dividerIndent,
   }) : _dividerIndent = dividerIndent;
 
@@ -755,7 +832,13 @@ class FormPickerRow extends FormDividedRow {
         ],
       ],
     );
-    final leftInset = avatar == null && glyph == null && subRow
+    final dragHandle = handle;
+    // Past a handle the content starts at the glyph column, 4 dp after the
+    // 48 dp slot — the check row's rule; otherwise at the group inset, or the
+    // sub-row inset for a row another row reveals.
+    final leftInset = dragHandle != null
+        ? FormMetrics.dividerIndentGlyph - FormMetrics.dragHandleSlot
+        : avatar == null && glyph == null && subRow
         ? FormMetrics.subRowInset
         : RowMetrics.groupInset;
     final rightInset = button == null ? FormMetrics.rowEndPadding : 0.0;
@@ -790,6 +873,7 @@ class FormPickerRow extends FormDividedRow {
               line,
               FormCaption(
                 text: captionText,
+                maxLines: captionMaxLines,
                 padding: EdgeInsets.only(
                   left: leftInset + leadingColumn,
                   right: rightInset,
@@ -824,12 +908,13 @@ class FormPickerRow extends FormDividedRow {
       // keeps its second node.
       well = MergeSemantics(child: well);
     }
-    if (button == null) return well;
+    if (button == null && dragHandle == null) return well;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        ?dragHandle,
         Expanded(child: well),
-        button,
+        ?button,
       ],
     );
   }
@@ -874,6 +959,13 @@ class FormTitleRow extends FormDividedRow {
   /// types into by id.
   final String? identifier;
 
+  /// A line of the row's own under the field, in the error colour at the
+  /// caption size — the category editor's "already exists", which warns and
+  /// never blocks. It takes the counter's line: alone while the counter is
+  /// off, before the counter on the same line once the length reaches
+  /// [counterFrom], so near the limit the row grows by one line and not two.
+  final String? warning;
+
   const FormTitleRow({
     super.key,
     required this.leading,
@@ -887,6 +979,7 @@ class FormTitleRow extends FormDividedRow {
     this.textCapitalization = TextCapitalization.none,
     this.onSubmitted,
     this.identifier,
+    this.warning,
   });
 
   @override
@@ -1030,27 +1123,53 @@ class _FormTitleRowBodyState extends State<_FormTitleRowBody> {
                         listenable: controller,
                         builder: (context, _) {
                           final length = controller.text.characters.length;
-                          if (length < row.counterFrom) {
+                          final warning = row.warning;
+                          final counting = length >= row.counterFrom;
+                          if (!counting && warning == null) {
                             return const SizedBox.shrink();
                           }
+                          final counter = counting
+                              ? Text(
+                                  row.counterLabel(length, row.maxLength),
+                                  textAlign: TextAlign.end,
+                                  style: TextStyle(
+                                    fontSize: FormMetrics.counterSize,
+                                    height: 16 / FormMetrics.counterSize,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                    color: length >= row.maxLength
+                                        ? colorScheme.error
+                                        : colorScheme.onSurfaceVariant,
+                                  ),
+                                )
+                              : null;
                           return Padding(
                             padding: const EdgeInsets.only(
                               top: FormMetrics.titleCounterTopInset,
                             ),
-                            child: Text(
-                              row.counterLabel(length, row.maxLength),
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                fontSize: FormMetrics.counterSize,
-                                height: 16 / FormMetrics.counterSize,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                                color: length >= row.maxLength
-                                    ? colorScheme.error
-                                    : colorScheme.onSurfaceVariant,
-                              ),
-                            ),
+                            child: warning == null
+                                ? counter
+                                // The warning leads and the counter keeps
+                                // its end, on one line: two sizes of text
+                                // share the line by their baselines.
+                                : Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
+                                    children: [
+                                      Expanded(
+                                        child: FormCaption(
+                                          text: warning,
+                                          error: true,
+                                        ),
+                                      ),
+                                      if (counter != null) ...[
+                                        const SizedBox(width: FormMetrics.gap),
+                                        counter,
+                                      ],
+                                    ],
+                                  ),
                           );
                         },
                       ),
