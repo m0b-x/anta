@@ -170,6 +170,21 @@ class AlertRingController extends ChangeNotifier {
     }
   }
 
+  /// Gets the phone past its lock screen before an action that leads **into**
+  /// the app — Open event, the database chip — and answers whether it is
+  /// unlocked now.
+  ///
+  /// Asked first and with the ring still going, on purpose: the alarm page is
+  /// the only thing allowed above a locked keyguard, so the PIN prompt has to
+  /// come up over it. Stopping first would end the ring, send the app back
+  /// behind the lock screen, and leave the event opening where nobody can see
+  /// it. A refusal leaves the user on the page with the alarm still theirs to
+  /// stop. True wherever there is no lock screen to get past.
+  Future<bool> unlock() async {
+    if (!GetIt.I.isRegistered<AlertGateway>()) return true;
+    return GetIt.I<AlertGateway>().dismissLockScreen();
+  }
+
   /// Makes this alarm's database the active one. The caller shows the app's
   /// existing restart dialog; nothing switches underneath a running process.
   Future<bool> activateDatabase() async {

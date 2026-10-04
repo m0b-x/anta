@@ -115,6 +115,24 @@ abstract class AlertGateway {
   /// ring would find an entry nobody planned and silence it.
   Set<int> get ringingIds => const {};
 
+  /// The payloads of the rings in progress — [ringingIds], with what each one
+  /// rang under.
+  ///
+  /// [ringing] is a live stream with no memory, and on a cold start the
+  /// binding can find a ring before anything is listening. A listener that
+  /// subscribes reads this once afterwards, so a ring that was announced to
+  /// nobody still gets its page.
+  List<AlertPayload> get ringingPayloads => const [];
+
+  /// Whether the phone's lock screen is up right now. False wherever there is
+  /// none to ask about.
+  Future<bool> isLockScreenUp() async => false;
+
+  /// Asks the user to unlock the phone from where the app is standing — the
+  /// PIN prompt over the alarm page — and answers whether the phone is
+  /// unlocked afterwards. True at once when nothing is locked.
+  Future<bool> dismissLockScreen() async => true;
+
   /// Whether this platform has a picker over the phone's **own** alarm sounds.
   ///
   /// False everywhere but Android today, which hides "Choose from phone"

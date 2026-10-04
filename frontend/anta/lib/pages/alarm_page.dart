@@ -10,6 +10,7 @@ import '../controllers/alert_ring_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_payload.dart';
 import '../services/app_navigator.dart';
+import '../services/lock_screen_state.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
 
@@ -33,6 +34,12 @@ import '../widgets/automation_id.dart';
 /// It resumes the app, so it inherits the stale-inset hazard the UX section
 /// describes — but it has no text field and raises no keyboard, so there is
 /// nothing for a stuck `viewInsets` frame to eat. Its widget test says so.
+///
+/// **It is the one surface allowed on a locked phone.** A ring lifts the whole
+/// activity above the keyguard, so the page tells [LockScreenState] whenever
+/// it is the topmost page route and whenever it stops being one;
+/// `LockScreenCurtain` hides everything else for as long as the phone stays
+/// locked. A dialog the page raises is a popup route and leaves it on top.
 class AlarmPage extends StatefulWidget {
   const AlarmPage({super.key, required this.payload, this.controller});
 
@@ -51,9 +58,11 @@ class AlarmPage extends StatefulWidget {
   State<AlarmPage> createState() => _AlarmPageState();
 }
 
-class _AlarmPageState extends State<AlarmPage> {
+class _AlarmPageState extends State<AlarmPage> with RouteAware {
   late final AlertRingController _controller =
       widget.controller ?? AlertRingController(payload: widget.payload);
+
+  PageRoute<dynamic>? _route;
 
   @override
   void initState() {
@@ -63,11 +72,35 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is! PageRoute || identical(route, _route)) return;
+    if (_route != null) AppNavigator.routeObserver.unsubscribe(this);
+    _route = route;
+    AppNavigator.routeObserver.subscribe(this, route);
+  }
+
+  @override
   void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
+    LockScreenState.instance.alarmSurfaceHidden(this);
     _controller.removeListener(_onControllerChanged);
     if (widget.controller == null) _controller.dispose();
     super.dispose();
   }
+
+  @override
+  void didPush() => LockScreenState.instance.alarmSurfaceShown(this);
+
+  @override
+  void didPopNext() => LockScreenState.instance.alarmSurfaceShown(this);
+
+  @override
+  void didPushNext() => LockScreenState.instance.alarmSurfaceHidden(this);
+
+  @override
+  void didPop() => LockScreenState.instance.alarmSurfaceHidden(this);
 
   void _onControllerChanged() {
     if (!mounted) return;
@@ -101,6 +134,7 @@ class _AlarmPageState extends State<AlarmPage> {
   /// unconditional: leaving the ring going behind the calendar would be the
   /// one way out of this screen that does not silence the phone.
   Future<void> _openEvent() async {
+    if (!await _controller.unlock() || !mounted) return;
     // Read before Stop, which is what carries out the removal (**A3**): an
     // event that Stop deletes is opened on its day alone, where the Undo
     // snackbar is, rather than as a detail sheet over a tombstone.
@@ -116,6 +150,7 @@ class _AlarmPageState extends State<AlarmPage> {
 
   Future<void> _openDatabase() async {
     final l10n = AppLocalizations.of(context)!;
+    if (!await _controller.unlock() || !mounted) return;
     final switched = await _controller.activateDatabase();
     if (!mounted || !switched) return;
     // The app's existing restart flow, verbatim: a database cannot be swapped

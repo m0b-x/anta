@@ -39,6 +39,7 @@ import 'services/counter_service.dart';
 import 'services/database_manager.dart';
 import 'services/import_export_service.dart';
 import 'services/label_appearance_service.dart';
+import 'services/lock_screen_state.dart';
 import 'services/navigation_history_service.dart';
 import 'services/pending_navigation.dart';
 import 'services/permission_service.dart';
@@ -46,6 +47,7 @@ import 'services/session_chip.dart';
 import 'services/settings_service.dart';
 import 'services/window_insets_resync.dart';
 import 'widgets/keyboard_inset_guard.dart';
+import 'widgets/lock_screen_curtain.dart';
 import 'widgets/permission_prompt_dialog.dart';
 
 /// How much of an exception string the on-screen placeholder carries. Long
@@ -54,6 +56,44 @@ import 'widgets/permission_prompt_dialog.dart';
 const int _errorDetailLimit = 300;
 
 const Duration _launchIntentPatience = Duration(seconds: 5);
+
+/// How long launch waits to hear whether the lock screen is up. One channel
+/// round trip to an activity that is already running; the bound only exists
+/// so a platform that never answers cannot hold the first frame.
+const Duration _lockScreenPatience = Duration(seconds: 2);
+
+/// The pauses between the lock-screen reads that follow a resume — see
+/// `_MyAppState._settleLockScreen`. An unlock animation is a few hundred
+/// milliseconds; the last read is well past it.
+const List<Duration> _lockScreenRechecks = <Duration>[
+  Duration.zero,
+  Duration(milliseconds: 400),
+  Duration(seconds: 1),
+  Duration(seconds: 2),
+];
+
+/// Learns whether the app is starting on top of a lock screen, **before the
+/// first frame**.
+///
+/// An alarm that rings in a dead process starts the app above the keyguard,
+/// and the alarm page only arrives once the gateway has found the ring. Every
+/// frame until then would otherwise be the home page — or the restored note —
+/// on a locked phone. `LockScreenCurtain` covers those frames, and it can only
+/// do that from frame one if the answer is in hand before `runApp`.
+Future<void> _primeLockScreenState() async {
+  final AlertGateway gateway;
+  try {
+    gateway = getIt<AlertGateway>();
+  } catch (e) {
+    debugPrint('[main] no AlertGateway to ask about the lock screen: $e');
+    return;
+  }
+  LockScreenState.instance.query = gateway.isLockScreenUp;
+  await LockScreenState.instance.refresh().timeout(
+    _lockScreenPatience,
+    onTimeout: () {},
+  );
+}
 
 /// Localizations for a surface that has no [BuildContext] to resolve them
 /// from. Falls back to English when the device locale is not one of ours, and
@@ -204,6 +244,8 @@ void main() async {
 
   await configureDependencies();
 
+  await _primeLockScreenState();
+
   // Imports a seed marker and skips onboarding, so the first frame of a QA run
   // is the folder root over known data. Compiled out unless `ANTA_QA` is
   // defined.
@@ -305,37 +347,43 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       debugPrint('[main] no AlertGateway to listen to: $e');
       return;
     }
-    _ringing = gateway.ringing.listen((payload) {
-      // **Before anything else.** The launch reconcile that the ring's own
-      // relaunch of the app provokes runs post-frame, a second or two before
-      // `Alarm.ringing` emits, and it leaves a row under `kLateFireGrace` late
-      // exactly as it found it — in flight, waiting for something to settle
-      // it. This is that something; without it the row ages out of the grace
-      // window and the next launch reports a "Missed" for a ring the user
-      // heard and stopped.
-      unawaited(AlertScheduler.markFiredById(payload.osId));
-      // A new ring ends the session the last one opened (OS-5).
-      unawaited(SessionChip.instance.clear());
-      // The page needs a frame to be pushed in, and a paused app produces
-      // none until something resumes it: when a ring shows no page, this
-      // line says whether that was the reason (OS-3's page-less second
-      // ring, seen twice and never explained).
-      debugPrint(
-        '[main] ring ${payload.osId} queued while '
-        '${WidgetsBinding.instance.lifecycleState?.name ?? 'unknown'}, '
-        'navigator ready: $_navigationReady',
-      );
-      PendingNavigationQueue.instance.enqueue(
-        OpenAlarmIntent(payload: payload),
-      );
-    });
+    _ringing = gateway.ringing.listen(_onRing);
+    // The stream has no memory, and on a cold start the gateway can find the
+    // ring that launched the app before this subscription exists. Whatever is
+    // already ringing was announced to nobody, so it is picked up here; a ring
+    // announced from now on arrives through the stream alone.
+    gateway.ringingPayloads.forEach(_onRing);
     _ringEnded = gateway.ringEnded.listen((end) {
       unawaited(_settleEndedRing(end));
+      // What a ring held back is routed once nothing is ringing.
+      _scheduleNavigationDrain();
     });
     _showAlarms = gateway.showAlarms.listen((_) {
       PendingNavigationQueue.instance.enqueue(const OpenAlertsHubIntent());
     });
     _launchIntentDrain = _drainLaunchIntent(gateway);
+  }
+
+  void _onRing(AlertPayload payload) {
+    // **Before anything else.** The launch reconcile that the ring's own
+    // relaunch of the app provokes runs post-frame, and it leaves a row under
+    // `kLateFireGrace` late exactly as it found it — in flight, waiting for
+    // something to settle it. This is that something; without it the row ages
+    // out of the grace window and the next launch reports a "Missed" for a
+    // ring the user heard and stopped.
+    unawaited(AlertScheduler.markFiredById(payload.osId));
+    // A new ring ends the session the last one opened (OS-5).
+    unawaited(SessionChip.instance.clear());
+    // The page needs a frame to be pushed in, and a paused app produces
+    // none until something resumes it: when a ring shows no page, this
+    // line says whether that was the reason (OS-3's page-less second
+    // ring, seen twice and never explained).
+    debugPrint(
+      '[main] ring ${payload.osId} queued while '
+      '${WidgetsBinding.instance.lifecycleState?.name ?? 'unknown'}, '
+      'navigator ready: $_navigationReady',
+    );
+    PendingNavigationQueue.instance.enqueue(OpenAlarmIntent(payload: payload));
   }
 
   /// Does for a ring stopped from the platform's notification what the alarm
@@ -410,10 +458,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// has to wait for a navigator to exist; the queue is what holds it, and
   /// [_navigationReady] is what keeps it from landing under the restored
   /// location.
+  ///
+  /// **While an alarm is ringing, only alarms are routed.** Every other
+  /// destination here navigates — pushes a page, or collapses the stack onto
+  /// one already open — and either would take the alarm page off the screen
+  /// with the phone still ringing and nothing left to stop it with. They stay
+  /// queued and are drained when the ring ends.
   void _drainPendingNavigation() {
     if (!_navigationReady) return;
     if (AppNavigator.navigatorKey.currentState == null) return;
-    final intents = PendingNavigationQueue.instance.drain();
+    final intents = PendingNavigationQueue.instance.drain(
+      where: _isAlertInProgress()
+          ? (intent) => intent is OpenAlarmIntent
+          : null,
+    );
     if (intents.isNotEmpty) _alertNavigationSeen = true;
     for (final intent in intents) {
       switch (intent) {
@@ -435,11 +493,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             continue;
           }
           // Instant, and deliberately unstamped: a restored last location must
-          // never reopen a ring that is long over.
+          // never reopen a ring that is long over. The push completes when the
+          // page is popped — Stop and Snooze end a ring without a `ringEnded`
+          // event — which is the other moment held intents can be routed.
           unawaited(
             AppNavigator.rootPushInstant<void>(
               AlarmPage(payload: intent.payload),
-            ),
+            ).whenComplete(_scheduleNavigationDrain),
           );
         case OpenAlertsHubIntent():
           unawaited(AppNavigator.toAlertsFromPlatform());
@@ -519,6 +579,37 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
+  /// Re-reads the lock screen after a resume, and keeps asking for a moment
+  /// while it still reads locked.
+  ///
+  /// The activity pushes the state on its own; this is the read that does not
+  /// depend on a push having found a handler. The repeats are for an unlock:
+  /// the app can be resumed while the keyguard is still animating away and
+  /// still answers "locked", and an answer taken then would leave the curtain
+  /// over an unlocked app. A phone that really is locked — an alarm page
+  /// above the keyguard — costs four round trips and changes nothing.
+  Future<void> _settleLockScreen() async {
+    for (final wait in _lockScreenRechecks) {
+      if (wait > Duration.zero) await Future<void>.delayed(wait);
+      if (!mounted) return;
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (lifecycle != AppLifecycleState.resumed) return;
+      await LockScreenState.instance.refresh();
+      if (!LockScreenState.instance.locked) return;
+    }
+  }
+
+  /// Whether anything is ringing at all. A binding that cannot say answers
+  /// no: holding every destination back on a guess would leave a tapped
+  /// notification doing nothing.
+  bool _isAlertInProgress() {
+    try {
+      return getIt<AlertGateway>().ringingIds.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
@@ -547,6 +638,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // replanned. It is also what carries a holiday-profile change to the OS,
     // since the rules that read `PublicHolidays` are re-walked here.
     if (state == AppLifecycleState.resumed) {
+      unawaited(_settleLockScreen());
       _resumeReconcile?.cancel();
       _resumeReconcile = Timer(const Duration(seconds: 2), () {
         unawaited(_reconcileAlerts(AlertReconcileReason.resumed));
@@ -669,9 +761,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             // The guard goes outermost: it has to sit above the navigator to
             // reach every route, and above the QA override so that toggling
             // a text scale cannot remount it and lose what it has learned.
+            // The curtain sits above the navigator for the same reason — a
+            // page, a sheet or a dialog on a locked phone is covered alike.
             builder: (context, child) => KeyboardInsetGuard(
               onSettled: const WindowInsetsResync().request,
-              child: QaMode.enabled ? QaTextScale(child: child!) : child!,
+              child: LockScreenCurtain(
+                child: QaMode.enabled ? QaTextScale(child: child!) : child!,
+              ),
             ),
             home: _buildHome(),
           );

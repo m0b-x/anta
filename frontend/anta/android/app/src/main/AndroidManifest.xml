@@ -8,10 +8,15 @@
          MainActivity deliberately carries neither showWhenLocked nor
          turnScreenOn: as manifest attributes they hold for the activity's
          whole life, which puts every note and the ledger on top of a PIN
-         keyguard whenever the phone is woken with ANTA in front. The alarm
-         package raises both flags at runtime for the length of a ring and
-         drops them again; the notification fallback does the same through
-         MainActivity's setShowWhenLocked. -->
+         keyguard whenever the phone is woken with ANTA in front. Both are
+         raised at runtime for the length of a ring and no longer:
+         MainActivity follows the alarm package's ring state whether or not
+         it is started (the package's own observer is lifecycle-bound and
+         left the flags up after a ring that ended behind a dark screen),
+         and steps back behind the keyguard when the ring ends. The
+         notification fallback goes through MainActivity's
+         setShowWhenLocked. While the flags are up, LockScreenCurtain on the
+         Dart side keeps everything but the alarm page hidden. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
