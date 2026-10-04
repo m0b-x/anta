@@ -83,6 +83,15 @@ class FakeAlertGateway implements AlertGateway {
   @override
   Set<int> get ringingIds => ringingNow;
 
+  @override
+  List<AlertPayload> get ringingPayloads => const [];
+
+  @override
+  Future<bool> isLockScreenUp() async => false;
+
+  @override
+  Future<bool> dismissLockScreen() async => true;
+
   void resetCalls() {
     scheduled.clear();
     cancelled.clear();

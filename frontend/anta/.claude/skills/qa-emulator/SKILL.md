@@ -728,6 +728,40 @@ the emulator needs a keyguard: `locksettings get-disabled` prints `true` on
 a stock AVD, `locksettings set-disabled false` gives it the swipe lock
 screen for the check, and `set-disabled true` puts it back.
 
+## A ring on a locked phone (2026-10-04)
+
+`locksettings set-disabled false` only gives the swipe lock screen; the
+cases that matter need a **PIN**, and a ring in a **dead process**. The
+recipe, the by-hand calls it sanctions (all device-UI or read-only, none
+touching app data) and what each proves are in
+`docs/event-alerts-os-integration-roadmap.md` §13.4. In short:
+
+- `locksettings set-pin 1234` after `set-disabled false`; **put it back**
+  with `locksettings clear --old 1234` and `set-disabled true`.
+- The screen times out on the lock screen in about ten seconds, so wake
+  first: `input keyevent KEYCODE_WAKEUP`, `wm dismiss-keyguard`, `input
+  text 1234`, `KEYCODE_ENTER`. A `qa launch` behind a keyguard brings
+  nothing to the front, and the agent then sees "nothing labelled".
+- `am kill` does not kill the app that was in front when the screen went
+  off (it is top-sleeping, not cached); `run-as com.alexzamfir.anta kill -9
+  <pid>` does, and keeps the task — which is what a system kill looks like.
+  `qa relaunch` force-stops instead: the task and the alarms go, and on
+  Android 15+ the next launch gets `BOOT_COMPLETED`, so the fork re-rings any
+  stored alarm under 30 minutes late.
+- After a kill the VM service is gone; the next agent verb recovers the URI
+  from logcat. The agent's tap on Stop over a keyguard can report a 30 s
+  driver timeout although the tap landed — the app is paused the moment the
+  ring ends.
+- `dumpsys activity service com.android.systemui/.SystemUIService
+  NotifInterruptLog` prints SystemUI's verdict per notification (`FSI
+  allowed: …`, `FSI suppressed: …`, `PEEK suppressed: …`); `dumpsys
+  notification --noredact` shows each record's `flags=` (a force-grouped one
+  carries `SILENT`).
+- A screenshot of the PIN prompt is black. On the lock screen, an app above
+  the keyguard shows a nav bar with no Recents button.
+- `cmd statusbar expand-notifications` / `collapse` open and close the
+  shade when the one-swipe recipe below lands inside the app instead.
+
 ## Secrets and credentials files
 
 - `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`

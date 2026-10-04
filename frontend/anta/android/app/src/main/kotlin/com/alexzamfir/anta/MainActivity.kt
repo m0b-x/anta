@@ -3,9 +3,12 @@ package com.alexzamfir.anta
 import android.Manifest
 import android.app.Activity
 import android.app.AlarmManager
+import android.app.KeyguardManager
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.RingtoneManager
 import android.net.Uri
@@ -15,7 +18,11 @@ import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.Observer
 import com.gdelataillade.alarm.alarm.AlarmService
+import com.gdelataillade.alarm.services.AlarmRingingLiveData
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -89,6 +96,14 @@ private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
  * the launcher shortcut ([QuickAlarmTileService.ACTION_QUICK_ALARM], OS-5):
  * true once for a cold start, `quickAlarm` pushed for a warm one.
  *
+ * `keyguardLocked` answers whether the lock screen is up, and `keyguardChanged`
+ * is pushed to Dart whenever that may have moved — the activity starting or
+ * resuming, a ring starting or ending, the user unlocking. While a ring holds
+ * the app above the keyguard, that answer is what keeps everything but the
+ * alarm page behind a curtain on the Dart side. `dismissKeyguard` asks the
+ * user to unlock from there — the PIN bouncer over the alarm page — and
+ * answers whether they did, which is how *Open event* leaves a locked phone.
+ *
  * The two **sound** methods exist because the platform's ringtone picker and
  * titles have no Dart binding. `pickAlarmSound` runs the system picker (alarm
  * type, its own "Default" entry mapped to [ALARM_SOUND_SYSTEM_DEFAULT] so the
@@ -140,12 +155,184 @@ class MainActivity : FlutterActivity() {
      */
     private var quickAlarmRequested = false
 
+    /**
+     * Follows the `alarm` fork's "a ring is in progress" value for the whole
+     * life of the activity — **forever**, not bound to the lifecycle.
+     *
+     * The fork's own observer is lifecycle-bound, so it hears nothing while
+     * the activity is stopped. A ring that ended behind a dark screen therefore
+     * left `showWhenLocked` raised until the next start, and the next wake put
+     * the app on top of the lock screen with no ring to show for it. See
+     * [onRingingChanged].
+     */
+    private val ringObserver = Observer<Boolean> { ringing -> onRingingChanged(ringing == true) }
+
+    /** Tells Dart the moment the user gets past the lock screen. */
+    private val userPresentReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            reportKeyguard()
+        }
+    }
+
+    /**
+     * A re-created activity is handed the intent it was **first** started
+     * with, and every request an intent can carry here is a one-shot: the
+     * quick-alarm tile and shortcut, the alarm-clock show intent, the session
+     * chip's *Open note*, a tapped notification. Read again, each one is
+     * replayed — and a replay lands on top of whatever the app is showing.
+     * The case that mattered: an alarm rings in a process the system had
+     * killed, its full-screen intent re-creates the activity, the old
+     * quick-alarm request collapses the stack onto the calendar, and the alarm
+     * page is gone while the phone is still ringing.
+     *
+     * So a restore starts from a plain launch intent, swapped in **before**
+     * `super.onCreate`: `flutter_local_notifications` reads the activity's
+     * intent as soon as it is attached, and again whenever Dart asks which
+     * notification launched the app.
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
+        if (isRestore(savedInstanceState, intent)) intent = plainLaunchIntent()
+        // Before `super.onCreate`, which attaches the plugins: LiveData calls
+        // its observers in the order they registered, and [onRingingChanged]
+        // has to leave the lock screen while the fork's observer has not yet
+        // lowered the flags.
+        AlarmRingingLiveData.instance.observeForever(ringObserver)
         super.onCreate(savedInstanceState)
         SessionChip.clearIfStale(this)
         recordShowAlarmsRequest(intent)
         recordSessionOpenRequest(intent)
         recordQuickAlarmRequest(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this,
+            userPresentReceiver,
+            IntentFilter(Intent.ACTION_USER_PRESENT),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        reportKeyguard()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reportKeyguard()
+    }
+
+    /**
+     * An unlock can resume the activity while the keyguard is still animating
+     * away, when it still answers "locked", and `USER_PRESENT` can go out
+     * before [onStart] has registered for it. Focus arrives once the keyguard
+     * window has let go of it, which makes this the report that cannot be
+     * early — without it the curtain could stay over an unlocked app.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) reportKeyguard()
+    }
+
+    override fun onStop() {
+        runCatching { unregisterReceiver(userPresentReceiver) }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        AlarmRingingLiveData.instance.removeObserver(ringObserver)
+        super.onDestroy()
+    }
+
+    /**
+     * Whether this creation is the system putting an old activity back rather
+     * than something asking for it now: saved state to restore, or a launch
+     * out of Recents, which re-sends the task's first intent.
+     */
+    private fun isRestore(savedInstanceState: Bundle?, intent: Intent?): Boolean {
+        if (savedInstanceState != null) return true
+        val flags = intent?.flags ?: return false
+        return flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+    }
+
+    private fun plainLaunchIntent(): Intent =
+        Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+            .setClass(this, MainActivity::class.java)
+
+    /**
+     * Keeps the lock-screen flags in step with the ring, whatever state the
+     * activity is in.
+     *
+     * Raised the moment a ring starts — before the full-screen intent arrives,
+     * so the launch finds an activity already allowed above the keyguard
+     * instead of depending on it being started first. `turnScreenOn` goes
+     * first because `setShowWhenLocked` is the call that makes the system
+     * look at both.
+     *
+     * Lowered the moment it ends, stopped or not. Lowering alone is not
+     * enough when the app is in front of a locked keyguard: the platform
+     * parks the un-occlusion until the next key press, and until then the
+     * page under the alarm — notes, the ledger, the calendar — stays on
+     * screen and takes touches without a PIN (seen on API 36, 2026-10-04).
+     * So the task is sent to the back **first, with the flags still up**:
+     * leaving is a real transition away from an occluding activity, which is
+     * what brings the keyguard back. Lowering first and leaving second moves
+     * a task the system already counts as hidden, and nothing changes on
+     * screen.
+     */
+    private fun onRingingChanged(ringing: Boolean) {
+        if (!ringing && isOverKeyguard()) moveTaskToBack(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setTurnScreenOn(ringing)
+            setShowWhenLocked(ringing)
+        }
+        reportKeyguard()
+    }
+
+    /** Whether this activity is on screen in front of a locked keyguard. */
+    private fun isOverKeyguard(): Boolean =
+        lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && isKeyguardLocked()
+
+    private fun isKeyguardLocked(): Boolean {
+        val manager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        return manager?.isKeyguardLocked == true
+    }
+
+    /** Pushes the lock-screen state to Dart; a push with no handler yet is lost, and Dart asks at launch. */
+    private fun reportKeyguard() {
+        alertsChannel?.invokeMethod("keyguardChanged", isKeyguardLocked())
+    }
+
+    /**
+     * Asks the user to unlock and answers whether they did. True at once when
+     * nothing is locked; false where the platform cannot ask (below API 26).
+     */
+    private fun dismissKeyguard(result: MethodChannel.Result) {
+        if (!isKeyguardLocked()) {
+            result.success(true)
+            return
+        }
+        val manager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (manager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            result.success(false)
+            return
+        }
+        manager.requestDismissKeyguard(
+            this,
+            object : KeyguardManager.KeyguardDismissCallback() {
+                override fun onDismissSucceeded() {
+                    reportKeyguard()
+                    result.success(true)
+                }
+
+                override fun onDismissCancelled() {
+                    result.success(false)
+                }
+
+                override fun onDismissError() {
+                    result.success(false)
+                }
+            }
+        )
     }
 
     /**
@@ -260,6 +447,8 @@ class MainActivity : FlutterActivity() {
                 "consumeShowAlarmsRequest" -> result.success(consumeShowAlarmsRequest())
                 "consumeSessionOpenRequest" -> result.success(consumeSessionOpenRequest())
                 "consumeQuickAlarmRequest" -> result.success(consumeQuickAlarmRequest())
+                "keyguardLocked" -> result.success(isKeyguardLocked())
+                "dismissKeyguard" -> dismissKeyguard(result)
                 "showSessionChip" ->
                     result.success(SessionChip.show(this, call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()))
                 "clearSessionChip" -> {

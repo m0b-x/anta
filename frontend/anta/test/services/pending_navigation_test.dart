@@ -161,6 +161,76 @@ void main() {
     expect(queue.isEmpty, isTrue);
   });
 
+  group('a filtered drain', () {
+    // While an alarm rings, `_MyAppState` drains alarms only: any other
+    // destination would push a page over the alarm page, or collapse the
+    // stack under it, with the phone still ringing.
+    bool alarmsOnly(AlertIntent intent) => intent is OpenAlarmIntent;
+
+    test('hands over what the filter accepts and keeps the rest in order', () {
+      queue.enqueue(const QuickAlarmIntent());
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+      queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+      queue.enqueue(const OpenAlertsHubIntent());
+
+      expect(queue.drain(where: alarmsOnly).single.dedupeKey, 1);
+      expect(queue.length, 3);
+
+      // The ring is over: everything that waited comes out as it arrived.
+      expect(queue.drain().map((intent) => intent.dedupeKey), [
+        QuickAlarmIntent.key,
+        2,
+        OpenAlertsHubIntent.key,
+      ]);
+      expect(queue.isEmpty, isTrue);
+    });
+
+    test('a held intent still dedupes against a repeat of itself', () {
+      queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+      queue.drain(where: alarmsOnly);
+
+      // The same notification tapped again while the alarm is still ringing.
+      queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+      expect(queue.length, 1);
+    });
+
+    test('a held intent is not an echo once it is finally handed over', () {
+      queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+      queue.drain(where: alarmsOnly);
+
+      // Only the alarm was handed out, so only the alarm is remembered: the
+      // event tap that waited must come out of the next drain, not be
+      // swallowed as the second half of a delivery it never had a first of.
+      expect(queue.drain().single.dedupeKey, 2);
+    });
+
+    test('a drain that accepts nothing hands back nothing and forgets nothing',
+        () {
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+      queue.drain();
+
+      queue.enqueue(const QuickAlarmIntent());
+      expect(queue.drain(where: alarmsOnly), isEmpty);
+      expect(queue.length, 1);
+
+      // The echo memory of the earlier drain is intact.
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+      expect(queue.length, 1);
+    });
+
+    test('a second ring during the hold is handed over at once', () {
+      queue.enqueue(const OpenAlertsHubIntent());
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+      queue.drain(where: alarmsOnly);
+
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(3)));
+      expect(queue.drain(where: alarmsOnly).single.dedupeKey, 3);
+      expect(queue.drain().single, isA<OpenAlertsHubIntent>());
+    });
+  });
+
   test('nothing is handed out until the holder asks', () {
     // The queue never pushes: it holds until `_MyAppState` drains it, which is
     // what keeps a cold-start tap from reaching a null navigator.

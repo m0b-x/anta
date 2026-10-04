@@ -134,6 +134,16 @@ class NotificationHandler(private val context: Context) {
 
         if (fullScreen) {
             notificationBuilder.setFullScreenIntent(pendingIntent, true)
+            // (ANTA fork, Patch 3) Android 16 force-groups an app's loose
+            // notifications as soon as it holds two, flags every one it
+            // groups as silent, and refuses a silent notification its
+            // full-screen intent — so a ring posted while the app had any
+            // other notification on the shade rang behind a dark screen with
+            // nothing launched. A colorized foreground-service notification is
+            // one of the three kinds that grouping leaves alone (the others
+            // are calls and media), and a ringing alarm is exactly what the
+            // colour is for.
+            notificationBuilder.setColorized(true)
         }
 
         notificationSettings.let {

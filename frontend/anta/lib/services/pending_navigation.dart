@@ -216,14 +216,32 @@ class PendingNavigationQueue extends ChangeNotifier {
   }
 
   /// Hands over everything queued, in arrival order, and empties the queue.
-  List<AlertIntent> drain() {
+  ///
+  /// With [where], only the intents it accepts are handed over and the rest
+  /// stay queued, in the order they arrived, for a later drain. That is how an
+  /// alarm keeps the screen: while one is ringing, every other destination
+  /// waits here instead of landing on top of — or collapsing the stack under —
+  /// the page that stops it. A held intent still dedupes against a repeat of
+  /// itself, and only what was actually handed over becomes the echo memory.
+  List<AlertIntent> drain({bool Function(AlertIntent intent)? where}) {
     if (_queued.isEmpty) return const [];
-    final drained = List<AlertIntent>.unmodifiable(_queued);
-    _queued.clear();
-    _lastDrained = Set<Object>.unmodifiable(_queuedKeys);
+    final drained = <AlertIntent>[];
+    final held = <AlertIntent>[];
+    for (final intent in _queued) {
+      (where == null || where(intent) ? drained : held).add(intent);
+    }
+    if (drained.isEmpty) return const [];
+    _queued
+      ..clear()
+      ..addAll(held);
+    _queuedKeys
+      ..clear()
+      ..addAll(held.map((intent) => intent.dedupeKey));
+    _lastDrained = Set<Object>.unmodifiable(
+      drained.map((intent) => intent.dedupeKey),
+    );
     _lastDrainedAt = clock();
-    _queuedKeys.clear();
-    return drained;
+    return List<AlertIntent>.unmodifiable(drained);
   }
 
   /// Drops everything, dedupe memory included. Test-only: the queue is a

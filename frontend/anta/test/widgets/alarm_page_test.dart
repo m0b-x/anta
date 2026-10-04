@@ -13,6 +13,9 @@ import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/pages/alarm_page.dart';
 import 'package:anta/services/alert_gateway.dart';
+import 'package:anta/services/app_navigator.dart';
+import 'package:anta/services/lock_screen_state.dart';
+import 'package:anta/widgets/lock_screen_curtain.dart';
 
 /// The full-screen ring surface.
 ///
@@ -273,6 +276,211 @@ void main() {
 
     expect(find.byType(AlarmPage), findsNothing);
   });
+
+  group('on a locked phone', () {
+    // A ring lifts the whole activity above the keyguard, and the alarm page
+    // is the one surface allowed there. `LockScreenCurtain` hides the rest for
+    // as long as `LockScreenState.alarmOnTop` is false, so what the page
+    // reports is what decides whether a note is readable without a PIN.
+    final lock = LockScreenState.instance;
+
+    setUp(lock.resetForTesting);
+    tearDown(lock.resetForTesting);
+
+    Future<void> pumpUnder(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [AppNavigator.routeObserver],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => AlarmPage(payload: payload()),
+                ),
+              ),
+              child: const Text('ring'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('ring'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the page is the allowed surface from push to pop', (
+      tester,
+    ) async {
+      expect(lock.alarmOnTop, isFalse);
+      await pumpUnder(tester);
+      expect(lock.alarmOnTop, isTrue);
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.alarmStop));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlarmPage), findsNothing);
+      expect(lock.alarmOnTop, isFalse);
+    });
+
+    testWidgets('a page pushed over it takes the allowance away', (
+      tester,
+    ) async {
+      await pumpUnder(tester);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+
+      // Whatever lands above the alarm page is not the alarm page: the
+      // curtain has to come back, or that page is on the lock screen.
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(builder: (_) => const Text('calendar')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(lock.alarmOnTop, isFalse);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(lock.alarmOnTop, isTrue);
+    });
+
+    testWidgets('a dialog the page raises leaves it the allowed surface', (
+      tester,
+    ) async {
+      await pumpUnder(tester);
+
+      unawaited(
+        showDialog<void>(
+          context: tester.element(find.byType(AlarmPage)),
+          builder: (_) => const AlertDialog(content: Text('restart')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('restart'), findsOneWidget);
+      expect(lock.alarmOnTop, isTrue);
+    });
+
+    Future<void> pumpUnderCurtain(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [AppNavigator.routeObserver],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => LockScreenCurtain(child: child!),
+          home: const Scaffold(body: Center(child: Text('a private note'))),
+        ),
+      );
+    }
+
+    testWidgets('pushed on a locked phone, it is what the curtain lets '
+        'through', (tester) async {
+      // The page reports itself while it is being mounted — inside a build —
+      // and the curtain's rebuild from there used to throw, be swallowed by
+      // the notifier, and leave the cover over the alarm page: a ringing
+      // phone showing a blank screen (seen on the emulator, 2026-10-04).
+      await pumpUnderCurtain(tester);
+      lock.setLocked(true);
+      await tester.pump();
+      expect(lock.mustCover, isTrue);
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      unawaited(
+        navigator.push(
+          PageRouteBuilder<void>(
+            pageBuilder: (_, _, _) => AlarmPage(payload: payload()),
+            transitionDuration: Duration.zero,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(lock.mustCover, isFalse);
+      // Reachable, not merely built: a covered Stop is an alarm nobody can
+      // stop.
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.alarmStop));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlarmPage), findsNothing);
+      // The page is gone and the phone is still locked: the note under it
+      // must not be hittable.
+      expect(lock.mustCover, isTrue);
+      expect(find.text('a private note').hitTestable(), findsNothing);
+    });
+
+    testWidgets('removed outright on a locked phone, the cover comes back', (
+      tester,
+    ) async {
+      // `removeRoute` pops nothing, so the page's only report is its dispose
+      // — which runs while the tree is locked, the other moment a rebuild
+      // from the notifier used to be lost.
+      await pumpUnderCurtain(tester);
+      lock.setLocked(true);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      final route = PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => AlarmPage(payload: payload()),
+        transitionDuration: Duration.zero,
+      );
+      unawaited(navigator.push(route));
+      await tester.pumpAndSettle();
+      expect(lock.mustCover, isFalse);
+
+      navigator.removeRoute(route);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(lock.mustCover, isTrue);
+      expect(find.text('a private note').hitTestable(), findsNothing);
+    });
+
+    testWidgets('Open event asks for the unlock first, and a refusal leaves '
+        'the ring alone', (tester) async {
+      // Stopping first would end the ring and send the app back behind the
+      // keyguard, with the event opening where nobody can see it.
+      final gateway = _LockedGateway(unlocks: false);
+      GetIt.I.registerSingleton<AlertGateway>(gateway);
+      addTearDown(() => GetIt.I.unregister<AlertGateway>());
+      final controller = _FakeRingController(payload(), active: 'gym_notes');
+      addTearDown(controller.dispose);
+      await pump(tester, controller.payload, controller: controller);
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.alarmOpenEvent),
+      );
+      await tester.pumpAndSettle();
+
+      expect(gateway.unlockRequests, 1);
+      expect(controller.stopped, isFalse);
+      expect(find.byType(AlarmPage), findsOneWidget);
+    });
+  });
+}
+
+/// A gateway standing in for a phone behind its lock screen: it counts the
+/// unlock requests and answers each the same way.
+class _LockedGateway extends NoOpAlertGateway {
+  _LockedGateway({required this.unlocks});
+
+  final bool unlocks;
+
+  int unlockRequests = 0;
+
+  @override
+  Future<bool> dismissLockScreen() async {
+    unlockRequests++;
+    return unlocks;
+  }
 }
 
 /// A gateway whose only behaviour is reporting that a ring ended elsewhere.

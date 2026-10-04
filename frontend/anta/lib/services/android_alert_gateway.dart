@@ -25,6 +25,7 @@ import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
 import 'event_time_formatter.dart';
+import 'lock_screen_state.dart';
 import 'pending_navigation.dart';
 import 'settings_service.dart';
 
@@ -393,6 +394,7 @@ class AndroidAlertGateway extends AlertGateway {
   }
 
   Future<void> _initialize() async {
+    await _reportRingsInProgress();
     _languageCode = await _readLanguageCode();
     tzdata.initializeTimeZones();
     try {
@@ -443,6 +445,33 @@ class AndroidAlertGateway extends AlertGateway {
 
     await _ringingSub?.cancel();
     _ringingSub = Alarm.ringing.listen(_handleRinging);
+  }
+
+  /// Announces the rings that started before this isolate existed.
+  ///
+  /// A cold start **caused** by an alarm has no engine for the plugin to tell,
+  /// so the ring can only be found by asking — and `Alarm.init()` asks last,
+  /// once it has stopped and re-armed every other stored alarm, a handful of
+  /// platform round trips each. The app is on the lock screen for that whole
+  /// stretch with no alarm page to show; asking first costs two round trips.
+  ///
+  /// Recorded as a plugin ring, so the first `Alarm.ringing` emission that
+  /// lacks it ends it like any other. Best-effort: a failure here leaves the
+  /// ring to `Alarm.init()`, as before.
+  Future<void> _reportRingsInProgress() async {
+    try {
+      final now = DateTime.now();
+      for (final alarm in await Alarm.getAlarms()) {
+        if (alarm.dateTime.isAfter(now)) continue;
+        if (!await Alarm.isRinging(alarm.id)) continue;
+        final payload = AlertPayload.decode(alarm.payload);
+        if (payload == null) continue;
+        _pluginRings.add(alarm.id);
+        _emitRing(payload.copyWith(osId: alarm.id));
+      }
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] ring lookup at launch failed: $e');
+    }
   }
 
   /// Keeps a snooze move for the scheduler and acknowledges everything else
@@ -508,6 +537,9 @@ class AndroidAlertGateway extends AlertGateway {
         return null;
       case 'quickAlarm':
         PendingNavigationQueue.instance.enqueue(const QuickAlarmIntent());
+        return null;
+      case 'keyguardChanged':
+        LockScreenState.instance.setLocked(call.arguments == true);
         return null;
       default:
         throw MissingPluginException('${call.method} is not handled here');
@@ -1367,6 +1399,30 @@ class AndroidAlertGateway extends AlertGateway {
 
   @override
   Set<int> get ringingIds => Set<int>.unmodifiable(_rings.keys);
+
+  @override
+  List<AlertPayload> get ringingPayloads =>
+      List<AlertPayload>.unmodifiable(_rings.values);
+
+  @override
+  Future<bool> isLockScreenUp() async {
+    try {
+      return await _platform.invokeMethod<bool>('keyguardLocked') ?? false;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] keyguardLocked failed: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> dismissLockScreen() async {
+    try {
+      return await _platform.invokeMethod<bool>('dismissKeyguard') ?? false;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] dismissKeyguard failed: $e');
+      return false;
+    }
+  }
 
   @override
   Future<void> dispose() async {

@@ -4,8 +4,11 @@
 the session chip in the morning, the tile and shortcut the same afternoon
 once the parent's Session 6 shipped the quick-alarm sheet (emulator API
 36.1; the owner's phone pass of §9 is still owed, no phone was attached).
-OS-6 PROPOSED. The upstream PR for the fork's two patches is prepared as
-`tool/upstream/alarm_pr.sh` and needs a logged-in `gh`.** Follow-up to
+OS-6 PROPOSED. The upstream PR for the fork's first two patches is prepared
+as `tool/upstream/alarm_pr.sh` and needs a logged-in `gh`. The lock-screen
+pass of 2026-10-04 (§13) added Patches 3 and 4 and is the first time a PIN
+keyguard was exercised — on the emulator; the phone pass is still owed.**
+Follow-up to
 [event-alerts-roadmap.md](event-alerts-roadmap.md) (Sessions 1–5 shipped
 there; 6–9 still open, and OS-5's tile depends on Session 6). This file does not reopen any A-decision of the
 parent; it adds B-decisions on top of the shipped tree and orders the work by
@@ -59,8 +62,8 @@ become the phone's "next alarm".
 
 `packages/alarm/` is a copy of the pub package, referenced from `pubspec.yaml`
 as `alarm: {path: packages/alarm}` exactly like `re_editor`. It keeps the
-plugin's own Pigeon-generated bindings untouched; both patches are inside
-Kotlin files that generated code never references.
+plugin's own Pigeon-generated bindings untouched; every patch is inside a
+Kotlin file that generated code never references.
 
 **Patch 1 — alarm-clock scheduling** (`android/src/main/kotlin/com/gdelataillade/alarm/services/AlarmScheduler.kt`, `setExactAlarm`):
 
@@ -88,6 +91,24 @@ mediaPlayer.setDataSource(context, Uri.parse(filePath))`. On the app side
 `alert_sounds` directory are deleted (see the last line of the app side
 below), and `android_alert_gateway_test.dart`'s "copied into" case becomes
 "armed verbatim".
+
+**Patch 3 — a colorized ring notification** (`services/NotificationService.kt`,
+`buildNotification`, 2026-10-04): the notification that carries the
+full-screen intent calls `setColorized(true)`. Android 16 force-groups an
+app's loose notifications as soon as it holds two (or one, once an aggregate
+summary exists), flags every notification it groups `FLAG_SILENT`
+(`NotificationManagerService.addAutogroupKeyLocked`), and
+`FullScreenIntentDecisionProvider` refuses a silent notification its
+full-screen intent. `GroupHelper.isNotificationGroupable` exempts exactly
+three kinds — a colorized foreground-service notification, a `CallStyle`
+one, a media one — and the ring is a foreground-service notification already.
+See §13.
+
+**Patch 4 — the trigger channel survives a second engine**
+(`alarm/AlarmPlugin.kt`, 2026-10-04): `alarmTriggerApi` was one static that
+every `onAttachedToEngine` overwrote and every detach nulled. It is now
+resolved per call from the attached plugin instances — the one bound to an
+activity, else one that has been, else the oldest. See §13.
 
 **App side of Patch 1.** The show intent is built inside the plugin from
 `packageManager.getLaunchIntentForPackage(packageName)` (explicit component,
@@ -1218,7 +1239,7 @@ Copy the parent's §9 rows and add:
 
 | Risk | Mitigation |
 | --- | --- |
-| A second forked plugin to carry | The patch is two Kotlin functions and never touches generated bindings; the upstream PR is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` shows the diff) and needs only a logged-in `gh` to open, and a merge lets the fork go. |
+| A second forked plugin to carry | Four small Kotlin patches, none touching generated bindings; the upstream PR for the first two is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` shows the diff) and needs only a logged-in `gh` to open. Patches 3 and 4 (§13) are not in that script: both are upstream-worthy and would need commits of their own before a merge could let the fork go. |
 | `setAlarmClock` on Android 12–13 without the exact-alarm permission | Same fallback as today (inexact); the permission page already explains and links it. |
 | OEM surfaces showing ANTA in their own alarm lists (Samsung Clock, some launchers) | Expected and correct — it *is* the phone's next alarm. The show intent makes the tap land somewhere sensible. |
 | Forty-eight alarm-clock entries | Only the soonest is ever shown; the count is unchanged from today and far under the 500 limit. |
@@ -1231,3 +1252,99 @@ Dismiss challenges, location or travel-time alerts, smart wake windows,
 watch-side alarms: other kinds of apps. Repeating "nag" reminders until Done
 were considered and left out — the native snooze and the notice cover the
 "remind me again" need without a fourth scheduling concept.
+
+## 13. Lock-screen pass (2026-10-04)
+
+**The report.** A user set an alarm from the calendar and locked the phone;
+at the hour the alarm rang and the screen showed the calendar, on a phone
+that was still locked — no alarm page.
+
+**Where it was run.** The `Pixel_9_Pro` AVD, API 36 (Android 16), debug QA
+build, with a **PIN keyguard** (`locksettings set-pin`) — the configuration
+the parent roadmap calls "the single most important untested thing". Every
+"reproduced" below was seen there with screenshots, `dumpsys` and SystemUI's
+own verdict log; no phone was attached.
+
+### 13.1 What was wrong
+
+| # | Defect | Seen | Fix |
+| --- | --- | --- | --- |
+| 1 | **A re-created activity replayed its first intent.** Android hands a restored activity the intent it was first started with; `MainActivity.onCreate` recorded it again, so the quick-alarm tile or shortcut (and equally a tapped notification, the show intent, the chip's *Open note*) was replayed. On a ring in a killed process the replay collapsed the stack onto the calendar and took the alarm page with it. | Reproduced: app started through `QUICK_ALARM`, PIN lock, process killed, ring → calendar plus a fresh quick-alarm sheet above the keyguard for 30 s+, still ringing. | `MainActivity` swaps in a plain launch intent when it is a restore (saved state, or `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`), before `super.onCreate` so `flutter_local_notifications` reads the same. |
+| 2 | **Any alert intent could remove or cover the alarm page.** `toCalendarOccurrence`, `toCalendarQuickAlarm`, `toAlertsFromPlatform` and `toNoteFromPlatform` collapse the stack or push over whatever is on top. | The mechanism of #1; also read. | `_drainPendingNavigation` drains **alarms only** while anything is ringing (`PendingNavigationQueue.drain(where:)`); the rest stay queued and go out when the ring ends (`ringEnded`, or the alarm page's route completing). |
+| 3 | **The app stayed on the lock screen after the ring.** Lowering `showWhenLocked` on an activity in front of a locked keyguard does not bring the keyguard back until the next key press. | Reproduced: after Stop the calendar stayed visible and took touches — a tap on a day listed its events — with no PIN. | `MainActivity.onRingingChanged` sends the task to the back **first, with the flags still up**, then lowers them. The other order was tried and changes nothing on screen. |
+| 4 | **The flags outlived a ring that ended behind a dark screen.** The fork's observer is lifecycle-bound, so a ring ending while the activity was stopped lowered nothing until the next start. | Reproduced: the next wake came up on an occluding black window instead of the lock screen. | `MainActivity` observes `AlarmRingingLiveData` with `observeForever`, registered before `super.onCreate` so it runs ahead of the fork's observer. Raising is immediate too, so the full-screen intent finds the flags already up. |
+| 5 | **Nothing but a route kept the app off a locked screen.** Before the page is pushed, after it is popped, and whenever #1–#2 happened, the page underneath was on the lock screen. | Follows from #1 and #3. | `LockScreenCurtain` in `MaterialApp.builder`: opaque, touch-absorbing, out of the accessibility tree while `LockScreenState.mustCover` — locked, and no `AlarmPage` as the top page route. The lock state is asked before `runApp`, pushed by the activity (`keyguardChanged`) and re-read on resume. |
+| 6 | **A ring behind a dark screen: the full-screen intent was refused.** Android 16 force-groups an app's loose notifications, flags each `FLAG_SILENT`, and a silent notification gets no full-screen intent. | Reproduced with the session chip of an earlier alarm on the shade and a killed process: `FSI suppressed: suppressive setSilent notification`, screen off for four minutes of ringing. With the shade empty the same ring was `FSI allowed`. | Fork Patch 3 (§2): the ring notification is colorized, which `GroupHelper` exempts. |
+| 7 | **The trigger channel was a static any engine overwrote.** `flutter_local_notifications` starts a second, never-destroyed engine for a background notification action (a reminder's Snooze or Done), plugins register on it, and from then on ring, stop and host events went to an isolate with no handler. | Read by two independent passes; not reproduced before the fix. | Fork Patch 4 (§2). |
+| 8 | **A cold-start ring waited for `Alarm.init()`.** The ring was found last, after every other stored alarm had been stopped and re-armed, and the gateway's ring stream has no memory for a listener that subscribes later. | Read; the delay scales with the number of armed alarms. | `AndroidAlertGateway._reportRingsInProgress` asks first; `AlertGateway.ringingPayloads` is read once by `main.dart` after it subscribes. |
+
+*Open event* and the database chip on the alarm page now ask for the unlock
+first (`AlertGateway.dismissLockScreen` → `KeyguardManager.requestDismissKeyguard`),
+with the ring still going: stopping first would send the app behind the
+keyguard and open the event where nobody can see it.
+
+### 13.2 Verified after the fixes (same emulator, PIN keyguard)
+
+| Case | Result |
+| --- | --- |
+| App alive, locked, ring | Alarm page above the keyguard. |
+| Process killed, locked, ring, app first started by `QUICK_ALARM`, session chip on the shade | `FSI allowed`, alarm page; no calendar, no sheet. |
+| `QUICK_ALARM` launch while an alarm rings | Alarm page stays; the quick-alarm sheet opens after Stop. |
+| Stop on the locked alarm page | Lock screen within a second (`moveTaskToBack`, keyguard no longer occluded, activity stopped). |
+| Ring ends while the screen is off, then wake | Plain lock screen. |
+| *Open event* on the locked alarm page | PIN prompt with the ring still going; after the PIN the phone is unlocked on the calendar and the ring is over. |
+| Unlocked, app in front | Alarm page at the ring instant; Stop leaves the app in front. |
+| Unlocked, launcher in front | Heads-up with Stop and Snooze; a tap on it opens the alarm page. |
+| A reminder's *Done* (second engine), then an alarm | Ring reaches the main isolate at the ring instant; alarm page. |
+| Full-screen-intent permission denied (`appops set … USE_FULL_SCREEN_INTENT deny`), app alive and last in front, locked | Screen wakes and the alarm page is above the keyguard all the same: the flags raised at ring start are enough when ANTA is the top task. With another app last in front it is the notification alone, as before. |
+| Lock with no ring, unlock straight back into the app | The calendar, uncovered, within a second of the PIN. |
+
+Gate: `dart analyze lib` clean; `flutter test` 6,834 passed, 7 skipped, 1
+failed — `test/qa/host_devices_test.dart` (the macOS product-name case), which
+fails the same way on the tree before this pass. The fork's Kotlin suite on
+this Windows machine: the seven classes that touch no DataStore pass (33 tests,
+`AlarmPluginTest` among them); `AlarmStorageTest` and `BootReceiverTest` fail
+on a DataStore temp-file rename, on the tree before this pass too.
+
+### 13.3 Still open
+
+- **Reminders are silenced by the same forced grouping.** Seen in this pass:
+  a reminder posted while the session chip stood on the shade was grouped,
+  flagged silent and did not peek (`PEEK suppressed: notification isSilent`).
+  The upcoming notice stands for two hours by default, so this is the
+  common case on Android 16, not a corner. The cure is the app grouping its
+  own notifications with a summary; nothing was changed here.
+- **Unlocking after a Stop lands on the launcher**, not on ANTA: the task was
+  sent to the back to give the lock screen back. ANTA is in Recents with its
+  stack intact.
+- **Not run:** a phone (any OEM), Android below 16, Snooze from the locked
+  page and its second ring, a ring with dozens of armed alarms, a denied
+  full-screen-intent permission.
+- **Recorded, not changed:** `AlarmReceiver` is exported with no permission;
+  the service's five-minute wake lock is never released on stop; the
+  lock-screen flags need API 27 while `minSdk` is 24; the plugin's
+  `package:logging` output is never printed (its "settings object could not
+  be found" for a ring it dropped is invisible); `AndroidAlertGateway.cancel`
+  does not clear its ring maps when `Alarm.stop` throws; `Alarm.init()` still
+  stops and re-arms every stored alarm at launch.
+
+### 13.4 Repeating the pass
+
+- A PIN: `adb shell locksettings set-disabled false`, then `locksettings
+  set-pin 1234`; put back with `locksettings clear --old 1234` and
+  `set-disabled true`. Unlock from the host with `input keyevent
+  KEYCODE_WAKEUP`, `wm dismiss-keyguard`, `input text 1234`, `KEYCODE_ENTER`.
+- A dead process with the task kept: `adb shell run-as com.alexzamfir.anta
+  kill -9 <pid>` (debug builds). `am kill` does nothing to the app that was
+  in front when the screen went off, and `am force-stop` — what `qa relaunch`
+  uses — removes the task and the alarms.
+- The quick-alarm launch: `adb shell am start -n
+  com.alexzamfir.anta/.MainActivity -a com.alexzamfir.anta.QUICK_ALARM -f
+  0x30000000`.
+- The system's own verdicts: `adb shell dumpsys activity service
+  com.android.systemui/.SystemUIService NotifInterruptLog` prints `FSI
+  allowed: …` / `FSI suppressed: …` per notification; `dumpsys window | grep
+  -E 'isKeyguardShowing|mKeyguardOccluded'` and `dumpsys activity activities`
+  say whether the activity is above the keyguard.
+- A screenshot of the PIN prompt is black (a secure window); the focused
+  window in `dumpsys window` is the evidence there.
