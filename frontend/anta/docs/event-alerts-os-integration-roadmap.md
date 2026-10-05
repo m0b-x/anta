@@ -5,9 +5,17 @@ the session chip in the morning, the tile and shortcut the same afternoon
 once the parent's Session 6 shipped the quick-alarm sheet (emulator API
 36.1; the owner's phone pass of §9 is still owed, no phone was attached).
 OS-6 PROPOSED. The upstream PR for the fork's first two patches is prepared
-as `tool/upstream/alarm_pr.sh` and needs a logged-in `gh`. The lock-screen
-pass of 2026-10-04 (§13) added Patches 3 and 4 and is the first time a PIN
-keyguard was exercised — on the emulator; the phone pass is still owed.**
+as `tool/upstream/alarm_pr.sh` and needs a logged-in `gh` — and, while the
+`AlarmService.kt` it copies whole also carries Patch 6, a `--dry-run` only
+(the alert-surfaces record, §8, B8). The lock-screen
+pass of 2026-10-04 (§13) is COMMITTED `a0a82ba`: it added Patches 3 and 4 and
+is the first time a PIN keyguard was exercised — on the emulator; the phone
+pass is still owed. What followed it is recorded in
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md)
+(2026-10-05): the alarm page and every notification redrawn, the quiet
+channel and the reminders' group key that answer §13.3's first item, and
+Patches 5 to 7 (§2) with the other fixes §13.3 now lists beside what is
+still open.**
 Follow-up to
 [event-alerts-roadmap.md](event-alerts-roadmap.md) (Sessions 1–5 shipped
 there; 6–9 still open, and OS-5's tile depends on Session 6). This file does not reopen any A-decision of the
@@ -62,8 +70,10 @@ become the phone's "next alarm".
 
 `packages/alarm/` is a copy of the pub package, referenced from `pubspec.yaml`
 as `alarm: {path: packages/alarm}` exactly like `re_editor`. It keeps the
-plugin's own Pigeon-generated bindings untouched; every patch is inside a
-Kotlin file that generated code never references.
+plugin's own Pigeon-generated bindings untouched: of its seven patches, six
+are Android — five inside Kotlin files that generated code never references,
+and one (Patch 5) a single attribute of the library's manifest — and one
+(Patch 7) is in the plugin's Dart, in a file the bindings do not generate.
 
 **Patch 1 — alarm-clock scheduling** (`android/src/main/kotlin/com/gdelataillade/alarm/services/AlarmScheduler.kt`, `setExactAlarm`):
 
@@ -109,6 +119,53 @@ See §13.
 every `onAttachedToEngine` overwrote and every detach nulled. It is now
 resolved per call from the attached plugin instances — the one bound to an
 activity, else one that has been, else the oldest. See §13.
+
+**Patch 5 — `AlarmReceiver` is not exported**
+(`android/src/main/AndroidManifest.xml`, 2026-10-05): the receiver was
+declared `android:exported="true"` with no permission, so any other app that
+knew an alarm's id could stop that alarm or snooze it. Every intent it
+answers is the application's own — the `AlarmManager` entry `AlarmScheduler`
+arms, the Stop, Snooze and restore `PendingIntent`s on the ring notification,
+the in-process broadcast of an alarm due within five seconds — and a
+`PendingIntent` is sent as the application that made it, so none of them
+needs the receiver exported. `BootReceiver` is unchanged. The one Android
+patch that is not Kotlin; `test/android/alarm_fork_test.dart` holds the attribute. See
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md),
+D19 and the ledger's Slice 5.
+
+**Patch 6 — the ring's wake lock is released** (`alarm/AlarmService.kt`,
+2026-10-05): the service took a five-minute `PARTIAL_WAKE_LOCK` into a local
+at every ring start and never released it, so the CPU stayed awake for five
+minutes after a ring that was stopped at once, and each queued alarm promoted
+in its turn took another. `AlarmService.RingWakeLock` holds one at a time —
+released before the next is taken, when the last ring ends (the full-cleanup
+branch of `stopAlarm`) and in `onDestroy`, never twice — with the five
+minutes kept as the upper bound. It is nested in `AlarmService.kt` rather
+than given a file of its own because `tool/upstream/alarm_pr.sh` copies files
+by name — that one whole — and would not carry a new file beside it, and the
+copy has to compile. `RingWakeLockTest.kt` holds the rules, and
+`test/android/alarm_fork_test.dart` what the JVM test cannot reach: the
+service's three call sites and its adapter over `PowerManager.WakeLock`.
+Same record.
+
+**Patch 7 — the fallback timer does not announce a ring that is over**
+(`lib/src/platform_timers.dart`, 2026-10-05): the one patch in the plugin's
+Dart. While the application is in front, `PlatformTimers` runs a timer beside
+every alarm: at the due time, if the platform has not reported the ring yet,
+it waits 700 ms and, when the alarm is not in `Alarm.ringing` at the end of
+them, announces the ring itself. An alarm the platform did report and that was
+stopped inside those 700 ms is not in that set either, so a Stop or a Snooze
+that quick was followed by a second announcement of the ring it had just
+ended: the id stayed in the binding's ring set, its registry row ended
+`missed`, and `Alarm.scheduled` lost whatever a snooze had armed under the
+same id. `_alarmRang` now gives up when `Alarm.scheduled` no longer holds
+exactly the settings its timer was started with — `Alarm.alarmRang` takes an
+alarm out of that set as it puts it into the ringing one and every stop takes
+it out of both, so only an alarm the platform never told of (the case the
+fallback exists for, the alarm the host holds back while another one sounds
+included) is still there when the wait ends.
+`packages/alarm/test/alarm_fallback_timer_test.dart` holds the rules. It came
+out of the review of the same rework.
 
 **App side of Patch 1.** The show intent is built inside the plugin from
 `packageManager.getLaunchIntentForPackage(packageName)` (explicit component,
@@ -181,8 +238,13 @@ so the OS-truth pass never sees an id it did not plan. No registry row: the
 notice is the alarm's shadow, not a registration. Only when `fireAt − lead`
 is still ahead of now; never for a snooze; never for the Reminder tier.
 
-Copy: title `alertsUpcomingTitle` ("Alarm at {time}"), body the event's
-title, channel `alerts_reminder` at low importance. Actions: **Skip**
+Copy: the event's title over `alertsUpcomingTitle` ("Alarm at {time}"), on
+the low-importance channel `alerts_quiet`. (As first shipped it read the
+other way round — "Alarm at {time}" over the event's title — on
+`alerts_reminder`, whose frozen high importance the notification's own low
+one could not lower; the grammar and the channel are D10 and D20 of
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md),
+2026-10-05.) Actions: **Skip**
 (`showsUserInterface: true`, so it launches the app and enqueues a
 `SkipNextFireIntent`; the app dispatches `SetOccurrenceSkipped(eventId,
 day)` for a recurring event or the hub's `ToggleEventAlert` off for a
@@ -214,6 +276,10 @@ large icon (drawn once per schedule into a `ByteArrayAndroidBitmap`), and
 the description's first line as a `BigTextStyleInformation` body. The
 payload gains `excerpt` (≤ 120 chars, stripped of markdown), stamped at
 schedule time like `timeLabel`, so nothing has to open a database to draw it.
+(Since 2026-10-05 the avatar is a PNG kept under `alert_icons/` and handed over
+as a `FilePathAndroidBitmap`, on every kind but the ring, and the excerpt is
+added under the text line rather than replacing it — D10 and D12 of
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md).)
 
 ## 6. Session chip (B8), tile and shortcut (B9)
 
@@ -226,9 +292,12 @@ uses `Notification.Builder.setRequestPromotedOngoing(true)` with
 indeterminate otherwise) behind
 `NotificationManager.canPostPromotedNotifications()`; below 16, and when the
 user has not allowed promotion, a plain ongoing `setUsesChronometer`
-notification on `alerts_reminder`. Verify both names against the API 36
-reference before writing OS-5's code; they are quoted from memory here. Two actions: *Open
-note* (the event's linked note, else the event) and *Done*.
+notification — on `alerts_quiet` since 2026-10-05, on `alerts_reminder`
+before (D20 of the alert-surfaces record). Verify both names against the API 36
+reference before writing OS-5's code; they are quoted from memory here. Two actions: *Done*
+and *Open note* (the event's linked note, else the event — and then it reads
+*Open event*), in that order since the same rework (D13); as first shipped,
+*Open note* came first and kept its name either way.
 
 **Shipped (OS-5, 2026-09-23).** The chip as above, built natively in
 `SessionChip.kt` with AndroidX Core 1.17's `NotificationCompat` — the
@@ -760,7 +829,7 @@ Gates after the fixes, from a clean state:
 Shipped:
 - Item 1 as specified: `kAlertNoticeIdSalt` (`0x4e4f5443`, distinct from the Missed salt), `noticeNotificationId(osId)` and `isNoticeNotification(id, payload)` beside their Missed twins (the id decides; a response with no id falls back to the payload's flag), `AlertPayloadKeys.notice` and a `notice` field on `AlertPayload` (default false, in `copyWith`, `toJson`, `fromJson` and `props`).
 - Item 2 as specified: `SettingsKeys.alertNoticeLeadMinutes` (`alert_notice_lead_minutes`, 120 / 0 / 1440 / step 30), `AlertSettings.noticeLeadMinutes`, `SettingsService` decode + `setAlertNoticeLeadMinutes` (clamped both ways, in `_alertKeys`), a `SliderSettingRow` under the Snooze slider whose caption reads `alertsNoticeLeadOff` at 0 (draft and committed), reset-to-defaults writes the shipped value, and the seven ARB keys in en/de/ro (`alertsNoticeLeadDesc` carries the Romanian `few`). **Addition:** the row's commit runs `AlertScheduler.reconcileAllQuietly`, and so does the Snooze slider's now — OS-2 had left a changed snooze to the next pass, while the sound row already reconciled on commit.
-- Item 3 with one deviation in mechanism: the gateway does not decide the notice from a setting of its own. The scheduler's pure `noticeInstantFor(fire, leadMinutes, now)` (null for lead 0, a snooze or test ring, a reminder, or an instant behind now) hands the instant to `AlertGateway.schedule(fire, payload, noticeAt:)`, a new named parameter with a null default; the Android binding arms the notice right after the alarm (`_armNotice`: `noticeNotificationId(osId)`, `alertsUpcomingTitle(timeLabel)` / the event title, the alarm's payload plus `notice: true`, `exactAllowWhileIdle`, `alerts_reminder`, `Importance.low` / `Priority.low` **and `silent: true`** — a channel's importance is frozen, so the notification itself asks for quiet), and a null `noticeAt` takes a standing notice down, which is how the lead turned off clears notices on the next pass. `cancel(osId)` and `stopRinging(osId)` cancel the notice id; `pendingEntries()` skips `payload.notice`; the lead rides the arm signature as `~n<lead>` after OS-2's `~<snooze>` (`alarm#system:default~clock~10~n120`), composed scheduler-side like the snooze token.
+- Item 3 with one deviation in mechanism: the gateway does not decide the notice from a setting of its own. The scheduler's pure `noticeInstantFor(fire, leadMinutes, now)` (null for lead 0, a snooze or test ring, a reminder, or an instant behind now) hands the instant to `AlertGateway.schedule(fire, payload, noticeAt:)`, a new named parameter with a null default; the Android binding arms the notice right after the alarm (`_armNotice`: `noticeNotificationId(osId)`, `alertsUpcomingTitle(timeLabel)` / the event title, the alarm's payload plus `notice: true`, `exactAllowWhileIdle`, `alerts_reminder`, `Importance.low` / `Priority.low` **and `silent: true`** — a channel's importance is frozen, so the notification itself asks for quiet; *corrected 2026-10-05:* the flag did not hold in company — Android 16 bundled two of the app's loose notifications and the bundle's summary sounded — so the notice is posted on the low channel `alerts_quiet` now, the event's title over "Alarm at {time}", per D10 and D20 of the alert-surfaces record), and a null `noticeAt` takes a standing notice down, which is how the lead turned off clears notices on the next pass. `cancel(osId)` and `stopRinging(osId)` cancel the notice id; `pendingEntries()` skips `payload.notice`; the lead rides the arm signature as `~n<lead>` after OS-2's `~<snooze>` (`alarm#system:default~clock~10~n120`), composed scheduler-side like the snooze token.
 - Item 4 as specified: `_handleResponse` and `_notificationLaunchIntent` route a notice's response by id — Skip (`kAlertSkipActionId`) to `SkipNextFireIntent`, Open (`kAlertOpenActionId`) or a body tap to `OpenEventIntent`; `SkipNextFireIntent` is an `AlertEntryIntent` keyed `skip:<osId>`, so a cold start's double delivery collapses while the same notice's Open stays a different request. `main.dart`'s drain publishes the payload on the new `AlertSkipNotice` (`lib/services/alert_skip_notice.dart`, the `AlertRemovalNotice` shape, five-minute freshness) and opens the calendar on the occurrence's day; `CalendarPage._serveSkipNotice` (a listener plus a post-frame pass at mount, plus a `BlocListener` for a request that arrived before `CalendarPageLoaded`) takes it once the state can name the event and resolves it through the new `AlertSkipAction` (`lib/bloc/calendar/alert_skip_action.dart`, the bloc layer because it returns bloc events) into exactly one dispatch — `SetOccurrenceSkipped` for a recurring event, `ToggleEventAlert(enabled: false)` for a one-time one — with `alertsSkippedSnack` and an Undo that dispatches the exact inverse. The handlers' own reconciles cancel and restore the alarm; nothing here touches the background isolate.
 
 Not shipped: nothing in scope.
@@ -1188,6 +1257,17 @@ one cause the other two cannot see: a ring queued while the app was paused
 produces no frame to push the page in, which is what a heads-up ring on an
 unlocked phone with another app in front looks like).
 
+*Note, 2026-10-05, on the first of those diagnostics.* It no longer prints
+for every repeat. The same ring told twice is the binding's emit-once guard
+at work and happens all the time (the launch lookup and the plugin's replay
+at a cold start, every alarm that joins the ringing set), so the line is now
+`[AndroidAlertGateway] ring <id> already tracked for another instant (<ms>
+-> <ms>): not announced` and prints only when the ring announced is due at
+another instant than the one still tracked — the case it was added for, an id
+left tracked by a ring whose end never reached the binding. An entry whose
+payload names no instant (armed before `fireAtMs` existed) cannot be told
+apart that way, so for it the line never prints.
+
 Copy the parent's §9 rows and add:
 
 - [ ] `adb shell dumpsys alarm > alarm.txt`: every ANTA alarm-tier entry
@@ -1239,7 +1319,7 @@ Copy the parent's §9 rows and add:
 
 | Risk | Mitigation |
 | --- | --- |
-| A second forked plugin to carry | Four small Kotlin patches, none touching generated bindings; the upstream PR for the first two is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` shows the diff) and needs only a logged-in `gh` to open. Patches 3 and 4 (§13) are not in that script: both are upstream-worthy and would need commits of their own before a merge could let the fork go. |
+| A second forked plugin to carry | Seven small patches (§2: five Kotlin, one manifest attribute, one Dart), none touching generated bindings; the upstream PR for the first two is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` shows the diff) and needs only a logged-in `gh` to open — and, while the `AlarmService.kt` it copies whole also carries Patch 6, a `--dry-run` only (the alert-surfaces record, §8, B8). Patches 3 and 4 (§13) are in no commit of that script: both are upstream-worthy and would need commits of their own before a merge could let the fork go. Since 2026-10-05 its first commit is no longer Patch 1 alone: it copies `AlarmService.kt` whole, which now carries all of Patch 6 and a comment about Patch 5 that would be false upstream — the script's header says what to do before opening the PR. |
 | `setAlarmClock` on Android 12–13 without the exact-alarm permission | Same fallback as today (inexact); the permission page already explains and links it. |
 | OEM surfaces showing ANTA in their own alarm lists (Samsung Clock, some launchers) | Expected and correct — it *is* the phone's next alarm. The show intent makes the tap land somewhere sensible. |
 | Forty-eight alarm-clock entries | Only the soonest is ever shown; the count is unchanged from today and far under the 500 limit. |
@@ -1278,7 +1358,8 @@ own verdict log; no phone was attached.
 | 7 | **The trigger channel was a static any engine overwrote.** `flutter_local_notifications` starts a second, never-destroyed engine for a background notification action (a reminder's Snooze or Done), plugins register on it, and from then on ring, stop and host events went to an isolate with no handler. | Read by two independent passes; not reproduced before the fix. | Fork Patch 4 (§2). |
 | 8 | **A cold-start ring waited for `Alarm.init()`.** The ring was found last, after every other stored alarm had been stopped and re-armed, and the gateway's ring stream has no memory for a listener that subscribes later. | Read; the delay scales with the number of armed alarms. | `AndroidAlertGateway._reportRingsInProgress` asks first; `AlertGateway.ringingPayloads` is read once by `main.dart` after it subscribes. |
 
-*Open event* and the database chip on the alarm page now ask for the unlock
+*Open event* and the database chip on the alarm page (since 2026-10-05 the
+Open row's second face, "Switch to {name}") now ask for the unlock
 first (`AlertGateway.dismissLockScreen` → `KeyguardManager.requestDismissKeyguard`),
 with the ring still going: stopping first would send the app behind the
 keyguard and open the event where nobody can see it.
@@ -1308,25 +1389,73 @@ on a DataStore temp-file rename, on the tree before this pass too.
 
 ### 13.3 Still open
 
-- **Reminders are silenced by the same forced grouping.** Seen in this pass:
-  a reminder posted while the session chip stood on the shade was grouped,
-  flagged silent and did not peek (`PEEK suppressed: notification isSilent`).
-  The upcoming notice stands for two hours by default, so this is the
-  common case on Android 16, not a corner. The cure is the app grouping its
-  own notifications with a summary; nothing was changed here.
+What this pass left, item by item, as it stands after the alert-surfaces
+rework of 2026-10-05
+([alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md);
+D-numbers and slices below are that record's).
+
+**Fixed since.**
+
+- **Reminders silenced by the same forced grouping.** Seen in this pass: a
+  reminder posted while the session chip stood on the shade was grouped,
+  flagged silent and did not peek (`PEEK suppressed: notification isSilent`),
+  and with the upcoming notice standing for two hours by default that was
+  the common case on Android 16, not a corner. The cure named here at the
+  time — the app grouping its own notifications under a summary — was run
+  on the emulator and turned down: an app summary stays behind as a row when
+  its last child leaves by a timeout or a native action, and taking it down
+  takes the standing reminders with it. What shipped is **D20**: the three
+  quiet kinds — the upcoming notice, Missed, the session chip — moved to a
+  new channel of low importance, `alerts_quiet`, where nothing sounds, alone
+  or bundled, and nothing shares a bundle with a reminder; and on Android 16
+  and above a reminder and its snoozed re-post carry a group key
+  (`kAlertGroupKey`, `GroupAlertBehavior.children`) with **no summary**, so
+  they are not bundled at post and sound and peek first. Its record's §3.7
+  has the platform's rules as they were seen and the five readings taken with
+  the app's own notifications.
+- **`AlarmReceiver` exported with no permission** — fork **Patch 5** (§2).
+- **The service's five-minute wake lock never released on stop** — fork
+  **Patch 6** (§2); seen released a second after Stop instead of at its
+  timeout.
+- **The fallback timer announcing a ring that was over** — fork **Patch 7**
+  (§2): a Stop or a Snooze inside the timer's 700 ms wait was followed by a
+  second announcement of the ring it had just ended, which left the id in the
+  binding's ring set and its registry row to end `missed`.
+- **The plugin's `package:logging` output never printed** — the gateway
+  listens to `Logger.root.onRecord` before `Alarm.init()` and prints every
+  record at WARNING or above through `debugPrint`, as
+  `[alarm] <LEVEL> <logger>: <message>` (`alarmPluginLogLine`, Slice 1), so
+  a ring the plugin drops because it cannot find its settings is a line in
+  the log.
+- **`AndroidAlertGateway.cancel` and its ring maps.** It was wider than
+  recorded here: `cancel` never cleared them at all, throw or no throw, so a
+  cancel of an id that was ringing was read as a Stop on the notification —
+  the session chip was posted and an event set to go after its alarm was
+  deleted, with nobody answering. `cancel` now takes the id out of both maps
+  before either backend is asked (Slice 5) and off its silence timer with
+  them (Slice 6), reports a ring it took out under a cause of its own,
+  `AlertRingEndCause.cancelled` — the alarm page closes, what the ring held
+  back is routed, nothing is settled — and, with `stopRinging`, holds the id
+  as one it is itself stopping, so a ringing set that still lists it while a
+  queued alarm is promoted cannot announce it again (Slice 6; that second
+  announcement ended as a dismissal and cancelled the snooze a Snooze on the
+  alarm page had just armed — seen on the emulator, on the first try, with two
+  alarms in one minute).
+
+**Still open.**
+
 - **Unlocking after a Stop lands on the launcher**, not on ANTA: the task was
   sent to the back to give the lock screen back. ANTA is in Recents with its
-  stack intact.
+  stack intact. The owner's call what it should land on.
+- **The lock-screen flags need API 27 while `minSdk` is 24.** A fallback
+  nobody can verify here, or `minSdk` 27: the owner's.
+- **`Alarm.init()` still stops and re-arms every stored alarm at launch.** It
+  is the only recovery after a force stop, so it stays until something
+  replaces it.
 - **Not run:** a phone (any OEM), Android below 16, Snooze from the locked
   page and its second ring, a ring with dozens of armed alarms, a denied
-  full-screen-intent permission.
-- **Recorded, not changed:** `AlarmReceiver` is exported with no permission;
-  the service's five-minute wake lock is never released on stop; the
-  lock-screen flags need API 27 while `minSdk` is 24; the plugin's
-  `package:logging` output is never printed (its "settings object could not
-  be found" for a ring it dropped is invisible); `AndroidAlertGateway.cancel`
-  does not clear its ring maps when `Alarm.stop` throws; `Alarm.init()` still
-  stops and re-arms every stored alarm at launch.
+  full-screen-intent permission — and, from the rework, a reminder behind a
+  PIN keyguard and the promoted chip on the low channel.
 
 ### 13.4 Repeating the pass
 

@@ -336,7 +336,19 @@ Both markers are consumed by the app. `tool/qa/fixtures/basic.json` is the
 standard seed; `tool/qa/fixtures/calendar.json` is the calendar's, written
 with relative-date placeholders that `tool/qa/src/placeholders.dart` resolves
 and `tool/qa/src/seed.dart` writes to `build/qa/seed_resolved.json` before the
-push (`--setting key=value` overrides ride the same path). Step files under
+push (`--setting key=value` overrides ride the same path).
+`tool/qa/fixtures/alerts.json` is the alert surfaces' (2026-10-04): three
+events placed minutes ahead of the run with the pair `{{minute+N}}` /
+`{{minuteday+N}}` — the minute of the day N minutes from now, and UTC midnight
+of the local day that minute falls on, which is what keeps the pair right
+across midnight — so its alerts ring while `qa flows alerts` waits for them.
+`tool/qa/fixtures/alerts_pair.json` (2026-10-05) is its companion: two
+Alarm-tier events due on the same minute, for `qa flows alerts_pair`, which
+stops the two alarm pages they stack one after the other. Both seeds go in
+with `qa relaunch --fresh --seed`, never with `qa run`: `run` resolves the
+minutes and then builds, and the build comes out of the lead (the
+`qa-emulator` skill, "The alerts pass").
+Step files under
 `tool/qa/flows/<area>/*.txt` are the saved device passes; `qa flows <area>`
 runs a directory in name order, one `steps --file` per flow.
 

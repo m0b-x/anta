@@ -153,11 +153,20 @@ abstract final class CalendarCategories {
 
   /// Resolves the display icon for [event]: an explicit per-event override
   /// wins, otherwise the event's category icon, otherwise a safe default.
-  static IconData iconFor(CalendarEvent event) {
-    final override = CalendarIcons.forKey(event.iconKey);
-    if (override != null) return override;
-    final category = resolve(event.categoryId);
-    return CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded;
+  static IconData iconFor(CalendarEvent event) =>
+      CalendarIcons.forKey(iconKeyFor(event)) ?? Icons.event_rounded;
+
+  /// The key behind [iconFor], or null when neither the event's own key nor
+  /// its category's names an icon.
+  ///
+  /// The key rather than the glyph for whatever has to carry the answer
+  /// across a process boundary: an alert payload is armed here and drawn in
+  /// a process where this facade may hold nothing at all.
+  static String? iconKeyFor(CalendarEvent event) {
+    final own = event.iconKey;
+    if (CalendarIcons.forKey(own) != null) return own;
+    final ofCategory = resolve(event.categoryId).iconKey;
+    return CalendarIcons.forKey(ofCategory) != null ? ofCategory : null;
   }
 
   /// Localized label: built-ins resolve via their stable id; customs show

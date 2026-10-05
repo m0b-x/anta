@@ -10,8 +10,8 @@ import 'markdown_money_syntax.dart';
 const int kAlertExcerptMaxLength = 120;
 
 /// The first non-empty line of an event description as plain text, capped
-/// at [kAlertExcerptMaxLength] with an ellipsis — the body a reminder and a
-/// Missed notice expand to.
+/// at [kAlertExcerptMaxLength] with an ellipsis — the line a notification
+/// adds under its text when it is expanded, and the alarm page's second row.
 ///
 /// Pure, and a projection over the grammar modules rather than a scanner of
 /// its own: the line shape says what a heading or a rule is, the list
@@ -26,7 +26,14 @@ String alertExcerptFor(String? description) {
     final plain = _plainLine(line);
     if (plain.isEmpty) continue;
     if (plain.length <= kAlertExcerptMaxLength) return plain;
-    return '${plain.substring(0, kAlertExcerptMaxLength - 1).trimRight()}…';
+    // The cap counts code units, so the last one kept can be the lead half
+    // of a pair — and a string that ends in half an emoji is not text: the
+    // engine refuses it whole, and the alarm page would draw one replacement
+    // character where the line should be.
+    var cut = kAlertExcerptMaxLength - 1;
+    final last = plain.codeUnitAt(cut - 1);
+    if (last >= 0xD800 && last <= 0xDBFF) cut--;
+    return '${plain.substring(0, cut).trimRight()}…';
   }
   return '';
 }

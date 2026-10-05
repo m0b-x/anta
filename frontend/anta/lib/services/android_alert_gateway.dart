@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:alarm/alarm.dart';
@@ -10,6 +11,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -21,10 +25,12 @@ import '../database/database.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_payload.dart';
 import '../models/alert_sound.dart';
+import '../utils/alert_labels.dart';
+import '../utils/alert_notification_content.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
+import '../widgets/event_avatar.dart';
 import 'alert_gateway.dart';
-import 'event_time_formatter.dart';
 import 'lock_screen_state.dart';
 import 'pending_navigation.dart';
 import 'settings_service.dart';
@@ -33,14 +39,19 @@ import 'settings_service.dart';
 /// package; `true` rings it through an insistent, alarm-stream notification
 /// from `flutter_local_notifications` instead.
 ///
-/// One constant, in one file, because that is the whole mitigation the Phase 0
-/// investigation left standing: the emulator spike proved `alarm` in every
-/// state it could reach, but `alarm` schedules with
+/// One constant, in one file, because that was the whole mitigation the
+/// Phase 0 investigation left standing: the emulator spike proved `alarm` in
+/// every state it could reach, but `alarm` then scheduled with
 /// `setExactAndAllowWhileIdle`, which deep Doze rate-limits, while the
-/// notification path uses `setAlarmClock`, which it does not. If the owner's
-/// phone shows an overnight alarm deferring, this flips and nothing else
-/// changes — the registry records [AlertGateway.backendName] per row, so the
-/// next reconcile re-schedules every entry under the new backend.
+/// notification path uses `setAlarmClock`, which it does not. **That
+/// difference is gone.** The plugin is the fork in `packages/alarm/`, whose
+/// Patch 1 arms with `setAlarmClock` as well, so either backend is the
+/// phone's own alarm clock and neither is the stronger scheduler. What the
+/// switch is still for is a phone on which the plugin's ring path itself —
+/// its foreground service, its own player — does not hold: this flips and
+/// nothing else changes, because the registry records
+/// [AlertGateway.backendName] per row and the next reconcile re-schedules
+/// every entry under the new backend.
 ///
 /// The Reminder tier is never affected: it cannot be built on `alarm`, which
 /// always plays on the alarm stream and would break the silent-mode contract.
@@ -57,7 +68,21 @@ const bool kAlarmTierUsesNotifications = false;
 /// *notification* sound. [kAlertAlarmChannelId] names the replacement, created
 /// with the phone's default alarm sound on the alarm stream, and the old id is
 /// deleted at initialize so the two never coexist in the phone's settings.
+///
+/// [kAlertQuietChannelId] is the newest (2026-10), of **low** importance, and
+/// holds the three kinds that must never interrupt: the upcoming notice, the
+/// Missed notice and the session chip. They used to be posted on the reminder
+/// channel under the notification's own `silent` flag, which Android 16 does
+/// not honour in company. It bundles an app's loose notifications once two
+/// stand in one section of the shade, under a summary of its own on the
+/// channel that made the bundle — so two quiet ones together sounded, a
+/// reminder that fired beside one was silenced, and taking that reminder
+/// down made the summary sound again. A channel's importance is what picks
+/// the section, and in the silent one nothing sounds, alone or bundled, and
+/// nothing shares a bundle with a reminder
+/// (`docs/alert-surfaces-redesign-roadmap.md` §3.7).
 const String kAlertReminderChannelId = 'alerts_reminder';
+const String kAlertQuietChannelId = 'alerts_quiet';
 const String kAlertAlarmChannelId = 'alerts_alarm_v2';
 const String kAlertLegacyAlarmChannelId = 'alerts_alarm';
 const String kAlarmPluginChannelId = 'alarm_plugin_channel';
@@ -77,6 +102,16 @@ const String kAlertSmallIcon = 'ic_alert';
 /// A literal on both sides of a platform channel, like the two action ids.
 const String kAlertSoundNoPickerCode = 'no_picker';
 
+/// The method `MainActivity` answers, on the alerts channel, with the phone's
+/// Android API level (`Build.VERSION.SDK_INT`).
+///
+/// Spelled once and held to the Kotlin side by
+/// `test/android/alerts_channel_test.dart`, because this call fails soft: an
+/// unanswered one arms a reminder loose and says so only in the log, so a
+/// method renamed on one side alone would read as a phone below Android 16
+/// for good.
+const String kAlertSdkLevelMethod = 'sdkInt';
+
 /// The `assetAudioPath` one already-resolved sound is armed under.
 ///
 /// Pure, and the whole of the sound decision the platform ever sees. **Null is
@@ -91,6 +126,58 @@ const String kAlertSoundNoPickerCode = 'no_picker';
 /// sound of its own.
 String? alarmAssetPathFor(AlertSound sound) =>
     sound is AlertSoundUri ? sound.uri : null;
+
+/// The payload a ring is announced under: what the entry was armed with
+/// ([stored]), under the id the platform holds it by, corrected for the
+/// instant the platform says it rang at ([alarmDateTime]).
+///
+/// The two differ after a Snooze taken on the plugin's own notification, and
+/// after a ring the platform deferred: the plugin moves its alarm and re-arms
+/// the stored settings as they were, payload included, so the entry still
+/// reads the first ring's time. A payload that names its due instant is
+/// brought up to date here — the instant, the clock label written for it by
+/// [labels], and the event's own time where the old label was all that said
+/// it ([AlertLabels.moved]). One that names none was armed before the field
+/// existed and is passed on as it is: there is nothing to compare the
+/// plugin's instant with, and its page goes on drawing what it always drew.
+///
+/// [nativelySnoozed] is whether this process saw the plugin move this alarm
+/// by a snooze since it was armed, and is the only thing that marks the ring
+/// as one ([AlertPayload.reRing]). A moved instant alone never does — the
+/// platform moves rings for reasons of its own.
+///
+/// Pure, and the whole of what the binding decides about a ring report: the
+/// two sites that announce a ring only call it.
+AlertPayload ringReportPayload({
+  required AlertPayload stored,
+  required DateTime alarmDateTime,
+  required int osId,
+  required AlertLabels labels,
+  required bool nativelySnoozed,
+}) {
+  final reported = stored.copyWith(osId: osId);
+  final armedFor = stored.fireAtMs;
+  if (armedFor == null || armedFor == alarmDateTime.millisecondsSinceEpoch) {
+    return reported;
+  }
+  return labels
+      .moved(reported, alarmDateTime)
+      .copyWith(reRing: nativelySnoozed);
+}
+
+/// The line one record of the `alarm` plugin's log is printed as, or null for
+/// a record below a warning.
+///
+/// The plugin reports through `package:logging`, which prints nothing until
+/// somebody listens — and what it has to say is exactly what no diagnostic of
+/// the app's can see: a ring whose settings it could not find is dropped with
+/// one `severe` and no callback, which reads from outside as an alarm that
+/// sounded with no page. Its `info` lines narrate every arm and stop and stay
+/// unprinted.
+String? alarmPluginLogLine(LogRecord record) {
+  if (record.level < Level.WARNING) return null;
+  return '[alarm] ${record.level.name} ${record.loggerName}: ${record.message}';
+}
 
 /// Action ids carried on a reminder notification. Matched in the background
 /// isolate, so they are plain literals on both sides of a process boundary.
@@ -117,7 +204,10 @@ final Int32List _insistentFlags = Int32List.fromList(<int>[4]);
 /// service, no `EventSkips` (a process-global static that would read empty
 /// here), and therefore **it never plans**. Done cancels; Snooze cancels and
 /// re-posts the same notification [AlertPayload.snoozeMinutes] from now, which
-/// is why the payload carries that number at all.
+/// is why the payload carries that number at all — and, beside it, the
+/// language its words were written in, its tint and the file its avatar is
+/// kept in, which is what lets the re-post come back as the reminder it was
+/// ([snoozedRepost]).
 ///
 /// The re-posted entry is marked `snooze: true`, and `AlertScheduler` never
 /// cancels a platform entry that says so — the registry cannot learn about a
@@ -141,6 +231,12 @@ Future<void> _snoozeFromBackground(
   AlertPayload payload,
 ) async {
   try {
+    // **Before the cancel**, and before anything else is touched. The
+    // platform took the reminder off the shade the moment its button was
+    // pressed, so from here on every throw is a snooze that brings nothing
+    // back: the words are put together first, where a failure still has a
+    // fallback ([snoozedRepostFor]) and nothing has been cancelled for it yet.
+    final repost = snoozedRepostFor(payload, DateTime.now());
     await plugin.cancel(id: payload.osId);
     tzdata.initializeTimeZones();
     try {
@@ -150,89 +246,577 @@ Future<void> _snoozeFromBackground(
       // Whatever `timezone` defaulted to is still a location; a snooze in the
       // wrong zone is better than no snooze.
     }
-    final at = tz.TZDateTime.now(
-      tz.local,
-    ).add(Duration(minutes: payload.snoozeMinutes));
-    final osId = resolveAlertOsId(
-      seed: alertOsIdSeed(
-        database: payload.database,
-        alertId: payload.alertId,
-        dayUtc: payload.dayUtc,
-        kind: AlertKind.snooze,
-      ),
-      isTaken: (_) => false,
-    );
-    // No `AppLocalizations` from the app's own stored language here: reading
-    // it would mean a database. The device locale is the honest fallback.
-    final l10n = alertGatewayStrings();
-    final snoozed = payload.copyWith(osId: osId, snooze: true);
     await plugin.zonedSchedule(
-      id: osId,
-      title: payload.title,
-      body: l10n.alertsSnoozedBody(payload.snoozeMinutes),
-      scheduledDate: at,
-      payload: snoozed.encode(),
+      id: repost.osId,
+      title: repost.title,
+      body: repost.body,
+      scheduledDate: tz.TZDateTime.from(repost.at, tz.local),
+      payload: repost.payload.encode(),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      notificationDetails: NotificationDetails(
-        android: _reminderDetails(l10n),
-      ),
+      notificationDetails: NotificationDetails(android: repost.details),
     );
   } catch (e) {
     debugPrint('[AndroidAlertGateway] background snooze failed: $e');
   }
 }
 
-/// What a reminder or a Missed notice is drawn with beyond its text (OS-4):
-/// the event's colour, its icon as the large icon, and the description's
-/// first line as the expandable body. Composed once per schedule on the UI
-/// isolate; the background isolate's re-post carries none of it.
-typedef AlertDecor = ({
-  Color color,
-  ByteArrayAndroidBitmap? largeIcon,
-  String excerpt,
+/// [snoozedRepost] in the language the entry's own lines were written in —
+/// or, should putting its words together throw, [snoozedRepostTitleOnly].
+///
+/// An entry armed before payloads named their language is answered in the
+/// device's, as the isolate always did: reading the app's stored one would
+/// mean a database.
+///
+/// Public, with [stringsFor] a parameter, for its suite alone. Which
+/// language is asked for and what a failure falls back to are the two things
+/// the isolate decides for itself, and neither can be seen from outside it:
+/// a re-post in the phone's language, or none at all, looks like any other
+/// until somebody snoozes a reminder with the app closed.
+SnoozedRepost snoozedRepostFor(
+  AlertPayload payload,
+  DateTime now, {
+  AppLocalizations Function(String? languageCode) stringsFor =
+      alertGatewayStrings,
+}) {
+  try {
+    return snoozedRepost(payload, now, stringsFor(payload.languageCode));
+  } catch (e) {
+    debugPrint('[AndroidAlertGateway] snoozed text failed, title only: $e');
+    return snoozedRepostTitleOnly(payload, now);
+  }
+}
+
+/// A reminder as its Snooze posts it again: the id it is armed under, the
+/// instant, its words, and the payload and details it carries.
+typedef SnoozedRepost = ({
+  int osId,
+  DateTime at,
+  String title,
+  String? body,
+  AlertPayload payload,
+  AndroidNotificationDetails details,
 });
 
-AndroidNotificationDetails _reminderDetails(
-  AppLocalizations l10n, {
-  AlertDecor? decor,
+/// What the reminder [payload] comes back as, [AlertPayload.snoozeMinutes]
+/// after [now], in [strings]' language.
+///
+/// **From the payload alone, and it formats nothing.** It runs in the
+/// background isolate, where no database is open, the category facade is
+/// empty and no date symbols are loaded: the words are placed, never
+/// written, and the colour and the avatar are the ones stamped into the
+/// entry when it was armed ([alertDecorOf]). A payload from before those
+/// were stamped comes back without them, as every re-post used to.
+///
+/// The group is the entry's own too ([AlertPayload.grouped]): the isolate
+/// cannot ask which Android it runs on, and a reminder armed in the group
+/// that came back loose would be bundled at post, and so silenced, beside
+/// any other reminder still standing.
+///
+/// The lines the entry carries are left as they are — nothing here could
+/// write a new one, and what a snoozed reminder names is the event's time,
+/// not its own.
+SnoozedRepost snoozedRepost(
+  AlertPayload payload,
+  DateTime now,
+  AppLocalizations strings,
+) {
+  final entry = _snoozedEntry(payload, now);
+  final content = alertNotificationContent(
+    AlertNotificationKind.snoozed,
+    entry.payload,
+    strings,
+  );
+  return (
+    osId: entry.payload.osId,
+    at: entry.at,
+    title: content.title,
+    body: content.text,
+    payload: entry.payload,
+    details: alertReminderDetails(
+      strings,
+      content,
+      decor: alertDecorOf(entry.payload),
+      grouped: entry.payload.grouped,
+    ),
+  );
+}
+
+/// [snoozedRepost] when its words could not be put together: the title the
+/// entry carries, its decor and its group, and nothing that takes a string —
+/// no text line and no buttons.
+///
+/// A reminder that comes back bare can still be opened and swiped away; one
+/// that does not come back at all is ten minutes the user asked for and
+/// lost.
+SnoozedRepost snoozedRepostTitleOnly(AlertPayload payload, DateTime now) {
+  final entry = _snoozedEntry(payload, now);
+  final decor = alertDecorOf(entry.payload);
+  final group = _reminderGroup(entry.payload.grouped);
+  return (
+    osId: entry.payload.osId,
+    at: entry.at,
+    title: payload.title,
+    body: null,
+    payload: entry.payload,
+    details: AndroidNotificationDetails(
+      kAlertReminderChannelId,
+      // The channel is there — the reminder being snoozed was posted on it —
+      // and the plugin names a channel only when it has to create one.
+      kAlertReminderChannelId,
+      importance: Importance.high,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.reminder,
+      icon: kAlertSmallIcon,
+      color: decor.color,
+      largeIcon: _largeIconOf(decor),
+      groupKey: group.key,
+      groupAlertBehavior: group.alertBehavior,
+    ),
+  );
+}
+
+/// The entry a snoozed reminder is re-armed as: a snooze under the snooze
+/// id, due at its own instant.
+///
+/// The id is the bare seed — there is no registry here to probe against, so
+/// re-snoozing the same alert on the same day lands on the same entry.
+({DateTime at, AlertPayload payload}) _snoozedEntry(
+  AlertPayload payload,
+  DateTime now,
+) {
+  final at = now.add(Duration(minutes: payload.snoozeMinutes));
+  final osId = resolveAlertOsId(
+    seed: alertOsIdSeed(
+      database: payload.database,
+      alertId: payload.alertId,
+      dayUtc: payload.dayUtc,
+      kind: AlertKind.snooze,
+    ),
+    isTaken: (_) => false,
+  );
+  return (
+    at: at,
+    payload: payload.copyWith(
+      osId: osId,
+      snooze: true,
+      fireAtMs: at.millisecondsSinceEpoch,
+    ),
+  );
+}
+
+/// What a notification wears beyond its words: the colour of the event's
+/// avatar, and the file that avatar is kept in once it has been drawn
+/// ([alertLargeIconFileName]).
+///
+/// Either may be missing — an entry armed before payloads carried a tint, an
+/// avatar that could not be drawn in time — and the notification is posted
+/// without it. Never the other way round: decor is not worth an alert.
+typedef AlertDecor = ({Color? color, String? iconFile});
+
+/// The decor a payload vouches for by itself: the tint and the icon file
+/// stamped into it when it was armed.
+///
+/// All there is in the background isolate, where the category facade is
+/// empty and nothing can be drawn. The binding does better where it can —
+/// it has the facade to fall back on and can draw an avatar that is missing.
+AlertDecor alertDecorOf(AlertPayload payload) {
+  final tint = payload.tintValue;
+  return (color: tint == null ? null : Color(tint), iconFile: payload.iconFile);
+}
+
+/// The id a notification action is delivered under. Stop on the fallback
+/// alarm has always travelled as Done: the isolate answers both by
+/// cancelling.
+String _actionIdOf(AlertNotificationAction action) => switch (action) {
+  AlertNotificationAction.snooze => kAlertSnoozeActionId,
+  AlertNotificationAction.done => kAlertDoneActionId,
+  AlertNotificationAction.stop => kAlertDoneActionId,
+  AlertNotificationAction.skip => kAlertSkipActionId,
+  AlertNotificationAction.open => kAlertOpenActionId,
+};
+
+/// [content]'s buttons, in its order. [showsUserInterface] is the route:
+/// false delivers an action to [alertBackgroundActionHandler] even while the
+/// app is in front (§10.5), true brings the app up to answer it.
+List<AndroidNotificationAction> _actionsOf(
+  AlertNotificationContent content, {
+  required bool showsUserInterface,
+}) => <AndroidNotificationAction>[
+  for (final action in content.actions)
+    AndroidNotificationAction(
+      _actionIdOf(action.action),
+      action.label,
+      showsUserInterface: showsUserInterface,
+      cancelNotification: true,
+    ),
+];
+
+/// A file rather than bytes: a scheduled notification is kept by the plugin
+/// as JSON until it is due, and the background isolate can hand a path on
+/// where it could never draw.
+FilePathAndroidBitmap? _largeIconOf(AlertDecor decor) {
+  final file = decor.iconFile;
+  return file == null ? null : FilePathAndroidBitmap(file);
+}
+
+/// The big-text style holds the text line as well as what is added under
+/// it: the platform draws it **in place of** the collapsed text, so a style
+/// carrying the excerpt alone would hide the line that says what this is.
+BigTextStyleInformation? _expandedOf(AlertNotificationContent content) {
+  final expanded = content.expandedText;
+  return expanded == null ? null : BigTextStyleInformation(expanded);
+}
+
+/// What a reminder's details say of grouping: [kAlertGroupKey] with every
+/// member alerting for itself, or nothing at all — the loose reminder of a
+/// phone below Android 16, and of an entry armed before the group existed.
+///
+/// **Never a summary**, in either answer: the key is there so the platform
+/// leaves the reminder alone until it has sounded, not to draw a group, and
+/// a summary is exactly what [kAlertGroupKey] was chosen to do without.
+({String? key, GroupAlertBehavior alertBehavior}) _reminderGroup(
+  bool grouped,
+) => grouped
+    ? (key: kAlertGroupKey, alertBehavior: GroupAlertBehavior.children)
+    : (key: null, alertBehavior: GroupAlertBehavior.all);
+
+/// How a reminder is posted — and its snoozed re-post, which differs from it
+/// in [content] alone.
+///
+/// Both buttons are background actions: Done and Snooze are answered by
+/// [alertBackgroundActionHandler] with no app, no database and no plan.
+///
+/// [grouped] is whether it is posted in the app's group, which the binding
+/// decides from the phone's Android release ([alertRemindersGroupedOn]) and
+/// the re-post reads off the entry it is re-posting.
+AndroidNotificationDetails alertReminderDetails(
+  AppLocalizations strings,
+  AlertNotificationContent content, {
+  AlertDecor decor = (color: null, iconFile: null),
+  bool grouped = false,
 }) {
+  final group = _reminderGroup(grouped);
   return AndroidNotificationDetails(
     kAlertReminderChannelId,
-    l10n.alertsReminderChannel,
-    channelDescription: l10n.alertsReminderChannelDesc,
+    strings.alertsReminderChannel,
+    channelDescription: strings.alertsReminderChannelDesc,
     importance: Importance.high,
     priority: Priority.high,
     category: AndroidNotificationCategory.reminder,
     icon: kAlertSmallIcon,
-    color: decor?.color,
-    largeIcon: decor?.largeIcon,
-    styleInformation: decor == null || decor.excerpt.isEmpty
-        ? null
-        : BigTextStyleInformation(decor.excerpt),
-    actions: <AndroidNotificationAction>[
-      // `showsUserInterface: false` is what routes both to the background
-      // isolate, even while the app is in front (§10.5).
-      AndroidNotificationAction(
-        kAlertSnoozeActionId,
-        l10n.alertsSnoozeAction,
-        showsUserInterface: false,
-        cancelNotification: true,
-      ),
-      AndroidNotificationAction(
-        kAlertDoneActionId,
-        l10n.alertsDoneAction,
-        showsUserInterface: false,
-        cancelNotification: true,
-      ),
-    ],
+    color: decor.color,
+    largeIcon: _largeIconOf(decor),
+    styleInformation: _expandedOf(content),
+    actions: _actionsOf(content, showsUserInterface: false),
+    groupKey: group.key,
+    groupAlertBehavior: group.alertBehavior,
   );
 }
 
-/// Localizations for a surface with no `BuildContext`, off the **device**
-/// locale — the `_errorLocalizations` shape in `main.dart`.
+/// How the upcoming notice is posted.
 ///
-/// The background isolate has nothing else to go on, and the main isolate
-/// overrides it with the app's own stored language where it can.
+/// Quiet by its channel ([kAlertQuietChannelId]), whatever else of the app
+/// stands on the shade. The `silent` flag it carried while it shared the
+/// reminder channel is kept under that: where the channel is low it changes
+/// nothing, and it is what still holds one notice quiet on a phone whose
+/// owner has turned the channel up.
+///
+/// It also dies at the alarm's instant ([timeoutAfterMillis], from
+/// [noticeTimeoutMillis]): a ring stopped or snoozed natively with no Dart
+/// running cancels nothing on this side, and a notice that outlived its
+/// alarm would offer to skip an occurrence that already happened. Skip and
+/// Open are foreground actions — Skip changes the plan, and the background
+/// isolate never does.
+AndroidNotificationDetails alertNoticeDetails(
+  AppLocalizations strings,
+  AlertNotificationContent content, {
+  required int timeoutAfterMillis,
+  AlertDecor decor = (color: null, iconFile: null),
+}) {
+  return AndroidNotificationDetails(
+    kAlertQuietChannelId,
+    strings.alertsQuietChannel,
+    channelDescription: strings.alertsQuietChannelDesc,
+    importance: Importance.low,
+    priority: Priority.low,
+    silent: true,
+    timeoutAfter: timeoutAfterMillis,
+    category: AndroidNotificationCategory.reminder,
+    icon: kAlertSmallIcon,
+    color: decor.color,
+    largeIcon: _largeIconOf(decor),
+    styleInformation: _expandedOf(content),
+    actions: _actionsOf(content, showsUserInterface: true),
+  );
+}
+
+/// How a Missed notice is posted: on the quiet channel, and dated by the
+/// alarm it reports on rather than by the moment it was noticed.
+///
+/// The channel ([kAlertQuietChannelId]) is what makes it the quiet notice it
+/// was always called, and it took two tries to get there. It asked for low
+/// importance alone at first, on the reminder channel, whose importance was
+/// frozen at high — so it arrived as loudly as a reminder. Then it was
+/// flagged `silent`, which held only for as long as it stood alone: beside an
+/// upcoming notice or the session chip Android 16 bundled the two under a
+/// summary of its own, and that summary sounded. The flag stays, for the
+/// reason [alertNoticeDetails] gives.
+///
+/// [dueAtMs] is the instant the alarm was due, which is what the header's
+/// clock then reads; an entry from before payloads carried one is dated by
+/// its posting, as before.
+AndroidNotificationDetails alertMissedDetails(
+  AppLocalizations strings,
+  AlertNotificationContent content, {
+  required int? dueAtMs,
+  AlertDecor decor = (color: null, iconFile: null),
+}) {
+  return AndroidNotificationDetails(
+    kAlertQuietChannelId,
+    strings.alertsQuietChannel,
+    channelDescription: strings.alertsQuietChannelDesc,
+    importance: Importance.low,
+    priority: Priority.low,
+    silent: true,
+    when: dueAtMs,
+    icon: kAlertSmallIcon,
+    color: decor.color,
+    largeIcon: _largeIconOf(decor),
+    styleInformation: _expandedOf(content),
+  );
+}
+
+/// How the alarm tier is posted on the notification backend
+/// ([kAlarmTierUsesNotifications]): insistent, on the alarm stream, with a
+/// full-screen intent, and gone after [timeoutAfterMillis] — the
+/// Silence-after setting, which the platform keeps for this backend.
+AndroidNotificationDetails alertFallbackAlarmDetails(
+  AppLocalizations strings,
+  AlertNotificationContent content, {
+  required int timeoutAfterMillis,
+  AlertDecor decor = (color: null, iconFile: null),
+}) {
+  return AndroidNotificationDetails(
+    kAlertAlarmChannelId,
+    strings.alertsAlarmChannel,
+    channelDescription: strings.alertsAlarmChannelDesc,
+    importance: Importance.max,
+    priority: Priority.max,
+    color: decor.color,
+    largeIcon: _largeIconOf(decor),
+    styleInformation: _expandedOf(content),
+    category: AndroidNotificationCategory.alarm,
+    audioAttributesUsage: AudioAttributesUsage.alarm,
+    fullScreenIntent: true,
+    ongoing: true,
+    autoCancel: false,
+    enableVibration: true,
+    visibility: NotificationVisibility.public,
+    icon: kAlertSmallIcon,
+    additionalFlags: _insistentFlags,
+    timeoutAfter: timeoutAfterMillis,
+    actions: _actionsOf(content, showsUserInterface: false),
+  );
+}
+
+/// What the `alarm` plugin draws a ring's own notification from.
+///
+/// Title, text, the two button labels, the small icon and one colour are
+/// all the plugin takes: it builds the notification natively, colorized, in
+/// its own fixed order — Stop, then Snooze — so the avatar and the expanded
+/// text the other kinds carry have nowhere to go.
+NotificationSettings alertRingSettings(
+  AlertNotificationContent content,
+  Color color,
+) {
+  return NotificationSettings(
+    title: content.title,
+    body: content.text,
+    stopButton: content.labelOf(AlertNotificationAction.stop),
+    androidSnoozeButton: content.labelOf(AlertNotificationAction.snooze),
+    icon: kAlertSmallIcon,
+    iconColor: color,
+  );
+}
+
+/// What `SessionChip.kt` draws the session chip from — every key it reads.
+///
+/// The platform only draws: each string arrives localized, the colour
+/// resolved and the avatar as the path of a file. The two buttons travel by
+/// name and are added natively in the order [content] gives them, Done
+/// first (`test/android/session_chip_channel_test.dart` holds the two sides
+/// to each other).
+Map<String, Object?> sessionChipArguments({
+  required AlertPayload payload,
+  required AlertNotificationContent content,
+  required DateTime startedAt,
+  DateTime? endsAt,
+  int? progress,
+  bool refresh = false,
+  AlertDecor decor = (color: null, iconFile: null),
+}) {
+  return <String, Object?>{
+    'payload': payload.encode(),
+    'refresh': refresh,
+    'channelId': kAlertQuietChannelId,
+    'title': content.title,
+    'text': content.text,
+    'doneLabel': content.labelOf(AlertNotificationAction.done),
+    'openLabel': content.labelOf(AlertNotificationAction.open),
+    'startedAtMs': startedAt.millisecondsSinceEpoch,
+    'endsAtMs': endsAt?.millisecondsSinceEpoch,
+    'progress': progress,
+    'color': decor.color?.toARGB32(),
+    'largeIcon': decor.iconFile,
+  };
+}
+
+/// Everything an entry is armed **under** that is the phone's or the app's
+/// rather than the plan's, as the token the registry keeps per row — spelled
+/// `<backend>[@floor]~g3.<language>.<H|h>`.
+///
+/// The backend and the volume bucket are what a ring will sound like. A
+/// volume that follows the phone stays unspelled, as it always was: it is
+/// the everyday answer.
+///
+/// The rest is what an entry **says**. A notification's title, text and
+/// buttons are frozen into the platform when it is armed, and a time is
+/// written into its payload once, on the UI isolate — so an app switched to
+/// another language, or a phone moved between the 12- and the 24-hour clock,
+/// left every standing entry reading the old way until something unrelated
+/// re-armed it. Named here, either change re-arms the planned entries on the
+/// next pass, and [kAlertArmGrammarToken] does the same once, on the first
+/// pass of a build that changed what they say.
+///
+/// Pure, and all of what [AlertGateway.refreshArmContext] answers on
+/// Android.
+String alertArmContext({
+  required String backend,
+  required AlertRingVolume volume,
+  required String language,
+  required bool use24Hour,
+}) {
+  final loudness = volume == AlertRingVolume.follow ? '' : '@${volume.name}';
+  final clock = use24Hour ? 'H' : 'h';
+  return '$backend$loudness$kAlertArmGrammarToken.$language.$clock';
+}
+
+/// The side of a notification's large icon, in logical pixels: what the
+/// platform's own templates draw one at.
+const double kAlertLargeIconDp = 48;
+
+/// The directory, under the app's support directory, the drawn avatars are
+/// kept in.
+const String kAlertIconDirectory = 'alert_icons';
+
+/// The densest screen an avatar is drawn for, the sparsest, and the one
+/// assumed when the engine has no view to ask.
+const double _iconMaxPixelRatio = 4;
+const double _iconMinPixelRatio = 1;
+const double _iconDefaultPixelRatio = 3;
+
+/// The side, in device pixels, an avatar is drawn at for a screen of
+/// [devicePixelRatio] — [kAlertLargeIconDp] at the screen's own density, so
+/// the platform neither blows it up nor throws pixels away.
+///
+/// Bounded at both ends: the ratio comes from the engine's view, and a
+/// reading taken with no view attached must not ask for a bitmap of nothing,
+/// nor one large enough to matter.
+int alertLargeIconPixels(double? devicePixelRatio) {
+  final ratio =
+      devicePixelRatio == null ||
+          !devicePixelRatio.isFinite ||
+          devicePixelRatio <= 0
+      ? _iconDefaultPixelRatio
+      : devicePixelRatio.clamp(_iconMinPixelRatio, _iconMaxPixelRatio);
+  return (kAlertLargeIconDp * ratio).round();
+}
+
+/// The font size the glyph is drawn at inside a disc [pixels] across:
+/// `EventAvatar`'s own glyph-to-disc ratio, so the notification wears the
+/// avatar the app draws for the same event.
+double alertLargeIconGlyphSize(int pixels) =>
+    pixels * EventAvatar.iconSize / (EventAvatar.radius * 2);
+
+/// The file one drawn avatar is kept under: one per glyph, colour, size and
+/// way of drawing it.
+///
+/// Named from everything that decides the picture, and nothing else. Two
+/// events that share an icon and a colour share a file — and a file found
+/// under a name is never drawn again, so the name has to say how the avatar
+/// was drawn as well as what it shows. The disc's alpha (out of 255) and the
+/// glyph's size (in pixels) are the in-app avatar's own constants: left out,
+/// the build that changes either would go on posting the old picture for
+/// every avatar a phone had already drawn, beside the new one for the rest.
+/// In the name, a change of `EventAvatar` names new files by itself, and the
+/// old ones are simply never asked for again. **A change to how
+/// [paintAlertLargeIcon] itself draws has to add to the name too.** The size
+/// of the bitmap is there because a phone's display density can be changed
+/// under a standing install.
+///
+/// [discAlpha] and [glyphSize] default to what the painter draws with. They
+/// are parameters for the suite alone, which holds the name to each.
+String alertLargeIconFileName(
+  IconData icon,
+  Color color,
+  int pixels, {
+  double discAlpha = EventAvatar.backgroundAlpha,
+  double? glyphSize,
+}) {
+  final font = '${icon.fontPackage ?? ''}${icon.fontFamily ?? ''}'
+      .replaceAll(RegExp('[^A-Za-z0-9]'), '')
+      .toLowerCase();
+  final glyph = icon.codePoint.toRadixString(16);
+  final tint = color.toARGB32().toRadixString(16).padLeft(8, '0');
+  final alpha = (discAlpha * 255).round();
+  final glyphPixels = (glyphSize ?? alertLargeIconGlyphSize(pixels)).round();
+  return '${font.isEmpty ? 'text' : font}_${glyph}_${tint}_$pixels'
+      '_a${alpha}_g$glyphPixels.png';
+}
+
+/// Paints the avatar [alertLargeIconFileName] names onto [canvas], a square
+/// [pixels] across: the glyph in [color] on a disc of the same colour at
+/// `EventAvatar`'s own alpha.
+void paintAlertLargeIcon(
+  Canvas canvas,
+  IconData icon,
+  Color color,
+  int pixels,
+) {
+  final side = pixels.toDouble();
+  canvas.drawCircle(
+    Offset(side / 2, side / 2),
+    side / 2,
+    Paint()..color = color.withValues(alpha: EventAvatar.backgroundAlpha),
+  );
+  final painter = TextPainter(textDirection: TextDirection.ltr)
+    ..text = TextSpan(
+      text: String.fromCharCode(icon.codePoint),
+      style: TextStyle(
+        fontSize: alertLargeIconGlyphSize(pixels),
+        // What `Icon` sets: an icon font's glyph fills its em box, and any
+        // other line height would move it off the disc's centre.
+        height: 1,
+        fontFamily: icon.fontFamily,
+        package: icon.fontPackage,
+        color: color,
+      ),
+    )
+    ..layout();
+  painter.paint(
+    canvas,
+    Offset((side - painter.width) / 2, (side - painter.height) / 2),
+  );
+  painter.dispose();
+}
+
+/// Localizations for a surface with no `BuildContext`: [languageCode]'s, or
+/// off the **device** locale when it names none or one the app does not
+/// ship — the `_errorLocalizations` shape in `main.dart`.
+///
+/// The main isolate passes the app's own stored language. The background
+/// isolate cannot read it, and passes the one its entry's payload was
+/// written in.
 AppLocalizations alertGatewayStrings([String? languageCode]) {
   try {
     if (languageCode != null) {
@@ -264,9 +848,13 @@ AppLocalizations alertGatewayStrings([String? languageCode]) {
 /// respect silent mode. [kAlarmTierUsesNotifications] moves the Alarm tier
 /// onto the second backend without touching anything above this file.
 ///
-/// Nothing here is reachable from a test: `AlertAvailability` gates the GetIt
-/// registration to Android, so every suite keeps the `NoOpAlertGateway` and
-/// no plugin channel is ever stubbed.
+/// Nothing in the class is reachable from a test: `AlertAvailability` gates
+/// the GetIt registration to Android, so every suite keeps the
+/// `NoOpAlertGateway` and no plugin channel is ever stubbed. That is why
+/// everything it *decides* about what an alert looks like lives above it, in
+/// pure top-level functions it only calls — the words in
+/// `alertNotificationContent`, how each kind is posted in the details
+/// functions, the arm context, the avatar's name and size.
 class AndroidAlertGateway extends AlertGateway {
   /// The activity's own pushes are answered from construction on: nothing
   /// here reaches the platform, and a warm show intent arriving before
@@ -297,17 +885,36 @@ class AndroidAlertGateway extends AlertGateway {
   /// back: by the time a ring is over the `alarm` package has unsaved it.
   final Map<int, AlertPayload> _rings = <int, AlertPayload>{};
 
-  /// Large icons already rendered, by icon and colour — a reconcile arms up
-  /// to 48 entries and most share a category, so the same glyph is painted
-  /// once per pass rather than once per fire. Bounded, cleared wholesale.
-  final Map<String, Uint8List> _iconBitmaps = <String, Uint8List>{};
+  /// Avatars looked for on disk, or being drawn, by file name — a reconcile
+  /// arms up to 48 entries and most share a category, so each file is asked
+  /// after once per process rather than once per fire, and two posts that
+  /// want the same avatar at once share the one drawing. A lookup that ended
+  /// with no file is forgotten, so the next post tries again.
+  final Map<String, Future<String?>> _iconFiles = <String, Future<String?>>{};
 
-  static const int _iconBitmapCacheSize = 32;
+  /// Where the avatars are kept, once it has been resolved.
+  Directory? _iconDirectory;
 
   /// The subset of [_rings] the `alarm` package reported, which is the only
   /// subset whose disappearance from `Alarm.ringing` means anything. A
   /// fallback ring never appears in that set, so its absence says nothing.
   final Set<int> _pluginRings = <int>{};
+
+  /// The ids this binding is itself asking the plugin to stop, for as long as
+  /// that call is out: [stopRinging] and [cancel] put an id in before
+  /// `Alarm.stop` and take it out when the call comes back.
+  ///
+  /// The plugin takes a stopped alarm out of its ringing set only once the
+  /// platform has answered, and when the stop lets a queued alarm through,
+  /// the platform tells of that new ring first. The set that carries the new
+  /// ring then still holds the stopped one — by now in neither map here, so
+  /// [_handleRinging] took it for a ring nobody had been told of, tracked
+  /// and announced it again, and ended it on the next emission as a Stop on
+  /// the notification. That is an acknowledgement: it cancelled the snooze a
+  /// Snooze on the alarm page had just armed, posted the session chip and
+  /// removed an event set to go after its alarm (seen on the emulator with
+  /// two alarms due in one minute, 2026-10-05).
+  final Set<int> _stopping = <int>{};
 
   StreamSubscription<AlarmSet>? _ringingSub;
 
@@ -321,6 +928,20 @@ class AndroidAlertGateway extends AlertGateway {
   /// applied from here: [takeMoves] hands them to the reconcile, which writes
   /// the row and then acknowledges.
   final Map<(int, int), AlertMove> _moves = <(int, int), AlertMove>{};
+
+  /// The alarms the plugin has moved by a Snooze on its own notification
+  /// since they were last armed here: what [ringReportPayload] is told so the
+  /// ring that follows can say it is one.
+  ///
+  /// Apart from [_moves], which the reconcile empties as it writes each move
+  /// down — this has to outlive that, until the moved alarm rings and that
+  /// ring is over. An id leaves when its ring ends in anything but another
+  /// snooze, when its entry is cancelled, and when an entry is armed under
+  /// it afresh: a new arming is a new alarm, whatever the id's past.
+  final Set<int> _snoozeMoved = <int>{};
+
+  /// The plugin's log, printed — see [alarmPluginLogLine].
+  StreamSubscription<LogRecord>? _pluginLogSub;
 
   /// Stops a ring that nobody acknowledged, after the Silence-after setting.
   ///
@@ -336,13 +957,25 @@ class AndroidAlertGateway extends AlertGateway {
 
   Future<void>? _initialization;
 
-  /// The app's own stored language, cached for the life of the binding.
+  /// The app's own stored language, or null for "follow the device".
   ///
-  /// Read once: the channel names it composes are **immutable after channel
-  /// creation** anyway, and re-reading a settings row per scheduled entry
-  /// would put a query on the reconcile's inner loop for a value that changes
-  /// once in a phone's life.
+  /// Read as the binding first comes up ([_readLanguageCode]) and again once
+  /// per pass by [refreshArmContext] ([_rereadLanguageCode]), never per
+  /// scheduled entry: a query on the reconcile's inner loop for a value that
+  /// changes once in a phone's life. Once per pass is what lets a change of
+  /// language reach the entries already standing — it moves the arm context,
+  /// and the pass that sees it writes them again.
   String? _languageCode;
+
+  /// Whether [_initialize] has made its direct read of [_languageCode].
+  ///
+  /// Set by the first start and never taken back. [initialize] keeps no
+  /// failure and every scheduling pass asks for it, so on a binding whose
+  /// start keeps failing every pass is another start — and
+  /// [_readLanguageCode] is the one read here that also decides which
+  /// database is active. A start that is retried keeps the language the
+  /// binding has; the per-pass re-read corrects it.
+  bool _languageReadAtStart = false;
 
   /// How loud the next ring this binding arms will be, re-read once per pass by
   /// [refreshArmContext].
@@ -353,6 +986,15 @@ class AndroidAlertGateway extends AlertGateway {
   /// [AlertRingVolume.follow] so a `schedule` that somehow arrives before a
   /// pass leaves the user's volume alone — the safe half of the choice.
   AlertRingVolume _ringVolume = AlertRingVolume.follow;
+
+  /// What this pass writes its payloads with, rebuilt by [refreshArmContext]
+  /// for the reason [_ringVolume] is: the phone's clock style can change
+  /// between two passes and must not change inside one.
+  AlertLabels? _labels;
+
+  /// Whether this phone's reminders are armed in [kAlertGroupKey], once the
+  /// activity has said which Android it is running — see [_groupsReminders].
+  bool? _remindersGrouped;
 
   static const MethodChannel _platform = MethodChannel(
     'com.alexzamfir.anta/alerts',
@@ -369,6 +1011,15 @@ class AndroidAlertGateway extends AlertGateway {
   bool get supportsSoundPicker => true;
 
   AppLocalizations get _l10n => alertGatewayStrings(_languageCode);
+
+  @override
+  AlertLabels get labels => _labels ??= _labelsFor(_languageCode);
+
+  /// Labels in one language, on the clock the phone is on right now.
+  static AlertLabels _labelsFor(String? languageCode) => AlertLabels(
+    strings: alertGatewayStrings(languageCode),
+    use24Hour: WidgetsBinding.instance.platformDispatcher.alwaysUse24HourFormat,
+  );
 
   AndroidFlutterLocalNotificationsPlugin? get _android => _plugin
       .resolvePlatformSpecificImplementation<
@@ -395,7 +1046,10 @@ class AndroidAlertGateway extends AlertGateway {
 
   Future<void> _initialize() async {
     await _reportRingsInProgress();
-    _languageCode = await _readLanguageCode();
+    if (!_languageReadAtStart) {
+      _languageReadAtStart = true;
+      _languageCode = await _readLanguageCode();
+    }
     tzdata.initializeTimeZones();
     try {
       final info = await FlutterTimezone.getLocalTimezone();
@@ -421,6 +1075,22 @@ class AndroidAlertGateway extends AlertGateway {
         importance: Importance.high,
       ),
     );
+    await _android?.createNotificationChannel(
+      AndroidNotificationChannel(
+        kAlertQuietChannelId,
+        l10n.alertsQuietChannel,
+        description: l10n.alertsQuietChannelDesc,
+        importance: Importance.low,
+        // Both default to on, and Android freezes them with the importance.
+        // At low importance neither does anything; they are off for the
+        // phone whose owner turns this channel up — the only way to have its
+        // three kinds on a lock screen that hides silent notifications —
+        // where the channel that calls itself always silent would otherwise
+        // start to sound.
+        playSound: false,
+        enableVibration: false,
+      ),
+    );
     await _android?.deleteNotificationChannel(
       channelId: kAlertLegacyAlarmChannelId,
     );
@@ -434,6 +1104,17 @@ class AndroidAlertGateway extends AlertGateway {
         audioAttributesUsage: AudioAttributesUsage.alarm,
       ),
     );
+
+    // Before `init`, which is where the plugin has the most to say: it re-arms
+    // every stored alarm there and reports what it could not. After the ring
+    // lookup above on purpose — asking whether an alarm is ringing before the
+    // plugin's own streams are filled logs a `severe` that means nothing.
+    // Cancelled first, so a retried initialize prints each record once.
+    await _pluginLogSub?.cancel();
+    _pluginLogSub = Logger.root.onRecord.listen((record) {
+      final line = alarmPluginLogLine(record);
+      if (line != null) debugPrint(line);
+    });
 
     // Before `init`, which drains the host's markers onto this stream; a
     // retried initialize re-subscribes and is replayed the buffer, which the
@@ -467,11 +1148,27 @@ class AndroidAlertGateway extends AlertGateway {
         final payload = AlertPayload.decode(alarm.payload);
         if (payload == null) continue;
         _pluginRings.add(alarm.id);
-        _emitRing(payload.copyWith(osId: alarm.id));
+        _emitRing(_ringReport(payload, alarm));
       }
     } catch (e) {
       debugPrint('[AndroidAlertGateway] ring lookup at launch failed: $e');
     }
+  }
+
+  /// [ringReportPayload] for one of the plugin's alarms.
+  ///
+  /// The labels are the entry's own language rather than this pass's: a moved
+  /// ring has its clock label rewritten, and that line sits beside others
+  /// written when the entry was armed — possibly before the app's language
+  /// was changed, and for an entry nothing re-arms.
+  AlertPayload _ringReport(AlertPayload stored, AlarmSettings alarm) {
+    return ringReportPayload(
+      stored: stored,
+      alarmDateTime: alarm.dateTime,
+      osId: alarm.id,
+      labels: _labelsFor(stored.languageCode ?? _languageCode),
+      nativelySnoozed: _snoozeMoved.contains(alarm.id),
+    );
   }
 
   /// Keeps a snooze move for the scheduler and acknowledges everything else
@@ -481,6 +1178,7 @@ class AndroidAlertGateway extends AlertGateway {
   /// what a drop means.
   void _handleAlarmEvent(AlarmEvent event) {
     if (event is AlarmMoved && event.cause == AlarmEventCause.snooze) {
+      _snoozeMoved.add(event.id);
       _moves.putIfAbsent(
         (event.id, event.recordedAt.millisecondsSinceEpoch),
         () => (
@@ -546,11 +1244,20 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
-  /// The app's language setting, or null for "follow the device".
+  /// The app's language setting as the binding comes up, or null for "follow
+  /// the device".
   ///
   /// Read straight off `user_settings` rather than through `SettingsService`:
   /// this runs inside `configureDependencies()`, where the database is open
   /// but the settings singleton may not be, and one row is all it wants.
+  ///
+  /// **For the binding's first start alone** ([_languageReadAtStart]).
+  /// `AppDatabase.getInstance()` also decides which database is active, and
+  /// at that start — the database opened a moment ago under the stored name —
+  /// that decides nothing. Anywhere later it can, a start retried after a
+  /// failed one included: [initialize] keeps no failure and every scheduling
+  /// pass asks for it, so a binding whose start kept failing made this read
+  /// on every pass. See [_rereadLanguageCode].
   Future<String?> _readLanguageCode() async {
     try {
       final db = await AppDatabase.getInstance();
@@ -561,6 +1268,34 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
+  /// The same setting, read again for one scheduling pass — through the
+  /// settings singleton, and **never** through `AppDatabase.getInstance()`.
+  ///
+  /// That call is this app's database switch. When the stored active name is
+  /// no longer the open database's — the open one renamed in Settings, or a
+  /// switch waiting behind its "close ANTA and open it again" dialog, the
+  /// alarm page's among them — it closes the open connection and opens the
+  /// other file, and every repository and service GetIt holds is left bound
+  /// to the closed one: folders stop loading and the note being edited can
+  /// no longer be saved. A pass runs two seconds after every resume and after
+  /// every calendar save, so a read that went that way carried the switch out
+  /// under the running app. The singleton is bound to the database that is
+  /// open and asks nothing: it is made at launch, and dropped only by a
+  /// switch that has already been carried out.
+  ///
+  /// A read that failed keeps the language the binding had. It is not a user
+  /// who went back to the device's language: answered with null, one bad
+  /// query would move the arm context and write every standing entry again
+  /// in a language nobody chose, and the next pass would write them all back.
+  Future<String?> _rereadLanguageCode() async {
+    try {
+      return await (await SettingsService.getInstance()).getLocaleCode();
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] locale re-read failed: $e');
+      return _languageCode;
+    }
+  }
+
   // ── Ring handling ────────────────────────────────────────────────────
 
   /// `Alarm.ringing` emits an **empty set on subscribe** (it is an rxdart
@@ -568,9 +1303,9 @@ class AndroidAlertGateway extends AlertGateway {
   /// every single launch — an empty set simply has nothing to emit.
   ///
   /// The set **shrinking** is the other half. A ring this binding is tracking
-  /// that has left the set, and that [stopRinging] did not take out of
-  /// [_rings] first, ended from the package's own notification — the only
-  /// controls there are when the phone is in use, since Android turns a
+  /// that has left the set, and that neither [stopRinging] nor [cancel] took
+  /// out of [_rings] first, ended from the package's own notification — the
+  /// only controls there are when the phone is in use, since Android turns a
   /// full-screen intent into a heads-up then. Which control tells itself: a
   /// Snooze leaves the alarm in `Alarm.scheduled` at its new instant and a
   /// Stop removes it from both. The plugin's `_applyMove` publishes the
@@ -592,16 +1327,35 @@ class AndroidAlertGateway extends AlertGateway {
       );
     }
     for (final alarm in set.alarms) {
+      // In the plugin's set only because the stop this binding sent for it
+      // has not come back yet ([_stopping]): not a ring to announce.
+      if (_stopping.contains(alarm.id)) continue;
       final payload = AlertPayload.decode(alarm.payload);
       if (payload == null) continue;
       _pluginRings.add(alarm.id);
-      _emitRing(payload.copyWith(osId: alarm.id));
+      _emitRing(_ringReport(payload, alarm));
     }
   }
 
   void _emitRing(AlertPayload payload) {
+    final tracked = _rings[payload.osId];
     if (!_trackRing(payload)) {
-      debugPrint('[AndroidAlertGateway] ring ${payload.osId} already tracked');
+      // The same ring told twice is this guard at work, and by design it
+      // happens all the time: at a cold start the launch lookup finds the
+      // ring and the plugin's replay then tells it again, and every alarm
+      // that joins the ringing set repeats the ones already in it. Only a
+      // ring due at **another instant** is worth a line — the id is still
+      // tracked from a ring whose end never reached this binding, and the
+      // one sounding now gets no page. An entry armed before payloads named
+      // their instant cannot be told apart that way, a repeat and a new ring
+      // both reading null on both sides, so for it this line never prints.
+      if (tracked?.fireAtMs != payload.fireAtMs) {
+        debugPrint(
+          '[AndroidAlertGateway] ring ${payload.osId} already tracked for '
+          'another instant (${tracked?.fireAtMs} -> ${payload.fireAtMs}): '
+          'not announced',
+        );
+      }
       return;
     }
     if (!_ringing.isClosed) _ringing.add(payload);
@@ -620,6 +1374,10 @@ class AndroidAlertGateway extends AlertGateway {
   void _endRing(int osId, AlertRingEndCause cause) {
     _silenceTimers.remove(osId)?.cancel();
     _pluginRings.remove(osId);
+    // A ring that ends in a snooze is the one that makes the record, and the
+    // plugin's move and its shrunken ringing set arrive on two streams in no
+    // promised order — so that ending must not take the record with it.
+    if (cause != AlertRingEndCause.snoozed) _snoozeMoved.remove(osId);
     final payload = _rings.remove(osId);
     if (_rings.isEmpty) unawaited(_showOverKeyguard(false));
     if (payload == null || _ringEnded.isClosed) return;
@@ -724,89 +1482,145 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
-  // ── Richer content (OS-4) ────────────────────────────────────────────
+  // ── Decor ────────────────────────────────────────────────────────────
 
-  /// The colour the notification's icon wears — the in-app icon rule, so a
-  /// notice and the row it leads to agree — from the payload alone, so no
-  /// database is read.
+  /// The colour the event's avatar wears: the one resolved when the entry
+  /// was armed, where its payload carries it, and the same icon rule over
+  /// the category facade for an entry from before payloads did.
   static Color _tintOf(AlertPayload payload) => Color(
-    payload.iconColorValue(
-      CalendarCategories.resolve(payload.categoryId).colorValue,
-    ),
+    payload.tintValue ??
+        payload.iconColorValue(
+          CalendarCategories.resolve(payload.categoryId).colorValue,
+        ),
   );
 
+  /// The glyph of that avatar, found the same way.
   static IconData _iconOf(AlertPayload payload) =>
+      CalendarIcons.forKey(payload.glyphKey) ??
       CalendarIcons.forKey(payload.iconKey) ??
-      CalendarIcons.forKey(CalendarCategories.resolve(payload.categoryId).iconKey) ??
+      CalendarIcons.forKey(
+        CalendarCategories.resolve(payload.categoryId).iconKey,
+      ) ??
       Icons.alarm_rounded;
 
-  /// Everything a reminder or a Missed notice is drawn with, composed once
-  /// per schedule from the payload alone.
-  Future<AlertDecor> _decorFor(AlertPayload payload) async {
-    final color = _tintOf(payload);
-    final bytes = await _iconBitmap(_iconOf(payload), color);
-    return (
-      color: color,
-      largeIcon: bytes == null ? null : ByteArrayAndroidBitmap(bytes),
-      excerpt: payload.excerpt,
-    );
-  }
+  /// What a notification for [payload] wears: its colour, and its avatar
+  /// once that is on disk.
+  Future<AlertDecor> _decorFor(AlertPayload payload) async =>
+      (color: _tintOf(payload), iconFile: await _iconFileFor(payload));
 
+  /// How long a drawing, a write or a directory lookup is waited for. They
+  /// run inside the scheduler's serialized chain, where one that never came
+  /// back would park every later turn behind it.
   static const Duration _rasterPatience = Duration(seconds: 2);
 
-  static Future<ByteData?> _rasterize(ui.Picture picture, int size) async {
-    final image = await picture.toImage(size, size);
+  /// The path of [payload]'s avatar on disk, drawn first when it is not
+  /// there yet — or null when it could not be had in time, which posts a
+  /// notification without a large icon and never holds one back.
+  ///
+  /// **A file, kept for good.** A reminder is scheduled with the path days
+  /// ahead and its Snooze hands the same path on from a background isolate,
+  /// so nothing here ever clears the directory: a file is a few kilobytes,
+  /// there is one per glyph, colour and size (and per way of drawing them,
+  /// should the avatar ever change — [alertLargeIconFileName]), and deleting
+  /// one a standing notification still names would take its avatar away.
+  Future<String?> _iconFileFor(AlertPayload payload) async {
     try {
-      return await image.toByteData(format: ui.ImageByteFormat.png);
-    } finally {
-      image.dispose();
+      final icon = _iconOf(payload);
+      final color = _tintOf(payload);
+      final pixels = alertLargeIconPixels(_devicePixelRatio());
+      final name = alertLargeIconFileName(icon, color, pixels);
+      return await (_iconFiles[name] ??= _findOrDrawIcon(
+        name,
+        icon,
+        color,
+        pixels,
+      ));
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] avatar lookup failed: $e');
+      return null;
     }
   }
 
-  /// Paints [icon] on a tinted disc and answers it as PNG bytes, memoized by
-  /// icon and colour. Null when the engine cannot rasterize — a notification
-  /// without a large icon, never a notification not posted.
-  Future<Uint8List?> _iconBitmap(IconData icon, Color color) async {
-    final key =
-        '${icon.codePoint}|${icon.fontFamily}|${icon.fontPackage}|${color.toARGB32()}';
-    final cached = _iconBitmaps[key];
-    if (cached != null) return cached;
+  /// Answers within a few [_rasterPatience]s whatever happens, and never
+  /// throws: every wait in it is bounded, and it is shared by whoever asks
+  /// for the same file while it runs.
+  Future<String?> _findOrDrawIcon(
+    String name,
+    IconData icon,
+    Color color,
+    int pixels,
+  ) async {
     try {
-      const size = 64.0;
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      canvas.drawCircle(
-        const Offset(size / 2, size / 2),
-        size / 2,
-        Paint()..color = color.withValues(alpha: 0.18),
-      );
-      final painter = TextPainter(textDirection: TextDirection.ltr)
-        ..text = TextSpan(
-          text: String.fromCharCode(icon.codePoint),
-          style: TextStyle(
-            fontSize: 38,
-            fontFamily: icon.fontFamily,
-            package: icon.fontPackage,
-            color: color,
-          ),
-        )
-        ..layout();
-      painter.paint(
-        canvas,
-        Offset((size - painter.width) / 2, (size - painter.height) / 2),
-      );
-      // Bounded: this runs inside the scheduler's serialized chain, and a
-      // snapshot that never completes would park every later turn behind it.
-      final data = await _rasterize(recorder.endRecording(), size.toInt())
-          .timeout(_rasterPatience, onTimeout: () => null);
-      if (data == null) return null;
-      final bytes = data.buffer.asUint8List();
-      if (_iconBitmaps.length >= _iconBitmapCacheSize) _iconBitmaps.clear();
-      _iconBitmaps[key] = bytes;
-      return bytes;
+      final directory = await _resolveIconDirectory();
+      final file = File(p.join(directory.path, name));
+      if (!await file.exists().timeout(_rasterPatience)) {
+        final recorder = ui.PictureRecorder();
+        paintAlertLargeIcon(Canvas(recorder), icon, color, pixels);
+        final bytes = await _rasterize(
+          recorder.endRecording(),
+          pixels,
+        ).timeout(_rasterPatience);
+        await _writeWhole(file, bytes);
+      }
+      return file.path;
     } catch (e) {
-      debugPrint('[AndroidAlertGateway] icon bitmap failed: $e');
+      debugPrint('[AndroidAlertGateway] avatar $name not ready: $e');
+      // Forgotten rather than remembered as missing: the next post asks
+      // again, and a drawing that only ran out of patience may be there.
+      unawaited(_iconFiles.remove(name));
       return null;
+    }
+  }
+
+  Future<Directory> _resolveIconDirectory() async {
+    final known = _iconDirectory;
+    if (known != null) return known;
+    final support = await getApplicationSupportDirectory().timeout(
+      _rasterPatience,
+    );
+    final directory = Directory(p.join(support.path, kAlertIconDirectory));
+    await directory.create(recursive: true).timeout(_rasterPatience);
+    return _iconDirectory = directory;
+  }
+
+  /// The screen's density, or null while the engine has no view to ask.
+  static double? _devicePixelRatio() {
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+    final view = dispatcher.implicitView ?? dispatcher.views.firstOrNull;
+    return view?.devicePixelRatio;
+  }
+
+  /// Not bounded in itself — the caller is — so that a drawing which comes
+  /// back after its caller stopped waiting still disposes what it made.
+  static Future<Uint8List> _rasterize(ui.Picture picture, int pixels) async {
+    try {
+      final image = await picture.toImage(pixels, pixels);
+      try {
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (data == null) throw StateError('the engine encoded no image');
+        return data.buffer.asUint8List();
+      } finally {
+        image.dispose();
+      }
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  /// Puts [bytes] under [file]'s name in one step: written beside it first,
+  /// then renamed. A file caught half-written would be found under its name
+  /// by every later lookup, handed to the platform as it is and never drawn
+  /// again.
+  static Future<void> _writeWhole(File file, Uint8List bytes) async {
+    final draft = File(
+      '${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
+    try {
+      await draft.writeAsBytes(bytes, flush: true).timeout(_rasterPatience);
+      await draft.rename(file.path).timeout(_rasterPatience);
+    } catch (_) {
+      unawaited(draft.delete().then<void>((_) {}, onError: (_) {}));
+      rethrow;
     }
   }
 
@@ -862,13 +1676,17 @@ class AndroidAlertGateway extends AlertGateway {
   @override
   Future<String> refreshArmContext() async {
     _ringVolume = alertRingVolumeFor(await _alarmStreamVolume());
-    // `follow` is spelled as the bare backend name on purpose: it is the
-    // everyday answer, so the registry keeps the token it has always held and
-    // an upgrade — or a phone whose volume never went near the floor — re-arms
-    // nothing at all.
-    return _ringVolume == AlertRingVolume.follow
-        ? backendName
-        : '$backendName@${_ringVolume.name}';
+    _languageCode = await _rereadLanguageCode();
+    final labels = _labels = _labelsFor(_languageCode);
+    return alertArmContext(
+      backend: backendName,
+      volume: _ringVolume,
+      // What the pass will really write in, not what the setting says: a
+      // setting that follows the device resolves to a language, and it is
+      // the language that is frozen into an entry.
+      language: labels.languageCode,
+      use24Hour: labels.use24Hour,
+    );
   }
 
   // ── Scheduling ───────────────────────────────────────────────────────
@@ -880,11 +1698,17 @@ class AndroidAlertGateway extends AlertGateway {
     DateTime? noticeAt,
   }) async {
     await initialize();
+    _snoozeMoved.remove(payload.osId);
     final armed = payload.isAlarm && !kAlarmTierUsesNotifications
         ? await _scheduleAlarm(fire, payload)
         : await _scheduleNotification(fire, payload);
     if (!armed) return false;
     await _armNotice(payload, noticeAt, fire.fireAt);
+    // Drawn now, behind the entry and waited for by nobody: an alarm's own
+    // notification has no avatar, but what may follow it has — the session
+    // chip after Stop, a Missed — and those are posted at moments that are
+    // worse for drawing one than this pass is.
+    unawaited(_iconFileFor(payload));
     return true;
   }
 
@@ -905,16 +1729,27 @@ class AndroidAlertGateway extends AlertGateway {
         return;
       }
       final l10n = _l10n;
+      final content = alertNotificationContent(
+        AlertNotificationKind.notice,
+        payload,
+        l10n,
+        // The notice can be posted up to a day ahead: a bare "07:00" on one
+        // posted the evening before would read as a time already gone.
+        dayLabel: labels.dayLabel(fireAt: fireAt, noticeAt: noticeAt),
+      );
+      final decor = await _decorFor(payload);
       await _plugin.zonedSchedule(
         id: id,
-        title: l10n.alertsUpcomingTitle(payload.timeLabel),
-        body: payload.title,
+        title: content.title,
+        body: content.text,
         scheduledDate: tz.TZDateTime.from(noticeAt, tz.local),
         payload: payload.copyWith(notice: true).encode(),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         notificationDetails: NotificationDetails(
-          android: _noticeDetails(
+          android: alertNoticeDetails(
             l10n,
+            content,
+            decor: decor,
             timeoutAfterMillis: noticeTimeoutMillis(
               noticeAt: noticeAt,
               fireAt: fireAt,
@@ -927,47 +1762,14 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
-  /// The notice is quiet by construction: the reminder channel's own
-  /// importance is frozen, so silence is asked of the notification itself.
-  /// It also dies at the alarm's instant (`timeoutAfter`): a ring stopped or
-  /// snoozed natively with no Dart running cancels nothing on this side, and
-  /// a notice that outlived its alarm would offer to skip an occurrence that
-  /// already happened.
-  AndroidNotificationDetails _noticeDetails(
-    AppLocalizations l10n, {
-    required int timeoutAfterMillis,
-  }) {
-    return AndroidNotificationDetails(
-      kAlertReminderChannelId,
-      l10n.alertsReminderChannel,
-      channelDescription: l10n.alertsReminderChannelDesc,
-      importance: Importance.low,
-      priority: Priority.low,
-      silent: true,
-      timeoutAfter: timeoutAfterMillis,
-      category: AndroidNotificationCategory.reminder,
-      icon: kAlertSmallIcon,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          kAlertSkipActionId,
-          l10n.alertsSkipAction,
-          showsUserInterface: true,
-          cancelNotification: true,
-        ),
-        AndroidNotificationAction(
-          kAlertOpenActionId,
-          l10n.alertsOpenAction,
-          showsUserInterface: true,
-          cancelNotification: true,
-        ),
-      ],
-    );
-  }
-
   Future<bool> _scheduleAlarm(PlannedFire fire, AlertPayload payload) async {
-    final l10n = _l10n;
     final assetAudioPath = alarmAssetPathFor(fire.sound);
     try {
+      final content = alertNotificationContent(
+        AlertNotificationKind.ring,
+        payload,
+        _l10n,
+      );
       return await Alarm.set(
         alarmSettings: AlarmSettings(
           id: payload.osId,
@@ -1007,19 +1809,17 @@ class AndroidAlertGateway extends AlertGateway {
             volume: _ringVolume == AlertRingVolume.floor
                 ? kAlertRingFloorVolume
                 : null,
+            // Defaults true, and true has the plugin raise the phone's own
+            // volume panel whenever it sets the stream: at the start of a
+            // ring in the floor bucket and again at its end, over the alarm
+            // page both times.
+            showSystemUI: false,
           ),
           // The snooze length the pass already read (`payload.snoozeMinutes`
           // is the scheduler's once-per-pass settings value), so the plugin
           // can defer the ring from its own notification with no Dart up.
           androidSnoozeDuration: Duration(minutes: payload.snoozeMinutes),
-          notificationSettings: NotificationSettings(
-            title: payload.isTest ? l10n.alertsTestAlarm : payload.title,
-            body: payload.timeLabel,
-            stopButton: l10n.alarmStop,
-            androidSnoozeButton: l10n.alarmSnoozeMinutes(payload.snoozeMinutes),
-            icon: kAlertSmallIcon,
-            iconColor: _tintOf(payload),
-          ),
+          notificationSettings: alertRingSettings(content, _tintOf(payload)),
         ),
       );
     } on AlarmException catch (e) {
@@ -1029,6 +1829,27 @@ class AndroidAlertGateway extends AlertGateway {
       return false;
     } catch (e) {
       debugPrint('[AndroidAlertGateway] Alarm.set failed: $e');
+      return false;
+    }
+  }
+
+  /// Whether a reminder armed now goes into [kAlertGroupKey]: what
+  /// [alertRemindersGroupedOn] makes of the phone's Android release.
+  ///
+  /// Asked of the activity once per process — a phone does not change its
+  /// release under one — and kept only when it was an answer. A read that
+  /// failed arms this one reminder loose, the shape every phone had before
+  /// the group existed, and the next arming asks again: remembered, one bad
+  /// round trip at launch would leave every reminder of the process loose.
+  Future<bool> _groupsReminders() async {
+    final known = _remindersGrouped;
+    if (known != null) return known;
+    try {
+      final sdkInt = await _platform.invokeMethod<int>(kAlertSdkLevelMethod);
+      if (sdkInt == null) return false;
+      return _remindersGrouped = alertRemindersGroupedOn(sdkInt);
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] $kAlertSdkLevelMethod failed: $e');
       return false;
     }
   }
@@ -1044,12 +1865,29 @@ class AndroidAlertGateway extends AlertGateway {
           ? await _silenceAfterMillis()
           : null;
       final decor = await _decorFor(payload);
+      final content = alertNotificationContent(
+        alarmTier
+            ? AlertNotificationKind.fallbackAlarm
+            : AlertNotificationKind.reminder,
+        payload,
+        l10n,
+      );
+      // The fallback alarm stays out of the group: whether its insistent
+      // sound outlasts the platform gathering the group's members, three
+      // seconds after the post, was never seen.
+      final grouped = !alarmTier && await _groupsReminders();
+      // A reminder carries the path of its own avatar and the shape it was
+      // armed in: its Snooze posts it again from the payload alone, in an
+      // isolate that can neither draw nor ask which Android this is.
+      final carried = alarmTier
+          ? payload
+          : payload.copyWith(iconFile: decor.iconFile, grouped: grouped);
       await _plugin.zonedSchedule(
         id: payload.osId,
-        title: payload.isTest ? l10n.alertsTestAlarm : payload.title,
-        body: payload.timeLabel,
+        title: content.title,
+        body: content.text,
         scheduledDate: tz.TZDateTime.from(fire.fireAt, tz.local),
-        payload: payload.encode(),
+        payload: carried.encode(),
         // The fallback alarm uses `setAlarmClock`, which becomes the system's
         // next wake-from-idle and is not Doze rate-limited; a reminder takes
         // the quieter exact tier.
@@ -1058,8 +1896,18 @@ class AndroidAlertGateway extends AlertGateway {
             : AndroidScheduleMode.exactAllowWhileIdle,
         notificationDetails: NotificationDetails(
           android: alarmTier
-              ? _alarmFallbackDetails(l10n, silenceAfter!, decor: decor)
-              : _reminderDetails(l10n, decor: decor),
+              ? alertFallbackAlarmDetails(
+                  l10n,
+                  content,
+                  decor: decor,
+                  timeoutAfterMillis: silenceAfter!,
+                )
+              : alertReminderDetails(
+                  l10n,
+                  content,
+                  decor: decor,
+                  grouped: grouped,
+                ),
         ),
       );
       return true;
@@ -1067,43 +1915,6 @@ class AndroidAlertGateway extends AlertGateway {
       debugPrint('[AndroidAlertGateway] zonedSchedule failed: $e');
       return false;
     }
-  }
-
-  AndroidNotificationDetails _alarmFallbackDetails(
-    AppLocalizations l10n,
-    int timeoutAfterMillis, {
-    AlertDecor? decor,
-  }) {
-    return AndroidNotificationDetails(
-      kAlertAlarmChannelId,
-      l10n.alertsAlarmChannel,
-      channelDescription: l10n.alertsAlarmChannelDesc,
-      importance: Importance.max,
-      priority: Priority.max,
-      color: decor?.color,
-      largeIcon: decor?.largeIcon,
-      styleInformation: decor == null || decor.excerpt.isEmpty
-          ? null
-          : BigTextStyleInformation(decor.excerpt),
-      category: AndroidNotificationCategory.alarm,
-      audioAttributesUsage: AudioAttributesUsage.alarm,
-      fullScreenIntent: true,
-      ongoing: true,
-      autoCancel: false,
-      enableVibration: true,
-      visibility: NotificationVisibility.public,
-      icon: kAlertSmallIcon,
-      additionalFlags: _insistentFlags,
-      timeoutAfter: timeoutAfterMillis,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          kAlertDoneActionId,
-          l10n.alarmStop,
-          showsUserInterface: false,
-          cancelNotification: true,
-        ),
-      ],
-    );
   }
 
   Future<int> _silenceAfterMillis() async {
@@ -1121,13 +1932,38 @@ class AndroidAlertGateway extends AlertGateway {
   @override
   Future<void> cancel(int osId) async {
     await initialize();
+    // Off its silence timer and out of both ring maps **before**
+    // `Alarm.stop`, as [stopRinging] takes it. Cancelling an id that is
+    // ringing is the plan saying the entry should not exist, not somebody
+    // answering it: left tracked, the ring's disappearance would be read by
+    // [_handleRinging] as a Stop on the notification and settled as one —
+    // the session chip, and the removal of an event set to go after its
+    // alarm. And a stop that threw would leave the id in [ringingIds] for
+    // the life of the process, with every destination but an alarm page
+    // held back behind it.
+    //
+    // No caller cancels a ringing id outside a race: the scheduler cancels
+    // rows still ahead of now, ids it has just stopped or seen end, and
+    // platform entries with [ringingIds] left out. A race is enough, though
+    // — a row whose instant passes while its pass is running, a snooze
+    // cancelled in the hub as it starts to ring — and that ring is over all
+    // the same: it is reported below, under a cause of its own.
+    _silenceTimers.remove(osId)?.cancel();
+    _pluginRings.remove(osId);
+    final ring = _rings.remove(osId);
+    if (ring != null && _rings.isEmpty) {
+      unawaited(_showOverKeyguard(false));
+    }
     // Asked of **both** backends. A registration records which one armed it,
     // but the tier's backend can be switched under a standing entry, and
     // cancelling an id a platform does not hold is a no-op by contract.
+    _stopping.add(osId);
     try {
       await Alarm.stop(osId);
     } catch (e) {
       debugPrint('[AndroidAlertGateway] Alarm.stop($osId) failed: $e');
+    } finally {
+      _stopping.remove(osId);
     }
     try {
       await _plugin.cancel(id: osId);
@@ -1135,7 +1971,15 @@ class AndroidAlertGateway extends AlertGateway {
       debugPrint('[AndroidAlertGateway] cancel($osId) failed: $e');
     }
     await _cancelNotice(osId);
-    _silenceTimers.remove(osId)?.cancel();
+    _snoozeMoved.remove(osId);
+    // Only for a ring this call took out, and last: by now both backends
+    // have been asked, so the ring is over when it is said to be — as for
+    // every other ending [ringEnded] carries. Cancelled, not dismissed: the
+    // alarm page closes and what the ring held back is routed, and nothing
+    // is settled, because whoever cancelled writes down its own reason.
+    if (ring != null && !_ringEnded.isClosed) {
+      _ringEnded.add((payload: ring, cause: AlertRingEndCause.cancelled));
+    }
   }
 
   /// Every path that takes an alarm off the platform takes its notice too.
@@ -1184,26 +2028,24 @@ class AndroidAlertGateway extends AlertGateway {
     final l10n = _l10n;
     try {
       final decor = await _decorFor(payload);
+      final content = alertNotificationContent(
+        AlertNotificationKind.missed,
+        payload,
+        l10n,
+      );
       await _plugin.show(
         // Its own id space, so a Missed notice never replaces or is replaced
         // by a live registration that happens to share an os id.
         id: missedNotificationId(payload.osId),
-        title: l10n.alertsMissedTitle(payload.title),
-        body: l10n.alertsMissedBody(payload.timeLabel),
+        title: content.title,
+        body: content.text,
         payload: payload.encode(),
         notificationDetails: NotificationDetails(
-          android: AndroidNotificationDetails(
-            kAlertReminderChannelId,
-            l10n.alertsReminderChannel,
-            channelDescription: l10n.alertsReminderChannelDesc,
-            importance: Importance.low,
-            priority: Priority.low,
-            icon: kAlertSmallIcon,
-            color: decor.color,
-            largeIcon: decor.largeIcon,
-            styleInformation: decor.excerpt.isEmpty
-                ? null
-                : BigTextStyleInformation(decor.excerpt),
+          android: alertMissedDetails(
+            l10n,
+            content,
+            decor: decor,
+            dueAtMs: payload.fireAtMs,
           ),
         ),
       );
@@ -1222,11 +2064,15 @@ class AndroidAlertGateway extends AlertGateway {
     // [_handleRinging] this ending was the app's own and not a dismissal.
     _pluginRings.remove(osId);
     _rings.remove(osId);
+    _snoozeMoved.remove(osId);
     if (_rings.isEmpty) unawaited(_showOverKeyguard(false));
+    _stopping.add(osId);
     try {
       await Alarm.stop(osId);
     } catch (e) {
       debugPrint('[AndroidAlertGateway] stopRinging($osId) failed: $e');
+    } finally {
+      _stopping.remove(osId);
     }
     try {
       await _plugin.cancel(id: osId);
@@ -1348,8 +2194,9 @@ class AndroidAlertGateway extends AlertGateway {
 
   /// Drawn natively by `SessionChip.kt`: promoted with a progress bar where
   /// Android 16 allows it, a plain ongoing chronometer notification
-  /// everywhere else, on the reminder channel and silent either way. Every
-  /// string crosses here, localized; the platform only draws them.
+  /// everywhere else, on the quiet channel and silent either way. Every
+  /// string crosses here, localized, and the avatar as a file; the platform
+  /// only draws them ([sessionChipArguments]).
   @override
   Future<bool> showSessionChip(
     AlertPayload payload, {
@@ -1357,30 +2204,30 @@ class AndroidAlertGateway extends AlertGateway {
     DateTime? endsAt,
     int? progress,
     bool refresh = false,
+    bool linkedNote = false,
   }) async {
     await initialize();
-    final l10n = _l10n;
     try {
-      final standing = await _platform
-          .invokeMethod<bool>('showSessionChip', <String, Object?>{
-        'payload': payload.encode(),
-        'refresh': refresh,
-        'channelId': kAlertReminderChannelId,
-        'title': payload.title,
-        'text': endsAt == null
-            ? l10n.alertsSessionInProgress
-            : l10n.alertsSessionUntil(
-                EventTimeFormatter.formatMinuteOfDay(
-                  endsAt.hour * 60 + endsAt.minute,
-                ),
-              ),
-        'openLabel': l10n.alertsSessionOpenNote,
-        'doneLabel': l10n.alertsDoneAction,
-        'startedAtMs': startedAt.millisecondsSinceEpoch,
-        'endsAtMs': endsAt?.millisecondsSinceEpoch,
-        'progress': progress,
-        'color': _tintOf(payload).toARGB32(),
-      });
+      final content = alertNotificationContent(
+        AlertNotificationKind.sessionChip,
+        payload,
+        _l10n,
+        untilLabel: endsAt == null ? null : labels.untilLabel(endsAt),
+        linkedNote: linkedNote,
+      );
+      final decor = await _decorFor(payload);
+      final standing = await _platform.invokeMethod<bool>(
+        'showSessionChip',
+        sessionChipArguments(
+          payload: payload,
+          content: content,
+          decor: decor,
+          startedAt: startedAt,
+          endsAt: endsAt,
+          progress: progress,
+          refresh: refresh,
+        ),
+      );
       return standing ?? false;
     } catch (e) {
       debugPrint('[AndroidAlertGateway] session chip failed: $e');
@@ -1429,6 +2276,7 @@ class AndroidAlertGateway extends AlertGateway {
     _platform.setMethodCallHandler(null);
     await _ringingSub?.cancel();
     await _eventsSub?.cancel();
+    await _pluginLogSub?.cancel();
     for (final timer in _silenceTimers.values) {
       timer.cancel();
     }

@@ -1,8 +1,10 @@
 # Calendar UI Language — Tier 3 record: the agenda day list and the setup sheets (2026-10-03)
 
-**Status: IMPLEMENTED and REVIEWED 2026-10-03, uncommitted — the owner
-reviews and commits; Tier 4 starts on a clean tree.** Slices 0–7, a fix
-round, a device re-check and the docs are in the tree: `dart analyze lib
+**Status: COMMITTED `b801ee0` (2026-10-03); Tier 4 not started.** (The line
+read "IMPLEMENTED and REVIEWED, uncommitted" until 2026-10-05; corrected from
+`git log` by the next session to open the record, as `ui-revamp` has it. The
+ledger's "uncommitted" entries in §9 are each slice's state on the day.)
+Slices 0–7, a fix round, a device re-check and the docs are in that commit: `dart analyze lib
 test tool test_driver` clean, `flutter test` 6810 passed / 7 skipped / 0
 failed (6670 before the tier), `untranslated.txt` `{}`, `qa flows calendar`
 23 / 23 on the iPhone 17 Pro simulator, `qa errors` clean, the independent

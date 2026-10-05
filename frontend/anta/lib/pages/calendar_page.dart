@@ -39,6 +39,7 @@ import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../repositories/note_repository.dart';
 import '../bloc/calendar/alert_skip_action.dart';
+import '../services/alert_keep_notice.dart';
 import '../services/alert_removal_notice.dart';
 import '../services/alert_skip_notice.dart';
 import '../services/event_time_formatter.dart';
@@ -468,6 +469,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         _serveSkipNotice();
       });
     }
+    // The alarm page's Keep, the same pair: it is pressed over this page or
+    // with no calendar open at all, so it is as likely to be waiting as to
+    // arrive.
+    AlertKeepNotice.instance.addListener(_serveKeepNotice);
+    if (AlertKeepNotice.instance.hasPending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveKeepNotice();
+      });
+    }
     // B9's tile and shortcut (OS-5), the same pair once more: the sheet
     // dispatches through the bloc, so it too waits for the loaded state.
     QuickAlarmRequest.instance.addListener(_serveQuickAlarmRequest);
@@ -550,6 +560,64 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     );
   }
 
+  /// Serves — and clears — a Keep taken on the alarm page.
+  ///
+  /// The write went through `CalendarEventService`, which tells nobody, so
+  /// the bloc still holds the event with "remove after it rings" on and the
+  /// day panel still says so. The reload is the whole answer: there is
+  /// nothing to undo and nothing to announce — the alarm page said "kept".
+  ///
+  /// Counted before it is taken. The notice is one flag for every calendar
+  /// on the navigator — a note opened from the calendar leads to a second
+  /// one through the drawer — and it goes to the first that hears it, the
+  /// oldest, while the detail sheet that has to learn of the Keep is open on
+  /// the one in front.
+  void _serveKeepNotice() {
+    if (!mounted) return;
+    _keepsHeard++;
+    if (!AlertKeepNotice.instance.take()) return;
+    final bloc = context.read<CalendarBloc>();
+    final state = bloc.state;
+    if (!_initialTargetDone && state is CalendarPageLoaded) {
+      _eventsBeforeKeep = state.allEvents;
+    }
+    bloc.add(const LoadCalendarEvents());
+  }
+
+  /// How many Keeps this page has heard of, whichever calendar answered
+  /// them.
+  ///
+  /// The reload a Keep is answered with reaches everything the bloc draws,
+  /// and nothing of a detail-sheet trip that was already under way: the trip
+  /// holds its own copy of the event ([_detailSheetLoop]) and saves that copy
+  /// whole. A trip remembers this number as it starts, and a different one
+  /// later is how it knows that the flag on its copy may no longer be the
+  /// event's.
+  int _keepsHeard = 0;
+
+  /// The events the bloc held when a Keep was answered while the initial
+  /// target was still to be served: the one list that shows the kept event
+  /// as it was. Dropped once the target has been served.
+  List<CalendarEvent>? _eventsBeforeKeep;
+
+  /// Whether [state] may still hold an event as it was before a Keep taken
+  /// on the alarm page: one is waiting to be served, or was served and its
+  /// reload has not landed yet.
+  ///
+  /// The alarm page's Open event, pressed after Keep with no calendar on the
+  /// stack, pushes this page with the kept event as its target while the
+  /// app-wide bloc still holds that event from before the write. A detail
+  /// sheet opened from that state says "Remove after it rings" about an
+  /// event that was just kept, and an edit saved from it — or a task ticked
+  /// in its description — writes the flag back.
+  ///
+  /// Told by the list, not by `membershipRevision`: a skip moves the
+  /// revision and keeps the list, while every handler that replaces the list
+  /// reads it from the service, where Keep's write already is.
+  bool _predatesKeep(CalendarPageLoaded state) =>
+      AlertKeepNotice.instance.hasPending ||
+      identical(state.allEvents, _eventsBeforeKeep);
+
   /// Serves — and clears — a request published by
   /// `AppNavigator.toCalendarOccurrence` while this page was already on the
   /// stack.
@@ -579,7 +647,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   void _applyInitialTarget(CalendarPageState state) {
     if (_initialTargetDone) return;
     if (state is! CalendarPageLoaded) return;
+    // Left to the loaded-state listener, which serves it from the reload
+    // the Keep is answered with.
+    if (_predatesKeep(state)) return;
     _initialTargetDone = true;
+    _eventsBeforeKeep = null;
     _openOccurrence(state, widget.initialDay, widget.initialEventId);
   }
 
@@ -660,6 +732,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     );
     AlertRemovalNotice.instance.removeListener(_serveRemovalNotice);
     AlertSkipNotice.instance.removeListener(_serveSkipNotice);
+    AlertKeepNotice.instance.removeListener(_serveKeepNotice);
     QuickAlarmRequest.instance.removeListener(_serveQuickAlarmRequest);
     _keyboardInset.removeListener(_handleKeyboardInset);
     _keyboardInset.dispose();
@@ -795,6 +868,31 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     // the same turn — so the next sheet can mount before it lands. Carry the
     // text forward rather than letting it race the database.
     String? pendingOccurrence;
+    // An alarm can ring over this trip, and a Keep taken on its page reaches
+    // the bloc and nothing here: the open sheet goes on holding the event as
+    // it opened on, "remove after it rings" still set, and whatever the trip
+    // saves is the whole event. So a task ticked in that sheet, a description
+    // edit, a date added or the editor's Save wrote the flag back — and the
+    // event's next alarm removed the event the user had kept.
+    var keepsSeen = _keepsHeard;
+
+    // [held] as the trip may save it or hand it on. Once a Keep has been
+    // heard of that the trip has not accounted for, the flag is taken from
+    // the bloc's copy of the same event — the flag alone: after an edit of
+    // its own the trip's copy is ahead of the bloc in everything else.
+    CalendarEvent afterKeep(CalendarEvent held) {
+      if (keepsSeen == _keepsHeard || !held.removeAfterAlert) return held;
+      final state = bloc.state;
+      if (state is! CalendarPageLoaded) return held;
+      for (final stored in state.allEvents) {
+        if (stored.id != held.id) continue;
+        return stored.removeAfterAlert
+            ? held
+            : held.copyWith(removeAfterAlert: false);
+      }
+      return held;
+    }
+
     while (true) {
       // Every path back to the top of the loop already checks, but the check
       // has to be here for the analyzer to see it across the back edge.
@@ -806,8 +904,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         colorPalette: _colorPalette,
         pendingOccurrenceDescription: pendingOccurrence,
         onEventChanged: (updated) {
-          current = updated;
-          bloc.add(UpdateCalendarEvent(event: updated));
+          // On every call, not once: the sheet that is open builds each of
+          // its writes from the event it was opened on.
+          current = afterKeep(updated);
+          bloc.add(UpdateCalendarEvent(event: current));
         },
         onOccurrenceChanged: (occurrenceDay, description) {
           pendingOccurrence = description;
@@ -825,6 +925,9 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         resolveNoteTitle: _resolveNoteTitle,
       );
       if (action == null || !context.mounted) return;
+      // What is handed on from here — to the quick edit, the dates picker,
+      // the editor's switch — is the event as it is kept.
+      current = afterKeep(current);
       switch (action) {
         case EventDetailAction.openNote:
           await _openLinkedNote(context, current);
@@ -876,6 +979,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
               reopen = true;
             case EventEditorSaved():
               current = result.event;
+              // The editor's switch is the user's later word. From here the
+              // flag on the trip's copy is the one they saved — also while
+              // that save is still on its way to the bloc, whose copy would
+              // otherwise take a flag turned on again straight back off.
+              keepsSeen = _keepsHeard;
               pendingOccurrence = _pendingAfterSave(
                 result,
                 current,

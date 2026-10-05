@@ -37,7 +37,7 @@ Many reworks toward one goal get one **master record** above the per-tier record
 
 Each slice is one buildable, testable increment with its own tests. Never start the next one with anything red. The order that worked:
 
-0. **The safety net, where the area has none** — before the first visual change: a QA fixture and saved flows for the area's main paths (`tool/qa/fixtures/<area>.json`, `tool/qa/flows/<area>/` — only the calendar has them today) and a widget suite that pins what each surface the rework touches does now, written against the old UI and green. Without them a rework has nothing to regress against.
+0. **The safety net, where the area has none** — before the first visual change: a QA fixture and saved flows for the area's main paths (`tool/qa/fixtures/<area>.json`, `tool/qa/flows/<area>/` — the calendar and the alert surfaces have them today) and a widget suite that pins what each surface the rework touches does now, written against the old UI and green. Without them a rework has nothing to regress against.
 1. **Primitives and chrome** — the shared rows, the sheet handle / header / ground, the metrics constants. They live where later surfaces can use them (`lib/widgets/form_rows.dart`, `lib/constants/form_metrics.dart`), never as a copy inside one screen.
 2. **Screens** — group by group, each with its sub-sheets. The old widgets may stay below the new ones until nothing references them.
 3. **Delete the old UI** — the record names what goes, constants included; grep for the last reference before deleting.

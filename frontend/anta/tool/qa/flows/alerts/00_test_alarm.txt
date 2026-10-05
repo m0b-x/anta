@@ -1,0 +1,59 @@
+# The alarm page on the settings page's own ring. Seeded from
+# tool/qa/fixtures/alerts.json, though this flow needs none of its events:
+# from the root to the calendar, its ⋮, Calendar settings and the last row of
+# the last section — "Test alarm in 10 s" — then the page, read by its ids,
+# and Stop.
+# - Run it straight after the relaunch that pushed the seed. The fixture's
+#   first alarm rings between two and three minutes after the seed was
+#   resolved, and a ring that arrives while another is going is queued or
+#   dropped by the plugin; this flow takes about twenty seconds.
+# - Push the seed with `qa relaunch`, never with `qa run`. `run` resolves the
+#   fixture and then builds, so the build comes out of that lead: the first
+#   alarm rings inside this flow or, after a longer build, is already in the
+#   past when the app imports it, where nothing is armed and 01_event_alarm
+#   has nothing to wait for. After a lib change it is two commands: a plain
+#   `qa run`, then `qa relaunch --fresh --seed tool/qa/fixtures/alerts.json`.
+# - The ring comes ten seconds after the tap (kAlertTestAlarmDelay) and a
+#   wait polls for ten, so the wait for the page is given thirty. If it runs
+#   out with "This can't ring until a permission is turned on" on screen, the
+#   install has lost its notification or exact-alarm grant: a QA build never
+#   raises the launch prompt, so grant it by hand once.
+# - A test alarm is nobody's event: Open event is there, switched off, and
+#   Keep is never offered — three of the page's four ids, the fourth absent.
+# - The page calls it "Test alarm", in a row of its own that reads exactly
+#   that; "Test alarm in 10 s" is the settings button under the page, and
+#   until the redraw of 2026-10 was what the ringing page was titled too.
+# - id:alarm-body is the part of the page that scrolls: on a short screen
+#   the time leaves through its top, and `scroll-to --up --in id:alarm-body`
+#   brings it back.
+# - ANTA is in front on an unlocked phone, so Android also draws the ring's
+#   notification as a heads-up over the top of the page, a second or two
+#   after the page itself; and the page's own bar style — dark status icons
+#   on its light ground, where Calendar settings had light ones — reaches
+#   the system a moment after its first frame. The shot is adb's, not the
+#   agent's, so it shows whatever has arrived by then: `key back` is given
+#   three and a half seconds before it, and they are for both. Back itself
+#   must do nothing: back is not Stop. The page keeps everything low, so the
+#   heads-up in the shot lands on bare ground.
+# - Stop pops the page onto Calendar settings; back from there is the
+#   calendar, where the next flow starts.
+tap "Open navigation menu"
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to id:alerts-test-alarm --max 14
+tap id:alerts-test-alarm
+wait id:alarm-stop --timeout 30
+expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-body "Test alarm" --absent id:alarm-keep-event --absent "Test alarm in 10 s" --absent id:alarm-open-database
+key back --settle 3500
+shot 00_test_alarm
+tap id:alarm-stop
+wait id:alarm-stop --gone
+expect id:alerts-test-alarm
+key back
+wait id:calendar-add-event
+errors

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/settings_keys.dart';
@@ -10,6 +11,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/android_alert_gateway.dart';
+import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/alert_os_id.dart';
 import 'package:anta/utils/alert_planner.dart';
 
@@ -434,11 +436,210 @@ void main() {
     });
   });
 
+  group('a ring report', () {
+    // The plugin re-arms a snoozed alarm with the settings it was first given,
+    // payload included, so what it hands back at the second ring still reads
+    // the first. `ringReportPayload` is where the two are reconciled, and the
+    // whole of what the binding decides about a ring before announcing it.
+    final dueAt = DateTime(2026, 9, 20, 7);
+    final labels = AlertLabels.fixed;
+
+    /// An entry armed by a build that stamps its payloads, at the event's
+    /// start — so it left the event's own time out as a repeat of its own.
+    final stamped = AlertPayload(
+      database: 'gym_notes',
+      eventId: 'e1',
+      alertId: 'a1',
+      dayUtcMs: 1789862400000,
+      osId: 0,
+      mode: AlertMode.ring,
+      title: 'Leg day',
+      timeLabel: '07:00',
+      categoryId: 'gym',
+      excerpt: 'Squats first.',
+      fireAtMs: dueAt.millisecondsSinceEpoch,
+      tintValue: 0xFF1E88E5,
+      glyphKey: 'fitness_center',
+      languageCode: 'en',
+    );
+
+    AlertPayload report(
+      AlertPayload stored, {
+      required DateTime rangAt,
+      bool nativelySnoozed = false,
+    }) => ringReportPayload(
+      stored: stored,
+      alarmDateTime: rangAt,
+      osId: 77,
+      labels: labels,
+      nativelySnoozed: nativelySnoozed,
+    );
+
+    test('an unstamped payload changes only its id, whatever the plugin says',
+        () {
+      // `payload` carries no due instant: armed before the field existed.
+      // There is nothing to compare the plugin's time with, and its page
+      // goes on drawing what it always drew — even for a ring this process
+      // knows was snoozed.
+      final reported = report(
+        payload,
+        rangAt: DateTime(2026, 9, 20, 7, 10),
+        nativelySnoozed: true,
+      );
+
+      expect(reported, payload.copyWith(osId: 77));
+      expect(reported.timeLabel, '07:00');
+      expect(reported.fireAtMs, isNull);
+      expect(reported.reRing, isFalse);
+    });
+
+    test('a stamped payload that rang when it was due changes only its id', () {
+      expect(report(stamped, rangAt: dueAt), stamped.copyWith(osId: 77));
+    });
+
+    test('a moved instant is restamped, with the clock label for it', () {
+      final rangAt = DateTime(2026, 9, 20, 7, 10);
+      final reported = report(stamped, rangAt: rangAt);
+
+      expect(reported.osId, 77);
+      expect(reported.fireAtMs, rangAt.millisecondsSinceEpoch);
+      expect(reported.timeLabel, '07:10');
+    });
+
+    test("the event's own time is rescued when the due time was all that "
+        'said it', () {
+      final rangAt = DateTime(2026, 9, 20, 7, 10);
+
+      // Left empty at arm time as a repeat of "07:00"; with the due time
+      // moved to 07:10 nothing else says when the event is.
+      expect(report(stamped, rangAt: rangAt).whenLabel, '07:00');
+      // An entry that did say it keeps what it said.
+      expect(
+        report(
+          stamped.copyWith(whenLabel: '07:15 – 08:00'),
+          rangAt: rangAt,
+        ).whenLabel,
+        '07:15 – 08:00',
+      );
+    });
+
+    test('everything else a moved ring carries is as it was armed', () {
+      final rangAt = DateTime(2026, 9, 20, 7, 10);
+
+      expect(
+        report(stamped, rangAt: rangAt, nativelySnoozed: true),
+        stamped.copyWith(
+          osId: 77,
+          fireAtMs: rangAt.millisecondsSinceEpoch,
+          timeLabel: '07:10',
+          whenLabel: '07:00',
+          reRing: true,
+        ),
+      );
+    });
+
+    test('a re-ring is said only from the snooze record, never from a moved '
+        'time alone', () {
+      final rangAt = DateTime(2026, 9, 20, 7, 10);
+
+      // The platform defers rings for reasons of its own — a refused start
+      // is re-armed half a minute on — and that is not a snooze.
+      expect(report(stamped, rangAt: rangAt).reRing, isFalse);
+      expect(
+        report(stamped, rangAt: rangAt, nativelySnoozed: true).reRing,
+        isTrue,
+      );
+      // Nor from the record alone: an entry that rang when it was due was
+      // not moved by anything, whatever this id went through before.
+      expect(
+        report(stamped, rangAt: dueAt, nativelySnoozed: true).reRing,
+        isFalse,
+      );
+    });
+
+    test('a deferral inside the minute moves the instant and nothing drawn',
+        () {
+      final rangAt = DateTime(2026, 9, 20, 7, 0, 30);
+      final reported = report(stamped, rangAt: rangAt);
+
+      expect(reported.fireAtMs, rangAt.millisecondsSinceEpoch);
+      expect(reported.timeLabel, '07:00');
+      // Rescued here, the caption would repeat the clock above it.
+      expect(reported.whenLabel, '');
+    });
+
+    test('a test ring that was snoozed gains no event time', () {
+      final test = AlertPayload(
+        database: 'gym_notes',
+        eventId: AlertPayload.testEventId,
+        alertId: '${AlertPayload.testEventId}:1',
+        dayUtcMs: 1789862400000,
+        osId: 0,
+        mode: AlertMode.ring,
+        title: '',
+        timeLabel: '07:00',
+        categoryId: 'other',
+        snooze: true,
+        fireAtMs: dueAt.millisecondsSinceEpoch,
+        tintValue: 0xFF6750A4,
+        glyphKey: 'alarm',
+        languageCode: 'en',
+      );
+
+      final reported = report(
+        test,
+        rangAt: DateTime(2026, 9, 20, 7, 10),
+        nativelySnoozed: true,
+      );
+
+      expect(reported.timeLabel, '07:10');
+      expect(reported.whenLabel, '');
+      expect(reported.reRing, isTrue);
+    });
+  });
+
+  group("the plugin's log", () {
+    LogRecord record(Level level) => LogRecord(
+      level,
+      'Alarm with id 7 started ringing but the settings object could not be '
+          'found.',
+      'AlarmTriggerApiImpl',
+    );
+
+    test('a warning and anything above it is printed, with who said it', () {
+      // The line that explains a ring with no page: the plugin drops it with
+      // one `severe` and tells nobody else.
+      expect(
+        alarmPluginLogLine(record(Level.SEVERE)),
+        '[alarm] SEVERE AlarmTriggerApiImpl: Alarm with id 7 started ringing '
+        'but the settings object could not be found.',
+      );
+      expect(
+        alarmPluginLogLine(record(Level.WARNING)),
+        startsWith('[alarm] WARNING AlarmTriggerApiImpl: '),
+      );
+      expect(alarmPluginLogLine(record(Level.SHOUT)), isNotNull);
+    });
+
+    test('its narration stays unprinted', () {
+      // One `info` per arm, stop and ring: on a reconcile of the horizon that
+      // is dozens of lines saying nothing went wrong.
+      expect(alarmPluginLogLine(record(Level.INFO)), isNull);
+      expect(alarmPluginLogLine(record(Level.FINE)), isNull);
+      expect(alarmPluginLogLine(record(Level.CONFIG)), isNull);
+    });
+  });
+
   test('the channel ids are frozen', () {
     // Android freezes a channel's importance, sound and DND behaviour at
     // creation: a changed id is the only way to change any of them, and it
     // orphans the user's own per-channel settings. These are a contract.
     expect(kAlertReminderChannelId, 'alerts_reminder');
+    // The quiet kinds' own channel (2026-10), of low importance: the notice,
+    // Missed and the session chip left the reminder channel for it, which is
+    // one more reason neither id may ever move onto the other.
+    expect(kAlertQuietChannelId, 'alerts_quiet');
+    expect(kAlertQuietChannelId, isNot(kAlertReminderChannelId));
     // The fallback tier's channel is on its second id (OS-1): the first was
     // created with no sound, so a flipped A5 switch would have rung the
     // phone's default *notification* sound. The old id is what initialize

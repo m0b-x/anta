@@ -840,9 +840,16 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
               children: [
                 FormRowGroup(
                   children: [
-                    _TitleRow(
-                      icon: CalendarCategories.iconFor(event),
-                      color: EventSummaryProvider.colorFor(event, category),
+                    // The day-panel row's twin at the top of the sheet: the
+                    // event's avatar, its title at the editor's size so Edit
+                    // and Back never resize it, and the category as the
+                    // caption a reader wants under a name — the editor needs
+                    // Category as a picker row, a reader does not.
+                    FormReadTitleRow(
+                      leading: EventAvatar(
+                        icon: CalendarCategories.iconFor(event),
+                        color: EventSummaryProvider.colorFor(event, category),
+                      ),
                       title: event.title,
                       caption: CalendarCategories.labelOf(category, l10n),
                     ),
@@ -879,74 +886,6 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// The day-panel row's twin at the top of the sheet: the event's avatar, its
-/// title at the editor's size so Edit and Back never resize it, and the
-/// category as the caption a reader wants under a name — the editor needs
-/// Category as a picker row, a reader does not.
-class _TitleRow extends FormDividedRow {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String caption;
-
-  const _TitleRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.caption,
-  });
-
-  @override
-  double get dividerIndent => FormMetrics.dividerIndentTitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return MergeSemantics(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          minHeight: FormMetrics.twoLineRowMinHeight,
-        ),
-        child: Padding(
-          padding: RowMetrics.twoLinePadding,
-          child: Row(
-            children: [
-              EventAvatar(icon: icon, color: color),
-              const SizedBox(width: FormMetrics.gap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: FormMetrics.titleFontSize,
-                        height: FormMetrics.titleLineHeight,
-                        fontWeight: FontWeight.w500,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: RowMetrics.lineGap),
-                    Text(
-                      caption,
-                      style: TextStyle(
-                        fontSize: FormMetrics.captionSize,
-                        height: 18 / FormMetrics.captionSize,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

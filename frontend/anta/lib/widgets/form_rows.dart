@@ -425,16 +425,29 @@ class FormHeaderTextButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String? identifier;
 
+  /// The button's accessible name where [label] is too short to stand alone
+  /// — the ring screen's "Keep" beside the sentence that says what is kept,
+  /// which a screen reader reaches as a button on its own. Replaces [label]
+  /// in the node and draws nothing.
+  final String? semanticsLabel;
+
   const FormHeaderTextButton({
     super.key,
     required this.label,
     required this.onPressed,
     this.identifier,
+    this.semanticsLabel,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final Widget text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+    final name = semanticsLabel;
     final button = TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
@@ -446,7 +459,12 @@ class FormHeaderTextButton extends StatelessWidget {
           fontWeight: FontWeight.w500,
         ),
       ),
-      child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      child: name == null
+          ? text
+          : Semantics(
+              label: name,
+              child: ExcludeSemantics(child: text),
+            ),
     );
     if (identifier case final id?) {
       return AutomationId(identifier: id, child: button);
@@ -1185,6 +1203,101 @@ class _FormTitleRowBodyState extends State<_FormTitleRowBody> {
   }
 }
 
+/// The row a read-only surface opens with: `[avatar] title` over a caption
+/// of the row's own — [FormTitleRow]'s twin for a surface that names an
+/// event without editing it. The detail sheet's first row (the category
+/// under the title) and the ring screen's (the event's own time).
+///
+/// The title is the editor's 20 / 500 on the same line height, so the same
+/// event is the same line on every surface that leads with it, and it wraps
+/// freely: a title is read whole. With a [caption] the row is the two-line
+/// row; without one it is the title row's 56 dp around the avatar.
+///
+/// One node — the title, then the caption. [leading] is decoration and is
+/// kept out of it whatever it draws.
+class FormReadTitleRow extends FormDividedRow {
+  /// A 40 dp widget — an `EventAvatar` — previewing what the title names.
+  /// Boxed to [FormMetrics.rowLeadingSize], so the text and the hairline
+  /// under the row start where they do whatever the widget draws.
+  final Widget leading;
+  final String title;
+
+  /// The line under the title, or null for a row that is the title alone.
+  final String? caption;
+
+  const FormReadTitleRow({
+    super.key,
+    required this.leading,
+    required this.title,
+    this.caption,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final captionText = caption;
+    return MergeSemantics(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: captionText == null
+              ? FormMetrics.titleRowMinHeight
+              : FormMetrics.twoLineRowMinHeight,
+        ),
+        child: Padding(
+          padding: captionText == null
+              ? const EdgeInsets.symmetric(
+                  horizontal: RowMetrics.groupInset,
+                  vertical: FormMetrics.titleRowVerticalPadding,
+                )
+              : RowMetrics.twoLinePadding,
+          child: Row(
+            children: [
+              ExcludeSemantics(
+                child: SizedBox.square(
+                  dimension: FormMetrics.rowLeadingSize,
+                  child: Center(child: leading),
+                ),
+              ),
+              const SizedBox(width: FormMetrics.gap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: FormMetrics.titleFontSize,
+                        height: FormMetrics.titleLineHeight,
+                        fontWeight: FontWeight.w500,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    if (captionText != null) ...[
+                      const SizedBox(height: RowMetrics.lineGap),
+                      Text(
+                        captionText,
+                        style: TextStyle(
+                          fontSize: FormMetrics.captionSize,
+                          height: 18 / FormMetrics.captionSize,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// `[glyph] value / caption ›` — the one value a sheet leads with, drawn
 /// large: the quick alarm's time over the day it lands on.
 ///
@@ -1460,9 +1573,17 @@ class FormActionRow extends FormDividedRow {
         ),
       ),
     );
-    final well = Opacity(
-      opacity: enabled ? 1 : FormMetrics.disabledOpacity,
-      child: InkWell(onTap: onTap, child: row),
+    // An ink well with no tap is nothing to a screen reader: the row faded
+    // to 38 % and was read out as plain text, with no word that it is an
+    // action or that it is off. Said here, and inside the merge below, so
+    // the role and the state land on the row's one node beside its label.
+    final well = Semantics(
+      button: true,
+      enabled: enabled,
+      child: Opacity(
+        opacity: enabled ? 1 : FormMetrics.disabledOpacity,
+        child: InkWell(onTap: onTap, child: row),
+      ),
     );
     if (identifier case final id?) {
       return AutomationId(identifier: id, child: well);
@@ -2249,15 +2370,24 @@ class FormCaptionSlot extends StatelessWidget {
   /// What the slot shows now.
   final Widget child;
 
+  /// Where [child] sits in a slot taller than itself. At the top by default,
+  /// as a caption under a row reads; centred for a caption that is a row's
+  /// own line beside a glyph and a button (the ring screen's remove row),
+  /// where a short line at the top of a two-line slot would hang above
+  /// both.
+  final AlignmentGeometry alignment;
+
   const FormCaptionSlot({
     super.key,
     required this.candidates,
     required this.child,
+    this.alignment = AlignmentDirectional.topStart,
   });
 
   @override
   Widget build(BuildContext context) {
     return Stack(
+      alignment: alignment,
       children: [
         for (final candidate in candidates)
           ExcludeSemantics(

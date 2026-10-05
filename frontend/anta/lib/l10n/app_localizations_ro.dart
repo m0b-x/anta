@@ -4835,6 +4835,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alarmPageTitle => 'Alarmă';
 
   @override
+  String get alarmTestTitle => 'Alarmă de test';
+
+  @override
   String get alarmStop => 'Oprește';
 
   @override
@@ -4853,22 +4856,30 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alarmOpenEvent => 'Deschide evenimentul';
 
   @override
+  String get alarmKeep => 'Păstrează';
+
+  @override
   String get alarmKeepEvent => 'Păstrează evenimentul';
 
   @override
   String get alarmKeptEvent => 'Evenimentul va fi păstrat';
 
   @override
-  String get alarmRemoveAfterCaption =>
-      'Acest eveniment este șters după ce oprești alarma';
+  String get alarmRemoveAfterCaption => 'Oprirea elimină și evenimentul';
 
   @override
-  String alarmFromDatabase(String name) {
-    return 'Din baza de date $name';
+  String alarmSwitchDatabase(String name) {
+    return 'Comută la $name';
   }
 
   @override
-  String get alarmOpenDatabase => 'Deschide';
+  String alarmDatabaseSwitchedTitle(String name) {
+    return 'Ai comutat la $name';
+  }
+
+  @override
+  String get alarmDatabaseSwitchedBody =>
+      'Închide ANTA și deschide-o din nou ca să vezi evenimentul. Alarma sună până o oprești.';
 
   @override
   String get calendarAlertsSection => 'Alerte';
@@ -4962,6 +4973,16 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String alertsKindWhen(String kind, String when) {
+    return '$kind · $when';
+  }
+
+  @override
+  String alertsWhenOnDay(String when, String day) {
+    return '$when, $day';
+  }
+
+  @override
   String get alertsSkipAction => 'Sari';
 
   @override
@@ -5033,32 +5054,14 @@ class AppLocalizationsRo extends AppLocalizations {
       'Alarme pentru evenimente, care sună până le oprești';
 
   @override
-  String get alertsSnoozeAction => 'Amână';
+  String get alertsQuietChannel => 'Anunțuri discrete';
+
+  @override
+  String get alertsQuietChannelDesc =>
+      'Anunțuri pentru alarme viitoare sau ratate și sesiunea în curs, mereu fără sunet';
 
   @override
   String get alertsDoneAction => 'Gata';
-
-  @override
-  String alertsSnoozedBody(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Amânat $count de minute',
-      few: 'Amânat $count minute',
-      one: 'Amânat 1 minut',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String alertsMissedTitle(String title) {
-    return 'Ratat: $title';
-  }
-
-  @override
-  String alertsMissedBody(String time) {
-    return 'Era programat la $time';
-  }
 
   @override
   String get eventAlerts => 'Alerte';

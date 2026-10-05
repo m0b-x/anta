@@ -274,6 +274,95 @@ void main() {
     });
   });
 
+  group("the chip's second button", () {
+    // Done comes first and is the chip's own; what follows it opens the
+    // event's note when there is one and the event when there is not, and
+    // says which. Which of the two is a fact about the event, so the
+    // coordinator finds it out and the binding only labels the button.
+    test('is told to open the note of an event that links one', () async {
+      event = eventOf().copyWith(noteId: 'n1');
+
+      await chip.show(payloadOf());
+
+      expect(gateway.shown.single.linkedNote, isTrue);
+    });
+
+    test('is told to open the event when it links no note', () async {
+      await chip.show(payloadOf());
+
+      expect(gateway.shown.single.linkedNote, isFalse);
+    });
+
+    test('opens the event when the event itself is gone', () async {
+      event = null;
+
+      await chip.show(payloadOf());
+
+      expect(gateway.shown.single.linkedNote, isFalse);
+    });
+
+    test('takes the lookup\'s word over the event\'s: a linked note in the '
+        'trash is no note to open', () async {
+      event = eventOf().copyWith(noteId: 'n1');
+      final asked = <String>[];
+      chip.configureForTesting(
+        gateway: () => gateway,
+        activeDatabase: () async => 'gym_notes',
+        findEvent: (id) async => event,
+        clock: () => now,
+        noteLinked: (event) async {
+          asked.add(event.id);
+          return false;
+        },
+      );
+
+      await chip.show(payloadOf());
+
+      expect(asked, ['e1']);
+      expect(gateway.shown.single.linkedNote, isFalse);
+    });
+
+    test('is decided once, and every refresh repeats it', () {
+      fakeAsync((async) {
+        event = eventOf().copyWith(noteId: 'n1');
+        var lookups = 0;
+        chip.configureForTesting(
+          gateway: () => gateway,
+          activeDatabase: () async => 'gym_notes',
+          findEvent: (id) async => event,
+          clock: () => now,
+          noteLinked: (event) async {
+            lookups++;
+            return true;
+          },
+        );
+
+        chip.show(payloadOf());
+        async.flushMicrotasks();
+        // The note goes to the trash while the chip stands: a label that
+        // changed under a finger would be worse than one a minute stale.
+        event = eventOf();
+        async.elapse(const Duration(minutes: 3));
+
+        expect(gateway.shown.length, greaterThan(1));
+        expect(gateway.shown.every((post) => post.linkedNote), isTrue);
+        expect(lookups, 1);
+      });
+    });
+
+    test('a chip that was taken down forgets it', () async {
+      event = eventOf().copyWith(noteId: 'n1');
+      await chip.show(payloadOf(osId: 7));
+      await chip.clear();
+
+      event = eventOf();
+      await chip.show(payloadOf(osId: 8));
+
+      expect(gateway.shown.first.linkedNote, isTrue);
+      expect(gateway.shown.last.linkedNote, isFalse);
+    });
+  });
+
   test('a clear always reaches the platform, even with nothing remembered',
       () async {
     await chip.clear();
@@ -311,6 +400,7 @@ typedef _Shown = ({
   DateTime? endsAt,
   int? progress,
   bool refresh,
+  bool linkedNote,
 });
 
 class _ChipGateway extends NoOpAlertGateway {
@@ -327,6 +417,7 @@ class _ChipGateway extends NoOpAlertGateway {
     DateTime? endsAt,
     int? progress,
     bool refresh = false,
+    bool linkedNote = false,
   }) async {
     shown.add((
       payload: payload,
@@ -334,6 +425,7 @@ class _ChipGateway extends NoOpAlertGateway {
       endsAt: endsAt,
       progress: progress,
       refresh: refresh,
+      linkedNote: linkedNote,
     ));
     return standing;
   }

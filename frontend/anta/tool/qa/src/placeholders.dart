@@ -18,14 +18,26 @@
 /// | `{{month+N}}` | that day's month, 1–12 | `9` |
 /// | `{{dom+N}}` | that day's day of month | `29` |
 /// | `{{longdate+N}}` | the label a month-grid day cell carries in English, so a step can tap a day (`tap "{{longdate+1}}"`) | `Sunday, September 27, 2026` |
+/// | `{{minute+N}}` | the minute of the day the clock shows **N minutes** from now, 0–1439 — what `startMinute` holds | `873` |
+/// | `{{minuteday+N}}` | UTC midnight of the local day that minute falls on, epoch ms — the `startDateMs` / `dayMs` beside it | `1790380800000` |
 ///
 /// A numeric placeholder written as a JSON string — `"startDateMs":
 /// "{{today+3}}"` — loses its quotes on resolution, so a fixture stays valid
 /// JSON before *and* after. `{{day+N}}` keeps them: it is text.
+///
+/// **The two minute forms count N in minutes, and are written as a pair.** A
+/// fixture that has to make an alert fire cannot name a clock time: it would
+/// ring once a day at best. `"startDateMs": "{{minuteday+3}}"` beside
+/// `"startMinute": "{{minute+3}}"` puts an event three minutes ahead of the
+/// run, and at 23:58 that is 00:01 **tomorrow** — the day half is what keeps
+/// the pair right across midnight, which `{{today}}` beside `{{minute+3}}`
+/// would not be. The event starts when the clock *turns* to that minute, so
+/// between N−1 and N minutes after the fixture is resolved: a fixture that
+/// has to ring before anything else happens gives itself that margin.
 library;
 
 final RegExp _placeholder = RegExp(
-  r'("?)\{\{\s*(today|now|day|weekday|year|month|dom|longdate)\s*([+-]\s*\d+)?\s*\}\}("?)',
+  r'("?)\{\{\s*(today|now|day|weekday|year|month|dom|longdate|minuteday|minute)\s*([+-]\s*\d+)?\s*\}\}("?)',
 );
 
 /// The kinds whose value is a number, and therefore shed surrounding quotes.
@@ -36,6 +48,8 @@ const Set<String> _numericKinds = {
   'year',
   'month',
   'dom',
+  'minute',
+  'minuteday',
 };
 
 /// Replaces every placeholder in [text]; [now] is the reference instant
@@ -62,6 +76,16 @@ int countPlaceholders(String text) => _placeholder.allMatches(text).length;
 
 String _valueOf(String kind, int offset, DateTime reference) {
   if (kind == 'now') return reference.millisecondsSinceEpoch.toString();
+  if (kind == 'minute' || kind == 'minuteday') {
+    final at = _wallClockAhead(reference, offset);
+    return kind == 'minute'
+        ? (at.hour * Duration.minutesPerHour + at.minute).toString()
+        : DateTime.utc(
+            at.year,
+            at.month,
+            at.day,
+          ).millisecondsSinceEpoch.toString();
+  }
   final day = DateTime.utc(
     reference.year,
     reference.month,
@@ -87,6 +111,27 @@ String _valueOf(String kind, int offset, DateTime reference) {
           '${_monthNames[day.month - 1]} ${day.day}, ${day.year}';
   }
   throw ArgumentError.value(kind, 'kind');
+}
+
+/// The wall clock [minutes] after [reference]'s, to the minute.
+///
+/// Built the way the app builds the instant it will fire at
+/// (`AlertPlanner.fireInstant`): the day's `y/m/d` with the whole minute
+/// count in the constructor's minute slot, never local midnight plus a
+/// `Duration`. Local midnight carries the offset the day *started* with, so
+/// on a clock-change day the `Duration` form lands an hour away from the
+/// wall clock for every minute after the change — and a fixture that says
+/// "in three minutes" would then ring in sixty-three, or not at all. The
+/// constructor also carries a count past 1439 into the next day, which is
+/// the midnight wrap.
+DateTime _wallClockAhead(DateTime reference, int minutes) {
+  return DateTime(
+    reference.year,
+    reference.month,
+    reference.day,
+    0,
+    reference.hour * Duration.minutesPerHour + reference.minute + minutes,
+  );
 }
 
 const List<String> _weekdayNames = [

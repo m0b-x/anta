@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../models/alert_payload.dart';
+import '../utils/alert_labels.dart';
 import '../utils/alert_planner.dart';
 import 'pending_navigation.dart';
 
@@ -24,10 +25,11 @@ abstract final class AlertAvailability {
 /// was scheduled with.
 typedef PendingAlertEntry = ({int osId, AlertPayload payload});
 
-/// How a ring came to an end **without the app asking for it**.
+/// How a ring came to an end **by a route the alarm page did not take**.
 ///
 /// The alarm page's Stop and Snooze go through the scheduler and are not
-/// reported here — these are the two endings nothing in the app initiated.
+/// reported here. These are the other endings: the three the platform makes
+/// on its own, and the one the app makes with nobody having answered.
 enum AlertRingEndCause {
   /// The user pressed Stop on the platform's own notification. An
   /// acknowledgement like the alarm page's Stop, so A3 applies.
@@ -42,6 +44,17 @@ enum AlertRingEndCause {
   /// which the next reconcile writes down — so this ends the ring without
   /// settling, removing or reporting anything.
   snoozed,
+
+  /// The app cancelled the entry while it was ringing ([AlertGateway.cancel]):
+  /// the plan no longer holds it. Nobody answered and nothing timed out, and
+  /// whoever cancelled writes down its own reason — so the ring is over for
+  /// everything that waits on one, the alarm page and the navigation it held
+  /// back, and **nothing is settled**: no acknowledgement, no session chip,
+  /// no removal, no Missed, no registry write.
+  ///
+  /// Its own cause because it was once read as [dismissed], which posted the
+  /// chip and deleted an event set to go after its alarm with nobody there.
+  cancelled,
 }
 
 /// One ring that ended outside the app, with the payload it rang under.
@@ -155,9 +168,10 @@ abstract class AlertGateway {
   /// what the editor turns into "not available here".
   Future<String?> soundTitle(String value) async => null;
 
-  /// Re-reads everything a ring will be armed **under** that the platform owns
-  /// rather than the plan — today the phone's alarm volume — and returns a
-  /// short token describing it.
+  /// Re-reads everything an entry will be armed **under** that the platform or
+  /// the app owns rather than the plan — the phone's alarm volume, and what
+  /// the entry's words are written in: the app's language and the phone's
+  /// clock style — and returns a short token describing it.
   ///
   /// Called once at the top of every pass that schedules, **before** any
   /// [schedule], and the answer is what that whole pass arms with: a binding
@@ -166,11 +180,25 @@ abstract class AlertGateway {
   /// something other than what was actually armed.
   ///
   /// The scheduler stores it per registration and compares it on the next pass,
-  /// which is how an alarm whose instant never moved is still re-armed when the
-  /// phone's volume crosses the floor. It must therefore be **stable** — equal
-  /// inputs, equal token — and **coarse**: a token that changed with every
-  /// nudge of the volume key would re-arm the horizon every time.
+  /// which is how an entry whose instant never moved is still re-armed when the
+  /// phone's volume crosses the floor, or when the language its notification
+  /// was frozen in is no longer the app's. It must therefore be **stable** —
+  /// equal inputs, equal token — and **coarse**: a token that changed with
+  /// every nudge of the volume key would re-arm the horizon every time.
   Future<String> refreshArmContext() async => backendName;
+
+  /// What the scheduler writes an entry's times and days with.
+  ///
+  /// On the binding rather than in the scheduler because the two things the
+  /// labels follow are the platform's to know — the clock style the phone is
+  /// on, and the language this binding composes its own notification strings
+  /// in — and because it keeps the scheduler free of both: against any
+  /// binding that does not say otherwise it stamps [AlertLabels.fixed], which
+  /// is what makes its payloads the same on every host and in every suite.
+  ///
+  /// Read after [refreshArmContext], which is where a binding re-reads what
+  /// it builds them from, so one pass writes every payload on one clock.
+  AlertLabels get labels => AlertLabels.fixed;
 
   /// Hands one planned fire to the platform. Returns false when the platform
   /// refused it (a revoked exact-alarm permission, a plugin exception); the
@@ -191,6 +219,10 @@ abstract class AlertGateway {
   /// Cancels one entry by the id it was scheduled under. Cancelling an id the
   /// platform does not hold is a no-op, never an error — a process death
   /// between the cancel and the registry write has to be replayable.
+  ///
+  /// An id that is ringing is silenced, and that ending — alone of the ones
+  /// the app makes — is reported on [ringEnded], as
+  /// [AlertRingEndCause.cancelled].
   Future<void> cancel(int osId);
 
   /// Every entry the platform still holds for this app, payloads included.
@@ -207,9 +239,9 @@ abstract class AlertGateway {
     return {for (final entry in entries) entry.osId};
   }
 
-  /// Posts the quiet "Missed: {title} at {time}" notification of A10. Takes
-  /// the payload alone, so the body can be composed without opening a
-  /// database — and so a background isolate could post it.
+  /// Posts the quiet Missed notice of A10: the event's title over
+  /// "Missed · {time}". Takes the payload alone, so its words can be composed
+  /// without opening a database — and so a background isolate could post it.
   Future<void> showMissed(AlertPayload payload);
 
   /// Stops an alarm that is ringing right now, without touching its
@@ -231,8 +263,9 @@ abstract class AlertGateway {
   /// safe to repeat.
   Future<void> acknowledgeMove(AlertMove move) async {}
 
-  /// Emits when a ring ends by a route the app did not take — the platform
-  /// notification's own Stop, the Silence-after timeout, or a native Snooze.
+  /// Emits when a ring ends by a route the alarm page did not take — the
+  /// platform notification's own Stop, the Silence-after timeout, a native
+  /// Snooze, or a [cancel] of the entry while it rang.
   ///
   /// Without it a ring stopped from the notification leaves its registration
   /// `fired` forever: the next occurrence is never re-armed, A3 never runs and
@@ -272,12 +305,18 @@ abstract class AlertGateway {
   /// how the Dart side learns of a Done that ran with no Dart at all.
   /// `SessionChip` decides when and once; a binding only draws it. False,
   /// wherever nothing can be pinned to the shade.
+  ///
+  /// [linkedNote] is whether the event has a note for the chip's second
+  /// button to open. Without one that button opens the event, and says so:
+  /// like the session's end, it is a fact about the event that the payload
+  /// does not carry.
   Future<bool> showSessionChip(
     AlertPayload payload, {
     required DateTime startedAt,
     DateTime? endsAt,
     int? progress,
     bool refresh = false,
+    bool linkedNote = false,
   }) async => false;
 
   /// Takes the session chip down, whether or not this process posted it.

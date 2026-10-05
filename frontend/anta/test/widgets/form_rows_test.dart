@@ -303,6 +303,73 @@ void main() {
       );
       expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
     });
+
+    testWidgets('an action row is a button to a screen reader, and a '
+        'disabled one says that it is off', (tester) async {
+      // An ink well with no tap is nothing to a screen reader: the disabled
+      // row used to be read out as a line of text, with no word that it is
+      // an action or that it is switched off.
+      Future<SemanticsData> dataOf({required bool enabled}) async {
+        await tester.pumpWidget(
+          host(
+            FormActionRow(
+              glyph: Icons.add,
+              label: 'Add alert',
+              identifier: 'event-alert-add',
+              onTap: enabled ? () {} : null,
+            ),
+          ),
+        );
+        return tester
+            .getSemantics(find.bySemanticsIdentifier('event-alert-add'))
+            .getSemanticsData();
+      }
+
+      final live = await dataOf(enabled: true);
+      expect(live.label, 'Add alert');
+      expect(live.flagsCollection.isButton, isTrue);
+      expect(live.flagsCollection.isEnabled, Tristate.isTrue);
+      expect(live.hasAction(SemanticsAction.tap), isTrue);
+
+      final off = await dataOf(enabled: false);
+      // The same one node, under the same id, with the same name.
+      expect(off.identifier, 'event-alert-add');
+      expect(off.label, 'Add alert');
+      expect(off.flagsCollection.isButton, isTrue);
+      expect(off.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(off.hasAction(SemanticsAction.tap), isFalse);
+    });
+
+    testWidgets('an action row without an id is one button node all the same', (
+      tester,
+    ) async {
+      // No merge is asked for here, so the role, the tap and the label have
+      // to land on one node by themselves: two would be two stops for a
+      // screen reader, and a driver's tap by label would hit the one that
+      // has no action.
+      for (final enabled in [true, false]) {
+        await tester.pumpWidget(
+          host(
+            FormActionRow(
+              glyph: Icons.select_all,
+              label: 'Select all',
+              onTap: enabled ? () {} : null,
+            ),
+          ),
+        );
+        expect(find.semantics.byLabel('Select all'), findsOne);
+        final data = tester
+            .getSemantics(find.byType(FormActionRow))
+            .getSemanticsData();
+        expect(data.label, 'Select all');
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(
+          data.flagsCollection.isEnabled,
+          enabled ? Tristate.isTrue : Tristate.isFalse,
+        );
+        expect(data.hasAction(SemanticsAction.tap), enabled);
+      }
+    });
   });
   group('shared chrome and read rows', () {
     Widget page(Widget child, {double width = 412}) => MediaQuery(
@@ -364,6 +431,59 @@ void main() {
         find.bySemanticsIdentifier('repeat-done'),
       );
       expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+    });
+
+    testWidgets('a header text button is named by its semantics label, and '
+        'still reads its own word', (tester) async {
+      // A one-word button beside the sentence it answers: a screen reader
+      // reaches it on its own and has to hear what the word is about.
+      var taps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FormHeaderTextButton(
+              label: 'Keep',
+              semanticsLabel: 'Keep the event',
+              identifier: 'alarm-keep-event',
+              onPressed: () => taps++,
+            ),
+          ),
+        ),
+      );
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier('alarm-keep-event'))
+          .getSemanticsData();
+      // The name replaces the word; it is not read after it.
+      expect(data.label, 'Keep the event');
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      expect(find.text('Keep'), findsOneWidget);
+      expect(find.text('Keep the event'), findsNothing);
+      await tester.tap(find.bySemanticsIdentifier('alarm-keep-event'));
+      expect(taps, 1);
+    });
+
+    testWidgets('a header text button without one is named by its label', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FormHeaderTextButton(
+              label: 'Done',
+              identifier: 'look-done',
+              onPressed: () {},
+            ),
+          ),
+        ),
+      );
+      expect(
+        tester
+            .getSemantics(find.bySemanticsIdentifier('look-done'))
+            .getSemanticsData()
+            .label,
+        'Done',
+      );
     });
 
     testWidgets("a picker row's caption sits inside the row's own node", (
@@ -2438,6 +2558,149 @@ void main() {
     });
   });
 
+  group('read title row', () {
+    const avatar = EventAvatar(icon: Icons.fitness_center, color: Colors.blue);
+    const titleLine = FormMetrics.titleFontSize * FormMetrics.titleLineHeight;
+
+    /// The line a caption sits on, at every caption in the kit.
+    const captionLine = 18.0;
+
+    Widget grouped(FormReadTitleRow row) => MaterialApp(
+      home: Scaffold(
+        body: FormRowGroup(
+          children: [
+            row,
+            const FormPickerRow(label: 'Date', value: 'Sep 20', onTap: null),
+          ],
+        ),
+      ),
+    );
+
+    testWidgets('with a caption it is the two-line row: the title over the '
+        'caption, the avatar centred against both, the hairline at the '
+        'title indent', (tester) async {
+      const row = FormReadTitleRow(
+        leading: avatar,
+        title: 'Leg day',
+        caption: 'Gym',
+      );
+      await tester.pumpWidget(grouped(row));
+
+      final rect = tester.getRect(find.byType(FormReadTitleRow));
+      // 9 above, the 26 px title line, 2, the 18 px caption line, 9 below:
+      // two over the two-line floor, as the detail sheet has always drawn it.
+      expect(
+        rect.height,
+        moreOrLessEquals(
+          RowMetrics.twoLinePadding.vertical +
+              titleLine +
+              RowMetrics.lineGap +
+              captionLine,
+          epsilon: 0.01,
+        ),
+      );
+      expect(rect.height, greaterThan(FormMetrics.twoLineRowMinHeight));
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentTitle);
+      expect(
+        tester.widget<Divider>(find.byType(Divider)).indent,
+        FormMetrics.dividerIndentTitle,
+      );
+      final avatarRect = tester.getRect(find.byType(EventAvatar));
+      expect(avatarRect.left, RowMetrics.groupInset);
+      expect(avatarRect.size, const Size.square(FormMetrics.rowLeadingSize));
+      expect(avatarRect.center.dy, moreOrLessEquals(rect.center.dy));
+      final title = tester.getRect(find.text('Leg day'));
+      final caption = tester.getRect(find.text('Gym'));
+      expect(title.left, FormMetrics.dividerIndentTitle);
+      expect(caption.left, title.left);
+      expect(caption.top, title.bottom + RowMetrics.lineGap);
+      final style = tester.widget<Text>(find.text('Leg day')).style!;
+      expect(style.fontSize, FormMetrics.titleFontSize);
+      expect(style.fontWeight, FontWeight.w500);
+      expect(
+        tester.widget<Text>(find.text('Gym')).style!.fontSize,
+        FormMetrics.captionSize,
+      );
+    });
+
+    testWidgets('without one it is the title row: 56 dp around the avatar, '
+        'the title on its centre line', (tester) async {
+      const row = FormReadTitleRow(leading: avatar, title: 'Leg day');
+      await tester.pumpWidget(grouped(row));
+
+      final rect = tester.getRect(find.byType(FormReadTitleRow));
+      expect(rect.height, FormMetrics.titleRowMinHeight);
+      expect(
+        tester.widget<Divider>(find.byType(Divider)).indent,
+        FormMetrics.dividerIndentTitle,
+      );
+      expect(
+        tester.getCenter(find.text('Leg day')).dy,
+        moreOrLessEquals(tester.getCenter(find.byType(EventAvatar)).dy),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(FormReadTitleRow),
+          matching: find.byType(Text),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('it is one node — the title, then the caption — and what '
+        'leads the row is left out of it', (tester) async {
+      await tester.pumpWidget(
+        host(
+          const FormReadTitleRow(
+            // Not an avatar, which keeps itself out: a leading widget that
+            // would name itself if the row let it.
+            leading: Icon(Icons.star, semanticLabel: 'Starred'),
+            title: 'Leg day',
+            caption: '07:00 – 08:30',
+          ),
+        ),
+      );
+      final data = tester
+          .getSemantics(find.byType(FormReadTitleRow))
+          .getSemanticsData();
+      expect(data.label, 'Leg day\n07:00 – 08:30');
+      expect(find.semantics.byLabel(RegExp('Starred')), findsNothing);
+      // Neither line is a stop of its own.
+      expect(find.semantics.byLabel('Leg day'), findsNothing);
+      expect(find.semantics.byLabel('07:00 – 08:30'), findsNothing);
+      // A read row: nothing to tap.
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+    });
+
+    testWidgets('a long German title at 200 % on a narrow phone wraps without '
+        'overflow, its caption under it', (tester) async {
+      const title = 'Krankengymnastik und Rückenschule im Gesundheitszentrum';
+      await pumpOnNarrowPhoneAtDouble(
+        tester,
+        const FormReadTitleRow(
+          leading: avatar,
+          title: title,
+          caption: '18:00 – 19:30',
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      final text = tester.widget<Text>(find.text(title));
+      expect(text.maxLines, isNull);
+      final titleRect = tester.getRect(find.text(title));
+      expect(titleRect.height, greaterThan(titleLine * 2.0 * 2));
+      final row = tester.getRect(find.byType(FormReadTitleRow));
+      expect(titleRect.right, lessThanOrEqualTo(row.right));
+      final caption = tester.getRect(find.text('18:00 – 19:30'));
+      expect(caption.top, greaterThanOrEqualTo(titleRect.bottom));
+      expect(caption.bottom, lessThanOrEqualTo(row.bottom));
+      // The avatar does not scale with the text and stays on the row's
+      // centre line.
+      final avatarRect = tester.getRect(find.byType(EventAvatar));
+      expect(avatarRect.size, const Size.square(FormMetrics.rowLeadingSize));
+      expect(avatarRect.center.dy, moreOrLessEquals(row.center.dy));
+    });
+  });
+
   group('hero row', () {
     FormHeroRow hero({
       String value = '7:15',
@@ -2731,6 +2994,33 @@ void main() {
           tester.getTopLeft(find.byType(FormCaptionSlot)),
         );
       }
+    });
+
+    testWidgets('a slot told to centre puts a caption shorter than itself on '
+        'its middle line, and is no taller for it', (tester) async {
+      // A caption that is a row's own line, beside a glyph and a button
+      // centred on that row: at the top of a taller slot it would hang above
+      // both.
+      await tester.pumpWidget(
+        boxed(FormCaptionSlot(candidates: captions, child: captions[2])),
+      );
+      final tallest = tester.getSize(find.byType(FormCaptionSlot));
+
+      await tester.pumpWidget(
+        boxed(
+          FormCaptionSlot(
+            alignment: AlignmentDirectional.centerStart,
+            candidates: captions,
+            child: captions[0],
+          ),
+        ),
+      );
+      final slot = tester.getRect(find.byType(FormCaptionSlot));
+      final shown = tester.getRect(find.text('Short').hitTestable());
+      expect(slot.size, tallest);
+      expect(shown.height, lessThan(slot.height));
+      expect(shown.left, slot.left);
+      expect(shown.center.dy, moreOrLessEquals(slot.center.dy));
     });
 
     testWidgets('only the shown caption is drawn, announced and hit', (

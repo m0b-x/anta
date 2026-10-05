@@ -145,4 +145,229 @@ void main() {
       expect(AlertPayload.fromJson(map)!.mode, AlertMode.notify);
     });
   });
+
+  // An entry of another database and a standing snooze are never re-armed, so
+  // a payload written before these fields existed can ring long after: every
+  // one of them is optional, absent from the wire while it says nothing, and
+  // read back as "say what you always said".
+  group('the optional facts', () {
+    /// What the build before these fields wrote for [payloadOf], byte for
+    /// byte — the string a phone is still holding.
+    const before =
+        '{"db":"gym_notes","eventId":"e1","alertId":"a1",'
+        '"dayUtcMs":1789862400000,"osId":1234,"mode":"ring",'
+        '"title":"Leg day","timeLabel":"18:00","colorValue":4278255360,'
+        '"tintIcon":true,"iconKey":"alarm","categoryId":"gym",'
+        '"removeAfterAlert":true,"snooze":true,"snoozeMin":10,'
+        '"notice":false}';
+
+    AlertPayload stamped() => payloadOf().copyWith(
+      fireAtMs: DateTime(2026, 9, 20, 18).millisecondsSinceEpoch,
+      reRing: true,
+      whenLabel: '18:00 – 19:30',
+      tintValue: 0xFF00897B,
+      glyphKey: 'fitness_center',
+      languageCode: 'de',
+      iconFile: '/data/alert_icons/fitness_center_ff00897b.png',
+    );
+
+    test('a payload with none of them encodes to what it always did', () {
+      expect(payloadOf().encode(), before);
+    });
+
+    test('and what a phone already holds decodes to the same object', () {
+      final decoded = AlertPayload.decode(before);
+
+      expect(decoded, payloadOf());
+      expect(decoded!.fireAtMs, isNull);
+      expect(decoded.reRing, isFalse);
+      expect(decoded.whenLabel, '');
+      expect(decoded.tintValue, isNull);
+      expect(decoded.glyphKey, isNull);
+      expect(decoded.languageCode, isNull);
+      expect(decoded.iconFile, isNull);
+    });
+
+    test('every one of them survives the wire', () {
+      final decoded = AlertPayload.decode(stamped().encode());
+
+      expect(decoded, stamped());
+      // Spelled out as well: `Equatable` agrees about two payloads that both
+      // dropped the same field.
+      expect(
+        decoded!.fireAtMs,
+        DateTime(2026, 9, 20, 18).millisecondsSinceEpoch,
+      );
+      expect(decoded.reRing, isTrue);
+      expect(decoded.whenLabel, '18:00 – 19:30');
+      expect(decoded.tintValue, 0xFF00897B);
+      expect(decoded.glyphKey, 'fitness_center');
+      expect(decoded.languageCode, 'de');
+      expect(decoded.iconFile, '/data/alert_icons/fitness_center_ff00897b.png');
+    });
+
+    test('each goes on the wire under its own short key', () {
+      final json = stamped().toJson();
+
+      expect(json['fireAt'], DateTime(2026, 9, 20, 18).millisecondsSinceEpoch);
+      expect(json['reRing'], isTrue);
+      expect(json['when'], '18:00 – 19:30');
+      expect(json['tint'], 0xFF00897B);
+      expect(json['glyph'], 'fitness_center');
+      expect(json['lang'], 'de');
+      expect(json['iconFile'], '/data/alert_icons/fitness_center_ff00897b.png');
+    });
+
+    test('reRing is written only when true', () {
+      expect(payloadOf().toJson().containsKey('reRing'), isFalse);
+      expect(
+        payloadOf().copyWith(reRing: false).toJson().containsKey('reRing'),
+        isFalse,
+      );
+      expect(payloadOf().copyWith(reRing: true).toJson()['reRing'], isTrue);
+      // Anything but a literal true on the wire is "not a re-ring": the mark
+      // may be missing, it may never be wrong.
+      for (final written in [false, null, 'true', 1]) {
+        final map = payloadOf().toJson()..['reRing'] = written;
+        expect(AlertPayload.fromJson(map)!.reRing, isFalse, reason: '$written');
+      }
+    });
+
+    test('the event time is left out while it is empty', () {
+      expect(payloadOf().toJson().containsKey('when'), isFalse);
+      expect(
+        payloadOf().copyWith(whenLabel: '').toJson().containsKey('when'),
+        isFalse,
+      );
+      expect(
+        payloadOf().copyWith(whenLabel: 'All day').toJson()['when'],
+        'All day',
+      );
+    });
+
+    test('a value of the wrong kind reads as absent, never as a crash', () {
+      final map = payloadOf().toJson()
+        ..['fireAt'] = '2026-09-20'
+        ..['when'] = 1800
+        ..['tint'] = '#00897B'
+        ..['glyph'] = 7
+        ..['lang'] = false
+        ..['iconFile'] = const <String>[];
+
+      final decoded = AlertPayload.fromJson(map);
+
+      expect(decoded, payloadOf());
+    });
+
+    test('copyWith carries them, and changes only the one it is given', () {
+      final moved = stamped().copyWith(
+        fireAtMs: DateTime(2026, 9, 20, 18, 10).millisecondsSinceEpoch,
+      );
+
+      expect(
+        moved.fireAtMs,
+        DateTime(2026, 9, 20, 18, 10).millisecondsSinceEpoch,
+      );
+      expect(moved.reRing, isTrue);
+      expect(moved.whenLabel, '18:00 – 19:30');
+      expect(moved.tintValue, 0xFF00897B);
+      expect(moved.glyphKey, 'fitness_center');
+      expect(moved.languageCode, 'de');
+      expect(moved.iconFile, '/data/alert_icons/fitness_center_ff00897b.png');
+      // The mark is the one of them a copy has to be able to take back: a
+      // snooze of a re-ring is not itself one.
+      expect(stamped().copyWith(reRing: false).reRing, isFalse);
+      expect(stamped().copyWith(osId: 7), isNot(stamped()));
+      expect(stamped().copyWith(osId: 7).copyWith(osId: 1234), stamped());
+    });
+
+    test('two payloads that differ in one of them are not equal', () {
+      final base = stamped();
+      final others = <String, AlertPayload>{
+        'fireAtMs': base.copyWith(fireAtMs: 1),
+        'reRing': base.copyWith(reRing: false),
+        'whenLabel': base.copyWith(whenLabel: 'All day'),
+        'tintValue': base.copyWith(tintValue: 0xFF000000),
+        'glyphKey': base.copyWith(glyphKey: 'alarm'),
+        'languageCode': base.copyWith(languageCode: 'ro'),
+        'iconFile': base.copyWith(iconFile: '/elsewhere.png'),
+      };
+
+      for (final entry in others.entries) {
+        expect(entry.value, isNot(base), reason: entry.key);
+      }
+    });
+
+    test('nor two that differ only in whether the colour tints the icon', () {
+      // The flag was on the wire and in the constructor but missing from the
+      // comparison, so two payloads that draw different avatars were equal.
+      final tinted = payloadOf();
+      final untinted = AlertPayload.fromJson(
+        payloadOf().toJson()..['tintIcon'] = false,
+      )!;
+
+      expect(untinted.tintIcon, isFalse);
+      expect(untinted, isNot(tinted));
+    });
+
+    // Whether a reminder was armed in the app's notification group, which
+    // the isolate that re-posts a snoozed one can only learn from here.
+    group('the group mark', () {
+      test('an entry armed before it existed reads as loose, and is written '
+          'back as it was', () {
+        final held = AlertPayload.decode(before)!;
+
+        expect(held.grouped, isFalse);
+        expect(held.encode(), before);
+        // And one armed since, by a build that stamps everything else, on a
+        // phone that does not group.
+        expect(AlertPayload.decode(stamped().encode())!.grouped, isFalse);
+        expect(stamped().toJson().containsKey('grp'), isFalse);
+      });
+
+      test('is written only when true, under its own short key', () {
+        expect(payloadOf().toJson().containsKey('grp'), isFalse);
+        expect(
+          payloadOf().copyWith(grouped: false).toJson().containsKey('grp'),
+          isFalse,
+        );
+        expect(payloadOf().copyWith(grouped: true).toJson()['grp'], isTrue);
+        // Anything but a literal true on the wire is the loose reminder
+        // every phone had before: a group key is never guessed at.
+        for (final written in [false, null, 'true', 1]) {
+          final map = payloadOf().toJson()..['grp'] = written;
+          expect(
+            AlertPayload.fromJson(map)!.grouped,
+            isFalse,
+            reason: '$written',
+          );
+        }
+      });
+
+      test('survives the wire', () {
+        final inGroup = stamped().copyWith(grouped: true);
+        final decoded = AlertPayload.decode(inGroup.encode());
+
+        expect(decoded, inGroup);
+        expect(decoded!.grouped, isTrue);
+      });
+
+      test('is carried by a copy, which can also take it back', () {
+        final inGroup = stamped().copyWith(grouped: true);
+
+        // What a snooze and a moved ring are made with.
+        expect(inGroup.copyWith(osId: 7, snooze: true).grouped, isTrue);
+        expect(
+          inGroup.copyWith(fireAtMs: 1, timeLabel: '18:10').grouped,
+          isTrue,
+        );
+        expect(inGroup.copyWith(grouped: false).grouped, isFalse);
+        expect(stamped().copyWith(osId: 7).grouped, isFalse);
+      });
+
+      test('tells two payloads apart', () {
+        expect(stamped().copyWith(grouped: true), isNot(stamped()));
+      });
+    });
+  });
 }

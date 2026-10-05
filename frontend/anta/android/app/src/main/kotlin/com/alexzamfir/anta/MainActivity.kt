@@ -82,7 +82,11 @@ private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
  * alarm that rang while no Dart was running from one that never fired.
  * `alarmStreamVolume` reports the user's own alarm level so the app can follow
  * it instead of overriding it, and only take it over when it is so low that an
- * alarm would not wake anyone. `consumeShowAlarmsRequest` answers whether this
+ * alarm would not wake anyone. `sdkInt` is the phone's Android API level,
+ * which Dart cannot read for itself and needs once: a reminder is posted in a
+ * notification group of the app's own from Android 16 on, where the platform
+ * began bundling loose notifications, and loose below it.
+ * `consumeShowAlarmsRequest` answers whether this
  * activity was started by the show intent an alarm-clock entry carries
  * ([AlarmService.ACTION_SHOW], the `alarm` fork's Patch 1 — what the lock
  * screen's alarm line and Quick Settings launch): true once, then false. A warm
@@ -441,6 +445,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "processStartedAt" -> result.success(processStartedAt())
                 "alarmStreamVolume" -> result.success(alarmStreamVolume())
+                "sdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "pickAlarmSound" -> pickAlarmSound(call.arguments as? String, result)
                 "alarmSoundTitle" ->
                     result.success(alarmSoundTitle(call.arguments as? String))

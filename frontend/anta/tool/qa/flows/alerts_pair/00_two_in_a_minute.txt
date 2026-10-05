@@ -1,0 +1,47 @@
+# Two alarms due on the same minute. Seeded from
+# tool/qa/fixtures/alerts_pair.json: "Squat warm-up" (qa-pair-first) and
+# "Squat main set" (qa-pair-second), an Alarm-tier alert each at the start,
+# both starting when the clock turns to the second minute after the seed was
+# resolved. The flow waits on wherever the app is for the ring, lets both
+# pages come up, and stops them one after the other.
+# - The plugin never sounds two alarms at once: its service rings one and
+#   holds the other until the first is stopped. But the app is told of both
+#   — of the held one about a second late, by the plugin's own timer
+#   ("Alarm had to be triggered manually via timer" in `qa log`) — and pushes
+#   a page for each, so within a second there are two alarm pages, the held
+#   alarm's on top of the sounding one's (seen 2026-10-05).
+# - `key back` is given two and a half seconds, and they are for that second
+#   page. Back itself must do nothing: back is not Stop.
+# - Which alarm sounds first is the platform's to say. Nothing here names
+#   one: "Squat" is in both titles, and each page is a different colour with
+#   a different second line, so the two shots tell them apart — and the
+#   heads-up Android draws over the page names the one that is sounding.
+# - The first Stop lands on the page on top and closes that page; the second
+#   lands on the page under it. Each page closes its own route, which is what
+#   this flow is for: until 2026-10 a page closed whatever was on top, so
+#   whenever the page underneath was the first to close — its ring stopped
+#   on the heads-up, or a Stop tapped before the second page had arrived —
+#   it took the other ring's page with it and stayed behind itself, Stop and
+#   Snooze spent and back disabled, with the phone still ringing.
+# - Both pages carry id:alarm-stop, so nothing can be waited for between the
+#   two Stops: the first tap pauses four seconds instead, which is the first
+#   Stop finishing many times over. A second Stop that landed on a page still
+#   switched off would leave a ring going, and the wait after it would run
+#   out.
+# - Push the seed with `qa relaunch --fresh --seed`, never with `qa run`, and
+#   run the flow straight after: the ring is between one and two minutes
+#   away, and the wait is given two and a half.
+# - The second Stop pops the last alarm page onto what was under the first:
+#   the root, where a fresh launch stands. Both events are still on the
+#   calendar, since neither is removed by Stop.
+wait id:alarm-stop --timeout 150
+key back --settle 2500
+expect id:alarm-stop id:alarm-snooze id:alarm-open-event "Squat" --absent id:alarm-keep-event
+shot 00_pair_first
+tap id:alarm-stop --settle 4000
+expect id:alarm-stop id:alarm-snooze id:alarm-open-event "Squat"
+shot 00_pair_second
+tap id:alarm-stop
+wait id:alarm-stop --gone
+expect "Open navigation menu"
+errors

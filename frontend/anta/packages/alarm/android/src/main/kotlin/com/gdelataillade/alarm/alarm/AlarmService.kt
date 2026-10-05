@@ -121,6 +121,53 @@ class AlarmService : Service() {
             get() = instance?.audioService?.getPlayingMediaPlayersIds() ?: listOf()
     }
 
+    /**
+     * The wake lock a ring keeps the CPU awake with, held where the ring's end
+     * can reach it (ANTA fork, Patch 6).
+     *
+     * Upstream took one into a local at every ring start, for five minutes, and
+     * never released it: the CPU stayed awake for five minutes after a ring that
+     * was stopped at once, and each queued alarm promoted in its turn took
+     * another. Here one is held at a time. [acquire] lets go of the last before
+     * it takes the next; [release] lets go when the last ring ends and when the
+     * service is destroyed. [MAX_HOLD_MILLIS] stays as the bound for a ring
+     * nobody ends.
+     *
+     * A lock already let go — by the platform, at that bound — is not released
+     * again: [Lock.isHeld] is asked first, because a `PowerManager.WakeLock`
+     * released more often than it was acquired throws.
+     *
+     * Written against [Lock] rather than `PowerManager.WakeLock`, which a JVM
+     * unit test cannot construct. Nested here rather than in a file of its own
+     * because the script that prepares the upstream pull request copies this
+     * file whole and nothing beside it, and the copy has to compile.
+     */
+    internal class RingWakeLock(private val newLock: () -> Lock) {
+        /** What this needs of a `PowerManager.WakeLock`. */
+        interface Lock {
+            val isHeld: Boolean
+            fun acquire(timeoutMillis: Long)
+            fun release()
+        }
+
+        private var lock: Lock? = null
+
+        fun acquire() {
+            release()
+            lock = newLock().also { it.acquire(MAX_HOLD_MILLIS) }
+        }
+
+        fun release() {
+            val held = lock ?: return
+            lock = null
+            if (held.isHeld) held.release()
+        }
+
+        companion object {
+            const val MAX_HOLD_MILLIS = 5 * 60 * 1000L
+        }
+    }
+
     private var alarmId: Int = 0
     private var audioService: AudioService? = null
     private var vibrationService: VibrationService? = null
@@ -130,6 +177,16 @@ class AlarmService : Service() {
     private var shouldStopAlarmOnTermination: Boolean = true
     private val ringingQueue = mutableListOf<Int>()
     private val queuedAlarmSettings = mutableMapOf<Int, AlarmSettings>()
+
+    private val ringWakeLock = RingWakeLock {
+        val wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "app:AlarmWakelockTag")
+        object : RingWakeLock.Lock {
+            override val isHeld: Boolean get() = wakeLock.isHeld
+            override fun acquire(timeoutMillis: Long) = wakeLock.acquire(timeoutMillis)
+            override fun release() = wakeLock.release()
+        }
+    }
 
     // Last notification passed to startForeground, so no-op start commands
     // (queued or ignored alarms) can re-post it to satisfy the
@@ -314,10 +371,9 @@ class AlarmService : Service() {
         // Retrieve whether the alarm should be stopped on task termination
         shouldStopAlarmOnTermination = alarmSettings.androidStopAlarmOnTermination
 
-        // Acquire a wake lock to wake up the device
-        val wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "app:AlarmWakelockTag")
-        wakeLock.acquire(5 * 60 * 1000L) // Acquire for 5 minutes
+        // Keep the CPU awake for this ring, and for no longer: the lock is let
+        // go when the last ring ends (ANTA fork, Patch 6).
+        ringWakeLock.acquire()
 
         // If there are no other alarms scheduled, turn off the warning notification.
         val storage = alarmStorage
@@ -597,9 +653,10 @@ class AlarmService : Service() {
      *
      * Does nothing unless this service is currently ringing [alarmId] and owns its
      * notification, so a dismissal that races the alarm ending cannot resurrect a
-     * notification for an alarm that is over. That guard also matters because
-     * [AlarmReceiver] is exported and the action can therefore be broadcast by
-     * anything.
+     * notification for an alarm that is over. Upstream needed that guard against
+     * other applications as well, while [AlarmReceiver] was exported and the
+     * action could be broadcast by anything; it no longer is (ANTA fork,
+     * Patch 5).
      */
     fun restoreNotification(alarmId: Int) {
         if (!ringingAlarmIds.contains(alarmId)) {
@@ -664,6 +721,7 @@ class AlarmService : Service() {
                     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     currentForegroundId = null
                     currentForegroundNotification = null
+                    ringWakeLock.release()
                     stopSelf()
                 }
             }
@@ -708,6 +766,7 @@ class AlarmService : Service() {
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         currentForegroundId = null
         currentForegroundNotification = null
+        ringWakeLock.release()
         instance = null
 
         super.onDestroy()

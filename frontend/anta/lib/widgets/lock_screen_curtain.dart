@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../services/lock_screen_state.dart';
+import 'alarm_ground.dart';
 
 /// Hides the app while it is on top of a locked phone with no alarm page to
 /// show for it.
@@ -82,7 +83,10 @@ class _LockScreenCurtainState extends State<LockScreenCurtain> {
           Listener(
             behavior: HitTestBehavior.opaque,
             onPointerDown: (_) => _state.refresh(),
-            child: ColoredBox(color: Theme.of(context).colorScheme.surface),
+            // The alarm page's own ground and system bars: the cover is what
+            // a ring on a locked phone shows before its page and after it,
+            // and a step in tone between the two would read as a flash.
+            child: const AlarmGround(),
           ),
       ],
     );

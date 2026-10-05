@@ -1,0 +1,22 @@
+# A real event's alarm: the fixture's "Leg day" (qa-alert-plain), a timed
+# event with an end, a description and a colour of its own, one Alarm-tier
+# alert at its start. The flow waits on the calendar for the ring, reads the
+# page, and stops it.
+# - The event starts when the clock turns to the third minute after the seed
+#   was resolved, so the ring is between two and three minutes after the
+#   relaunch. The wait is given three and a half: enough when this flow is
+#   the first thing run, and the page is there the moment it rings.
+# - An ordinary alarm removes nothing, so Keep is not offered.
+# - The event is one row on the page: its title over its own time, read as
+#   one line, so "Leg day" is found inside it. The times and the day move
+#   with the run and are not read; the first line of the description,
+#   "Squats first.", is the row under it and does not move.
+# - Stop pops the page back onto the calendar. It also posts the session chip
+#   on the shade, which the next ring takes down.
+wait id:alarm-stop --timeout 210
+expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-body "Leg day" "Squats first." --absent id:alarm-keep-event --absent id:alarm-open-database
+shot 01_event_alarm
+tap id:alarm-stop
+wait id:alarm-stop --gone
+expect id:calendar-add-event
+errors

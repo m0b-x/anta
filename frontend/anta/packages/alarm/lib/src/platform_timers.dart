@@ -132,8 +132,32 @@ class PlatformTimers {
       return;
     }
 
+    // (ANTA fork, Patch 7) Not ringing now is not the same as never reported.
+    // An alarm the platform did report, and that was stopped, snoozed or set
+    // again inside the wait above, is not in the ringing set either — and
+    // announcing it here would tell the application of a ring that is over.
+    // What tells the two apart is the scheduled set: `Alarm.alarmRang` takes
+    // an alarm out of it as it puts it into the ringing one, and every stop
+    // takes it out of both. So only an alarm the platform never told of — the
+    // case this fallback exists for, and the alarm the host holds back while
+    // another one sounds — is still scheduled when the wait ends.
+    if (!_isScheduledAs(settings)) {
+      _log.info('Alarm timer triggered but the alarm was reported, and then '
+          'stopped or set again, while waiting. Info: ${settings.toJson()}');
+      return;
+    }
+
     _log.warning('Alarm had to be triggered manually via timer. '
         'Info: ${settings.toJson()}');
     Alarm.alarmRang(settings);
   }
+
+  /// Whether [Alarm.scheduled] still holds exactly [settings].
+  ///
+  /// Compared whole, where the set itself goes by id alone: an alarm snoozed
+  /// from the application is armed again under the id it rang under, and the
+  /// id being scheduled once more — for another time — says nothing of the
+  /// ring this timer was started for.
+  static bool _isScheduledAs(AlarmSettings settings) =>
+      Alarm.scheduled.value.alarms.any((alarm) => alarm == settings);
 }

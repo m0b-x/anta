@@ -95,6 +95,31 @@ void main() {
     expect(queue.drain(), hasLength(1));
   });
 
+  test('one ring reported under two payloads is still one ring', () {
+    // A ring's payload is not one fixed value: the binding corrects it for
+    // the instant the platform says it rang at, so two reports of one ring
+    // need not be equal. The id is the ring, and nothing here may compare
+    // the rest — or the second report would push a second alarm page.
+    final armed = payloadOf(1);
+    final restamped = armed.copyWith(
+      fireAtMs: DateTime(2026, 9, 20, 7, 10).millisecondsSinceEpoch,
+      timeLabel: '07:10',
+      whenLabel: '07:00',
+      reRing: true,
+    );
+    expect(restamped, isNot(armed));
+
+    queue.enqueue(OpenAlarmIntent(payload: armed));
+    queue.enqueue(OpenAlarmIntent(payload: restamped));
+    expect(queue.length, 1);
+
+    // And across a drain, where the second half is an echo of the first.
+    final drained = queue.drain().single as OpenAlarmIntent;
+    expect(drained.payload, armed);
+    queue.enqueue(OpenAlarmIntent(payload: restamped));
+    expect(queue.isEmpty, isTrue);
+  });
+
   test('dedupes the second half of a delivery that straddles a drain', () {
     // The real shape of the double delivery: the response callback lands, the
     // app drains it, and `getNotificationAppLaunchDetails()` reports the same

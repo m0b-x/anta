@@ -1,0 +1,37 @@
+# The quick alarm's shape: the fixture's "Tea timer" (qa-alert-remove), no
+# end, one Alarm-tier alert at its start and "remove after it rings" on. The
+# page says, in a row directly above Stop, that Stop also removes the event,
+# and offers Keep beside it; Keep changes the line and stays where it was,
+# switched off; Stop then leaves the event where it was.
+# - It rings two minutes after "Leg day", which the flow before this one has
+#   stopped; the wait is given three.
+# - The line and Keep are drawn once the page knows the alarm is the open
+#   database's and has asked the event whether Stop still removes it, a
+#   moment after the page itself: the expect that reads them polls, so it
+#   does not race that moment. This is the event's first ring, so the answer
+#   is yes; a ring that comes after a Keep reads "The event will be kept"
+#   from the start, with Keep switched off.
+# - Keep is tapped before Stop, so nothing is removed and no "Event removed"
+#   bar follows. Keep does not go away, so what is waited for is the line
+#   that says the event was kept — drawn when the write has come back.
+# - The event's day is today by the time it has rung, whichever side of
+#   midnight the run started on, and the grid may still stand on yesterday:
+#   Go to today comes before the day panel is read.
+# - The row's second line is read: Keep's write reaches the calendar, which
+#   reloads, so "removed after it rings" is gone from it without a relaunch.
+#   Until 2026-10 the row went on saying it (seen 2026-10-04).
+# - "Stretch" (qa-alert-reminder) is left armed on purpose: a Reminder-tier
+#   alert two minutes after this ring, for a look at the shade by hand.
+wait id:alarm-stop --timeout 180
+expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-keep-event "Tea timer" "Stop also removes this event"
+shot 02_remove_after
+tap id:alarm-keep-event
+wait "The event will be kept"
+expect id:alarm-stop id:alarm-keep-event "Tea timer" "The event will be kept" --absent "Stop also removes this event"
+shot 02_remove_after_kept
+tap id:alarm-stop
+wait id:alarm-stop --gone
+tap id:calendar-today
+expect id:event-row-qa-alert-remove --absent "removed after it rings"
+shot 02_remove_after_event_kept
+errors

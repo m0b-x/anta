@@ -6,6 +6,7 @@ import 'package:get_it/get_it.dart';
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
 import '../services/alert_gateway.dart';
+import '../services/alert_keep_notice.dart';
 import '../services/alert_removal_notice.dart';
 import '../services/alert_scheduler.dart';
 import '../services/calendar_event_service.dart';
@@ -33,7 +34,12 @@ class AlertRingController extends ChangeNotifier {
 
   String? _activeDatabase;
 
-  bool _keepEvent = false;
+  /// Keep's write is on its way to the database.
+  bool _keeping = false;
+
+  /// The event is kept, in the database: Keep's write has come back, or
+  /// [load] found the event already kept.
+  bool _kept = false;
 
   bool _busy = false;
 
@@ -41,10 +47,20 @@ class AlertRingController extends ChangeNotifier {
 
   bool _endedElsewhere = false;
 
+  bool _disposed = false;
+
   StreamSubscription<AlertRingEnd>? _ringEnded;
 
+  Future<CalendarEvent?> Function(String eventId) _findEvent = _registeredEvent;
+
+  Future<void> Function(CalendarEvent event) _saveEvent = _registeredSave;
+
+  Future<void> Function(AlertPayload payload) _removeEvent = _registeredRemoval;
+
   /// The database the app is actually in, once it is known. Null until then,
-  /// which is what keeps the A9 chip from flashing on every ring.
+  /// which is what keeps the page from claiming anything about the event —
+  /// that Stop removes it, that it can be kept, that it lives elsewhere —
+  /// before it knows whose event this is.
   String? get activeDatabase => _activeDatabase;
 
   /// Whether this alarm belongs to a database other than the one that is open
@@ -52,13 +68,20 @@ class AlertRingController extends ChangeNotifier {
   bool get fromOtherDatabase =>
       _activeDatabase != null && _activeDatabase != payload.database;
 
-  /// Whether the user asked to keep an event that would otherwise be removed
-  /// once the alarm is acknowledged (**A3**).
-  bool get keepEvent => _keepEvent;
+  /// Whether the event has been kept: Keep was pressed (**A3**) **and its
+  /// write has come back** — or it had been kept already when this ring came
+  /// up ([load]). The page says "kept" off this, so it never says so about a
+  /// write that is still on its way or that failed.
+  bool get keepEvent => _kept;
 
   /// Whether the event will be deleted when Stop is pressed.
+  ///
+  /// False from the moment Keep is pressed, before its write has landed: a
+  /// Stop that overtakes the write must not delete an event the user has
+  /// just asked to keep. True again if that write fails. False as well for a
+  /// ring whose event [load] found already kept, whatever its payload says.
   bool get willRemoveEvent =>
-      payload.removeAfterAlert && !_keepEvent && !payload.isTest;
+      payload.removeAfterAlert && !_keeping && !_kept && !payload.isTest;
 
   bool get busy => _busy;
 
@@ -66,24 +89,65 @@ class AlertRingController extends ChangeNotifier {
   /// a double tap from stopping twice.
   bool get stopped => _stopped;
 
-  /// Whether this ring ended by a route the page did not take — Stop on the
-  /// platform's notification, or the Silence-after timeout. The page closes on
-  /// it: a screen still offering Stop for a ring that is over cannot be left
-  /// by the back gesture, and `main.dart` has already settled the ring.
+  /// Whether this ring ended by a route the page did not take — Stop or
+  /// Snooze on the platform's notification, the Silence-after timeout, or
+  /// its entry cancelled under it. The page closes on it, whatever the
+  /// cause: a screen still offering Stop for a ring that is over cannot be
+  /// left by the back gesture. What such an ending owes — for a cancelled
+  /// entry, nothing — is `main.dart`'s to settle, which hears of it too.
   bool get endedElsewhere => _endedElsewhere;
 
-  /// Resolves the one thing the payload cannot carry: which database is open
-  /// *now*. Called once from `initState`.
+  /// Resolves what the payload cannot carry: which database is open *now*
+  /// and, for an alarm whose payload says Stop removes its event, whether the
+  /// event still says so. Called once from `initState`.
+  ///
+  /// The second because a payload is as old as its arming, and [keep] writes
+  /// the event and re-arms nothing. A ring armed before a Keep — the same
+  /// alarm snoozed on its notification, which the plugin re-arms as it
+  /// stands, or a second alarm of the event — still carries the claim, and
+  /// the page said "Stop also removes this event" beside a live Keep about an
+  /// event kept ten minutes earlier. Stop removed nothing, since the
+  /// acknowledgement reads the event's own flag: the sentence was simply
+  /// false. Such a ring starts as kept.
+  ///
+  /// **One notification, one state.** The page fills its remove row the
+  /// moment it knows the alarm is the open database's, so the name is held
+  /// back until the event has answered: told the name first, the page would
+  /// draw the claim and take it back a moment later.
   Future<void> load() async {
     _listenForRingEnd();
+    final String active;
     try {
       final manager = await DatabaseManager.getInstance();
-      _activeDatabase = manager.getActiveDatabaseName();
+      active = manager.getActiveDatabaseName();
     } catch (e) {
       debugPrint('[AlertRingController] active database unknown: $e');
       return;
     }
-    notifyListeners();
+    if (await _keptBeforeThisRing(active)) _kept = true;
+    _activeDatabase = active;
+    // The lookup can outlast the page, which disposes the controller it made.
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Whether the event this ring says Stop removes no longer carries the
+  /// flag, in [active] — the open database, which is not published yet.
+  ///
+  /// Asked only where the claim would be drawn: for an alarm of the open
+  /// database that is still one Stop removes. Another database's alarm is
+  /// never looked up, for the reason [_resolveEvent] gives — the event with
+  /// that id here is somebody else's. It only reads, and it only ever takes
+  /// the claim away: an event that is not there, or a lookup that throws,
+  /// leaves the payload's word standing.
+  Future<bool> _keptBeforeThisRing(String active) async {
+    if (!willRemoveEvent || active != payload.database) return false;
+    try {
+      final event = await _findEvent(payload.eventId);
+      return event != null && !event.removeAfterAlert;
+    } catch (e) {
+      debugPrint('[AlertRingController] event lookup at ring start failed: $e');
+      return false;
+    }
   }
 
   void _listenForRingEnd() {
@@ -98,6 +162,7 @@ class AlertRingController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     unawaited(_ringEnded?.cancel());
     super.dispose();
   }
@@ -113,8 +178,19 @@ class AlertRingController extends ChangeNotifier {
   /// at 07:20 for a session already acknowledged. Then the session chip
   /// (OS-5), while the event is still there to say when the session ends.
   /// Last, A3's removal.
+  ///
+  /// **Whether that removal happens is decided at the press, and may only
+  /// narrow afterwards.** The steps before it take a while, and a Keep whose
+  /// write is still out when Stop is pressed has already said "remove
+  /// nothing". If that write then fails, [keep] takes the press back — for
+  /// the *next* Stop: read only at the end, [willRemoveEvent] would have
+  /// handed the removal to this one as well, and removed an event the user
+  /// asked to keep a moment before stopping. It is read again at the end for
+  /// the other direction alone: an event that turned out to be kept in the
+  /// meantime is not removed.
   Future<void> stop() async {
     if (_busy || _stopped) return;
+    final removeAtPress = willRemoveEvent;
     _busy = true;
     notifyListeners();
     try {
@@ -125,7 +201,7 @@ class AlertRingController extends ChangeNotifier {
       debugPrint('[AlertRingController] stop failed: $e');
     }
     await SessionChip.instance.show(payload);
-    if (willRemoveEvent) await _removeEvent();
+    if (removeAtPress && willRemoveEvent) await _removeEvent(payload);
     _stopped = true;
     _busy = false;
     notifyListeners();
@@ -156,22 +232,43 @@ class AlertRingController extends ChangeNotifier {
   /// Persisted rather than held in memory: the page can be dismissed by the
   /// system at any moment while an alarm is ringing, and a decision that only
   /// lived here would be lost with it.
+  ///
+  /// Three moments, and the page draws each one. From the press
+  /// [willRemoveEvent] is false, so nothing Stop does in the meantime removes
+  /// the event. [keepEvent] turns true only when the write has come back —
+  /// until then "kept" would be a promise, and a Stop on the notification
+  /// reads the event's own flag, not this one. And a write that throws, or
+  /// that finds no event to write to, takes it all back: [willRemoveEvent]
+  /// is true again and Keep can be pressed again, because the event is still
+  /// one that Stop removes.
+  ///
+  /// The calendar is told only once the write is in — the service tells
+  /// nobody, and the bloc above the calendar would go on showing the event
+  /// as "removed after it rings".
   Future<void> keep() async {
-    if (_keepEvent) return;
-    _keepEvent = true;
+    if (!willRemoveEvent) return;
+    _keeping = true;
     notifyListeners();
-    final event = await _resolveEvent();
-    if (event == null) return;
+    var saved = false;
     try {
-      final service = await CalendarEventService.getInstance();
-      await service.upsert(event.copyWith(removeAfterAlert: false));
+      final event = await _resolveEvent();
+      if (event != null) {
+        await _saveEvent(event.copyWith(removeAfterAlert: false));
+        saved = true;
+      }
     } catch (e) {
       debugPrint('[AlertRingController] keep failed: $e');
     }
+    _keeping = false;
+    _kept = saved;
+    if (saved) AlertKeepNotice.instance.publish();
+    // The page may have closed under the write — Stop does not wait for it —
+    // and it disposes the controller it made.
+    if (!_disposed) notifyListeners();
   }
 
   /// Gets the phone past its lock screen before an action that leads **into**
-  /// the app — Open event, the database chip — and answers whether it is
+  /// the app — Open event, the database switch — and answers whether it is
   /// unlocked now.
   ///
   /// Asked first and with the ring still going, on purpose: the alarm page is
@@ -185,8 +282,9 @@ class AlertRingController extends ChangeNotifier {
     return GetIt.I<AlertGateway>().dismissLockScreen();
   }
 
-  /// Makes this alarm's database the active one. The caller shows the app's
-  /// existing restart dialog; nothing switches underneath a running process.
+  /// Makes this alarm's database the active one. The caller shows the dialog
+  /// that says so and closes the app; nothing switches underneath a running
+  /// process.
   Future<bool> activateDatabase() async {
     try {
       final manager = await DatabaseManager.getInstance();
@@ -198,12 +296,15 @@ class AlertRingController extends ChangeNotifier {
     }
   }
 
-  /// A3 through the one acknowledgement path the reminder tier's tap and Done
-  /// also take: the delete, the Undo notice **and the reconcile after it** —
-  /// [stop] re-planned the event before the delete, so without that second
-  /// pass a one-time event with two alarms would keep its later one armed in
-  /// the OS for an event that no longer exists.
-  Future<void> _removeEvent() => AlertAcknowledgement.apply(payload);
+  /// A3 through the one acknowledgement path a Stop on the platform's own
+  /// alarm notification also takes ([AlertAcknowledgement]): the delete, the
+  /// Undo notice **and the reconcile after it** — [stop] re-planned the event
+  /// before the delete, so without that second pass a one-time event with
+  /// two alarms would keep its later one armed in the OS for an event that
+  /// no longer exists. The reminder tier never takes it: its Done runs with
+  /// no database, and its tap only opens the event.
+  static Future<void> _registeredRemoval(AlertPayload payload) =>
+      AlertAcknowledgement.apply(payload);
 
   /// The event this ring belongs to, or null when it is not this database's to
   /// touch.
@@ -216,15 +317,43 @@ class AlertRingController extends ChangeNotifier {
   /// event is a nuisance, one that deletes the wrong event is not.
   Future<CalendarEvent?> _resolveEvent() async {
     if (payload.isTest) return null;
-    if (_activeDatabase != payload.database) return null;
+    if (activeDatabase != payload.database) return null;
+    return _findEvent(payload.eventId);
+  }
+
+  static Future<CalendarEvent?> _registeredEvent(String eventId) async {
     try {
       final service = await CalendarEventService.getInstance();
       for (final event in service.events) {
-        if (event.id == payload.eventId) return event;
+        if (event.id == eventId) return event;
       }
     } catch (e) {
       debugPrint('[AlertRingController] event lookup failed: $e');
     }
     return null;
+  }
+
+  static Future<void> _registeredSave(CalendarEvent event) async =>
+      (await CalendarEventService.getInstance()).upsert(event);
+
+  /// Swaps the two things [keep] reaches a database through — finding the
+  /// event, saving it — for test doubles. Without them the write cannot be
+  /// held in flight or made to fail, and what [keep] promises at each of its
+  /// three moments is exactly what would go untested. [load] asks after the
+  /// event through the same lookup.
+  ///
+  /// [removeEvent] stands in for the removal [stop] ends in, for the suite
+  /// that counts them: whether a Stop removes is decided against a Keep that
+  /// may still be in flight, and the real removal needs a database to show
+  /// that it ran. Left out, Stop removes as it ships.
+  @visibleForTesting
+  void configureForTesting({
+    required Future<CalendarEvent?> Function(String eventId) findEvent,
+    required Future<void> Function(CalendarEvent event) saveEvent,
+    Future<void> Function(AlertPayload payload)? removeEvent,
+  }) {
+    _findEvent = findEvent;
+    _saveEvent = saveEvent;
+    if (removeEvent != null) _removeEvent = removeEvent;
   }
 }

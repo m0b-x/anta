@@ -3,6 +3,7 @@ package com.alexzamfir.anta
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -19,14 +20,18 @@ import androidx.core.app.NotificationManagerCompat
  * `POST_PROMOTED_NOTIFICATIONS` (a `normal|appop` permission, "Show live
  * updates", granted at install and switchable per app) — and everywhere else,
  * and when they do not, the same notification stands as a plain ongoing one
- * whose chronometer counts up from the acknowledgement. Both shapes carry the same two actions: *Open note*
- * launches [MainActivity] with [ACTION_OPEN] and the alarm's payload, which
- * the activity reports to Dart like the alarm-clock show intent; *Done* is a
- * broadcast to [SessionChipReceiver], which takes the chip down with no Dart
- * involved.
+ * whose chronometer counts up from the acknowledgement. Both shapes carry the
+ * same two actions, the one that settles first, as on every other alert
+ * notification: *Done* is a broadcast to [SessionChipReceiver], which takes
+ * the chip down with no Dart involved; *Open note* — *Open event* when the
+ * event links no note, a label Dart decides — launches [MainActivity] with
+ * [ACTION_OPEN] and the alarm's payload, which the activity reports to Dart
+ * like the alarm-clock show intent.
  *
  * Every string comes from Dart: the labels are localized there, and the
- * platform is only asked to draw them. The one thing kept here is the end
+ * platform is only asked to draw them. So does the event's avatar, as the
+ * path of a file Dart has drawn it into (`largeIcon`); a path that names
+ * nothing readable is a chip without one. The one thing kept here is the end
  * instant, in the activity's own preferences, so a launch after the process
  * died can take down a chip whose session is over ([clearIfStale]) — Dart
  * has no record of what an earlier process posted.
@@ -72,6 +77,9 @@ object SessionChip {
         val endsAt = (args["endsAtMs"] as? Number)?.toLong()
         val progress = (args["progress"] as? Number)?.toInt()
         val color = (args["color"] as? Number)?.toInt()
+        // Null for a missing or unreadable file, which `decodeFile` answers
+        // rather than throws.
+        val largeIcon = (args["largeIcon"] as? String)?.let { BitmapFactory.decodeFile(it) }
 
         val open = PendingIntent.getActivity(
             context,
@@ -100,9 +108,10 @@ object SessionChip {
             .setShowWhen(true)
             .setUsesChronometer(true)
             .setContentIntent(open)
-            .addAction(0, args["openLabel"] as? String ?: "", open)
             .addAction(0, args["doneLabel"] as? String ?: "", done)
+            .addAction(0, args["openLabel"] as? String ?: "", open)
         if (color != null) builder.setColor(color)
+        if (largeIcon != null) builder.setLargeIcon(largeIcon)
         if (canPromote(manager)) {
             builder.setRequestPromotedOngoing(true)
             val style = NotificationCompat.ProgressStyle()

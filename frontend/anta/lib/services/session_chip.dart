@@ -98,12 +98,18 @@ class SessionChip {
   AlertGateway? Function() _gateway = _registeredGateway;
   Future<String?> Function() _activeDatabase = _registeredDatabase;
   Future<CalendarEvent?> Function(String eventId) _findEvent = _registeredEvent;
+  Future<bool> Function(CalendarEvent event) _noteLinked = _registeredNoteLinked;
   DateTime Function() _clock = DateTime.now;
 
   int? _shownOsId;
   AlertPayload? _payload;
   DateTime? _startedAt;
   DateTime? _endsAt;
+
+  /// Whether the chip's second button has a note to open — decided once,
+  /// when the chip is posted, and repeated on every refresh so the label
+  /// does not change under a finger.
+  bool _linkedNote = false;
   Timer? _endTimer;
   Timer? _refresh;
 
@@ -135,10 +141,12 @@ class SessionChip {
         _shownOsId = previous;
         return;
       }
+      final linkedNote = event != null && await _noteLinked(event);
       _cancelTimers();
       _payload = payload;
       _startedAt = startedAt;
       _endsAt = endsAt;
+      _linkedNote = linkedNote;
       if (!await _post(gateway)) return;
       if (endsAt != null) {
         _endTimer = Timer(endsAt.difference(startedAt), () => unawaited(clear()));
@@ -176,6 +184,7 @@ class SessionChip {
           now: _clock(),
         ),
         refresh: refresh,
+        linkedNote: _linkedNote,
       );
     } catch (e) {
       debugPrint('[SessionChip] post failed: $e');
@@ -190,6 +199,7 @@ class SessionChip {
     _payload = null;
     _startedAt = null;
     _endsAt = null;
+    _linkedNote = false;
   }
 
   /// Takes the chip down. Always asks the platform, whatever this process
@@ -237,18 +247,41 @@ class SessionChip {
     return null;
   }
 
+  /// Whether [event] has a note the chip's second button would open.
+  ///
+  /// The lookup that button's tap makes (`_openSession` in `main.dart`), so
+  /// the label and the tap cannot disagree: a linked note that is in the
+  /// trash opens the event, and the button says "Open event". A lookup that
+  /// fails leaves the event's own word for it — it names a note — and the
+  /// tap falls back to the event as it always has.
+  static Future<bool> _registeredNoteLinked(CalendarEvent event) async {
+    if (event.noteId == null) return false;
+    try {
+      return await linkedSessionNote(event, GetIt.I<NoteRepository>()) != null;
+    } catch (e) {
+      debugPrint('[SessionChip] linked note unknown: $e');
+      return true;
+    }
+  }
+
   /// Swaps every seam for a test double. The chip is a process-global, so a
   /// suite that leaves a gateway behind would post into the next one.
+  ///
+  /// [noteLinked] left out answers from the event alone — whether it names a
+  /// note — so a suite that is not about the chip's second button needs no
+  /// note repository.
   @visibleForTesting
   void configureForTesting({
     required AlertGateway? Function() gateway,
     required Future<String?> Function() activeDatabase,
     required Future<CalendarEvent?> Function(String eventId) findEvent,
     required DateTime Function() clock,
+    Future<bool> Function(CalendarEvent event)? noteLinked,
   }) {
     _gateway = gateway;
     _activeDatabase = activeDatabase;
     _findEvent = findEvent;
+    _noteLinked = noteLinked ?? (event) async => event.noteId != null;
     _clock = clock;
   }
 
@@ -259,6 +292,7 @@ class SessionChip {
     _gateway = _registeredGateway;
     _activeDatabase = _registeredDatabase;
     _findEvent = _registeredEvent;
+    _noteLinked = _registeredNoteLinked;
     _clock = DateTime.now;
   }
 }

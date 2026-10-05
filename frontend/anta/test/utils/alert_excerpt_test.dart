@@ -62,4 +62,56 @@ void main() {
     expect(excerpt.length, kAlertExcerptMaxLength);
     expect(excerpt, endsWith('…'));
   });
+
+  group('a cut that lands inside a surrogate pair', () {
+    // The cap counts code units, and an emoji is two of them. Half of one is
+    // not text: the engine refuses the whole string, so the alarm page drew
+    // a single replacement character where the line should be, and a
+    // notification carried a stray one before its ellipsis.
+    const emoji = '\u{1F4AA}';
+
+    bool isSurrogate(int unit) => unit >= 0xD800 && unit <= 0xDFFF;
+
+    test('never keeps the lead half alone', () {
+      // 118 units, then the pair on 118 and 119: the last unit the cut keeps
+      // is its lead half.
+      final head = 'a' * (kAlertExcerptMaxLength - 2);
+      final excerpt = alertExcerptFor('$head$emoji and the rest of the line');
+
+      expect(excerpt, '$head…');
+      expect(excerpt.codeUnits.any(isSurrogate), isFalse);
+    });
+
+    test('keeps a pair that ends on the last unit kept', () {
+      final head = 'a' * (kAlertExcerptMaxLength - 3);
+      final excerpt = alertExcerptFor('$head$emoji and the rest of the line');
+
+      expect(excerpt, '$head$emoji…');
+      expect(excerpt.length, kAlertExcerptMaxLength);
+    });
+
+    test('leaves a line of nothing but emoji well formed', () {
+      // Every other unit is a lead half, so the cut lands on one whichever
+      // way the cap is counted — unless the line starts one unit off.
+      for (final lead in ['', 'a']) {
+        final excerpt = alertExcerptFor('$lead${emoji * 80}');
+        final units = excerpt.codeUnits;
+
+        expect(excerpt, endsWith('…'), reason: '"$lead"');
+        expect(units.length, lessThanOrEqualTo(kAlertExcerptMaxLength));
+        for (var i = 0; i < units.length; i++) {
+          final unit = units[i];
+          if (unit >= 0xD800 && unit <= 0xDBFF) {
+            expect(
+              i + 1 < units.length &&
+                  units[i + 1] >= 0xDC00 &&
+                  units[i + 1] <= 0xDFFF,
+              isTrue,
+              reason: 'a lead half with no trail at $i ("$lead")',
+            );
+          }
+        }
+      }
+    });
+  });
 }

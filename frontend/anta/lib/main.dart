@@ -295,8 +295,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// Live subscription to the gateway's ring stream, for as long as the app is.
   StreamSubscription<AlertPayload>? _ringing;
 
-  /// The rings that ended without the app asking: the notification's own Stop,
-  /// and the Silence-after timeout.
+  /// The rings that ended by a route the alarm page did not take: Stop or
+  /// Snooze on the notification, the Silence-after timeout, and an entry
+  /// cancelled while it rang.
   StreamSubscription<AlertRingEnd>? _ringEnded;
 
   /// The phone's "next alarm" line opening a warm app (the alarm-clock show
@@ -393,24 +394,41 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   ///
   /// An unanswered ring that timed out is settled too, but it acknowledged
   /// nothing, so it removes nothing.
+  ///
+  /// A switch with no default, on purpose: a cause added to the enum has to
+  /// say here what it settles before the app compiles. The one that was not
+  /// asked — a cancelled entry read as a dismissal — removed an event with
+  /// nobody answering.
   Future<void> _settleEndedRing(AlertRingEnd end) async {
-    // A native Snooze settles nothing: the plugin re-armed the alarm and
-    // recorded the move, and the reconcile is what writes it into the
-    // registry — provoked here so the hub shows the snooze now rather than
-    // at the next launch.
-    if (end.cause == AlertRingEndCause.snoozed) {
-      await AlertScheduler.reconcileEventById(
-        end.payload.eventId,
-        AlertReconcileReason.ringHandled,
-      );
-      return;
+    switch (end.cause) {
+      case AlertRingEndCause.dismissed:
+        await AlertScheduler.settleEndedRingByPayload(
+          end.payload,
+          answered: true,
+        );
+        await AlertAcknowledgement.apply(end.payload);
+      case AlertRingEndCause.timedOut:
+        await AlertScheduler.settleEndedRingByPayload(
+          end.payload,
+          answered: false,
+        );
+      case AlertRingEndCause.snoozed:
+        // A native Snooze settles nothing: the plugin re-armed the alarm and
+        // recorded the move, and the reconcile is what writes it into the
+        // registry — provoked here so the hub shows the snooze now rather
+        // than at the next launch.
+        await AlertScheduler.reconcileEventById(
+          end.payload.eventId,
+          AlertReconcileReason.ringHandled,
+        );
+      case AlertRingEndCause.cancelled:
+        // Nothing at all. Whoever cancelled the entry writes down its own
+        // reason, and nobody answered the ring: no acknowledgement, no
+        // session chip, no removal, no Missed, no registry write. What the
+        // ring held back is still routed — the listener drains for every
+        // ending.
+        break;
     }
-    final answered = end.cause == AlertRingEndCause.dismissed;
-    await AlertScheduler.settleEndedRingByPayload(
-      end.payload,
-      answered: answered,
-    );
-    if (answered) await AlertAcknowledgement.apply(end.payload);
   }
 
   Future<void> _drainLaunchIntent(AlertGateway gateway) async {
@@ -513,10 +531,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  /// "Open note" on the session chip (OS-5): the event's linked note when it
-  /// has one and the note is not in the trash, else the event on its day.
-  /// The event is looked up in the database that is open — a chip from
-  /// another database lands on the day alone, like a Skip does.
+  /// The session chip's second button and its body tap (OS-5): the event's
+  /// linked note when it has one and the note is not in the trash, else the
+  /// event on its day. The button is labelled by the same lookup
+  /// (`SessionChip`), "Open note" or "Open event", so the two cannot
+  /// disagree. The event is looked up in the database that is open — a chip
+  /// from another database lands on the day alone, like a Skip does.
   Future<void> _openSession(AlertPayload payload) async {
     LinkedSessionNote? note;
     var eventFound = false;

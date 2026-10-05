@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
-# Opens the upstream pull request for the two Android patches the local
-# `packages/alarm/` fork carries (event alerts OS-1, decisions B1 and B4 in
-# docs/event-alerts-os-integration-roadmap.md): alarm-clock scheduling and
-# content:// sounds. It rebuilds the patches from the fork's own files on a
-# fresh clone of gdelataillade/alarm at the fork's base tag, one commit per
-# patch plus a changelog line, pushes the branch to a fork under the GitHub
-# account `gh` is logged in as, and opens the PR from there.
+# Opens the upstream pull request for the first two of the Android patches
+# the local `packages/alarm/` fork carries (event alerts OS-1, decisions B1
+# and B4 in docs/event-alerts-os-integration-roadmap.md): alarm-clock
+# scheduling and content:// sounds. It rebuilds the patches from the fork's
+# own files on a fresh clone of gdelataillade/alarm at the fork's base tag,
+# one commit per patch plus a changelog line, pushes the branch to a fork
+# under the GitHub account `gh` is logged in as, and opens the PR from there.
+#
+# Before opening the PR: the fork carries seven patches now
+# (packages/alarm/CHANGELOG.md), and the first commit here is no longer
+# Patch 1 alone. It copies the fork's AlarmService.kt whole, for the
+# ACTION_SHOW constant, and that file has since gained all of Patch 6 (the
+# ring's wake lock, held in AlarmService.RingWakeLock and released when the
+# ring ends) and a comment saying AlarmReceiver is no longer exported, which
+# is Patch 5: a line of the library's manifest that nothing here copies, so
+# upstream the comment would be false. Neither is in the commit messages,
+# the changelog entry or the PR body below, and Patch 6's
+# RingWakeLockTest.kt is not copied. Give Patch 6 a commit and a paragraph
+# of its own first, or take both out of the copied file. Patches 3 and 4
+# (NotificationService.kt, AlarmPlugin.kt) are in no commit here at all.
 #
 #   ./tool/upstream/alarm_pr.sh            # clone, commit, push, open the PR
 #   ./tool/upstream/alarm_pr.sh --dry-run  # clone and commit only; print the diff
@@ -27,7 +40,7 @@ dry_run=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=1 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
         *) echo "alarm_pr: unknown argument $arg" >&2; exit 1 ;;
     esac
 done

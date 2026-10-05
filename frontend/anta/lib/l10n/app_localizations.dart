@@ -8146,53 +8146,71 @@ abstract class AppLocalizations {
   /// **'Alarm'**
   String get alarmPageTitle;
 
+  /// What a test ring is called where an event's title would be: on the full-screen ring page and as the title of the ring's notification
+  ///
+  /// In en, this message translates to:
+  /// **'Test alarm'**
+  String get alarmTestTitle;
+
   /// Primary action on the alarm page and on the alarm notification: stop the ring
   ///
   /// In en, this message translates to:
   /// **'Stop'**
   String get alarmStop;
 
-  /// Alarm page action: postpone the ring by the configured number of minutes
+  /// Snooze, wherever an alert offers it: the alarm page's second button, and the second action of the ring's notification (after Stop) and of a reminder's (after Done). Puts the alert off by the configured number of minutes
   ///
   /// In en, this message translates to:
   /// **'{count, plural, =1{Snooze 1 min} other{Snooze {count} min}}'**
   String alarmSnoozeMinutes(int count);
 
-  /// Alarm page action: stop ringing and open the event in the calendar
+  /// Alarm page action: stop ringing and open the event in the calendar. Also the session chip's second action, after Done, when the event has no linked note: open the event
   ///
   /// In en, this message translates to:
   /// **'Open event'**
   String get alarmOpenEvent;
 
-  /// Alarm page action for an event set to be removed after it rings: keep it instead
+  /// Alarm page button beside the line saying Stop also removes the event: keep the event instead. Short, because it shares a row with that line
+  ///
+  /// In en, this message translates to:
+  /// **'Keep'**
+  String get alarmKeep;
+
+  /// Accessible name of the alarm page's Keep button, for an event set to be removed after it rings: keep it instead
   ///
   /// In en, this message translates to:
   /// **'Keep the event'**
   String get alarmKeepEvent;
 
-  /// Confirmation shown on the alarm page after Keep the event was pressed
+  /// Alarm page line that replaces the removal warning once Keep has been saved
   ///
   /// In en, this message translates to:
   /// **'The event will be kept'**
   String get alarmKeptEvent;
 
-  /// Alarm page caption explaining the remove-after-it-rings flag
+  /// Alarm page line directly above the Stop button, for an event set to be removed after it rings. Stop is the alarmStop button's label
   ///
   /// In en, this message translates to:
-  /// **'This event is removed once you stop the alarm'**
+  /// **'Stop also removes this event'**
   String get alarmRemoveAfterCaption;
 
-  /// Chip on the alarm page when the alarm belongs to a database that is not the active one
+  /// Alarm page action when the alarm belongs to a database that is not the open one: make that database the open one
   ///
   /// In en, this message translates to:
-  /// **'From database {name}'**
-  String alarmFromDatabase(String name);
+  /// **'Switch to {name}'**
+  String alarmSwitchDatabase(String name);
 
-  /// Action on the alarm page's database chip: switch to that database
+  /// Title of the dialog shown after the alarm page switched to the alarm's database
   ///
   /// In en, this message translates to:
-  /// **'Open'**
-  String get alarmOpenDatabase;
+  /// **'Switched to {name}'**
+  String alarmDatabaseSwitchedTitle(String name);
+
+  /// Body of the dialog shown after the alarm page switched to the alarm's database. Its one button closes the app
+  ///
+  /// In en, this message translates to:
+  /// **'Exit ANTA and open it again to see this event. The alarm keeps ringing until you stop it.'**
+  String get alarmDatabaseSwitchedBody;
 
   /// Calendar settings section holding reminder and alarm options
   ///
@@ -8302,11 +8320,23 @@ abstract class AppLocalizations {
   /// **'Off — no notice before an alarm'**
   String get alertsNoticeLeadOff;
 
-  /// Title of the quiet notice posted ahead of an alarm; the body is the event title
+  /// Text line of the quiet notice posted ahead of an alarm, under the event's title. The time is the alarm's own, followed by its day (alertsWhenOnDay) when the alarm is not due on the day the notice is posted
   ///
   /// In en, this message translates to:
   /// **'Alarm at {time}'**
   String alertsUpcomingTitle(String time);
+
+  /// Text line of an alert's notification, under the event's title: what it is — Alarm (eventAlertModeRing), Reminder (eventAlertModeNotify), Snoozed (alertsOutcomeSnoozed) or Missed (alertsOutcomeMissed) — and the time it is about
+  ///
+  /// In en, this message translates to:
+  /// **'{kind} · {when}'**
+  String alertsKindWhen(String kind, String when);
+
+  /// A time on an alert followed by the day it falls on, when that is not the day the alert comes: an event's own time and its day, or an alarm's time and its day on the notice posted ahead of it
+  ///
+  /// In en, this message translates to:
+  /// **'{when}, {day}'**
+  String alertsWhenOnDay(String when, String day);
 
   /// Upcoming-alarm notice action: skip this one fire of the alarm
   ///
@@ -8332,7 +8362,7 @@ abstract class AppLocalizations {
   /// **'Until {time}'**
   String alertsSessionUntil(String time);
 
-  /// Session chip action: open the event's linked note, or the event
+  /// Session chip's second action, after Done, when the event has a linked note: open that note. Without one the action reads alarmOpenEvent
   ///
   /// In en, this message translates to:
   /// **'Open note'**
@@ -8368,13 +8398,13 @@ abstract class AppLocalizations {
   /// **'Stopped'**
   String get alertsOutcomeStopped;
 
-  /// Recent row outcome: the alert was snoozed
+  /// Recent row outcome: the alert was snoozed. Also the kind word in the text of a snoozed reminder's notification (alertsKindWhen), and the second half of the alarm page's eyebrow on a re-ring, after alarmPageTitle and drawn in capitals (ALARM · SNOOZED). Where the language has gender it agrees with the words for alarm and reminder
   ///
   /// In en, this message translates to:
   /// **'Snoozed'**
   String get alertsOutcomeSnoozed;
 
-  /// Recent row outcome: the alarm was missed
+  /// Recent row outcome: the alarm was missed. Also the kind word in the text of the Missed notification (alertsKindWhen); it describes the alarm, not the event
   ///
   /// In en, this message translates to:
   /// **'Missed'**
@@ -8392,7 +8422,7 @@ abstract class AppLocalizations {
   /// **'Force stopping ANTA disarms every alarm until you open it again.'**
   String get alertsForceStopNote;
 
-  /// Button that schedules a ring ten seconds from now, and the title the alarm page shows for it
+  /// Calendar settings button that schedules a ring ten seconds from now. The ring itself is titled alarmTestTitle, on its page and on its notification
   ///
   /// In en, this message translates to:
   /// **'Test alarm in 10 s'**
@@ -8434,35 +8464,23 @@ abstract class AppLocalizations {
   /// **'Event alarms that ring until stopped'**
   String get alertsAlarmChannelDesc;
 
-  /// Action button on a reminder notification
+  /// Android notification channel name for the three notifications that never make a sound: the notice posted ahead of an alarm, the notice of a missed alarm, and the session in progress. Read in the phone's own notification settings, beside Reminders and Alarms
   ///
   /// In en, this message translates to:
-  /// **'Snooze'**
-  String get alertsSnoozeAction;
+  /// **'Quiet notices'**
+  String get alertsQuietChannel;
 
-  /// Action button on a reminder notification that dismisses it
+  /// Android notification channel description for the quiet channel (alertsQuietChannel)
+  ///
+  /// In en, this message translates to:
+  /// **'Notices of upcoming and missed alarms and the session in progress, always silent'**
+  String get alertsQuietChannelDesc;
+
+  /// First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it
   ///
   /// In en, this message translates to:
   /// **'Done'**
   String get alertsDoneAction;
-
-  /// Body of a reminder that was snoozed from the notification shade
-  ///
-  /// In en, this message translates to:
-  /// **'{count, plural, =1{Snoozed 1 minute} other{Snoozed {count} minutes}}'**
-  String alertsSnoozedBody(int count);
-
-  /// Title of the quiet notification reporting an alarm that never rang
-  ///
-  /// In en, this message translates to:
-  /// **'Missed: {title}'**
-  String alertsMissedTitle(String title);
-
-  /// Body of the quiet notification reporting an alarm that never rang
-  ///
-  /// In en, this message translates to:
-  /// **'It was due at {time}'**
-  String alertsMissedBody(String time);
 
   /// Section label above the alert rows in the event editor
   ///
@@ -8506,13 +8524,13 @@ abstract class AppLocalizations {
   /// **'Type'**
   String get eventAlertTypeSection;
 
-  /// The quieter alert tier: a notification
+  /// The quieter alert tier: a notification. Also the kind word in a reminder's notification text (alertsKindWhen), and that notification's title when the event has none
   ///
   /// In en, this message translates to:
   /// **'Reminder'**
   String get eventAlertModeNotify;
 
-  /// The loud alert tier: rings until stopped
+  /// The loud alert tier: rings until stopped. Also the kind word in the ring's notification text (alertsKindWhen), and the title an untitled event's alarm takes on the alarm page and on its notifications
   ///
   /// In en, this message translates to:
   /// **'Alarm'**

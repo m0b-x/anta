@@ -108,7 +108,7 @@ number of events, and swapping the platform backend touches one file.
 | A7 | Horizon | Next **2** occurrences per alert, **30** days, **48** registrations total, soonest first. | Survives a week without opening the app; stays under iOS's 64 pending and far under Samsung's 500. |
 | A8 | Snooze | One button, length from settings, default **10 min**; a snooze is its own registration (`kind = snooze`). | Google Clock's default; per-ring choices add taps to a screen used half asleep. |
 | A9 | Other databases | Every database's alarms ring. The alarm page names the database when it is not the active one; Open switches (the restart flow of `database_settings_page.dart:787-821`). Reconcile touches only OS entries whose payload names the active database. | An alarm is a promise the phone made; switching databases must not silently cancel it. |
-| A10 | Late rings | Ring if under **30 min** late; otherwise a quiet "Missed: {title}" notification (only if under 24 h late), never a ring at boot for a session that ended. | A phone that was off should not ring a 07:00 alarm at 09:30. Mechanism per backend in §3.4. |
+| A10 | Late rings | Ring if under **30 min** late; otherwise a quiet "Missed: {title}" notification (only if under 24 h late), never a ring at boot for a session that ended. *Copy since 2026-10-05:* the event's title over "Missed · {time}", like every other notification (alert-surfaces record D10); the rule is unchanged. | A phone that was off should not ring a 07:00 alarm at 09:30. Mechanism per backend in §3.4. |
 | A11 | Quick alarm category | `other`, with `iconKey = 'alarm'` as the event's own icon override. | No new built-in to seed and migrate; the icon carries the meaning on every row. |
 | A12 | Where a tap opens | Reminder → the calendar on the event's day with the detail sheet open. Alarm → the alarm page. | A reminder is about the event; an alarm is about stopping the noise. |
 | A13 | Presence prompt | Phase 3, opt-in per tracked event, the page only **asks** and dispatches `SetOccurrencePresence`. | `presence-tracking-roadmap.md`: nothing marks on its own. |
@@ -297,7 +297,11 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
 
 - **Reminder (notification plugin):** `zonedSchedule(androidScheduleMode:
   exactAllowWhileIdle)` on a high-importance `alerts_reminder` channel,
-  actions Snooze / Done. Done is handled in the background isolate
+  actions Snooze / Done — since 2026-10-05 Done, then Snooze {n} min: the
+  action that settles comes first on every notification, and on Android 16
+  and above the reminder carries a group key with no summary
+  ([alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md)
+  D13, D20). Done is handled in the background isolate
   (`@pragma('vm:entry-point')`, no database access: it only cancels).
   Snooze re-schedules from the payload alone. Tap → `PendingNavigationQueue
   .enqueue(openEvent)`.
@@ -363,7 +367,11 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   silence it two seconds into the ring (Session 3 review). **Missed** (30
   min to 24 h): marked
   `cancelled`, and only an **alarm-tier** row (its alert resolves to
-  `ring`) earns the quiet "Missed: {title} at {time}" — a reminder is
+  `ring`) earns the quiet "Missed: {title} at {time}" (since 2026-10-05 the
+  event's title over "Missed · {time}", posted on the low channel
+  `alerts_quiet` and dated by the alarm it reports — D10, D14 and D20 of the
+  alert-surfaces record; on `alerts_reminder` it was never as quiet as this
+  line says) — a reminder is
   delivered by the OS with no callback to the app, so a gone, past-due
   reminder row is indistinguishable from a delivered one and reporting it
   would turn every un-tapped reminder into a "Missed". **Stale** (over
@@ -404,8 +412,12 @@ the alarm page "Keep the event" clears the flag before Stop.
 The alarm page renders from the payload, so it never needs the right
 database open. It shows a chip "From database *work*" when
 `payload.db != active`; Open sets the active name and shows the existing
-restart dialog. Reconcile is scoped to the active database's entries by
-payload, so a switch leaves the other database's registrations intact.
+restart dialog (since 2026-10-05 there is no chip: for another database's
+alarm the page's Open row reads "Switch to {name}" (`alarmSwitchDatabase`)
+and the dialog that follows says what happened — C5 and C6 of
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md)).
+Reconcile is scoped to the active database's entries by payload, so a switch
+leaves the other database's registrations intact.
 QA builds share the package and therefore the OS namespace (`qa_mode.dart`);
 the QA database name in the payload is what keeps a QA alarm from
 touching the owner's, and Phase 3's `qa alerts --cancel` clears them.
@@ -633,6 +645,14 @@ the grid are untouched: no cell marker.
 
 ### 5.5 Alarm page (`lib/pages/alarm_page.dart`)
 
+**Superseded for its look, 2026-10-05:** the page was redrawn as the UI
+language's takeover page — bottom-anchored content over a pinned Stop and
+Snooze, no chip, Keep in a row above Stop — by
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md)
+(§3.1–§3.4). What the page *does* was kept — that record's §4.1 lists it —
+but for the changes its §4.2 names; the paragraph below is the page as it
+first shipped.
+
 Eyebrow `alarmPageTitle`, the fire time in `displayLarge` weight 300, the
 date line, the event row (48 dp tinted avatar), the database chip (A9),
 then `Spacer`, then `FilledButton.icon` Stop (56 high), `OutlinedButton.icon`
@@ -665,7 +685,11 @@ alarms, battery — each a status chip or a Turn on action), default for
 timed events, default for all-day events, alarm sound, Snooze slider,
 Silence after slider, and `Test alarm in 10 s` (`OutlinedButton.icon`,
 schedules a ring with a synthetic payload that the alarm page labels
-`alertsTestAlarm`). Reset-to-defaults covers the five keys.
+`alertsTestAlarm` — since 2026-10-05 (C8 of the alert-surfaces record) the
+page and the ring's notification title a test ring `alarmTestTitle`, "Test
+alarm", from the payload's `isTest`, and `alertsTestAlarm` is the button's
+label, which the payload still carries and no surface reads).
+Reset-to-defaults covers the five keys.
 
 The **Alarm sound** row sits between the two defaults and the Snooze slider
 (delivered 2026-09-21): the same `AlertSoundSheet` as §5.2 minus *Use the app
@@ -728,8 +752,13 @@ created with `content://settings/system/alarm_alert` as its sound — the
 first id, `alerts_alarm`, had no sound and would have rung the phone's
 *notification* default; it is deleted at initialize since OS-1);
 `alarm` creates its own `alarm_plugin_channel` at importance 4 and does not
-let Dart configure it. Names localized at creation, ids fixed forever
-(channel settings are immutable after creation).
+let Dart configure it. Since 2026-10-05 there is a third of the app's own,
+`alerts_quiet` (low), for the three kinds that must never interrupt — the
+upcoming notice, the Missed notice and the session chip, which were posted
+on `alerts_reminder` until then (D20 of the alert-surfaces record). Names
+localized at creation, ids fixed forever (a channel's importance and sound
+are immutable after creation; its name and description are written again
+from the current strings at every start).
 
 **`ic_alert` must be listed in `res/raw/keep.xml` (found on the owner's
 phone, 2026-09-21).** The icon is named only from Dart (`kAlertSmallIcon`), a
@@ -1044,7 +1073,9 @@ the emulator, then the owner's phone for the ring itself.
 > three receivers, the permission list, `showWhenLocked` + `turnScreenOn`,
 > `tools:node="remove"` on `READ_EXTERNAL_STORAGE`, the regenerated
 > desktop registrants committed, the `ic_alert` icon and the default sound
-> asset); the two channels with localized names and fixed ids;
+> asset); the two channels with localized names and fixed ids (three since
+> 2026-10-05: `alerts_quiet` was added for the notice, Missed and the chip —
+> §6.1 and D20 of the alert-surfaces record);
 > `AndroidAlertGateway` on the A5 backend with the fallback path (§3.4)
 > switchable in that one file, and the §10.5 gotchas applied:
 > `warningNotificationOnKill: false`, `androidStaleAfter: 30 min` mapped

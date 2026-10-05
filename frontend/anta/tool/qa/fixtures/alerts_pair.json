@@ -1,0 +1,119 @@
+{
+  "version": 7,
+  "exportedAt": "2026-01-01T09:00:00.000",
+  "folders": [
+    {
+      "id": "qa-pair-folder-training",
+      "name": "Training",
+      "parentId": null,
+      "position": 0,
+      "createdAt": "2026-01-01T09:00:00.000",
+      "updatedAt": "2026-01-01T09:00:00.000",
+      "noteSortOrder": null,
+      "subfolderSortOrder": null,
+      "label": "blue"
+    }
+  ],
+  "notes": [
+    {
+      "id": "qa-pair-note-plan",
+      "folderId": "qa-pair-folder-training",
+      "title": "Squat day",
+      "content": "# Squat day\n\nWarm-up, then the main set.",
+      "preview": "Warm-up, then the main set.",
+      "createdAt": "2026-01-01T09:05:00.000",
+      "updatedAt": "2026-01-01T09:05:00.000",
+      "label": "none"
+    }
+  ],
+  "settings": {
+    "alert_snooze_minutes": "5",
+    "alert_notice_lead_minutes": "0"
+  },
+  "calendarEvents": [
+    {
+      "id": "qa-pair-first",
+      "title": "Squat warm-up",
+      "category": "gym",
+      "startDateMs": "{{minuteday+2}}",
+      "allDay": false,
+      "iconKey": "fitness_center",
+      "ruleKind": "oneTime",
+      "rulePayload": null,
+      "endDateMs": null,
+      "startMinute": "{{minute+2}}",
+      "durationMinutes": 30,
+      "description": "Empty bar, two sets of ten.",
+      "noteId": null,
+      "colorValue": 4278225275,
+      "tintIcon": true,
+      "priority": 3,
+      "retroactive": false,
+      "countOccurrences": false,
+      "countStyle": "numbered",
+      "tracksPresence": false,
+      "assumeAbsent": false,
+      "assumeAbsentFromMs": null,
+      "perOccurrenceDescriptions": false,
+      "showInDayRail": null,
+      "removeAfterAlert": false,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    },
+    {
+      "id": "qa-pair-second",
+      "title": "Squat main set",
+      "category": "gym",
+      "startDateMs": "{{minuteday+2}}",
+      "allDay": false,
+      "iconKey": "self_improvement",
+      "ruleKind": "oneTime",
+      "rulePayload": null,
+      "endDateMs": null,
+      "startMinute": "{{minute+2}}",
+      "durationMinutes": 45,
+      "description": "Five sets of five at working weight.",
+      "noteId": null,
+      "colorValue": 4284364209,
+      "tintIcon": true,
+      "priority": 3,
+      "retroactive": false,
+      "countOccurrences": false,
+      "countStyle": "numbered",
+      "tracksPresence": false,
+      "assumeAbsent": false,
+      "assumeAbsentFromMs": null,
+      "perOccurrenceDescriptions": false,
+      "showInDayRail": null,
+      "removeAfterAlert": false,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    }
+  ],
+  "eventAlerts": [
+    {
+      "id": "qa-pair-first-ring",
+      "eventId": "qa-pair-first",
+      "mode": "ring",
+      "offsetMinutes": 0,
+      "daysBefore": 0,
+      "dayMinute": null,
+      "sound": null,
+      "enabled": true,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    },
+    {
+      "id": "qa-pair-second-ring",
+      "eventId": "qa-pair-second",
+      "mode": "ring",
+      "offsetMinutes": 0,
+      "daysBefore": 0,
+      "dayMinute": null,
+      "sound": null,
+      "enabled": true,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    }
+  ]
+}

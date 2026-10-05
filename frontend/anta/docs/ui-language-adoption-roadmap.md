@@ -4,7 +4,10 @@
 audits; no tier outside the calendar has started and the tier order in §6 is
 a proposal the owner has not decided. The calendar runs from its own master,
 `docs/calendar-language-adoption-roadmap.md` (Tier 1 committed `7e0423b`,
-Tier 2 committed `daf361a`, Tier 3 in progress since 2026-10-03). Written because the owner said on
+Tier 2 committed `daf361a`, Tier 3 committed `b801ee0`). One detour outside
+both masters' tiers is on disk since 2026-10-04, uncommitted: the alert
+surfaces (`docs/alert-surfaces-redesign-roadmap.md`), which settled decision
+7 of §3. Written because the owner said on
 2026-10-02 that the whole UI is to be reworked, slowly, the way the calendar
 was. Line numbers below are from that read; re-grep every one before a tier
 is planned.
@@ -95,7 +98,7 @@ Each is the owner's, asked as lettered options when the first tier needs it.
 | 4 | **One metrics home for bars, menus and the search sheet.** `AppBarMetrics` equals `FormMetrics` (48 / 22 / 17-500) without aliasing it; `AppTheme.menu*` duplicates `FormMetrics.menuRowHeight` / `menuIconSize` / `menuPadding` / `menuRadius` with a different floor (236 vs 220 wide); `NoteSearchMetrics` is a parallel sheet spec (radius 16 vs 28, height 0.6 vs 0.92, header 56 vs 48) | bars, four menus, the editor's match-list sheet | open |
 | 5 | **The drawer.** A stock `Drawer` of `ListTile`s with tinted icon chips, a gradient header with a light-only shadow, labels at 11 / 700 / 0.9 (`app_drawer.dart:88–101, 298–368, 524–552`). Round 2 marked it out of scope ("unstyled in the mock") | 664 lines, one suite | open |
 | 6 | **The light surface ramp.** The owner chose a lavender ramp on 2026-09-07 (`surface` `#F9F4FE`, `surfaceContainer` `#E9E1F1`, `surfaceContainerHigh` `#E3DAEC`, `outlineVariant` `#C6BED3`); it exists only in the stash `theme test`, and the tree is on the mock tokens (`#FEF7FF` / `#F3EDF7`) | every light surface; `label_contrast_test` re-measures against `rowGroup` | open — the stash cannot be applied whole (§9) |
-| 7 | **The full-screen alarm** (`pages/alarm_page.dart`) — a ring screen is not a form | 298 lines | raise at calendar Tier 4 |
+| 7 | **The full-screen alarm** (`pages/alarm_page.dart`) — a ring screen is not a form | 677 lines since its rework (298 when the inventory was taken, 333 at `a0a82ba`) | **settled 2026-10-04, delegated.** The owner asked for the alert surfaces to be redesigned without being shown options, so the decision is the lead's and is recorded as D1 of `docs/alert-surfaces-redesign-roadmap.md`: the ring screen is the language's **fourth idiom, a takeover page** — read rows of the kit on `pageGround`, bottom-anchored over a pinned pair of buttons, its own numbers in `AlarmMetrics`. The rule is in `ui-language` ("Which idiom a surface takes"); nothing is left for calendar Tier 4 to raise |
 
 ## 4. Inventory outside the calendar (2026-10-02, `d501f42`)
 
@@ -217,7 +220,9 @@ Material · **HR** hand-rolled chrome · **KIT** the settings kit · **DLG** the
 | Calendar, Tiers 2–4 | 15 | 8.4k | mixed | the calendar master | 13 flows |
 
 About 29k lines outside the calendar. `tool/qa/fixtures/` holds `basic.json`
-and `calendar.json`; `tool/qa/flows/` holds `calendar/` only.
+and `calendar.json`; `tool/qa/flows/` holds `calendar/` only. (Since
+2026-10-04 also `alerts.json`, and since 2026-10-05 `alerts_pair.json`, with
+the flows `alerts/` and `alerts_pair/` — the alert surfaces' own safety net.)
 
 ## 5. Retire list
 
@@ -257,7 +262,8 @@ waits on decision 1 and is the largest.
 
 | Tier | Status |
 | --- | --- |
-| Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 COMMITTED `daf361a` (2026-10-03); Tier 3 IMPLEMENTED and REVIEWED 2026-10-03, uncommitted; Tier 4 not started |
+| Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 COMMITTED `daf361a` (2026-10-03); Tier 3 COMMITTED `b801ee0` (2026-10-03); Tier 4 not started |
+| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): IMPLEMENTED 2026-10-05, uncommitted — the device pass of its last slice and part of its review's batch B are deferred (its §8 lists them); its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
 | A – G | PLAN — the order is not decided |
 
 ## 8. Defects the audit found, outside any tier
@@ -284,7 +290,14 @@ emulator, API 36), app-wide and not fixed there:
 - **The system navigation bar stays light in dark theme** — a light grey bar
   with dark icons after a runtime theme switch and after a cold start in
   dark, on every page. Content scrolls under it legibly in light and badly
-  in dark. Nothing sets the bar's style for the dark theme; edge-to-edge on
+  in dark. Nothing sets the bar's style for the dark theme — but for two
+  widgets since 2026-10-05: the alarm page and the lock-screen cover declare
+  both bars through `AlarmGround` and hand the navigation bar back when the
+  last of them leaves the screen, in the state the app has at launch (what
+  `MaterialApp` itself sets, read off `SystemUiOverlayStyle.light`; from
+  Android 15 Flutter's embedding no longer passes the colour on and the phone
+  forces the buttons of a light window dark), so the rest of the app is as it
+  was and this decision is still open; edge-to-edge on
   current Android makes this a theme-level change to decide once (decision
   6's neighbour), with a device check on a gesture-navigation phone.
 - **`AppDialogs.confirmDiscard`'s title breaks mid-word in German at 200 %**

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 
 import '../constants/alert_constants.dart';
+import '../constants/app_theme.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
 import '../constants/occurrence_descriptions.dart';
@@ -21,6 +22,7 @@ import '../models/recurrence_rule.dart';
 import '../utils/alert_excerpt.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
+import '../utils/quick_alarm.dart';
 import 'alert_gateway.dart';
 import 'calendar_event_service.dart';
 import 'category_service.dart';
@@ -28,7 +30,6 @@ import 'database_manager.dart';
 import 'event_alert_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_skip_service.dart';
-import 'event_time_formatter.dart';
 import 'public_holiday_service.dart';
 import 'settings_service.dart';
 
@@ -964,6 +965,32 @@ class AlertScheduler {
           existing.backend == signature) {
         continue;
       }
+      // In flight, and so not this pass's to arm again. The clock above was
+      // read once, at the top of a pass that has since waited on every
+      // facade, on the plugin's own start and on the arm context — long
+      // enough for an entry that was a second ahead to come due. Either the
+      // binding is already ringing it, or what stands on the platform is this
+      // very instant and the clock, read afresh, has reached it.
+      //
+      // Arming over such an entry has the plugin stop the ring it replaces,
+      // and the binding reads a ring that leaves the plugin's set as a Stop
+      // on its notification: the alarm page closes, the session chip is
+      // posted and an event set to go after its alarm is removed, for an
+      // alarm nobody answered — which then starts again with no page. Left
+      // alone it rings as it was armed and is the ring handler's to settle,
+      // like the rows [_settlePastFires] keeps out of the diff; its row stays
+      // pending under the old token, which nothing reads once the instant is
+      // behind.
+      //
+      // The clock decides for the standing instant only. An alert an edit
+      // has just moved onto an instant that passes mid-pass rings nowhere
+      // yet, and has to be armed.
+      if (existing != null &&
+          (_gateway.ringingIds.contains(osId) ||
+              (existing.fireAt == fire.fireAt.millisecondsSinceEpoch &&
+                  !fire.fireAt.isAfter(_clock())))) {
+        continue;
+      }
       final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
       final armed = await _gateway.schedule(
         fire,
@@ -1375,6 +1402,7 @@ class AlertScheduler {
     }
     // Another database's alarm, or one whose registration is gone: the payload
     // is self-describing for exactly this, so the snooze is rebuilt from it.
+    AlertPayload? ringing;
     if ((event == null || alert == null) && payload != null) {
       event = CalendarEvent(
         id: payload.eventId,
@@ -1391,6 +1419,7 @@ class AlertScheduler {
         eventId: payload.eventId,
         mode: payload.mode,
       );
+      ringing = payload;
     }
     if (event == null || alert == null) return;
 
@@ -1428,12 +1457,26 @@ class AlertScheduler {
       ),
       isTaken: occupied.contains,
     );
-    final snoozed = _payloadFor(
-      fire,
-      snoozeOsId,
-      snoozeMinutes,
-      database: database,
-    );
+    // A snooze rebuilt from its payload goes on as that payload. The stand-in
+    // event above is there for the platform call alone: it has no time, no
+    // description and no say in whether its colour tints the icon, so an
+    // entry written from it would lose all three for an alarm whose own
+    // database is not open to ask again. Only what a new instant changes is
+    // restamped, and the ring's own "snoozed on its notification" mark goes —
+    // this entry is a snooze by its own account. The snooze length is the one
+    // this snooze was just taken with: the same number for another database's
+    // alarm, the current setting for one of this database, which is what the
+    // entry's own Snooze has to offer next.
+    final snoozed = ringing == null
+        ? _payloadFor(fire, snoozeOsId, snoozeMinutes, database: database)
+        : _gateway.labels
+              .moved(ringing, fire.fireAt)
+              .copyWith(
+                osId: snoozeOsId,
+                snooze: true,
+                snoozeMinutes: snoozeMinutes,
+                reRing: false,
+              );
     if (!await _gateway.schedule(fire, snoozed)) return;
     // No row for another database's snooze: reconcile never touches an entry
     // that names one, and a row here would describe an event this database
@@ -1470,25 +1513,16 @@ class AlertScheduler {
     int snoozeMinutes, {
     String? database,
   }) {
-    return AlertPayload(
+    return _payload(
       database: database ?? _databaseName,
-      eventId: fire.event.id,
+      event: fire.event,
       alertId: fire.alert.id,
-      dayUtcMs: fire.day.millisecondsSinceEpoch,
-      osId: osId,
       mode: fire.alert.mode,
-      title: fire.event.title,
-      timeLabel: _timeLabel(fire.fireAt),
-      colorValue: fire.event.colorValue,
-      tintIcon: fire.event.tintIcon,
-      iconKey: fire.event.iconKey,
-      categoryId: fire.event.categoryId,
-      removeAfterAlert: fire.event.removeAfterAlert,
+      day: fire.day,
+      osId: osId,
+      fireAt: fire.fireAt,
       snooze: fire.kind == AlertKind.snooze,
       snoozeMinutes: snoozeMinutes,
-      excerpt: alertExcerptFor(
-        OccurrenceDescriptions.descriptionFor(fire.event, fire.day),
-      ),
     );
   }
 
@@ -1498,29 +1532,87 @@ class AlertScheduler {
     required DateTime fireAt,
     required int snoozeMinutes,
   }) {
-    final alert = _alertOf(row.eventId, row.alertId);
-    return AlertPayload(
+    return _payload(
       database: _databaseName,
-      eventId: row.eventId,
+      event: event,
       alertId: row.alertId,
-      dayUtcMs: row.day,
+      mode: _alertOf(row.eventId, row.alertId)?.mode ?? AlertMode.notify,
+      day: DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
       osId: row.osId,
-      mode: alert?.mode ?? AlertMode.notify,
+      fireAt: fireAt,
+      snooze: AlertKind.fromName(row.kind) == AlertKind.snooze,
+      snoozeMinutes: snoozeMinutes,
+    );
+  }
+
+  /// One entry's payload, for [event]'s occurrence on [day] due at [fireAt].
+  ///
+  /// The one place an entry is written from an event, so a planned fire and a
+  /// row reported as missed cannot disagree. Everything a surface would
+  /// otherwise have to open a database or a facade for is resolved here, on
+  /// the UI isolate, through the binding's [AlertGateway.labels]: the due
+  /// instant, the event's own time, the colour and the icon its avatar
+  /// wears, and the language all of it is written in. §11: the app never
+  /// sets `Intl.defaultLocale`, so a label composed in a background isolate
+  /// would render in the system locale rather than the app's.
+  AlertPayload _payload({
+    required String database,
+    required CalendarEvent event,
+    required String alertId,
+    required AlertMode mode,
+    required DateTime day,
+    required int osId,
+    required DateTime fireAt,
+    required bool snooze,
+    required int snoozeMinutes,
+  }) {
+    final labels = _gateway.labels;
+    // A test ring stands in for no event. Stamped here rather than where it
+    // is armed, so the snooze of one — rebuilt from the same stand-in — reads
+    // the same as its first ring.
+    final isTest = event.id == AlertPayload.testEventId;
+    final payload = AlertPayload(
+      database: database,
+      eventId: event.id,
+      alertId: alertId,
+      dayUtcMs: day.millisecondsSinceEpoch,
+      osId: osId,
+      mode: mode,
       title: event.title,
-      timeLabel: _timeLabel(fireAt),
+      timeLabel: labels.timeLabel(fireAt),
       colorValue: event.colorValue,
       tintIcon: event.tintIcon,
       iconKey: event.iconKey,
       categoryId: event.categoryId,
       removeAfterAlert: event.removeAfterAlert,
-      snooze: AlertKind.fromName(row.kind) == AlertKind.snooze,
+      snooze: snooze,
       snoozeMinutes: snoozeMinutes,
       excerpt: alertExcerptFor(
-        OccurrenceDescriptions.descriptionFor(
-          event,
-          DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
-        ),
+        OccurrenceDescriptions.descriptionFor(event, day),
       ),
+      fireAtMs: fireAt.millisecondsSinceEpoch,
+      // The stand-in has no time, and would read "All day".
+      whenLabel: isTest
+          ? ''
+          : labels.whenLabel(time: event.time, day: day, fireAt: fireAt),
+      glyphKey: isTest
+          ? kQuickAlarmIconKey
+          : CalendarCategories.iconKeyFor(event),
+      languageCode: labels.languageCode,
+    );
+    return payload.copyWith(
+      // The payload's own icon rule over the category as it stands now, which
+      // is what every reader computed for itself while a database was open.
+      // A test ring has no category worth the name: left to the rule its
+      // notification wears the fallback grey — so it takes the app's own
+      // colour, the light scheme's because an entry is armed with no theme
+      // to ask. The alarm page has one, and draws its test avatar in that
+      // theme's primary instead.
+      tintValue: isTest
+          ? AppTheme.lightScheme.primary.toARGB32()
+          : payload.iconColorValue(
+              CalendarCategories.resolve(event.categoryId).colorValue,
+            ),
     );
   }
 
@@ -1532,12 +1624,6 @@ class AlertScheduler {
     }
     return null;
   }
-
-  /// Wall clock of the fire instant, formatted here on the UI thread. §11: the
-  /// app never sets `Intl.defaultLocale`, so a label composed in a background
-  /// isolate would render in the system locale rather than the app's.
-  static String _timeLabel(DateTime fireAt) =>
-      EventTimeFormatter.formatMinuteOfDay(fireAt.hour * 60 + fireAt.minute);
 
   // ── Serialization ────────────────────────────────────────────────────
 

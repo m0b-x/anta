@@ -23,6 +23,7 @@ A change is done when all of these hold; a rework's slice is done only when they
 | Drift tables / DAOs / migrations / DB annotations | `dart run build_runner build --delete-conflicting-outputs` (or `./tool/release/release gen`) |
 | ARB files (`lib/l10n/*.arb`) | `flutter gen-l10n` — then check `untranslated.txt` for missing de/ro keys |
 | The alarm fork's Kotlin | `cd android && ./gradlew :alarm:testDebugUnitTest` |
+| The alarm fork's Dart | `cd packages/alarm && flutter test` |
 
 ## 2. Static analysis (always)
 
@@ -72,7 +73,7 @@ Release builds are refused without the gitignored `android/key.properties` + `an
 ## What to check per feature area
 
 - **Editor/preview changes**: type in a note, toggle preview/split, confirm no lost text, search highlighting alignment, and editor↔preview scroll mapping on toggle.
-- **UI changes on the language** (any sheet, form, row, menu or dialog): the `ui-language` skill's test list — light and dark, en / de / ro, text scale 2.0, both phone sizes, the bottom-clearance test. For the calendar, also the saved device pass in `calendar-ui`.
+- **UI changes on the language** (any sheet, form, row, menu or dialog): the `ui-language` skill's test list — light and dark, en / de / ro, text scale 2.0, both phone sizes, the bottom-clearance test. For the calendar, also the saved device pass in `calendar-ui`. For the alarm page and the alert notifications, the alerts pass in `qa-emulator` ("The alerts pass": `qa flows alerts`, `qa flows alerts_pair` — seeded with `qa relaunch`, never `qa run`).
 - **Drift/migration changes**: launch with an existing database (never a wiped one) to prove the migration path; then create/edit data and hot-restart to prove persistence.
 - **l10n changes**: switch app language between English, German, Romanian in settings and confirm the new strings render (no raw keys, plurals correct in Romanian).
 - **Backup/import-export changes**: export, then re-import, and confirm timestamps/sort orders round-trip; verify an old-version backup still imports.

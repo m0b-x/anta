@@ -30,6 +30,14 @@ abstract final class AlertPayloadKeys {
   static const String snoozeMinutes = 'snoozeMin';
   static const String notice = 'notice';
   static const String excerpt = 'excerpt';
+  static const String fireAt = 'fireAt';
+  static const String reRing = 'reRing';
+  static const String whenLabel = 'when';
+  static const String tintValue = 'tint';
+  static const String glyphKey = 'glyph';
+  static const String languageCode = 'lang';
+  static const String iconFile = 'iconFile';
+  static const String grouped = 'grp';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -48,6 +56,12 @@ abstract final class AlertPayloadKeys {
 /// never sets `Intl.defaultLocale`, so formatting a time in a background
 /// isolate — which is where a notification action runs — would render in the
 /// system locale rather than the app's.
+///
+/// **Everything from [fireAtMs] down is optional, for good.** Those fields
+/// are left out of the wire form while they say nothing, and every reader
+/// keeps what it did before they existed: an entry of another database and a
+/// standing snooze are never re-armed, so a payload written without them can
+/// ring years after the build that wrote it is gone.
 class AlertPayload extends Equatable {
   /// Active database name at schedule time.
   final String database;
@@ -65,8 +79,10 @@ class AlertPayload extends Equatable {
 
   final String title;
 
-  /// Wall-clock label of the fire instant, pre-formatted. The alarm page shows
-  /// it, and the "Missed" body quotes it.
+  /// Wall-clock label of the fire instant, pre-formatted on the clock the
+  /// phone was on when the entry was armed. A notification names the alarm's
+  /// own time with it, and the event's wherever [whenLabel] is empty; the
+  /// alarm page draws it only for an entry that carries no [fireAtMs].
   final String timeLabel;
 
   /// The event's own colour override, or null to resolve from the category.
@@ -97,7 +113,8 @@ class AlertPayload extends Equatable {
   final int snoozeMinutes;
 
   /// The first line of the event's description, stripped of markdown and
-  /// capped (OS-4) — the body a reminder and a Missed notice expand to.
+  /// capped (OS-4) — the line a notification adds under its text when it is
+  /// expanded, and the alarm page's second row.
   /// Stamped at schedule time on the UI isolate like [timeLabel], so nothing
   /// that posts from a payload has to open a database to draw it. Empty when
   /// the event has no description.
@@ -108,6 +125,70 @@ class AlertPayload extends Equatable {
   /// Skip and Open name the right occurrence — so this is the one field that
   /// tells the two apart when the notification id is not to hand.
   final bool notice;
+
+  /// The instant this entry is due, as epoch milliseconds, or null on an
+  /// entry armed before the field existed.
+  ///
+  /// [timeLabel] says the same thing as text frozen in one clock style and
+  /// one language; this is what lets a surface with a context write the time
+  /// and its day the way the phone does now. It also tells a ring that was
+  /// moved from one that was not: the platform reports the instant it really
+  /// rang at, and only a stamped payload has something to compare it with.
+  final int? fireAtMs;
+
+  /// Whether this process saw the platform move this ring by a Snooze taken
+  /// on its notification.
+  ///
+  /// The one honest source for "snoozed" on a ring the app did not snooze
+  /// itself: [snooze] is true for every test ring and false for a native
+  /// snooze, and a moved instant alone is also what a ring the platform
+  /// deferred looks like. Set on the ring report, never armed into an entry.
+  final bool reRing;
+
+  /// The event's own time as a line — "18:00 – 19:30", "18:00", "All day" —
+  /// with its day when the occurrence is not on the day the entry is due.
+  ///
+  /// **Empty when it would only repeat the due time**, which is the everyday
+  /// alert at the event's start: a caption reading what the clock above it
+  /// already reads is noise. Empty on an older entry too, where the event's
+  /// time is simply not known; [languageCode] is what tells the two apart.
+  final String whenLabel;
+
+  /// The colour the event's avatar wears, by the one icon rule, resolved
+  /// when the entry was armed — or null for [iconColorValue] over the
+  /// category's colour, as before.
+  ///
+  /// Carried because the category facade is empty wherever no database is
+  /// open: in the background isolate, and for another database's alarm.
+  final int? tintValue;
+
+  /// The icon key the event's avatar draws, resolved when the entry was
+  /// armed — or null for [iconKey], then the category's, as before.
+  final String? glyphKey;
+
+  /// The language every string in this payload was written in, or null on an
+  /// older entry — which a reader with no settings to ask answers with the
+  /// device's language, as it always has.
+  final String? languageCode;
+
+  /// Where the rendered avatar is kept for a notification's large icon, or
+  /// null for none.
+  ///
+  /// Stamped by the platform binding into a **reminder's** entry alone, when
+  /// it is armed: a reminder's Snooze re-posts it from a background isolate
+  /// that can hand a path on and cannot draw. Every other notification is
+  /// posted where the binding can find the file, or draw it, by itself.
+  final String? iconFile;
+
+  /// Whether this entry's notification was armed in the app's own group
+  /// (`kAlertGroupKey`), which a reminder's is on Android 16 and above.
+  ///
+  /// Stamped by the platform binding beside [iconFile], and for the same
+  /// reader: the isolate that re-posts a snoozed reminder cannot ask the
+  /// platform which Android it is running on, so the entry says which shape
+  /// it was armed in and comes back in that one. False on every other entry
+  /// and on an older one, which is the loose notification both always were.
+  final bool grouped;
 
   const AlertPayload({
     required this.database,
@@ -127,6 +208,14 @@ class AlertPayload extends Equatable {
     this.snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes,
     this.notice = false,
     this.excerpt = '',
+    this.fireAtMs,
+    this.reRing = false,
+    this.whenLabel = '',
+    this.tintValue,
+    this.glyphKey,
+    this.languageCode,
+    this.iconFile,
+    this.grouped = false,
   });
 
   /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
@@ -163,6 +252,14 @@ class AlertPayload extends Equatable {
     bool? removeAfterAlert,
     int? snoozeMinutes,
     bool? notice,
+    int? fireAtMs,
+    bool? reRing,
+    String? whenLabel,
+    int? tintValue,
+    String? glyphKey,
+    String? languageCode,
+    String? iconFile,
+    bool? grouped,
   }) {
     return AlertPayload(
       database: database,
@@ -182,6 +279,14 @@ class AlertPayload extends Equatable {
       snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
       notice: notice ?? this.notice,
       excerpt: excerpt,
+      fireAtMs: fireAtMs ?? this.fireAtMs,
+      reRing: reRing ?? this.reRing,
+      whenLabel: whenLabel ?? this.whenLabel,
+      tintValue: tintValue ?? this.tintValue,
+      glyphKey: glyphKey ?? this.glyphKey,
+      languageCode: languageCode ?? this.languageCode,
+      iconFile: iconFile ?? this.iconFile,
+      grouped: grouped ?? this.grouped,
     );
   }
 
@@ -203,6 +308,14 @@ class AlertPayload extends Equatable {
     AlertPayloadKeys.snoozeMinutes: snoozeMinutes,
     AlertPayloadKeys.notice: notice,
     if (excerpt.isNotEmpty) AlertPayloadKeys.excerpt: excerpt,
+    if (fireAtMs != null) AlertPayloadKeys.fireAt: fireAtMs,
+    if (reRing) AlertPayloadKeys.reRing: true,
+    if (whenLabel.isNotEmpty) AlertPayloadKeys.whenLabel: whenLabel,
+    if (tintValue != null) AlertPayloadKeys.tintValue: tintValue,
+    if (glyphKey != null) AlertPayloadKeys.glyphKey: glyphKey,
+    if (languageCode != null) AlertPayloadKeys.languageCode: languageCode,
+    if (iconFile != null) AlertPayloadKeys.iconFile: iconFile,
+    if (grouped) AlertPayloadKeys.grouped: true,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -260,6 +373,26 @@ class AlertPayload extends Equatable {
       excerpt: map[AlertPayloadKeys.excerpt] is String
           ? map[AlertPayloadKeys.excerpt] as String
           : '',
+      fireAtMs: map[AlertPayloadKeys.fireAt] is int
+          ? map[AlertPayloadKeys.fireAt] as int
+          : null,
+      reRing: map[AlertPayloadKeys.reRing] == true,
+      whenLabel: map[AlertPayloadKeys.whenLabel] is String
+          ? map[AlertPayloadKeys.whenLabel] as String
+          : '',
+      tintValue: map[AlertPayloadKeys.tintValue] is int
+          ? map[AlertPayloadKeys.tintValue] as int
+          : null,
+      glyphKey: map[AlertPayloadKeys.glyphKey] is String
+          ? map[AlertPayloadKeys.glyphKey] as String
+          : null,
+      languageCode: map[AlertPayloadKeys.languageCode] is String
+          ? map[AlertPayloadKeys.languageCode] as String
+          : null,
+      iconFile: map[AlertPayloadKeys.iconFile] is String
+          ? map[AlertPayloadKeys.iconFile] as String
+          : null,
+      grouped: map[AlertPayloadKeys.grouped] == true,
     );
   }
 
@@ -291,6 +424,7 @@ class AlertPayload extends Equatable {
     title,
     timeLabel,
     colorValue,
+    tintIcon,
     iconKey,
     categoryId,
     removeAfterAlert,
@@ -298,5 +432,13 @@ class AlertPayload extends Equatable {
     snoozeMinutes,
     notice,
     excerpt,
+    fireAtMs,
+    reRing,
+    whenLabel,
+    tintValue,
+    glyphKey,
+    languageCode,
+    iconFile,
+    grouped,
   ];
 }

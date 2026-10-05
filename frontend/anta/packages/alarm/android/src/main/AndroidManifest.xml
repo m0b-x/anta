@@ -12,7 +12,14 @@
   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
   <application>
-    <receiver android:name="com.gdelataillade.alarm.alarm.AlarmReceiver" android:exported="true" />
+    <!-- (ANTA fork, Patch 5) Not exported. Every intent this receiver answers
+         is the application's own: the AlarmManager entry AlarmScheduler arms,
+         the Stop, Snooze and restore PendingIntents on the ring notification,
+         and the in-process broadcast of an alarm due within five seconds. A
+         PendingIntent is sent as the application that made it, so none of
+         them needs the door open. Exported, and with no permission, it let
+         any other app that knew an alarm's id stop or snooze that alarm. -->
+    <receiver android:name="com.gdelataillade.alarm.alarm.AlarmReceiver" android:exported="false" />
     <receiver
       android:name="com.gdelataillade.alarm.alarm.BootReceiver"
       android:enabled="true"

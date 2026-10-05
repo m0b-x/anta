@@ -1,13 +1,18 @@
 import 'dart:io';
+import 'dart:ui' show Locale;
 
 import 'package:drift/drift.dart' show Value;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/alert_constants.dart';
+import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/alert_hub_entry.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/alert_sound.dart';
@@ -24,6 +29,7 @@ import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/alert_planner.dart';
 
 import '../database/support/db_test_support.dart';
@@ -51,11 +57,23 @@ class FakeAlertGateway implements AlertGateway {
   /// Asked once per pass, never once per fire.
   int armContextReads = 0;
 
+  /// Run while the pass is waiting on this "platform" for its arm context —
+  /// after it has read its clock, before it reaches its diff. Moving the
+  /// test's clock here is an alarm coming due while its own pass runs.
+  void Function()? onArmContextRead;
+
   @override
   Future<String> refreshArmContext() async {
     armContextReads++;
+    onArmContextRead?.call();
     return armContext;
   }
+
+  /// What this "platform" writes an entry's times and days with: 24-hour
+  /// English, as the no-op binding answers, unless a test puts the phone on
+  /// another clock or the app in another language.
+  @override
+  AlertLabels labels = AlertLabels.fixed;
 
   @override
   bool get supportsSoundPicker => false;
@@ -163,6 +181,7 @@ class FakeAlertGateway implements AlertGateway {
     DateTime? endsAt,
     int? progress,
     bool refresh = false,
+    bool linkedNote = false,
   }) async {
     chips.add(payload.osId);
     return true;
@@ -595,6 +614,124 @@ void main() {
     });
   });
 
+  group('an alarm that comes due while its own pass runs', () {
+    // A pass reads its clock once, at its top, and then waits on a dozen
+    // things — the facades, the plugin's own start, the arm context — before
+    // its diff. An entry whose instant passes in between is still "planned"
+    // to that diff, and when its token has moved the diff used to arm it
+    // again: over a ring that had just started. The plugin stops the ring it
+    // replaces, the binding reads that as a Stop on the notification, and an
+    // alarm nobody answered was settled as acknowledged — its page closed,
+    // an event set to go after its alarm removed — while it started again
+    // with no page.
+    final due = DateTime(2026, 9, 20, 18);
+    final aSecondBefore = DateTime(2026, 9, 20, 17, 59, 59);
+    final aSecondAfter = DateTime(2026, 9, 20, 18, 0, 1);
+
+    /// Arms the seeded alarm days ahead, as any earlier pass would have.
+    Future<AlertRegistrationRow> armed(AlertScheduler scheduler) async {
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final row = (await registrations()).single;
+      gateway.resetCalls();
+      return row;
+    }
+
+    Future<void> expectLeftAlone(AlertRegistrationRow before) async {
+      expect(gateway.scheduled, isEmpty, reason: 'armed over its own ring');
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.stopped, isEmpty);
+      expect(gateway.platform.containsKey(before.osId), isTrue);
+      // Still the ring handler's to settle, under the token it was armed
+      // with: nothing reads a token once its instant is behind.
+      expect(await registrations(), [before]);
+      expect(before.state, AlertRegistrationState.pending.name);
+    }
+
+    test('is left alone, though everything it was armed under has moved',
+        () async {
+      // The first pass of a build that changed what an entry says, or the
+      // phone's volume across the floor: every token differs.
+      await seed();
+      final scheduler = schedulerOf();
+      final before = await armed(scheduler);
+
+      now = aSecondBefore;
+      gateway.armContext = 'fake@floor';
+      gateway.onArmContextRead = () => now = aSecondAfter;
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      await expectLeftAlone(before);
+      expect(before.backend, 'fake#system:default~clock~10~n120');
+    });
+
+    test("is left alone by its own event's pass, which arms unconditionally",
+        () async {
+      await seed();
+      final scheduler = schedulerOf();
+      final before = await armed(scheduler);
+
+      now = aSecondBefore;
+      gateway.onArmContextRead = () => now = aSecondAfter;
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      await expectLeftAlone(before);
+    });
+
+    test('is left alone once the binding says it is ringing, whatever the '
+        'clock reads', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      final before = await armed(scheduler);
+
+      gateway.ringingNow.add(before.osId);
+      gateway.armContext = 'fake@floor';
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      await expectLeftAlone(before);
+    });
+
+    test('is armed all the same when nothing was ever armed for it', () async {
+      // No registration, so nothing is being delivered: the platform holds
+      // no entry a ring could come from, and skipping would leave an alarm
+      // that never rings at all.
+      await seed();
+      now = aSecondBefore;
+      gateway.onArmContextRead = () => now = aSecondAfter;
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduled.single.fireAt, due);
+      final row = (await registrations()).single;
+      expect(row.state, AlertRegistrationState.pending.name);
+      expect(row.fireAt, due.millisecondsSinceEpoch);
+    });
+
+    test('is armed all the same when an edit has just moved it there',
+        () async {
+      // What stands on the platform is the old instant, half an hour away:
+      // the new one is ringing nowhere, and passing by mid-pass is no reason
+      // to leave the alarm armed for a time the event no longer has.
+      await seed();
+      final scheduler = schedulerOf();
+      final before = await armed(scheduler);
+      final moved = DateTime(2026, 9, 20, 17, 30);
+
+      now = moved.subtract(const Duration(seconds: 1));
+      await events.upsert(
+        eventOf(time: const EventTime(startMinute: 17 * 60 + 30)),
+      );
+      gateway.onArmContextRead = () {
+        now = moved.add(const Duration(seconds: 1));
+      };
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduled.single.fireAt, moved);
+      final row = (await registrations()).single;
+      expect(row.osId, before.osId);
+      expect(row.fireAt, moved.millisecondsSinceEpoch);
+    });
+  });
+
   group('OS truth', () {
     test('a registry row the platform forgot is dropped and re-armed',
         () async {
@@ -758,6 +895,20 @@ void main() {
           expect(gateway.missed.single.title, 'Leg day');
           expect(gateway.missed.single.timeLabel, '18:00');
           expect(gateway.missed.single.mode, AlertMode.ring);
+          // Written from the registry row, and stamped like the entry it
+          // reports on: with the instant it was due at, not the one it was
+          // found missing at.
+          expect(
+            gateway.missed.single.fireAtMs,
+            DateTime(2026, 9, 20, 18).millisecondsSinceEpoch,
+          );
+          expect(gateway.missed.single.whenLabel, '');
+          expect(
+            gateway.missed.single.tintValue,
+            CalendarCategories.resolve('gym').colorValue,
+          );
+          expect(gateway.missed.single.glyphKey, 'fitness_center');
+          expect(gateway.missed.single.languageCode, 'en');
         } else {
           // A reminder that was simply not tapped is not a missed
           // appointment, and the OS gives the app no way to tell the two
@@ -946,6 +1097,16 @@ void main() {
       expect(gateway.stopped, [osId]);
       expect(gateway.scheduled.last.kind, AlertKind.snooze);
       expect(gateway.platform[snoozed.osId]!.snooze, isTrue);
+      // Stamped for its own instant — and, its due time no longer being the
+      // event's, saying when the event itself is.
+      final payload = gateway.platform[snoozed.osId]!;
+      expect(
+        payload.fireAtMs,
+        DateTime(2026, 9, 20, 18, 10).millisecondsSinceEpoch,
+      );
+      expect(payload.timeLabel, '18:10');
+      expect(payload.whenLabel, '18:00');
+      expect(payload.reRing, isFalse);
     });
 
     test('an unrelated reconcile leaves a snooze alone', () async {
@@ -1625,6 +1786,167 @@ void main() {
       expect(gateway.cancelled, isEmpty);
       expect(gateway.platform, hasLength(1));
     });
+
+    /// What the alarm page hands Snooze for an alarm a labelled build armed:
+    /// everything [payloadOf] carries, plus what the event that stands in for
+    /// it on the platform call has no field for.
+    AlertPayload stampedOf({String database = 'work'}) => AlertPayload(
+      database: database,
+      eventId: 'far-event',
+      alertId: 'far-alert',
+      dayUtcMs: DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
+      osId: 424242,
+      mode: AlertMode.ring,
+      title: 'Standup',
+      timeLabel: '09:00',
+      colorValue: 0xFF00897B,
+      tintIcon: false,
+      iconKey: 'alarm',
+      categoryId: 'work',
+      removeAfterAlert: true,
+      snoozeMinutes: 5,
+      excerpt: 'Bring the laptop.',
+      fireAtMs: DateTime(2026, 9, 20, 9).millisecondsSinceEpoch,
+      reRing: true,
+      tintValue: 0xFF757575,
+      glyphKey: 'alarm',
+      languageCode: 'en',
+      iconFile: '/data/alert_icons/alarm_ff757575.png',
+    );
+
+    test('the snooze is the ringing payload, with only the new instant '
+        'restamped', () async {
+      now = DateTime(2026, 9, 20, 9, 0, 20);
+      final ringing = stampedOf();
+
+      await schedulerOf().snooze(ringing.osId, payload: ringing);
+
+      final armed = gateway.platform.values.single;
+      // The whole list of what changes: the id it is armed under, the snooze
+      // flag, the new instant and its clock label, the re-ring mark gone,
+      // and the old due time — the event's own, or the entry would have said
+      // otherwise — kept as the event's time. Everything else is as it rang.
+      expect(
+        armed,
+        ringing.copyWith(
+          osId: armed.osId,
+          snooze: true,
+          fireAtMs: DateTime(2026, 9, 20, 9, 5, 20).millisecondsSinceEpoch,
+          timeLabel: '09:05',
+          reRing: false,
+          whenLabel: '09:00',
+        ),
+      );
+      expect(armed.osId, isNot(ringing.osId));
+      // Spelled out: these three are what the rebuild used to drop, because
+      // the stand-in event has no description, no time and no tint flag.
+      expect(armed.tintIcon, isFalse);
+      expect(armed.excerpt, 'Bring the laptop.');
+      expect(armed.whenLabel, '09:00');
+      expect(gateway.scheduled.single.fireAt, DateTime(2026, 9, 20, 9, 5, 20));
+      expect(await registrations(), isEmpty);
+    });
+
+    test('an event time the entry already carries is not replaced', () async {
+      // A "15 minutes before" alarm: its due time was never the event's.
+      now = DateTime(2026, 9, 20, 9, 0, 20);
+      final ringing = stampedOf().copyWith(whenLabel: '09:15 – 10:00');
+
+      await schedulerOf().snooze(ringing.osId, payload: ringing);
+
+      expect(gateway.platform.values.single.whenLabel, '09:15 – 10:00');
+      expect(gateway.platform.values.single.timeLabel, '09:05');
+    });
+
+    test('the shape the entry was armed in is handed on as it came', () async {
+      // Whether an entry's notification was armed in the app's group is the
+      // platform binding's to decide and to stamp. A snooze made from the
+      // payload is a copy: it neither sets the mark nor drops it.
+      now = DateTime(2026, 9, 20, 9, 0, 20);
+      final ringing = stampedOf().copyWith(grouped: true);
+
+      await schedulerOf().snooze(ringing.osId, payload: ringing);
+
+      expect(gateway.platform.values.single.grouped, isTrue);
+      expect(
+        gateway.platform.values.single,
+        ringing.copyWith(
+          osId: gateway.platform.values.single.osId,
+          snooze: true,
+          fireAtMs: DateTime(2026, 9, 20, 9, 5, 20).millisecondsSinceEpoch,
+          timeLabel: '09:05',
+          reRing: false,
+          whenLabel: '09:00',
+        ),
+      );
+    });
+
+    test('an entry armed before the labels existed gains its instant, and '
+        'nothing it never knew', () async {
+      now = DateTime(2026, 9, 20, 9, 0, 20);
+      final ringing = payloadOf();
+      final scheduler = schedulerOf();
+
+      await scheduler.snooze(ringing.osId, payload: ringing);
+
+      final armed = gateway.platform.values.single;
+      expect(
+        armed,
+        ringing.copyWith(
+          osId: armed.osId,
+          snooze: true,
+          fireAtMs: DateTime(2026, 9, 20, 9, 5, 20).millisecondsSinceEpoch,
+          timeLabel: '09:05',
+        ),
+      );
+      // Its old due time is not known to be the event's — it may have been
+      // "10 minutes before" — so it is not passed off as that.
+      expect(armed.whenLabel, '');
+      expect(armed.languageCode, isNull);
+      expect(armed.tintValue, isNull);
+
+      // Nor on the snooze after it, which now carries an instant: it still
+      // names no language, and that is what says nobody wrote its lines.
+      now = DateTime(2026, 9, 20, 9, 5, 30);
+      await scheduler.snooze(armed.osId, payload: armed);
+
+      final again = gateway.platform.values.single;
+      expect(again.timeLabel, '09:10');
+      expect(
+        again.fireAtMs,
+        DateTime(2026, 9, 20, 9, 10, 30).millisecondsSinceEpoch,
+      );
+      expect(again.whenLabel, '');
+    });
+
+    test('a ring of this database whose registration is gone is snoozed the '
+        'same way, for as long as the setting says, and recorded', () async {
+      now = DateTime(2026, 9, 20, 9, 0, 20);
+      final ringing = stampedOf(database: 'gym_notes');
+
+      await schedulerOf().snooze(ringing.osId, payload: ringing);
+
+      final armed = gateway.platform.values.single;
+      // This database's settings are open, so the snooze is as long as they
+      // say — ten minutes, not the five the entry was armed with — and the
+      // entry offers that length from now on.
+      expect(
+        armed,
+        ringing.copyWith(
+          osId: armed.osId,
+          snooze: true,
+          snoozeMinutes: 10,
+          fireAtMs: DateTime(2026, 9, 20, 9, 10, 20).millisecondsSinceEpoch,
+          timeLabel: '09:10',
+          reRing: false,
+          whenLabel: '09:00',
+        ),
+      );
+      final row = (await registrations()).single;
+      expect(row.osId, armed.osId);
+      expect(row.kind, AlertKind.snooze.name);
+      expect(row.eventId, 'far-event');
+    });
   });
 
   group('a ring that ended outside the app', () {
@@ -1775,8 +2097,236 @@ void main() {
       expect(payload.removeAfterAlert, isTrue);
       expect(payload.snooze, isFalse);
       expect(payload.dayUtc, DateTime.utc(2026, 9, 20));
+      // What the entry says about itself beyond its identity, resolved when
+      // it is armed so that no surface has to open a database to draw it.
+      expect(
+        payload.fireAtMs,
+        DateTime(2026, 9, 20, 18).millisecondsSinceEpoch,
+      );
+      // An alert at the event's start: the event's own time would only
+      // repeat the due time.
+      expect(payload.whenLabel, '');
+      expect(payload.tintValue, CalendarCategories.resolve('gym').colorValue);
+      expect(payload.glyphKey, 'fitness_center');
+      expect(payload.languageCode, 'en');
+      // Never armed into an entry: only a ring report can say it.
+      expect(payload.reRing, isFalse);
+      expect(payload.iconFile, isNull);
       // Round-trips through the wire form the platform actually stores.
       expect(AlertPayload.decode(payload.encode()), payload);
+    });
+
+    test('says nothing of the notification group, on either tier', () async {
+      // Which Android the phone runs is not the plan's to know: the platform
+      // binding decides whether a reminder is armed in the app's group, and
+      // stamps the entry it arms.
+      await seed(
+        eventAlerts: [
+          alertOf(),
+          alertOf(id: 'a2', mode: AlertMode.notify, offsetMinutes: 10),
+        ],
+      );
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.platform.values, hasLength(2));
+      for (final payload in gateway.platform.values) {
+        expect(payload.grouped, isFalse, reason: payload.mode.name);
+        expect(
+          payload.toJson().containsKey('grp'),
+          isFalse,
+          reason: payload.mode.name,
+        );
+      }
+    });
+
+    test("an alert ahead of its event carries the event's own time", () async {
+      await seed(eventAlerts: [alertOf(offsetMinutes: 30)]);
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.timeLabel, '17:30');
+      expect(
+        payload.fireAtMs,
+        DateTime(2026, 9, 20, 17, 30).millisecondsSinceEpoch,
+      );
+      expect(payload.whenLabel, '18:00');
+    });
+
+    test('an event with an end carries its range, even at its start', () async {
+      await seed(
+        event: eventOf(
+          time: const EventTime(startMinute: 18 * 60, durationMinutes: 90),
+        ),
+      );
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.timeLabel, '18:00');
+      expect(payload.whenLabel, '18:00 – 19:30');
+    });
+
+    test('an all-day event alerted the day before names its day', () async {
+      // Due on Saturday the 19th at the 09:00 default, for Sunday's event.
+      await seed(
+        event: eventOf(time: null),
+        eventAlerts: [
+          const EventAlert(
+            id: 'a1',
+            eventId: 'e1',
+            mode: AlertMode.ring,
+            daysBefore: 1,
+          ),
+        ],
+      );
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.timeLabel, '09:00');
+      expect(
+        payload.fireAtMs,
+        DateTime(2026, 9, 19, 9).millisecondsSinceEpoch,
+      );
+      expect(payload.whenLabel, 'All day, Sun, Sep 20');
+      expect(payload.dayUtc, DateTime.utc(2026, 9, 20));
+    });
+
+    test("the colour and the icon are the avatar's own", () async {
+      // An event with a colour of its own that does not tint its icon, and an
+      // icon of its own: the avatar wears the category's colour around the
+      // event's glyph, and the payload says exactly that.
+      await seed(
+        event: eventOf().copyWith(
+          colorValue: 0xFFFF5722,
+          tintIcon: false,
+          iconKey: 'alarm',
+        ),
+      );
+      await events.upsert(
+        eventOf(id: 'e2', title: 'Swim').copyWith(colorValue: 0xFFFF5722),
+      );
+      await alerts.replaceForEvent('e2', [alertOf(id: 'b1', eventId: 'e2')]);
+      await events.upsert(
+        eventOf(id: 'e3', title: 'Run').copyWith(iconKey: 'no_such_icon'),
+      );
+      await alerts.replaceForEvent('e3', [alertOf(id: 'c1', eventId: 'e3')]);
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final byEvent = {
+        for (final payload in gateway.platform.values) payload.eventId: payload,
+      };
+      final category = CalendarCategories.resolve('gym');
+      expect(byEvent['e1']!.tintValue, category.colorValue);
+      expect(byEvent['e1']!.glyphKey, 'alarm');
+      // What every reader used to compute for itself is carried untouched
+      // beside it, for the builds and the entries that still do.
+      expect(byEvent['e1']!.colorValue, 0xFFFF5722);
+      expect(byEvent['e1']!.tintIcon, isFalse);
+      expect(byEvent['e1']!.iconKey, 'alarm');
+      // A colour that does tint the icon is the avatar's colour.
+      expect(byEvent['e2']!.tintValue, 0xFFFF5722);
+      expect(byEvent['e2']!.glyphKey, category.iconKey);
+      // An icon key that names nothing falls to the category's, as the row
+      // in the day panel does.
+      expect(byEvent['e3']!.glyphKey, category.iconKey);
+      expect(byEvent['e3']!.iconKey, 'no_such_icon');
+    });
+
+    test("the lines are written by the binding's labels", () async {
+      // A phone on the 12-hour clock, the app in German: the scheduler knows
+      // neither, and stamps whatever its gateway's labels write.
+      gateway.labels = AlertLabels(
+        strings: lookupAppLocalizations(const Locale('de')),
+        use24Hour: false,
+      );
+      await seed(event: eventOf(time: null));
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.languageCode, 'de');
+      expect(payload.whenLabel, 'Ganztägig');
+      // German writes no day period, so its due time is 24-hour on any phone.
+      expect(payload.timeLabel, '09:00');
+    });
+
+    test("the due time is written on the phone's clock too", () async {
+      // Until the arm context named the clock style this one label stayed on
+      // a neutral 24-hour skeleton, whatever the binding's labels wrote.
+      await initializeDateFormatting('en');
+      gateway.labels = AlertLabels(
+        strings: lookupAppLocalizations(const Locale('en')),
+        use24Hour: false,
+      );
+      await seed(eventAlerts: [alertOf(offsetMinutes: 30)]);
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.timeLabel, '5:30 PM');
+      expect(payload.whenLabel, '6:00 PM');
+      expect(
+        payload.fireAtMs,
+        DateTime(2026, 9, 20, 17, 30).millisecondsSinceEpoch,
+      );
+    });
+  });
+
+  group('a test ring', () {
+    test('is stamped with a tint and a glyph of its own, and no event time',
+        () async {
+      final scheduler = schedulerOf();
+      final osId = await scheduler.scheduleTestAlarm(
+        title: 'Test alarm in 10 s',
+        delay: const Duration(seconds: 10),
+      );
+
+      final payload = gateway.platform[osId]!;
+      expect(payload.isTest, isTrue);
+      // The fallback category's grey is the one avatar that all but vanishes
+      // on the dark ground, so a test ring takes the app's own colour.
+      expect(payload.tintValue, AppTheme.lightScheme.primary.toARGB32());
+      expect(payload.tintValue, 0xFF6750A4);
+      expect(payload.glyphKey, 'alarm');
+      // Its stand-in event has no time, and would otherwise read "All day".
+      expect(payload.whenLabel, '');
+      expect(
+        payload.fireAtMs,
+        now.add(const Duration(seconds: 10)).millisecondsSinceEpoch,
+      );
+      expect(payload.languageCode, 'en');
+      // Nothing an older reader draws from has moved: no colour of its own,
+      // the fallback category, the title it was armed with.
+      expect(payload.colorValue, isNull);
+      expect(payload.iconKey, isNull);
+      expect(payload.categoryId, CalendarCategories.fallback.id);
+      expect(payload.title, 'Test alarm in 10 s');
+      expect(payload.timeLabel, '12:00');
+    });
+
+    test('and so is its snooze', () async {
+      final scheduler = schedulerOf();
+      final osId = await scheduler.scheduleTestAlarm(
+        title: 'Test alarm in 10 s',
+        delay: const Duration(seconds: 10),
+      );
+      final first = gateway.platform[osId]!;
+      now = now.add(const Duration(seconds: 12));
+
+      await scheduler.snooze(osId!, payload: first);
+
+      // A test ring is registered as a snooze already, so its snooze is the
+      // same alert, day and kind: re-armed under the id it rang under.
+      final snoozed = gateway.platform.values.single;
+      expect(snoozed.osId, osId);
+      expect(snoozed, isNot(first));
+      expect(snoozed.isTest, isTrue);
+      expect(snoozed.snooze, isTrue);
+      expect(snoozed.tintValue, 0xFF6750A4);
+      expect(snoozed.glyphKey, 'alarm');
+      expect(snoozed.whenLabel, '');
+      expect(
+        snoozed.fireAtMs,
+        now.add(const Duration(minutes: 10)).millisecondsSinceEpoch,
+      );
+      expect(snoozed.timeLabel, '12:10');
     });
   });
 

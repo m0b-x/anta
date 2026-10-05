@@ -189,6 +189,64 @@ const int kAlertMissedIdSalt = 0x4d495353;
 /// something unrelated happened to move the fire. A reminder token stays bare.
 const String kAlertArmClockToken = '~clock';
 
+/// The token the Android arm context carries since the alert surfaces were
+/// redrawn (2026-10), naming the grammar an entry's notification is written
+/// in — the `g3` of `alertArmContext`.
+///
+/// A notification's words are frozen into the platform entry when it is
+/// armed, so a build that changes what they say reaches no standing entry by
+/// itself. This is [kAlertArmClockToken]'s job for both tiers: it differs
+/// from what every earlier build recorded, so the first pass after the
+/// upgrade re-arms every planned entry once, under the id it already has.
+/// **Move it whenever what an armed entry shows changes** — its title, text
+/// or buttons, its decor, how it is grouped, the channel it is posted on. It
+/// sits in the context rather than in the alarm-tier signature because a
+/// reminder's token is the bare context, and a reminder is frozen just the
+/// same.
+///
+/// `~g2` was the redraw's one grammar. `~g3` says the same words and moves
+/// two things that are frozen with them: a reminder is armed in
+/// [kAlertGroupKey], and an alarm's upcoming notice — armed beside it, so
+/// re-armed with it — on the quiet channel.
+const String kAlertArmGrammarToken = '~g3';
+
+/// The group a reminder's notification names on Android 16 and above
+/// ([kAlertGroupMinSdk]) — and its snoozed re-post, which has to come back
+/// in the shape it left in.
+///
+/// **A key with no summary, there to be left alone rather than to draw a
+/// group.** Android 16 bundles an app's ungrouped notifications as soon as
+/// two stand in one section of the shade, and flags each one silent *before*
+/// it decides whether to alert: a reminder that fired beside another
+/// standing one made no sound and did not peek. A notification that names a
+/// group of its own is not bundled at post, so it sounds and peeks first;
+/// the platform gathers it with the others about three seconds later, which
+/// by then costs only the tail of its heads-up.
+///
+/// A summary of the app's own would keep the platform's hands off for good,
+/// and was turned down: it stays behind as a row of its own when its last
+/// child leaves by a timeout or by a button answered with no Dart running,
+/// and taking it down takes every standing reminder with it
+/// (`docs/alert-surfaces-redesign-roadmap.md` §3.7, D20).
+const String kAlertGroupKey = 'anta.alerts';
+
+/// The first Android API level whose reminders are armed in
+/// [kAlertGroupKey]: 36, Android 16, where the forced bundling begins.
+///
+/// Below it nothing is bundled by force, and how the shade draws a child
+/// with a group key and no summary there was never seen — so those phones
+/// keep the loose reminder they have always had.
+const int kAlertGroupMinSdk = 36;
+
+/// Whether a phone on API level [sdkInt] arms its reminders in
+/// [kAlertGroupKey]. **Pure.**
+///
+/// Null is a level that could not be read, and answers no: the loose
+/// reminder is what every phone posted before the group existed, while a
+/// group key on a release it was never tried on is a guess.
+bool alertRemindersGroupedOn(int? sdkInt) =>
+    sdkInt != null && sdkInt >= kAlertGroupMinSdk;
+
 /// Keeps upcoming-alarm notice ids out of the registration and Missed id
 /// spaces (OS-3, **B6**).
 ///

@@ -1675,6 +1675,18 @@ class SettingsService {
   Future<void> setAlertNotificationsAsked(bool value) =>
       _setBool(SettingsKeys.alertNotificationsAsked, value);
 
+  /// The app's own language as `AppSettingsBloc` stores it, or null for
+  /// "follow the device".
+  ///
+  /// Here for a reader that asks again and again while the app runs — the
+  /// alert binding does, once per scheduling pass. Read straight off
+  /// `AppDatabase.getInstance()`, each of those reads would also re-resolve
+  /// which database is active, and that call carries out a stored switch on
+  /// the spot: it closes the connection everything else is bound to. This
+  /// answers from the database the singleton already holds.
+  Future<String?> getLocaleCode() =>
+      _db.userSettingsDao.getValue(SettingsKeys.locale);
+
   Future<String?> getPermissionPromptAcknowledged() =>
       _db.userSettingsDao.getValue(SettingsKeys.permissionPromptAcknowledged);
 

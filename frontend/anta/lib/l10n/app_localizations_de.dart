@@ -4785,6 +4785,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alarmPageTitle => 'Alarm';
 
   @override
+  String get alarmTestTitle => 'Testalarm';
+
+  @override
   String get alarmStop => 'Stopp';
 
   @override
@@ -4802,22 +4805,30 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alarmOpenEvent => 'Termin öffnen';
 
   @override
+  String get alarmKeep => 'Behalten';
+
+  @override
   String get alarmKeepEvent => 'Termin behalten';
 
   @override
   String get alarmKeptEvent => 'Der Termin bleibt erhalten';
 
   @override
-  String get alarmRemoveAfterCaption =>
-      'Dieser Termin wird entfernt, sobald du den Alarm stoppst';
+  String get alarmRemoveAfterCaption => 'Stopp entfernt auch diesen Termin';
 
   @override
-  String alarmFromDatabase(String name) {
-    return 'Aus Datenbank $name';
+  String alarmSwitchDatabase(String name) {
+    return 'Zu $name wechseln';
   }
 
   @override
-  String get alarmOpenDatabase => 'Öffnen';
+  String alarmDatabaseSwitchedTitle(String name) {
+    return 'Zu $name gewechselt';
+  }
+
+  @override
+  String get alarmDatabaseSwitchedBody =>
+      'Beende ANTA und öffne es erneut, um diesen Termin zu sehen. Der Alarm klingelt weiter, bis du ihn stoppst.';
 
   @override
   String get calendarAlertsSection => 'Erinnerungen';
@@ -4908,6 +4919,16 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String alertsKindWhen(String kind, String when) {
+    return '$kind · $when';
+  }
+
+  @override
+  String alertsWhenOnDay(String when, String day) {
+    return '$when, $day';
+  }
+
+  @override
   String get alertsSkipAction => 'Überspringen';
 
   @override
@@ -4978,31 +4999,14 @@ class AppLocalizationsDe extends AppLocalizations {
       'Termin-Alarme, die bis zum Stoppen klingeln';
 
   @override
-  String get alertsSnoozeAction => 'Schlummern';
+  String get alertsQuietChannel => 'Leise Hinweise';
+
+  @override
+  String get alertsQuietChannelDesc =>
+      'Hinweise auf anstehende und verpasste Alarme und die laufende Einheit, immer lautlos';
 
   @override
   String get alertsDoneAction => 'Erledigt';
-
-  @override
-  String alertsSnoozedBody(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Um $count Minuten verschoben',
-      one: 'Um 1 Minute verschoben',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String alertsMissedTitle(String title) {
-    return 'Verpasst: $title';
-  }
-
-  @override
-  String alertsMissedBody(String time) {
-    return 'Fällig war $time';
-  }
 
   @override
   String get eventAlerts => 'Erinnerungen';

@@ -45,8 +45,10 @@ object SnoozeCoordinator {
         val durationMillis = settings.androidSnoozeDurationMillis
         // Both halves are required, matching the notification action and the
         // ring-activity label: an alarm that never offered snooze anywhere must
-        // not be deferrable by broadcasting the action directly. AlarmReceiver
-        // is exported, so this is the only thing enforcing that.
+        // not be deferrable by broadcasting the action directly. Only the
+        // application itself can broadcast it now (ANTA fork, Patch 5:
+        // AlarmReceiver is no longer exported), and this is still the one
+        // place that holds it to that.
         if (!settings.canSnooze ||
             durationMillis == null ||
             settings.notificationSettings.androidSnoozeButton == null

@@ -5967,13 +5967,17 @@
   "@alarmPageTitle": {
     "description": "Alarm shown as the eyebrow of the full-screen ring page"
   },
+  "alarmTestTitle": "Test alarm",
+  "@alarmTestTitle": {
+    "description": "What a test ring is called where an event's title would be: on the full-screen ring page and as the title of the ring's notification"
+  },
   "alarmStop": "Stop",
   "@alarmStop": {
     "description": "Primary action on the alarm page and on the alarm notification: stop the ring"
   },
   "alarmSnoozeMinutes": "{count, plural, =1{Snooze 1 min} other{Snooze {count} min}}",
   "@alarmSnoozeMinutes": {
-    "description": "Alarm page action: postpone the ring by the configured number of minutes",
+    "description": "Snooze, wherever an alert offers it: the alarm page's second button, and the second action of the ring's notification (after Stop) and of a reminder's (after Done). Puts the alert off by the configured number of minutes",
     "placeholders": {
       "count": {
         "type": "int",
@@ -5983,23 +5987,27 @@
   },
   "alarmOpenEvent": "Open event",
   "@alarmOpenEvent": {
-    "description": "Alarm page action: stop ringing and open the event in the calendar"
+    "description": "Alarm page action: stop ringing and open the event in the calendar. Also the session chip's second action, after Done, when the event has no linked note: open the event"
+  },
+  "alarmKeep": "Keep",
+  "@alarmKeep": {
+    "description": "Alarm page button beside the line saying Stop also removes the event: keep the event instead. Short, because it shares a row with that line"
   },
   "alarmKeepEvent": "Keep the event",
   "@alarmKeepEvent": {
-    "description": "Alarm page action for an event set to be removed after it rings: keep it instead"
+    "description": "Accessible name of the alarm page's Keep button, for an event set to be removed after it rings: keep it instead"
   },
   "alarmKeptEvent": "The event will be kept",
   "@alarmKeptEvent": {
-    "description": "Confirmation shown on the alarm page after Keep the event was pressed"
+    "description": "Alarm page line that replaces the removal warning once Keep has been saved"
   },
-  "alarmRemoveAfterCaption": "This event is removed once you stop the alarm",
+  "alarmRemoveAfterCaption": "Stop also removes this event",
   "@alarmRemoveAfterCaption": {
-    "description": "Alarm page caption explaining the remove-after-it-rings flag"
+    "description": "Alarm page line directly above the Stop button, for an event set to be removed after it rings. Stop is the alarmStop button's label"
   },
-  "alarmFromDatabase": "From database {name}",
-  "@alarmFromDatabase": {
-    "description": "Chip on the alarm page when the alarm belongs to a database that is not the active one",
+  "alarmSwitchDatabase": "Switch to {name}",
+  "@alarmSwitchDatabase": {
+    "description": "Alarm page action when the alarm belongs to a database that is not the open one: make that database the open one",
     "placeholders": {
       "name": {
         "type": "String",
@@ -6007,9 +6015,19 @@
       }
     }
   },
-  "alarmOpenDatabase": "Open",
-  "@alarmOpenDatabase": {
-    "description": "Action on the alarm page's database chip: switch to that database"
+  "alarmDatabaseSwitchedTitle": "Switched to {name}",
+  "@alarmDatabaseSwitchedTitle": {
+    "description": "Title of the dialog shown after the alarm page switched to the alarm's database",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "alarmDatabaseSwitchedBody": "Exit ANTA and open it again to see this event. The alarm keeps ringing until you stop it.",
+  "@alarmDatabaseSwitchedBody": {
+    "description": "Body of the dialog shown after the alarm page switched to the alarm's database. Its one button closes the app"
   },
   "calendarAlertsSection": "Alerts",
   "@calendarAlertsSection": {
@@ -6103,11 +6121,39 @@
   },
   "alertsUpcomingTitle": "Alarm at {time}",
   "@alertsUpcomingTitle": {
-    "description": "Title of the quiet notice posted ahead of an alarm; the body is the event title",
+    "description": "Text line of the quiet notice posted ahead of an alarm, under the event's title. The time is the alarm's own, followed by its day (alertsWhenOnDay) when the alarm is not due on the day the notice is posted",
     "placeholders": {
       "time": {
         "type": "String",
         "example": "07:00"
+      }
+    }
+  },
+  "alertsKindWhen": "{kind} · {when}",
+  "@alertsKindWhen": {
+    "description": "Text line of an alert's notification, under the event's title: what it is — Alarm (eventAlertModeRing), Reminder (eventAlertModeNotify), Snoozed (alertsOutcomeSnoozed) or Missed (alertsOutcomeMissed) — and the time it is about",
+    "placeholders": {
+      "kind": {
+        "type": "String",
+        "example": "Reminder"
+      },
+      "when": {
+        "type": "String",
+        "example": "18:00 – 19:30"
+      }
+    }
+  },
+  "alertsWhenOnDay": "{when}, {day}",
+  "@alertsWhenOnDay": {
+    "description": "A time on an alert followed by the day it falls on, when that is not the day the alert comes: an event's own time and its day, or an alarm's time and its day on the notice posted ahead of it",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "18:00 – 19:30"
+      },
+      "day": {
+        "type": "String",
+        "example": "Mon, Sep 21"
       }
     }
   },
@@ -6135,7 +6181,7 @@
   },
   "alertsSessionOpenNote": "Open note",
   "@alertsSessionOpenNote": {
-    "description": "Session chip action: open the event's linked note, or the event"
+    "description": "Session chip's second action, after Done, when the event has a linked note: open that note. Without one the action reads alarmOpenEvent"
   },
   "alertsSkippedSnack": "Skipped {title}",
   "@alertsSkippedSnack": {
@@ -6165,11 +6211,11 @@
   },
   "alertsOutcomeSnoozed": "Snoozed",
   "@alertsOutcomeSnoozed": {
-    "description": "Recent row outcome: the alert was snoozed"
+    "description": "Recent row outcome: the alert was snoozed. Also the kind word in the text of a snoozed reminder's notification (alertsKindWhen), and the second half of the alarm page's eyebrow on a re-ring, after alarmPageTitle and drawn in capitals (ALARM · SNOOZED). Where the language has gender it agrees with the words for alarm and reminder"
   },
   "alertsOutcomeMissed": "Missed",
   "@alertsOutcomeMissed": {
-    "description": "Recent row outcome: the alarm was missed"
+    "description": "Recent row outcome: the alarm was missed. Also the kind word in the text of the Missed notification (alertsKindWhen); it describes the alarm, not the event"
   },
   "alertsOutcomeDelivered": "Delivered",
   "@alertsOutcomeDelivered": {
@@ -6181,7 +6227,7 @@
   },
   "alertsTestAlarm": "Test alarm in 10 s",
   "@alertsTestAlarm": {
-    "description": "Button that schedules a ring ten seconds from now, and the title the alarm page shows for it"
+    "description": "Calendar settings button that schedules a ring ten seconds from now. The ring itself is titled alarmTestTitle, on its page and on its notification"
   },
   "alertsTestAlarmScheduled": "Test alarm set for 10 seconds from now",
   "@alertsTestAlarmScheduled": {
@@ -6207,43 +6253,17 @@
   "@alertsAlarmChannelDesc": {
     "description": "Android notification channel description for the alarm tier"
   },
-  "alertsSnoozeAction": "Snooze",
-  "@alertsSnoozeAction": {
-    "description": "Action button on a reminder notification"
+  "alertsQuietChannel": "Quiet notices",
+  "@alertsQuietChannel": {
+    "description": "Android notification channel name for the three notifications that never make a sound: the notice posted ahead of an alarm, the notice of a missed alarm, and the session in progress. Read in the phone's own notification settings, beside Reminders and Alarms"
+  },
+  "alertsQuietChannelDesc": "Notices of upcoming and missed alarms and the session in progress, always silent",
+  "@alertsQuietChannelDesc": {
+    "description": "Android notification channel description for the quiet channel (alertsQuietChannel)"
   },
   "alertsDoneAction": "Done",
   "@alertsDoneAction": {
-    "description": "Action button on a reminder notification that dismisses it"
-  },
-  "alertsSnoozedBody": "{count, plural, =1{Snoozed 1 minute} other{Snoozed {count} minutes}}",
-  "@alertsSnoozedBody": {
-    "description": "Body of a reminder that was snoozed from the notification shade",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "10"
-      }
-    }
-  },
-  "alertsMissedTitle": "Missed: {title}",
-  "@alertsMissedTitle": {
-    "description": "Title of the quiet notification reporting an alarm that never rang",
-    "placeholders": {
-      "title": {
-        "type": "String",
-        "example": "Leg day"
-      }
-    }
-  },
-  "alertsMissedBody": "It was due at {time}",
-  "@alertsMissedBody": {
-    "description": "Body of the quiet notification reporting an alarm that never rang",
-    "placeholders": {
-      "time": {
-        "type": "String",
-        "example": "07:00"
-      }
-    }
+    "description": "First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it"
   },
   "eventAlerts": "Alerts",
   "@eventAlerts": {
@@ -6275,11 +6295,11 @@
   },
   "eventAlertModeNotify": "Reminder",
   "@eventAlertModeNotify": {
-    "description": "The quieter alert tier: a notification"
+    "description": "The quieter alert tier: a notification. Also the kind word in a reminder's notification text (alertsKindWhen), and that notification's title when the event has none"
   },
   "eventAlertModeRing": "Alarm",
   "@eventAlertModeRing": {
-    "description": "The loud alert tier: rings until stopped"
+    "description": "The loud alert tier: rings until stopped. Also the kind word in the ring's notification text (alertsKindWhen), and the title an untitled event's alarm takes on the alarm page and on its notifications"
   },
   "eventAlertNotifyHint": "Sits in the shade with Snooze and Done. Silent mode and Focus apply.",
   "@eventAlertNotifyHint": {

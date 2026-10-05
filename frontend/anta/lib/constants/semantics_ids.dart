@@ -290,6 +290,15 @@ abstract final class SemanticsIds {
   static const String alarmOpenEvent = 'alarm-open-event';
   static const String alarmKeepEvent = 'alarm-keep-event';
 
+  /// The alarm page's Open row while it is the switch to another database —
+  /// an id of its own, because a flow that taps "open the event" must never
+  /// find itself switching databases instead — and the page's scrolling
+  /// body. The body scrolls from its end, so on a short screen the time is
+  /// what has left the top: a flow brings it back with `scroll-to --up --in
+  /// id:alarm-body`.
+  static const String alarmOpenDatabase = 'alarm-open-database';
+  static const String alarmBody = 'alarm-body';
+
   /// The calendar settings row that arms a ring ten seconds from now.
   static const String alertsTestAlarm = 'alerts-test-alarm';
 

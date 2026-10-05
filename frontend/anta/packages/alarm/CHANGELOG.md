@@ -3,8 +3,12 @@
 Base: `alarm` 5.13.2 from pub.dev, copied verbatim into `packages/alarm/` and
 referenced by path — the `re_editor` precedent: owned, upstream watched.
 Cherry-picks from upstream are one-off decisions recorded in
-`docs/event-alerts-os-integration-roadmap.md` (§2, B1/B3/B4). Both patches
-live in Kotlin files the Pigeon-generated bindings never reference.
+`docs/event-alerts-os-integration-roadmap.md` (§2, B1/B3/B4; §13 for Patches
+3 and 4) and, for Patches 5 to 7, in
+`docs/alert-surfaces-redesign-roadmap.md` (D19 for 5 and 6; 7 came out of
+that rework's review). Seven patches. Six are Android: five live in Kotlin
+files the Pigeon-generated bindings never reference, one in the library's
+manifest. The seventh is Dart, in `lib/src/platform_timers.dart`.
 
 * **[Android] Patch 1 — alarm-clock scheduling.** `AlarmScheduler.setExactAlarm`
   arms the exact branch with
@@ -24,6 +28,56 @@ live in Kotlin files the Pigeon-generated bindings never reference.
   `MediaPlayer.setDataSource(context, Uri)` before the asset and path branches,
   so a sound picked from the phone's own list plays without being copied into
   the app's files first.
+* **[Android] Patch 3 — a colorized ring notification (2026-10-04).**
+  `NotificationHandler.buildNotification` calls `setColorized(true)` on the
+  notification that carries the full-screen intent. Android 16 force-groups an
+  app's loose notifications as soon as it holds two, flags every one it groups
+  as silent, and refuses a silent notification its full-screen intent — so a
+  ring posted while the app had anything else on the shade rang behind a dark
+  screen with nothing launched. A colorized foreground-service notification is
+  one of the three kinds that grouping leaves alone (the others are calls and
+  media), and the ring is a foreground-service notification already. No test:
+  the JVM-only suite cannot build a `Notification`.
+* **[Android] Patch 4 — the trigger channel resolved per engine (2026-10-04).**
+  `AlarmPlugin.alarmTriggerApi` was one static that every `onAttachedToEngine`
+  overwrote and every detach nulled. `flutter_local_notifications` starts a
+  second, headless engine for a notification action handled in the background
+  and never destroys it, so from then on a ring, a stop and a host event were
+  reported to an isolate that never called `Alarm.init()`. The channel is now
+  resolved per call from the attached plugin instances — the one bound to an
+  activity, else one that has been, else the oldest (`AlarmPlugin.presenterOf`,
+  pinned by `AlarmPluginTest`).
+* **[Android] Patch 5 — `AlarmReceiver` is not exported (2026-10-05).** The
+  manifest declared it `android:exported="true"` with no permission, so any
+  other app that knew an alarm's id could stop that alarm or snooze it. Every
+  intent the receiver answers is the application's own — the `AlarmManager`
+  entry `AlarmScheduler` arms, the Stop, Snooze and restore `PendingIntent`s on
+  the ring notification, the in-process broadcast of an alarm due within five
+  seconds — and a `PendingIntent` is sent as the application that made it, so
+  none of them needs the receiver exported. `BootReceiver` is unchanged.
+* **[Android] Patch 6 — the ring's wake lock is released (2026-10-05).**
+  `AlarmService` took a five-minute `PARTIAL_WAKE_LOCK` into a local at every
+  ring start and never released it: the CPU stayed awake for five minutes
+  after a ring that was stopped at once, and each queued alarm promoted in its
+  turn took another. `AlarmService.RingWakeLock` holds one at a time —
+  released before the next is taken, when the last ring ends and in
+  `onDestroy`, and never twice — with the five minutes kept as the upper bound
+  (`RingWakeLockTest`).
+* **[Dart] Patch 7 — the fallback timer does not announce a ring that is over
+  (2026-10-05).** While the application is in front, `PlatformTimers` runs a
+  timer beside every alarm: at the due time, if the platform has not reported
+  the ring yet, it waits 700 ms and, when the alarm is not in `Alarm.ringing`
+  at the end of them, announces the ring itself. An alarm the platform did
+  report and that was stopped inside those 700 ms is not in that set either,
+  so a Stop or a Snooze that quick was followed by a second announcement of
+  the ring it had just ended: `Alarm.ringing` held an alarm that was silent,
+  and `Alarm.scheduled` lost whatever a snooze had armed under the same id.
+  `_alarmRang` now gives up when `Alarm.scheduled` no longer holds the very
+  settings its timer was started with. `Alarm.alarmRang` takes an alarm out of
+  that set as it puts it into the ringing one, and every stop takes it out of
+  both, so only an alarm the platform never told of is still there when the
+  wait ends — the case the fallback exists for, the alarm the host holds back
+  while another one sounds included (`alarm_fallback_timer_test.dart`).
 
 ## 5.13.2
 * **[Android] `Alarm.stopAll()` now reaches every actively ringing alarm (#437),** even after an earlier stop failure removed it from native storage.

@@ -8,6 +8,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_gateway.dart';
+import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/alert_planner.dart';
 
 /// The no-op binding is what keeps `flutter test` honest: nothing in the test
@@ -87,6 +88,16 @@ void main() {
       nextRingAt: DateTime(2026, 9, 20, 18, 10),
       recordedAt: DateTime(2026, 9, 20, 18),
     ));
+  });
+
+  test('it writes payloads with the fixed labels, on every host', () {
+    // 24-hour English whatever the machine and the app say: the scheduler
+    // stamps whatever its binding's labels write, and against this one that
+    // has to be the same text on a developer's desktop and on CI.
+    expect(gateway.labels, same(AlertLabels.fixed));
+    expect(gateway.labels.languageCode, 'en');
+    expect(gateway.labels.use24Hour, isTrue);
+    expect(gateway.labels.timeLabel(fire.fireAt), '18:00');
   });
 
   test('pendingIds is derived from pendingEntries on the interface', () async {

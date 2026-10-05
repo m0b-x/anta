@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Resources the release shrinker must not drop. `ic_alert` is the status-bar
-     icon of every event alert, and it is named only from Dart
-     (`kAlertSmallIcon`), a reference R8 cannot see: without this entry a
-     release build ships without it and every notification and alarm fails
-     silently, while a debug build (no shrinking) works. -->
+     icon of every event alert, and everything that posts one finds it by
+     name, at run time: `kAlertSmallIcon` in Dart, which both alert plugins
+     resolve from the string, and `SessionChip.kt`. That is a reference the
+     shrinker cannot see. The Quick Settings tile (AndroidManifest.xml) and
+     the launcher shortcut (res/xml/shortcuts.xml) name the drawable as a
+     resource too, but the alerts must not lean on those two staying as they
+     are: this entry holds the icon whatever becomes of them. Without it a
+     release build can ship with no `ic_alert`, and every notification and
+     alarm then fails silently while a debug build (no shrinking) works. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
     tools:keep="@drawable/ic_alert" />

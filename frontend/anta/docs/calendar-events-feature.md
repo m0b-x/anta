@@ -1949,6 +1949,57 @@ the shortcut's labels are Android string resources (`res/values*/strings.xml`
 in the three app locales): the system draws them with no Dart running, so
 they are the one set of user-visible strings `AppLocalizations` cannot own.
 
+**The alert surfaces, redrawn (2026-10-05; record
+[alert-surfaces-redesign-roadmap.md](alert-surfaces-redesign-roadmap.md)).**
+What a user meets when an alert comes changed in four ways. **The alarm
+page** is built for where a hand and an eye are at ring time: with the phone
+in use Android draws the ring's own heads-up across the top of the page,
+where the time used to be, so everything now sits low — the time this ring
+was due on the phone's own clock, the event named as its detail sheet names
+it (its time, the first line of its description), and Stop over Snooze
+pinned at the bottom, Snooze on the edge, where a stray grab costs minutes
+and not an event. Keep stays where it was once pressed, nothing moves under
+the thumb, and another database's alarm offers the switch to it instead of
+claiming that Stop removes anything. An alarm whose event was kept since it
+was armed (the same alarm snoozed on its notification, a second alarm of
+the event) reads "The event will be kept", Keep off, from its first drawing;
+Stop decides the removal at the press and may only narrow it, so a Keep
+whose write fails while Stop is in flight does not widen it back. **Every
+notification is written in one grammar**: the event's title, then what it
+is and the time it is about
+("Alarm · 18:00 – 19:30", "Reminder · 18:00", "Alarm at 06:50", "Missed ·
+06:50"), the description's first line added when it is expanded (cut at 120
+characters, never between the halves of a surrogate pair), the event's
+colour and avatar on every kind but the ring (the avatar a file, named for
+its glyph, colour, size, the disc's alpha and the glyph's size), and the
+button that settles first (Done · Snooze 10 min). A reminder snoozed with
+the app closed comes back in the app's language, with its colour and
+avatar. The language an entry is written in is read again on every
+scheduling pass, through the settings singleton and never by asking which
+database is active, which would carry out a stored switch under the running
+app. **Quiet stays quiet**: the upcoming notice, Missed and the session chip
+are posted on a new low channel ("Quiet notices", created with no sound and
+no vibration, which Android freezes with the importance), because Android 16
+bundles an app's loose notifications — two quiet ones together sounded, and
+a reminder beside one was silenced; on Android 16 and above a reminder now
+carries a group key with no summary, so one that fires beside another still
+sounds and peeks. **Keep reaches the calendar**: the day panel no longer
+says "removed after it rings" about an event just kept, and a detail sheet
+already open when the Keep lands no longer writes the flag back with its
+next save — after a Keep the calendar's trip takes the flag from the bloc's
+copy before it saves or hands the event to the editor. **A ring is not
+re-armed under itself**: a scheduling pass leaves an alarm in flight alone,
+one that is ringing or whose standing instant has just passed, because
+arming over a ring stopped it and the binding took that for a Stop on its
+notification. This supersedes, in the paragraphs above, the notice's
+title and body the other way round, `alerts_reminder` for the notice and the
+chip, the chip's *Open note* before *Done*, and "Richer content"'s 64 px
+in-memory icon, its big text being the excerpt alone, and its last
+sentence (the re-post now carries all of it, from a file). The rules are in
+the `calendar-events` skill, the mechanisms
+in `COPILOT_CONTEXT.md`; the decisions, what was seen on the emulator and
+what is still owed are the record's.
+
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
 that disappears at the cap, and — only while the event is one-time and carries

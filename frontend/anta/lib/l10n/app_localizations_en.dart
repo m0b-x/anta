@@ -4749,6 +4749,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alarmPageTitle => 'Alarm';
 
   @override
+  String get alarmTestTitle => 'Test alarm';
+
+  @override
   String get alarmStop => 'Stop';
 
   @override
@@ -4766,22 +4769,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alarmOpenEvent => 'Open event';
 
   @override
+  String get alarmKeep => 'Keep';
+
+  @override
   String get alarmKeepEvent => 'Keep the event';
 
   @override
   String get alarmKeptEvent => 'The event will be kept';
 
   @override
-  String get alarmRemoveAfterCaption =>
-      'This event is removed once you stop the alarm';
+  String get alarmRemoveAfterCaption => 'Stop also removes this event';
 
   @override
-  String alarmFromDatabase(String name) {
-    return 'From database $name';
+  String alarmSwitchDatabase(String name) {
+    return 'Switch to $name';
   }
 
   @override
-  String get alarmOpenDatabase => 'Open';
+  String alarmDatabaseSwitchedTitle(String name) {
+    return 'Switched to $name';
+  }
+
+  @override
+  String get alarmDatabaseSwitchedBody =>
+      'Exit ANTA and open it again to see this event. The alarm keeps ringing until you stop it.';
 
   @override
   String get calendarAlertsSection => 'Alerts';
@@ -4870,6 +4881,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String alertsKindWhen(String kind, String when) {
+    return '$kind · $when';
+  }
+
+  @override
+  String alertsWhenOnDay(String when, String day) {
+    return '$when, $day';
+  }
+
+  @override
   String get alertsSkipAction => 'Skip';
 
   @override
@@ -4940,31 +4961,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alertsAlarmChannelDesc => 'Event alarms that ring until stopped';
 
   @override
-  String get alertsSnoozeAction => 'Snooze';
+  String get alertsQuietChannel => 'Quiet notices';
+
+  @override
+  String get alertsQuietChannelDesc =>
+      'Notices of upcoming and missed alarms and the session in progress, always silent';
 
   @override
   String get alertsDoneAction => 'Done';
-
-  @override
-  String alertsSnoozedBody(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Snoozed $count minutes',
-      one: 'Snoozed 1 minute',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String alertsMissedTitle(String title) {
-    return 'Missed: $title';
-  }
-
-  @override
-  String alertsMissedBody(String time) {
-    return 'It was due at $time';
-  }
 
   @override
   String get eventAlerts => 'Alerts';

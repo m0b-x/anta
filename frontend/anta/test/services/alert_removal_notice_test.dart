@@ -182,6 +182,7 @@ class _ChipGateway extends NoOpAlertGateway {
     DateTime? endsAt,
     int? progress,
     bool refresh = false,
+    bool linkedNote = false,
   }) async {
     chips.add(payload);
     return true;
