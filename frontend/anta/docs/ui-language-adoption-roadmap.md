@@ -263,7 +263,7 @@ waits on decision 1 and is the largest.
 | Tier | Status |
 | --- | --- |
 | Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 COMMITTED `daf361a` (2026-10-03); Tier 3 COMMITTED `b801ee0` (2026-10-03); Tier 4 not started |
-| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): IMPLEMENTED 2026-10-05, uncommitted — the device pass of its last slice and part of its review's batch B are deferred (its §8 lists them); its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
+| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): COMMITTED `3cb8d49` — the device pass of its last slice and part of its review's batch B are deferred (its §8 lists them); its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
 | A – G | PLAN — the order is not decided |
 
 ## 8. Defects the audit found, outside any tier

@@ -1,6 +1,6 @@
 # Alert Surfaces Redesign — the ring screen and the alert notifications (2026-10-04)
 
-**Status: IMPLEMENTED 2026-10-05, uncommitted — Slices 0 to 6a, the whole-change review's fix batches A1 and A2 and the wording of batch B are on disk and gated. Deferred at the owner's call (usage) and written out in §8 so each can be resumed from this file alone: the rest of batch B, a second review pass over the ring lifecycle, and the final device pass of Slice 6.**
+**Status: COMMITTED `3cb8d49` (2026-10-05) — Slices 0 to 6a, the whole-change review's fix batches A1 and A2 and the wording of batch B are on disk and gated. Deferred at the owner's call (usage) and written out in §8 so each can be resumed from this file alone: the rest of batch B, a second review pass over the ring lifecycle, and the final device pass of Slice 6.**
 
 A detour from the calendar tiers, asked for by the owner on 2026-10-04: the
 full-screen alarm page and everything the phone shows when an alert comes —
