@@ -1,6 +1,5 @@
 package com.gdelataillade.alarm.models
 
-import android.graphics.Color
 import com.gdelataillade.alarm.generated.NotificationSettingsWire
 import kotlinx.serialization.Serializable
 
@@ -26,7 +25,7 @@ data class NotificationSettings(
 
             var iconColor: Int? = null
             if (a != null && r != null && g != null && b != null) {
-                iconColor = Color.argb(a, r, g, b)
+                iconColor = packArgb(a, r, g, b)
             }
 
             return NotificationSettings(
@@ -40,5 +39,27 @@ data class NotificationSettings(
                 e.androidStopAlarmOnDismiss,
             )
         }
+
+        /**
+         * The colour int `android.graphics.Color.argb(float, float, float,
+         * float)` returns for four channels in 0..1, worked out here
+         * (ANTA fork, Patch 8).
+         *
+         * That overload came in API 26, and this plugin's `minSdk` is 19 —
+         * ANTA's 24: below 26 the call threw `NoSuchMethodError` from every
+         * `Alarm.set` that named a colour, which on Android 7.0 and 7.1 was
+         * every alarm ANTA set, and took the process down. The body is the
+         * platform's own, float arithmetic and rounding half up included, so
+         * API 26 and later get the very int they were always handed. Not the
+         * `int` overload, which every level has: the module's JVM tests run on
+         * a stubbed `android.jar` that answers 0 for any `Color` call, so a
+         * colour that went through one could never be pinned
+         * (`NotificationSettingsTest`).
+         */
+        internal fun packArgb(alpha: Float, red: Float, green: Float, blue: Float): Int =
+            ((alpha * 255.0f + 0.5f).toInt() shl 24) or
+                ((red * 255.0f + 0.5f).toInt() shl 16) or
+                ((green * 255.0f + 0.5f).toInt() shl 8) or
+                (blue * 255.0f + 0.5f).toInt()
     }
 }

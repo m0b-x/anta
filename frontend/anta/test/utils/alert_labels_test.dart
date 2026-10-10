@@ -1,5 +1,6 @@
 import 'dart:ui' show Locale;
 
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -17,8 +18,19 @@ import 'package:anta/utils/alert_labels.dart';
 /// Every instant is built in the constructor form, `DateTime(y, m, d, 0,
 /// minutes)`: it is wall-clock time, and adding a `Duration` to local
 /// midnight lands an hour off on the day the clocks change.
+///
+/// **The date tables are the running app's.** `main()` loads `intl`'s, and
+/// the app's first `MaterialApp` writes Flutter's over them for every
+/// language Flutter ships — while the lock resolves another `intl` on each
+/// of the owner's machines. Loaded the same way here, a literal below is
+/// what a phone writes rather than what one machine's `intl` would.
 void main() {
-  setUpAll(initializeDateFormatting);
+  setUpAll(() async {
+    await initializeDateFormatting();
+    for (final locale in AppLocalizations.supportedLocales) {
+      await GlobalMaterialLocalizations.delegate.load(locale);
+    }
+  });
 
   AlertLabels labelsOf(String language, {required bool use24Hour}) =>
       AlertLabels(
@@ -138,7 +150,7 @@ void main() {
 
         expect(
           english.whenLabel(time: null, day: monday, fireAt: due),
-          'All day, Mon, Sep 21',
+          'Mon, Sep 21 · All day',
         );
       });
 
@@ -147,7 +159,7 @@ void main() {
 
         expect(
           english.whenLabel(time: session, day: monday, fireAt: due),
-          '18:00 – 19:30, Mon, Sep 21',
+          'Mon, Sep 21 · 18:00 – 19:30',
         );
       });
 
@@ -158,7 +170,7 @@ void main() {
 
         expect(
           english.whenLabel(time: point, day: monday, fireAt: due),
-          '18:00, Mon, Sep 21',
+          'Mon, Sep 21 · 18:00',
         );
       });
 
@@ -168,7 +180,21 @@ void main() {
 
         expect(
           english.whenLabel(time: justAfter, day: monday, fireAt: due),
-          '00:05, Mon, Sep 21',
+          'Mon, Sep 21 · 00:05',
+        );
+      });
+
+      test('first, so the end a one-line notification cuts is never the '
+          'day', () {
+        // A notification's text is one line beside its avatar: about 33
+        // characters on a 427 dp phone, about 24 at 360 dp. Written after
+        // the time, "Reminder · 6:00 PM – 7:30 PM, Mon, Sep 21" lost its day
+        // to the cut, and what was left read as today's.
+        final due = at(sunday, sixPm);
+
+        expect(
+          twelveHour.whenLabel(time: session, day: monday, fireAt: due),
+          'Mon, Sep 21 · 6:00 PM – 7:30 PM',
         );
       });
 
@@ -177,11 +203,11 @@ void main() {
 
         expect(
           german.whenLabel(time: null, day: monday, fireAt: due),
-          'Ganztägig, Mo., 21. Sept.',
+          'Mo., 21. Sept. · Ganztägig',
         );
         expect(
           romanian.whenLabel(time: null, day: monday, fireAt: due),
-          'Toată ziua, lun., 21 sept.',
+          'lun., 21 sept. · Toată ziua',
         );
       });
     });
@@ -337,7 +363,7 @@ void main() {
           day: monday,
           fireAt: at(sunday, sixPm),
         ),
-        '18:00 – 19:30, Mon, Sep 21',
+        'Mon, Sep 21 · 18:00 – 19:30',
       );
     });
   });
@@ -457,7 +483,7 @@ void main() {
 
       expect(moved.timeLabel, '18:00');
       expect(moved.fireAtMs, nextDay.millisecondsSinceEpoch);
-      expect(moved.whenLabel, '18:00, Sun, Sep 20');
+      expect(moved.whenLabel, 'Sun, Sep 20 · 18:00');
     });
 
     test('put off past midnight, the line says which day it is about, and '
@@ -472,26 +498,26 @@ void main() {
       );
 
       expect(rescued.timeLabel, '00:05');
-      expect(rescued.whenLabel, '23:55, Sun, Sep 20');
+      expect(rescued.whenLabel, 'Sun, Sep 20 · 23:55');
 
       // A line the entry already carried answers to the same rule…
       final carried = english.moved(
         payloadOf(whenLabel: '23:30 – 01:00 (+1)', dueMinute: lateMinute),
         pastMidnight,
       );
-      expect(carried.whenLabel, '23:30 – 01:00 (+1), Sun, Sep 20');
+      expect(carried.whenLabel, 'Sun, Sep 20 · 23:30 – 01:00 (+1)');
 
       // …in the language of the labels that move it.
       expect(
         german.moved(payloadOf(dueMinute: lateMinute), pastMidnight).whenLabel,
-        '23:55, So., 20. Sept.',
+        'So., 20. Sept. · 23:55',
       );
 
       // And a second snooze finds a line written for a day that already was
       // not the occurrence's: the day is there, and is not added again.
       final again = english.moved(rescued, at(monday, 15));
       expect(again.timeLabel, '00:15');
-      expect(again.whenLabel, '23:55, Sun, Sep 20');
+      expect(again.whenLabel, 'Sun, Sep 20 · 23:55');
     });
 
     test('keeps the shape it was armed in', () {

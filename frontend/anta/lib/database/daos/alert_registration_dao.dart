@@ -45,6 +45,20 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// The os ids of every `fired` registration: rings the binding announced
+  /// that nothing has settled since.
+  ///
+  /// The reconcile's stray sweep asks once a pass, and only once a platform
+  /// entry has got past every other check — a `fired` row's entry is never
+  /// the plan's to cancel. A scan, which `idx_alert_registrations_pending`
+  /// cannot serve: settled rows live a week at most.
+  Future<Set<int>> firedOsIds() async {
+    final rows = await (select(
+      alertRegistrations,
+    )..where((r) => const CustomExpression<bool>("state = 'fired'"))).get();
+    return {for (final row in rows) row.osId};
+  }
+
   /// One registration by the id the platform holds it under, or `null`.
   ///
   /// The read behind Stop and Snooze: both arrive from the OS carrying nothing

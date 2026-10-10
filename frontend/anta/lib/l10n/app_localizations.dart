@@ -8224,7 +8224,7 @@ abstract class AppLocalizations {
   /// **'Notifications'**
   String get alertsNotifications;
 
-  /// Description of the notification permission row
+  /// Description of the notification permission row. Reminders: same word as eventAlertModeNotify, in the plural
   ///
   /// In en, this message translates to:
   /// **'Needed for reminders and alarms to show'**
@@ -8332,11 +8332,17 @@ abstract class AppLocalizations {
   /// **'{kind} · {when}'**
   String alertsKindWhen(String kind, String when);
 
-  /// A time on an alert followed by the day it falls on, when that is not the day the alert comes: an event's own time and its day, or an alarm's time and its day on the notice posted ahead of it
+  /// The time on the quiet notice posted ahead of an alarm, when the alarm is not due on the day the notice is posted: the alarm's own time followed by its day, inside alertsUpcomingTitle (Alarm at 7:00 AM, Mon, Sep 21). day is the alarm's date as a short weekday, month and day (DateFormat.MMMEd). An event's own time on another day is alertsDayThenWhen
   ///
   /// In en, this message translates to:
   /// **'{when}, {day}'**
   String alertsWhenOnDay(String when, String day);
+
+  /// An event's own time on an alert that comes on another day than the event, such as one set a day ahead: the event's day first, then its time. The text line of a reminder's or an alarm's notification, after the kind (alertsKindWhen), and the line under the event's title on the alarm page. The day leads because a notification's text is one line beside its icon and the phone cuts the end of it: written after the time, the day was lost and the time read as today's. day is the event's date as a short weekday, month and day (DateFormat.MMMEd); when is the event's own time: a range, a single time, or All day (eventAllDay)
+  ///
+  /// In en, this message translates to:
+  /// **'{day} · {when}'**
+  String alertsDayThenWhen(String day, String when);
 
   /// Upcoming-alarm notice action: skip this one fire of the alarm
   ///
@@ -8440,13 +8446,13 @@ abstract class AppLocalizations {
   /// **'The alarm could not be scheduled'**
   String get alertsTestAlarmFailed;
 
-  /// Android notification channel name for the reminder tier
+  /// Android notification channel name for the reminder tier. Same word as eventAlertModeNotify, in the plural: the notifications on this channel print that word
   ///
   /// In en, this message translates to:
   /// **'Reminders'**
   String get alertsReminderChannel;
 
-  /// Android notification channel description for the reminder tier
+  /// Android notification channel description for the reminder tier. Reminders: same word as eventAlertModeNotify, in the plural
   ///
   /// In en, this message translates to:
   /// **'Event reminders you can snooze or dismiss'**

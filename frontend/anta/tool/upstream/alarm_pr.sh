@@ -7,7 +7,7 @@
 # one commit per patch plus a changelog line, pushes the branch to a fork
 # under the GitHub account `gh` is logged in as, and opens the PR from there.
 #
-# Before opening the PR: the fork carries seven patches now
+# Before opening the PR: the fork carries nine patches now
 # (packages/alarm/CHANGELOG.md), and the first commit here is no longer
 # Patch 1 alone. It copies the fork's AlarmService.kt whole, for the
 # ACTION_SHOW constant, and that file has since gained all of Patch 6 (the
@@ -16,12 +16,23 @@
 # is Patch 5: a line of the library's manifest that nothing here copies, so
 # upstream the comment would be false. Neither is in the commit messages,
 # the changelog entry or the PR body below, and Patch 6's
-# RingWakeLockTest.kt is not copied. Give Patch 6 a commit and a paragraph
-# of its own first, or take both out of the copied file. Patches 3 and 4
-# (NotificationService.kt, AlarmPlugin.kt) are in no commit here at all.
+# RingWakeLockTest.kt is not copied. Patches 3, 4 and 7 to 9
+# (NotificationService.kt, AlarmPlugin.kt, platform_timers.dart,
+# NotificationSettings.kt, alarm.dart) are in no commit here at all.
+#
+# So a run without --dry-run is refused, before anything is cloned or
+# written, while the fork's AlarmService.kt matches RingWakeLock or carries
+# Patch 5 or 6 mentions ("Patch 5)", "Patch 6)"), with one line on stderr
+# and exit 1; the file's "(ANTA fork, Patch 1)." — the patch this PR is
+# for — does not match. The check reads the fork's file, not the copy, so
+# it lifts by itself only once none of them is in that file: whoever gives
+# Patch 6 a commit and a paragraph of its own, or takes them all out of the
+# copy, takes the check out too. A dry run still goes through: it pushes
+# nothing, and what it prints — its diffstat, and the branch it leaves at
+# the printed path — is how to see what the copy would carry.
 #
 #   ./tool/upstream/alarm_pr.sh            # clone, commit, push, open the PR
-#   ./tool/upstream/alarm_pr.sh --dry-run  # clone and commit only; print the diff
+#   ./tool/upstream/alarm_pr.sh --dry-run  # clone and commit only; print the diffstat and the branch's path
 #
 # Needs git and a logged-in `gh` (`gh auth login`). The account needs no
 # rights on the upstream repository: `gh repo fork` creates or reuses a fork
@@ -36,17 +47,27 @@ title="Android: arm exact alarms with setAlarmClock, play content:// sounds dire
 
 here="$(cd "$(dirname "$0")/../.." && pwd)"
 fork="$here/packages/alarm"
+kotlin="android/src/main/kotlin/com/gdelataillade/alarm"
+tests="android/src/test/kotlin/com/gdelataillade/alarm"
 dry_run=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=1 ;;
-        -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+        -h|--help) awk 'NR>=2 && /^set -euo pipefail/{exit} NR>=2' "$0"; exit 0 ;;
         *) echo "alarm_pr: unknown argument $arg" >&2; exit 1 ;;
     esac
 done
 
-kotlin="android/src/main/kotlin/com/gdelataillade/alarm"
-tests="android/src/test/kotlin/com/gdelataillade/alarm"
+# The header's "Before opening the PR", enforced here rather than trusted to
+# a reader: the first commit copies this file whole, and nothing the script
+# writes says a word about the wake lock or the Patch 5 or 6 mentions it
+# would carry upstream. Silent on a missing file, which the loop below
+# reports.
+if [ "$dry_run" = 0 ] && grep -qsE 'RingWakeLock|Patch [56]\)' "$fork/$kotlin/alarm/AlarmService.kt"; then
+    echo "alarm_pr: refused: packages/alarm/$kotlin/alarm/AlarmService.kt still carries Patch 6 (RingWakeLock) or Patch 5 or 6 mentions (\"Patch 5)\", \"Patch 6)\"), which no commit, changelog line or PR body here describes; all must be out of it (see this script's header; --dry-run still runs)" >&2
+    exit 1
+fi
+
 for f in "$kotlin/alarm/AlarmService.kt" "$kotlin/services/AlarmScheduler.kt" \
          "$kotlin/services/AudioService.kt" "$tests/services/AudioServiceTest.kt"; do
     [ -f "$fork/$f" ] || { echo "alarm_pr: $fork/$f is missing" >&2; exit 1; }

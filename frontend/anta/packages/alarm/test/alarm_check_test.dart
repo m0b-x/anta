@@ -115,6 +115,72 @@ void main() {
     });
   });
 
+  group('checkAlarm while another alarm sounds (ANTA fork, Patch 9)', () {
+    // The host rings one alarm at a time. With `allowSameSecondScheduling` on,
+    // as ANTA sets it, one that comes due while another sounds is queued in
+    // the service and rings when that one ends, and Dart is told nothing in
+    // between — so an isolate started after the grace window (the app started
+    // from the first alarm's heads-up) finds it stored, past due and not
+    // ringing, which is also what an alarm that died looks like. Stopping it
+    // takes it out of the host's queue: it never rings. With nothing
+    // sounding, the same alarm is still stopped — 'an alarm long past due is
+    // still stopped', above.
+    test('an alarm past due and silent is left stored for the host to ring',
+        () async {
+      final sounding =
+          buildAlarm(1, DateTime.now().subtract(const Duration(minutes: 2)));
+      final queued =
+          buildAlarm(2, DateTime.now().subtract(const Duration(minutes: 2)));
+      await AlarmStorage.saveAlarm(sounding);
+      await AlarmStorage.saveAlarm(queued);
+      host.ringing.add(1);
+
+      await Alarm.init();
+
+      expect(
+        host.calls,
+        isNot(contains('stopAlarm')),
+        reason: 'a stop takes the queued alarm out of the host for good',
+      );
+      expect(
+        await Alarm.getAlarm(2),
+        isNotNull,
+        reason: 'the ring the host reports when the first one ends is looked '
+            'up in storage',
+      );
+      expect(Alarm.ringing.value.containsId(1), isTrue);
+      expect(
+        Alarm.ringing.value.containsId(2),
+        isFalse,
+        reason: 'it is not announced before it sounds',
+      );
+    });
+
+    test('a host that cannot say if anything sounds gets the stop of before',
+        () async {
+      // An alarm is spared on the host's word that something sounds, and on
+      // nothing else: read as a yes, a failing question would keep every
+      // dead alarm stored for as long as it went on failing.
+      final sounding =
+          buildAlarm(1, DateTime.now().subtract(const Duration(minutes: 2)));
+      final queued =
+          buildAlarm(2, DateTime.now().subtract(const Duration(minutes: 2)));
+      await AlarmStorage.saveAlarm(sounding);
+      await AlarmStorage.saveAlarm(queued);
+      host.ringing.add(1);
+      host.anyRingingError = (
+        code: AlarmErrorCode.pluginInternal.index.toString(),
+        message: 'Could not tell whether anything is ringing.',
+      );
+
+      await Alarm.init();
+
+      expect(host.calls, contains('stopAlarm'));
+      expect(await Alarm.getAlarm(2), isNull);
+      expect(Alarm.ringing.value.containsId(1), isTrue);
+    });
+  });
+
   group('set() when the host cannot arm the alarm', () {
     test('reports the failure and leaves nothing behind', () async {
       // The host stores the alarm before arming it, so a failure it reported as

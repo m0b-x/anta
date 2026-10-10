@@ -71,8 +71,11 @@ class AlertLabels {
   /// UTC) that is due at [fireAt].
   ///
   /// The line the detail sheet writes — a range, a single time, or "All day"
-  /// — followed by the day when the occurrence is not on the day the entry
-  /// is due: an alert a day ahead has to say which day it is about.
+  /// — led by the day when the occurrence is not on the day the entry is
+  /// due: an alert a day ahead has to say which day it is about. **The day
+  /// comes first** because a notification's text is one line beside its
+  /// avatar and the platform cuts the end of it; written after the time, the
+  /// day was what went, and the time left behind read as today's.
   ///
   /// **Empty when it would only repeat the due time**: a point in time, on
   /// the due day, at the due minute. Compared as minutes, never as text, so
@@ -98,7 +101,7 @@ class AlertLabels {
               localeName: _dateLocale,
               use24Hour: use24Hour,
             );
-      return onDueDay ? line : _strings.alertsWhenOnDay(line, _dayOf(day));
+      return onDueDay ? line : _strings.alertsDayThenWhen(_dayOf(day), line);
     });
   }
 
@@ -175,12 +178,12 @@ class AlertLabels {
     );
   }
 
-  /// [line] followed by the occurrence's day once [payload]'s entry is due,
-  /// at [fireAt], on another one.
+  /// [line] led by the occurrence's day once [payload]'s entry is due, at
+  /// [fireAt], on another one — the order [whenLabel] writes in.
   ///
   /// Only a line written for an entry that was due on the occurrence's day
-  /// gains it: one written for any other day already ends in it, and a
-  /// second snooze would say the day twice. The reverse is left alone — a
+  /// gains it: one written for any other day already names it, and a second
+  /// snooze would say the day twice. The reverse is left alone — a
   /// line that names its day and is put off into that very day keeps the
   /// name, because the day cannot be told from the time inside a string and
   /// a date said once too often is still the right date.
@@ -193,7 +196,7 @@ class AlertLabels {
         !_sameDay(day, DateTime.fromMillisecondsSinceEpoch(dueBefore))) {
       return line;
     }
-    return _written(line, () => _strings.alertsWhenOnDay(line, _dayOf(day)));
+    return _written(line, () => _strings.alertsDayThenWhen(_dayOf(day), line));
   }
 
   String _dayOf(DateTime day) =>

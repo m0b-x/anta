@@ -11,7 +11,6 @@ import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/controllers/alert_ring_controller.dart';
-import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/alert_payload.dart';
@@ -126,8 +125,9 @@ void main() {
     // The day the ring was due, in the app's locale rather than the
     // payload's raw instant.
     expect(page.dayLine, contains('September'));
-    // Nothing that could raise a keyboard, which is what makes the stale-inset
-    // hazard inapplicable to this page.
+    // Nothing that could raise a keyboard of its own. An inset left standing
+    // by the app the page resumes reaches it all the same: that hazard is the
+    // layout group's (the header's "Clearance").
     expect(page.hasTextField, isFalse);
   });
 
@@ -764,12 +764,12 @@ void main() {
       await page.pumpPage(
         payload(
           dueAt: DateTime(2026, 9, 19, 9),
-          whenLabel: 'All day, Sun, Sep 20',
+          whenLabel: 'Sun, Sep 20 · All day',
         ),
       );
 
       expect(page.dayLine, 'Saturday, September 19');
-      expect(page.eventTime, 'All day, Sun, Sep 20');
+      expect(page.eventTime, 'Sun, Sep 20 · All day');
     });
 
     testWidgets('are spelled in the app language', (tester) async {
@@ -895,7 +895,14 @@ void main() {
         active: 'gym_notes',
       );
       addTearDown(controller.dispose);
-      await page.pumpPage(controller.payload, controller: controller);
+      // The app's own theme, which the colour below is named from: with none
+      // pumped the page wears Flutter's default, whose primary happens to be
+      // the same purple, and the case passed on that coincidence alone.
+      await page.pumpPage(
+        controller.payload,
+        controller: controller,
+        theme: AppTheme.light(),
+      );
       expect(controller.activeDatabase, 'gym_notes', reason: 'precondition');
 
       expect(page.title, l10n.alarmTestTitle);
@@ -942,9 +949,10 @@ void main() {
   });
 
   group('a ring that was snoozed', () {
-    String snoozedEyebrow(AppLocalizations strings) =>
-        '${strings.alarmPageTitle} · ${strings.alertsOutcomeSnoozed}'
-            .toUpperCase();
+    // The eyebrow as a phone draws it, written out: an expectation built
+    // from the getters the page reads passes whatever the translation says.
+    // The second word is said of the alarm, so where a language has gender
+    // it agrees with the first — Romanian's "Alarmă" is feminine.
 
     testWidgets('says so when the snooze was taken on this page', (
       tester,
@@ -952,7 +960,7 @@ void main() {
       final page = AlarmPageRobot(tester);
       await page.pumpPage(payload(snooze: true));
 
-      expect(page.eyebrow, snoozedEyebrow(l10n));
+      expect(page.eyebrow, 'ALARM · SNOOZED');
     });
 
     testWidgets('says so when this process saw the platform move the ring', (
@@ -961,14 +969,21 @@ void main() {
       final page = AlarmPageRobot(tester);
       await page.pumpPage(payload(reRing: true));
 
-      expect(page.eyebrow, snoozedEyebrow(l10n));
+      expect(page.eyebrow, 'ALARM · SNOOZED');
     });
 
     testWidgets('says so in German capitals', (tester) async {
       final page = AlarmPageRobot(tester);
       await page.pumpPage(payload(reRing: true), locale: const Locale('de'));
 
-      expect(page.eyebrow, snoozedEyebrow(AppLocalizationsDe()));
+      expect(page.eyebrow, 'ALARM · GESCHLUMMERT');
+    });
+
+    testWidgets('says so in Romanian capitals', (tester) async {
+      final page = AlarmPageRobot(tester);
+      await page.pumpPage(payload(reRing: true), locale: const Locale('ro'));
+
+      expect(page.eyebrow, 'ALARMĂ · AMÂNATĂ');
     });
 
     testWidgets('a first ring does not say it', (tester) async {

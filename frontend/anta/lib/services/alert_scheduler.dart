@@ -929,9 +929,19 @@ class AlertScheduler {
       now: now,
     );
 
+    // The ids of the `fired` rows, read once a pass at most and only when
+    // something needs them: a planned fire with no registration of its own
+    // ([_assignOsIds]), or an entry the stray sweep below gets as far as.
+    Set<int>? fired;
+    Future<Set<int>> firedIds() async => fired ??= await _dao.firedOsIds();
+
     // In-flight rows occupy ids the probe must route around, even though they
     // are not part of the diff.
-    final desired = _assignOsIds(plan, [...live, ...settled.inFlight]);
+    final desired = await _assignOsIds(
+      plan,
+      [...live, ...settled.inFlight],
+      firedIds: firedIds,
+    );
     var scheduled = 0;
     var cancelled = 0;
 
@@ -982,13 +992,17 @@ class AlertScheduler {
       // pending under the old token, which nothing reads once the instant is
       // behind.
       //
-      // The clock decides for the standing instant only. An alert an edit
-      // has just moved onto an instant that passes mid-pass rings nowhere
-      // yet, and has to be armed.
+      // A ringing id is asked of the binding whatever the registry holds: a
+      // ring's row is `fired` from its first second, so no registration
+      // names it. [_assignOsIds] keeps a planned fire off every id that was
+      // ringing when it ran; this is for one that has started since. The
+      // clock decides for the standing instant only. An alert an edit has
+      // just moved onto an instant that passes mid-pass rings nowhere yet,
+      // and has to be armed.
+      if (_gateway.ringingIds.contains(osId)) continue;
       if (existing != null &&
-          (_gateway.ringingIds.contains(osId) ||
-              (existing.fireAt == fire.fireAt.millisecondsSinceEpoch &&
-                  !fire.fireAt.isAfter(_clock())))) {
+          existing.fireAt == fire.fireAt.millisecondsSinceEpoch &&
+          !fire.fireAt.isAfter(_clock())) {
         continue;
       }
       final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
@@ -1068,6 +1082,22 @@ class AlertScheduler {
       }
       if (desired.containsKey(entry.osId)) continue;
       if (!handled.add(entry.osId)) continue;
+      // A `fired` row's entry is a ring the binding announced and nothing
+      // has settled since. It leaves the platform with that ring's own
+      // ending — the alarm page's Stop or Snooze, the heads-up's Stop, the
+      // Silence-after timeout — or with the plugin's clean-up of a past
+      // alarm at its next start, never as a stray. One no longer ringing can
+      // be a Snooze on the heads-up that landed after this pass took its
+      // moves: the plugin keeps the alarm under its id, moved, with the
+      // payload it was armed under, and the move reaches the registry at the
+      // next pass. Cancelled here, that snooze was gone for good — the move
+      // then met a cancelled row and was acknowledged away. A row this pass
+      // settled itself is not one of these: its leftover listing is cleared
+      // below.
+      if (!settled.verdicts.contains(entry.osId) &&
+          (await firedIds()).contains(entry.osId)) {
+        continue;
+      }
       await _gateway.cancel(entry.osId);
       // A row this pass already settled — delivered, or missed — keeps that
       // verdict; the backend's leftover listing of it is cleared all the same.
@@ -1149,15 +1179,17 @@ class AlertScheduler {
   /// dropped are the same row. Three bands:
   ///
   /// - **ahead of [now]** — armed, and the diff's only input.
-  /// - **past by less than [kLateFireGrace]** — *in flight*. Left `pending`,
-  ///   kept out of the diff entirely: never cancelled, never re-scheduled,
-  ///   never reported. Session 3's ring handler is what marks it `fired` or
-  ///   `stopped`; a reconcile that touched it would cancel a ring in progress
-  ///   and post "Missed" over the noise it was still making.
-  /// - **past by more** — over. Reported once, quietly, while it is still
-  ///   inside [kMissedAlertWindow] **and** the alert is in the ring tier, and
-  ///   the row is then marked `missed` (OS-4) so the hub's Recent section
-  ///   can say so; every other row of the band is marked `cancelled`. A reminder that was simply not tapped is not a missed
+  /// - **past by less than [kLateFireGrace]**, or by any amount while a ring
+  ///   is in progress (an alarm can be held back behind it) — *in flight*.
+  ///   Left `pending`, kept out of the diff entirely: never cancelled, never
+  ///   re-scheduled, never reported. Session 3's ring handler is what marks it
+  ///   `fired` or `stopped`; a reconcile that touched it would cancel a ring in
+  ///   progress and post "Missed" over the noise it was still making.
+  /// - **past by more**, with nothing ringing — over. Reported once, quietly,
+  ///   while it is still inside [kMissedAlertWindow] **and** the alert is in
+  ///   the ring tier, and the row is then marked `missed` (OS-4) so the hub's
+  ///   Recent section can say so; every other row of the band is marked
+  ///   `cancelled`. A reminder that was simply not tapped is not a missed
   ///   appointment, and reporting every one of them would turn each launch
   ///   into a pile of notifications; an alert that no longer exists has nothing
   ///   to say either. Past [kMissedAlertWindow] the platform entry is cancelled
@@ -1169,13 +1201,16 @@ class AlertScheduler {
   ///
   /// **One piece of delivery evidence overrides the third band.** A row past
   /// the grace window in a process that was *already running at the fire
-  /// instant* is marked `fired` and never reported: that process was neither
-  /// force-stopped nor switched off, so the alarm rang — natively, stopped
-  /// from its own notification, with no Dart up to mark the row. It is the
-  /// everyday case (phone in use, app not), and without this every such alarm
-  /// came back as a "Missed" the next time the app was opened. A process that
-  /// started *after* the instant proves nothing either way, so those rows keep
-  /// the rule above; the evidence only ever removes a false report.
+  /// instant*, or that *started within [kRingStartGrace] after it*, is marked
+  /// `fired` and never reported. The first was neither force-stopped nor
+  /// switched off, so the alarm was delivered; the second is the process the
+  /// delivery itself started, the alarm's broadcast being what brings one up
+  /// when none is running. Either way the ring was stopped natively, from its
+  /// own notification, with no Dart up to mark the row — the everyday case
+  /// (phone in use, app not running) — and without this every such alarm
+  /// came back as a "Missed" the next time the app was opened. A process
+  /// that started later than that proves nothing either way, so those rows
+  /// keep the rule above; the evidence only ever removes a false report.
   ///
   /// This is the **only** Missed source, for both tiers. The `alarm` package
   /// does drop a boot-recovered alarm older than `androidStaleAfter` (passed
@@ -1210,17 +1245,29 @@ class AlertScheduler {
         continue;
       }
       final lateness = now.difference(fireAt);
-      if (lateness < kLateFireGrace) {
+      // While anything rings, a row past the grace is in flight as well. The
+      // `alarm` host rings one alarm at a time, and one that comes due behind
+      // a sounding ring waits in its queue, silent, until that ring ends —
+      // which for a ring sounding natively, with no Dart up to time it out,
+      // can be any time. The host runs in this process, so the process was
+      // alive at the held alarm's instant: the late band alone read the held
+      // alarm as rung, marked it `fired`, and the pass then cancelled it out
+      // of the queue, so it never rang. The `alarm` fork's Patch 9 keeps the
+      // plugin's own start from stopping it, for the same reason. A pass with
+      // nothing ringing settles every such row as before.
+      if (lateness < kLateFireGrace || _gateway.ringingIds.isNotEmpty) {
         inFlight.add(row);
         continue;
       }
       // Alive at the fire instant means neither force-stopped nor switched
-      // off, so the platform delivered — and the ring was stopped from its own
-      // notification with no Dart running to mark the row, which is what an
-      // alarm does whenever the phone is in use and the app is not. Asked
-      // once, and only when a row actually needs it.
+      // off, so the platform delivered; started within [kRingStartGrace]
+      // after it is the process that delivery started. Either way the ring
+      // was stopped from its own notification with no Dart running to mark
+      // the row, which is what an alarm does whenever the phone is in use
+      // and the app is not. Asked once, and only when a row actually needs
+      // it.
       processStartedAt ??= (await _gateway.processStartedAt()) ?? _neverStarted;
-      if (!processStartedAt.isAfter(fireAt)) {
+      if (!processStartedAt.isAfter(fireAt.add(kRingStartGrace))) {
         await _dao.markState(row.osId, AlertRegistrationState.fired.name);
         delivered.add(row.osId);
         verdicts.add(row.osId);
@@ -1263,13 +1310,30 @@ class AlertScheduler {
   /// keeps that row's id, whatever the hash says — the row *is* the memory of
   /// where a collision probe landed, and re-deriving it would move an entry the
   /// OS is already holding. Everything else takes the deterministic seed and
-  /// probes past ids another key has taken.
-  Map<int, ({PlannedFire fire, AlertRegistrationRow? existing})> _assignOsIds(
+  /// probes past ids another key has taken, and past every id that is
+  /// ringing or whose row is `fired`. A ring's row is `fired` from its first
+  /// second, in neither list, and the occurrence it rang for, planned again —
+  /// its time moved later the same day — would take that id back. Arming
+  /// over a ring stops it; arming over a fired row's entry that no longer
+  /// rings replaces what the plugin still holds there, above all a Snooze
+  /// taken on the heads-up whose move the next pass writes down. The moved
+  /// occurrence is armed under an id of its own instead, so it still rings at
+  /// its new time whatever becomes of the ring.
+  ///
+  /// [firedIds] is asked the first time a fire has no registration of its
+  /// own: one that keeps its row's id probes nothing.
+  Future<Map<int, ({PlannedFire fire, AlertRegistrationRow? existing})>>
+  _assignOsIds(
     List<PlannedFire> plan,
-    List<AlertRegistrationRow> live,
-  ) {
+    List<AlertRegistrationRow> live, {
+    required Future<Set<int>> Function() firedIds,
+  }) async {
     final byKey = <String, AlertRegistrationRow>{};
-    final taken = <int, String>{};
+    // Under a key no registration has, so every planned fire probes past it;
+    // a live row's own id is taken under its own key just below.
+    final taken = <int, String>{
+      for (final osId in _gateway.ringingIds) osId: '',
+    };
     for (final row in live) {
       final key = _registrationKey(
         row.alertId,
@@ -1280,10 +1344,18 @@ class AlertScheduler {
       taken[row.osId] = key;
     }
 
+    var firedTaken = false;
     final desired = <int, ({PlannedFire fire, AlertRegistrationRow? existing})>{};
     for (final fire in plan) {
       final key = _registrationKey(fire.alert.id, fire.day, fire.kind);
       final existing = byKey[key];
+      if (existing == null && !firedTaken) {
+        firedTaken = true;
+        // A fired row is never live, so no row's own key is overwritten.
+        for (final osId in await firedIds()) {
+          taken.putIfAbsent(osId, () => '');
+        }
+      }
       final osId =
           existing?.osId ??
           resolveAlertOsId(

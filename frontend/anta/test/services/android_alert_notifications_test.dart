@@ -924,19 +924,19 @@ void main() {
     );
 
     test('is spelled backend, loudness, grammar, language, clock', () {
-      expect(contextOf(), 'alarm~g3.en.h');
-      expect(contextOf(use24Hour: true), 'alarm~g3.en.H');
+      expect(contextOf(), 'alarm~g4.en.h');
+      expect(contextOf(use24Hour: true), 'alarm~g4.en.H');
       expect(
         contextOf(
           volume: AlertRingVolume.floor,
           language: 'de',
           use24Hour: true,
         ),
-        'alarm@floor~g3.de.H',
+        'alarm@floor~g4.de.H',
       );
       expect(
         contextOf(backend: 'notification', language: 'ro'),
-        'notification~g3.ro.h',
+        'notification~g4.ro.h',
       );
     });
 
@@ -944,17 +944,19 @@ void main() {
       // The whole of what makes the first pass after the upgrade write every
       // planned entry again: a reminder's row held the bare backend name, an
       // alarm's the backend and then its sound.
-      expect(kAlertArmGrammarToken, '~g3');
+      expect(kAlertArmGrammarToken, '~g4');
       expect(contextOf(), isNot('alarm'));
       expect(contextOf(), contains(kAlertArmGrammarToken));
       expect(contextOf(volume: AlertRingVolume.floor), isNot('alarm@floor'));
     });
 
-    test('is not the context the redraw first recorded', () {
-      // `~g2` armed a reminder loose and an alarm's notice on the reminder
-      // channel. Both are frozen into an entry, so every row signed with it
-      // has to read as out of date once: the reminder is armed again in the
-      // group, the alarm with its notice on the quiet channel.
+    test('is no context an earlier grammar of the redraw recorded', () {
+      // Each froze into an entry something the next one changed. `~g2` armed
+      // a reminder loose and an alarm's notice on the reminder channel;
+      // `~g3` wrote an event on another day with its day after its time,
+      // where a notification's one line cut the day. So every row signed
+      // with either has to read as out of date once: armed again in the
+      // group, with the notice on the quiet channel, the day first.
       for (final context in [
         contextOf(),
         contextOf(use24Hour: true),
@@ -962,8 +964,10 @@ void main() {
         contextOf(backend: 'notification', language: 'ro'),
       ]) {
         expect(context, isNot(contains('~g2')), reason: context);
+        expect(context, isNot(contains('~g3')), reason: context);
       }
       expect(contextOf(), isNot('alarm~g2.en.h'));
+      expect(contextOf(), isNot('alarm~g3.en.h'));
     });
 
     test('moves with the language an entry is written in', () {
@@ -1016,14 +1020,14 @@ void main() {
       // A reminder's signature is the context and nothing more, which is why
       // the words' token had to go into the context: there was nowhere else
       // a changed language could reach a reminder from.
-      expect(signatureOf(AlertMode.notify, contextOf()), 'alarm~g3.en.h');
+      expect(signatureOf(AlertMode.notify, contextOf()), 'alarm~g4.en.h');
       expect(
         signatureOf(AlertMode.notify, contextOf(language: 'de')),
         isNot(signatureOf(AlertMode.notify, contextOf())),
       );
       expect(
         signatureOf(AlertMode.ring, contextOf()),
-        'alarm~g3.en.h#system:default~clock~10~n120',
+        'alarm~g4.en.h#system:default~clock~10~n120',
       );
       expect(
         signatureOf(AlertMode.ring, contextOf(use24Hour: true)),

@@ -20,8 +20,14 @@
 # - The row's second line is read: Keep's write reaches the calendar, which
 #   reloads, so "removed after it rings" is gone from it without a relaunch.
 #   Until 2026-10 the row went on saying it (seen 2026-10-04).
-# - "Stretch" (qa-alert-reminder) is left armed on purpose: a Reminder-tier
-#   alert two minutes after this ring, for a look at the shade by hand.
+# - Two things are left standing. "Stretch" (qa-alert-reminder), armed on
+#   purpose: a Reminder-tier alert two minutes after this ring, for a look at
+#   the shade by hand. And the session chip Stop posts for the kept "Tea
+#   timer": the event has no end, so the chip reads "Session in progress",
+#   counts up, and stays until its Done — no ring comes after it to take it
+#   down. To put the device back: Done on the chip, then
+#   `qa relaunch --fresh --seed tool/qa/fixtures/basic.json`, whose first
+#   reconcile over the fresh database cancels what this seed left armed.
 wait id:alarm-stop --timeout 180
 expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-keep-event "Tea timer" "Stop also removes this event"
 shot 02_remove_after

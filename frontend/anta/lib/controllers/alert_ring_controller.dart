@@ -204,7 +204,10 @@ class AlertRingController extends ChangeNotifier {
     if (removeAtPress && willRemoveEvent) await _removeEvent(payload);
     _stopped = true;
     _busy = false;
-    notifyListeners();
+    // The ring can end by another route while the chain above is out — its
+    // heads-up, the Silence-after timeout — and the page closes on that and
+    // disposes the controller it made.
+    if (!_disposed) notifyListeners();
   }
 
   /// Re-arms this alert [AlertPayload.snoozeMinutes] from now, as a
@@ -223,7 +226,8 @@ class AlertRingController extends ChangeNotifier {
     }
     _stopped = true;
     _busy = false;
-    notifyListeners();
+    // As in [stop]: the page may have closed under the chain.
+    if (!_disposed) notifyListeners();
   }
 
   /// Clears the event's "remove after it rings" flag **before** Stop, so an

@@ -4891,6 +4891,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String alertsDayThenWhen(String day, String when) {
+    return '$day · $when';
+  }
+
+  @override
   String get alertsSkipAction => 'Skip';
 
   @override

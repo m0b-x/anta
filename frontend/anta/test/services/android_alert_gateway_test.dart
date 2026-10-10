@@ -598,6 +598,39 @@ void main() {
     });
   });
 
+  group('the silence window', () {
+    // Silence-after is for the time a ring is heard. The host sounds one
+    // alarm at a time and holds one that comes due during another, silent,
+    // while the plugin's fallback timer tells the app of it at its own
+    // instant: counted from there, the window of a held alarm ran out while
+    // it waited, and it was silenced moments after it was promoted. When
+    // the binding asks is pinned as text in
+    // test/android/alert_silence_window_test.dart.
+
+    test('counts while the host sounds this ring', () {
+      expect(alertSilenceWindowRuns(sounding: true, anySounding: true), isTrue);
+    });
+
+    test('waits while the host sounds another ring and holds this one', () {
+      expect(
+        alertSilenceWindowRuns(sounding: false, anySounding: true),
+        isFalse,
+      );
+    });
+
+    test('counts when the host sounds nothing: an announced alarm nothing '
+        'will promote, or a host that cannot answer', () {
+      // The plugin answers `false` to a query that failed, so a waiting
+      // window needs the host to say, positively, that another ring
+      // sounds — the one bound on a wait that would otherwise keep a
+      // silent page up for good.
+      expect(
+        alertSilenceWindowRuns(sounding: false, anySounding: false),
+        isTrue,
+      );
+    });
+  });
+
   group("the plugin's log", () {
     LogRecord record(Level level) => LogRecord(
       level,

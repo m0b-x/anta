@@ -225,6 +225,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDir;
+  late StatementCounter counter;
   late AppDatabase db;
   late FakeAlertGateway gateway;
   late CalendarEventService events;
@@ -263,7 +264,9 @@ void main() {
 
   setUp(() async {
     resetSingletons();
-    db = await openTestDatabase();
+    // Counted only where a case asks: what one pass reads, as text.
+    counter = StatementCounter();
+    db = await openTestDatabase(interceptor: counter);
     gateway = FakeAlertGateway();
     SettingsService.forTesting(db);
     events = await CalendarEventService.forTesting(db);
@@ -405,6 +408,33 @@ void main() {
       final row = (await registrations()).single;
       expect(row.osId, before, reason: 're-armed in place, not re-issued');
       expect(row.backend, 'fake@floor#system:default~clock~10~n120');
+
+      // And settles again: the third pass has nothing left to do.
+      gateway.resetCalls();
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      expect(gateway.scheduled, isEmpty);
+    });
+
+    test('a moved arm context re-arms standing reminders too', () async {
+      // The app switched to German while it was away. A reminder's words are
+      // frozen into its platform entry when it is armed, and its signature is
+      // the context and nothing more — so the context moving is the only
+      // thing that can reach one already standing in the old language.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.notify)]);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = (await registrations()).single;
+      expect(before.backend, 'fake', reason: 'signed with the bare context');
+      gateway.resetCalls();
+
+      gateway.armContext = 'fake.de';
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduled, hasLength(1));
+      expect(gateway.scheduled.single.alert.mode, AlertMode.notify);
+      final row = (await registrations()).single;
+      expect(row.osId, before.osId, reason: 're-armed in place, not re-issued');
+      expect(row.backend, 'fake.de');
 
       // And settles again: the third pass has nothing left to do.
       gateway.resetCalls();
@@ -732,6 +762,114 @@ void main() {
     });
   });
 
+  group('an occurrence moved later while it rings', () {
+    // A ring's row is `fired` from its first second, so the diff holds no
+    // registration for it, and a plan that has the occurrence again later
+    // the same day — its time edited while it rings, from a calendar opened
+    // over a second alarm's page — took the deterministic id, the ringing
+    // one. Arming over a ring stops it, and the binding reads that as a Stop
+    // on the notification: the page closed, the session chip posted, an
+    // event set to go after its alarm removed, with nobody answering.
+    final due = DateTime(2026, 9, 20, 18);
+    final moved = DateTime(2026, 9, 20, 18, 30);
+
+    /// Arms the seeded alarm, has it ring for half a minute — the ring
+    /// handler's `fired` mark in place — and moves its event half an hour
+    /// later.
+    Future<AlertRegistrationRow> ringingThenMoved(
+      AlertScheduler scheduler,
+    ) async {
+      await seed();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      await scheduler.markFired(armed.osId);
+      now = due.add(const Duration(seconds: 30));
+      await events.upsert(
+        eventOf(time: const EventTime(startMinute: 18 * 60 + 30)),
+      );
+      gateway.resetCalls();
+      return armed;
+    }
+
+    test('is armed under an id of its own, the ring left as it was',
+        () async {
+      final scheduler = schedulerOf();
+      final armed = await ringingThenMoved(scheduler);
+      gateway.ringingNow.add(armed.osId);
+      final standing = gateway.platform[armed.osId];
+
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      final rows = await registrations();
+      expect(
+        rows.singleWhere((row) => row.osId == armed.osId).state,
+        AlertRegistrationState.fired.name,
+      );
+      expect(gateway.platform[armed.osId], standing);
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.stopped, isEmpty);
+      // Still armed, so Stop on the ring leaves the new time standing.
+      expect(gateway.scheduled.single.fireAt, moved);
+      final next = rows.singleWhere((row) => row.osId != armed.osId);
+      expect(next.state, AlertRegistrationState.pending.name);
+      expect(next.fireAt, moved.millisecondsSinceEpoch);
+      expect(next.alertId, armed.alertId);
+      expect(next.day, armed.day);
+      expect(gateway.platform.containsKey(next.osId), isTrue);
+    });
+
+    test('is armed under an id of its own while the ring\'s row is fired, '
+        'though nothing rings there', () async {
+      // A `fired` row whose id no longer rings is a ring nothing has settled
+      // yet — above all one snoozed on its heads-up whose move the next pass
+      // writes down, the plugin holding the alarm under that id, moved.
+      // Armed over, the snoozed alarm was replaced: the snooze never rang,
+      // and once the move was written onto the re-armed row the occurrence
+      // was armed a second time and rang twice.
+      final scheduler = schedulerOf();
+      final armed = await ringingThenMoved(scheduler);
+      final standing = gateway.platform[armed.osId];
+      counter.reset();
+
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      final rows = await registrations();
+      expect(
+        rows.singleWhere((row) => row.osId == armed.osId).state,
+        AlertRegistrationState.fired.name,
+      );
+      expect(gateway.platform[armed.osId], standing);
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.scheduled.single.fireAt, moved);
+      final next = rows.singleWhere((row) => row.osId != armed.osId);
+      expect(next.state, AlertRegistrationState.pending.name);
+      expect(next.fireAt, moved.millisecondsSinceEpoch);
+      expect(gateway.platform.containsKey(next.osId), isTrue);
+      // The pass needed the fired rows twice — for the fresh id, and when
+      // the stray sweep reached the ring's own entry — and read them once.
+      expect(
+        counter.matching("state = 'fired'"),
+        hasLength(1),
+        reason: 'Issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test("is armed under the ring's id once the ring is over", () async {
+      final scheduler = schedulerOf();
+      final armed = await ringingThenMoved(scheduler);
+      await scheduler.stop(armed.osId);
+      gateway.resetCalls();
+
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduled.single.fireAt, moved);
+      final row = (await registrations()).single;
+      expect(row.osId, armed.osId);
+      expect(row.state, AlertRegistrationState.pending.name);
+      expect(row.fireAt, moved.millisecondsSinceEpoch);
+    });
+  });
+
   group('OS truth', () {
     test('a registry row the platform forgot is dropped and re-armed',
         () async {
@@ -929,6 +1067,49 @@ void main() {
       });
     }
 
+    test('an alarm held back behind another ring is in flight past the grace',
+        () async {
+      // The `alarm` host rings one alarm at a time: this one came due while
+      // another sounded and waits in its queue, silent, for as long as that
+      // ring lasts — which, for a ring sounding natively with no Dart up, has
+      // no end. The host runs in the app's process, so the process was alive
+      // at this alarm's instant, and the delivery evidence alone would read
+      // the row as rung and cancel the entry out of the queue.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      gateway.startedAt = DateTime(2026, 9, 20, 17, 59, 58);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final held = (await registrations()).single;
+      // Another alarm sounding: another event's, or another database's.
+      gateway.ringingNow.add(held.osId + 1);
+      gateway.resetCalls();
+
+      // The app opened from that ring's heads-up, 31 minutes on.
+      now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(minutes: 31));
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect((await rowOf(held.osId)).state,
+          AlertRegistrationState.pending.name);
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.missed, isEmpty);
+      expect(
+        gateway.platform.containsKey(held.osId),
+        isTrue,
+        reason: 'it rings when the ring in front of it ends',
+      );
+    });
+
+    test('with nothing ringing, the same alarm is settled as before', () async {
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      gateway.startedAt = DateTime(2026, 9, 20, 17, 59, 58);
+
+      final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
+
+      expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
+      expect(gateway.cancelled, [armed.osId]);
+      expect(gateway.missed, isEmpty);
+    });
+
     test('a reminder delivered more than a day ago is cleared from the shade',
         () async {
       // The notification plugin re-arms every reminder it held when the phone
@@ -975,9 +1156,11 @@ void main() {
 
     test('a process alive at the fire instant proves the alarm rang',
         () async {
-      // Phone in use, app not: Android shows the ring as a heads-up, the user
-      // stops it from there, and no Dart ever runs to mark the row. The
-      // process the alarm started is still the one the app opens in.
+      // The app's process already running when the alarm came due, kept in
+      // the background with no engine: Android shows the ring as a heads-up,
+      // the user stops it from there, and no Dart runs to mark the row. A
+      // process alive at the instant was neither force-stopped nor switched
+      // off, so the alarm was delivered.
       await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
       gateway.startedAt = DateTime(2026, 9, 20, 17, 59, 58);
 
@@ -985,6 +1168,49 @@ void main() {
 
       expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
       expect(gateway.missed, isEmpty);
+    });
+
+    test('a process the alarm itself started proves it rang too', () async {
+      // No process running when the alarm came due: its broadcast is what
+      // started one, a moment after the instant. The ring is a heads-up, the
+      // user stops it there with no engine attached to hear it, and nothing
+      // durable records the Stop — this process coming up just after the
+      // instant is the only trace of the delivery.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      gateway.startedAt = DateTime(
+        2026,
+        9,
+        20,
+        0,
+        fireAt,
+      ).add(const Duration(milliseconds: 150));
+
+      final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
+
+      expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
+      expect(gateway.missed, isEmpty);
+    });
+
+    test('a process that came up past the delivery window proves nothing',
+        () async {
+      // The window is the delivery's latency and no more: a second past it
+      // the process is the user's own launch, as the case below.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      gateway.startedAt = DateTime(
+        2026,
+        9,
+        20,
+        0,
+        fireAt,
+      ).add(kRingStartGrace + const Duration(seconds: 1));
+
+      final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
+
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.missed.name,
+      );
+      expect(gateway.missed, hasLength(1));
     });
 
     test('a process that started afterwards proves nothing', () async {
@@ -1511,6 +1737,55 @@ void main() {
       // The platform holds that entry already (the plugin moved it, not us),
       // so nothing is scheduled or cancelled for it.
       expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+    });
+
+    test('a Snooze on the heads-up while a pass is out is left to the next '
+        'pass, which writes it down', () async {
+      // The move reaches the registry only through the drain at the top of a
+      // pass. A pass already past it when the Snooze lands finds the alarm
+      // still on the platform — moved, under the payload it was armed with —
+      // with its row `fired`, the ring gone from the binding's set and
+      // nothing planned for it: to the stray sweep, an entry nobody holds.
+      // Cancelled there, the move then met a cancelled row and was
+      // acknowledged away, and the snooze never rang.
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      await scheduler.markFired(armed.osId);
+      gateway.ringingNow.add(armed.osId);
+      now = DateTime.fromMillisecondsSinceEpoch(
+        armed.fireAt,
+      ).add(const Duration(minutes: 1));
+      gateway.resetCalls();
+      late AlertMove move;
+      gateway.onArmContextRead = () {
+        gateway.ringingNow.remove(armed.osId);
+        move = moveOf(armed.osId);
+        gateway.moves.add(move);
+      };
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.cancelled, isNot(contains(armed.osId)));
+      expect(gateway.platform.containsKey(armed.osId), isTrue);
+      expect(
+        (await registrations()).single.state,
+        AlertRegistrationState.fired.name,
+      );
+
+      // The pass the snoozed ending provokes.
+      gateway.onArmContextRead = null;
+      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+
+      final row = (await registrations()).single;
+      expect(row.osId, armed.osId);
+      expect(row.kind, AlertKind.snooze.name);
+      expect(row.state, AlertRegistrationState.pending.name);
+      expect(row.fireAt, move.nextRingAt.millisecondsSinceEpoch);
+      expect(gateway.acknowledged, [move]);
+      expect(gateway.platform.containsKey(armed.osId), isTrue);
       expect(gateway.cancelled, isEmpty);
     });
 
@@ -2080,6 +2355,13 @@ void main() {
   });
 
   group('the payload', () {
+    // Every locale's date tables, for the whole group. With none loaded, a
+    // label that needs them is left out or falls back: a line that names a
+    // day comes out empty and a time on the neutral 24-hour clock — which
+    // German's own clock reads the same as, so for German only a line with a
+    // day in it can tell the tables from their absence.
+    setUpAll(initializeDateFormatting);
+
     test('carries the database, the event and the fire time', () async {
       await seed(event: eventOf(removeAfterAlert: true));
       await schedulerOf(database: 'work').reconcileAll(
@@ -2186,7 +2468,7 @@ void main() {
         payload.fireAtMs,
         DateTime(2026, 9, 19, 9).millisecondsSinceEpoch,
       );
-      expect(payload.whenLabel, 'All day, Sun, Sep 20');
+      expect(payload.whenLabel, 'Sun, Sep 20 · All day');
       expect(payload.dayUtc, DateTime.utc(2026, 9, 20));
     });
 
@@ -2248,10 +2530,36 @@ void main() {
       expect(payload.timeLabel, '09:00');
     });
 
+    test("a German day name is written with German's tables", () async {
+      // The case above cannot tell German's tables from none: "Ganztägig"
+      // needs no table, and "09:00" is both German's clock and the neutral
+      // fallback. A day name comes from the table or not at all. Due on
+      // Saturday the 19th at the 09:00 default, for Sunday's event.
+      gateway.labels = AlertLabels(
+        strings: lookupAppLocalizations(const Locale('de')),
+        use24Hour: false,
+      );
+      await seed(
+        event: eventOf(time: null),
+        eventAlerts: [
+          const EventAlert(
+            id: 'a1',
+            eventId: 'e1',
+            mode: AlertMode.ring,
+            daysBefore: 1,
+          ),
+        ],
+      );
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.whenLabel, 'So., 20. Sept. · Ganztägig');
+      expect(payload.timeLabel, '09:00');
+    });
+
     test("the due time is written on the phone's clock too", () async {
       // Until the arm context named the clock style this one label stayed on
       // a neutral 24-hour skeleton, whatever the binding's labels wrote.
-      await initializeDateFormatting('en');
       gateway.labels = AlertLabels(
         strings: lookupAppLocalizations(const Locale('en')),
         use24Hour: false,
@@ -2283,7 +2591,6 @@ void main() {
       // The fallback category's grey is the one avatar that all but vanishes
       // on the dark ground, so a test ring takes the app's own colour.
       expect(payload.tintValue, AppTheme.lightScheme.primary.toARGB32());
-      expect(payload.tintValue, 0xFF6750A4);
       expect(payload.glyphKey, 'alarm');
       // Its stand-in event has no time, and would otherwise read "All day".
       expect(payload.whenLabel, '');
@@ -2319,7 +2626,7 @@ void main() {
       expect(snoozed, isNot(first));
       expect(snoozed.isTest, isTrue);
       expect(snoozed.snooze, isTrue);
-      expect(snoozed.tintValue, 0xFF6750A4);
+      expect(snoozed.tintValue, AppTheme.lightScheme.primary.toARGB32());
       expect(snoozed.glyphKey, 'alarm');
       expect(snoozed.whenLabel, '');
       expect(

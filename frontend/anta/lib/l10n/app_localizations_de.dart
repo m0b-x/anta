@@ -4838,7 +4838,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get alertsNotificationsDesc =>
-      'Nötig, damit Erinnerungen und Alarme erscheinen';
+      'Nötig, damit Mitteilungen und Alarme erscheinen';
 
   @override
   String get alertsFullScreenAlarms => 'Vollbild-Alarme';
@@ -4929,6 +4929,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String alertsDayThenWhen(String day, String when) {
+    return '$day · $when';
+  }
+
+  @override
   String get alertsSkipAction => 'Überspringen';
 
   @override
@@ -4985,11 +4990,11 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertsTestAlarmFailed => 'Der Alarm konnte nicht geplant werden';
 
   @override
-  String get alertsReminderChannel => 'Erinnerungen';
+  String get alertsReminderChannel => 'Mitteilungen';
 
   @override
   String get alertsReminderChannelDesc =>
-      'Termin-Erinnerungen zum Schlummern oder Schließen';
+      'Termin-Mitteilungen zum Schlummern oder Schließen';
 
   @override
   String get alertsAlarmChannel => 'Alarme';

@@ -108,7 +108,7 @@ number of events, and swapping the platform backend touches one file.
 | A7 | Horizon | Next **2** occurrences per alert, **30** days, **48** registrations total, soonest first. | Survives a week without opening the app; stays under iOS's 64 pending and far under Samsung's 500. |
 | A8 | Snooze | One button, length from settings, default **10 min**; a snooze is its own registration (`kind = snooze`). | Google Clock's default; per-ring choices add taps to a screen used half asleep. |
 | A9 | Other databases | Every database's alarms ring. The alarm page names the database when it is not the active one; Open switches (the restart flow of `database_settings_page.dart:787-821`). Reconcile touches only OS entries whose payload names the active database. | An alarm is a promise the phone made; switching databases must not silently cancel it. |
-| A10 | Late rings | Ring if under **30 min** late; otherwise a quiet "Missed: {title}" notification (only if under 24 h late), never a ring at boot for a session that ended. *Copy since 2026-10-05:* the event's title over "Missed · {time}", like every other notification (alert-surfaces record D10); the rule is unchanged. | A phone that was off should not ring a 07:00 alarm at 09:30. Mechanism per backend in §3.4. |
+| A10 | Late rings | Ring if under **30 min** late; otherwise a quiet "Missed: {title}" notification (only if under 24 h late), never a ring at boot for a session that ended. *Copy since 2026-10-05:* the event's title over "Missed · {time}", like every other notification (alert-surfaces record D10). *Since 2026-10-10:* while any ring is in progress a pass settles no late row at all, whatever its lateness (that record's C36 — the fork's service holds an alarm that comes due during a ring and promotes it when the ring ends, and the band alone read a held alarm as rang and cancelled it), and the fork itself leaves such a held alarm stored (Patch 9); a late row waits for the first pass with nothing ringing; and the band's delivery evidence counts a process that came up within `kRingStartGrace` (30 s) after the instant as started by the delivery (C39 — a heads-up Stop in a process the alarm's own broadcast started used to read as missed). The thresholds are unchanged. | A phone that was off should not ring a 07:00 alarm at 09:30. Mechanism per backend in §3.4. |
 | A11 | Quick alarm category | `other`, with `iconKey = 'alarm'` as the event's own icon override. | No new built-in to seed and migrate; the icon carries the meaning on every row. |
 | A12 | Where a tap opens | Reminder → the calendar on the event's day with the detail sheet open. Alarm → the alarm page. | A reminder is about the event; an alarm is about stopping the noise. |
 | A13 | Presence prompt | Phase 3, opt-in per tracked event, the page only **asks** and dispatches `SetOccurrencePresence`. | `presence-tracking-roadmap.md`: nothing marks on its own. |
@@ -354,7 +354,11 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   source for both tiers; because `androidStaleAfter` equals
   `kLateFireGrace`, a dropped alarm's row is past the grace window at the
   very launch that delivers the drop. It measures lateness (`now −
-  fire_at`) in three windows. **In flight** (under `kLateFireGrace`, 30 min): the row stays
+  fire_at`) in three windows. **In flight** (under `kLateFireGrace`, 30 min —
+  or by any amount while the gateway reports a ring in progress, since
+  2026-10-10: the fork's service holds an alarm that comes due during a ring
+  and promotes it when the ring ends, and the band alone read a held alarm
+  as rang and cancelled it out of that queue): the row stays
   `pending` and is excluded from the diff — never cancelled, never
   re-scheduled, never reported — because the launch reconcile that the
   plugin's own relaunch of the app triggers is post-frame and lands
@@ -362,8 +366,13 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   what marks it `fired` / `stopped`. A row the ring handler has marked
   `fired` is neither pending nor in flight, yet `alarm` keeps the entry in
   its storage until Stop, so reconcile also seeds its cancel set with
-  `AlertGateway.ringingIds` — without that the resume reconcile the alarm
-  page's own appearance provokes would find an entry nobody planned and
+  `AlertGateway.ringingIds` — and, since 2026-10-10, skips every entry whose
+  row is `fired` unless the pass settled that row itself (alert-surfaces
+  record C37: a native Snooze that landed while a pass was out had left the
+  ringing set and was cancelled by that pass), and keeps ringing and `fired`
+  ids from fresh fires (C38) — without that the resume
+  reconcile the alarm page's own appearance provokes would find an entry
+  nobody planned and
   silence it two seconds into the ring (Session 3 review). **Missed** (30
   min to 24 h): marked
   `cancelled`, and only an **alarm-tier** row (its alert resolves to
@@ -1155,7 +1164,10 @@ to the settings page* when the answer is no, which a status row must not
 do, and battery exemption has no Dart binding at all — that channel is also
 what makes the §5.7 battery row a working link. The Alarm tier's
 Silence-after is a gateway-held `Timer` (the `alarm` package has no
-timeout of its own; the fallback path gets the platform's `timeoutAfter`).
+timeout of its own; the fallback path gets the platform's `timeoutAfter`),
+and since 2026-10-10 it counts from when the host sounds the ring: a held
+alarm the fallback timer announced in the foreground gets no window while
+the host reports another one sounding (alert-surfaces record C41).
 Channel names and every notification string are localized from the app's
 **stored** language, read once at gateway init — channel names are
 immutable after creation anyway — and the background isolate falls back to

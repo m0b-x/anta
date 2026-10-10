@@ -195,7 +195,10 @@ void main() {
 
   test('and answers it with the API level itself', () {
     // An int, which is what the binding reads it as: a string or a release
-    // name would arrive as null there, and null is "not Android 16".
+    // name would throw at `invokeMethod<int>`'s cast, and a read that throws
+    // arms the reminder loose — "not Android 16", on every phone and every
+    // time, since a failure is never remembered and the next read throws
+    // again.
     expect(
       alertsHandler(),
       contains(

@@ -3,6 +3,12 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:alarm/alarm.dart';
+// The plugin's platform half, for the one question its public face cannot
+// ask quietly — see `AndroidAlertGateway._silenceWindowRuns`. The fork is the
+// app's own (`packages/alarm/`), so its implementation file is no moving
+// target.
+// ignore: implementation_imports
+import 'package:alarm/src/android_alarm.dart';
 import 'package:alarm/utils/alarm_exception.dart';
 import 'package:alarm/utils/alarm_set.dart';
 import 'package:flutter/foundation.dart';
@@ -164,6 +170,38 @@ AlertPayload ringReportPayload({
       .moved(reported, alarmDateTime)
       .copyWith(reRing: nativelySnoozed);
 }
+
+/// Whether an unanswered ring's Silence-after window counts down, from what
+/// the `alarm` host says it is sounding: this ring ([sounding]), or any ring
+/// at all ([anySounding]).
+///
+/// The window is for the time a ring is heard. The host sounds one alarm at a
+/// time and holds one that comes due during another, silent, until that one
+/// ends — while the plugin's fallback timer tells the app of the held alarm
+/// at its own instant anyway (the fork's Patch 7 keeps that, with the app in
+/// front), so the binding tracks it from then. A window counted from then ran
+/// out while the alarm waited: two alarms due a minute apart, nobody
+/// answering, and the second was silenced a minute after it began to sound,
+/// then reported Missed.
+///
+/// So the window waits only while the host says it sounds another alarm and
+/// not this one. Anything else counts, as it did before the host was asked:
+/// this ring sounding, and a host sounding nothing — an announced alarm that
+/// nothing will promote still has its page closed after one window, and a
+/// host that cannot answer reads as sounding nothing (the plugin answers
+/// `false` to a query that failed). That is what bounds the wait: it lasts
+/// only while the host names a ring in front, which it sounds, so that ring's
+/// own window runs here and ends it, and the host then promotes the held one
+/// or drops it.
+///
+/// Pure: what the two answers mean. When the binding asks — a ring tracked,
+/// the ringing set changing while a ring is held, a window running out — and
+/// in which order it reads the two, which a race between the reads turns on,
+/// are the binding's own (`AndroidAlertGateway._silenceWindowRuns`).
+bool alertSilenceWindowRuns({
+  required bool sounding,
+  required bool anySounding,
+}) => sounding || !anySounding;
 
 /// The line one record of the `alarm` plugin's log is printed as, or null for
 /// a record below a warning.
@@ -673,7 +711,7 @@ Map<String, Object?> sessionChipArguments({
 
 /// Everything an entry is armed **under** that is the phone's or the app's
 /// rather than the plan's, as the token the registry keeps per row — spelled
-/// `<backend>[@floor]~g3.<language>.<H|h>`.
+/// `<backend>[@floor]~g4.<language>.<H|h>`.
 ///
 /// The backend and the volume bucket are what a ring will sound like. A
 /// volume that follows the phone stays unspelled, as it always was: it is
@@ -950,7 +988,23 @@ class AndroidAlertGateway extends AlertGateway {
   /// Dart is up for the ring. That is not always: with the phone in use and
   /// the app not running, the ring is a native heads-up and nothing here runs,
   /// so that ring has no timeout — but it also has someone looking at it.
+  ///
+  /// Counted from when the host sounds the ring, not from when it is tracked
+  /// ([_heldRings]).
   final Map<int, Timer> _silenceTimers = <int, Timer>{};
+
+  /// The rings tracked here that the host holds behind another one: told of
+  /// by the plugin's fallback timer at their own instant, silent until the
+  /// ring in front of them ends, so their Silence-after window has not begun
+  /// ([alertSilenceWindowRuns]). [_handleRinging] asks after them again at
+  /// every change to the ringing set, and the first answer that finds one
+  /// sounding starts its window.
+  final Set<int> _heldRings = <int>{};
+
+  /// How many times the plugin's ringing set has been emitted, so an asking
+  /// in [_armSilenceTimer] can tell that the set changed while it waited on
+  /// the host.
+  int _ringingEmissions = 0;
 
   AlertIntent? _launchIntent;
   bool _launchIntentRead = false;
@@ -1316,6 +1370,7 @@ class AndroidAlertGateway extends AlertGateway {
   /// sync subject or a reordered `_applyMove` would turn every native Snooze
   /// into a dismissal here.
   void _handleRinging(AlarmSet set) {
+    _ringingEmissions++;
     final live = <int>{for (final alarm in set.alarms) alarm.id};
     for (final osId in _pluginRings.toList()) {
       if (live.contains(osId)) continue;
@@ -1334,6 +1389,13 @@ class AndroidAlertGateway extends AlertGateway {
       if (payload == null) continue;
       _pluginRings.add(alarm.id);
       _emitRing(_ringReport(payload, alarm));
+    }
+    // A held ring starts to sound when the one in front of it ends, and the
+    // set is emitted for both — that ending, and the host's own report of
+    // the ring it promotes — so every emission asks after each held ring
+    // once more.
+    for (final osId in _heldRings.toList()) {
+      unawaited(_armSilenceTimer(osId));
     }
   }
 
@@ -1373,6 +1435,7 @@ class AndroidAlertGateway extends AlertGateway {
   /// Settles a ring that ended outside the app and reports it.
   void _endRing(int osId, AlertRingEndCause cause) {
     _silenceTimers.remove(osId)?.cancel();
+    _heldRings.remove(osId);
     _pluginRings.remove(osId);
     // A ring that ends in a snooze is the one that makes the record, and the
     // plugin's move and its shrunken ringing set arrive on two streams in no
@@ -1401,6 +1464,9 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
+  /// Starts [osId]'s Silence-after window — unless the host is holding the
+  /// ring behind another one, when it is marked held and nothing starts
+  /// ([alertSilenceWindowRuns]).
   Future<void> _armSilenceTimer(int osId) async {
     _silenceTimers.remove(osId)?.cancel();
     int minutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
@@ -1411,10 +1477,36 @@ class AndroidAlertGateway extends AlertGateway {
     } catch (_) {
       // The shipped default is a better answer than ringing forever.
     }
-    // Stopped while the setting was being read: arming now would leave a
-    // timer that fires `Alarm.stop` on whatever holds this id by then — and a
-    // snooze of a snooze is re-armed under the same one.
-    if (!_rings.containsKey(osId)) return;
+    final emissionsBefore = _ringingEmissions;
+    final runs = await _silenceWindowRuns(osId);
+    // Stopped while the setting was read or the host asked: arming now would
+    // leave a timer that fires `Alarm.stop` on whatever holds this id by
+    // then — and a snooze of a snooze is re-armed under the same one.
+    if (!_rings.containsKey(osId)) {
+      _heldRings.remove(osId);
+      return;
+    }
+    if (!runs) {
+      _heldRings.add(osId);
+      // An emission handled while the host was being asked found no mark, so
+      // it asked nothing — and what it told of can be what the answer
+      // missed: the ring in front ending between the two reads, with nothing
+      // promoted. Asked again, now that the mark is there for every emission
+      // after.
+      if (_ringingEmissions != emissionsBefore) {
+        unawaited(_armSilenceTimer(osId));
+      }
+      return;
+    }
+    _heldRings.remove(osId);
+    // Two askings can be out for one held ring — the set is emitted for the
+    // ending in front of it and again for the host's report of it. Cancelled
+    // here, two that both find it sounding leave one timer between them.
+    // Two that finish out of order can still leave a held mark beside a
+    // running timer, which costs nothing: the next emission asks again and
+    // starts the window afresh, and a window that runs out asks the host
+    // before it stops anything.
+    _silenceTimers.remove(osId)?.cancel();
     _silenceTimers[osId] = Timer(Duration(minutes: minutes), () {
       unawaited(_silence(osId));
     });
@@ -1422,11 +1514,56 @@ class AndroidAlertGateway extends AlertGateway {
 
   /// Ends an unanswered ring. Reported as `timedOut` rather than folded into
   /// [stopRinging], because nobody acknowledged anything.
+  ///
+  /// The host is asked first. A window can have started for a ring it was
+  /// holding — begun while the host could not say — and stopping that ring
+  /// would end it before anyone heard it: its window is started again
+  /// instead, and waits for the host to sound it.
   Future<void> _silence(int osId) async {
     final payload = _rings[osId];
+    final runs = await _silenceWindowRuns(osId);
+    // Over, or ringing again under the same id, by the time the host
+    // answered: this timer was for neither.
+    if (!identical(_rings[osId], payload)) return;
+    if (!runs) {
+      unawaited(_armSilenceTimer(osId));
+      return;
+    }
     await stopRinging(osId);
     if (payload == null || _ringEnded.isClosed) return;
     _ringEnded.add((payload: payload, cause: AlertRingEndCause.timedOut));
+  }
+
+  /// [alertSilenceWindowRuns] for [osId], as the `alarm` host answers it.
+  ///
+  /// Only a ring the plugin reported is the host's to answer for: the
+  /// notification fallback's ring is not, and the host would call it silent.
+  /// Asked of the plugin's platform half, not of `Alarm.isRinging`, which
+  /// checks the answer against the plugin's own ringing set and logs a severe
+  /// line when the two differ — for a held ring, every time, the fallback
+  /// timer having put it in that set. Nor of that set itself, for the same
+  /// reason: it holds the held ring as if it rang.
+  Future<bool> _silenceWindowRuns(int osId) async {
+    if (!_pluginRings.contains(osId)) return true;
+    try {
+      final host = AndroidAlarm();
+      // Anything first, this ring second. A promotion that lands between the
+      // two reads — the ring in front stopped, this one sounding — then reads
+      // as sounding, and one that lands after both is told by emissions that
+      // come once the held mark is in place. The other way round, such a
+      // promotion read as held and its emissions were handled before the
+      // mark existed: nothing asked again, and the ring sounded with no
+      // window until somebody stopped it.
+      final anySounding = await host.isRinging();
+      final sounding = anySounding && await host.isRinging(osId);
+      return alertSilenceWindowRuns(
+        sounding: sounding,
+        anySounding: anySounding,
+      );
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] isRinging($osId) failed: $e');
+      return true;
+    }
   }
 
   /// `AlarmDropped(cause: staleAtBoot)` on `Alarm.events` is deliberately not
@@ -1949,6 +2086,7 @@ class AndroidAlertGateway extends AlertGateway {
     // cancelled in the hub as it starts to ring — and that ring is over all
     // the same: it is reported below, under a cause of its own.
     _silenceTimers.remove(osId)?.cancel();
+    _heldRings.remove(osId);
     _pluginRings.remove(osId);
     final ring = _rings.remove(osId);
     if (ring != null && _rings.isEmpty) {
@@ -2060,6 +2198,7 @@ class AndroidAlertGateway extends AlertGateway {
   Future<void> stopRinging(int osId) async {
     await initialize();
     _silenceTimers.remove(osId)?.cancel();
+    _heldRings.remove(osId);
     // Out of both maps **before** `Alarm.stop`, which is what tells
     // [_handleRinging] this ending was the app's own and not a dismissal.
     _pluginRings.remove(osId);
@@ -2281,6 +2420,7 @@ class AndroidAlertGateway extends AlertGateway {
       timer.cancel();
     }
     _silenceTimers.clear();
+    _heldRings.clear();
     await _ringing.close();
     await _ringEnded.close();
     await _showAlarms.close();

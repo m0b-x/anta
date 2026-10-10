@@ -1,6 +1,6 @@
 # Alert Surfaces Redesign — the ring screen and the alert notifications (2026-10-04)
 
-**Status: COMMITTED `3cb8d49` (2026-10-05) — Slices 0 to 6a, the whole-change review's fix batches A1 and A2 and the wording of batch B are on disk and gated. Deferred at the owner's call (usage) and written out in §8 so each can be resumed from this file alone: the rest of batch B, a second review pass over the ring lifecycle, and the final device pass of Slice 6.**
+**Status: IMPLEMENTED 2026-10-10, uncommitted — the close of the rework COMMITTED `3cb8d49` (2026-10-05, Slices 0 to 6a and the fix batches), on disk on top of `0c65424`: the rest of batch B (C32, the token at `~g4`), the three items the review had left to the owner (Patches 8 and 9, the de/ro channel names — C33 to C36), the final review's eleven fixes (C37 to C42 and the fix review's round), the final device pass of Slice 6 and the documents. Nothing of §8's "Deferred on 2026-10-05" remains; what is still owed is the device list under its device-pass entry and the quiet channel's importance to confirm (D20). The owner asked for the commit and the fast-forward merge into `main` at the end of the session; the ledger's last row records them.**
 
 A detour from the calendar tiers, asked for by the owner on 2026-10-04: the
 full-screen alarm page and everything the phone shows when an alert comes —
@@ -19,7 +19,9 @@ full-screen alarm — a ring screen is not a form"). Line numbers are as of
 - **Skills:** `anta-context`, `ui-language`, `ui-revamp`, `calendar-events`,
   `calendar-ui`, `l10n`, `verify`, `qa-emulator`.
 - **Models:** Opus for design, implementation and review, Sonnet for
-  mechanical runs. **Never Fable** (owner, 2026-10-04).
+  mechanical runs. The "never Fable" of 2026-10-04 was a usage limit, lifted
+  by the owner on 2026-10-10: since then Fable leads and reads the final
+  review's lenses.
 - **One implementer per slice, in order**, briefed "load the skills, read
   this record whole, do slice N, run the gate, report what the record got
   wrong". The lead corrects the record between slices. Reviewers are
@@ -50,7 +52,9 @@ full-screen alarm — a ring screen is not a form"). Line numbers are as of
   `vector_math`): a `flutter pub get` there rewrites five entries. Do not run
   one unless `pubspec.yaml` changed, and put those entries back afterwards so
   the lock's diff is the intended line.
-- **Do not commit.** The owner reviews and commits.
+- **Do not commit.** The owner reviews and commits — on 2026-10-10 they asked
+  the lead to make the one commit after the final gate, the docs commit and
+  the fast-forward merge into `main`, as the ledger records.
 
 ## 1. Why
 
@@ -312,9 +316,11 @@ Unchanged: `alarmPageTitle`, `alarmStop`, `alarmSnoozeMinutes`,
 
 ### 3.5 The notifications
 
-`{when}` is `payload.whenLabel`, or `payload.timeLabel` when that is empty.
-`{time}` is `payload.timeLabel`, the alarm's own time. Text is composed with
-`alertsKindWhen`.
+`{when}` is `payload.whenLabel`, or `payload.timeLabel` when that is empty —
+since 2026-10-10 (B4, C32) a `whenLabel` for an occurrence on another day
+leads with that day, "Mon, Sep 21 · 18:00 – 19:30", so the one-line row keeps
+the day when it cuts the end. `{time}` is `payload.timeLabel`, the alarm's
+own time. Text is composed with `alertsKindWhen`.
 
 | Kind | Title | Text | Expanded | Colour | Large icon | Header clock | Actions | Silent |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -336,7 +342,8 @@ company is the channel they post on since Slice 4 (`alerts_quiet`, §3.7).
 | Key | en | de | ro | Status |
 | --- | --- | --- | --- | --- |
 | `alertsKindWhen` | {kind} · {when} | {kind} · {when} | {kind} · {when} | new, Slice 3 |
-| `alertsWhenOnDay` | {when}, {day} | {when}, {day} | {when}, {day} | new, **Slice 1** (the labels write with it); `day` is `DateFormat.MMMEd` |
+| `alertsWhenOnDay` | {when}, {day} | {when}, {day} | {when}, {day} | new, **Slice 1**; since 2026-10-10 only the upcoming notice's "Alarm at 7:00 AM, Mon, Sep 21" (its description says so); `day` is `DateFormat.MMMEd` |
+| `alertsDayThenWhen` | {day} · {when} | {day} · {when} | {day} · {when} | new, 2026-10-10 (B4, C32): what `AlertLabels.whenLabel` and the moved line's rescue write for an occurrence that is not on the due day, the day first |
 
 Retired: `alertsSnoozeAction` (the reminder takes `alarmSnoozeMinutes`),
 `alertsSnoozedBody`, `alertsMissedTitle`, `alertsMissedBody`. The `@`
@@ -363,7 +370,7 @@ JSON when absent; `copyWith` and `props` gain them and the missing
 | --- | --- | --- | --- | --- | --- |
 | `fireAtMs` | int? | `fireAt` | the instant this entry is due | the page draws `timeLabel` and `dayUtc`; Missed has no `when` | the scheduler (`_payloadFor`, `_payloadForRow`, a snooze restamps its own); the isolate's re-post stamps its own. When the gateway reports a ring whose payload **already carries one**, it replaces it with the plugin's `alarm.dateTime`; a payload without one is passed on untouched |
 | `reRing` | bool | `reRing`, written only when true | this process saw the plugin move this ring by a snooze | false | the gateway, for a payload that carries `fireAtMs`, when it has received an `AlarmMoved` with cause `snooze` for that id since the entry was armed |
-| `whenLabel` | String | `when` | the event's own time as a line: "18:00 – 19:30", "18:00", or `eventAllDay`; with `alertsWhenOnDay` when the occurrence is not on the due day; **empty when it would only repeat the due time** (compared as minutes, not as text) | the page draws no caption; notification text uses `timeLabel` | the scheduler |
+| `whenLabel` | String | `when` | the event's own time as a line: "18:00 – 19:30", "18:00", or `eventAllDay`; led by its day (`alertsDayThenWhen`, `DateFormat.MMMEd`) when the occurrence is not on the due day — until 2026-10-10 the day followed, through `alertsWhenOnDay`, and the platform's one-line cut took it (B4, C32); **empty when it would only repeat the due time** (compared as minutes, not as text) | the page draws no caption; notification text uses `timeLabel` | the scheduler |
 | `tintValue` | int? | `tint` | the avatar's colour by the one icon rule, resolved at arm time | on the UI isolate `CalendarCategories.resolve`, as today; in the isolate's re-post no colour, as today — the facade is empty there | the scheduler |
 | `glyphKey` | String? | `glyph` | the avatar's resolved icon key | `iconKey`, then the facade | the scheduler |
 | `languageCode` | String? | `lang` | the language the entry's strings were written in | the device locale, as the isolate does today | the scheduler |
@@ -427,9 +434,10 @@ JSON when absent; `copyWith` and `props` gain them and the missing
   (`AlertRingController.configureForTesting`). `load()` uses the lookup too
   (C24).
 - **The arm token.** `alertArmContext(backend, volume, language, use24Hour)`,
-  pure and public, spelled `<backend>[@floor]~g3.<lang>.<H|h>` (`g2` in
+  pure and public, spelled `<backend>[@floor]~g4.<lang>.<H|h>` (`g2` in
   Slice 3, `g3` since Slice 4 moved the content version for the group key and
-  the quiet channel);
+  the quiet channel, `g4` since 2026-10-10 for B4's day-first line — the
+  owner's phone carried `g3` entries by then);
   `refreshArmContext` returns it and re-reads the stored language each pass —
   through `SettingsService.getLocaleCode()`, never
   `AppDatabase.getInstance()`, which re-resolves which database is active and
@@ -691,7 +699,10 @@ record's group key is its own key until the platform bundles it.
   and [event-alerts-os-integration-roadmap.md](event-alerts-os-integration-roadmap.md),
   and the lock-screen rules of its §13 — but for the copy and the action
   order that C13 and C16 change on purpose (A10's "Missed: {title}", B8's
-  "Open note and Done").
+  "Open note and Done") and, since 2026-10-10, A10's in-flight band, which
+  C36 holds open while a ring is in progress and Patch 9 (C34) completes in
+  the fork, and A10's delivery evidence, which C39 widens by `kRingStartGrace`
+  past the instant.
 
 ### 4.2 Deliberately changes
 
@@ -719,7 +730,7 @@ record's group key is its own key until the platform bundles it.
 | C20 | A disabled `FormActionRow` is announced as a disabled button (kit) | `form_rows_test` |
 | C21 | A ring the app itself cancels (Slice 5 stopped reading it as a dismissal, which had posted the chip and removed a remove-after event with nobody answering) ends with its own cause, `cancelled`: the page closes, held intents go out, and nothing is settled (Slice 6) | a page case; `main.dart`'s exhaustive switch; the gateway's source guard |
 | C22 | A ring the binding is itself stopping is not announced again: when a stop promotes a queued alarm, the plugin can tell of the new ring before it has taken the stopped one out of its set, and the stopped ring was then tracked again and ended as a dismissal — which cancels a snooze just taken and runs the removal (read from the code in Slice 5's review; Slice 6 stages it with the pair) | the gateway's source guard; the pair on the emulator |
-| C23 | The reconcile's diff loop leaves an entry in flight alone: its id is ringing, or its standing registration is for this same instant and that instant has passed since the pass read its clock. Before, the first pass of a build that moved the arm token re-armed an alarm that came due mid-pass over its own ring; the plugin stopped the ring it replaced and that was settled as a Stop on the notification — page closed, chip posted, a remove-after event deleted (fix batch A1) | five cases in `alert_scheduler_test.dart` (the fake gateway's `onArmContextRead` hook moves the clock inside a pass) |
+| C23 | The reconcile's diff loop leaves an entry in flight alone: its id is ringing, or its standing registration is for this same instant and that instant has passed since the pass read its clock. Before, the first pass of a build that moved the arm token re-armed an alarm that came due mid-pass over its own ring; the plugin stopped the ring it replaced and that was settled as a Stop on the notification — page closed, chip posted, a remove-after event deleted (fix batch A1). Since 2026-10-10 (C38) the ringing check needs no registration and a planned fire never lands on the id of a ringing or `fired` row | five cases in `alert_scheduler_test.dart` (the fake gateway's `onArmContextRead` hook moves the clock inside a pass) |
 | C24 | A ring whose event was already kept says so from its first notification: `AlertRingController.load()` looks the event up before it notifies, and the row reads "The event will be kept" with Keep disabled instead of a claim Stop would not honour. Amends §4.1 (fix batch A2) | controller cases for the three outcomes and the single notification; two page cases; the scripted controller's `resolveDatabase(name, kept:)` |
 | C25 | Stop decides the removal at the press and may only narrow it: a Keep whose write fails while Stop is in flight no longer widens the decision back to a removal (fix batch A2) | controller cases through `configureForTesting(removeEvent:)` |
 | C26 | After a Keep, the calendar's detail-sheet trip takes the remove-after flag from the bloc's copy before it writes its own copy back or hands it to the editor, and every calendar on the navigator counts a Keep it hears (`lib/pages/calendar_page.dart`: `_keepsHeard`, `afterKeep`). Before, a task ticked in a sheet left open under the ring wrote the flag back and a later alarm removed the kept event (fix batch A2) | four cases in `calendar_keep_notice_test.dart`, one with two calendars stacked |
@@ -728,6 +739,17 @@ record's group key is its own key until the platform bundles it.
 | C29 | `alerts_quiet` is created with no sound and no vibration; an avatar's file name carries the disc's alpha and the glyph's size; an excerpt's cut never leaves half a surrogate pair (fix batch A1) | the channel pin in `session_chip_channel_test.dart`; the name's cases in `android_alert_notifications_test.dart`; `alert_excerpt_test.dart` |
 | C30 | The fork's seventh patch, in Dart: the plugin's fallback timer gives up on a ring the platform reported and that was stopped inside its 700 ms wait — it asked only "is it ringing now" and announced a ring that was over (fix batch A1) | `packages/alarm/test/alarm_fallback_timer_test.dart`, the fork's own suite |
 | C31 | Wording: Romanian "Oprirea elimină și evenimentul" (one verb for the removal across the feature); the switch dialog says "Exit ANTA…" / "Beende ANTA…" like its button (batch B: B1, B3) | — |
+| C32 | An alert whose occurrence is on another day leads with that day — "Reminder · Mon, Sep 21 · 18:00 – 19:30" (`alertsDayThenWhen`) — on every kind and on the page's caption; the token moves to `~g4` so standing planned entries are re-armed once (B4, 2026-10-10) | the label suites' literals, the composer's and the page's fixtures, the token pins |
+| C33 | The fork's eighth patch, Kotlin: the icon colour is packed by `NotificationSettings.packArgb` instead of the float `Color.argb` overload (API 26; `minSdk` 24 — every `Alarm.set` naming a colour crashed on Android 7.0 and 7.1) (2026-10-10) | `NotificationSettingsTest.kt`; the Patch 8 group of `alarm_fork_test.dart` |
+| C34 | The fork's ninth patch, Dart: `_checkAlarm` leaves a stored alarm that is past due and silent alone while the host reports another one sounding — the service's queue holds it and promotes it when the ring ends, where an isolate started more than 30 s late used to stop it (2026-10-10) | the Patch 9 group of `alarm_check_test.dart`; the Patch 9 group of `alarm_fork_test.dart` |
+| C36 | While the gateway reports any ring in progress, a scheduling pass keeps every row past its instant in flight, whatever its lateness (`_settlePastFires`): the 30-minute band alone settled a held alarm as `fired` and cancelled its entry out of the service's queue (2026-10-10, from step 2's review) | "an alarm held back behind another ring is in flight past the grace" and its mirror in `alert_scheduler_test.dart` |
+| C37 | A scheduling pass never cancels an entry whose registry row is `fired` unless the pass settled that row itself: such an entry is a ring the binding has not announced yet or a native snooze whose move has not been drained — before, a Snooze on the heads-up that landed while a pass was out (the launch pass that re-arms every planned entry when the token moves, a `resumed` pass, a sibling ring's pass) was cancelled by that pass's OS-entries loop, the move then met a `cancelled` row and was acknowledged, and the snooze never rang (the final review's must-fix, 2026-10-10) | "a Snooze on the heads-up while a pass is out is left to the next pass, which writes it down" in `alert_scheduler_test.dart`; `AlertRegistrationDao.firedOsIds` |
+| C38 | A planned fire never lands on the id of a ringing or `fired` row, and the in-flight guard asks the gateway whether the id rings before it asks for a registration: a ring's row is `fired`, so a plan that moved the ringing occurrence later used to re-arm over the ring under the same id, which the binding read as a Stop on the notification (chip, A3's removal, nobody answering) — and, through `Alarm.set`, over a native snooze whose move a pass had not drained; the moved occurrence is now armed under an id of its own (`_assignOsIds` treats ringing and fired ids as taken, the fired ids read at most once a pass) and the ring is left to its handler (2026-10-10) | the group "an occurrence moved later while it rings" in `alert_scheduler_test.dart`, with its fired-but-silent case, its over-ring mirror and a statement-count pin on the fired read |
+| C39 | The late band's delivery evidence counts a process that came up within `kRingStartGrace` (30 s, the plugin's own ring-start grace) after the instant as started by the delivery: a Stop on the heads-up with no engine, in the process the alarm's own broadcast started, used to leave the row `pending` and the first pass 30 minutes later marked it `missed` and posted a Missed notice for a ring the user stopped (2026-10-10; the full cure, a STOPPED host event in the fork, is not built) | "a process the alarm itself started proves it rang too" and "a process that came up past the delivery window proves nothing" in `alert_scheduler_test.dart` |
+| C40 | `PendingNavigationQueue.enqueue` replaces a queued intent in place (its place kept, no notification) when the newcomer is a ring's page or of the queued intent's own kind: a re-ring after a native Snooze, with the app paused and the first `OpenAlarmIntent` still queued, used to open the page with the first ring's payload — the old time, no "Snoozed" eyebrow — although the binding held the restamped one; the double-delivery echo rule is unchanged, and a tap for the same id never displaces a waiting page, since only alarm intents are routed while anything rings (2026-10-10) | `pending_navigation_test.dart`: the flipped pin, the re-ring case, the echo case, "a tap under a waiting ring's id never takes its page's place" |
+| C41 | An unanswered ring's Silence-after window counts from when the host sounds it: a held alarm the fork's fallback timer announces (foreground only, Patch 7 keeps it on purpose) gets no window while the host reports another alarm sounding, is re-asked at every ring emission and at its own expiry, and is stopped only after a full window of audible time — before, its window ran in the host's queue and the promoted ring was silenced after what was left of it and settled `timedOut`, a Missed for an alarm audible for seconds (`alertSilenceWindowRuns`, pure, says only what the two answers mean; the binding asks the host "is anything sounding" first and "is this one sounding" second, so a promotion landing between the two reads as a window, and asks again when the ringing set was emitted while it was asking — `_heldRings`, `_ringingEmissions`; a thrown host query answers "runs", so a host that cannot answer gets the window of before) (2026-10-10) | the pure group "the silence window" in `android_alert_gateway_test.dart`; the source guard `test/android/alert_silence_window_test.dart` (the query order and the re-ask among its six pins) |
+| C42 | `AlertRingController.stop()` and `snooze()` end with the `_disposed` guard `keep()` and `load()` already carry: a ring that ended elsewhere while the page's Stop or Snooze waited on the scheduler's chain closed the page and disposed the controller, and the in-flight call then notified a disposed notifier (a `FlutterError` in debug and profile builds) (2026-10-10) | "a ring that ends elsewhere while Stop or Snooze is out" in `alert_ring_controller_test.dart` |
+| C35 | German and Romanian name the reminder tier once: the channel, its description and the notifications permission's line take the tier word ("Mitteilungen", "Notificări"); the tier word itself stays — "Erinnerung" is the app's German umbrella word for an alert, and the neuter "Memento" would break the gender agreement of the shared `alertsOutcomeSnoozed` (2026-10-10) | `test/l10n/reminder_word_test.dart` |
 
 ## 5. Facts from the tree
 
@@ -804,11 +826,13 @@ record's group key is its own key until the platform bundles it.
 
 ## 7. Definition of done
 
-As of 2026-10-05 items 1 to 8 hold on the final tree by the suites, and item
-11 holds but for `calendar/19_fasting_schedule` (§8). Items 9 and 10 hold only
-as far as each slice saw them on the build of its day — the ledger says what
-and when: they were not read again after the fix batches, and a PIN-locked
-cold start was never staged. The final device pass is deferred (§8).
+As of 2026-10-10 items 1 to 8 hold on the final tree by the suites; items 9
+and 10 were seen on the final build in the device pass of that day (the
+ledger's row), with one reading not re-staged — the first pass over entries
+armed by the previous build, which every fresh seed of the pass replaced:
+the `g3` → `g4` re-arm is the mechanism seen for `g2` → `g3` on 2026-10-05
+and the suites pin the token; item 11 holds but for
+`calendar/19_fasting_schedule` (§8), with 20–22 green from a fresh calendar.
 
 1. Stop, Snooze, Keep, Open event and the database switch do what they did
    (§4.1), through the suite's scripted controller and, where the QA build
@@ -850,7 +874,9 @@ cold start was never staged. The final device pass is deferred (§8).
 - **A swipe on the ring notification is a Stop** (the fork's default): it
   changes what a gesture does, so it is the owner's.
 - **The ring notification cannot say "snoozed"**, and a ring snoozed on it
-  whose second ring cold-starts the app shows its first time on the page.
+  whose second ring cold-starts the app shows its first time on the page
+  (the warm case — the app paused with the first ring's intent still queued
+  — shows the restamped time and "Snoozed" since C40).
 - **The fork channel's English name** ("Alarm Notification") and its
   placeholder title: a fork patch for a string in system settings.
 - **An excerpt on the ring heads-up** (a Kotlin-only patch that splits a
@@ -894,8 +920,12 @@ cold start was never staged. The final device pass is deferred (§8).
   hand). Tier 3's flow, not this rework's.
 - **Other `rootPushInstant` routes scope no route** for a screen reader
   either; the alarm page now scopes its own.
-- **Owner decisions of §13.3:** what unlocking after Stop lands on; API
-  24–26; `Alarm.init()`'s re-arm.
+- **Owner decisions of §13.3:** what unlocking after Stop lands on, API
+  24–26 (the lock-screen flags need API 27: a fallback nobody can verify
+  here, or `minSdk` 27) and `Alarm.init()`'s re-arm — all three still open.
+  Patch 8 (C33) settles a different fault on API 24 and 25, the float
+  `Color.argb` call that crashed every `Alarm.set` on Android 7.0 and 7.1;
+  `minSdk` stays 24.
 - **Not stageable on the QA build:** another database's alarm — widget tests
   only.
 
@@ -904,136 +934,50 @@ cold start was never staged. The final device pass is deferred (§8).
 Everything below was planned for Slice 6 and not run. Each entry is written
 to be resumed from this file alone.
 
-**The rest of batch B** (found by the whole-change review of 2026-10-05; no
-entry loses an alert):
+**The rest of batch B — done 2026-10-10** (the ledger's "close, step 1" row
+says what each became): B4 is C32 and the token is `~g4`; B5 (a)–(f), B6, B7,
+B9 and B10 are in the suites, the flows and their headers; B8 is the script's
+own refusal (`tool/upstream/alarm_pr.sh` exits 1 with one line to stderr
+before it clones or writes anything when a run is not `--dry-run` while the
+fork's `AlarmService.kt` carries `RingWakeLock` or a "Patch 5)" / "Patch 6)"
+mention — proven with stubbed `gh` and `git` on the PATH; whoever gives Patch
+6 its own commit and paragraph takes the check out too); the pins B1 and B2
+would have added are `test/l10n/alert_removal_verb_test.dart` and the eyebrow
+literals of `alarm_page_test.dart`, with a Romanian case. B10's new shot is
+read in the device pass below.
 
-- **B4 — an event on another day leads with the day.** A notification's
-  collapsed row and its heads-up are one line beside the avatar: about 33
-  characters on the 427 dp emulator and about 24 at 360 dp. An alert that
-  comes a day ahead writes "Reminder · 6:00 PM – 7:30 PM, Mon, Sep 21" (41),
-  so the platform cuts the day and what is left reads as today's. Intended:
-  a new key `alertsDayThenWhen` = `"{day} · {when}"` in all three ARBs, used
-  by `AlertLabels.whenLabel` and `AlertLabels._onItsDay`
-  (`lib/utils/alert_labels.dart`); `alertsWhenOnDay` stays for the upcoming
-  notice's "Alarm at 7:00 AM, Mon, Sep 21" with its description narrowed to
-  that use; the literals of `alert_labels_test.dart`,
-  `alert_notification_content_test.dart` and
-  `android_alert_notifications_test.dart` follow. **Once this build has been
-  installed anywhere, B4 also moves `kAlertArmGrammarToken` to `~g4`**
-  (`lib/constants/alert_constants.dart`), or standing entries keep the old
-  order.
-- **B5 — six notes the slice reviews left** (suites and comments only):
-  (a) `test/widgets/alarm_page_test.dart`'s test-ring avatar case pumps no
-  theme and passes because Flutter's default primary equals the app's — pump
-  `AppTheme.light()`; `test/services/alert_scheduler_test.dart` repeats the
-  literal `0xFF6750A4` under a line that already compares with the constant.
-  (b) The scheduler suite's German labels case builds labels before date
-  symbols are loaded, so it pins the fallback clock, not German's —
-  `setUpAll(initializeDateFormatting)` in that group. (c) No scheduler case
-  re-arms a **reminder** on a moved arm context (only a ring) — add one
-  beside the ring's with `AlertMode.notify`. (d) The header of
-  `tool/qa/flows/alerts_pair/00_two_in_a_minute.txt` says the flow shows each
-  page closing its own route; both Stops land on the top page. (e)
-  `alarm_page_test.dart`'s remark that the stale-inset hazard is
-  "inapplicable" contradicts its own header. (f)
-  `test/android/alerts_channel_test.dart` says a string answer "would arrive
-  as null"; `invokeMethod<int>` throws at the cast.
-- **B6 — the label suites format with the tables the app formats with.**
-  They load `intl`'s date tables; the running app has them replaced by
-  Flutter's (`GlobalMaterialLocalizations`), and the lock resolves another
-  `intl` on the Mac than on the Windows machine. In the `setUpAll` of
-  `alert_labels_test.dart` and `event_time_formatter_test.dart`, after
-  `initializeDateFormatting()`, also `await
-  GlobalMaterialLocalizations.delegate.load(const Locale('en'))`; a literal
-  that then moves follows the phone.
-- **B7** — the header of `tool/qa/flows/alerts/02_remove_after.txt` should
-  name what the flow leaves standing besides the reminder: the session chip
-  of the kept "Tea timer", which has no end — and the put-back (Done on the
-  chip, then `qa relaunch --fresh --seed tool/qa/fixtures/basic.json`).
-- **B8 — `tool/upstream/alarm_pr.sh` can mis-describe itself.** It copies
-  the fork's `AlarmService.kt` whole, which since Slice 5 also carries Patch
-  6 and a sentence about Patch 5 that the commit message, the changelog
-  entry and the PR body the script writes do not describe. Intended: refuse
-  a run that is not `--dry-run` while that file contains `RingWakeLock` (one
-  line to stderr, exit 1). **Until then never run it without `--dry-run`**:
-  it opens a public pull request.
-- **B9** — Patch 7's only pin is the fork's own Dart suite, which the app's
-  `flutter test` never reaches: add a text guard to
-  `test/android/alarm_fork_test.dart` (its header says why Patches 5 and 6
-  have one) that `_alarmRang` in
-  `packages/alarm/lib/src/platform_timers.dart` still asks `_isScheduledAs`
-  before it announces, and that the helper compares the whole settings, not
-  the id (a snooze taken in the app re-arms under the id it rang under).
-- **B10** — `tool/qa/flows/alerts/01_event_alarm.txt` passes, but its
-  screenshot is taken before the page reaches the screen and shows the
-  calendar: give it the settle flow 00 has, and open the new shot.
-- **The pins B1 and B2 would have added** — one stem per language (remov /
-  entfern / elimin) across `alarmRemoveAfterCaption`,
-  `eventAlertRemoveAfter`, `eventRemovedAfterAlert` and
-  `eventAlertEventRemoved`; and the eyebrow as literals in
-  `alarm_page_test.dart`'s re-ring cases (`ALARM · SNOOZED`, `ALARM ·
-  GESCHLUMMERT`, and a new Romanian case `ALARMĂ · AMÂNATĂ`) instead of an
-  expectation built from the getter the page reads.
+**A second review pass over the ring lifecycle — done 2026-10-10** as the
+first lens of the final review (the ledger's "Close — the final review" row):
+the walk it asked for found four more defects on that path, all confirmed
+by a skeptic and fixed (C37 to C42).
 
-**A second review pass over the ring lifecycle.** The three real defects the
-reviews found late were all here (C22, C23, C30), each one non-obvious and
-each one real on the emulator. Not yet read end to end by fresh eyes after
-the fixes: every way a ring starts and ends across the fork's Kotlin
-service, the plugin's Dart (`packages/alarm/lib/alarm.dart`,
-`src/platform_timers.dart`), the binding (`_handleRinging`, `_emitRing`,
-`_endRing`, `_stopping`, `cancel`, `stopRinging`, the silence timers),
-`lib/main.dart`'s settle and queue, the scheduler's `stop`, `snooze` and
-`_reconcile`, and the page — walked by ending (Stop and Snooze on the page
-and on the notification, the silence timeout, a cancel, a re-arm, process
-death) and by beginning (a cold start by a ring, a queued second alarm and
-its promotion, a re-ring, a ring that comes during a pass). A finding counts
-only when a second reader briefed to refute it cannot.
+**The final device pass of Slice 6 — done 2026-10-10** on the final build,
+by its six points (the ledger's "Close — the device pass" row has the
+evidence): the three flow sets green; the 72-cell matrix on 427 × 952 and
+360 × 800 with no overflow and no clipped label; the PIN keyguard recipe
+whole, C21 and C24 included; every notification kind read from the shade
+with the words and the order of §3.5; the 360 dp readings, the day-ahead
+reminder among them. **Still owed, not stageable on this emulator:** Android
+below 16 (the group key without the forced bundling; C27's hand-back on 10
+to 14), a clean install (C29's silent `alerts_quiet` — the emulator's
+channel predates it), a 24-hour phone (de and ro rendered 24-hour through
+Material's rule on this 12-hour image), the phone's own font scale on
+notification buttons (`qa set text-scale` scales the app only), the
+promoted chip (this image grants no promotion), and a real phone of any
+make.
 
-**The final device pass of Slice 6.** `qa flows alerts` is green on the
-final build, and `qa flows calendar` was last run after fix batch A2 (flow 19
-fails as below, the other 22 pass); nothing else below was run after the fix
-batches.
-
-1. `qa run`; `qa relaunch --fresh --seed tool/qa/fixtures/alerts.json` and
-   `qa flows alerts` (3); the pair the same way (1); `qa relaunch --fresh
-   --seed tool/qa/fixtures/calendar.json` and `qa flows calendar` — flow 19
-   fails at step 17 with its sheet open (below) and 20–22 then fail at their
-   first step in the same run, so run those three again from a fresh
-   calendar; `qa errors` clean.
-2. **The matrix on the alarm page**, with a remove-after event's alarm up
-   (every optional row) and with a test ring: light and dark × en / de / ro
-   × text scale 1.0 / 1.3 / 2.0 (`qa set theme= locale= text-scale=` works
-   while the page is up), on the emulator's own size and on `qa boot
-   --phone` (360 × 800): no overflow, no clipped label, Stop and Snooze
-   above the navigation bar, German at 2.0 on `--phone` with the title whole
-   at rest and both dock labels on one line.
-3. **A PIN keyguard** (`qa-emulator`, "A ring on a locked phone"): a cold
-   start by a ring shows the page above the keyguard and Stop returns the
-   lock screen; Open event asks for the PIN over the page; a reminder behind
-   the keyguard posts and sounds; a re-ring of a kept event (C24) and a ring
-   the app cancels (C21) there. Put the keyguard back afterwards.
-4. **Every notification kind** read from `adb shell dumpsys notification
-   --noredact` on the final build: the ring heads-up, a reminder (group key
-   `anta.alerts` on this API 36 image), its snoozed re-post made with the
-   process dead (German on an English phone), the notice, Missed and the
-   chip (all three on `alerts_quiet`) — title, text and action order as §3.5.
-5. **At 360 dp**: a reminder with a start and an end in English and in
-   German, one that comes a day ahead of its event (B4), the Romanian chip
-   "Gata · Deschide evenimentul" — each collapsed, as a heads-up and
-   expanded; say what the one-line row cuts.
-6. Not stageable on this emulator and still owed: Android below 16 (the
-   group key; C27's hand-back on 10 to 14), a clean install (C29's channel),
-   a 24-hour phone, the phone's own font scale on notification buttons, a
-   real phone.
-
-**Found by the review and the owner's to decide:**
+**Found by the review; decided by the owner on 2026-10-10 ("no tech debt")
+and done the same day — the ledger's step 2 row:**
 
 - **Android 7.0 and 7.1: every `Alarm.set` crashes** (shipped behaviour, not
   this rework's). The fork's `NotificationSettings.kt` builds the icon
   colour with `Color.argb(float, float, float, float)`, an API 26 overload,
   and the app's `minSdk` is 24. Either raise `minSdk` to 26 or above (27
   also settles the lock-screen flags of §13.3), or one more fork patch with
-  the int overload.
+  the int overload. **Done as Patch 8 (C33)**: a pure `packArgb` in the fork's
+  `NotificationSettings` companion with the platform overload's own rounding,
+  bit-identical on API 26 and above and pinned on the JVM — where the int
+  overload answers 0 under `returnDefaultValues`; `minSdk` stays 24.
 - **A held alarm can be dropped after 30 s** (shipped behaviour). When a
   second alarm comes due while one sounds, the fork queues it and tells Dart
   nothing. An isolate that starts more than 30 s later — ANTA opened from
@@ -1042,14 +986,35 @@ batches.
   is later settled as fired or Missed. The cure is in the fork's
   `_checkAlarm` (`packages/alarm/lib/alarm.dart`): do not stop a past-due
   alarm that is not sounding while the host reports another one sounding;
-  pin it beside `packages/alarm/test/alarm_check_test.dart`.
+  pin it beside `packages/alarm/test/alarm_check_test.dart`. **Done as Patch
+  9 (C34)**, pinned there and in `alarm_fork_test.dart`. The app's side was
+  then traced: inside its in-flight band, `kLateFireGrace` (30 minutes),
+  `_reconcile` keeps the held row `pending` and its entry untouched, and a
+  promotion is accepted as any ring; but past 30 minutes of one unattended
+  native ring the band alone settled the row as `fired` — the host runs in
+  the app's process, so the process was alive at the held alarm's instant —
+  and the pass cancelled the entry out of the service's queue: a silent
+  drop the hub recorded as rang. **Closed by C36**, the app-side twin: while
+  the gateway reports any ring in progress, `_settlePastFires` keeps every
+  late row in flight; a late row is settled by the first pass with nothing
+  ringing.
 - **German and Romanian call a reminder two things.** The tier word printed
   on a reminder's notification is `eventAlertModeNotify` — "Mitteilung" /
   "Notificare", so the line reads "notification · 18:00" on a notification —
   while its channel is "Erinnerungen" / "Mementouri"; English says Reminder
   and Reminders. Settling the tier word ("Erinnerung" / "Memento") reaches
   the editor's and the hub's strings; renaming the channel is the smaller
-  move.
+  move. **Done the smaller way (C35)**, for a reason the review had not seen:
+  German's "Erinnerung" is the app's umbrella word for an alert
+  (`eventAlert`, `alertsTitle`, `alertsDefaultNone`…), and Romanian's
+  "memento" is neuter where `alertsOutcomeSnoozed` "Amânată" agrees with the
+  feminine "alarmă" and "notificare" on the hub, the re-post and the eyebrow.
+  The channel, its description and `alertsNotificationsDesc` now say
+  "Mitteilungen" / "Notificări"; the strings that quote Android's own name for
+  the exact-alarm permission ("Wecker & Erinnerungen", "Alarme și mementouri")
+  stay. The gateway re-creates the channel at every start and the platform's
+  `createNotificationChannel` renames an existing one (its importance it
+  keeps), so the rename reaches existing installs without the token moving.
 
 **Known and left, from the same review:**
 
@@ -1080,11 +1045,59 @@ batches.
   sound and vibration (inert at low importance); a phone that first runs
   this build gets the silent one. Avatars drawn under the old file names
   stay beside the new ones.
+- A held alarm rings when the ring in front of it ends, however late that is
+  (the service's promotion reads only whether the delivery is current; its
+  stale-after rule is the boot receiver's), and its Silence-after window
+  counts from then (C41). While any ring is in progress a pass settles no
+  late row at all (C36) — a reminder a day old or a genuinely missed alarm
+  waits for the first pass with nothing ringing: a delay, never a loss. With
+  the app in front the fallback timer still announces a held alarm at its
+  own instant, so two pages stack (the pair flow); a process death before
+  the promotion leaves that alarm's row `fired` (read as rang in Recent)
+  rather than `pending`.
+- A `fired` row's entry is never swept by a pass (C37): the stored alarm of
+  a ring the process died under, spared at init because another alarm
+  sounded or the restart came within 30 s, is left to the plugin's next
+  `checkAlarm` or the seven-day sweep, and its row reads rang in Recent
+  rather than cancelled; a reboot inside 30 minutes of its instant lets the
+  fork's boot receiver ring it, as that roadmap already accepts.
+- A planned fire whose occurrence is ringing is armed under an id of its own
+  (C38), so one alert, day and kind can briefly hold two rows — the ring's
+  `fired` one and the moved occurrence's `pending` one — until the ring's
+  handler settles the first; every `fired` row's id is kept from fresh fires
+  until the seven-day sweep, which only moves a probe along.
+- A tap for an id whose ring intent still waits — a Missed notification for
+  a ring that ended while the app was paused — is dropped, as before C40:
+  the queue cannot tell a live ring from one that ended, and a ring's page
+  must never be displaced by a tap. A Missed notification is cancelled
+  nowhere, so one for an id re-armed the same day stays on the shade beside
+  the new ring's (taking it down at the re-arm was weighed and left: a
+  platform round trip per armed alarm, and a new rule for every re-arm
+  under an id).
+- Two silence askings that finish out of order can leave a held mark beside
+  a live timer; the next emission re-bases the window — longer, never
+  missing. A ring whose window started while the host could not answer and
+  that is promoted exactly between `_silence`'s two reads would be stopped
+  as it starts to sound: a failed host query and a sub-millisecond race
+  together.
+- Entries the scheduler never re-arms — standing snoozes, another database's —
+  keep the old "time, day" order until they fire (§3.6, "old payloads live
+  for good").
+- A screen reader speaks the caption's " · " on a day-ahead alarm as it does
+  in every other string that carries it; only the page's eyebrow trades it
+  for a comma (`alarm_page.dart`).
+- The light-theme case of the page's test-ring avatar cannot tell the app's
+  primary from Flutter's default (both `0xFF6750A4`); the dark case beside it
+  is the one that discriminates.
 
 ## 9. Ledger
 
 | Slice | State | Notes |
 | --- | --- | --- |
+| Close (2026-10-10) — the device pass | done 2026-10-10 | One Opus agent on `emulator-5554` (API 36, build BE2A.250530.026.D1, en-US, 12-hour), `ANTA_QA_VIA=agent`, the final build installed by `qa run`; nothing written into the tree. **(1)** `qa flows alerts` 3/3 (4 min 28 s), `alerts_pair` 1/1, `calendar` 19/23 then 20–22 green from a fresh calendar (19 at step 17 as §8 says); `qa errors` clean after every stage; flow 01's new shot is the alarm page — eyebrow, 12:49 PM, the day, "Leg day" with its caption and excerpt, Open event, Stop, Snooze — under the colorized heads-up. **(2)** 72 cells — a remove-after alarm with every optional row (a scratchpad variant of "Tea timer" with an end and a description: the stock one has no caption, its time being the due minute, and no excerpt) and a test ring, light and dark × en / de / ro × 1.0 / 1.3 / 2.0, on 427 × 952 and on 360 × 800 (no phone-sized AVD was usable, so `qa boot --phone -d emulator-5554`, which on an attached emulator only sets `wm size 1080x2400`, reset with `qa unphone`): from the dump rects Stop 64 dp and Snooze 56 dp in every cell, both dock labels on one line, Snooze 12 dp above the navigation bar, the title whole at rest including German at 2.0 on 360 (Romanian "Deschide evenimentul" and "Alarmă de test" wrap to two lines there, the German remove caption to three — wrapping, not clipping); the only cuts are the ones the spec names (the excerpt's ellipsis; the eyebrow and day under the heads-up at 1.3–2.0 on 360); light status icons and no band in dark; the dock rects identical before and after Keep; contact sheets under `build/qa/devpass/`. **(3)** A PIN set, the process killed with `run-as kill -9`, the screen off: the ring started a new process (`FSI allowed: device is not interactive`), the page stood above the keyguard with no Recents button (`isKeyguardShowing=true`, `mKeyguardOccluded=true`), Stop gave the lock screen back; Open event asked for the PIN over the page (the shot is black, as the skill says) and landed on the detail sheet with the ring gone; a reminder behind the keyguard posted and sounded (`notification_alert … 1,1`, the attention state naming it, `g:anta.alerts`, `PEEK suppressed: device not in use`); C24 — Keep on the locked page, the notification's Snooze pressed from the shade (a locked phone gets the full-screen intent, never a heads-up), the re-ring read ALARM · SNOOZED with the moved time and "The event will be kept" with Keep disabled from its first read; C21 — `qa attach`, `getIt<AlertGateway>().cancel(id)` evaluated while the id rang: the page closed by itself, the keyguard came back, no chip and no ring record left, `ringingIds` empty, the event still on the calendar with its remove-after flag. The keyguard put back (`locksettings clear --old 1234`, `set-disabled true`, `get-disabled` → `true`). **(4)** From `dumpsys notification --noredact`: the ring on the plugin's channel, colorized, "Tea timer / Alarm · 12:51 PM", Stop · Snooze 5 min; the reminder on `alerts_reminder`, `g:anta.alerts`, no `SILENT`, "Stretch / Reminder · 12:53 PM – 1:08 PM" with the excerpt under it when expanded, the 144 px avatar, Done · Snooze 5 min, `1,1` and `PEEK allowed` beside a standing chip; the snoozed re-post made in German with the process dead — "Geschlummert · 13:41 – 13:56", the tint, the avatar, Erledigt · 5 Min. schlummern, sounding; the notice on `alerts_quiet` (importance 2, `SILENT`), "Leg day / Alarm at 1:28 PM", Skip · Open, gone at the alarm's instant; Missed on `alerts_quiet`, no actions, "Missed · 1:28 PM" with `when` at the due instant; the chip on `alerts_quiet` with its chronometer, "Until 1:49 PM" with Done · Open note and "Session in progress" with Done · Open event, in German "Bis 14:37" / "Einheit läuft"; no `notification_alert` line for any quiet kind. **(5)** At 360 dp the one-line row shows "Reminder · 1:32 PM – 1:…" (the end time cut) in English and "Mitteilung · 13:41 – 13:56" whole in German; the German re-post's heads-up cuts its end time; the day-ahead reminder, staged through the editor with the "1 day before" preset, reads "Reminder · Sun, Oct 11 · …" — **the day survives the cut** and the whole range shows expanded; the Romanian chip's "Gata · Deschide evenimentul" both whole, a Romanian reminder "Notificare · 14:03 – 14:18" whole. **Also seen:** C41 — the pair with a one-minute window and nobody answering: the held alarm queued at 14:05:00.1, announced by the fallback timer at +0.7 s (two pages, as documented), promoted at 14:06:00.1 when the first timed out, stopped at 14:07:00.2 — 60.1 s after its promotion, not seconds — one Missed each; Patch 9 / C36 — the process killed before the minute, the ring started a fresh process with the second alarm queued, ANTA opened from the sticky heads-up at 58 s (`reconcile(launch) … cancelled=0`), and on Stop the queued alarm was promoted and rang with its own page. **Not seen, owed:** §8's device list. **Put back:** no ANTA notification standing, `wm size` reset, the keyguard disabled on both emulators, `basic.json` re-seeded (`planned=0`, no ANTA entry in `dumpsys alarm`), the app up, the agent's own run killed; `emulator-5556` untouched. Staging facts for the skill: a locked phone gets the full-screen intent and no heads-up; `qa boot --phone` on an attached emulator is a `wm size` override; the agent's taps are not user activity, so the locked screen sleeps ten seconds after Stop. |
+| Close (2026-10-10) — the final review | done 2026-10-10 | One multi-agent review, after the code items and before the device pass, so the device pass runs on the final code. Four fresh read-only lenses (Fable, one each): (a) the ring lifecycle end to end, by ending and by beginning, across the fork's Kotlin, the plugin's Dart, the binding, `main.dart`, the scheduler and the page; (b) everything the close changed, `git diff 0c65424` plus the new files; (c) the fix batches of 2026-10-05 read together, batch against batch; (d) the documents against the tree. Fifteen findings, each handed to a skeptic briefed to refute it with evidence; none refuted. Seven in code, fixed in one round by one Opus implementer with a test watched failing first: **C37** the must-fix (a native Snooze landing while a pass is out was cancelled by that pass), **C38** (a plan that moved the ringing occurrence re-armed over the ring), **C39** (a heads-up Stop in the process the alarm started read as missed), **C40** (a re-ring's page carried the first ring's payload), **C41** (a held alarm's silence window ran before it sounded; the lens's note about the fallback timer announcing a held alarm is answered by the same change, with the two-page behaviour of the pair kept), **C42** (Stop and Snooze notified a disposed controller). Eight in the documents, applied by the lead: the OS roadmap's risks row and its Patch 7 paragraph still counted seven patches and one Dart patch; the "API 24–26" owner item had been conflated with the Android 7.0/7.1 crash (API 24 and 25) — the item stays open, the crash is Patch 8's; §4.1's A-decision clause and A10's row now name what C34 and C36 change; the reminder-word suite holds nine umbrella keys, not eight; §0's commit-and-merge sentence is made true by the ledger's last row. Behaviour the fixes change beyond their findings is under "Known and left" (a `fired` row's entry left to the plugin's own sweep; a moved occurrence's second row; a replaced intent across kinds). The one fix reviewer (Fable, read-only; a fix gets one reviewer, not a second review pass) confirmed all six and found two should-fixes and two notes in them, applied by the same implementer with pins watched failing: C41's two host queries were asked "this one first", so a promotion landing between them read as held and the promoted ring got no window at all — now "anything first", with a re-ask when the ringing set was emitted during the asking (`_ringingEmissions`, the implementer's addition for the mirror race the swap opens); C40's replacement across kinds let a stale Missed tap displace a waiting ring's page — now only a ring's page or the same kind replaces; the diff loop also keeps every `fired` row's id from fresh fires (C38's second half); and the fired read is pinned to one statement a pass (the scheduler suite opens its database with `StatementCounter`). Weighed and left: taking a Missed notification down when its id is re-armed (a round trip per armed alarm, a new rule for every re-arm) — "Known and left". Gate after the round, run by the lead: analyzers clean (app and fork); `flutter test` 7,293 passed, 7 skipped, the one known failure; the fork's Dart suite 124 passed; `gen-l10n` clean, `untranslated.txt` `{}`. |
+| Close (2026-10-10), step 2 — the owner's three items | done 2026-10-10 | The three items of §8's review block, decided by the owner in one line ("no tech debt"). **Patch 8** (C33): `packArgb` in the fork's `NotificationSettings` companion, bit-identical to the API 26 float overload it replaces, pinned by `NotificationSettingsTest.kt` (6, the two `fromWire` cases watched failing with "expected −10006364 but was 0") and the Patch 8 group of `alarm_fork_test.dart` (comments stripped before the text is searched, since the helper's own KDoc names the overload). **Patch 9** (C34): `_checkAlarm` asks the host whether any alarm rings before it stops a past-due silent one; the new `alarm_check_test.dart` group watched failing ("stopAlarm" among the host's calls), the Patch 9 group of `alarm_fork_test.dart` too. The app's side traced: in flight for `kLateFireGrace` (30 minutes), the row `pending` and the entry untouched (`_settlePastFires`, the `handled` seed of the OS-entries loop — the existing "five minutes late is in flight and left alone" case pins it), a promotion accepted as any ring. The review then showed the band's other side: past 30 minutes of one unattended native ring the row was settled `fired` (the host runs in the app's process, so the process was alive at the held alarm's instant) and the entry cancelled out of the queue — a silent drop recorded as rang. **C36**, the app-side twin, built in the review's fix round: `_settlePastFires` keeps a late row in flight while `AlertGateway.ringingIds` is not empty (the set is filled before the launch pass reads it, since `takeMoves()` awaits `initialize()`), pinned by "an alarm held back behind another ring is in flight past the grace" — watched failing, `Expected: 'pending' Actual: 'fired'` — and its mirror with nothing ringing. The review's notes applied with it: the Patch 9 question asked before the re-read that guards the stop, its log line and comments claiming only what Dart can know, a `FakeHost.anyRingingError` hook with the case "a host that cannot say if anything sounds gets the stop of before", the reminder-word suite's exemption set named `notTheTier` with its reason, the Romanian `alertsNotificationsDesc` naming the events' notifications, the three English `@` descriptions carrying the tier-word rule, the Patch 8 marker on one line. **C35**: the de/ro channel, its description and `alertsNotificationsDesc` take the tier word ("Mitteilungen", "Notificări"); the tier word itself stays, for the two reasons the block records; `test/l10n/reminder_word_test.dart` (8) holds ten tier-sense keys to the stem and nine umbrella keys off it, and trips when a new English string says "reminder" outside its sorted lists. The fork's CHANGELOG counts nine patches; `alarm_pr.sh`'s header names which are in no commit. Gate before the review: analyzers clean (app and fork); the fork's Dart suite 123 passed; Gradle 69 tests with the two known DataStore classes red and `NotificationSettingsTest` 6/6; `flutter test` 7,271 passed, 7 skipped, the one known failure. After the review's round: the fork's suite 124, the scheduler suite 98, the fork guard 13, the reminder-word suite 8, analyzers clean; the whole suite is run again by the final review's gate. One Opus implementer, one Opus reviewer (no must-fix; the should-fix above, built; nine notes, eight applied and one — the Patch 8 guard passing a contrived spelling the Kotlin suite would catch — left as it is). |
+| Close (2026-10-10), step 1 — the rest of batch B | done 2026-10-10 | Resumed from §8 after the owner's "I installed it on my phone … finish it". **B4** (C32): `alertsDayThenWhen` in the three ARBs, `whenLabel` and the moved line's rescue lead with the day, `alertsWhenOnDay` narrowed to the notice, the token at `~g4` — every "{when}, {day}" literal moved (the record's list had missed `alert_labels_unloaded_test.dart`, the scheduler's day-before case and the composer's and the page's fixtures), one 12-hour case added. **B5** (a)–(f) as written, plus a second bare `0xFF6750A4` in the scheduler suite and a German day-ahead case that makes the group's `setUpAll` observable (its light-theme twin cannot discriminate: §8). **B6**: both label suites load Flutter's date tables for en, de and ro after `intl`'s; no literal moved on this machine (the tables agree on everything they format), the load proven live with a sentinel. **B7**, **B10** (flow 01 waits 3.5 s before its shot, as flow 00). **B8**: the script refuses a run that is not `--dry-run` while the fork's `AlarmService.kt` carries `RingWakeLock` or a "Patch 5)" / "Patch 6)" mention, one line to stderr, exit 1, before the file checks, `mktemp` and the clone (`grep -qsE`; `--help` prints the header by pattern) — proven with stub `gh` and `git` first on the PATH (exit 1, one line, no stub called) and one real `--dry-run` (three commits built in a temp clone, nothing pushed). **B9**: the Patch 7 guard (the wait before the `_isScheduledAs` question before the announcement, one `Alarm.alarmRang(`, the helper's body whole, `Equatable` with `dateTime` in `props`, no `operator ==`). **The B1/B2 pins**: `test/l10n/alert_removal_verb_test.dart` (4) and the eyebrow literals with `ALARMĂ · AMÂNATĂ`. Every pin watched failing — a temporary ARB, source or helper break, reverted, the diff empty afterwards. One Opus implementer, one Opus reviewer: no must-fix, two should-fixes that are the lead's (the documents, the device pass), twelve notes of which eight were applied by the implementer. Gate: analyzer clean; `flutter test` 7,258 passed, 7 skipped, the one known failure. |
 | 6 — wording, documents | done 2026-10-05 | At the owner's call the short path: of batch B only the wording (B1, B2's four "@" descriptions, B3) with three comment sentences A2's reviewers had marked false; the documents brought in line with the tree by one agent with no review; this record's status, §4.2, §8 and ledger. Everything not run is under "Deferred on 2026-10-05" in §8. Final gate: analyzer clean, the fork's Dart too; 7,248 passed, 7 skipped, the one known failure; the fork's Dart suite 122 passed; `qa flows alerts` 3 / 3 on the final build, `qa errors` clean. |
 | 6 — fix batch A2 | done 2026-10-05 | C24 to C27 and the start-only language read of C28: Stop decides the removal at the press; `load()` looks the event up before it notifies; the calendar's detail-sheet trip takes the flag from the bloc after a Keep; `AlarmGround` hands the bar back in the launch state. Gate, run independently: analyzer clean; 7,248 passed, 7 skipped, the one known failure; `qa flows alerts` 3 / 3, `alerts_pair` 1 / 1; `qa flows calendar` — 19 fails at step 17 (§8), the other 22 pass, 20–22 on a second run. Review (three reviewers): one should-fix — with two calendars stacked only the older one counted a Keep — fixed with a pin watched failing; two comment notes applied with the wording. **Seen on the emulator:** a Keep on the page, a Snooze on the heads-up, and the re-ring reading "The event will be kept" with Keep disabled from its first read (the previous build read the claim); the write-back reproduced on the previous build with one calendar and with two stacked, gone on the new one; the window's appearance line identical before and after a test ring in both themes, 0 of 184,320 band pixels differing. Not seen: C25 and the start-only read (a write that fails, a start that fails — pins only); C27 below Android 15; C24 on a cold start or behind a PIN keyguard. |
 | 6 — fix batch A1 | done 2026-10-05 | C23, the per-pass read of C28, C29, C30 (Patch 7) and text pins for the binding's own call sites. Gate, run independently: analyzer clean, the fork's Dart too; 7,224 passed, 7 skipped, the one known failure; the fork's Dart suite 116 → 122; the fork's Kotlin suite as before (eight classes green, the two known red); `qa flows alerts` 3 / 3, `alerts_pair` 1 / 1. Review (three reviewers): no defect; two notes carried on (the start-only read → A2; a guard for Patch 7 in the app's suite → §8, B9). **Seen on the emulator:** on the previous build, the open database renamed and the app resumed — `Alert reconcile (resumed) failed … connection was closed!` and a note that no longer saved; on the new build neither, the edit read back after a relaunch. Patch 7 with the plugin timer's tick placed just after the due instant: 5 of 5 second announcements before (0.60 to 0.69 s after the first; no second page, the queue drops the echo, but the id left in the binding's ring set and the rows ending `missed`), 0 of 10 after. With Stop merely pressed fast, 0 of 5 either way: the tick usually runs after the platform's report (0.08 to 0.13 s after the due instant for a test ring). Not seen: C23 (a pass must be running as its alarm comes due — pins only); C29's channel (frozen as first created on this emulator). |

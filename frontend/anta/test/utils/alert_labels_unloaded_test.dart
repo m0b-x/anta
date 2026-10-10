@@ -27,7 +27,7 @@ void main() {
         day: monday,
         fireAt: DateTime(2026, 9, 20, 0, 18 * 60),
       ),
-      '18:00 – 19:30, Mon, Sep 21',
+      'Mon, Sep 21 · 18:00 – 19:30',
     );
     expect(
       AlertLabels.fixed.dayLabel(

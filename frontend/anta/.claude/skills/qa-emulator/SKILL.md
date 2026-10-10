@@ -244,8 +244,10 @@ events ring **minutes after the seed is resolved**:
 - **`alerts_pair.json`** seeds two Alarm-tier events on the same minute
   (+2). The plugin sounds one and holds the other, the app pushes a page for
   each within a second — the held alarm's on top — and
-  `alerts_pair/00_two_in_a_minute` stops them one after the other: each page
-  closes its own route. `test/qa/alerts_pair_fixture_test.dart` pins it.
+  `alerts_pair/00_two_in_a_minute` stops them one after the other — both
+  Stops land on the page in front; that a page closes its own route from
+  underneath is the page suite's to show ("closing its own route").
+  `test/qa/alerts_pair_fixture_test.dart` pins the fixture.
 - **The seed goes in with `relaunch`, never with `run`.** `run` resolves the
   fixture's minutes and then builds, so the build comes out of the lead: the
   first alarm rings inside flow 00, or is already in the past when the app
@@ -263,10 +265,14 @@ events ring **minutes after the seed is resolved**:
   `alerts-test-alarm`. Two stacked pages both carry `alarm-stop`, so nothing
   can be waited for between their two Stops: the pair flow pauses instead.
 - A flow's `shot` is adb's: with ANTA in front and unlocked it shows the
-  ring's heads-up over the page. Re-seed `basic.json` with `relaunch --fresh
-  --seed tool/qa/fixtures/basic.json` when done: the first reconcile over the
-  fresh database cancels whatever the alerts seed left armed (the force-stop
-  alone does not — the plugins re-arm what they stored at the next launch).
+  ring's heads-up over the page, and flows 00 and 01 wait 3.5 s before theirs
+  (`key back --settle 3500`, a verb the page swallows) so the page is on
+  screen. When done, press Done on the session chip flow 02 leaves standing
+  (the kept "Tea timer" has no end, so nothing else clears it), then re-seed
+  `basic.json` with `relaunch --fresh --seed tool/qa/fixtures/basic.json`:
+  the first reconcile over the fresh database cancels whatever the alerts
+  seed left armed (the force-stop alone does not — the plugins re-arm what
+  they stored at the next launch).
 
 Seven things the rework's device work had to find out:
 
@@ -839,6 +845,15 @@ touching app data) and what each proves are in
   carries `SILENT`).
 - A screenshot of the PIN prompt is black. On the lock screen, an app above
   the keyguard shows a nav bar with no Recents button.
+- **A locked phone gets the full-screen intent and no heads-up**
+  (`PEEK suppressed: just launched FSI`), so "Snooze on the heads-up" is
+  pressed from the shade there; and the agent's taps are not user activity,
+  so after Stop the locked screen sleeps ten seconds later on its own
+  (2026-10-10).
+- **`qa boot --phone -d <attached serial>` boots nothing**: on an attached
+  emulator it only sets `wm size 1080x2400` (360 × 800 dp); `qa unphone`
+  puts the size back. That is how the alarm page's 360 dp cells were read on
+  the 427 × 952 image when no phone-sized AVD was usable (2026-10-10).
 - `cmd statusbar expand-notifications` / `collapse` open and close the
   shade when the one-swipe recipe below lands inside the app instead.
 

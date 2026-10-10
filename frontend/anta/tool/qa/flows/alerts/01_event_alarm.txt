@@ -11,10 +11,17 @@
 #   one line, so "Leg day" is found inside it. The times and the day move
 #   with the run and are not read; the first line of the description,
 #   "Squats first.", is the row under it and does not move.
+# - The page is in the agent's tree before it is on the screen, and the shot
+#   is adb's, not the agent's: taken straight after the expect, it showed the
+#   calendar the page was pushed over. `key back` is given three and a half
+#   seconds before the shot, the settle 00_test_alarm has, and they also let
+#   the ring's heads-up arrive over the page. Back itself must do nothing:
+#   back is not Stop.
 # - Stop pops the page back onto the calendar. It also posts the session chip
 #   on the shade, which the next ring takes down.
 wait id:alarm-stop --timeout 210
 expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-body "Leg day" "Squats first." --absent id:alarm-keep-event --absent id:alarm-open-database
+key back --settle 3500
 shot 01_event_alarm
 tap id:alarm-stop
 wait id:alarm-stop --gone

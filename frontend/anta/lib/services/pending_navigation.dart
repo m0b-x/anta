@@ -195,16 +195,44 @@ class PendingNavigationQueue extends ChangeNotifier {
 
   int get length => _queued.length;
 
-  /// Queues [intent] unless its [AlertIntent.dedupeKey] is already queued or
-  /// was handed out by the previous drain. Notifies listeners only when
-  /// something was actually added.
+  /// Queues [intent] unless its [AlertIntent.dedupeKey] was handed out by the
+  /// previous drain. Notifies listeners only when something was actually
+  /// added.
+  ///
+  /// An intent whose key is already queued takes the queued one's place —
+  /// its position kept, nothing added — when it is a ring's page or of the
+  /// queued one's own kind ([_replaces]); otherwise it is dropped. Every
+  /// repeat of one kind a key can see while it waits is either the same
+  /// delivery again (the notification plugin's double delivery of one tap,
+  /// a ring the binding is asked to replay) or a later one under the same
+  /// id, and the later one is the one to act on. The binding reports a ring
+  /// once for as long as it tracks it, so a second ring report under a
+  /// queued id is a ring that came after the first — above all the re-ring
+  /// of an alarm snoozed on its heads-up while the app sat paused, whose
+  /// page has to show its own time and say it was snoozed, not the first
+  /// ring's.
   void enqueue(AlertIntent intent) {
     final key = intent.dedupeKey;
     if (intent.collapsesAfterDrain && _isEcho(key)) return;
-    if (!_queuedKeys.add(key)) return;
+    if (!_queuedKeys.add(key)) {
+      final at = _queued.indexWhere((queued) => queued.dedupeKey == key);
+      if (at >= 0 && _replaces(intent, _queued[at])) _queued[at] = intent;
+      return;
+    }
     _queued.add(intent);
     notifyListeners();
   }
+
+  /// Whether [later] may take [queued]'s place under their one key.
+  ///
+  /// A ring's page may always, and anything may follow its own kind, but
+  /// nothing else may displace a ring's page: an event tap shares the bare
+  /// os id with it, and while anything rings only alarm intents are handed
+  /// over, so a tap in the page's place — a stale Missed notification for an
+  /// id armed again the same day — would hold the page back until the ring
+  /// ended.
+  static bool _replaces(AlertIntent later, AlertIntent queued) =>
+      later is OpenAlarmIntent || later.runtimeType == queued.runtimeType;
 
   /// Whether [key] is the second half of a delivery already handed over, as
   /// opposed to a genuinely new ring that happens to share an id.

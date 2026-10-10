@@ -1991,7 +1991,11 @@ copy before it saves or hands the event to the editor. **A ring is not
 re-armed under itself**: a scheduling pass leaves an alarm in flight alone,
 one that is ringing or whose standing instant has just passed, because
 arming over a ring stopped it and the binding took that for a Stop on its
-notification. This supersedes, in the paragraphs above, the notice's
+notification. And while any ring is in progress a pass settles no row past
+its instant, whatever its lateness (2026-10-10): the fork's service holds an
+alarm that comes due during a ring and promotes it when the ring ends, and
+the 30-minute band alone read such a row as rang and cancelled its entry out
+of the queue; a late row waits for the first pass with nothing ringing. This supersedes, in the paragraphs above, the notice's
 title and body the other way round, `alerts_reminder` for the notice and the
 chip, the chip's *Open note* before *Done*, and "Richer content"'s 64 px
 in-memory icon, its big text being the excerpt alone, and its last
@@ -2101,9 +2105,11 @@ another database's alarm snoozable. A ring that ends outside the app — the
 notification's Stop, the Silence-after timeout — arrives on
 `AlertGateway.ringEnded`; `main.dart` settles it (`settleEndedRing`: row,
 re-arm, a Missed notice for an unanswered one) and the alarm page closes
-itself. A past-due row in a process that was already alive at the fire instant
-(`AlertGateway.processStartedAt`) is marked `fired`, never reported Missed: it
-rang natively with no Dart up. A reminder row more than a day past its instant
+itself. A past-due row in a process that was alive at the fire instant, or
+came up within `kRingStartGrace` (30 s) after it — the process the alarm's
+own broadcast started (`AlertGateway.processStartedAt`; the window since
+2026-10-10, alert-surfaces record C39) — is marked `fired`, never reported
+Missed: it rang natively with no Dart up. A reminder row more than a day past its instant
 also has its platform entry cancelled (2026-09-22): the notification plugin
 re-fires at boot whatever came due while the phone was off, and a delivered
 notification is not *pending*, so nothing else would clear it from the shade.

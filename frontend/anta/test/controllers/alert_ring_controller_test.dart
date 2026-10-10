@@ -1,16 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/controllers/alert_ring_controller.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_keep_notice.dart';
+import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/session_chip.dart';
 
+import '../database/support/db_test_support.dart';
 import '../widgets/support/alarm_page_fakes.dart';
 
 /// The alarm page's Keep, as the real controller carries it out — and the
@@ -567,6 +571,120 @@ void main() {
       await expectLater(loading, completes);
     });
   });
+
+  group('a ring that ends elsewhere while Stop or Snooze is out:', () {
+    // Both wait on the scheduler's serialized chain, which can be a whole
+    // pass long — a resume's reconcile runs two seconds after the resume a
+    // ring causes. A ring that ends by another route meanwhile — Stop or
+    // Snooze on its heads-up, the Silence-after timeout, its entry
+    // cancelled — closes the page, and the page disposes the controller it
+    // made. The call still out then comes back to a disposed controller,
+    // and telling it anything is an error in every build that asserts.
+    //
+    // The real `load` subscribes to the ring's endings, so it runs here as
+    // in the last group; the scheduler is bound to a database of its own and
+    // a gateway whose silencing — the first thing both Stop and Snooze ask
+    // of it — the test holds.
+    late _HeldStopGateway gateway;
+    late AppDatabase db;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      gateway = _HeldStopGateway();
+      GetIt.I.registerSingleton<AlertGateway>(gateway);
+      db = await openTestDatabase();
+      AlertScheduler.forTesting(
+        db: db,
+        gateway: gateway,
+        databaseName: 'gym_notes',
+      );
+      SessionChip.instance.configureForTesting(
+        gateway: () => const NoOpAlertGateway(),
+        activeDatabase: () async => 'gym_notes',
+        findEvent: (_) async => null,
+        clock: DateTime.now,
+      );
+    });
+
+    tearDown(() async {
+      SessionChip.instance.resetForTesting();
+      AlertScheduler.reset();
+      await GetIt.I.unregister<AlertGateway>();
+      await gateway.ends.close();
+      await db.close();
+    });
+
+    /// The controller as the page makes it, listening for its ring's end.
+    Future<AlertRingController> ringing(_Store store) async {
+      final controller = AlertRingController(payload: payload())
+        ..configureForTesting(
+          findEvent: store.find,
+          saveEvent: store.save,
+          removeEvent: store.remove,
+        );
+      addTearDown(() {
+        if (!store.disposed) controller.dispose();
+      });
+      await controller.load();
+      return controller;
+    }
+
+    /// The ring ends behind the page's back, and the page — which closes on
+    /// that — disposes the controller it made.
+    Future<void> endElsewhereAndClose(
+      AlertRingController controller,
+      _Store store,
+    ) async {
+      gateway.ends.add((
+        payload: payload(),
+        cause: AlertRingEndCause.dismissed,
+      ));
+      await pumpEventQueue();
+      expect(controller.endedElsewhere, isTrue);
+      controller.dispose();
+      store.disposed = true;
+    }
+
+    for (final (name, press) in <(String, Future<void> Function(AlertRingController))>[
+      ('Stop', (controller) => controller.stop()),
+      ('Snooze', (controller) => controller.snooze()),
+    ]) {
+      test('$name comes back to a closed page and tells nobody who is gone',
+          () async {
+        final store = _Store(teaTimer);
+        final controller = await ringing(store);
+
+        gateway.hold();
+        final pressed = press(controller);
+        await pumpEventQueue();
+        expect(controller.busy, isTrue, reason: 'held on the chain');
+
+        await endElsewhereAndClose(controller, store);
+        gateway.release();
+
+        await expectLater(pressed, completes);
+      });
+    }
+  });
+}
+
+/// A gateway that tells the controller its ring ended, and whose silencing
+/// can be kept in flight — which keeps the scheduler's chain, and the Stop or
+/// Snooze waiting on it, out until [release].
+class _HeldStopGateway extends EndingGateway {
+  Completer<void>? _held;
+
+  void hold() => _held = Completer<void>();
+
+  void release() {
+    _held?.complete();
+    _held = null;
+  }
+
+  @override
+  Future<void> stopRinging(int osId) async {
+    await _held?.future;
+  }
 }
 
 /// What the page draws its remove row from.

@@ -4889,7 +4889,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get alertsNotificationsDesc =>
-      'Necesare pentru ca mementourile și alarmele să apară';
+      'Necesare pentru ca notificările evenimentelor și alarmele să apară';
 
   @override
   String get alertsFullScreenAlarms => 'Alarme pe tot ecranul';
@@ -4983,6 +4983,11 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String alertsDayThenWhen(String day, String when) {
+    return '$day · $when';
+  }
+
+  @override
   String get alertsSkipAction => 'Sari';
 
   @override
@@ -5040,11 +5045,11 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertsTestAlarmFailed => 'Alarma nu a putut fi programată';
 
   @override
-  String get alertsReminderChannel => 'Mementouri';
+  String get alertsReminderChannel => 'Notificări';
 
   @override
   String get alertsReminderChannelDesc =>
-      'Mementouri pentru evenimente, de amânat sau de închis';
+      'Notificări pentru evenimente, de amânat sau de închis';
 
   @override
   String get alertsAlarmChannel => 'Alarme';

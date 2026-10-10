@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -15,8 +16,20 @@ import 'package:anta/services/event_time_formatter.dart';
 /// this suite is what holds them to one string. It walks every language the
 /// app ships, so a language added later whose Material clock the restatement
 /// does not reproduce fails here.
+///
+/// **The date tables are the running app's** from the first case on:
+/// `intl`'s, as `main()` loads them, then Flutter's over them, as the app's
+/// first `MaterialApp` does. Left to the widget cases, the context-free
+/// formatter read Flutter's tables only once some case had pumped an app,
+/// and `intl`'s in a case run by its name alone — tables from another
+/// `intl` on each of the owner's machines.
 void main() {
-  setUpAll(initializeDateFormatting);
+  setUpAll(() async {
+    await initializeDateFormatting();
+    for (final locale in AppLocalizations.supportedLocales) {
+      await GlobalMaterialLocalizations.delegate.load(locale);
+    }
+  });
 
   const times = <String, EventTime>{
     'a morning point': EventTime(startMinute: 7 * 60 + 5),

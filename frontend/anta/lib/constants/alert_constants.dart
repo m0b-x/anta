@@ -99,6 +99,26 @@ const Duration kAlertRegistrationRetention = Duration(days: 7);
 /// of "still worth ringing" and the plugin's are one number.
 const Duration kLateFireGrace = Duration(minutes: 30);
 
+/// How long after a fire instant a process may have started and still be
+/// read as started by that alarm's delivery — the late-fire pass's evidence
+/// that a past row rang (**A10**).
+///
+/// With no process running, the alarm's own broadcast is what starts one,
+/// so that process comes up *after* the instant, by the delivery's latency.
+/// Its ring is a heads-up whenever the phone is in use, and a Stop there
+/// leaves nothing durable: no engine is attached to hear it, and the plugin
+/// records only moves and drops. Read as "alive at the instant" alone, the
+/// evidence passed over every such process and the next pass reported the
+/// ring as Missed.
+///
+/// Thirty seconds is the `alarm` plugin's own bound for an alarm due a
+/// moment ago and still being delivered (its `_ringStartGrace`), so the
+/// two agree on what "a moment" is. A process that came up that close to
+/// the instant for any other reason had Dart up for the ring, which then
+/// marked the row itself; the window can mistake only an alarm that never
+/// arrived at all — a force stop undone inside that half minute.
+const Duration kRingStartGrace = Duration(seconds: 30);
+
 /// How late a missed registration may be and still earn a quiet "Missed"
 /// notification (**A10**). Past this the session it belonged to is over and
 /// saying anything is noise.
@@ -191,7 +211,7 @@ const String kAlertArmClockToken = '~clock';
 
 /// The token the Android arm context carries since the alert surfaces were
 /// redrawn (2026-10), naming the grammar an entry's notification is written
-/// in — the `g3` of `alertArmContext`.
+/// in — the `g4` of `alertArmContext`.
 ///
 /// A notification's words are frozen into the platform entry when it is
 /// armed, so a build that changes what they say reaches no standing entry by
@@ -207,8 +227,11 @@ const String kAlertArmClockToken = '~clock';
 /// `~g2` was the redraw's one grammar. `~g3` says the same words and moves
 /// two things that are frozen with them: a reminder is armed in
 /// [kAlertGroupKey], and an alarm's upcoming notice — armed beside it, so
-/// re-armed with it — on the quiet channel.
-const String kAlertArmGrammarToken = '~g3';
+/// re-armed with it — on the quiet channel. `~g4` puts an event's day before
+/// its time when the occurrence is not on the day the entry is due
+/// (`alertsDayThenWhen`): after the time, the one line a notification shows
+/// cut the day off, and what was left read as today's.
+const String kAlertArmGrammarToken = '~g4';
 
 /// The group a reminder's notification names on Android 16 and above
 /// ([kAlertGroupMinSdk]) — and its snoozed re-post, which has to come back

@@ -26,6 +26,14 @@ class FakeHost {
   /// `AlarmErrorCode` index as the code, the way the host does.
   ({String code, String message})? setAlarmError;
 
+  /// When set, `isRinging` asked with no id — "is anything ringing?" — replies
+  /// with this error, in the envelope [setAlarmError] describes. Asked about
+  /// one alarm, it still answers from [ringing].
+  ///
+  /// The only way to reach a host that cannot say whether something sounds,
+  /// which the reconciliation at start reads as nothing sounding.
+  ({String code, String message})? anyRingingError;
+
   static const _prefix = 'dev.flutter.pigeon.alarm.AlarmApi.';
 
   static const _methods = <String>[
@@ -54,6 +62,10 @@ class FakeHost {
     _handle('stopAll', (_) => <Object?>[null]);
     _handle('isRinging', (args) {
       final id = args?[0] as int?;
+      final error = anyRingingError;
+      if (id == null && error != null) {
+        return <Object?>[error.code, error.message, null];
+      }
       final result = id == null ? ringing.isNotEmpty : ringing.contains(id);
       return <Object?>[result];
     });

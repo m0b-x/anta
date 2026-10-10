@@ -377,6 +377,26 @@ class Alarm {
           _ringing.add(_ringing.value.add(alarm));
           ringStream.add(alarm);
         } else {
+          // ANTA fork, Patch 9. The host rings one alarm at a time: with
+          // `allowSameSecondScheduling` on, as ANTA sets it, one that comes
+          // due while another sounds is queued in its service and rings when
+          // that one ends, and Dart is told nothing in between. To an isolate
+          // started from the sounding alarm's heads-up more than
+          // [_ringStartGrace] after the held one came due, such an alarm looks
+          // exactly like one that died — stored, past due, not ringing — and
+          // stopping it would take it out of the queue for good. So while any
+          // alarm sounds it is left stored, where the ring the host reports
+          // later is looked up; a pass with nothing sounding still stops a
+          // dead one, and so does a host that cannot answer. Asked before the
+          // re-read below, which has to follow every await, and of the host
+          // for the reason given above.
+          if (android && await AndroidAlarm().isRinging()) {
+            _log.info('Alarm ${alarm.id} is past due and silent while '
+                'another alarm sounds, so it may be held back by the host and '
+                'is left stored.');
+            continue;
+          }
+
           // Re-read before destroying anything. Every await above is a window
           // in which a snooze can land, and the snapshot this loop iterates
           // would still show the pre-snooze time — stopping here would cancel a

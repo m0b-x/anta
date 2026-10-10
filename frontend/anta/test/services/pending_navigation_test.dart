@@ -95,11 +95,15 @@ void main() {
     expect(queue.drain(), hasLength(1));
   });
 
-  test('one ring reported under two payloads is still one ring', () {
+  test('one ring reported under two payloads is still one ring, drawn from '
+      'the later report', () {
     // A ring's payload is not one fixed value: the binding corrects it for
     // the instant the platform says it rang at, so two reports of one ring
     // need not be equal. The id is the ring, and nothing here may compare
-    // the rest — or the second report would push a second alarm page.
+    // the rest — or the second report would push a second alarm page. What
+    // the one page draws is the later report: the binding tells a ring once
+    // while it tracks it, so a second report under a queued id is either
+    // the same report again or a ring that came after it.
     final armed = payloadOf(1);
     final restamped = armed.copyWith(
       fireAtMs: DateTime(2026, 9, 20, 7, 10).millisecondsSinceEpoch,
@@ -115,9 +119,96 @@ void main() {
 
     // And across a drain, where the second half is an echo of the first.
     final drained = queue.drain().single as OpenAlarmIntent;
-    expect(drained.payload, armed);
+    expect(drained.payload, restamped);
     queue.enqueue(OpenAlarmIntent(payload: restamped));
     expect(queue.isEmpty, isTrue);
+  });
+
+  test('a re-ring that finds its first ring still queued is drawn from its '
+      'own report, in the first one\'s place', () {
+    // The app paused, so nothing drains: the first ring's page waits for a
+    // frame, the ring is snoozed on its heads-up, and five minutes later it
+    // rings again under the same id. The page the next resume pushes is for
+    // that ring — its time, "Snoozed" — and it is pushed where the first
+    // was queued, not after what arrived in between.
+    final first = payloadOf(1);
+    final reRing = first.copyWith(
+      fireAtMs: DateTime(2026, 9, 20, 7, 5).millisecondsSinceEpoch,
+      timeLabel: '07:05',
+      reRing: true,
+    );
+    var notifications = 0;
+    queue.addListener(() => notifications++);
+
+    queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+    queue.enqueue(OpenAlarmIntent(payload: first));
+    queue.enqueue(const OpenAlertsHubIntent());
+    expect(notifications, 3);
+
+    queue.enqueue(OpenAlarmIntent(payload: reRing));
+
+    // Nothing was added, so nothing new is owed a drain: the one the first
+    // ring scheduled is still the one that comes.
+    expect(notifications, 3);
+    expect(queue.length, 3);
+    final drained = queue.drain();
+    expect(drained.map((intent) => intent.dedupeKey), [
+      2,
+      1,
+      OpenAlertsHubIntent.key,
+    ]);
+    expect((drained[1] as OpenAlarmIntent).payload, reRing);
+  });
+
+  test("a tap under a waiting ring's id never takes its page's place", () {
+    // An event intent and a ring's page share the bare os id. A Missed
+    // notification is taken down by nothing, so one for a ring that timed
+    // out stands on the shade while the same id is armed again that day and
+    // rings: tapped then, with the app paused and the page waiting, it would
+    // have put a calendar trip in the page's place — and while anything
+    // rings only alarm intents are handed over, so no page at all until the
+    // ring ended. The tap is dropped, as every repeat was before.
+    bool alarmsOnly(AlertIntent intent) => intent is OpenAlarmIntent;
+    final ringing = payloadOf(1);
+
+    queue.enqueue(OpenAlarmIntent(payload: ringing));
+    queue.enqueue(OpenEventIntent(payload: payloadOf(1)));
+
+    expect(queue.length, 1);
+    final page = queue.drain(where: alarmsOnly).single as OpenAlarmIntent;
+    expect(page.payload, ringing);
+
+    // The other way round the ring wins: a waiting tap for the id is
+    // replaced by its page.
+    queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+    queue.enqueue(OpenAlarmIntent(payload: payloadOf(2)));
+    expect(queue.drain(where: alarmsOnly).single, isA<OpenAlarmIntent>());
+    expect(queue.isEmpty, isTrue);
+  });
+
+  test('a report inside the double-delivery window after a drain is still '
+      'an echo, whatever it carries', () {
+    // Replacing a queued intent changes nothing once it has been handed
+    // over: the drained page is the one already pushed, and a repeat of its
+    // id this soon is the second half of that delivery.
+    var now = DateTime(2026, 9, 20, 7);
+    queue.clock = () => now;
+    final first = payloadOf(1);
+    final restamped = first.copyWith(timeLabel: '07:05', reRing: true);
+
+    queue.enqueue(OpenAlarmIntent(payload: first));
+    final drained = queue.drain().single as OpenAlarmIntent;
+    expect(drained.payload, first);
+
+    now = now.add(const Duration(milliseconds: 8));
+    queue.enqueue(OpenAlarmIntent(payload: restamped));
+    expect(queue.isEmpty, isTrue);
+    expect(drained.payload, first);
+
+    // Past the window it is a new ring, with its own report.
+    now = now.add(PendingNavigationQueue.doubleDeliveryWindow);
+    queue.enqueue(OpenAlarmIntent(payload: restamped));
+    expect((queue.drain().single as OpenAlarmIntent).payload, restamped);
   });
 
   test('dedupes the second half of a delivery that straddles a drain', () {

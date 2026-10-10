@@ -16,13 +16,17 @@
 #   one: "Squat" is in both titles, and each page is a different colour with
 #   a different second line, so the two shots tell them apart — and the
 #   heads-up Android draws over the page names the one that is sounding.
-# - The first Stop lands on the page on top and closes that page; the second
-#   lands on the page under it. Each page closes its own route, which is what
-#   this flow is for: until 2026-10 a page closed whatever was on top, so
-#   whenever the page underneath was the first to close — its ring stopped
-#   on the heads-up, or a Stop tapped before the second page had arrived —
-#   it took the other ring's page with it and stayed behind itself, Stop and
-#   Snooze spent and back disabled, with the phone still ringing.
+# - Both Stops land on the page on top: the first on the page in front, which
+#   closes; the second on the one that was under it, in front by then. So the
+#   flow shows two pages standing and each stopped in turn, both closing from
+#   the top. The other half of "each page closes its own route" — a page
+#   closed from under another, its ring stopped on the heads-up or a Stop
+#   that finishes after the second page has arrived — is not staged here:
+#   test/widgets/alarm_page_test.dart holds it ("with two rings stacked…" and
+#   the group "closing its own route"). Until 2026-10 a page closed whatever
+#   was on top, so such a page took the other ring's page with it and stayed
+#   behind itself, Stop and Snooze spent and back disabled, with the phone
+#   still ringing.
 # - Both pages carry id:alarm-stop, so nothing can be waited for between the
 #   two Stops: the first tap pauses four seconds instead, which is the first
 #   Stop finishing many times over. A second Stop that landed on a page still

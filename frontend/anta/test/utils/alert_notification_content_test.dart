@@ -138,12 +138,14 @@ void main() {
     );
 
     test('carries the day when the event is not on the day it rings', () {
+      // The labels write that day first, so placed after the kind it is what
+      // a one-line row still shows when the platform cuts the end of it.
       final dayBefore = payloadOf(
         timeLabel: '09:00',
-        whenLabel: 'All day, Mon, Sep 21',
+        whenLabel: 'Mon, Sep 21 · All day',
       );
 
-      expect(ring(en, dayBefore).text, 'Alarm · All day, Mon, Sep 21');
+      expect(ring(en, dayBefore).text, 'Alarm · Mon, Sep 21 · All day');
     });
   });
 

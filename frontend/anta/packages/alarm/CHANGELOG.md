@@ -4,11 +4,13 @@ Base: `alarm` 5.13.2 from pub.dev, copied verbatim into `packages/alarm/` and
 referenced by path — the `re_editor` precedent: owned, upstream watched.
 Cherry-picks from upstream are one-off decisions recorded in
 `docs/event-alerts-os-integration-roadmap.md` (§2, B1/B3/B4; §13 for Patches
-3 and 4) and, for Patches 5 to 7, in
+3 and 4) and, for Patches 5 to 9, in
 `docs/alert-surfaces-redesign-roadmap.md` (D19 for 5 and 6; 7 came out of
-that rework's review). Seven patches. Six are Android: five live in Kotlin
-files the Pigeon-generated bindings never reference, one in the library's
-manifest. The seventh is Dart, in `lib/src/platform_timers.dart`.
+that rework's review; 8 and 9 are findings of the same review that it left to
+the owner, §8, decided on 2026-10-10). Nine patches. Seven are Android: six
+live in Kotlin files the Pigeon-generated bindings never reference, one in
+the library's manifest. Two are Dart: the seventh in
+`lib/src/platform_timers.dart`, the ninth in `lib/alarm.dart`.
 
 * **[Android] Patch 1 — alarm-clock scheduling.** `AlarmScheduler.setExactAlarm`
   arms the exact branch with
@@ -78,6 +80,34 @@ manifest. The seventh is Dart, in `lib/src/platform_timers.dart`.
   both, so only an alarm the platform never told of is still there when the
   wait ends — the case the fallback exists for, the alarm the host holds back
   while another one sounds included (`alarm_fallback_timer_test.dart`).
+* **[Android] Patch 8 — the icon colour is packed without an API 26 call
+  (2026-10-10).** `NotificationSettings.fromWire` built the ring notification's
+  colour with `android.graphics.Color.argb(float, float, float, float)`, an
+  overload Android added in API 26, while the plugin's `minSdk` is 19 and
+  ANTA's 24: on Android 7.0 and 7.1 every `Alarm.set` that names an
+  `iconColor` — every one ANTA makes — threw `NoSuchMethodError` on the
+  platform thread and took the process down. `NotificationSettings.packArgb`
+  now packs the four channels with that overload's own arithmetic (each scaled
+  by 255 in floats, a half added, truncated), so API 26 and later get the very
+  int they always got, and the file no longer touches `android.graphics.Color`.
+  Packed there rather than handed to the `int` overload, which every level
+  has, because the module's JVM tests run with `unitTests.returnDefaultValues`,
+  under which any `Color` call answers 0 and nothing could pin the colour
+  (`NotificationSettingsTest`).
+* **[Dart] Patch 9 — an alarm held back behind a ring is not stopped at start
+  (2026-10-10).** The host rings one alarm at a time: with `allowAlarmOverlap`
+  off and `allowSameSecondScheduling` on, an alarm that comes due while another
+  sounds is queued in `AlarmService` and rings when that one ends, and Dart is
+  told nothing in between. An isolate started more than 30 s
+  (`_ringStartGrace`) after the queued alarm's instant — the application
+  started from the sounding alarm's heads-up — found it in `Alarm.init()`'s
+  `checkAlarm` stored, past due and not ringing, and stopped it, which takes it
+  out of the host's queue: it never rang. `_checkAlarm` now asks the host
+  whether any alarm is ringing before it re-reads such an alarm and stops it,
+  and while one is it leaves the alarm stored, where the ring the host reports
+  later is looked up. A pass with nothing ringing still stops a dead alarm, and
+  so does one whose host cannot answer (`alarm_check_test.dart`, through
+  `FakeHost.anyRingingError`).
 
 ## 5.13.2
 * **[Android] `Alarm.stopAll()` now reaches every actively ringing alarm (#437),** even after an earlier stop failure removed it from native storage.
