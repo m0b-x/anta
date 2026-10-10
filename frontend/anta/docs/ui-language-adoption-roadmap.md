@@ -8,8 +8,8 @@ Tier 2 committed `daf361a`, Tier 3 committed `b801ee0`). One detour outside
 both masters' tiers, the alert surfaces
 (`docs/alert-surfaces-redesign-roadmap.md`), settled decision 7 of §3; it is
 COMMITTED `3cb8d49` on the branch `alert-surfaces-redesign`, with its close
-of 2026-10-10 IMPLEMENTED on top of it (§7 and its own status line say the
-commit state).
+COMMITTED `fbb7a45` on 2026-10-10 and the branch merged into `main` by
+fast-forward the same day (§7 and its own status line).
 Written because the owner said on
 2026-10-02 that the whole UI is to be reworked, slowly, the way the calendar
 was. Line numbers below are from that read; re-grep every one before a tier
@@ -266,7 +266,7 @@ waits on decision 1 and is the largest.
 | Tier | Status |
 | --- | --- |
 | Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 COMMITTED `daf361a` (2026-10-03); Tier 3 COMMITTED `b801ee0` (2026-10-03); Tier 4 not started |
-| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): COMMITTED `3cb8d49`; its close is IMPLEMENTED 2026-10-10, uncommitted on top of it — the rest of its review's batch B, the three items its review had left to the owner (fork Patches 8 and 9, the German and Romanian channel names), a four-lens final review whose fifteen findings all stood and were fixed (C32–C42), and the final device pass; its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
+| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): COMMITTED `3cb8d49`; its close COMMITTED `fbb7a45` (2026-10-10) — the rest of its review's batch B, the three items its review had left to the owner (fork Patches 8 and 9, the German and Romanian channel names), a four-lens final review whose fifteen findings all stood and were fixed (C32–C42), and the final device pass — and the branch merged into `main` by fast-forward the same day; its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
 | A – G | PLAN — the order is not decided |
 
 ## 8. Defects the audit found, outside any tier
