@@ -30,3 +30,11 @@ description: Localization workflow for ANTA - ARB files (en/de/ro), gen-l10n, co
 - No in-app explanatory text for obvious interactions; prefer tooltips, icons, and settings descriptions.
 - Keep domain terms consistent across locales: folders, notes, counters, shortcuts, backup, import/export, auto-save, preview, search, events, categories.
 - User-facing errors are always localized; `debugPrint` is fine for internal diagnostics where the file already uses it.
+
+_Moved verbatim from COPILOT_CONTEXT.md, 2026-10-11._
+
+## Localization And Copy
+- Primary source is `lib/l10n/app_en.arb`; keep German and Romanian files complete whenever keys change.
+- Prefer concise, direct copy suitable for a utility app. The user may be in the middle of a workout, so labels should be short and easy to recognize.
+- Avoid in-app explanatory text for obvious interactions. Use tooltips, icons, labels, and settings descriptions where appropriate.
+- Keep domain terms consistent: folders, notes, counters, shortcuts, backup, import/export, auto-save, preview, search.

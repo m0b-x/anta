@@ -79,3 +79,11 @@ Services already on the contract: `CounterService`, `CalendarEventService`, `Cat
 ## Settings
 
 New settings go through `UserSettingsDao` → `SettingsService` with a named key in `SettingsKeys` (+ default constant). Never scatter raw string keys or raw `SharedPreferences`.
+
+## References
+
+| File | Holds | Read when |
+| --- | --- | --- |
+| `references/persistence-rules.md` | the data and persistence rules as first written (soft deletes, CRDT fields, positions, backup compatibility) and the notes on generated files and local packages | a change touches what is persisted, how it is backed up, or a generated file |
+
+The path-scoped rule `.claude/rules/database.md` loads with any file under `lib/database/` or `lib/repositories/` and repeats the five rules that must hold even when this skill was not loaded.

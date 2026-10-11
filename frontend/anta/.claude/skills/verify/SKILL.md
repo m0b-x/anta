@@ -65,6 +65,7 @@ Release pipeline (`./tool/release/release` on macOS, `tool\release\release.cmd` 
 ./tool/release/release build --arm64   # release APK (incremental; --clean for a cold build)
 ./tool/release/release install         # build for the attached phone's ABI + adb install
 ./tool/release/release doctor          # keystore, Firebase config, adb, stale Gradle daemons
+./tool/release/release gen [--watch]   # build_runner (+ gen-l10n)
 ./tool/release/release clean           # nuke build artifacts when builds misbehave
 ```
 

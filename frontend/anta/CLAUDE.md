@@ -1,132 +1,85 @@
-# CLAUDE.md
+# CLAUDE.md — ANTA
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**ANTA** (Dart package `anta`, app id `com.alexzamfir.anta`) is an offline-first Flutter app for tracking the things you keep coming back to — training sessions, spending, appointments, and the notes around them. Folders and markdown notes are the substrate; the money ledger, the calendar and counters are built on top. It started as a training log, and that still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
 
-## What this is
+Everything runs from `frontend/anta`. The on-disk `gym_notes` database directory is a load-bearing runtime path, not branding — never rename it.
 
-**ANTA** (Dart package `anta`, app id `com.alexzamfir.anta`) — an offline-first Flutter app for tracking the things you keep coming back to: training sessions, spending, appointments, and the notes around them. Folders and markdown notes are the substrate; the money ledger, the calendar, and counters are built on top of them.
+## Which machine you are on
 
-It started as a training log, and that origin still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
+Read the `Platform` line of your environment before the first command; the app is developed on both machines and the same verbs exist on each.
 
-The app lives at `frontend/anta/`; all commands below run from there. The on-disk `gym_notes` database directory is a load-bearing runtime path, not branding — never rename it.
+- **`win32` — Windows 11.** PowerShell is the primary shell; the Bash tool is Git Bash. Wrappers: `tool\qa\qa.cmd`, `tool\release\release.cmd`. There is no `python`; never `perl -i` or `sed -i` — a `perl -i` once emptied an ARB; edit with Read/Edit/Write. Repo files are CRLF and Git Bash hides the `\r`: check with `tr -cd '\r' | wc -c` before any text surgery. `flutter run -d windows` needs the Visual Studio component "C++ ATL for latest v145 build tools". The Android emulator is `Pixel_9_Pro`; "Lost connection to device" means a degraded quick-boot snapshot — boot cold.
+- **`darwin` — macOS.** zsh; wrappers `./tool/qa/qa`, `./tool/release/release`; `flutter run -d macos` and the iOS simulator are available. Release signing files (`android/key.properties`, `android/app/release-keystore.jks`) are gitignored and must be copied over from the machine that has them.
 
-## Documentation map — read before editing
+Android is the primary target; desktop builds are quick UI checks.
 
-| Source | Use for |
-| --- | --- |
-| [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) | **Canonical context.** Product purpose, stack, architecture, per-subsystem invariants (markdown preview pipeline, chunking, lists, money ledger, colors, ghost text), persistence rules, import/export rules, re_editor fork notes. Read the relevant section before planning. Do not restate it back to the user — follow it. |
-| [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events` (the calendar's rules), `ui-language` (the app-wide row-and-sheet language: idioms, row primitives, sheet chrome, metrics, tests) with `calendar-ui` (the calendar's own pieces of it), `l10n`, `verify` (the gate) as the task demands; `ui-revamp` for any rework of a page, sheet or panel. |
-| [.claude/skills/qa-emulator/](.claude/skills/qa-emulator/) | Driving the app on the iOS simulator, the macOS desktop build or the Android emulator: `tool/qa/qa` (boot, run in an isolated QA database, screenshot, dump the accessibility tree, tap/type by label through the in-app agent), the Flutter Driver layer through the Dart MCP, and the device traps. Load for any device pass. See also [docs/qa-harness.md](docs/qa-harness.md). |
-| [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `event-alerts-roadmap.md` + its `event-alerts-os-integration-roadmap.md` follow-up (alarm-clock semantics through the `alarm` fork in `packages/alarm/` — shipped in OS-1 — then native snooze, upcoming notice, alarm log, session chip, AlarmKit) and `alert-surfaces-redesign-roadmap.md` (the design record of the full-screen alarm page and of every notification an alert posts: the takeover page, one notification grammar, the quiet channel), `fasting-schedule-roadmap.md`, `presence-tracking-roadmap.md`, `calendar-cloud-readiness-roadmap.md`, `description-scope-roadmap.md`, `tag-system-roadmap.md`, `vocabulary-autocomplete-feature.md`, `colour-labels-roadmap.md` + its `colour-labels-next-slices.md` checklist, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`, `calendar-perf-followups-2026-09.md`, `cloud-sync-roadmap.md` + its `cloud-sync-phase-*.md` implementation docs, and the calendar UI-language records `event-editor-redesign-roadmap.md`, `event-detail-sheet-redesign-roadmap.md`, `calendar-header-roadmap.md`, `calendar-filters-redesign-roadmap.md` + `calendar-language-adoption-roadmap.md`, the four-tier plan for every calendar surface still outside that language — a max-effort pass, read it whole before any calendar UI work; its tier records are `calendar-language-tier-1-roadmap.md`, `calendar-language-tier-2-roadmap.md` and `calendar-language-tier-3-roadmap.md` — and `ui-language-adoption-roadmap.md`, the master record for bringing the rest of the app onto the language: the inventory, the open app-wide decisions, the retire list, the tier order). Status headers say what shipped vs. what is planned. |
-
-When a subsystem's behavior changes materially, update the matching `docs/` file and the relevant `COPILOT_CONTEXT.md` section in the same change — those files are the memory between sessions.
-
-## Commands (zsh on the Mac, PowerShell on Windows — same verbs)
-
-Run only what the change requires.
-
-```powershell
-dart analyze lib                                        # minimum bar for any Dart change
-dart analyze packages/re_editor/lib                     # also, if the fork was touched
-dart analyze packages/alarm/lib                         # also, if the alarm fork was touched
-cd android && ./gradlew :alarm:testDebugUnitTest        # the alarm fork's own Kotlin tests, after any Kotlin change there
-cd packages/alarm && flutter test                       # the alarm fork's own Dart suite, after any Dart change there
-flutter gen-l10n                                        # after any lib/l10n/*.arb edit; then check untranslated.txt
-dart run build_runner build --delete-conflicting-outputs # after Drift table/DAO/migration/annotation changes
-flutter run                                             # Android is the primary target
-flutter run -d windows                                  # quick desktop UI check (needs the VS "C++ ATL" component, below)
-./tool/qa/qa <verb>                                     # drive a simulator, the desktop build or the emulator (see the qa-emulator skill; tool\qa\qa.cmd on Windows)
-./tool/qa/qa flows calendar                             # the saved calendar device pass, after `qa relaunch --fresh --seed tool/qa/fixtures/calendar.json`
-./tool/qa/qa flows alerts                               # the saved alerts device pass, after `qa relaunch --fresh --seed tool/qa/fixtures/alerts.json` (the seed goes in with relaunch, never with run)
-./tool/upstream/alarm_pr.sh [--dry-run]                 # open (or, dry, only build) the upstream PR for the first two of the alarm fork's nine patches; needs a logged-in gh. It refuses a run without --dry-run by itself while the AlarmService.kt it copies whole carries Patch 6 (RingWakeLock) or a Patch 5 or 6 mention, which the PR text does not describe
-```
-
-`flutter run -d windows` / `flutter build windows` need the Visual Studio
-component **C++ ATL for latest v145 build tools (x86 & x64)**
-(`Microsoft.VisualStudio.Component.VC.ATL`), installed once on this machine:
-`flutter_local_notifications_windows` is an FFI plugin that CMake compiles
-whatever the Dart side does, and its `plugin.cpp` includes `atlbase.h`.
-
-Tests (`test/` — the money-ledger grammar suite, the database suite, and the sync bloc suite):
-
-```powershell
-flutter test                                            # whole suite (benchmarks skipped)
-flutter test test/utils/markdown_money_syntax_test.dart # single file
-flutter test test/utils/markdown_money_syntax_test.dart --plain-name "substring of test name"
-flutter test --tags benchmark --run-skipped             # seeded-volume DB timings
-```
-
-`test/database/` guards SQLite behaviour deterministically — query plans (index
-usage), statement counts (no query-in-a-loop), create-vs-migrate schema
-parity, and the whole upgrade chain from the oldest schema
-(`upgrade_chain_test.dart`). It runs against `NativeDatabase.memory()`, needs no setup, and asserts
-no wall-clock times; see the `drift-migrations` skill for why.
-
-Release pipeline — one Dart tool with the same verbs on every OS
-(`tool\release\release.cmd` on Windows, `./tool/release/release` on macOS/Linux):
-
-```powershell
-tool\release\release.cmd build --arm64   # build_runner + gen-l10n + obfuscated release APK -> build\app\outputs\flutter-apk\
-tool\release\release.cmd install         # same, built for the attached phone's ABI, then adb install (-d <serial> if several)
-tool\release\release.cmd doctor          # signing keystore, Firebase config, adb + device, stale Gradle daemons
-tool\release\release.cmd gen [--watch]   # build_runner (+ gen-l10n)
-tool\release\release.cmd clean           # flutter clean + .dart_tool + pub get; `build --clean` for a one-off cold build
-```
-
-Builds are incremental by default (warm Gradle daemon; add `--clean` for a cold
-one). A release build is **refused** when `android/key.properties` and
-`android/app/release-keystore.jks` are missing — both are gitignored, so copy
-them from the machine that has them, at the same relative paths. A
-debug-signed APK cannot install over the release-signed app, and the guard
-lives in Gradle's `preReleaseBuild` too, so a bare `flutter build apk --release`
-is refused as well (`--allow-debug-signing` / `-PantaAllowDebugSigning=true`
-for a throwaway build).
-
-Do not run `flutter analyze` on the whole workspace — platform shells add noise. `dart analyze lib` is the convention (add `tool test_driver` when the QA harness changed).
-
-The QA device harness (`./tool/qa/qa <verb>` on macOS/Linux, `tool\qa\qa.cmd` on Windows) drives the iOS simulator, the macOS desktop build and the Android emulator from the command line against an isolated QA database — load the `qa-emulator` skill for a device pass; never drive `adb` or `xcrun simctl` by hand.
-
-## Architecture
-
-Never bypass a layer:
+## Architecture — never bypass a layer
 
 ```
 Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift (SQLite)
 ```
 
-- **BLoCs** (`lib/bloc/`) stay thin: route events, hold loading/error state, delegate to services. Sealed + `Equatable` where that is the local pattern.
-- **Services** (`lib/services/`) own workflows — note/folder storage, auto-save, counters, settings, backup, import/export, calendar events, search indexing, markdown rendering, database switching.
-- **Repositories** (`lib/repositories/`) cache/stream over DAOs — invalidate after create/update/delete/move/reorder.
-- **DAOs** (`lib/database/daos/`) own all SQL, transactions, soft deletes, FTS, migrations.
-- **DI** is `get_it`, configured in `lib/core/di/injection.dart`; `main.dart` calls `configureDependencies()` then registers app-wide BLoCs.
-- **Constants** live in `lib/constants/` (spacing, text styles, icon sizes, colors, JSON keys, settings keys) — never magic values.
-- **`packages/re_editor/`** is a local, perf-tuned fork of the editor, **owned** since the Session 7a upstream sync (2026-09-04): its API is whatever the app needs, so add, rename or remove fork members when a feature calls for it, and treat it as part of the workspace for bug/perf fixes. Upstream is watched, not tracked (last evaluated commit `28d9fc0`; cherry-picks are one-off decisions recorded in `docs/re-editor-performance-2026-07.md`). Preserve the optimizations listed in COPILOT_CONTEXT.md ("Generated And Local Package Notes").
-- **`packages/alarm/`** is a local fork of the `alarm` plugin (base 5.13.2, forked 2026-09-22 in event-alerts session OS-1) on the same rule: owned, upstream watched, cherry-picks recorded in `docs/event-alerts-os-integration-roadmap.md` (§2). It carries nine patches and nothing else, seven of them Android (six in Kotlin, one an attribute of the library's manifest) and two Dart — `AlarmScheduler.setExactAlarm` arms with `AlarmManager.setAlarmClock` (the phone treats an ANTA alarm as an alarm: Doze-exempt, status-bar icon, lock-screen line, a show intent opening the Alerts hub); `AudioService.playAudio` plays a `content://` sound directly, falling back to the phone's default when the device cannot open it; the ring notification is colorized, which keeps Android 16's forced grouping from silencing it and losing its full-screen intent; `AlarmPlugin.alarmTriggerApi` is resolved from the attached engines instead of one static a second engine overwrites (those two from the lock-screen pass of 2026-10-04, §13 of that roadmap); `AlarmReceiver` is no longer exported, so another app cannot stop or snooze an alarm (the manifest attribute); the ring's wake lock is held in `AlarmService.RingWakeLock` and released when the last ring ends, not at its five-minute bound (those two from the alert-surfaces rework of 2026-10-05, `docs/alert-surfaces-redesign-roadmap.md` D19); the plugin's fallback timer (`lib/src/platform_timers.dart`, the first Dart one) gives up on a ring the platform reported and that was stopped inside its 700 ms wait, where it used to announce a ring that was over (from that rework's review); `NotificationSettings.fromWire` packs the icon colour itself (`packArgb`, Patch 8) instead of calling the float `Color.argb` overload, which is API 26 while the app's minSdk is 24, so every `Alarm.set` crashed on Android 7; and `Alarm.init()`'s reconciliation (`_checkAlarm`, Patch 9, the second Dart one) leaves a stored alarm that is past due and silent alone while the host reports another one sounding — the service holds such an alarm in its queue and promotes it when the ring ends, where an isolate started more than 30 s late used to stop it, so it never rang (those two from the close of that rework, 2026-10-10). The Pigeon-generated bindings are untouched; the fork's Kotlin tests run through `cd android && ./gradlew :alarm:testDebugUnitTest` and its Dart suite through `cd packages/alarm && flutter test`. Only the Alarm tier reaches this plugin — the Reminder tier stays on `flutter_local_notifications`.
-
-The two pages that carry most of the app are [optimized_folder_content_page.dart](lib/pages/optimized_folder_content_page.dart) (browser) and [optimized_note_editor_page.dart](lib/pages/optimized_note_editor_page.dart) (editor: re_editor + toolbar + preview/split + auto-save + search).
-
-### Markdown engine
-
-The custom markdown engine is the most intricate part of the codebase and has two independent rendering surfaces that must agree:
-
-- **Preview**: `MarkdownPreviewBloc` → `MarkdownRenderService` → `LineBasedMarkdownBuilder` → `MarkdownChunker` (block-aligned chunking) → rendered by `SourceMappedMarkdownView`.
-- **Live editor**: `MarkdownEditorSpanBuilder` + `MarkdownEditorLineIndex` (incremental per-line passes), rendering Obsidian-style with the caret line revealing raw markers.
-
-Every syntax has exactly one grammar module in `lib/utils/` that **both** surfaces consume — `markdown_inline_grammar.dart` (emphasis, strikethrough, highlight, inline code, escapes, and the placement of every other inline construct — the wrapper's tap zones resolve through it too), `markdown_list_syntax.dart`, `markdown_money_syntax.dart`, `markdown_color_syntax.dart`, `markdown_callout_syntax.dart`, `markdown_tag_syntax.dart`, `markdown_link_patterns.dart`, `ghost_text.dart`, and `markdown_line_shape.dart` for line shapes (headings, horizontal rules, line-led constructs). Never add a second regex or scanner for an existing construct; extend the grammar module. Editor rendering **conceals** markers (transparent, ~0 width) or substitutes them 1:1 — never adds or drops code units, or caret/search offsets desync.
-
-Read the `markdown-engine` skill and the corresponding COPILOT_CONTEXT.md sections before touching any of this.
+- BLoCs (`lib/bloc/`) stay thin: route events, hold loading/error state, delegate to services; sealed + `Equatable` where that is the local pattern.
+- Services (`lib/services/`) own workflows; repositories (`lib/repositories/`) cache/stream over DAOs and invalidate after every write; DAOs (`lib/database/daos/`) own SQL, transactions, soft deletes, FTS and migrations.
+- DI is `get_it` in `lib/core/di/injection.dart`. Constants live in `lib/constants/` — never magic values; a surface on the UI language reads `FormMetrics` / `RowMetrics` / `AppBarMetrics`, not the generic `AppSpacing` scale.
+- `packages/re_editor/` and `packages/alarm/` are owned forks (upstream watched, not tracked); their rules load when you touch them.
+- The two pages that carry the app: `lib/pages/optimized_folder_content_page.dart` (browser) and `optimized_note_editor_page.dart` (editor).
 
 ## Non-negotiable rules
 
-- Every user-visible string goes through `AppLocalizations`. Update `lib/l10n/app_en.arb`, `app_de.arb`, `app_ro.arb` **together**, then run `flutter gen-l10n`.
-- Never hand-edit generated files (`lib/database/database.g.dart`, `lib/database/daos/*.g.dart`, `lib/l10n/app_localizations*.dart`).
-- Drift schema changes need a migration; never reset user storage. Any DB-backed singleton must follow the `DatabaseLifecycle` reset contract (multi-database switching).
-- **Comments carry the why, never the what.** `///` on public members and on any decision a reader could not reconstruct from the code — a trap, a rejected alternative, an invariant another file relies on. Never a comment that narrates the next line, never a TODO left behind. (Rewritten 2026-09-26: the old "no code comments" line contradicted a tree carrying ~20k such lines.) **No new markdown docs unless explicitly requested** — a design record for a UI rework counts as requested (the `ui-revamp` skill). Tests are welcome (standing permission, 2026-08-16): new services, blocs and sheets ship with focused suites against fakes — see `test/bloc/sync_bloc_test.dart` and `test/widgets/event_look_sheet_test.dart` for the patterns.
-- Preserve data semantics: soft deletes, CRDT fields (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`), positions, sort preferences, pinned counters, backup format compatibility. Global counter values use `noteId == ''`.
-- Settings go through `SettingsService` + `SettingsKeys` — never raw `SharedPreferences` keys.
-- Import/export: UI only via `ImportExportBloc`; exports funnel through `shareExport` (never `SharePlus` directly); `createX` stamps timestamps to now, `importX` preserves caller timestamps; bumping the archive schema means bumping `ImportExportService.archiveVersion` and accepting the previous version.
-- Material 3, compact, touch-friendly, stable layouts; light/dark/system themes; locales en/de/ro.
-- No new state-management, persistence, or navigation patterns without a strong reason.
+- Every user-visible string goes through `AppLocalizations`: `app_en.arb`, `app_de.arb`, `app_ro.arb` together, then `flutter gen-l10n`, `untranslated.txt` empty.
+- Never hand-edit generated files (`*.g.dart`, `app_localizations*.dart`).
+- Drift schema changes need a migration; never reset user storage; DB-backed singletons follow the `DatabaseLifecycle` reset contract.
+- Preserve data semantics: soft deletes, CRDT fields (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`), positions, sort preferences, pinned counters, backup compatibility; global counter values use `noteId == ''`.
+- Settings go through `SettingsService` + `SettingsKeys`, never raw `SharedPreferences` keys.
+- Import/export UI only via `ImportExportBloc`; exports through `shareExport` (never `SharePlus` directly); `createX` stamps now, `importX` preserves; an archive version bump accepts the previous version.
+- Comments carry the why, never the what: `///` on public members and on decisions a reader could not reconstruct; never narration, never a TODO left behind. No new markdown docs unless requested (a rework's design record counts as requested). Tests are welcome: new services, blocs and sheets ship with focused suites against fakes.
+- Material 3, compact, touch-friendly, stable layouts; light/dark/system; en/de/ro.
+- No new state-management, persistence or navigation patterns without a strong reason.
+- Never commit unless the owner says so; then the gate first, then the commit, then report the hash. The owner commits to `main` — ask before creating a branch.
+
+## Commands (from `frontend/anta`)
+
+| Need | Run |
+| --- | --- |
+| Any Dart change | `dart analyze lib` (never `flutter analyze` on the whole workspace) |
+| Tests | `flutter test` — the whole suite, one run at a time, never beside a QA `flutter run` |
+| ARB edit | `flutter gen-l10n`, then check `untranslated.txt` |
+| Drift change | `dart run build_runner build --delete-conflicting-outputs` |
+| Run the app | `flutter run` (Android), `flutter run -d windows` / `-d macos` |
+| Device pass | `qa <verb>` through the wrapper for your OS (`qa-emulator` skill) |
+| Release | `release build --arm64` / `install` / `doctor` / `gen` / `clean` (`verify` skill) |
+
+The gate for any change: analyze clean, whole suite green, gen-l10n when ARBs changed, must-not-change list re-read against the diff.
+
+## How work runs here — the budget
+
+- **Model per job.** Opus 5.5 is the workhorse: implementation sessions, the `implementer` and `reviewer` agents. Fable 5.1 is for design decisions, plans and the reviews the owner names. Sonnet 5.5 runs mechanical work (QA passes, doc placement); Sonnet or Haiku explores. The roster in `.claude/agents/` carries these; load the `delegation` skill before spawning anything.
+- **Read by section, never whole.** Records, references and feature docs have tables of contents — grep to the section the task needs. No file over ~300 lines is read end to end unless the task is to rewrite it.
+- **One of each.** One mock (`ui-mock`); one implementer and one reviewer per slice (`ui-revamp`); no workflow unless the owner says "use a workflow"; `fable-max` only when the owner names it.
+- **Check in at boundaries.** At each slice boundary say how many files are uncommitted and offer a ready commit; when the owner signals low usage, finish the step, write what is left into the record's Deferred section, and stop.
+- **Confirm before a large build.** When a request's visible behaviour can be read two ways, state your reading in one line and get a yes before dispatching more than a small change.
+
+## Skills — rules in `SKILL.md`, facts in `references/`
+
+| Working on | Load |
+| --- | --- |
+| Browser, counters, settings, backup, import/export, navigation, search, sync — any area without its own skill | `anta-context` |
+| Calendar, events, alerts | `calendar-events` (+ `calendar-ui` and `ui-language` for visuals) |
+| Editor, markdown, preview, the re_editor fork | `markdown-engine` |
+| Schema, DAOs, migrations, backup compatibility | `drift-migrations` |
+| Any user-visible string | `l10n` |
+| Any sheet, page, row, menu, dialog | `ui-language`; `ui-mock` for a mock; `ui-revamp` for a rework |
+| Running the app on a device | `qa-emulator` |
+| Verifying, building, installing | `verify` |
+| Dart/Flutter quality and performance | `flutter-principles` |
+| Spawning agents, planning execution | `delegation` |
+
+Path-scoped rules in `.claude/rules/` load themselves when you touch an area's files and name the skill to load. Read a skill's `references/` file only for the part the task needs.
+
+## Docs
+
+`docs/` holds design records and roadmaps; a status header says what shipped. The memory between sessions is the area skill's `references/` plus the docs — when a subsystem's behaviour changes materially, update both in the same change.
 
 ## Ask vs. act
 

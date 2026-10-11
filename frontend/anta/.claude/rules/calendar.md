@@ -1,0 +1,33 @@
+---
+paths:
+  - "lib/pages/calendar_*.dart"
+  - "lib/pages/alerts_page.dart"
+  - "lib/pages/alarm_page.dart"
+  - "lib/bloc/calendar/**"
+  - "lib/services/calendar_*.dart"
+  - "lib/services/category_service.dart"
+  - "lib/services/public_holiday_service.dart"
+  - "lib/services/event_*.dart"
+  - "lib/services/*alert*.dart"
+  - "lib/widgets/agenda_*.dart"
+  - "lib/widgets/calendar_*.dart"
+  - "lib/widgets/event_*.dart"
+  - "lib/widgets/day_*.dart"
+  - "lib/models/calendar_*.dart"
+  - "lib/models/recurrence_rule.dart"
+  - "lib/models/upcoming_agenda_filters.dart"
+  - "lib/utils/event_*.dart"
+  - "lib/utils/agenda_*.dart"
+  - "lib/utils/alert_*.dart"
+  - "lib/constants/calendar_*.dart"
+  - "lib/constants/event_*.dart"
+  - "tool/qa/flows/calendar/**"
+  - "tool/qa/flows/alerts/**"
+---
+# Calendar, events and alerts — loads when a calendar file is touched
+
+- Load the `calendar-events` skill (the rulebook and file map); for anything visual also `ui-language` and `calendar-ui`. Read the skill's `references/` and `docs/calendar-events-feature.md` **by section**, never whole.
+- Alerts are opt-in: seed defaults ship as `none`; never arm an alert the owner did not ask for. Only the Alarm tier reaches `packages/alarm/`; the Reminder tier stays on `flutter_local_notifications`.
+- Recurrence, holidays and fasting are pure Dart over UTC date-only values; a local-midnight `add(Duration)` is an hour off on DST days — construct `DateTime(y, m, d, 0, minutes)` instead.
+- The saved device passes must stay green: `qa flows calendar` and `qa flows alerts`, each after `qa relaunch --fresh --seed tool/qa/fixtures/<area>.json` (the alerts seed is clock-relative and must never go in through `qa run`); a slice that changes a screen updates its flow in the same slice.
+- A change in persisted event data is a migration plus backup/import coverage (the `database` rule applies).

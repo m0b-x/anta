@@ -1,0 +1,10 @@
+# Import/export pipeline rules
+
+Reference, not rules — moved verbatim from `COPILOT_CONTEXT.md` on 2026-10-11 (sections: Import/Export Pipeline Rules). Read only the part the task needs.
+
+## Import/Export Pipeline Rules
+- Every layer has paired `createX` / `importX` methods on `FolderDao`/`NoteDao`, the matching repositories, and the storage services. `createX` always stamps `createdAt`/`updatedAt` to "now"; `importX` accepts caller-supplied timestamps so a round-tripped archive preserves originals. Never widen `createX` with optional timestamp params — add an `importX` overload instead.
+- All UI access to import/export goes through `ImportExportBloc`. Pages dispatch events (`ExportNoteRequested`, `ExportFolderRequested`, `ExportItemsRequested`, `ImportFileRequested`, `ImportArchiveRequested`) and react to `ImportExportInProgress` / `ImportExportExportSuccess` / `ImportExportImportSuccess` / `ImportExportFailure`.
+- Archive format: per-folder `_folder.json` (carries name, `createdAt`, sort orders), per-note JSON/MD/TXT bodies, top-level `manifest.json` with `version` (`ImportExportService.archiveVersion`). When bumping the manifest schema, also bump `archiveVersion` and accept the previous version in `_assertSupportedManifest`. Reject newer versions with `UnsupportedArchiveVersionException` before any DB writes.
+- Temp files: every export lands under `getTemporaryDirectory()`. `shareExport` deletes the file after the share sheet returns; `sweepStaleExports` runs at app startup from `main.dart` and clears artefacts older than 24h. New export entry points must funnel through these helpers — do not invoke `SharePlus` directly from blocs/pages.
+- Calendar `.ics` export: `IcsSerializer` (floating local time, `DTSTART` moved to the first real occurrence, workdays = `BYDAY` + holiday `EXDATE`s, holidays-only/specific dates = `RDATE`s, 730-day expansion bound) → `ImportExportService.exportCalendar` → `ExportCalendarRequested` on `ImportExportBloc`. `ExportFormat` deliberately does **not** grow an `ics` variant — it would leak into every note-format picker; `.ics` rides `ExportResult.eventsExported` and the sweep list instead.

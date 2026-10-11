@@ -59,4 +59,4 @@ test/                 unit tests
 
 ## Contributing
 
-Read [CLAUDE.md](CLAUDE.md) for the architecture rules and [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) for the canonical, per-subsystem context before making changes. In short: never bypass the `Page → BLoC → Service → Repository → DAO → Drift` flow, localize every user-visible string across all three ARB files, keep persisted-data semantics and backup compatibility intact, and add a migration rather than resetting storage.
+Read [CLAUDE.md](CLAUDE.md) for the architecture rules, then the skill of the area you touch under [.claude/skills/](.claude/skills/) (its `SKILL.md` is the rulebook, its `references/` the per-subsystem facts) before making changes. In short: never bypass the `Page → BLoC → Service → Repository → DAO → Drift` flow, localize every user-visible string across all three ARB files, keep persisted-data semantics and backup compatibility intact, and add a migration rather than resetting storage.

@@ -1,72 +1,44 @@
 ---
 name: anta-context
-description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events + calendar-ui, markdown-engine, drift-migrations, l10n; ui-language for any visual work and ui-revamp for any UI rework) on top of this one when the task touches those areas.
+description: The map of the ANTA Flutter app for the areas that have no skill of their own - the folder and note browser, counters, settings pages, auto-save, backup and multi-database, import/export, navigation and launch restore, search, sync and accounts, permissions - with the entry points and the on-demand reference files that hold each area's facts. Load for any change in those areas, for a plan that spans areas, or when you need to find where something lives. CLAUDE.md already carries the architecture and the rules; this skill adds the where and the per-area invariants. Load the area skill instead (or as well) for the calendar, the markdown engine, the database, strings and UI work.
 ---
 
-# ANTA Context
+# ANTA map
 
-ANTA is an **offline-first Flutter app for tracking the things you keep coming back to** — training sessions, spending, appointments, and the notes around them. Folders and markdown notes are the substrate; the money ledger, the calendar, and counters are built on top of them.
+CLAUDE.md is in your context: the architecture flow, the non-negotiable rules, the commands, the OS you are on. This skill is the "where": the entry points per area and the reference files that hold each area's facts. Read a reference only for the part the task needs; `overview.md` holds the product framing when a decision needs it.
 
-It started as a training log, and that origin still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
+## Entry points per area
 
-The Dart package is `anta` and the app id is `com.alexzamfir.anta`. The on-disk `gym_notes` database directory (`database_manager.dart`, `database.dart`) looks like stale branding and is **not** — it holds every install's `.db` files and `device_id`. Never rename it.
+- **Folder/note browser**: `lib/pages/optimized_folder_content_page.dart` — nested folders, pagination, sorting, manual reorder, swipe actions, move history, selection bar. Its rows are the browser's content rows (`lib/widgets/content_rows.dart`, the `ui-language` skill).
+- **Note editor**: `lib/pages/optimized_note_editor_page.dart` with six page-owned controllers under `lib/controllers/` — `EditorSettingsController`, `NoteEditorPositionController`, `NoteSaveCoordinator`, `EditorEditTracker` (paste reflow, Enter list continuation, `runGuarded` for programmatic inserts), `NoteEditorStatsTracker`, `EditorRenderController` — plain classes and `ChangeNotifier`s, never a BLoC on the typing path; the wrapper's tap/Tab/ghost rules are the pure `EditorInputPolicy` in `lib/utils/`. Rendering rules: the `markdown-engine` skill.
+- **Toolbar and shortcuts**: `lib/widgets/markdown_toolbar.dart`; `markdown_settings_page.dart`, `shortcut_editor_page.dart`, `note_bar_assignment_page.dart`. Counter bindings on a shortcut: `CustomMarkdownShortcut.counters` (max 2) with `{c1}` / `{c2}` tokens expanded by `ShortcutApplier`; keep the legacy `counterId` populated when `insertType == 'counter'`.
+- **Counters**: `lib/services/counter_service.dart` (cache, debounced writes, pinning, ordering), `counter_management_page.dart`, `counter_per_note_page.dart`. Global counter values use `noteId == ''` in `counter_values`; respect `scope`, `isPinned` and ordering.
+- **Auto-save**: `lib/services/auto_save_service.dart` — debounce, interval saves, lifecycle flushes, retries; the page's `NoteSaveCoordinator` owns early create and duplicate titles.
+- **Backup**: `lib/services/backup_service.dart` — versioned JSON; every new persisted field defaults when absent so old backups keep importing.
+- **Import/export**: `lib/services/import_export_service.dart`; UI only through `ImportExportBloc`; exports through `shareExport`; `createX` stamps now, `importX` preserves; an archive version bump accepts the previous version — `references/import-export.md`.
+- **Multi-database**: `lib/services/database_manager.dart`; every DB-backed singleton follows the `DatabaseLifecycle` reset contract (the `drift-migrations` skill).
+- **Navigation and launch restore**: a persisted stack of `NavDestination`s (`lib/models/nav_destination.dart`) recorded by `NavigationHistoryObserver` / `NavigationHistoryService` off the route stamps `AppNavigator` puts in `RouteSettings.arguments`, replayed by `AppNavigator.restoreLastLocation()` from `main.dart`. Keep the existence checks — never navigate to a deleted folder or note — and never await a push during replay. The whole design: `references/navigation.md`.
+- **Keyboard inset**: `KeyboardInsetGuard` (mounted once by `MaterialApp.builder`, above the navigator) and `WindowInsetsResync`; read the inset through `MediaQuery` only — `View.of(context)` bypasses the guard — and never add a per-page stale-inset gate.
+- **Search**: SQLite FTS plus the app-level index (`lib/services/` search services); `SearchBloc` keeps a pending query so a stale debounced keystroke cannot overwrite a newer one.
+- **Settings**: `SettingsService` + `SettingsKeys`; every settings page speaks the settings kit (`SettingsSectionList` / `SettingsSectionData` / `SettingsEntry` under `SettingsAppBar`), so restyling it is one app-wide decision (`docs/ui-language-adoption-roadmap.md`), never a change to one page.
+- **Sync and accounts** (Phase 01, identity and pairing): `references/sync-and-accounts.md`; the roadmap and phase docs in `docs/cloud-sync-*.md`.
+- **Permissions** (notifications, alarms, the Android 13+ flow): `references/permissions.md`.
+- **Theme**: explicit `AppTheme` + `SurfaceRoles` (a seed cannot reproduce the approved palette); folder icons are `primary`, the mock carries one accent — guarded by `test/constants/app_theme_test.dart`.
 
-## 1. Read the canonical context first
+## Good defaults for a new tracking feature
 
-Read [COPILOT_CONTEXT.md](../../../COPILOT_CONTEXT.md) before planning or editing. It is the source of truth for product purpose, stack, architecture, feature areas, persistence rules, UX direction, and error handling. Do not restate it to the user; follow it.
+Prefer note markdown content, a counter or a setting over a new table; a new table or column is a migration plus backup and import/export coverage plus a DAO test. Every new service or bloc ships with a focused suite against fakes. A new screen speaks one of the four idioms of the `ui-language` skill.
 
-## 2. Architecture flow (never bypass layers)
+## References
 
-```
-Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift database
-```
+| File | Holds | Read when |
+| --- | --- | --- |
+| `references/overview.md` | product purpose, core workflows, the rules as first written, stack, architecture shape, error handling, good defaults | a decision needs the product framing or the original wording of a rule |
+| `references/feature-areas.md` | the browser, editor, search bar, toolbar, settings pages, counters, auto-save, backup, import/export and database manager described in detail | working inside one of those areas |
+| `references/navigation.md` | the navigation and launch-restore design (stack, observer, replay, the launch-race seal) | any change to routes, restore, the drawer or the back behaviour |
+| `references/import-export.md` | the import/export pipeline rules | archives, sharing, importing |
+| `references/sync-and-accounts.md` | identity, pairing, the sync gateway seams | anything under the sync bloc or services |
+| `references/permissions.md` | the permission system and its Android rules | notification or alarm permission work |
+| `references/docs-index.md` | one line per design record in `docs/` | looking for the record of a past decision |
 
-- BLoCs (`lib/bloc/`) stay thin: route events, manage loading/error state, delegate to services. States/events are sealed + `Equatable` where that is the local pattern.
-- Services (`lib/services/`) own workflows (note storage, counters, settings, backup, auto-save, import/export, calendar events...).
-- Repositories (`lib/repositories/`) provide cached/reactive access over DAOs — invalidate caches after create/update/delete/move/reorder.
-- DAOs (`lib/database/daos/`) own SQL/Drift, transactions, soft deletes, FTS, migrations.
-- Constants live in `lib/constants/` — use existing spacing/text/icon/settings-key/JSON-key constants, never magic values. A surface on the UI language reads the role-named metrics (`FormMetrics`, `RowMetrics`, `AppBarMetrics`) and none of the generic `AppSpacing` scale — the `ui-language` skill.
-- DI is `get_it` via `lib/core/di/injection.dart`.
-
-## 3. Non-negotiable rules
-
-- Every user-visible string goes through `AppLocalizations` — update `lib/l10n/app_en.arb`, `app_de.arb`, `app_ro.arb` together, then run `flutter gen-l10n` (see the `l10n` skill).
-- Never hand-edit generated files (`lib/database/database.g.dart`, generated localization Dart files).
-- Drift schema changes require a migration + `dart run build_runner build --delete-conflicting-outputs` (see the `drift-migrations` skill). Never reset user storage.
-- **Comments carry the why, never the what**: `///` on public members and non-obvious decisions, never narration of the next line. Tests are welcome (standing permission, 2026-08-16). No new markdown docs unless explicitly requested — a UI rework's design record is (see the `ui-revamp` skill).
-- Preserve data semantics: soft deletes, CRDT fields (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`), positions, sort preferences, pinned counters, backup format compatibility.
-- Settings go through `SettingsService` + `SettingsKeys` — never raw `SharedPreferences` keys.
-- UI: Material 3, compact, touch-friendly, stable layouts (no layout shift in editor/toolbar/counters/lists), light/dark/system themes.
-- No new state-management, persistence, or navigation patterns without a strong reason.
-
-## 4. Feature-area pointers
-
-- Folder/note browser: `lib/pages/optimized_folder_content_page.dart`.
-- Note editor: `lib/pages/optimized_note_editor_page.dart` (re_editor, toolbar, preview, auto-save — see the `markdown-engine` skill). Its state lives in six page-owned controllers under `lib/controllers/` — `EditorSettingsController` (settings bundle + font sizes through `SettingsService`), `NoteEditorPositionController` (saved-position restore join, absolute line numbers), `NoteSaveCoordinator` (auto-save, early create, duplicate titles), `EditorEditTracker` (paste reflow, Enter list continuation — recognised by an Enter's exact growth, one line break plus the copied indent, never by caret position alone — `runGuarded` for every programmatic insert, and undo/redo growth ignored via the fork's `isRestoringHistory`), `NoteEditorStatsTracker`, `EditorRenderController` — plain classes and `ChangeNotifier`s, never a BLoC on the typing path. The wrapper's tap/Tab/ghost rules are the pure `EditorInputPolicy` in `lib/utils/`, table-tested.
-- Counters: `lib/services/counter_service.dart`, `counter_management_page.dart`, `counter_per_note_page.dart`. Global counter values use `noteId == ''` in `counter_values`. Shortcut counter bindings: `CustomMarkdownShortcut.counters` (max 2) with `{c1}`/`{c2}` tokens expanded by `ShortcutApplier`.
-- Auto-save: `lib/services/auto_save_service.dart` — be careful with debounce, interval saves, lifecycle flushes, retries.
-- Backup: `lib/services/backup_service.dart` — versioned JSON; keep old backups importable when adding persisted fields.
-- Import/export: UI only through `ImportExportBloc`; `createX` stamps timestamps to now, `importX` preserves caller timestamps; archive schema bumps require bumping `ImportExportService.archiveVersion` and accepting the previous version in `_assertSupportedManifest`; exports go through `shareExport` (temp-file cleanup) — never call `SharePlus` directly from pages/blocs.
-- Multi-database: `lib/services/database_manager.dart`. Any DB-backed singleton must follow the `DatabaseLifecycle` reset contract (see the `drift-migrations` skill).
-- Last-location restore: a persisted **stack** of `NavDestination`s (`lib/models/nav_destination.dart`), recorded by `NavigationHistoryObserver`/`NavigationHistoryService` off route stamps that `AppNavigator` puts in `RouteSettings.arguments`, replayed by `AppNavigator.restoreLastLocation()` from `main.dart`. Keep existence checks — never navigate to a deleted folder/note — and never await a push during replay. See the "Navigation And Launch Restore" section of COPILOT_CONTEXT.md before changing any of it.
-- Keyboard inset: `KeyboardInsetGuard` (`lib/widgets/`, mounted once by `MaterialApp.builder` in `main.dart`, above the navigator) keeps the keyboard inset Android can leave behind after the keyboard has gone out of every page, sheet and dialog, and `WindowInsetsResync` has the activity repair the platform value. Read the inset through `MediaQuery` only — `View.of(context)` bypasses the guard — and do not add a per-page stale-inset gate. See "UI And UX Direction" in COPILOT_CONTEXT.md.
-- Local editor fork: `packages/re_editor/` — preserve its perf optimizations (2-slot `asString` cache, bounded LRU paragraph cache, binary-search lookups, 50 ms highlight debounce, `cloneShallowDirty()` contract, capped undo history). Single-line edits from app code use `CodeLines.replaceLine` / `removeLine`, never a `CodeLines.of([...])` rebuild.
-
-## 5. Validation (see the `verify` skill for the full gate)
-
-Run only what the change requires:
-
-| Change type | Commands |
-| --- | --- |
-| UI-only Dart change | `dart analyze lib` |
-| ARB / l10n change | `flutter gen-l10n`, then `dart analyze lib` |
-| Drift table / DAO / migration | `dart run build_runner build --delete-conflicting-outputs`, then `dart analyze lib` |
-| Code covered by `test/` (e.g. money syntax) | `flutter test` (single file: `flutter test <path>`; single case: `--plain-name "<substring>"`) |
-| Manual run | `flutter run` |
-| Any UI rework | the `ui-revamp` gate after every slice: whole suite, device pass, independent review |
-
-Release pipeline: `tool\release\release.cmd build --arm64`, `... install`, `... doctor`, `... gen`, `... clean` (`./tool/release/release` on macOS). Release builds are refused without the gitignored `android/key.properties` + `android/app/release-keystore.jks`.
-
-## 6. When to ask vs act
-
-Act without asking when the request is concrete and matches existing patterns. Ask only when a change would break persisted-data backward compatibility, change backup format semantics, or introduce a new architectural pattern.
+The calendar's facts live under `calendar-events/references/`, the markdown engine's under `markdown-engine/references/`, persistence under `drift-migrations/references/`, the QA harness under `qa-emulator/references/`, the UI language under `ui-language/references/`.
