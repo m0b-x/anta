@@ -5150,6 +5150,35 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String eventAlertCountdown(String kind, String duration) {
+    return '$kind în $duration';
+  }
+
+  @override
+  String eventAlertCountdownDays(int count, String kind) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$kind în $count de zile',
+      few: '$kind în $count zile',
+      one: '$kind într-o zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertCountdownDaysHours(int days, String kind, int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$kind în $days de zile și $hours h',
+      few: '$kind în $days zile și $hours h',
+      one: '$kind într-o zi și $hours h',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get eventRemovedAfterAlert => 'se elimină după ce sună';
 
   @override

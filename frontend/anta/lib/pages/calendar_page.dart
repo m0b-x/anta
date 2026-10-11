@@ -13,12 +13,14 @@ import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
 import '../controllers/calendar_export_controller.dart';
+import '../constants/app_constants.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_weekend.dart';
+import '../constants/event_alerts.dart';
 import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/fasting_calendar.dart';
@@ -53,6 +55,7 @@ import '../services/note_storage_service.dart';
 import '../services/permission_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
+import '../utils/alert_countdown.dart';
 import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
 import '../utils/custom_snackbar.dart';
@@ -81,6 +84,7 @@ import '../widgets/event_template_picker_sheet.dart';
 import '../widgets/quick_alarm_sheet.dart';
 import '../widgets/keyboard_coupled_size.dart';
 import '../widgets/month_year_picker_sheet.dart';
+import '../widgets/overlay_snackbar.dart';
 
 /// Days in the grid window [gridDaysForMonth] returns — a fixed six-week
 /// span, always a superset of what [TableCalendar] actually shows for one
@@ -1744,6 +1748,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final bloc = context.read<CalendarBloc>();
     switch (result) {
       case EventEditorSaved(:final event, :final alerts):
+        // Read before the dispatch: once the write lands, the facade answers
+        // with the alerts being saved.
+        final previousAlerts = initialEvent == null
+            ? const <EventAlert>[]
+            : EventAlerts.alertsFor(initialEvent.id);
         if (initialEvent == null) {
           bloc.add(CreateCalendarEvent(event: event, alerts: alerts));
         } else {
@@ -1752,9 +1761,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         // The event write lands first so a day override can never reference an
         // event the bloc has not seen yet.
         _dispatchOccurrenceResult(bloc, event.id, result);
-        // A user action: the alert is already saved, so a refusal costs
-        // nothing but the ring.
-        unawaited(_checkAlertPermissions(context, alerts));
+        unawaited(
+          _afterAlertsSaved(
+            context,
+            result,
+            previousEvent: initialEvent,
+            previousAlerts: previousAlerts,
+          ),
+        );
       case EventEditorDeleted(:final id):
         bloc.add(DeleteCalendarEvent(eventId: id));
       // Nothing was decided, so there is nothing to write.
@@ -1764,8 +1778,66 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     return result;
   }
 
+  /// What a save that carried alerts is followed by: the permission check,
+  /// then — unless that one had to say an alert cannot ring — how long until
+  /// the next one ([AlertCountdown]), the confirmation a phone's own clock
+  /// gives when an alarm is set.
+  ///
+  /// A user action: the alerts are already saved, so a refusal costs nothing
+  /// but the ring. One message at most, and the blocked one wins — a
+  /// countdown to an alert that will not sound is the wrong thing to read.
+  ///
+  /// The page's own bar while the page is what is on screen, where it takes
+  /// turns with every other notice raised here. While one of the page's
+  /// sheets holds the slot — a save made from the detail sheet reopens that
+  /// sheet at once — a `Scaffold`'s bar is drawn under it, and the overlay is
+  /// the one place the line can be read.
+  Future<void> _afterAlertsSaved(
+    BuildContext context,
+    EventEditorSaved saved, {
+    required CalendarEvent? previousEvent,
+    required List<EventAlert> previousAlerts,
+  }) async {
+    final alerts = saved.alerts;
+    if (alerts == null || alerts.isEmpty) return;
+    if (await _checkAlertPermissions(context, alerts)) return;
+    try {
+      final settings = await SettingsService.getInstance();
+      final defaults = await settings.getAlertSettings();
+      if (!context.mounted) return;
+      final now = DateTime.now();
+      final next = AlertCountdown.afterSave(
+        event: saved.event,
+        alerts: alerts,
+        defaults: defaults,
+        now: now,
+        previousEvent: previousEvent,
+        previousAlerts: previousAlerts,
+        skippedDays: saved.skippedDays,
+      );
+      if (next == null) return;
+      final message = AlertCountdown.message(
+        next,
+        now,
+        AppLocalizations.of(context)!,
+      );
+      if (_sheetGuard.isOpen) {
+        OverlaySnackbar.show(
+          context,
+          message,
+          duration: AppConstants.snackbarDuration,
+        );
+      } else {
+        CustomSnackbar.show(context, message);
+      }
+    } catch (e) {
+      debugPrint('[CalendarPage] alert countdown skipped: $e');
+    }
+  }
+
   /// Raises the system notification prompt the **first** time an alert is
-  /// saved (§6.1), and says so every time an alert is saved that cannot ring.
+  /// saved (§6.1), and says so every time an alert is saved that cannot ring —
+  /// which is what it answers: whether it had to.
   ///
   /// The prompt is contextual and latched: it follows a user action, the alert
   /// is already persisted so a refusal costs nothing but the ring, and a
@@ -1774,13 +1846,12 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// latched, because an alert saved without an essential permission is an
   /// alert that silently never fires. Everything here is best-effort; a build
   /// with no permission service simply never asks.
-  Future<void> _checkAlertPermissions(
+  Future<bool> _checkAlertPermissions(
     BuildContext context,
-    List<EventAlert>? alerts,
+    List<EventAlert> alerts,
   ) async {
-    if (alerts == null || alerts.isEmpty) return;
     try {
-      if (!GetIt.I.isRegistered<PermissionService>()) return;
+      if (!GetIt.I.isRegistered<PermissionService>()) return false;
       final permissions = GetIt.I<PermissionService>();
       final settings = await SettingsService.getInstance();
       var snapshot = await permissions.refresh();
@@ -1792,7 +1863,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         }
         await settings.setAlertNotificationsAsked(true);
       }
-      if (!snapshot.needsAttention || !context.mounted) return;
+      if (!snapshot.needsAttention) return false;
+      if (!context.mounted) return true;
       final l10n = AppLocalizations.of(context)!;
       CustomSnackbar.showWithAction(
         context,
@@ -1802,8 +1874,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           if (context.mounted) AppNavigator.toPermissions(context);
         },
       );
+      return true;
     } catch (e) {
       debugPrint('[CalendarPage] alert permission check skipped: $e');
+      return false;
     }
   }
 

@@ -5057,6 +5057,33 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String eventAlertCountdown(String kind, String duration) {
+    return '$kind in $duration';
+  }
+
+  @override
+  String eventAlertCountdownDays(int count, String kind) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$kind in $count days',
+      one: '$kind in 1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertCountdownDaysHours(int days, String kind, int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$kind in $days days $hours h',
+      one: '$kind in 1 day $hours h',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get eventRemovedAfterAlert => 'removed after it rings';
 
   @override

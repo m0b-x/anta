@@ -6,7 +6,6 @@
 # own files on a fresh clone of gdelataillade/alarm at the fork's base tag,
 # one commit per patch plus a changelog line, pushes the branch to a fork
 # under the GitHub account `gh` is logged in as, and opens the PR from there.
-#
 # Before opening the PR: the fork carries nine patches now
 # (packages/alarm/CHANGELOG.md), and the first commit here is no longer
 # Patch 1 alone. It copies the fork's AlarmService.kt whole, for the

@@ -8638,6 +8638,24 @@ abstract class AppLocalizations {
   /// **'Next {time}'**
   String eventAlertNext(String time);
 
+  /// Snackbar after saving an event whose alerts changed: how long until the next one, under a day away
+  ///
+  /// In en, this message translates to:
+  /// **'{kind} in {duration}'**
+  String eventAlertCountdown(String kind, String duration);
+
+  /// The same snackbar when the next alert is whole days away
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{{kind} in 1 day} other{{kind} in {count} days}}'**
+  String eventAlertCountdownDays(int count, String kind);
+
+  /// The same snackbar when the next alert is days and hours away
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{{kind} in 1 day {hours} h} other{{kind} in {days} days {hours} h}}'**
+  String eventAlertCountdownDaysHours(int days, String kind, int hours);
+
   /// Subtitle segment on a row whose event deletes itself once acknowledged
   ///
   /// In en, this message translates to:

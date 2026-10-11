@@ -2057,6 +2057,38 @@ and every save made while something essential is missing says so in a snackbar
 with a Review action. The state is read live and fixed on the Permissions page
 (drawer → App); Calendar settings keeps one row that links there.
 
+**The countdown after a save** (2026-10-11). When the editor's Save changed
+what the phone does next, the calendar says how long until the next alert —
+"Alarm in 2 h 50 min", "Reminder in 3 days 4 h" — the confirmation a phone's
+own clock gives when an alarm is set. `_afterAlertsSaved` in
+`calendar_page.dart` runs the permission check first and raises **one message
+at most**: the blocked notice wins, since a countdown to an alert that will not
+sound is the wrong thing to read. Everything it decides is the pure
+`AlertCountdown` (`lib/utils/alert_countdown.dart`), over `AlertPlanner`:
+
+- **Which fire**: the soonest of the event's enabled alerts, looked for 366
+  days ahead (`lookAheadDays`) rather than the scheduler's 30 — the question is
+  about the event, not about what is armed today. A day the same edit cancelled
+  is passed over from the result's `skippedDays`, since the skip writes are
+  dispatched and the facade may not carry them yet.
+- **Whether to speak**: the alert set is not the one the event was opened with,
+  or the next fire is at another instant (the time, date or rule moved under
+  untouched alerts). A rename is silent; so is an event with nothing ahead.
+- **The wording**: the next alert's tier, then the wait — under a day rounded
+  **up** to the minute (so it agrees with clock subtraction and never reads
+  zero) through `EventTimeFormatter.formatDuration`, from a day on in days and
+  hours to the nearest hour (`eventAlertCountdown`, `…Days`, `…DaysHours`).
+
+Where it is raised follows `SheetGuard.isOpen` at the moment it is shown. With
+no sheet of the page's up it is the page's own bar (`CustomSnackbar.show`,
+close icon included), so it takes turns with every other notice raised there.
+A save made from the detail sheet reopens that sheet at once, over anything the
+page's `Scaffold` shows, and the trip holds the slot throughout — there it is
+an `OverlaySnackbar`. The quick alarm keeps its own "set for {time} · Undo"
+line. Guards:
+`test/utils/alert_countdown_test.dart`,
+`test/widgets/calendar_alert_countdown_test.dart`.
+
 **The Alerts hub** (`lib/pages/alerts_page.dart`, drawer row under CALENDAR,
 `NavDestinationKind.alerts`) is a **view over events' alerts, never a list of
 its own**: nothing is created there and every row leads back to its event (a

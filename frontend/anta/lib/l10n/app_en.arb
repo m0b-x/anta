@@ -6385,6 +6385,31 @@
       }
     }
   },
+  "eventAlertCountdown": "{kind} in {duration}",
+  "@eventAlertCountdown": {
+    "description": "Snackbar after saving an event whose alerts changed: how long until the next one, under a day away",
+    "placeholders": {
+      "kind": { "type": "String", "example": "Alarm" },
+      "duration": { "type": "String", "example": "2 h 50 min" }
+    }
+  },
+  "eventAlertCountdownDays": "{count, plural, one{{kind} in 1 day} other{{kind} in {count} days}}",
+  "@eventAlertCountdownDays": {
+    "description": "The same snackbar when the next alert is whole days away",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" },
+      "kind": { "type": "String", "example": "Reminder" }
+    }
+  },
+  "eventAlertCountdownDaysHours": "{days, plural, one{{kind} in 1 day {hours} h} other{{kind} in {days} days {hours} h}}",
+  "@eventAlertCountdownDaysHours": {
+    "description": "The same snackbar when the next alert is days and hours away",
+    "placeholders": {
+      "days": { "type": "int", "example": "3" },
+      "kind": { "type": "String", "example": "Reminder" },
+      "hours": { "type": "int", "example": "4" }
+    }
+  },
   "eventRemovedAfterAlert": "removed after it rings",
   "@eventRemovedAfterAlert": {
     "description": "Subtitle segment on a row whose event deletes itself once acknowledged"
