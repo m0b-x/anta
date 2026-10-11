@@ -3724,11 +3724,11 @@ abstract class AppLocalizations {
   /// **'Data Deleted'**
   String get dataDeleted;
 
-  /// Hint that restart may be needed
+  /// Message after data deletion requiring restart
   ///
   /// In en, this message translates to:
-  /// **'Restart may be required for full effect'**
-  String get restartRequired;
+  /// **'All data has been deleted. Please restart the app to continue.'**
+  String get restartRequiredAfterDeletion;
 
   /// Button to exit the app
   ///
@@ -4282,6 +4282,12 @@ abstract class AppLocalizations {
   /// **'Database deleted'**
   String get databaseDeleted;
 
+  /// Message after switching or importing a database, asking for an app restart
+  ///
+  /// In en, this message translates to:
+  /// **'Please restart the app to use the new database.'**
+  String get restartRequiredNewDatabase;
+
   /// Placeholder for note search field
   ///
   /// In en, this message translates to:
@@ -4533,6 +4539,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'System'**
   String get systemTheme;
+
+  /// Title of the dialog that asks the user to restart the app
+  ///
+  /// In en, this message translates to:
+  /// **'Restart required'**
+  String get restartRequiredTitle;
 
   /// Search settings section title
   ///

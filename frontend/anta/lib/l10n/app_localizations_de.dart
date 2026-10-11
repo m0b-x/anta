@@ -2167,8 +2167,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get dataDeleted => 'Daten gelöscht';
 
   @override
-  String get restartRequired =>
-      'Neustart kann für volle Wirkung erforderlich sein';
+  String get restartRequiredAfterDeletion =>
+      'Alle Daten wurden gelöscht. Bitte starten Sie die App neu, um fortzufahren.';
 
   @override
   String get exitApp => 'App beenden';
@@ -2481,6 +2481,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get databaseDeleted => 'Datenbank gelöscht';
 
   @override
+  String get restartRequiredNewDatabase =>
+      'Bitte starten Sie die App neu, um die neue Datenbank zu verwenden.';
+
+  @override
   String get findInNote => 'In Notiz suchen';
 
   @override
@@ -2631,6 +2635,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get systemTheme => 'System';
+
+  @override
+  String get restartRequiredTitle => 'Neustart erforderlich';
 
   @override
   String get searchSection => 'Suche';

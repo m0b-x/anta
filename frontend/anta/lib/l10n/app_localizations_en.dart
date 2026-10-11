@@ -2156,7 +2156,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dataDeleted => 'Data Deleted';
 
   @override
-  String get restartRequired => 'Restart may be required for full effect';
+  String get restartRequiredAfterDeletion =>
+      'All data has been deleted. Please restart the app to continue.';
 
   @override
   String get exitApp => 'Exit App';
@@ -2467,6 +2468,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get databaseDeleted => 'Database deleted';
 
   @override
+  String get restartRequiredNewDatabase =>
+      'Please restart the app to use the new database.';
+
+  @override
   String get findInNote => 'Find in note';
 
   @override
@@ -2617,6 +2622,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get systemTheme => 'System';
+
+  @override
+  String get restartRequiredTitle => 'Restart required';
 
   @override
   String get searchSection => 'Search';

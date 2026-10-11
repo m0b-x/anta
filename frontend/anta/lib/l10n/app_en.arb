@@ -2639,8 +2639,8 @@
   "@dataDeleted": {
     "description": "Title for data deleted success dialog"
   },
-  "restartRequired": "All data has been deleted. Please restart the app to continue.",
-  "@restartRequired": {
+  "restartRequiredAfterDeletion": "All data has been deleted. Please restart the app to continue.",
+  "@restartRequiredAfterDeletion": {
     "description": "Message after data deletion requiring restart"
   },
   "exitApp": "Exit App",
@@ -2836,10 +2836,6 @@
   "@resetToDefaultsConfirm": {
     "description": "Reset to defaults confirmation"
   },
-  "reset": "Reset",
-  "@reset": {
-    "description": "Reset button text"
-  },
   "settingsReset": "Settings have been reset to defaults",
   "@settingsReset": {
     "description": "Settings reset confirmation message"
@@ -3034,9 +3030,9 @@
   "@databaseDeleted": {
     "description": "Success message after deleting database"
   },
-  "restartRequired": "Please restart the app to use the new database.",
-  "@restartRequired": {
-    "description": "Message indicating app restart needed"
+  "restartRequiredNewDatabase": "Please restart the app to use the new database.",
+  "@restartRequiredNewDatabase": {
+    "description": "Message after switching or importing a database, asking for an app restart"
   },
   "findInNote": "Find in note",
   "@findInNote": {
@@ -3250,9 +3246,9 @@
   "@systemTheme": {
     "description": "System theme option"
   },
-  "restartRequired": "Restart may be required for full effect",
-  "@restartRequired": {
-    "description": "Hint that restart may be needed"
+  "restartRequiredTitle": "Restart required",
+  "@restartRequiredTitle": {
+    "description": "Title of the dialog that asks the user to restart the app"
   },
   "searchSection": "Search",
   "@searchSection": {

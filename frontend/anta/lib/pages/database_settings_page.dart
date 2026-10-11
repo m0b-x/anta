@@ -803,8 +803,8 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       // Show restart dialog
       await AppDialogs.action(
         this.context,
-        title: AppLocalizations.of(this.context)!.restartRequired,
-        content: AppLocalizations.of(this.context)!.restartRequired,
+        title: AppLocalizations.of(this.context)!.restartRequiredTitle,
+        content: AppLocalizations.of(this.context)!.restartRequiredNewDatabase,
         actionText: AppLocalizations.of(this.context)!.exitApp,
         icon: Icons.restart_alt_rounded,
         onAction: () => SystemNavigator.pop(),
@@ -1067,7 +1067,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       await AppDialogs.action(
         context,
         title: AppLocalizations.of(context)!.dataDeleted,
-        content: AppLocalizations.of(context)!.restartRequired,
+        content: AppLocalizations.of(context)!.restartRequiredAfterDeletion,
         actionText: AppLocalizations.of(context)!.exitApp,
         icon: Icons.check_circle_rounded,
         iconColor: Colors.green,

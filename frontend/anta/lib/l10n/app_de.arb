@@ -1256,10 +1256,6 @@
   "@resetToDefaultsConfirm": {
     "description": "Reset to defaults confirmation"
   },
-  "reset": "Zurücksetzen",
-  "@reset": {
-    "description": "Reset button text"
-  },
   "settingsReset": "Einstellungen wurden auf Standard zurückgesetzt",
   "@settingsReset": {
     "description": "Settings reset confirmation message"
@@ -1388,8 +1384,8 @@
   "@dataDeleted": {
     "description": "Title for data deleted success dialog"
   },
-  "restartRequired": "Alle Daten wurden gelöscht. Bitte starten Sie die App neu, um fortzufahren.",
-  "@restartRequired": {
+  "restartRequiredAfterDeletion": "Alle Daten wurden gelöscht. Bitte starten Sie die App neu, um fortzufahren.",
+  "@restartRequiredAfterDeletion": {
     "description": "Message after data deletion requiring restart"
   },
   "exitApp": "App beenden",
@@ -1630,9 +1626,9 @@
   "@databaseDeleted": {
     "description": "Success message after deleting database"
   },
-  "restartRequired": "Bitte starten Sie die App neu, um die neue Datenbank zu verwenden.",
-  "@restartRequired": {
-    "description": "Message indicating app restart needed"
+  "restartRequiredNewDatabase": "Bitte starten Sie die App neu, um die neue Datenbank zu verwenden.",
+  "@restartRequiredNewDatabase": {
+    "description": "Message after switching or importing a database, asking for an app restart"
   },
   "findInNote": "In Notiz suchen",
   "clearSearch": "Suche löschen",
@@ -1768,9 +1764,9 @@
   "@systemTheme": {
     "description": "System theme option"
   },
-  "restartRequired": "Neustart kann für volle Wirkung erforderlich sein",
-  "@restartRequired": {
-    "description": "Hint that restart may be needed"
+  "restartRequiredTitle": "Neustart erforderlich",
+  "@restartRequiredTitle": {
+    "description": "Title of the dialog that asks the user to restart the app"
   },
   "searchSection": "Suche",
   "@searchSection": {

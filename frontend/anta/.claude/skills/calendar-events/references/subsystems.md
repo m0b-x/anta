@@ -1,9 +1,15 @@
 # Calendar subsystems
 
-Reference, not rules — moved verbatim from the calendar-events SKILL.md on 2026-10-11. Read only the part the task needs.
+Reference, not rules — moved verbatim from the calendar-events SKILL.md on 2026-10-11, in two cuts. The first moved whole anatomy lines; the second (the same day, the owner approving new wording) rewrote each rule as a compact SKILL.md line and moved the original lines here verbatim, with the whys, history and examples they carried. Each section bears the SKILL.md heading its lines came from; the SKILL.md line is the rule to follow, the line here its full wording. Read only the section the task needs. The schema rules' full lines are in `schema-lineage.md`.
 
-Contents — grouped under the SKILL.md section each line came from (the rules of that section stayed there); each entry is the verbatim start of a line below (bullet marker dropped), so `grep -n -F` finds it:
+Contents — the sections in SKILL.md order. Each holds "Rule lines in full" (the second cut) and, where the first cut moved any, "Anatomy"; each anatomy entry below is the verbatim start of a line (bullet marker dropped), so `grep -n -F` finds it:
 
+- Hardest constraints
+- Reading map
+- Bloc, caches, revisions
+- Services and facades
+- Settings
+- Grid and cells
 - Categories and icons
   - `CategoryEditorSheet.show({initial, initialName}) → CalendarCategory?` writes inside the sheet before the pop…
   - Colours: `ColorSwatchPicker` is the one colour row…
@@ -12,6 +18,8 @@ Contents — grouped under the SKILL.md section each line came from (the rules o
   - Presets (v35) hold `CalendarGridFilters.encode()` in one `filters` column…
 - Holidays and fasting
   - `FastingScheduleSheet`, `FastingStyleSheet` and `RemovedHolidaysSheet` apply **live**…
+- Recurrence, dates, times
+- Presence, skips, occurrences
 - Panel, agenda, FAB
   - `CalendarAddFab`: extended and day-aware…
   - `EventDetailSheet` is the editor's **read-only twin**…
@@ -29,33 +37,190 @@ Contents — grouped under the SKILL.md section each line came from (the rules o
   - Type is `AlertTypeRow`…
   - When is one `FormMenuRow` over the presets…
   - `QuickAlarmSheet` is a pure form over `lib/utils/quick_alarm.dart`…
+- Alerts hub, navigation, export
+- Change-set recipes
+- File map (each file's role)
+- References (the old table, with what each file holds)
+
+## Hardest constraints
+
+Rule lines in full:
+
+- **The eight calendar services are lazy**: `await X.getInstance()`, never `GetIt.I<>` (GetIt would hand back an instance bound to a closed database after a switch). `CalendarBloc._onLoad` resolves all eight in one wrapped `Future.wait` and **never emits `CalendarPageLoaded` before they resolve** — the facades are read synchronously from render paths and `occursOn`, and an unconfigured read is silent. A new surface reading a facade lives under `CalendarPageLoaded` or awaits the owner itself (the FAB is inert while `selectedDay` is null for this reason).
+- `TableCalendar.eventLoader` is `CalendarBloc.eventsForDay`: memoized per day (cap 512), pure O(1). Never dispatch, call a service or expand a recurrence inside it.
+- A handler that changes events or filters calls `_invalidateDayCache()` **in the same synchronous turn as its emit, after the last await**; never from day / focus / format handlers. Every async handler re-reads `state` after its last await before emitting. A re-load copies the current `CalendarPageLoaded` (`selectedDay`, `focusedDay`, `format`, `selectionSource`) and bumps `membershipRevision`, so a value-equal state cannot be dropped by `Equatable` and the grid never snaps to today.
+
+## Reading map
+
+Rule lines in full:
+
+**This skill is the rulebook. The story is in the docs.** Read the section of [docs/calendar-events-feature.md](../../../docs/calendar-events-feature.md) that covers what you touch — never the whole file (48k words). Its §1–§13 describe the schema-v14 baseline plus alerts; everything since is an addendum, headed by a date or a schema version. Map:
+
+Visual rules (rows, sheet chrome, metrics, tests every sheet ships with) live in the `ui-language` skill; the calendar's own widgets, its ids and its device pass in `calendar-ui`. A rework of any surface follows `ui-revamp`.
+
+What is fact rather than rule — each surface's anatomy, the schema chain, the dated log of calendar behaviour, the palette, the alarm fork's patches — lives in `references/` (the table at the end); a section that moved lines there opens with a pointer naming them. Open only the part the task needs.
+
+## Bloc, caches, revisions
+
+Rule lines in full:
+
+- `_syncGenerations(current)` runs at the top of **both** `eventsForDay` and `monthNetFor`: it folds `PublicHolidays.revision` (bumped in `configure` and `resetCache`) as a **generation** (drops the cache, never widens the key), and also drops the memos at the date rollover while `hideEnded` is on and at a ledger revision change while `moneyOnly` is on.
+- `_didInitialLoad` means "first load only"; every later dispatch re-reads. `CalendarPageLoading` exists and is **never emitted**.
+- `monthNetFor` is memoized and paired with `NoteMoneyLedgerService.revision`; never inline that scan into `headerTitleBuilder`. Note content is batched through `NoteRepository.loadContentForNotes`: an absent key means unreadable, `''` means empty — never `?? ''`.
+- Three revisions: `occurrenceRevision` (descriptions and presence *rendering*; the agenda forwards it and never rescans on it), `presenceRevision` (bumped beside it by the presence handler — presence is a grid input through `DayBarsResolver` / `CellTintResolver`), `membershipRevision` (skips, reloads; the agenda rescans). A presence **default** flip bumps nothing and rides `allEvents` identity, so never value-compare that list.
+- `sameGridInputs` = every prop except `occurrenceRevision`; `samePanelInputs` = every input except `focusedDay` / `format`; `selectionSource` is in `props` and in neither. Both compare `allEvents` / `filters` by identity, sound only because every handler builds a fresh instance. A narrowed `buildWhen` makes a captured state stale — callbacks read `context.read<CalendarBloc>().state` at press time.
+- `CalendarEventService.externalRevision` is bumped in exactly two places, `importData()` and `reset()`; `isStale` compares it, `_CalendarViewState` re-dispatches on `didChangeDependencies` / `didPopNext`, and `_openSettings` dispatches unconditionally. Sheets are `PopupRoute`s, so the `RouteObserver` never fires for them.
+
+## Services and facades
+
+Rule lines in full:
+
+- Never mutate `public_holidays` outside `PublicHolidayService`; the static `PublicHolidays` is republished only by `_load()`.
+- Every `CategoryService` mutation is serialized on one chain whose tail starts **`null`** (a completed future in a field initializer never advances under `FakeAsync`). `updateCategory` leaves `sort_order`, `is_built_in`, `is_hidden` absent; `setHidden` writes only the flag. Categories have **no CRDT columns** (cloud roadmap); `reorder(ids)` is one batch writing dense `0..N-1`.
+- `FilterPresetService` publishes no facade (consumers await it), caps at 50, `create` refuses past it. The occurrence-descriptions service copies `PublicHolidayService`: the flag is read at `getInstance()` and published with the data; `reset()` clears singleton and facade.
+- `FastingCalendar.resetConfiguration()` belongs to `SettingsService.reset`, never to a direct `DatabaseLifecycle` registration. Event counts per category come from `CalendarEventService.countByCategory()` (one `GROUP BY`).
+
+## Settings
+
+Rule lines in full:
+
+- `CalendarPage._loadSettings` is **one statement** (`getCalendarPageSettings()`); every setting has a pure decoder shared by its single-row getter and the bulk path; add keys to `_calendarAppearanceKeys` / `_calendarPageKeys`; read through `UserSettingsDao.getValuesFor(keys)`, never `getAllSettings()`. The absent-vs-empty distinction stays alive in `getFastingSchedule` and `getFastingAppearance`.
+- `CalendarAppearance` and the colour palette are **passed down from `CalendarPage`**, never re-read in a leaf. A new calendar setting: `CalendarSettingsPage` row (mirror `_buildSectionCard` / `_buildSliderTile`) + `SettingsService` getter/setter + `SettingsKeys` + reset-to-defaults; count sliders bare, time sliders with `s`.
+- `CalendarAppearance` bundles today style, marker style, week start, the optional accent (`accentOr`), weekend highlight, week numbers, `maxDayBars` and `showRecurrenceLabels` (threaded page → panel → `EventSummaryProvider` / `AgendaListView`); its enums parse with forward-compatible `fromName` fallbacks; weekday labels come from `intl` anchored on 2024-01-01, never an ARB matrix.
+
+## Grid and cells
+
+Rule lines in full:
+
+- Day cells are `CalendarDayCell` + `CalendarDayBars`; `rowHeight` is `CalendarDayCell.rowHeightFor(stripHeight(maxBars, style))`, the one formula the page, the settings preview and the day list's mini grid read; never table_calendar's whole-cell decorations. A new marker style extends `CalendarDayBars` **and** `stripHeight`. The settings preview renders the same widgets. The day number is one line fitted into the static chip (`FittedBox(scaleDown)`), never wrapped — at 200 % two digits outgrow the 34 px chip and a wrapping `Text` lost the second one (Tier 3 D7).
+- Outside-month days fade **through colours** (alpha multiplied against `CalendarDayCell.outsideAlpha`), with one composite `Opacity` on the `isSelected || filledToday` branch; `_onAccent` estimates brightness on the un-faded accent.
+- Marker contrast is a **ratio** (`_minContrastRatio` 1.6, WCAG), the outline 1 px `strokeAlignCenter`, `computeLuminance()` memoized (bounded 64).
+- Tints go through `CellTintProvider` / `CellTintResolver` under the `DayBarProvider` purity contract (static probes only, 42 cells per rebuild): one wash per day, alpha monotonic in priority, the runner-up as the edge stripe under `both`.
+- The left edge is **one lane**: `edgeLaneLeft` / `edgeLaneWidth` / `edgeLaneInset` must equal the stripe's geometry; exactly one of cell and rail paints the runner-up (`line` style hands it to `CalendarDayRail.baseColor` **unfaded**); the base takes an equal half (`baseShare` 0.5), never a slot; `dayRailBasePosition` moves the split; `railLaneHeight` is the one lane-height definition; `dot` is untouched by all of it.
+- The `strong` fasting style reaches the cell through `cellStyleForUtcDay`, gated on `showFasting` like the providers.
+- Weekday labels (`daysOfWeekHeight` / `daysOfWeekStyle`) come from `CalendarDaysOfWeek` (`lib/utils/calendar_days_of_week.dart`) on the page, the Dates sheet and the day list's mini grid (`AgendaMonthGrid`, shared with the overview) alike — the package's default style has no size and clipped at 200 % (2026-09-27); any new `TableCalendar` takes the same helper.
 
 ## Categories and icons
+
+Rule lines in full:
+
+Before changing `CategoryEditorSheet` (its `show` contract, its rows) or a colour surface (the swatch strip's long-press menu, `ColorPaletteSheet`, `ColorPickerSheet`), read its line in `references/subsystems.md` § Categories and icons; the palette itself is `references/colour-palette.md`.
+
+- Categories are data (v15): `categoryId` is a `String`; icon via `CalendarCategories.iconFor(event)`, tint via `resolve(id).color`; unknown ids fall back to `other`; built-ins keep the old enum names as ids and cannot be deleted; `deleteCategory` reassigns in a transaction.
+- **Hiding is archiving**: `all` keeps every category, `visible` is built beside it; any surface holding a selection renders `visiblePlus(keep)` (identity-stable when nothing hidden is kept); unhiding restores the old position. `is_hidden` ≠ `CalendarGridFilters.hiddenCategoryIds`.
+- `CalendarIcons.groups` is the one source (lookup, group map and folded search index derived once); keywords are English and unlocalized; **icon keys are additive** (retire by dropping from `groups`, keep the key resolvable); letters and digits carry no `fontFamily` (tree-shake guard, release-only failure); `isExactTerm` outranks every `FuzzyRank` tier; "Recently used" is a picker section, not a group (`IconGroupId` is exactly the groups `groups` declares — a test enforces it); every tile has a `Tooltip`.
+- One ranker, `lib/utils/category_search.dart`, serves every searchable category list (sorted explicitly on `(band, sortOrder, id)`). `CalendarCategoriesPage` is service-direct, owns the nearest `Scrollable`, makes reorder and filtering mutually exclusive, renders an empty query in local order, shares the reorder chrome from `settings_reorder.dart`, and wraps menu-fired writes in `_guarded`.
+- `CategoryPickerSheet` is **the** choosing surface: `pickSingle(selectedId:) → String?`, `pickMulti(selected:) → Set<String>?`, over `visiblePlus(initialSelection)`, searchable above 12 rows, never autofocused, no match offers to create what was typed. Since 2026-09-27 a sub-sheet of the language (`ui-language`): ✕ · title · Done in multi mode, pick-on-tap with no Done in single mode; a `FormSearchRow` first, the `Select all` / `Select none` action rows disabled where they would be no-ops (over the rows listed), one `FormCheckRow` per category wearing its `EventAvatar` ("Hidden" as the caption of an archived one), `Create category` last; a no-match query keeps the field and shows the caption under the group. `pickMulti` is semantics-free and **never collapses empty** (the agenda's empty allowlist = all; the filter sheet's empty denylist = show all); each caller owns both halves of its inversion.
+- Only the overview page still renders `CategoryFilterTile` (until Tier 4 of the language adoption deletes it). Both filter sheets are one picker row whatever the count, reading the selection back through `CalendarFilterSummary.namesReadBack` (two names, then "+N more" — the tile's rule, hoisted); the agenda's row opens the picker with its allowlist inversion (empty opens checked, an all-offered answer collapses to empty). `_pickCategories` re-reads the catalog **after** the picker returns and inverts the answer over `visiblePlus(_hidden)`; an answer ticking **every visible row** empties the denylist outright, archived denials included (D22) — an empty picker's Done is not such an answer. A searchable surface keeps its field open while a query is live.
+
+Anatomy:
 
 - `CategoryEditorSheet.show({initial, initialName}) → CalendarCategory?` writes inside the sheet before the pop. Since Tier 3 (2026-10-03, `docs/calendar-language-tier-3-roadmap.md`) an unguarded sub-sheet — ✕ · title · Save as a `FormHeaderTextButton` — over one group: a custom name in a `FormTitleRow` (`kCategoryNameMaxLength` / `kCategoryNameCounterFrom`, `lib/constants/category_name.dart`) whose `warning:` line is the soft duplicate guard (never blocks Save), a built-in's localized name as a read row (its stored name is never edited), the Icon row (`_blur()` first), the swatch strip with no default dot. No hide and no delete here: delete is the categories page's row menu.
 - Colours: `ColorSwatchPicker` is the one colour row — in a sheet always inside `FormSwatchRow` at `FormMetrics.swatchSpacing` with `collapsible: false` (one geometry in every sheet; only the appearance page keeps its own spacing and collapse). A long press on a custom swatch opens a popup of `FormMenuItemRow`s at the dot (Edit · Delete · Manage, the preset ⋮'s floor) whose delete is **confirmed**; the strip drops focus before every sheet and menu and raises its refusals through `OverlaySnackbar` at `AppConstants.snackbarErrorDuration`, as the palette does. `ColorPaletteSheet` applies live: the custom colours as `FormRowShell` rows (`FormPickerRow(handle:, leading:)`, delete the second target, a tap recolours, a long press lifts) in one `SliverReorderableList` of a shrink-wrapped `CustomScrollView`, "n of 24" on the section label (`FormSectionLabel(trailing:)`), one Add color row disabled in place at the cap, the built-ins a read-only strip named by hex, Reset colors last (confirmed, custom half only). `ColorPickerSheet` takes chrome only (✕ · Custom color · Select, Square / Wheel chips): its picking body is shared with `markdown_colors_page.dart` and stays untouched.
 
 ## Grid filters and presets
 
+Rule lines in full:
+
+Before changing `CalendarFilterSheet` (its rows, traits, badge and chips) or saved filters in any way, read `references/subsystems.md` § Grid filters and presets — the presets line also holds their persistence rules (the stored blob on export and on decode), `FilterPresetSheet` and its reorder.
+
+- `CalendarGridFilters` (fifteen fields) on `CalendarPageLoaded.filters`, dispatched as `ChangeCalendarFilters`, persisted as one JSON blob under `SettingsKeys.calendarGridFilters`. Three kinds of field: **event-level** axes (`trackedOnly` means `EventPresence.appliesTo`, not the bare flag; `eventType` reuses `AgendaEventType`) applied once per change in `_visibleEvents` via `apply` (same list instance when nothing is active); **occurrence-level** (`missedOnly`) inside `eventsForDay`, gated by `hasOccurrenceAxis` — a new day-dependent axis must extend it, and the presence handler invalidates only while it is active (`_invalidateIfPresenceIsMembership`); **layers** (`showHolidays` / `showFasting` / `showMoney`) compose the provider lists of the three resolvers, gate `cellStyleForUtcDay`, and zero `monthNetFor`.
+- Render-time only: a filtered event still occurs, exports and counts. Memo key `(allEvents, filters, todayUtc)` with the date joined only while `hideEnded` is on. `_onChangeCalendarFilters` value-compares and records `_filters` **before** the loaded guard; `_loadSettings` restores once; `_applyFilters` is the one funnel that dispatches and writes. `panelShowsAll` widens the panel (`allEventsForDay`), has no chip, survives `cleared()`. The agenda inherits **only** `hiddenCategoryIds`.
+
+Anatomy:
+
 - UI (2026-09-27, `docs/calendar-filters-redesign-roadmap.md`): `CalendarFilterSheet` is a sub-sheet of the language, draft-and-Apply — Apply in the header, ✕ / drag / back / barrier pop `null`, no guard. A *set* is a picker row reading its value back (`namesReadBack`; "All" / "Any" / "Everything" when empty) that opens `CategoryPickerSheet` or `FilterCheckListSheet` (one class for Priority and Only show: Done returns the checked ids, empty included); a three-way choice (Repeat, Time of day) is a `FormMenuRow`; a boolean (the three layers and "All events in the day panel", under ALSO SHOW) is a switch row — Fasting disabled at 38 % while no tradition is configured, never omitted. Reset filters is the last action row, dimmed while the draft is empty, and keeps the sheet open. The first group's Saved filter row reads the preset matching the draft and opens `FilterPresetSheet` over the draft; its bookmark saves the draft. A new trait is a `_Trait` in `_traitsOf` (its check-list row and its read-back). A `Badge.count` over `activeCount`, and `CalendarFilterChips` (one removable chip per active axis); chips and the preset subtitle are named through `CalendarFilterSummary` (`facetsOf` returns icon + label + the set with that axis removed); the icon/label statics live there, never on the sheet. A layer chip reads "Without {layer}".
 - Presets (v35) hold `CalendarGridFilters.encode()` in one `filters` column: **export copies the blob verbatim**, **an unparseable blob keeps its row**; `_decodePriorities` also accepts a JSON array of ints or numeric strings (D17), the encoder still writes the comma string. The bookmarks button sits left of the filter button, the ⋮ after them. In `FilterPresetSheet` "No filter" (the first row, checked while `current.isEmpty`) pops `current.cleared()`, never `none`; a preset is a two-line radio row with its ⋮ (Rename · Update to current filter, disabled while in use or empty · Delete), in place and never popping; the save row dims — never hides — while empty, already saved or a query is live; duplicate names soft-warn; applying goes through `_applyFilters`. **Reorder (2026-09-29, `docs/calendar-saved-filters-roadmap.md`)**: every preset row wears a `FormDragHandle`, a long press anywhere lifts it too, `Move to top` is the ⋮'s third item; all three lock in place while a query is live (handles at 38 %, never hidden). The body is a `ReorderableListView` that owns its scroll — never a reorderable list nested in a scroll view — with the rows in `FormRowShell`s and a drop clamped into the preset run. `FilterPresetService.reorder` runs on the service's serialized chain (every preset mutation does) and `FilterPresetDao.reorder` is one no-read transaction (`version = version + 1` in SQL, dense `0..N-1`, unchanged rows untouched, `query_count_test` guards it). A preset's caption and the suggested name read sets through `facetsOf(named: true)` (`namesReadBack`); the chip strip keeps counting.
 
 ## Holidays and fasting
 
+Rule lines in full:
+
+Before changing `FastingScheduleSheet`, `FastingStyleSheet` or `RemovedHolidaysSheet`, read their line in `references/subsystems.md` § Holidays and fasting.
+
+- **Built-in holidays are computed, never stored** (v22): `HolidaySeeds.forYear(profile, year)` is pure, `PublicHolidays` memoizes a year (bounded 12); the table holds custom + suppressed rows only. `removeOn` writes a suppression, `restoreSuppressed` deletes it, `importData` skips plain built-in rows. Never a seeding pass or a "years covered" window.
+- Accuracy lives in the builders: legislative `if (year >= NNNN)` guards, weekend substitutes per profile applied in `forYear` after the base set, both dates emitted with `observed` → the `publicHolidayObserved` suffix, never a bare duplicate.
+- The fasting schedule **subtracts, never invents**: weekday scope mirrors month scope (`weeklyOnly` default gates the weekly rule, `allFasts` gates every mark), `forceDates` still wins; `calendar_fasting_weekdays` is read as a seed and never written; the sheet's scope hint follows the **selected** scope.
+- `CalendarBounds` (1900–2100) is the one navigable domain for the grid, both pickers and the wheel; 1900 is the computus floor.
+
+Anatomy:
+
 - `FastingScheduleSheet`, `FastingStyleSheet` and `RemovedHolidaysSheet` apply **live** (every control writes through `onChanged` or the service at once; nothing is returned; dismissing never discards): sub-sheets with ✕ (`close`) and an empty trailing slot (Tier 3). The schedule: weekdays and months as `FormChipRow(indented: false)` chips whose width never changes with their state, Select all / None as action rows disabled in place at a no-op, each scope a labelled chip pair whose hint sits in a `FormCaptionSlot` over both hints (the selected scope's shown, the height constant), the exception dates as two picker rows opening `pickMulti` purely additively (`initialSelection: const {}`, the cross-removal in `_addDates`) and disabled at `FastingSchedule.maxExceptionDates`, each date a sub-row with its ✕. The style: the preview leads on its group (its sample number fitted), grid style and placement as `FormMenuRow`s, the Icon row's reset a second target, the strip's default dot drawing its glyph, the title through `AppDialogs.textInput` (the computed period name as its hint) and the description through `EventDescriptionSheet` (limits in `lib/constants/fasting_style_limits.dart`), each written on confirm, never on cancel — no inline field, no debounce. Removed holidays: read rows with Restore as the second target; a restore that throws re-reads the list and says `holidayRestoreFailed`.
 
+## Recurrence, dates, times
+
+Rule lines in full:
+
+- `event.rule` is a sealed `RecurrenceRule`; `event.allDay` is derived (`time == null`). Normalize with `DateTime.utc(y, m, d)`; hot callers holding a normalized day use `occursOnUtcDay`; `EventSkips.isSkipped` / `EventPresence.isMissed` require date-only UTC. The `CalendarEvent` constructor is non-`const`.
+- One-time = start only; daily/weekly/monthly/yearly carry `interval` (weekly on a Monday-aligned grid, `_weekEpoch` 2000-01-03); short months and Feb 29 skip silently; workdays = Mon–Fri and not a holiday; `endDate` is enforced in `occursOn`. `retroactive` is the shared `_beforeStart` guard — **never back-project the anchor**; `.ics` ignores the flag. `RecurrenceCodec` is the one encoding.
+- Count labels: `RecurrenceFormatter.countLabel` is the one entry point; `numbered` counts from 1, `elapsed` from 0; both render on the start day; the editor default is frequency-dependent (yearly → `elapsed`); the live example starts at the matching origin.
+- Dates: `CalendarDatePickerSheet.pickSingle` / `pickMulti`, never `showDatePicker`; `dayLoad` from `eventsForDay`; `pickMulti` collapses empty to `null` unless `allowEmpty`. Multi mode is the Dates sheet (Month / Year / List behind `CalendarDatePickerView`, `summaryLabel` the one grammar, Clear beside it, the repeat footer over the pure `DateStamp.project`, which only adds and skips days that do not exist); `initialView` picks the opener; the enum is `CalendarDatePickerMode`, not `DatePickerMode`.
+- Times: `TimePadSheet.pick`, never `showTimePicker`; every typing rule lives in the pure `TimePadEntry`; captions from `TimePadCaptions`; no duration chips; the written-to row wears `ValueChangeHighlight`; formatters honour `alwaysUse24HourFormat`.
+- A linked note resolves through `NoteRepository.getNotesByIds([id])`, never `getNoteById` (soft deletes filtered → `eventLinkedNoteMissing`).
+
+## Presence, skips, occurrences
+
+Rule lines in full:
+
+- **Skips are not presence.** A missed occurrence still occurs (rendering only, `occurrenceRevision`, never invalidate). A skipped occurrence does not exist: `CalendarEvent.occursOn` is the **only** place the skip filter lives, the day cache is invalidated, and it rides `membershipRevision`. Both gate on `rule is OneTimeRecurrence` (`EventSkips.appliesTo`, `OccurrenceDescriptions.appliesTo`), never on the editor's `_RepeatMode`. Counts never change (`countLabel` is elapsed-period math). `.ics` handles skips at three sites. `markSkipped` clears that day's absence mark.
+- `EventPresence.isMissed(event, day)`: an explicit `calendar_event_absences` row wins in both directions, else `assumesAbsentOn(day)`. No wall clock on any read path. Converting an event never rewrites marks. Under `CalendarMissedDisplay.hidden` an unconfirmed assume-absent event vanishes everywhere **except the day panel** — load-bearing.
+- Per-occurrence descriptions: `OccurrenceDescriptions.descriptionFor(event, day)` is the one entry point; **a present row always wins, `''` included**; "Reset this day" tombstones; rows are never deleted to clean up (only the event's delete cascades); `EventAgenda._matches` is a superset pre-filter narrowed per day by `_matchesOnDay`; writes bump `occurrenceRevision`, never the day cache. In the editor: **one controller, swap only its text** through the fork's `loadText` (never `set text` — a revocable write lets undo pull the other scope's text in), per-scope budgets, a one-time flip parks the day text; **never a `ListenableBuilder` directly on a re_editor controller** — relay through `_descriptionRevision`.
+- The detail sheet's quick edit: emptying writes `''` (a blank, not a reset); an unchanged Done writes nothing. Checkbox toggling is gated (one-time, or per-occurrence on); shared toggles coalesce 600 ms; `onOccurrenceChanged` stays a separate callback; render and rewrite the same trimmed string; `onCheckboxTap` is null on read-only surfaces.
+- Money is always disabled in descriptions — in `EventDescriptionSheet` by omission (nothing calls `configureMoney`).
+
 ## Panel, agenda, FAB
+
+Rule lines in full:
+
+Before changing `CalendarAddFab`, the panel's or the app bar's ground, or `EventDetailSheet` — the editor's read-only twin, so a change to the editor's groups, order or glyphs reaches it too — read the line in `references/subsystems.md` § Panel, agenda, FAB.
+
+- `CalendarBottomPanel` owns panel mode and agenda filters **below the page**; keep new panel-local state there. Scans live in `EventAgenda` (pure, ≤ 366 days), never in `eventLoader` or the bloc. Every panel-mode scrollable pads `AppSpacing.fabClearance`.
+- The upcoming window anchors on today unless `followSelectedDay`; the anchor is panel state, never re-anchored on a `CalendarSelectionSource.agendaRow` selection, not persisted; a custom range overrides it. `SelectCalendarDay` carries a required source.
+- `UpcomingAgendaFilters` persists through `SettingsService` with forward-compatible parsing: an empty priority set means all, the query is debounced and flushed on dispose, an elapsed custom range is dropped on load. Leave the three surviving `now()` reads alone (the picker's initial range, the Today / Tomorrow headers, `withoutElapsedRange`).
+- Perf: a query change debounces the rescan ~200 ms, an anchor rescan is synchronous; formatters are cached per locale; `dayHeaderLabel` takes `today`; search folds are cached per event; `saveUpcomingAgendaFilters` is one `setValues` transaction. Never a per-row `DateFormat(...)` or `DateTime.now()`.
+- Layers: `AgendaEventType` (`none` = annotations only); holiday and fasting toggles; a category allowlist on top of the inherited denylist; `eventDisplay` (`everyOccurrence` default / `perEvent` — a **post-filter** over the scan, never a scan short-circuit / `summary` — a post-pass, zero `occursOn`; summary cards sort on `(priority, index)`); `fastingDisplay` (`periods` default — runs per `(tradition, period)`, span periods bridge ≤ 7 days; `summary` per tradition, window-scoped, emitted before the first header, never an `AgendaEntryRow`); `holidayDisplay` (`everyDay` / `summary`, no scan). Read-time fallbacks from the retired bools, never rewritten.
+- Filter IA (rebuilt 2026-09-27, `docs/calendar-language-tier-1-roadmap.md`): `agenda_filters_sheet.dart` is the Filters sheet's twin — a sub-sheet of the language, draft-and-Apply, ✕ / drag / back / barrier pop `null`, no guard; eleven rows: Period (one `FormMenuRow` of six, "Custom range…" opening today's `showDateRangePicker` — its bounds and `now()` read untouched, a dismissed dialog changing nothing) · Start from selected day | EVENTS: Events (**one menu over all four `AgendaEventType` values** — never a switch plus a sub-choice; under "No events" Categories and Priority dim through `FormPickerRow.enabled`, never hide) · Categories · Priority (the Filters sheet's rows and sub-sheets) | ALSO SHOW: Holidays · Fasting | DISPLAY: three menu rows | Reset filters (last, 38 % while the draft is the default, preserves `query`, keeps the sheet open). Fasting and Fasting rows at 38 % with their stored values while no tradition is configured. `periodModeLabel` stays on the sheet — the panel's chip reads it; the badge counts the chips. **Every entry row is `_AgendaCard`; do not restyle without asking.** Text search folds through `normalizeForSearch`.
+- The agenda re-reads the facades on every rebuild (`_refreshSearchCatalog`, `_annotationsMoved`; `_rowsFor` keyed on `CalendarCategories.revision`); the collapse pass honours hidden presence (`hideMissed`); `_decodeDate` rejects impossible days.
+- Rows (`DaySummaryPanel`, `AgendaListView`) are fed by `EventSummaryProvider` — keep it that way — and render descriptions with `MarkdownInlineText`, every tap callback null; the detail sheet uses `SimpleMarkdownPreview`.
+- Row taps open `EventDetailSheet` → `EventDetailAction` (`edit` / `editDescription` / `openNote` / `skipOccurrence` / `addDate` / `showDates`); `_openDetailSheet` is a loop (`addDate` / `showDates` re-enter through `_editExplicitDates` → `CalendarEvent.withExplicitDates`, the one writer the editor's save also agrees with on the anchor and the one-time flags) guarded by `_pendingAfterSave` and `_occurrenceSurvives` (reads `result.skippedDays`, never `EventSkips` or `eventsForDay`). Priorities are P1..P5 through `EventPriorities`; `EventAgenda.compareWithinDay` is the one same-day comparator, and `DaySummaryResolver.resolve` is a stable sort so that order survives; never a stepper.
+
+Anatomy:
 
 - `CalendarAddFab`: extended and day-aware (targets `selectedDay`), collapsed and disabled while null, colours from the pure `calendarAddFabColors`, elevation 2, collapse on a `ValueNotifier` driven by `fabExtendedFor` (reads content position, ignores horizontal scrollables and `UserScrollNotification`), long press = template quick add. The panel paints `pageGround`, cards `rowGroup`; the app bar pins `surface` with `scrolledUnderElevation: 0`.
 - `EventDetailSheet` is the editor's **read-only twin** (2026-09-26; record `docs/event-detail-sheet-redesign-roadmap.md`): the sub-sheet shape clamped at `FormMetrics.sheetHeightFactor`, no guard; `close · Event · FormHeaderTextButton(Edit)`; the editor's groups, order and glyphs. **The read rule**: a row exists only while it carries a fact, a group with no rows is absent, capture and WHEN always exist. The description renders in full through `SimpleMarkdownPreview(scrollable: false)` in the editor's cell geometry with the pencil top right. A pinned set is the Date row plus **one bundled Dates row** (`CalendarDatePickerSheet.datesValue`, shared with the editor) — never per-date rows. Next occurrence scans from the day **after** the opened occurrence (today for a past day). Time reads through `EventTimeFormatter.formatRangeOfContext` — the device's 12h/24h, like the alert rows and the editor's Starts / Ends. The description cell's line is the markdown builder's 1.55, not the editor's 22 px (deferred, markdown engine). Presence is a labelled `FormChipRow`. The linked note's title arrives through the page's `resolveNoteTitle` callback — the sheet touches no repository. Guards: `test/widgets/event_detail_sheet_test.dart`, the three older detail suites, both clearance cases, the flow `07_detail.txt`.
 
 ## Overview, drill-down, years
 
+Rule lines in full:
+
+Before changing `AgendaDayListSheet` (its two scopes, modes, rows, ids, robot and `show` contract), the year pager or a category card's look, read the line in `references/subsystems.md` § Overview, drill-down, years.
+
+- `AgendaMonthStore`: one resolver call per contiguous run, a bucket for every requested month, cache-only reads; **resolve on navigation, never in build** — `tilesFor` in the pager's builder is the one exception. Month bounds are `CalendarBounds`; never re-add the twelve-months-back window.
+- `CalendarOverviewPage` owns no data: adopts the app-wide `CalendarBloc`, funnels every input through `_rebuild`, row taps go to `AppNavigator.toCalendarOccurrence`, persists its allowlist and mode through `getCalendarOverviewSettings()`, ignores the grid filters on purpose. `forTesting(openOccurrence:)` drives it.
+
+Anatomy:
+
 - `AgendaDayListSheet` keeps **two scopes apart**: list mode and the Upcoming tiles are the card's window; month mode and the Calendar-year tiles are whole months from the sheet's `AgendaMonthStore`. Entries are pre-resolved and facade-free, built on press; the sheet localizes only its chrome. Since Tier 3 (2026-10-03, `docs/calendar-language-tier-3-roadmap.md`) it is a **filler** (`ui-language`): the fixed `sheetHeightFactor` box, route drag, **no `PopScope` and never `FormSheetFrame`** — back and the scrim pop `null` even while drilled; ✕ · the card's title · an empty slot, the ✕ **replaced** by ← (`dayListBackToYear`) while a year tile has drilled into month mode; the card's subtitle as a caption and the List / Month / Year chips (`AgendaDayListMode`) pinned under the header, the year scope a chip row atop the year body. Every day is one group — a read row (`FormPickerRow(onTap: null)`: `dayHeaderLabel` · `agendaDayListCountLabel`) over one picker row per entry (`EventAvatar` leading, the subtitle as caption, the pencil as the second target, no chevron, a missed one faded inside a `FormIndentedRow`) — with month separators as section labels; in month mode a picked day's read row carries ✕ "Whole month" as its second target, and there is no month-level header (the nav carries the count). Only a chip pick persists the mode — a drill-down and ← do not; the year scope is session-only. Ids: `day-list-*`, and `agenda-card-days-<key>` on each summary card's button (the catalogue in `calendar-ui`). The sheet builds its own rows: `AgendaDayListRowView` is the overview page's alone (Tier 4), while `buildAgendaDayListRows` and `agendaDayListCountLabel` are shared. Its suites drive it through `DayListRobot` (`test/widgets/support/`, as every Tier 3 sheet through its own robot): a widget change rewrites the robot, never a test body. Presence is decided outside the sheet (`AgendaListView.eventDayEntries` drops or flags), so every number it prints is an attendance count. `AgendaDayList.color` tints tiles and matrix. `show` takes a resolver built by `UpcomingAgendaView._resolverFor` from the **same scans** the card came from, every input snapshotted at open; a row's edit is an *intent* the sheet returns (`({focusDay, edit})`) and the caller runs after the sheet closes, matching `EventDetailSheet`.
 - Years are pages: `AgendaYearPager` under `AgendaPeriodNav` (`onTitleTap` → `MonthYearPickerSheet`, pick animates and flashes the tile); bounds from `EventAgenda.yearBoundsOf` over `passesEventFilters`; tiles are built from marks (`AgendaDayMark` → `AgendaMonthTally`), never rows; neighbours prewarm 250 ms after settling.
 - A category card wears the look its events share (`_cardLook`: same `iconFor` and `colorFor` across every event, else the category's); `stripeAccent` carries the bar rule for the row stripe.
 
 ## Event editor and sub-sheets
+
+Rule lines in full:
+
+Chrome and rows: `ui-language`. Design record: `docs/event-editor-redesign-roadmap.md` (D1–D20).
+
+Before changing the editor's header and groups, its one-time date rows (and their single funnel), the description cell (growth, caret-follow, scroll rail, docked bar), `EventDescriptionSheet` or the template form (`EventTemplateEditorSheet`, the editor's twin), read the line in `references/subsystems.md` § Event editor and sub-sheets.
+
+- `EventRepeatSheet` edits a plain `EventRepeatDraft`, never a rule; constant height for every kind; Done disabled while weekly has no weekday. The editor applies the draft in `_pickRepeat` (mode, kind, interval, weekdays, end date, retroactive; `_countStyle` re-resolved while `!_countStyleTouched`; `_syncScopeToRule()`). `_buildRule()` / `_initRecurrenceFrom` are the only encoder and decoder. The Repeat value reads `recurrenceDoesNotRepeat` for one-time, `recurrenceSpecificDates(n)` while extra dates exist, else `RecurrenceFormatter.format(…, retroactive:)` with `recurrenceUntilSuffix`.
+- `EventLookSheet` returns an `EventLookDraft` (Tint disabled, not hidden, without a colour); on save keep `copyWith(clearIconKey: _iconKey == null)`.
+- Priority and Day rail are `FormMenuRow`s; the Priority glyph is a fixed `flag_outlined`. Never chips or a stepper for priority.
+- Leaving asks when dirty: `_fingerprint()` over every field the result carries, captured at the end of `initState`, re-baselined after the default alert seeds; `_leave()` serves ✕, back, `PopScope(canPop: false)` and the sheet's own drag, popping `EventEditorBack` while `showBack` and `null` otherwise; Save never goes through the guard; sub-sheets are unguarded.
+- Autofocus the title on a new event only; `_blur()` before every modal. Preserve: `_initRecurrenceFrom` sealed rehydration; weekday sets in `Set.unmodifiable`; `_canSave` = title non-empty ∧ (not weekly ∨ weekdays non-empty) ∧ both scopes within limit; `_pickDate` re-anchors weekdays only from the implicit default; `!mounted` after awaits; interval clamped 1–99 for daily/weekly/monthly/yearly only; the birthday built-in pre-fills yearly + counting on a still-one-time event.
+- Templates (v29): `RecurrenceCodec`; two entry points only (long-press a day cell, Save as template at the bottom); `buildEvent` clears repeat-only flags for a one-time rule.
+- Guards: `test/widgets/event_editor_redesign_test.dart`, `event_repeat_sheet_test.dart`, `event_look_sheet_test.dart`, the six older editor suites, `sheet_bottom_clearance_test.dart`.
+
+Anatomy:
 
 - Header: one leading icon (`close`, **replaced** by `back` on the detail-sheet reopen loop) | title | `FilledButton(Save)`. Delete and Save-as-template are action rows at the bottom of the scroll body. Groups: capture · WHEN · OCCURRENCES (only while `_ruleHasManyOccurrences`) · ALERTS (one two-target row per alert, max `kMaxAlertsPerEvent`) · DETAILS · actions.
 - One-time dates: one → the Date row; two or three → a two-target row each; four or more → one bundled row (`_datesValue`, `_maxInlineDates` 3) opening the Dates sheet's **list** view; Add date follows in every shape; `_setOneTimeDates` is the single funnel.
@@ -65,6 +230,79 @@ Contents — grouped under the SKILL.md section each line came from (the rules o
 
 ## The alert sheet and the quick alarm
 
+Rule lines in full:
+
+Rebuilt 2026-10-02 as sub-sheets of the language (same record). The suites drive them through `AlertSheetRobot` and `QuickAlarmRobot` (`test/widgets/support/`): a change to a sheet's widgets changes the robot, never a test body.
+
+Before changing the Type row (`AlertTypeRow`), the When row and `AlertOffsetSheet`, or `QuickAlarmSheet`, read the line in `references/subsystems.md` § The alert sheet and the quick alarm.
+
+- `AlertEditorSheet.show` — six parameters, three outcomes (`AlertEditorSaved`, `AlertEditorRemoved`, `null`) — is the contract of both callers: the editor's alert rows and Calendar settings' defaults (`showSound: false`). Save hands back `widget.alert.copyWith(…)`: `id`, `eventId`, `enabled` and the offset set not on screen pass through.
+- On the Reminder tier the sound row and the remove-after switch stay at 38 %, never hidden; they are absent only where the caller never offers them. **Remove-after is the event's flag, not the alert's**: parked across a tier change, handed back as it came, `false` only when this sheet turned an alarm into a reminder.
+- `EventAlert.describe` is the one formatter; a widget passes `formatMinute` so an all-day alert reads the phone's 12 / 24-hour clock, a service passes nothing and gets the neutral 24-hour text.
+- **After the editor's Save, one message at most** (2026-10-11, §12): `CalendarPage._afterAlertsSaved` runs the permission check, and only when that had nothing to say raises the countdown to the next alert ("Alarm in 2 h 50 min"). Which fire, whether a save earns a word (the alert set or the next fire's instant changed — a rename is silent) and the wording are the pure `AlertCountdown` (`lib/utils/alert_countdown.dart`) over `AlertPlanner`; it reads the result's `skippedDays`, never waits for the facade. The page's own bar while no sheet is up, an `OverlaySnackbar` while `SheetGuard.isOpen` — the detail sheet reopens over the page's `Scaffold`.
+
+Anatomy:
+
 - Type is `AlertTypeRow` (`lib/widgets/alert_type_row.dart`, shared by both sheets): Reminder then Alarm, the hint in a `FormCaptionSlot` whose late candidate is the full-screen warning, so neither the tier nor the permission answer moves a row.
 - When is one `FormMenuRow` over the presets, ending in Custom…, which opens `AlertOffsetSheet` on the pure `AlertOffset` (`lib/utils/alert_offset.dart`: the unit is a view over minutes; 1–59 min, 1–23 h, 1–30 d; a unit change keeps the number, clamped; an all-day event counts in days). **Custom writes only on Done**; its read-back is the When row's own wording (`readBack`).
 - `QuickAlarmSheet` is a pure form over `lib/utils/quick_alarm.dart` (every rule lives there): the time in a `FormHeroRow`, the presets a standalone chip row with Tonight disabled in place after 21:00, the title in a `FormTitleRow` on `kEventTitleMaxLength`, `AlertTypeRow` opening on Alarm, the parked switch. What Save creates never changes with the look: one one-time event, one alert at its start, the Undo snackbar. The Quick Settings tile's device evidence — the id `quick-alarm-save`, the title, "Today" inside the hero row's label — stays on screen.
+
+## Alerts hub, navigation, export
+
+Rule lines in full:
+
+- The Alerts hub owns no data: lists `AlertScheduler.hubEntries()`, writes only through the app-wide `CalendarBloc` (`ToggleEventAlert`, `DeleteCalendarEvent`), builds under `CalendarPageLoaded`, re-reads on a bloc emit and `registryRevision`; never poll, never add an alert-creation affordance there. Only the Alarm tier reaches `packages/alarm/`; Reminder stays on `flutter_local_notifications`.
+- **A ring and the lock screen** (2026-10-04, `docs/event-alerts-os-integration-roadmap.md` §13): a ring lifts the whole activity above the keyguard, and the alarm page is the only thing allowed there. `MainActivity.ringObserver` owns the flags (forever-observed, raised at ring start, lowered at ring end whether or not the activity is started; **leave with `moveTaskToBack` first, lower second**). `LockScreenCurtain` covers the navigator while `LockScreenState.mustCover`; `AlarmPage` reports itself as the top page route through `RouteAware`. While anything is ringing `_drainPendingNavigation` routes **only** `OpenAlarmIntent`s — never navigate from an alert intent in a way that pushes over or collapses under an alarm page. A restored `MainActivity` starts from a plain launch intent, so no one-shot request is replayed. An action on the alarm page that leads into the app asks `AlertRingController.unlock()` **before** stopping. Do not put `showWhenLocked` / `turnScreenOn` back in the manifest.
+- **The alarm page** (`lib/pages/alarm_page.dart`; the takeover idiom of `ui-language`; record `docs/alert-surfaces-redesign-roadmap.md`) **renders from the `AlertPayload` alone** — no service and no database read; the category facade only as the avatar's fallback for an entry armed before the payload carried its tint and glyph — and **which rows exist is settled on the first frame**: the two things resolved later, in one notification (`AlertRingController.load()`) — which database is open and, for a remove-after alarm of that database, whether its event was already kept — change a text, a glyph or an enabled flag, never a rect in the dock; a ring whose event was already kept reads "The event will be kept" with Keep disabled from the start. No perpetual animation, no text field; back does nothing.
+- **The alarm page closes its own route** — `pop` when it is on top, `removeRoute` from underneath — never the navigator's top: two alarms due in one minute stack two pages.
+- **A notification's words come from one module**, `alertNotificationContent` (`lib/utils/alert_notification_content.dart`): the event's title, then what it is and the time it is about (`{kind} · {time}`; an occurrence on another day leads with its day, `alertsDayThenWhen`, so the one-line row keeps the day when it cuts the end), the action that settles first. Nothing in `AndroidAlertGateway` writes a title or a text inline; what it decides lives in the pure top-level functions beside it (it cannot be built in a test).
+- **Nothing formats a time or a date in the background isolate** — no date symbols, no database, and a throw there loses a snooze. Every time and day an entry shows is written once, when it is armed, on the UI isolate, by `AlertLabels` (through `AlertGateway.labels`); everything downstream only places strings.
+- **A new fact the page or the isolate needs is an optional `AlertPayload` field**, left out of the JSON while it says nothing, whose absence decodes to the old behaviour for good — another database's entries and standing snoozes are never re-armed.
+- **Content frozen at arm time reaches a standing entry only through the arm token** (`alertArmContext`): move `kAlertArmGrammarToken` whenever what an armed entry shows changes — its words, decor, group or channel. `alertArmSignature` itself is not edited for it.
+- **An avatar is a file named for everything that draws it** (`alertLargeIconFileName`: glyph, colour, pixels, the disc's alpha and the glyph's size — a file found under its name is never drawn again); **an excerpt's cut never leaves half a surrogate pair** (`alertExcerptFor`).
+- **Quiet kinds post on `alerts_quiet`** (the upcoming notice, Missed, the session chip); the reminder and its re-post stay on `alerts_reminder` and **carry `kAlertGroupKey` on Android 16 and above** (`alertRemindersGroupedOn`; the isolate's re-post reads the payload's `grouped`) — **never a summary**. A channel's id, importance, sound and vibration are frozen at creation: `alerts_quiet` is created with `playSound: false, enableVibration: false`.
+- **A ring's ending has a cause** (`AlertRingEndCause`) and `main.dart`'s `_settleEndedRing` is a switch with no default: a new cause says there what it settles, and `cancelled` settles nothing. A path of the binding's own that ends a ring takes the id out of both ring maps, and holds it in `_stopping`, before `Alarm.stop` (`test/android/alert_ring_maps_test.dart`).
+- **Never arm over an entry that is ringing or has come due**: `AlertScheduler._reconcile` leaves it as it was armed — its id is ringing, or its standing registration is for this same instant and that instant has passed since the pass read its clock. The plugin stops the ring it is re-armed over, and the binding reads that as a Stop on the notification. **And while any ring is in progress, a row past its instant stays in flight whatever its lateness** (`_settlePastFires`, 2026-10-10): the fork's service holds an alarm that comes due during a ring and promotes it when the ring ends, and the 30-minute band alone settled such a row as `fired` and cancelled its entry out of the queue. A late row is settled by the first pass with nothing ringing. Since the same day: a pass never cancels an entry whose row is `fired` unless it settled that row itself (a ring not yet announced, or a native Snooze not yet drained), and a planned fire never lands on the id of a ringing or `fired` row — the ringing check runs before the registration lookup, and `_assignOsIds` treats ringing and fired ids as taken (read at most once a pass).
+- **Nothing on a scheduling pass calls `AppDatabase.getInstance()`**: it re-resolves the active database and carries out a stored switch under the running app. A pass reads the language through `SettingsService.getLocaleCode()`; the binding's direct read is its first start only (`test/android/alerts_channel_test.dart`).
+- **Stop decides the removal at the press and may only narrow it** (`AlertRingController.stop()`): a Keep whose write fails while Stop is in flight does not widen it back.
+- **After a Keep, the calendar's detail-sheet trip takes the remove-after flag from the bloc's copy** (`calendar_page.dart`, `_detailSheetLoop`'s `afterKeep`) before it writes its own copy back or hands it to the editor; every calendar on the navigator counts a Keep it hears (`_keepsHeard`).
+- `AppNavigator.toCalendar` is a normal push; calendar options live on `CalendarSettingsPage`, never on the general `SettingsPage`. No `AppLocalizations.byKey` — sealed `switch`.
+- The header (2026-09-26, `docs/calendar-header-roadmap.md`): the calendar's and the overview's title is `CalendarViewMenu` — Calendar / Overview, plus Month / 2 weeks / Week on the calendar, the one control that picks the grid format (never the filter sheet; the grid's own vertical swipe still changes it and the check follows); their ⋮ is `CalendarOverflowMenu` (Alerts · Export · Calendar settings). Switch pages through `AppNavigator.switchToCalendar` / `switchToCalendarOverview` / `toAlertsFromCalendar` (`returnOrPush`: the page directly beneath is returned to, anything else pushed), never a bare push. A page exports through its own `CalendarExportController`, which answers only for its own export.
+- `.ics` goes `IcsSerializer` → `ImportExportService.exportCalendar` → `ExportCalendarRequested`; no `ics` `ExportFormat` variant.
+
+## Change-set recipes
+
+The recipes in full:
+
+- **New persisted event field**: table + guarded migration → DAO → `CalendarEventService` mapping → model `copyWith` (+ `clearX` for nullable) → editor row → backup export/import → `build_runner` → ARB ×3 + `gen-l10n` → the upgrade-chain and parity tests.
+- **New holiday profile**: `HolidayProfile` value → `profileNameOf` → `holidayProfile<Name>` ARB trio → `_<name>Seeds(year)` from `_buildSeeds`; new holidays add a `PublicHoliday` value + `nameOf` + ARB trio. No schema change.
+- **New grid filter axis**: a field on `CalendarGridFilters` + codec + `apply` (or `allowsOccurrence` and `hasOccurrenceAxis` if day-dependent) + `CalendarFilterSummary` facet + a `_Trait` in `CalendarFilterSheet._traitsOf` (a trait) or a row + a chip label; presets need nothing.
+
+## File map
+
+The map in full, with each file's role:
+
+- `lib/pages/calendar_page.dart` (the page, `_openDetailSheet`, `_applyFilters`, `_loadSettings`), `calendar_overview_page.dart`, `calendar_settings_page.dart`, `calendar_categories_page.dart`, `alerts_page.dart`, `alarm_page.dart` (+ `lib/controllers/alert_ring_controller.dart`).
+- `lib/bloc/calendar/calendar_bloc.dart` — caches, revisions, `eventsForDay`, `monthNetFor`.
+- Services: `calendar_event_service.dart`, `category_service.dart`, `public_holiday_service.dart`, `event_occurrence_service.dart`, `event_presence_service.dart`, `event_skip_service.dart`, `event_template_service.dart`, `event_alert_service.dart`, `filter_preset_service.dart`, `day_summary_resolver.dart`, `alert_scheduler.dart`.
+- Alert surfaces: `lib/services/alert_gateway.dart`, `android_alert_gateway.dart` (the binding, and the pure details / re-post / arm-context functions beside it), `alert_keep_notice.dart`, `session_chip.dart`; `lib/utils/alert_notification_content.dart`, `alert_labels.dart`, `alert_excerpt.dart`; `lib/models/alert_payload.dart`; `lib/constants/alert_constants.dart`; `lib/widgets/lock_screen_curtain.dart` (`alarm_metrics.dart` and `alarm_ground.dart` are in `ui-language`'s table).
+- Models: `calendar_event.dart`, `recurrence_rule.dart`, `calendar_grid_filters.dart`, `calendar_appearance.dart`, `upcoming_agenda_filters.dart`, `calendar_panel_mode.dart`, `agenda_day_list.dart`.
+- Utils: `event_agenda.dart` (scans, `compareWithinDay`, `yearBoundsOf`), `agenda_month_store.dart`, `agenda_day_list_index.dart`, `calendar_filter_summary.dart`, `category_search.dart`, `date_stamp.dart`, `ics_serializer.dart`, `day_timeline_layout.dart`.
+- Widgets: `calendar_bottom_panel.dart`, `upcoming_agenda_view.dart`, `agenda_list_view.dart`, `agenda_filters_sheet.dart`, `agenda_day_list_sheet.dart`, `agenda_day_list_rows.dart`, `agenda_period_nav.dart`, `agenda_month_grid.dart`, `agenda_year_grid.dart`, `agenda_year_pager.dart`, `calendar_add_fab.dart`, `calendar_header_menus.dart` (+ `lib/controllers/calendar_export_controller.dart`), `calendar_day_cell.dart`, `calendar_day_bars.dart`, `calendar_day_rail.dart`, `day_summary_panel.dart`, `day_timeline_view.dart` (the only reader of `EventTime.durationMinutes`), `event_detail_sheet.dart`, `event_editor_sheet.dart`, `event_repeat_sheet.dart`, `event_look_sheet.dart`, `event_description_sheet.dart`, `calendar_date_picker_sheet.dart`, `time_pad_sheet.dart`, `month_year_picker_sheet.dart`, `category_picker_sheet.dart`, `calendar_filter_sheet.dart`, `filter_check_list_sheet.dart`, `filter_preset_sheet.dart`, `alert_editor_sheet.dart`, `alert_offset_sheet.dart`, `alert_type_row.dart`, `alert_sound_sheet.dart`, `quick_alarm_sheet.dart`, `event_template_editor_sheet.dart`, `event_template_picker_sheet.dart`, `category_editor_sheet.dart`, `fasting_schedule_sheet.dart`, `fasting_style_sheet.dart`, `removed_holidays_sheet.dart`, `color_swatch_picker.dart`, `color_palette_sheet.dart`, `color_picker_sheet.dart`.
+- Pure rules behind those sheets: `lib/utils/alert_offset.dart`, `lib/utils/quick_alarm.dart`; `lib/constants/event_title.dart` (the title's limit and counter threshold, read by the editor and the quick alarm), `lib/constants/category_name.dart` (the category name's limit and counter threshold, read by the category editor) and `lib/constants/fasting_style_limits.dart` (the fasting title's and description's limits, read by the fasting style sheet).
+- QA: `tool/qa/fixtures/calendar.json` (relative-dated seed, pinned by `test/qa/calendar_fixture_test.dart`) and `tool/qa/flows/calendar/*.txt` (the saved device pass, `qa flows calendar`) — a flow is updated in the slice that changes its screen. The alert surfaces have their own: `tool/qa/fixtures/alerts.json` and `alerts_pair.json` with `tool/qa/flows/alerts/` and `alerts_pair/` (`qa-emulator`, "The alerts pass").
+- Constants: `calendar_bounds.dart`, `calendar_categories.dart`, `calendar_icons.dart`, `public_holidays.dart`, `fasting_calendar.dart`, `event_priorities.dart`, `event_presence.dart`, `event_skips.dart`, `occurrence_descriptions.dart`, `event_alerts.dart`.
+
+## References
+
+The SKILL.md's References table before the second cut, with what each file holds:
+
+Facts, not rules — each file names, in its first lines, where it was moved from.
+
+| File | What it holds | When to read it |
+| --- | --- | --- |
+| `references/subsystems.md` | The anatomy of the calendar's sheets and surfaces — rows, chrome, the contracts beside them — under the same section headings as this file | Before changing a surface a section's pointer names; read that section's line, not the file |
+| `references/schema-lineage.md` | The calendar schema's version chain, v10 → v40, one step per version | For a migration, a backup question, or which version added a column or table; grep its name |
+| `references/context-log.md` | The dated changelog of calendar behaviour since v14 (about 200 KB): panel, overview, header, filters, the language tiers, presence, CRDT, templates, skips, day rail, alerts, the lock screen, the alert surfaces | To learn why something is the way it is; grep for the version number, the date or the class, then read that entry — never the whole file |
+| `references/colour-palette.md` | The calendar colour palette: built-in and custom swatches, `CalendarPalette` / `CalendarPaletteService`, `ColorSwatchPicker`, `ColorPickerSheet`, the palette sheet, the invariants its review pinned | Before changing a colour default, the palette's storage or a colour picker |
+| `references/alarm-fork.md` | The patch history of `packages/alarm/`: the nine patches and why each exists (the fork's rules are `.claude/rules/alarm-fork.md`) | Before touching the fork, or when an alarm behaves unlike upstream |

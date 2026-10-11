@@ -186,8 +186,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
       if (!mounted) return;
       await AppDialogs.action(
         context,
-        title: l10n.restartRequired,
-        content: l10n.restartRequired,
+        title: l10n.restartRequiredTitle,
+        content: l10n.restartRequiredNewDatabase,
         actionText: l10n.exitApp,
         icon: Icons.restart_alt_rounded,
         onAction: () => SystemNavigator.pop(),

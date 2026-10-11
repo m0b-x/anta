@@ -2190,8 +2190,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get dataDeleted => 'Date Șterse';
 
   @override
-  String get restartRequired =>
-      'Repornirea poate fi necesară pentru efect complet';
+  String get restartRequiredAfterDeletion =>
+      'Toate datele au fost șterse. Te rugăm să repornești aplicația pentru a continua.';
 
   @override
   String get exitApp => 'Închide Aplicația';
@@ -2506,6 +2506,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get databaseDeleted => 'Baza de date a fost ștearsă';
 
   @override
+  String get restartRequiredNewDatabase =>
+      'Te rugăm să repornești aplicația pentru a folosi noua bază de date.';
+
+  @override
   String get findInNote => 'Găsește în notiță';
 
   @override
@@ -2657,6 +2661,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get systemTheme => 'Sistem';
+
+  @override
+  String get restartRequiredTitle => 'Repornire necesară';
 
   @override
   String get searchSection => 'Căutare';
