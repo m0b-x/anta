@@ -205,25 +205,54 @@ class FormSectionLabel extends StatelessWidget {
   /// a screen reader hears the section and its count as one line.
   final String? trailing;
 
-  const FormSectionLabel({super.key, required this.text, this.trailing});
+  /// Keeps the label and its count on one line — the label ellipsizes, the
+  /// count never wraps — for a list that sizes its rows by kind (the
+  /// overview's exact extents), where a label that wrapped at a large text
+  /// scale would outgrow its slot.
+  final bool singleLine;
+
+  /// Lets the count drop under the label when the two do not fit one line —
+  /// [FormLabelValue]'s wrap — while the label keeps one line: the two-line
+  /// shape a list that sizes its rows by kind gives its section labels where
+  /// the widest of them does not fit one line. [singleLine] wins.
+  final bool wrapTrailing;
+
+  const FormSectionLabel({
+    super.key,
+    required this.text,
+    this.trailing,
+    this.singleLine = false,
+    this.wrapTrailing = false,
+  });
 
   /// Dart's `toUpperCase` is the simple case mapping, which leaves ß alone:
   /// "Außerdem anzeigen" came out "AUßERDEM ANZEIGEN" on the device. German
-  /// capitals write it SS.
-  static String _capitals(String text) =>
+  /// capitals write it SS. Public with [textStyle], so a list that has to
+  /// find its widest label measures the text as it is drawn.
+  static String capitals(String text) =>
       text.toUpperCase().replaceAll('ß', 'SS');
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = theme.textTheme.labelSmall?.copyWith(
+  /// The label's and the count's style, as one definition.
+  static TextStyle? textStyle(ThemeData theme) {
+    return theme.textTheme.labelSmall?.copyWith(
       fontSize: RowMetrics.sectionLabelFontSize,
       height: 14 / RowMetrics.sectionLabelFontSize,
       color: theme.colorScheme.onSurfaceVariant,
       letterSpacing: RowMetrics.sectionLabelLetterSpacing,
       fontWeight: RowMetrics.sectionLabelFontWeight,
     );
-    final label = Text(_capitals(text), style: style);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = textStyle(Theme.of(context));
+    final oneLineLabel = singleLine || wrapTrailing;
+    final label = Text(
+      capitals(text),
+      style: style,
+      maxLines: oneLineLabel ? 1 : null,
+      overflow: oneLineLabel ? TextOverflow.ellipsis : null,
+    );
     final count = trailing;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -235,14 +264,61 @@ class FormSectionLabel extends StatelessWidget {
       child: count == null
           ? label
           : MergeSemantics(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: label),
-                  const SizedBox(width: FormMetrics.gap),
-                  Text(_capitals(count), style: style),
-                ],
-              ),
+              child: singleLine
+                  ? LayoutBuilder(
+                      builder: (context, constraints) => Row(
+                        children: [
+                          Expanded(child: label),
+                          const SizedBox(width: FormMetrics.gap),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: _besideGap(constraints.maxWidth),
+                            ),
+                            child: Text(
+                              capitals(count),
+                              style: style,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : wrapTrailing
+                  ? LayoutBuilder(
+                      builder: (context, constraints) => Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        spacing: FormMetrics.gap,
+                        runSpacing: FormMetrics.pairRunSpacing,
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth,
+                            ),
+                            child: label,
+                          ),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth,
+                            ),
+                            child: Text(
+                              capitals(count),
+                              style: style,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: label),
+                        const SizedBox(width: FormMetrics.gap),
+                        Text(capitals(count), style: style),
+                      ],
+                    ),
             ),
     );
   }
@@ -473,6 +549,11 @@ class FormHeaderTextButton extends StatelessWidget {
   }
 }
 
+/// The width a one-line row leaves its trailing text: all of it but the gap
+/// before it, so the text never overflows and the label takes what is left.
+double _besideGap(double width) =>
+    width > FormMetrics.gap ? width - FormMetrics.gap : 0;
+
 class FormLabelValue extends StatelessWidget {
   final String label;
   final String? value;
@@ -482,6 +563,12 @@ class FormLabelValue extends StatelessWidget {
   final Color? valueColor;
   final FontWeight labelWeight;
 
+  /// False keeps the pair on one line whatever the width: the label
+  /// ellipsizes on its line and the value — one line too — is never dropped
+  /// under it. For a list that sizes its rows by kind (the overview's exact
+  /// extents), where a row's height must never depend on its text.
+  final bool wrap;
+
   const FormLabelValue({
     super.key,
     required this.label,
@@ -490,6 +577,7 @@ class FormLabelValue extends StatelessWidget {
     this.labelColor,
     this.valueColor,
     this.labelWeight = FontWeight.w400,
+    this.wrap = true,
   });
 
   /// The label's style — [FormMetrics.labelSize] on its 20 px line — as one
@@ -514,6 +602,8 @@ class FormLabelValue extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final labelText = Text(
       label,
+      maxLines: wrap ? null : 1,
+      overflow: wrap ? null : TextOverflow.ellipsis,
       style: labelStyle(
         labelColor ?? colorScheme.onSurface,
         weight: labelWeight,
@@ -530,7 +620,7 @@ class FormLabelValue extends StatelessWidget {
     }
     final valueText = Text(
       valueString,
-      maxLines: FormMetrics.valueMaxLines,
+      maxLines: wrap ? FormMetrics.valueMaxLines : 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: FormMetrics.labelSize,
@@ -551,6 +641,27 @@ class FormLabelValue extends StatelessWidget {
               Flexible(child: valueText),
             ],
           );
+    if (!wrap) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: FormMetrics.pairVerticalPadding,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              Expanded(child: labelText),
+              const SizedBox(width: FormMetrics.gap),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: _besideGap(constraints.maxWidth),
+                ),
+                child: valueCell,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(
         vertical: FormMetrics.pairVerticalPadding,
@@ -738,10 +849,16 @@ class FormPickerRow extends FormDividedRow {
   /// Clamps a glyph row's [caption] like a value, ellipsizing past the limit
   /// — the fasting style's description read back at two lines, where a
   /// 500-character text would otherwise run the row to a paragraph. Null
-  /// wraps freely. The stacked shape under a [leading] widget keeps its own
-  /// two lines whatever is passed: its caption is the second line of a 62 dp
-  /// row, not a line under a pair.
+  /// wraps freely. The stacked shape under a [leading] widget clamps at its
+  /// own two lines when nothing is passed — its caption is the second line
+  /// of a 62 dp row, not a line under a pair — and at one when a list that
+  /// sizes its rows by kind asks for it.
   final int? captionMaxLines;
+
+  /// Keeps the label and the value on one line ([FormLabelValue.wrap]
+  /// false), for a list that sizes its rows by kind — the overview's exact
+  /// extents — where a row's height must never depend on its text.
+  final bool singleLine;
 
   /// False draws the row at the disabled opacity with no ink and no tap and
   /// marks its one node disabled — a control the form has switched off, the
@@ -782,6 +899,7 @@ class FormPickerRow extends FormDividedRow {
     this.subRow = false,
     this.caption,
     this.captionMaxLines,
+    this.singleLine = false,
     this.enabled = true,
     this.handle,
     double? dividerIndent,
@@ -808,6 +926,7 @@ class FormPickerRow extends FormDividedRow {
       valueLeading: valueLeading,
       labelColor: labelColor,
       valueColor: valueColor,
+      wrap: !singleLine,
     );
     // Under a leading widget the caption joins the label in one column — the
     // check row's two-line shape — so the avatar centres against both lines
@@ -823,7 +942,7 @@ class FormPickerRow extends FormDividedRow {
               pair,
               FormCaption(
                 text: captionText,
-                maxLines: 2,
+                maxLines: captionMaxLines ?? 2,
                 padding: const EdgeInsets.only(
                   bottom: FormMetrics.pairVerticalPadding,
                 ),

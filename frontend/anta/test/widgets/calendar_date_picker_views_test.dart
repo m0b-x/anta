@@ -7,11 +7,14 @@ import 'package:anta/constants/calendar_bounds.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/date_range.dart';
 import 'package:anta/utils/date_stamp.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
+import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/month_dot_matrix.dart';
 import 'package:anta/widgets/year_month_tile.dart';
 
 /// The multi-date picker as three views over one set — month to pick, year
@@ -528,5 +531,542 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.text('Gewählte Daten wiederholen…'), findsOneWidget);
+  });
+
+  /// One span on the same grid (`docs/calendar-overview-list-roadmap.md`
+  /// §3.5, T7, T10): ✕ · Period · Apply, a summary slot of one height, Month
+  /// and Year only, the span's ends filled and the days between on a band,
+  /// and year tiles that pick whole months.
+  group('range mode', () {
+    /// Mar 15 – Jun 20, 2026: opens on March, whose first is a Sunday — so
+    /// with the default Monday start the 15th ends a row and the 16th
+    /// begins the next.
+    final spring = (start: d(2026, 3, 15), end: d(2026, 6, 20));
+
+    Future<List<DateRange?>> openRange(
+      WidgetTester tester, {
+      DateRange? initial,
+      DateTime? firstDate,
+      DateTime? lastDate,
+      Locale locale = const Locale('en'),
+      Size size = const Size(412, 915),
+      double textScale = 1.0,
+    }) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = size;
+      final results = <DateRange?>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: locale,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  results.add(
+                    await CalendarDatePickerSheet.pickRange(
+                      context,
+                      initialRange: initial,
+                      firstDate: firstDate ?? CalendarBounds.earliest,
+                      lastDate: lastDate ?? CalendarBounds.latest,
+                      appearance: const CalendarAppearance(),
+                    ),
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return results;
+    }
+
+    Future<void> tapDay(WidgetTester tester, DateTime day) async {
+      await tester.tap(gridDay(day));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> showView(WidgetTester tester, String label) async {
+      await tester.tap(viewSegment(label));
+      await tester.pumpAndSettle();
+    }
+
+    Finder tile(String label) => find.widgetWithText(YearMonthTile, label);
+
+    Future<void> tapTile(WidgetTester tester, String label) async {
+      await tester.tap(tile(label));
+      await tester.pumpAndSettle();
+    }
+
+    MonthDotMatrix matrixOf(WidgetTester tester, String label) =>
+        tester.widget<MonthDotMatrix>(
+          find.descendant(
+            of: tile(label),
+            matching: find.byType(MonthDotMatrix),
+          ),
+        );
+
+    Color accentOf(WidgetTester tester) => Theme.of(
+      tester.element(find.byType(CalendarDatePickerSheet)),
+    ).colorScheme.primary;
+
+    String oneDay(DateTime day) =>
+        '${DateFormat.yMMMd('en').format(day)} · 1 day';
+
+    /// The band behind [cell], left half then right: a half's decoration,
+    /// or null where it is unpainted; empty when the cell has no band.
+    List<BoxDecoration?> bandOf(WidgetTester tester, Finder cell) {
+      final stack = find.ancestor(of: cell, matching: find.byType(Stack)).first;
+      final band = find.descendant(
+        of: stack,
+        matching: find.byWidgetPredicate(
+          (w) => w is Positioned && w.top == CalendarDayCell.chipTop,
+        ),
+      );
+      if (band.evaluate().isEmpty) return const [];
+      return [
+        for (final half in tester.widgetList<Expanded>(
+          find.descendant(of: band, matching: find.byType(Expanded)),
+        ))
+          switch (half.child) {
+            DecoratedBox(:final decoration) => decoration as BoxDecoration,
+            _ => null,
+          },
+      ];
+    }
+
+    bool isEnd(WidgetTester tester, DateTime day) =>
+        tester.widget<CalendarDayCell>(gridDay(day)).isSelected;
+
+    testWidgets('the header is ✕ · Period · Apply over Month and Year, with '
+        'no list, footer or Clear', (tester) async {
+      await openRange(tester, initial: spring);
+
+      expect(find.byType(FormSheetHeader), findsOneWidget);
+      expect(find.text('Period'), findsOneWidget);
+      expect(find.text('Apply'), findsOneWidget);
+      expect(byId(SemanticsIds.datePickerCancel), findsOneWidget);
+      expect(byId(SemanticsIds.datePickerToday), findsOneWidget);
+      expect(viewSegment('Month'), findsOneWidget);
+      expect(viewSegment('Year'), findsOneWidget);
+      expect(viewSegment('List'), findsNothing);
+      expect(find.text('Repeat the picked dates…'), findsNothing);
+      expect(find.text('Clear'), findsNothing);
+    });
+
+    testWidgets('Apply returns the span drawn on the grid', (tester) async {
+      final now = DateTime.now();
+      final first = d(now.year, now.month, 10);
+      final last = d(now.year, now.month, 20);
+      final results = await openRange(tester);
+
+      await tapDay(tester, first);
+      await tapDay(tester, last);
+      expect(
+        find.text(
+          '${DateFormat.MMMd('en').format(first)} – '
+          '${DateFormat.yMMMd('en').format(last)} · 11 days',
+        ),
+        findsOneWidget,
+      );
+      await save(tester);
+
+      expect(results, [(start: first, end: last)]);
+      expect(find.byType(CalendarDatePickerSheet), findsNothing);
+    });
+
+    testWidgets('an initial span reaching past the bounds opens clamped to '
+        'them at both ends (review 8)', (tester) async {
+      final results = await openRange(
+        tester,
+        initial: spring,
+        firstDate: d(2026, 4, 1),
+        lastDate: d(2026, 5, 31),
+      );
+
+      await save(tester);
+
+      expect(results, [(start: d(2026, 4, 1), end: d(2026, 5, 31))]);
+    });
+
+    testWidgets('a start alone applies as its one day', (tester) async {
+      final now = DateTime.now();
+      final day = d(now.year, now.month, 10);
+      final results = await openRange(tester);
+
+      await tapDay(tester, day);
+      expect(find.text(oneDay(day)), findsOneWidget);
+      await save(tester);
+
+      expect(results, [(start: day, end: day)]);
+    });
+
+    testWidgets('✕, the barrier and a drag down return null', (tester) async {
+      final results = await openRange(tester, initial: spring);
+
+      await tester.tap(byId(SemanticsIds.datePickerCancel));
+      await tester.pumpAndSettle();
+      expect(results, [null]);
+
+      await tapText(tester, 'open');
+      await tester.tapAt(const Offset(200, 20));
+      await tester.pumpAndSettle();
+      expect(results, [null, null]);
+
+      await tapText(tester, 'open');
+      await tester.drag(find.byType(FormSheetHandle), const Offset(0, 800));
+      await tester.pumpAndSettle();
+      expect(results, [null, null, null]);
+      expect(find.byType(CalendarDatePickerSheet), findsNothing);
+    });
+
+    testWidgets('Apply is disabled, never hidden, while there is no start', (
+      tester,
+    ) async {
+      final results = await openRange(tester);
+
+      expect(find.text('Pick a start day'), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: byId(SemanticsIds.datePickerSave),
+          matching: find.byType(FormHeaderTextButton),
+        ),
+        findsOneWidget,
+      );
+      expect(saveOnPressed(tester), isNull);
+
+      await save(tester);
+      expect(results, isEmpty);
+      expect(find.byType(CalendarDatePickerSheet), findsOneWidget);
+    });
+
+    testWidgets('with no start a tap sets the start', (tester) async {
+      final now = DateTime.now();
+      final day = d(now.year, now.month, 12);
+      await openRange(tester);
+
+      await tapDay(tester, day);
+
+      expect(find.text(oneDay(day)), findsOneWidget);
+      expect(isEnd(tester, day), isTrue);
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('with both ends set a tap starts over from that day', (
+      tester,
+    ) async {
+      final results = await openRange(tester, initial: spring);
+      expect(find.text('Mar 15 – Jun 20, 2026 · 98 days'), findsOneWidget);
+
+      await tapDay(tester, d(2026, 3, 20));
+      expect(find.text(oneDay(d(2026, 3, 20))), findsOneWidget);
+      await save(tester);
+
+      expect(results, [(start: d(2026, 3, 20), end: d(2026, 3, 20))]);
+    });
+
+    testWidgets('with a start alone a tap on or after it sets the end', (
+      tester,
+    ) async {
+      final results = await openRange(tester, initial: spring);
+      await tapDay(tester, d(2026, 3, 20));
+
+      // On the start itself: a one-day span with both ends set, so a later
+      // tap starts over where a start alone would have extended to it.
+      await tapDay(tester, d(2026, 3, 20));
+      await tapDay(tester, d(2026, 3, 25));
+      expect(find.text(oneDay(d(2026, 3, 25))), findsOneWidget);
+
+      await tapDay(tester, d(2026, 3, 28));
+      expect(find.text('Mar 25 – Mar 28, 2026 · 4 days'), findsOneWidget);
+      await save(tester);
+
+      expect(results, [(start: d(2026, 3, 25), end: d(2026, 3, 28))]);
+    });
+
+    testWidgets('with a start alone a tap before it restarts the start', (
+      tester,
+    ) async {
+      final results = await openRange(tester, initial: spring);
+      await tapDay(tester, d(2026, 3, 20));
+
+      await tapDay(tester, d(2026, 3, 5));
+      expect(find.text(oneDay(d(2026, 3, 5))), findsOneWidget);
+      expect(isEnd(tester, d(2026, 3, 20)), isFalse);
+
+      await tapDay(tester, d(2026, 3, 6));
+      await save(tester);
+      expect(results, [(start: d(2026, 3, 5), end: d(2026, 3, 6))]);
+    });
+
+    testWidgets('a dimmed day outside the bounds refuses the tap', (
+      tester,
+    ) async {
+      final results = await openRange(
+        tester,
+        initial: (start: d(2026, 3, 12), end: d(2026, 3, 14)),
+        firstDate: d(2026, 3, 10),
+        lastDate: d(2026, 12, 31),
+      );
+      // Before the bound, the 5th is the package's disabled text rather
+      // than a day cell — the first "5" on the March grid (April's comes
+      // last).
+      expect(gridDay(d(2026, 3, 5)), findsNothing);
+
+      await tester.tap(find.text('5').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Mar 12 – Mar 14, 2026 · 3 days'), findsOneWidget);
+
+      await save(tester);
+      expect(results, [(start: d(2026, 3, 12), end: d(2026, 3, 14))]);
+    });
+
+    testWidgets('the ends are filled and the days between sit on one band, '
+        'square inside a row and capped on its outer edges', (tester) async {
+      await openRange(
+        tester,
+        initial: (start: d(2026, 3, 10), end: d(2026, 3, 25)),
+      );
+      final band = accentOf(
+        tester,
+      ).withValues(alpha: EventAvatar.backgroundAlpha);
+      const cap = Radius.circular(CalendarDayCell.chipSize / 2);
+      BoxDecoration capped(BorderRadius radius) =>
+          BoxDecoration(color: band, borderRadius: radius);
+
+      expect(isEnd(tester, d(2026, 3, 10)), isTrue);
+      expect(isEnd(tester, d(2026, 3, 25)), isTrue);
+      expect(isEnd(tester, d(2026, 3, 12)), isFalse);
+
+      // The start's band runs from its centre right, the end's from the
+      // left to its centre.
+      expect(bandOf(tester, gridDay(d(2026, 3, 10))), [
+        null,
+        capped(BorderRadius.zero),
+      ]);
+      expect(bandOf(tester, gridDay(d(2026, 3, 25))), [
+        capped(BorderRadius.zero),
+        null,
+      ]);
+      expect(bandOf(tester, gridDay(d(2026, 3, 12))), [
+        capped(BorderRadius.zero),
+        capped(BorderRadius.zero),
+      ]);
+      // Sunday the 15th ends a row, Monday the 16th begins the next.
+      expect(bandOf(tester, gridDay(d(2026, 3, 15))), [
+        capped(BorderRadius.zero),
+        capped(const BorderRadius.horizontal(right: cap)),
+      ]);
+      expect(bandOf(tester, gridDay(d(2026, 3, 16))), [
+        capped(const BorderRadius.horizontal(left: cap)),
+        capped(BorderRadius.zero),
+      ]);
+      expect(bandOf(tester, gridDay(d(2026, 3, 9))), isEmpty);
+      expect(bandOf(tester, gridDay(d(2026, 3, 26))), isEmpty);
+    });
+
+    testWidgets('an outside-month day of the span is dimmed as today', (
+      tester,
+    ) async {
+      await openRange(
+        tester,
+        initial: (start: d(2026, 3, 10), end: d(2026, 4, 3)),
+      );
+      final accent = accentOf(tester);
+      final outside = find.byWidgetPredicate(
+        (w) => w is CalendarDayCell && w.day == d(2026, 4, 1) && w.isOutside,
+      );
+
+      expect(
+        bandOf(tester, outside).map((half) => half?.color).toList(),
+        List.filled(
+          2,
+          accent.withValues(
+            alpha: EventAvatar.backgroundAlpha * CalendarDayCell.outsideAlpha,
+          ),
+        ),
+      );
+      expect(
+        bandOf(tester, gridDay(d(2026, 3, 31))).map((half) => half?.color),
+        everyElement(accent.withValues(alpha: EventAvatar.backgroundAlpha)),
+      );
+    });
+
+    testWidgets('the initial span is drawn on open, on its own months', (
+      tester,
+    ) async {
+      await openRange(tester, initial: spring);
+
+      expect(find.text('March 2026'), findsOneWidget);
+      expect(isEnd(tester, d(2026, 3, 15)), isTrue);
+      expect(bandOf(tester, gridDay(d(2026, 3, 20))), hasLength(2));
+      expect(bandOf(tester, gridDay(d(2026, 3, 14))), isEmpty);
+
+      await showView(tester, 'Year');
+      expect(find.text('2026'), findsOneWidget);
+      expect(matrixOf(tester, 'Apr 2026').markedMask, (1 << 30) - 1);
+    });
+
+    testWidgets('the year view colours the span and its tiles pick whole '
+        'months', (tester) async {
+      final results = await openRange(tester, initial: spring);
+      await showView(tester, 'Year');
+      final accent = accentOf(tester);
+
+      expect(find.byType(YearMonthTile), findsNWidgets(12));
+      final march = matrixOf(tester, 'Mar 2026').dayColors!;
+      expect(march, hasLength(31));
+      expect(march[13], isNull, reason: 'Mar 14');
+      expect(march.sublist(14), everyElement(accent));
+      expect(matrixOf(tester, 'Apr 2026').dayColors, everyElement(accent));
+      expect(matrixOf(tester, 'Jul 2026').dayColors, everyElement(isNull));
+      expect(
+        find.descendant(of: tile('Apr 2026'), matching: find.text('30')),
+        findsOneWidget,
+      );
+
+      // A month after the span's end extends it to that month's last day,
+      // keeping the start, and the view stays.
+      await tapTile(tester, 'Aug 2026');
+      expect(find.text('Mar 15 – Aug 31, 2026 · 170 days'), findsOneWidget);
+      expect(find.byType(YearMonthTile), findsNWidgets(12));
+      expect(matrixOf(tester, 'Aug 2026').dayColors, everyElement(accent));
+      expect(matrixOf(tester, 'Jul 2026').dayColors, everyElement(accent));
+
+      // A month inside the span restarts it as that whole month.
+      await tapTile(tester, 'Apr 2026');
+      expect(find.text('Apr 1 – Apr 30, 2026 · 30 days'), findsOneWidget);
+      expect(matrixOf(tester, 'Aug 2026').dayColors, everyElement(isNull));
+
+      // A month before the start restarts it too; then a later one makes a
+      // run of whole months in two taps.
+      await tapTile(tester, 'Feb 2026');
+      expect(find.text('Feb 1 – Feb 28, 2026 · 28 days'), findsOneWidget);
+      await tapTile(tester, 'Dec 2026');
+      expect(find.text('Feb 1 – Dec 31, 2026 · 334 days'), findsOneWidget);
+
+      // A start alone: a later tile ends the span on its last day. August's
+      // tile first, inside the span, brings the grid to August.
+      await tapTile(tester, 'Aug 2026');
+      expect(find.text('Aug 1 – Aug 31, 2026 · 31 days'), findsOneWidget);
+      await showView(tester, 'Month');
+      await tapDay(tester, d(2026, 8, 10));
+      await showView(tester, 'Year');
+      await tapTile(tester, 'Oct 2026');
+      expect(find.text('Aug 10 – Oct 31, 2026 · 83 days'), findsOneWidget);
+
+      // A start alone: an earlier tile restarts the span as its whole month.
+      await showView(tester, 'Month');
+      await tapDay(tester, d(2026, 10, 10));
+      await showView(tester, 'Year');
+      await tapTile(tester, 'May 2026');
+      expect(find.text('May 1 – May 31, 2026 · 31 days'), findsOneWidget);
+
+      await save(tester);
+      expect(results, [(start: d(2026, 5, 1), end: d(2026, 5, 31))]);
+    });
+
+    testWidgets('with no span a year tile is its whole month', (tester) async {
+      final year = DateTime.now().year;
+      final results = await openRange(tester);
+      await showView(tester, 'Year');
+
+      await tapTile(tester, DateFormat.yMMM('en').format(d(year, 3, 1)));
+      expect(find.text('Mar 1 – Mar 31, $year · 31 days'), findsOneWidget);
+      await save(tester);
+
+      expect(results, [(start: d(year, 3, 1), end: d(year, 3, 31))]);
+    });
+
+    testWidgets('the summary keeps one height in all three states, so the '
+        'grid never moves', (tester) async {
+      await openRange(tester, initial: spring);
+      Finder slot() => find.byType(FormCaptionSlot);
+      Offset switchTop() => tester.getTopLeft(
+        find.byType(SegmentedButton<CalendarDatePickerView>),
+      );
+
+      // In the test font the span takes two lines at this width.
+      final span = find.text('Mar 15 – Jun 20, 2026 · 98 days');
+      expect(span, findsOneWidget);
+      final spanHeight = tester.getSize(span).height;
+      final height = tester.getSize(slot()).height;
+      final top = switchTop();
+
+      await tapDay(tester, d(2026, 3, 20));
+      final start = find.text(oneDay(d(2026, 3, 20)));
+      expect(start, findsOneWidget);
+      expect(tester.getSize(start).height, lessThan(spanHeight));
+      expect(tester.getSize(slot()).height, height);
+      expect(switchTop(), top);
+
+      await tester.tap(byId(SemanticsIds.datePickerCancel));
+      await tester.pumpAndSettle();
+      await openRange(tester);
+      expect(find.text('Pick a start day'), findsOneWidget);
+      expect(tester.getSize(slot()).height, height);
+      expect(switchTop(), top);
+    });
+
+    testWidgets('at text scale 2.0 in German on a 360 × 780 phone nothing '
+        'overflows and the header keeps ✕, Zeitraum and Übernehmen', (
+      tester,
+    ) async {
+      await openRange(
+        tester,
+        initial: spring,
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScale: 2.0,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Zeitraum'), findsOneWidget);
+      expect(find.text('Übernehmen'), findsOneWidget);
+      expect(byId(SemanticsIds.datePickerCancel), findsOneWidget);
+      expect(byId(SemanticsIds.datePickerToday), findsOneWidget);
+      expect(
+        tester.getSize(find.byType(FormSheetHeader)).height,
+        FormMetrics.headerHeight,
+      );
+      expect(viewSegment('Monat'), findsOneWidget);
+      expect(viewSegment('Liste'), findsNothing);
+      // The span may wrap to the slot's second line rather than be cut;
+      // the month title wraps as the other modes' does.
+      final summary = tester.widget<Text>(
+        find
+            .descendant(
+              of: find.byType(FormCaptionSlot),
+              matching: find.byType(Text),
+            )
+            .last,
+      );
+      expect(summary.maxLines, 2);
+      final title = find.text('März 2026');
+      expect(title, findsOneWidget);
+      expect(
+        tester.widget<Text>(title).maxLines,
+        FormMetrics.periodTitleMaxLines,
+      );
+
+      await tapDay(tester, d(2026, 3, 20));
+      expect(tester.takeException(), isNull);
+
+      await showView(tester, 'Jahr');
+      expect(tester.takeException(), isNull);
+      expect(find.byType(YearMonthTile), findsWidgets);
+      expect(byId(SemanticsIds.datePickerToday), findsOneWidget);
+    });
   });
 }

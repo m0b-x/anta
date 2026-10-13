@@ -2,14 +2,13 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
-import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../models/agenda_day_list.dart';
 import '../models/calendar_event.dart';
 import '../models/fasting_appearance.dart';
 import '../models/recurrence_rule.dart';
 import '../models/upcoming_agenda_filters.dart';
-import '../services/folder_search_service.dart' show normalizeForSearch;
+import 'event_query_matcher.dart';
 import 'event_search_query.dart';
 
 /// One dated occurrence of a [CalendarEvent] inside an agenda range.
@@ -284,21 +283,13 @@ abstract final class EventAgenda {
     if (range == null) return const [];
     final (start, end) = range;
 
-    final searching = query.isNotEmpty;
-    // Folded once per category, never per event or per occurrence: the catalog
-    // is a handful of entries and the label is a property of the category, not
-    // of the events wearing it.
-    final categoryMasks = <String, int>{};
-    if (searching) {
-      categoryLabels.forEach((id, label) {
-        final mask = query.maskOf(label);
-        if (mask != 0) categoryMasks[id] = mask;
-      });
-    }
-    // What each surviving candidate already satisfies, decided once per event
-    // instead of once per (event, day) — **4.1**. Only an event carrying
-    // per-day text, or a query carrying a date term, pays anything per day.
-    final matchState = <String, _EventQueryMatch>{};
+    // One matcher per scan: the candidate pass memoizes what each event
+    // satisfies, and the day loop reads that memo — see [EventQueryMatcher].
+    final matcher = EventQueryMatcher(
+      query: query,
+      categoryLabels: categoryLabels,
+      labelTextOf: labelTextOf,
+    );
     final candidates = <CalendarEvent>[];
     for (final event in events) {
       if (!passesEventFilters(
@@ -310,58 +301,7 @@ abstract final class EventAgenda {
       )) {
         continue;
       }
-      if (!searching) {
-        candidates.add(event);
-        continue;
-      }
-      final base =
-          query.maskOf(event.title) | (categoryMasks[event.categoryId] ?? 0);
-      // Everything the title and the category already answer for is settled;
-      // nothing below is folded for what they already closed, so a title hit
-      // still costs neither a label nor a description fold.
-      final baseSettles = query.couldSatisfy(base);
-      // The row's own labels come **before** the description: they are short,
-      // already on screen, and settling here spares a whole-description fold.
-      // A template that still matches is folded either way, so every
-      // description-fold budget this scan is pinned to stays where it was.
-      var labels = 0;
-      if (!baseSettles && labelTextOf != null) {
-        labels = _labelFoldMask(event, labelTextOf(event), query);
-      }
-      final settled = base | labels;
-      final settledSatisfies = labels == 0
-          ? baseSettles
-          : query.couldSatisfy(settled);
-      var template = 0;
-      if (!settledSatisfies) {
-        final description = event.description;
-        if (description != null) {
-          template = _templateFoldMask(event, description, query);
-        }
-      }
-      // Cheap existence probe — the per-day pass decides which days actually
-      // match. Without it, an event whose only hit is a single day's override
-      // never reaches the scan.
-      final varies =
-          !settledSatisfies &&
-          OccurrenceDescriptions.appliesTo(event) &&
-          OccurrenceDescriptions.hasAnyOverride(event.id);
-      // Deliberately a *superset* test: with per-occurrence descriptions an
-      // event may match only through text living on one specific day, so
-      // dropping it here would make that text unfindable. A date term is
-      // likewise treated as satisfiable here and narrowed per day below.
-      if (!settledSatisfies &&
-          !varies &&
-          !query.couldSatisfy(settled | template)) {
-        continue;
-      }
-      matchState[event.id] = _EventQueryMatch(
-        base: base,
-        labels: labels,
-        template: template,
-        varies: varies,
-        always: !query.hasDateClauses && (settledSatisfies || !varies),
-      );
+      if (!matcher.mayMatch(event)) continue;
       candidates.add(event);
     }
     if (candidates.isEmpty) return const [];
@@ -379,35 +319,6 @@ abstract final class EventAgenda {
       return const [];
     }
 
-    /// Whether [event] still matches the query **on this day**.
-    ///
-    /// Everything above the last line was decided once per event; only an
-    /// event carrying per-occurrence text pays anything per day, and then only
-    /// for the days it actually overrode. A live override wins over the
-    /// template **including when its text is empty**, which is what preserves
-    /// the documented asymmetry: a day whose override no longer mentions the
-    /// needle drops out of *that day* even though the template still matches,
-    /// and symmetrically an override on one day cannot drag the event's every
-    /// other occurrence into the results.
-    bool matchesQuery(CalendarEvent event, DateTime day) {
-      if (!searching) return true;
-      final state = matchState[event.id];
-      if (state == null) return false;
-      if (state.always) return true;
-      // Both halves were decided once per event — the labels no more vary by
-      // day than the title does.
-      var mask = state.base | state.labels;
-      if (state.varies) {
-        final override = OccurrenceDescriptions.overrideFor(event.id, day);
-        mask |= override == null
-            ? state.template
-            : _descriptionFoldMask(override, query);
-      } else {
-        mask |= state.template;
-      }
-      return query.satisfied(mask, day);
-    }
-
     final result = <EventOccurrence>[];
     for (
       var day = start;
@@ -416,7 +327,7 @@ abstract final class EventAgenda {
     ) {
       List<CalendarEvent>? onDay;
       for (final event in dense) {
-        if (event.occursOnUtcDay(day) && matchesQuery(event, day)) {
+        if (event.occursOnUtcDay(day) && matcher.matches(event, day)) {
           (onDay ??= <CalendarEvent>[]).add(event);
         }
       }
@@ -425,7 +336,7 @@ abstract final class EventAgenda {
         // A candidate day, not a decision: `occursOnUtcDay` stays the sole
         // arbiter, so the endDate clamp and cancelled occurrences still apply.
         for (final event in sparseToday) {
-          if (event.occursOnUtcDay(day) && matchesQuery(event, day)) {
+          if (event.occursOnUtcDay(day) && matcher.matches(event, day)) {
             (onDay ??= <CalendarEvent>[]).add(event);
           }
         }
@@ -435,7 +346,7 @@ abstract final class EventAgenda {
         for (final event in oneTimeToday) {
           // The occurrence here is certain; only the search query narrows it,
           // and a one-time event's description never varies by day.
-          if (matchesQuery(event, day)) {
+          if (matcher.matches(event, day)) {
             (onDay ??= <CalendarEvent>[]).add(event);
           }
         }
@@ -1013,148 +924,28 @@ abstract final class EventAgenda {
   static DateTime dateOnly(DateTime date) =>
       DateTime.utc(date.year, date.month, date.day);
 
-  /// Counts description folds performed by [occurrencesInRange] — the work
-  /// **4.1** exists to bound. Incremented inside an `assert`, so both the
-  /// statement and its closure are stripped from profile and release builds
-  /// and cost nothing there, mirroring `CalendarEvent.debugOccursOnCalls`.
-  ///
-  /// A fold copies a whole description (up to the settings-capped ceiling)
-  /// through the shared search normalization, and a top-level function has no
-  /// injection seam, so this is what lets a test assert that the scan folds a
-  /// template **once per event** rather than once per (event, day). Title
-  /// folds are deliberately not counted: those were already once per event
-  /// before 4.1.
+  /// The description folds [occurrencesInRange] performed — kept on the
+  /// scan's own name since the fold-budget suites read it here; the counter
+  /// and its contract live on [EventQueryMatcher.debugDescriptionFolds].
   @visibleForTesting
-  static int debugDescriptionFolds = 0;
+  static int get debugDescriptionFolds =>
+      EventQueryMatcher.debugDescriptionFolds;
 
-  /// Folds [text] into [query]'s term bits, counting the fold. The one place a
-  /// description is normalized during a scan, so [debugDescriptionFolds]
-  /// cannot drift from what actually happens.
-  static int _descriptionFoldMask(String text, EventSearchQuery query) {
-    assert(() {
-      debugDescriptionFolds++;
-      return true;
-    }());
-    return query.maskOf(text);
-  }
+  @visibleForTesting
+  static set debugDescriptionFolds(int value) =>
+      EventQueryMatcher.debugDescriptionFolds = value;
 
-  /// Per-event folds that survive across scans: the normalized template
-  /// description and the normalized row labels, keyed on the event's
-  /// identity and on the identity of the string they were folded from. A
-  /// keystroke pause then costs one `contains` per term per candidate rather
-  /// than re-normalizing every description in the store; an edited event is a
-  /// new object and misses on its own.
-  static final Expando<_EventFolds> _folds = Expando<_EventFolds>();
+  /// The label folds [occurrencesInRange] performed; see
+  /// [EventQueryMatcher.debugLabelFolds].
+  @visibleForTesting
+  static int get debugLabelFolds => EventQueryMatcher.debugLabelFolds;
 
-  static _EventFolds _foldsOf(CalendarEvent event) {
-    final cached = _folds[event];
-    if (cached != null && cached.generation == _foldCacheGeneration) {
-      return cached;
-    }
-    return _folds[event] = _EventFolds();
-  }
-
-  /// [_descriptionFoldMask] for the event's own template, folded once per
-  /// event object rather than once per scan.
-  static int _templateFoldMask(
-    CalendarEvent event,
-    String description,
-    EventSearchQuery query,
-  ) {
-    final folds = _foldsOf(event);
-    var folded = folds.templateFold;
-    if (folded == null || !identical(folds.templateSource, description)) {
-      assert(() {
-        debugDescriptionFolds++;
-        return true;
-      }());
-      folded = normalizeForSearch(description);
-      folds.templateSource = description;
-      folds.templateFold = folded;
-    }
-    return query.maskOfFolded(folded);
-  }
+  @visibleForTesting
+  static set debugLabelFolds(int value) =>
+      EventQueryMatcher.debugLabelFolds = value;
 
   /// Drops every cached fold. For tests that count folds across scans.
   @visibleForTesting
-  static void debugClearFoldCaches() {
-    _foldCacheGeneration++;
-  }
-
-  static int _foldCacheGeneration = 0;
-
-  /// Counts calls to `occurrencesInRange`'s `labelTextOf` closure. Mirrors
-  /// [debugDescriptionFolds] exactly, `assert`-only so it costs nothing in
-  /// profile and release builds.
-  ///
-  /// The closure builds several localized strings — a recurrence phrase, a
-  /// formatted time range — so the property worth pinning is that it runs
-  /// **once per candidate event**, never once per (event, day), and not at all
-  /// when the title or the category already settled the query.
-  @visibleForTesting
-  static int debugLabelFolds = 0;
-
-  /// Folds [text] into [query]'s term bits, counting the fold. The one place a
-  /// row's display labels are normalized during a scan, so [debugLabelFolds]
-  /// cannot drift from what actually happens. Cached per event on the
-  /// identity of [text]: `AgendaSearchText.forEventCached` hands back the same
-  /// string for the same event and locale, so the fold is paid once.
-  static int _labelFoldMask(
-    CalendarEvent event,
-    String text,
-    EventSearchQuery query,
-  ) {
-    final folds = _foldsOf(event);
-    var folded = folds.labelFold;
-    if (folded == null || !identical(folds.labelSource, text)) {
-      assert(() {
-        debugLabelFolds++;
-        return true;
-      }());
-      folded = normalizeForSearch(text);
-      folds.labelSource = text;
-      folds.labelFold = folded;
-    }
-    return query.maskOfFolded(folded);
-  }
-}
-
-/// An event's cached folds — see `EventAgenda._folds`. Invalidated as a whole
-/// by `debugClearFoldCaches` through the generation stamp.
-class _EventFolds {
-  final int generation = EventAgenda._foldCacheGeneration;
-  String? templateSource;
-  String? templateFold;
-  String? labelSource;
-  String? labelFold;
-}
-
-/// What a candidate event already satisfies of the active query, resolved once
-/// per event by [EventAgenda.occurrencesInRange]'s pre-filter.
-///
-/// [base] holds the term bits the title and the category label answer for —
-/// neither varies by day. [labels] holds the bits the row's own rendered
-/// labels answer for (recurrence pattern, time or "All day", priority word),
-/// folded once for what [base] left open and just as day-invariant.
-/// [template] holds the template description's bits, folded only for what the
-/// two above left open. [varies] means the day loop has to ask
-/// [OccurrenceDescriptions] whether this day overrode that template, and a
-/// live override **replaces** [template] rather than adding to it, including
-/// when its text is empty. [always] short-circuits the whole thing for the
-/// common case: no date term to narrow by, and nothing left for a day to
-/// change.
-class _EventQueryMatch {
-  final int base;
-  final int labels;
-  final int template;
-  final bool varies;
-  final bool always;
-
-  const _EventQueryMatch({
-    required this.base,
-    required this.labels,
-    required this.template,
-    required this.varies,
-    required this.always,
-  });
+  static void debugClearFoldCaches() =>
+      EventQueryMatcher.debugClearFoldCaches();
 }

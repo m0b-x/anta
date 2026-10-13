@@ -10,12 +10,14 @@ import '../constants/fasting_calendar.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/calendar_filter_summary.dart';
 import '../utils/event_agenda.dart';
 import 'agenda_list_view.dart';
+import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
 import 'filter_check_list_sheet.dart';
 import 'form_rows.dart';
@@ -46,7 +48,15 @@ import 'form_rows.dart';
 class AgendaFiltersSheet extends StatefulWidget {
   final UpcomingAgendaFilters initial;
 
-  const AgendaFiltersSheet({super.key, required this.initial});
+  /// The calendar's look, passed down for the custom range's Dates sheet
+  /// (week start, accent, today style) rather than re-read in a leaf.
+  final CalendarAppearance appearance;
+
+  const AgendaFiltersSheet({
+    super.key,
+    required this.initial,
+    this.appearance = const CalendarAppearance(),
+  });
 
   /// Names one period choice. Shared with the panel's summary chip so the
   /// sheet and the chip that undoes it can never name the same window
@@ -70,6 +80,7 @@ class AgendaFiltersSheet extends StatefulWidget {
   static Future<UpcomingAgendaFilters?> show(
     BuildContext context, {
     required UpcomingAgendaFilters filters,
+    CalendarAppearance appearance = const CalendarAppearance(),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<UpcomingAgendaFilters>(
@@ -88,7 +99,7 @@ class AgendaFiltersSheet extends StatefulWidget {
           maxHeight:
               MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
-        child: AgendaFiltersSheet(initial: filters),
+        child: AgendaFiltersSheet(initial: filters, appearance: appearance),
       ),
     );
   }
@@ -246,21 +257,18 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     );
   });
 
-  /// Opens a date-range picker. The lower bound reaches into the past on
-  /// purpose: with an explicit range the agenda doubles as an event search,
-  /// and refusing to look back would make that half a feature.
+  /// Opens the Dates sheet's range mode. The lower bound reaches into the
+  /// past on purpose: with an explicit range the agenda doubles as an event
+  /// search, and refusing to look back would make that half a feature.
   Future<void> _pickCustomRange() async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2000, 1, 1),
-      lastDate: DateTime(2100, 12, 31),
-      initialDateRange: _draft.hasCustomRange
-          ? DateTimeRange(start: _draft.customStart!, end: _draft.customEnd!)
-          : DateTimeRange(
-              start: now,
-              end: now.add(Duration(days: _draft.rangeDays - 1)),
-            ),
+    final picked = await CalendarDatePickerSheet.pickRange(
+      context,
+      initialRange: _draft.hasCustomRange
+          ? (start: _draft.customStart!, end: _draft.customEnd!)
+          : null,
+      firstDate: DateTime.utc(2000, 1, 1),
+      lastDate: DateTime.utc(2100, 12, 31),
+      appearance: widget.appearance,
     );
     if (picked == null || !mounted) return;
     _update(

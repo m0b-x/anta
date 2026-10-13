@@ -382,6 +382,15 @@ class AgendaDayListMonth {
     return _byDay[day.day] ?? const <AgendaDayListEntry>[];
   }
 
+  /// Every entry of the month in day order, each day's in the order the
+  /// resolver handed them — what a post-filter narrows into a bucket of its
+  /// own.
+  Iterable<AgendaDayListEntry> get entries sync* {
+    for (final day in days) {
+      yield* _byDay[day.day]!;
+    }
+  }
+
   int countForDay(DateTime day) => entriesOn(day).length;
 
   int keptCountForDay(DateTime day) {

@@ -217,5 +217,38 @@ abstract final class FormMetrics {
   /// fit 220 and broke mid-word on the device.
   static const double menuMaxWidth = AppTheme.menuMaxWidth;
 
+  /// The scrubber's touch lane along a list's right edge: a 48 dp target a
+  /// thumb finds without aiming at the 4 dp thumb itself.
+  static const double scrubberLaneWidth = 48;
+
+  /// The scrollbar's thumb under the lane — thin, it marks the place and the
+  /// lane takes the touch.
+  static const double scrubberThumbWidth = 4;
+
+  /// The gap between the scrubber's bubble and its lane, so the finger in
+  /// the lane never covers the label it is steering.
+  static const double scrubberBubbleInset = 12;
+
+  /// The bubble is a small floating surface, rounded like a menu.
+  static const double scrubberBubbleRadius = menuRadius;
+  static const EdgeInsets scrubberBubblePadding = EdgeInsets.symmetric(
+    horizontal: 12,
+    vertical: 8,
+  );
+
+  /// The bubble leaves at the scrollbar's own pace; Flutter names no public
+  /// constant for the scrollbar's fade, so the value is named here.
+  static const Duration scrubberBubbleFade = Duration(milliseconds: 300);
+
+  /// The Dates sheet's range summary — the span and its day count — on the
+  /// sheet body's side inset.
+  static const EdgeInsets rangeSummaryPadding = EdgeInsets.symmetric(
+    horizontal: 16,
+  );
+
+  /// Under the Dates sheet's year tiles: the whole gap when a footer follows
+  /// (several dates), else the gap over the bottom clearance.
+  static const double yearViewBottomGap = 8;
+
   static const double disabledOpacity = 0.38;
 }

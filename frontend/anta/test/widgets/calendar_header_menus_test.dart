@@ -10,6 +10,7 @@ import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/widgets/calendar_header_menus.dart';
 
 /// The calendar's header menus (`docs/calendar-header-roadmap.md`): the view
@@ -291,6 +292,105 @@ void main() {
       await tester.tap(calendarRow);
       await tester.pumpAndSettle();
       expect(picked, [CalendarViewPage.calendar]);
+    });
+
+    group('the overview\'s presentations', () {
+      late final yearRow = find.bySemanticsIdentifier(
+        SemanticsIds.overviewViewYear,
+      );
+      late final monthPresentationRow = find.bySemanticsIdentifier(
+        SemanticsIds.overviewViewMonth,
+      );
+      late final listRow = find.bySemanticsIdentifier(
+        SemanticsIds.overviewViewList,
+      );
+
+      Widget overviewTitle({
+        AgendaDayListMode presentation = AgendaDayListMode.list,
+        ValueChanged<AgendaDayListMode>? onPresentation,
+      }) {
+        return CalendarViewMenu(
+          page: CalendarViewPage.overview,
+          onPageSelected: (_) {},
+          presentation: presentation,
+          onPresentationSelected: onPresentation ?? (_) {},
+        );
+      }
+
+      testWidgets('Year, Month and List follow the pages, the current one '
+          'checked', (tester) async {
+        final handle = tester.ensureSemantics();
+        await tester.pumpWidget(host(title: overviewTitle()));
+        await open(tester, title);
+
+        expect(find.byType(PopupMenuDivider), findsOneWidget);
+        expect(monthRow, findsNothing, reason: 'no grid formats here');
+        final tops = [
+          for (final row in [
+            overviewRow,
+            yearRow,
+            monthPresentationRow,
+            listRow,
+          ])
+            tester.getTopLeft(row).dy,
+        ];
+        expect(tops, orderedEquals([...tops]..sort()));
+        for (final (row, label) in [
+          (yearRow, 'Year'),
+          (monthPresentationRow, 'Month'),
+          (listRow, 'List'),
+        ]) {
+          final data = dataOf(tester, row);
+          expect(data.role, SemanticsRole.menuItemRadio, reason: label);
+          expect(data.label, contains(label));
+          expect(
+            data.flagsCollection.isChecked,
+            row == listRow ? CheckedState.isTrue : CheckedState.isFalse,
+            reason: label,
+          );
+        }
+        handle.dispose();
+      });
+
+      testWidgets('every glyph in the menu is its own', (tester) async {
+        await tester.pumpWidget(host(title: overviewTitle()));
+        await open(tester, title);
+
+        final glyphs = [
+          for (final row in [
+            calendarRow,
+            overviewRow,
+            yearRow,
+            monthPresentationRow,
+            listRow,
+          ])
+            tester
+                .widget<Icon>(
+                  find.descendant(of: row, matching: find.byType(Icon)).first,
+                )
+                .icon,
+        ];
+        expect(glyphs.toSet(), hasLength(glyphs.length));
+      });
+
+      testWidgets('picking another presentation calls back; the current one '
+          'only closes the menu', (tester) async {
+        final picked = <AgendaDayListMode>[];
+        await tester.pumpWidget(
+          host(title: overviewTitle(onPresentation: picked.add)),
+        );
+
+        await open(tester, title);
+        await tester.tap(listRow);
+        await tester.pumpAndSettle();
+        expect(picked, isEmpty);
+        expect(listRow, findsNothing, reason: 'the menu closed');
+
+        await open(tester, title);
+        await tester.tap(yearRow);
+        await tester.pumpAndSettle();
+        expect(picked, [AgendaDayListMode.year]);
+      });
     });
 
     testWidgets('opening the menu drops focus, so closing it cannot raise the '

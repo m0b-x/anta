@@ -13,6 +13,8 @@ import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
+import 'package:anta/widgets/calendar_date_picker_sheet.dart';
+import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/filter_check_list_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
@@ -537,12 +539,11 @@ void main() {
         SemanticsIds.agendaFilterPeriod,
         SemanticsIds.agendaFilterPeriodCustom,
       );
-      expect(find.byType(DateRangePickerDialog), findsOneWidget);
+      expect(find.byType(CalendarDatePickerSheet), findsOneWidget);
 
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      await tap(tester, id(SemanticsIds.datePickerCancel));
 
-      expect(find.byType(DateRangePickerDialog), findsNothing);
+      expect(find.byType(CalendarDatePickerSheet), findsNothing);
       expect(find.byType(AgendaFiltersSheet), findsOneWidget);
       expect(pickerRow(tester, SemanticsIds.agendaFilterPeriod).value, '30 days');
 
@@ -551,8 +552,9 @@ void main() {
       expect(applied.value, const UpcomingAgendaFilters());
     });
 
-    /// Opened over a pinned range so the dialog lands on a known month; a
-    /// tap on a day starts a new range, the next tap ends it.
+    /// Opened over a pinned range so the Dates sheet lands on a known month;
+    /// with both ends set a tap on a day starts a new span, the next tap
+    /// ends it.
     testWidgets('Custom range… writes both dates when the range is confirmed', (
       tester,
     ) async {
@@ -563,19 +565,22 @@ void main() {
           customEnd: DateTime.utc(2026, 5, 15),
         ),
       );
+      final start = DateTime.utc(2026, 5, 10);
+      final end = DateTime.utc(2026, 5, 20);
+      Finder day(DateTime value) => find.byWidgetPredicate(
+        (w) => w is CalendarDayCell && w.day == value && !w.isOutside,
+      );
 
       await pick(
         tester,
         SemanticsIds.agendaFilterPeriod,
         SemanticsIds.agendaFilterPeriodCustom,
       );
-      await tap(tester, find.bySemanticsLabel(RegExp(r'May 10, 2026')));
-      await tap(tester, find.bySemanticsLabel(RegExp(r'May 20, 2026')));
-      await tap(tester, find.text('Save'));
+      await tap(tester, day(start));
+      await tap(tester, day(end));
+      await tap(tester, id(SemanticsIds.datePickerSave));
 
-      expect(find.byType(DateRangePickerDialog), findsNothing);
-      final start = DateTime.utc(2026, 5, 10);
-      final end = DateTime.utc(2026, 5, 20);
+      expect(find.byType(CalendarDatePickerSheet), findsNothing);
       expect(
         pickerRow(tester, SemanticsIds.agendaFilterPeriod).value,
         AgendaListView.rangeLabel('en', start, end),

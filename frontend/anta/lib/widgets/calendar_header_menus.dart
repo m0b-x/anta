@@ -5,6 +5,7 @@ import 'package:table_calendar/table_calendar.dart' show CalendarFormat;
 import '../constants/app_theme.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/agenda_day_list_mode.dart';
 import 'automation_id.dart';
 import 'form_menu_item.dart';
 
@@ -13,9 +14,10 @@ import 'form_menu_item.dart';
 enum CalendarViewPage { calendar, overview }
 
 /// The app-bar title of the calendar and the overview, as a menu: the page it
-/// names, the other page one pick away and — on the calendar only — the
-/// grid's Month / 2 weeks / Week, which is how the grid is looked at rather
-/// than what it shows, and so belongs here rather than in the filter sheet.
+/// names, the other page one pick away and, as a second group, how the page
+/// is looked at rather than what it shows — the calendar grid's Month /
+/// 2 weeks / Week, the overview's Year / Month / List — which is why neither
+/// lives in a filter sheet or a band of its own on the page.
 ///
 /// A popup route like the app's overflow menus, never a `MenuAnchor`, whose
 /// items expose no semantics nodes on iOS. Focus is dropped before the menu
@@ -34,6 +36,8 @@ class CalendarViewMenu extends StatelessWidget {
     required this.onPageSelected,
     this.format,
     this.onFormatSelected,
+    this.presentation,
+    this.onPresentationSelected,
   });
 
   /// The page this title sits on: its name is the label and its row is
@@ -51,6 +55,14 @@ class CalendarViewMenu extends StatelessWidget {
   /// Called with a format other than [format]. Null while the grid cannot
   /// take one yet — the rows stay, disabled.
   final ValueChanged<CalendarFormat>? onFormatSelected;
+
+  /// The overview's presentation, checked in the menu's second group. Null
+  /// leaves the group out: the calendar has one presentation, its grid.
+  final AgendaDayListMode? presentation;
+
+  /// Called with a presentation other than [presentation]. Null keeps the
+  /// rows, disabled.
+  final ValueChanged<AgendaDayListMode>? onPresentationSelected;
 
   /// `AppBar.titleSpacing` for a page wearing this title: the ink starts
   /// [titlePadding]'s start inset before the label, which stays where a plain
@@ -111,17 +123,56 @@ class CalendarViewMenu extends StatelessWidget {
     };
   }
 
+  /// Widest to narrowest, as the formats run — not the enum's order.
+  static const List<AgendaDayListMode> _presentations = [
+    AgendaDayListMode.year,
+    AgendaDayListMode.month,
+    AgendaDayListMode.list,
+  ];
+
+  static String _presentationLabel(
+    AppLocalizations l10n,
+    AgendaDayListMode mode,
+  ) {
+    return switch (mode) {
+      AgendaDayListMode.year => l10n.dayListModeYear,
+      AgendaDayListMode.month => l10n.dayListModeMonth,
+      AgendaDayListMode.list => l10n.dayListModeList,
+    };
+  }
+
+  /// Unique within the menu: the Overview row above already wears
+  /// `grid_view_rounded`, so the Year row cannot.
+  static IconData _presentationIcon(AgendaDayListMode mode) {
+    return switch (mode) {
+      AgendaDayListMode.year => Icons.apps_rounded,
+      AgendaDayListMode.month => Icons.calendar_view_month_rounded,
+      AgendaDayListMode.list => Icons.format_list_bulleted_rounded,
+    };
+  }
+
+  static String _presentationId(AgendaDayListMode mode) {
+    return switch (mode) {
+      AgendaDayListMode.year => SemanticsIds.overviewViewYear,
+      AgendaDayListMode.month => SemanticsIds.overviewViewMonth,
+      AgendaDayListMode.list => SemanticsIds.overviewViewList,
+    };
+  }
+
   void _select(_ViewChoice choice) {
     switch (choice) {
       case _PageChoice(page: final picked):
         if (picked != page) onPageSelected(picked);
       case _FormatChoice(format: final picked):
         if (picked != format) onFormatSelected?.call(picked);
+      case _PresentationChoice(mode: final picked):
+        if (picked != presentation) onPresentationSelected?.call(picked);
     }
   }
 
   List<PopupMenuEntry<_ViewChoice>> _items(AppLocalizations l10n) {
     final format = this.format;
+    final presentation = this.presentation;
     return [
       FormMenuChoiceItem<_ViewChoice>(
         value: const _PageChoice(CalendarViewPage.calendar),
@@ -156,6 +207,22 @@ class CalendarViewMenu extends StatelessWidget {
               label: _formatLabel(l10n, option),
               checked: option == format,
               enabled: onFormatSelected != null,
+            ),
+          ),
+      ],
+      if (presentation != null) ...[
+        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
+        for (final option in _presentations)
+          FormMenuChoiceItem<_ViewChoice>(
+            value: _PresentationChoice(option),
+            checked: option == presentation,
+            enabled: onPresentationSelected != null,
+            child: FormMenuItemRow(
+              identifier: _presentationId(option),
+              icon: _presentationIcon(option),
+              label: _presentationLabel(l10n, option),
+              checked: option == presentation,
+              enabled: onPresentationSelected != null,
             ),
           ),
       ],
@@ -315,4 +382,10 @@ final class _FormatChoice extends _ViewChoice {
   const _FormatChoice(this.format);
 
   final CalendarFormat format;
+}
+
+final class _PresentationChoice extends _ViewChoice {
+  const _PresentationChoice(this.mode);
+
+  final AgendaDayListMode mode;
 }

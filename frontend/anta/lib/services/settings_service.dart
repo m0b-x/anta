@@ -16,6 +16,8 @@ import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../models/label_style.dart';
 import '../models/nav_destination.dart';
+import '../models/overview_list_options.dart';
+import '../models/overview_period.dart';
 import '../models/restore_location_mode.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -1230,21 +1232,28 @@ class SettingsService {
     ..._calendarAppearanceKeys,
     SettingsKeys.calendarOverviewCategories,
     SettingsKeys.calendarOverviewMode,
+    SettingsKeys.calendarOverviewPeriod,
+    SettingsKeys.calendarOverviewOrder,
+    SettingsKeys.calendarOverviewRows,
     SettingsKeys.hapticFeedback,
   ];
 
   /// Everything the calendar overview page needs before it can paint, in one
   /// statement — the appearance through the same decoder the calendar page
-  /// uses, the page's own two settings, and the haptic switch its jumps obey.
+  /// uses, the page's own settings, and the haptic switch its jumps obey.
+  /// [today] (date-only, defaulting to the wall clock's) is what a stored
+  /// `thisYear` means.
   Future<
     ({
       CalendarAppearance appearance,
       Set<String> categoryIds,
       AgendaDayListMode mode,
+      OverviewPeriod period,
+      OverviewListOptions listOptions,
       bool hapticFeedback,
     })
   >
-  getCalendarOverviewSettings() async {
+  getCalendarOverviewSettings({DateTime? today}) async {
     final values = await _db.userSettingsDao.getValuesFor(
       _calendarOverviewKeys,
     );
@@ -1256,6 +1265,21 @@ class SettingsService {
       mode: AgendaDayListMode.fromName(
         values[SettingsKeys.calendarOverviewMode] ??
             SettingsKeys.defaultCalendarOverviewMode,
+      ),
+      period: OverviewPeriod.decode(
+        values[SettingsKeys.calendarOverviewPeriod],
+        today: today ?? DateTime.now(),
+      ),
+      // Missed only is session-only by decision, so it always opens off.
+      listOptions: OverviewListOptions(
+        order: OverviewOrder.fromName(
+          values[SettingsKeys.calendarOverviewOrder] ??
+              SettingsKeys.defaultCalendarOverviewOrder,
+        ),
+        rows: OverviewRows.fromName(
+          values[SettingsKeys.calendarOverviewRows] ??
+              SettingsKeys.defaultCalendarOverviewRows,
+        ),
       ),
       hapticFeedback: _decodeBool(
         values[SettingsKeys.hapticFeedback],
@@ -1276,6 +1300,37 @@ class SettingsService {
       SettingsKeys.calendarOverviewMode,
       mode.name,
     );
+  }
+
+  /// Stores [period] as [OverviewPeriod.encode] spells it, or clears the key
+  /// for a period that is not kept (a custom span, a past year), so the next
+  /// launch opens on this year rather than on a look that has gone stale.
+  Future<void> setCalendarOverviewPeriod(
+    OverviewPeriod period, {
+    DateTime? today,
+  }) async {
+    final encoded = period.encode(today: today ?? DateTime.now());
+    if (encoded == null) {
+      await _db.userSettingsDao.deleteValue(
+        SettingsKeys.calendarOverviewPeriod,
+      );
+    } else {
+      await _db.userSettingsDao.setValue(
+        SettingsKeys.calendarOverviewPeriod,
+        encoded,
+      );
+    }
+  }
+
+  /// Stores the order and the rows in one batch; Missed only is never
+  /// persisted.
+  Future<void> setCalendarOverviewListOptions(
+    OverviewListOptions options,
+  ) async {
+    await _db.userSettingsDao.setValues({
+      SettingsKeys.calendarOverviewOrder: options.order.name,
+      SettingsKeys.calendarOverviewRows: options.rows.name,
+    });
   }
 
   /// How many icon keys the "Recently used" section remembers. Two rows of

@@ -1054,6 +1054,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     final result = await AgendaFiltersSheet.show(
       context,
       filters: widget.filters,
+      appearance: widget.appearance,
     );
     if (result == null || !mounted) return;
     // The sheet never owns the query; carry the live one so a keystroke typed

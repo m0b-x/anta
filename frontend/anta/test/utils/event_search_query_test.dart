@@ -266,4 +266,52 @@ void main() {
       expect(query.maskOf(''), 0);
     });
   });
+
+  group('equality', () {
+    test('two parses of the same text are equal, hash included', () {
+      final a = EventSearchQuery.parse('gym aug 26', localeName: 'en');
+      final b = EventSearchQuery.parse('  Gym   AUG 26 ', localeName: 'en');
+      expect(identical(a, b), isFalse);
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('a parse that folds to nothing equals the empty query', () {
+      expect(EventSearchQuery.parse('   '), EventSearchQuery.empty);
+    });
+
+    test('a different term, order or date clause is a different query', () {
+      final base = EventSearchQuery.parse('gym run', localeName: 'en');
+      expect(base, isNot(EventSearchQuery.parse('gym ran', localeName: 'en')));
+      expect(base, isNot(EventSearchQuery.parse('run gym', localeName: 'en')));
+      expect(base, isNot(EventSearchQuery.parse('gym', localeName: 'en')));
+      expect(
+        EventSearchQuery.parse('aug', localeName: 'en'),
+        isNot(EventSearchQuery.parse('aug', localeName: 'xx')),
+      );
+    });
+
+    test('clauses compare by term mask and date', () {
+      const date = EventSearchDate(month: 8, day: 26);
+      expect(
+        const EventSearchClause(termMask: 3, date: date),
+        const EventSearchClause(
+          termMask: 3,
+          date: EventSearchDate(month: 8, day: 26),
+        ),
+      );
+      expect(
+        const EventSearchClause(termMask: 3, date: date).hashCode,
+        const EventSearchClause(termMask: 3, date: date).hashCode,
+      );
+      expect(
+        const EventSearchClause(termMask: 3, date: date),
+        isNot(const EventSearchClause(termMask: 1, date: date)),
+      );
+      expect(
+        const EventSearchClause(termMask: 3, date: date),
+        isNot(const EventSearchClause(termMask: 3)),
+      );
+    });
+  });
 }

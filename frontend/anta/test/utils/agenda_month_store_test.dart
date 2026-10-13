@@ -55,6 +55,59 @@ void main() {
     ]);
   });
 
+  test('a partly cached year resolves in exactly two calls', () {
+    final s = store();
+    s.ensure([DateTime.utc(2026, 3, 1)]);
+    calls.clear();
+
+    s.ensure(AgendaMonthStore.monthsOfYear(2026));
+
+    expect(calls, [
+      (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 2, 28)),
+      (DateTime.utc(2026, 4, 1), DateTime.utc(2026, 12, 31)),
+    ]);
+  });
+
+  test('a run of thirteen months resolves in two chunks, 12 + 1', () {
+    // `docs/calendar-overview-list-roadmap.md`, R2: a contiguous run is
+    // chunked at twelve months, so a multi-year ensure never asks one
+    // resolver call for more than `EventAgenda.maxRangeDays`.
+    final s = store();
+    final thirteenMonths = [
+      for (var i = 0; i < 13; i++) DateTime.utc(2025, 1 + i, 1),
+    ];
+
+    s.ensure(thirteenMonths);
+
+    expect(calls, [
+      (DateTime.utc(2025, 1, 1), DateTime.utc(2025, 12, 31)),
+      (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 1, 31)),
+    ]);
+    for (final month in thirteenMonths) {
+      expect(s.isResolved(month), isTrue, reason: '$month');
+    }
+    expect(s.cached(DateTime.utc(2025, 12, 1))!.count, 1);
+    expect(s.cached(DateTime.utc(2026, 1, 1))!.count, 2);
+  });
+
+  test('a run of thirty months resolves in three chunks', () {
+    final s = store();
+    final thirtyMonths = [
+      for (var i = 0; i < 30; i++) DateTime.utc(2024, 1 + i, 1),
+    ];
+
+    s.ensure(thirtyMonths.reversed);
+
+    expect(calls, [
+      (DateTime.utc(2024, 1, 1), DateTime.utc(2024, 12, 31)),
+      (DateTime.utc(2025, 1, 1), DateTime.utc(2025, 12, 31)),
+      (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 6, 30)),
+    ]);
+    for (final month in thirtyMonths) {
+      expect(s.isResolved(month), isTrue, reason: '$month');
+    }
+  });
+
   test('an empty month is cached too, so nothing resolves twice', () {
     final s = store();
     s.ensure([DateTime.utc(2026, 2, 1)]);

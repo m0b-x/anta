@@ -4654,9 +4654,83 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarViewMenuTooltip => 'Switch view';
 
   @override
-  String overviewEmptyYear(int year) {
-    return 'Nothing in $year';
+  String get overviewCategories => 'Categories';
+
+  @override
+  String get overviewPeriod => 'Period';
+
+  @override
+  String get overviewPeriodLast12Months => 'Last 12 months';
+
+  @override
+  String get overviewPeriodLast90Days => 'Last 90 days';
+
+  @override
+  String get overviewPeriodAllTime => 'All time';
+
+  @override
+  String get overviewListOptions => 'List options';
+
+  @override
+  String get overviewOrder => 'Order';
+
+  @override
+  String get overviewOrderOldestFirst => 'Oldest first';
+
+  @override
+  String get overviewOrderNewestFirst => 'Newest first';
+
+  @override
+  String get overviewRows => 'Rows';
+
+  @override
+  String get overviewRowsEveryOccurrence => 'Every occurrence';
+
+  @override
+  String get overviewRowsPerEvent => 'One per event';
+
+  @override
+  String get overviewMissedOnly => 'Missed only';
+
+  @override
+  String get overviewEmptyPeriod => 'Nothing in this period';
+
+  @override
+  String get overviewLoading => 'Loading more…';
+
+  @override
+  String overviewCapReached(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    return 'Showing the first $countString entries. Narrow the period to see the rest.';
   }
+
+  @override
+  String overviewEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events',
+      one: '1 event',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String overviewEventSpan(String first, String last) {
+    return '$first – $last';
+  }
+
+  @override
+  String get overviewScrubberLabel => 'Scroll by month';
+
+  @override
+  String get datePickerApply => 'Apply';
+
+  @override
+  String get datePickerRangeNone => 'Pick a start day';
 
   @override
   String get dayListJumpToToday => 'This month';

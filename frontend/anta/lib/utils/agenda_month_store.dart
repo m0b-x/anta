@@ -9,12 +9,12 @@ import 'event_agenda.dart';
 /// life of the surface that owns them.
 ///
 /// Resolution happens on navigation, never while a frame is built: [ensure]
-/// groups the months it has not seen into contiguous runs, issues one resolver
-/// call per run, and stores a bucket for every requested month — an empty one
-/// included — so a month is never resolved twice. A month's day bars are
-/// folded the moment it lands, because a mid-swipe frame draws two months at
-/// once and the marker builder has to answer for both without folding per
-/// cell.
+/// groups the months it has not seen into contiguous runs of at most twelve
+/// months, issues one resolver call per run, and stores a bucket for every
+/// requested month — an empty one included — so a month is never resolved
+/// twice. A month's day bars are folded the moment it lands, because a
+/// mid-swipe frame draws two months at once and the marker builder has to
+/// answer for both without folding per cell.
 class AgendaMonthStore {
   final AgendaDayListResolver _resolve;
 
@@ -29,17 +29,12 @@ class AgendaMonthStore {
   final Map<int, Map<int, List<DayBar>>> _bars = {};
   final Map<int, AgendaMonthTally> _tallies = {};
 
-  final List<String> _barKeys;
-
   AgendaMonthStore({
     required AgendaDayListResolver resolve,
     AgendaDayMarkResolver? resolveMarks,
     required this.maxBars,
   }) : _resolve = resolve,
-       _resolveMarks = resolveMarks,
-       _barKeys = List.unmodifiable([
-         for (var i = 0; i < maxBars; i++) 'agendaDayList:$i',
-       ]);
+       _resolveMarks = resolveMarks;
 
   /// `year * 12 + month - 1`, for any day of the month.
   static int keyOf(DateTime day) => day.year * 12 + day.month - 1;
@@ -68,7 +63,7 @@ class AgendaMonthStore {
   }
 
   /// Resolves every month in [months] that is not cached yet, one resolver
-  /// call per contiguous run.
+  /// call per contiguous run of at most twelve months.
   void ensure(Iterable<DateTime> months) {
     _forEachMissingRun(months, _months, _resolveRun);
   }
@@ -107,17 +102,24 @@ class AgendaMonthStore {
     Map<int, Object> cache,
     void Function(List<int> keys) resolveRun,
   ) {
-    final missing = <int>[];
+    final keys = <int>{};
     for (final month in months) {
       final key = keyOf(month);
-      if (cache.containsKey(key) || missing.contains(key)) continue;
-      missing.add(key);
+      if (!cache.containsKey(key)) keys.add(key);
     }
-    if (missing.isEmpty) return;
-    missing.sort();
+    if (keys.isEmpty) return;
+    final missing = keys.toList()..sort();
     var runStart = 0;
     for (var i = 1; i <= missing.length; i++) {
-      if (i < missing.length && missing[i] == missing[i - 1] + 1) continue;
+      // A run closes at a gap, and also at twelve months: one resolver call
+      // must stay inside `EventAgenda.maxRangeDays`, which a multi-year
+      // period would otherwise exceed in release builds, where `_spanOf`'s
+      // asserts are gone and the scan silently clamps.
+      if (i < missing.length &&
+          missing[i] == missing[i - 1] + 1 &&
+          i - runStart < 12) {
+        continue;
+      }
       resolveRun(missing.sublist(runStart, i));
       runStart = i;
     }
@@ -152,7 +154,7 @@ class AgendaMonthStore {
         buckets[key] ?? const <AgendaDayListEntry>[],
       );
       _months[key] = bucket;
-      _bars[key] = _buildBars(bucket);
+      _bars[key] = buildBars(bucket, maxBars: maxBars);
       _tallies[key] = AgendaMonthTally.ofBucket(bucket);
     }
   }
@@ -188,9 +190,16 @@ class AgendaMonthStore {
     return mask & (1 << (day.day - 1)) != 0;
   }
 
-  /// A missed occurrence's bar carries the same fade the grid gives it, so a
-  /// mini month and the calendar page say the same thing about the same day.
-  Map<int, List<DayBar>> _buildBars(AgendaDayListMonth bucket) {
+  /// A bucket's day bars, keyed by day of month — what the store folds for
+  /// every month it resolves, public for a surface that folds a bucket of its
+  /// own (the overview's month narrowed to a search). A missed occurrence's
+  /// bar carries the same fade the grid gives it, so a mini month and the
+  /// calendar page say the same thing about the same day.
+  static Map<int, List<DayBar>> buildBars(
+    AgendaDayListMonth bucket, {
+    required int maxBars,
+  }) {
+    final barKeys = [for (var i = 0; i < maxBars; i++) 'agendaDayList:$i'];
     final bars = <int, List<DayBar>>{};
     for (final day in bucket.days) {
       final entries = bucket.entriesOn(day);
@@ -198,7 +207,7 @@ class AgendaMonthStore {
       bars[day.day] = [
         for (var i = 0; i < count; i++)
           DayBar(
-            key: _barKeys[i],
+            key: barKeys[i],
             color: entries[i].missed
                 ? entries[i].color.withValues(
                     alpha: CalendarColors.missedEventAlpha,

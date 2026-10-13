@@ -629,6 +629,12 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     if (!mounted) return;
     final request = AppNavigator.pendingCalendarOccurrence.value;
     if (request == null) return;
+    // A calendar the overview pushed sits over another: the request is the
+    // top one's, and this one leaves it standing for it.
+    final route = ModalRoute.of(context);
+    if (route != null && !AppNavigator.servesCalendarOccurrence(route)) {
+      return;
+    }
     // Cleared before it is acted on: `_openOccurrence` opens a sheet, and a
     // request left standing would be replayed by the next page to mount.
     AppNavigator.pendingCalendarOccurrence.value = null;
@@ -703,6 +709,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       if (!mounted) return;
       unawaited(_openDetailSheet(context, event, day));
     });
+    // A request served by the page already on top pops nothing, and a day
+    // already selected changes nothing on screen: without a frame asked
+    // for, the callback above would wait for an unrelated one.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   /// Folds one keyboard animation frame into the format decision and the

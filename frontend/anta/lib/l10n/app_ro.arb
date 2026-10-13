@@ -1406,7 +1406,52 @@
   "calendarOverview": "Prezentare generală",
   "calendarOverviewDesc": "Evenimente pe categorii, an de an",
   "calendarViewMenuTooltip": "Schimbă vizualizarea",
-  "overviewEmptyYear": "Nimic în {year}",
+  "overviewCategories": "Categorii",
+  "overviewPeriod": "Perioadă",
+  "overviewPeriodLast12Months": "Ultimele 12 luni",
+  "overviewPeriodLast90Days": "Ultimele 90 de zile",
+  "overviewPeriodAllTime": "Toată perioada",
+  "overviewListOptions": "Opțiuni listă",
+  "overviewOrder": "Ordine",
+  "overviewOrderOldestFirst": "Cele mai vechi întâi",
+  "overviewOrderNewestFirst": "Cele mai noi întâi",
+  "overviewRows": "Rânduri",
+  "overviewRowsEveryOccurrence": "Fiecare apariție",
+  "overviewRowsPerEvent": "Unul pe eveniment",
+  "overviewMissedOnly": "Doar ratate",
+  "overviewEmptyPeriod": "Nimic în această perioadă",
+  "overviewLoading": "Se încarcă mai multe…",
+  "overviewCapReached": "Intrări afișate: primele {count}. Restrânge perioada ca să vezi restul.",
+  "@overviewCapReached": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "overviewEventCount": "{count, plural, one {1 eveniment} few {{count} evenimente} other {{count} de evenimente}}",
+  "@overviewEventCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "overviewEventSpan": "{first} – {last}",
+  "@overviewEventSpan": {
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "last": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewScrubberLabel": "Derulează pe luni",
+  "datePickerApply": "Aplică",
+  "datePickerRangeNone": "Alege ziua de început",
   "dayListJumpToToday": "Luna aceasta",
   "dayListMissedCount": "{count, plural, one {1 ratată} few {{count} ratate} other {{count} de ratate}}",
   "@dayListMissedCount": {

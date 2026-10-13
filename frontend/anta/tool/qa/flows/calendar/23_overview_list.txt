@@ -1,0 +1,121 @@
+# The overview's list (docs/calendar-overview-list-roadmap.md §3.2–§3.6,
+# slice 3b): List through the view menu, the Period menu and Custom range…
+# on the Dates sheet's grid, the landing on today, the pinned month label,
+# the options sheet (Newest first, One per event, Missed only) and back to
+# its defaults, a row tap into the calendar and back onto the list, the
+# search, Calendar through the view menu. Leaves the overview on Year and
+# This year, as the seed has it.
+# - Today is always a Lifting day in this seed, and its first rows are the
+#   checkup at today − 40 and the first Lifting session at today − 28: inside
+#   This year from mid-February on.
+# - The custom span is today alone: the sheet opens on the shown span's
+#   start, so Today brings the grid to today's month first, and two taps on
+#   today's cell start and end the span — a second day by label could fall in
+#   another month.
+# - Under Last 90 days nothing but the pinned label names the year (the
+#   period's labels and rows name none inside one year), so "{{year}}" finds
+#   the pinned label; across New Year (January to March) every label does.
+# - The list lands on today, so the checkup at today − 40 is reached with a
+#   `scroll-to … --up` before it is expected.
+# - The options sheet is modal: the list leaves the semantics tree while it
+#   is up, so the per-event row is expected after the sheet closes.
+# - The scrubber (slice 5): a native swipe — a real touch, which is what the
+#   lane must win from the list — from the lane's middle up past the list's
+#   top, which scrubs to the very top: Last 90 days' first row, the checkup
+#   at today − 40; a plain scroll of that distance would not get there. The
+#   point is in physical pixels (the harness's `x,y`, no logical form): the
+#   lane is the rightmost 48 dp, x ≈ 1208 on the Pixel_9_Pro emulator
+#   (1280 × 2856 @ 3.0); another screen needs its own x. `drag` cannot
+#   scroll a list, so it is not used here.
+tap id:calendar-view-menu
+wait id:calendar-overview-open
+tap id:calendar-overview-open
+wait id:overview-period
+tap id:calendar-view-menu
+wait id:overview-view-list
+tap id:overview-view-list
+wait id:overview-list
+scroll-to id:overview-row-qa-cal-checkup-{{day-40}} --in id:overview-list --up --max 40
+expect "Lifting session" id:overview-row-qa-cal-checkup-{{day-40}}
+shot 23_overview_list_top
+tap id:overview-period
+wait id:overview-period-custom
+tap id:overview-period-custom
+wait id:date-picker-save
+tap id:date-picker-today
+tap "{{longdate}}"
+tap "{{longdate}}"
+shot 23_overview_list_custom_picker
+tap id:date-picker-save
+wait id:date-picker-save --gone
+expect id:overview-list id:overview-row-qa-cal-lift-{{day}} --absent id:overview-row-qa-cal-checkup-{{day-40}}
+shot 23_overview_list_custom
+tap id:overview-period
+wait id:overview-period-last-90-days
+tap id:overview-period-last-90-days
+wait id:overview-period-last-90-days --gone
+expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
+shot 23_overview_list_landed_today
+scroll-to id:overview-row-qa-cal-lift-{{day-28}} --up --in id:overview-list --max 20
+expect "{{year}}"
+shot 23_overview_list_pinned
+tap id:overview-options-open
+wait id:overview-options-close
+tap id:overview-order
+wait id:overview-order-newest
+tap id:overview-order-newest
+wait id:overview-order-newest --gone
+tap id:overview-rows
+wait id:overview-rows-per-event
+tap id:overview-rows-per-event
+wait id:overview-rows-per-event --gone
+tap id:overview-missed-only
+shot 23_overview_options
+tap id:overview-options-close
+wait id:overview-options-close --gone
+expect id:overview-event-qa-cal-lift
+shot 23_overview_list_per_event_missed
+tap id:overview-options-open
+wait id:overview-options-close
+tap id:overview-order
+wait id:overview-order-oldest
+tap id:overview-order-oldest
+wait id:overview-order-oldest --gone
+tap id:overview-rows
+wait id:overview-rows-every
+tap id:overview-rows-every
+wait id:overview-rows-every --gone
+tap id:overview-missed-only
+tap id:overview-options-close
+wait id:overview-options-close --gone
+expect id:overview-scrubber
+swipe up --from 1208,1800 --dist 1000 --ms 800 --via native
+expect id:overview-row-qa-cal-checkup-{{day-40}}
+shot 23_overview_list_scrubbed
+scroll-to id:overview-row-qa-cal-lift-{{day}} --in id:overview-list --max 20
+expect id:overview-row-qa-cal-lift-{{day}}
+tap id:overview-row-qa-cal-lift-{{day}}
+wait id:event-detail-close
+shot 23_overview_row_opened
+key back
+wait id:event-detail-close --gone
+key back
+wait id:overview-period
+expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
+tap id:overview-search
+type "Lifting"
+expect "Lifting session" --absent "Morning walk"
+shot 23_overview_list_search
+tap id:overview-period
+wait id:overview-period-this-year
+tap id:overview-period-this-year
+wait id:overview-period-this-year --gone
+tap id:calendar-view-menu
+wait id:overview-view-year
+tap id:overview-view-year
+wait id:overview-view-year --gone
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+errors

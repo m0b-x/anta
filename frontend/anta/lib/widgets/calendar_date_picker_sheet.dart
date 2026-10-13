@@ -7,20 +7,25 @@ import '../constants/calendar_weekend.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/date_range.dart';
 import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
+import '../utils/date_span_label.dart';
 import '../utils/date_stamp.dart';
 import 'agenda_period_nav.dart';
 import 'automation_id.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
+import 'event_avatar.dart';
 import 'form_rows.dart';
 import 'month_dot_matrix.dart';
 import 'month_year_picker_sheet.dart';
 import 'year_month_tile.dart';
 
 /// How many days a single [CalendarDatePickerSheet] pass may return.
-enum CalendarDatePickerMode { single, multi }
+/// [range] returns one contiguous span — the overview's period and the
+/// agenda's custom range — rather than a set of separate days.
+enum CalendarDatePickerMode { single, multi, range }
 
 /// The three views multi mode offers over one date set: the month grid where
 /// days are picked, a year of dot-matrix tiles for seeing and travelling,
@@ -76,6 +81,11 @@ class CalendarDatePickerSheet extends StatefulWidget {
   /// The view multi mode opens on. Month for adding, list for reviewing.
   final CalendarDatePickerView initialView;
 
+  /// The span range mode opens on (date-only UTC), or null to open with no
+  /// start. Kept apart from [initialSelection]: a span is two ends, not a
+  /// set, and the set's modes never read it.
+  final DateRange? initialRange;
+
   const CalendarDatePickerSheet({
     super.key,
     required this.mode,
@@ -86,6 +96,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
     this.dayLoad,
     this.allowEmpty = false,
     this.initialView = CalendarDatePickerView.month,
+    this.initialRange,
   });
 
   /// Picks a single date. Returns null when dismissed.
@@ -97,7 +108,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
     required CalendarAppearance appearance,
     PickerDayLoad? dayLoad,
   }) async {
-    final picked = await _show(
+    final picked = await _show<Set<DateTime>>(
       context,
       mode: CalendarDatePickerMode.single,
       initialSelection: {_dateOnly(initialDate)},
@@ -127,7 +138,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
     bool allowEmpty = false,
     CalendarDatePickerView initialView = CalendarDatePickerView.month,
   }) async {
-    final picked = await _show(
+    final picked = await _show<Set<DateTime>>(
       context,
       mode: CalendarDatePickerMode.multi,
       initialSelection: {for (final d in initialSelection) _dateOnly(d)},
@@ -143,6 +154,42 @@ class CalendarDatePickerSheet extends StatefulWidget {
     return picked;
   }
 
+  /// Picks one span of days on the grid. Returns null when dismissed; a
+  /// start confirmed without an end comes back as that one day.
+  static Future<DateRange?> pickRange(
+    BuildContext context, {
+    required DateRange? initialRange,
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required CalendarAppearance appearance,
+  }) {
+    final first = _dateOnly(firstDate);
+    final last = _dateOnly(lastDate);
+    // A span reaching past the bounds — a rolling period older than the
+    // events — opens on the part of it the grid can show (review 8).
+    DateTime bounded(DateTime day) {
+      final date = _dateOnly(day);
+      if (date.isBefore(first)) return first;
+      if (date.isAfter(last)) return last;
+      return date;
+    }
+
+    return _show<DateRange>(
+      context,
+      mode: CalendarDatePickerMode.range,
+      initialSelection: const {},
+      initialRange: initialRange == null
+          ? null
+          : (
+              start: bounded(initialRange.start),
+              end: bounded(initialRange.end),
+            ),
+      firstDate: first,
+      lastDate: last,
+      appearance: appearance,
+    );
+  }
+
   /// "4 dates · Sep 25 – Oct 16, 2026" — the one grammar for reading a date
   /// set back, shared with the editor's bundled Dates row. [sorted] must be
   /// ascending; both years are named when the span crosses one.
@@ -150,19 +197,16 @@ class CalendarDatePickerSheet extends StatefulWidget {
     if (sorted.isEmpty) return l10n.datePickerSelectedCount(0);
     final localeName = l10n.localeName;
     final count = l10n.recurrenceSpecificDates(sorted.length);
-    final first = sorted.first;
-    final last = sorted.last;
     if (sorted.length == 1) {
       return l10n.eventDatesSummary(
         count,
-        DateFormat.yMMMEd(localeName).format(first),
+        DateFormat.yMMMEd(localeName).format(sorted.first),
       );
     }
-    final firstLabel = first.year == last.year
-        ? DateFormat.MMMd(localeName).format(first)
-        : DateFormat.yMMMd(localeName).format(first);
-    final lastLabel = DateFormat.yMMMd(localeName).format(last);
-    return l10n.eventDatesSummary(count, '$firstLabel – $lastLabel');
+    return l10n.eventDatesSummary(
+      count,
+      dateSpanLabel(l10n, sorted.first, sorted.last),
+    );
   }
 
   /// The bundled Dates row's two-line value — the count and span, then the
@@ -183,7 +227,9 @@ class CalendarDatePickerSheet extends StatefulWidget {
     return '$summary\n$next · ${l10n.eventDatesAhead(ahead.length, sorted.length)}';
   }
 
-  static Future<Set<DateTime>?> _show(
+  /// One route for every mode; [T] is what the mode answers with — a set of
+  /// days, or a [DateRange] in range mode.
+  static Future<T?> _show<T>(
     BuildContext context, {
     required CalendarDatePickerMode mode,
     required Set<DateTime> initialSelection,
@@ -193,9 +239,10 @@ class CalendarDatePickerSheet extends StatefulWidget {
     PickerDayLoad? dayLoad,
     bool allowEmpty = false,
     CalendarDatePickerView initialView = CalendarDatePickerView.month,
+    DateRange? initialRange,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
-    return showModalBottomSheet<Set<DateTime>>(
+    return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -221,6 +268,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
           dayLoad: dayLoad,
           allowEmpty: allowEmpty,
           initialView: initialView,
+          initialRange: initialRange,
         ),
       ),
     );
@@ -242,9 +290,16 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
   DateStampUnit _repeatUnit = DateStampUnit.month;
   int _repeatTimes = 3;
 
+  /// Range mode's draft (date-only UTC): no start, a start alone, or both
+  /// ends with [_rangeEnd] on or after [_rangeStart].
+  DateTime? _rangeStart;
+  DateTime? _rangeEnd;
+
   CalendarAppearance get _appearance => widget.appearance;
 
   bool get _isMulti => widget.mode == CalendarDatePickerMode.multi;
+
+  bool get _isRange => widget.mode == CalendarDatePickerMode.range;
 
   List<DateTime> get _sortedSelection => _selection.toList()..sort();
 
@@ -252,9 +307,13 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
   void initState() {
     super.initState();
     _selection = {...widget.initialSelection};
-    final anchor = _selection.isEmpty
-        ? CalendarDatePickerSheet._dateOnly(DateTime.now())
-        : (_selection.toList()..sort()).first;
+    _rangeStart = widget.initialRange?.start;
+    _rangeEnd = widget.initialRange?.end;
+    final anchor =
+        _rangeStart ??
+        (_selection.isEmpty
+            ? CalendarDatePickerSheet._dateOnly(DateTime.now())
+            : (_selection.toList()..sort()).first);
     _focusedDay = _clamp(anchor);
     _focusedYear = _focusedDay.year;
     _view = _isMulti ? widget.initialView : CalendarDatePickerView.month;
@@ -299,10 +358,18 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
   /// answering path.
   bool _popped = false;
 
-  void _answer(Set<DateTime>? selection) {
+  /// Pops [result] — a set of days, or a [DateRange] in range mode.
+  void _answer(Object? result) {
     if (_popped) return;
     _popped = true;
-    Navigator.of(context).pop(selection);
+    Navigator.of(context).pop(result);
+  }
+
+  /// Range mode's Apply: the draft, a start alone standing for its one day.
+  void _answerRange() {
+    final start = _rangeStart;
+    if (start == null) return;
+    _answer((start: start, end: _rangeEnd ?? start));
   }
 
   /// Opens the wheel/typed date picker from the header's month title, exactly
@@ -327,8 +394,11 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     setState(() => _focusedDay = _clamp(picked));
   }
 
-  bool _isSelected(DateTime day) =>
-      _selection.contains(CalendarDatePickerSheet._dateOnly(day));
+  bool _isSelected(DateTime day) {
+    final date = CalendarDatePickerSheet._dateOnly(day);
+    if (_isRange) return date == _rangeStart || date == _rangeEnd;
+    return _selection.contains(date);
+  }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     final day = CalendarDatePickerSheet._dateOnly(selectedDay);
@@ -339,7 +409,52 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     }
     setState(() {
       _focusedDay = focusedDay;
-      if (!_selection.remove(day)) _selection.add(day);
+      if (_isRange) {
+        _pickRangeEnds(day, day);
+      } else if (!_selection.remove(day)) {
+        _selection.add(day);
+      }
+    });
+  }
+
+  /// The day grid's tap rule in range mode: with no start, or with both ends
+  /// set, the tap starts a new span on [first] alone; with a start alone, a
+  /// tap on or after it ends the span at [last], one before it restarts the
+  /// span on [first].
+  void _pickRangeEnds(DateTime first, DateTime last) {
+    final start = _rangeStart;
+    if (start == null || _rangeEnd != null) {
+      _rangeStart = first;
+      _rangeEnd = first == last ? null : last;
+    } else if (last.isBefore(start)) {
+      _rangeStart = first;
+      _rangeEnd = null;
+    } else {
+      _rangeEnd = last;
+    }
+  }
+
+  /// A year tile in range mode picks in whole months: a month after the
+  /// span's end extends the span to that month's last day, keeping the start;
+  /// any other month — before the start, inside the span, or with no span
+  /// yet — becomes the span on its own. January then December is a whole
+  /// year in two taps; the grid is a Month tap away for the days.
+  void _pickRangeMonth(DateTime firstOfMonth) {
+    final last = DateTime.utc(firstOfMonth.year, firstOfMonth.month + 1, 0);
+    if (last.isBefore(widget.firstDate) ||
+        firstOfMonth.isAfter(widget.lastDate)) {
+      return;
+    }
+    setState(() {
+      final start = _rangeStart;
+      final end = _rangeEnd ?? start;
+      if (start != null && end != null && firstOfMonth.isAfter(end)) {
+        _rangeEnd = _clamp(last);
+      } else {
+        _rangeStart = _clamp(firstOfMonth);
+        _rangeEnd = _clamp(last);
+      }
+      _focusedDay = _clamp(firstOfMonth);
     });
   }
 
@@ -370,20 +485,25 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isMulti = _isMulti;
+    final isRange = _isRange;
     final accent = _appearance.accentOr(colorScheme.primary);
     final now = DateTime.now();
     final today = CalendarDatePickerSheet._dateOnly(now);
     // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
     // bar. The clearance rides whichever element actually sits on that edge —
-    // the multi-mode footer when there is one, the scroll view otherwise —
-    // and never the whole body: the sheet's box is a fixed fraction of the
-    // screen and does not shrink for the keyboard, so padding the body
-    // subtracts the inset from the content and a tall inset collapses the
-    // Column to nothing, leaving a blank sheet that hit-tests nothing.
+    // the multi-mode footer when there is one, the scroll view or the year
+    // grid otherwise — and never the whole body: the sheet's box is a fixed
+    // fraction of the screen and does not shrink for the keyboard, so padding
+    // the body subtracts the inset from the content and a tall inset collapses
+    // the Column to nothing, leaving a blank sheet that hit-tests nothing.
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
     final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
+    // The list is the set's review; a span has nothing to list.
+    final views = isRange
+        ? const [CalendarDatePickerView.month, CalendarDatePickerView.year]
+        : CalendarDatePickerView.values;
     final sorted = _sortedSelection;
     final body = switch (_view) {
       CalendarDatePickerView.month => _buildMonth(
@@ -399,6 +519,9 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
         colorScheme,
         accent,
         today,
+        bottomPadding: isMulti
+            ? FormMetrics.yearViewBottomGap
+            : FormMetrics.yearViewBottomGap + bottomClearance,
       ),
       CalendarDatePickerView.list => _buildList(
         l10n,
@@ -418,28 +541,39 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
           leadingTooltip: l10n.cancel,
           leadingIdentifier: SemanticsIds.datePickerCancel,
           onLeading: () => _answer(null),
-          title: isMulti
-              ? l10n.datePickerMultiTitle
-              : l10n.datePickerSingleTitle,
+          title: switch (widget.mode) {
+            CalendarDatePickerMode.single => l10n.datePickerSingleTitle,
+            CalendarDatePickerMode.multi => l10n.datePickerMultiTitle,
+            CalendarDatePickerMode.range => l10n.overviewPeriod,
+          },
           trailingInset: FormMetrics.headerActionInset,
           // Single mode answers on the day tap and has nothing to confirm.
-          trailing: isMulti
-              ? FormHeaderTextButton(
-                  label: l10n.save,
-                  identifier: SemanticsIds.datePickerSave,
-                  onPressed: _selection.isEmpty && !widget.allowEmpty
-                      ? null
-                      : () => _answer({..._selection}),
-                )
-              : const SizedBox.shrink(),
+          trailing: switch (widget.mode) {
+            CalendarDatePickerMode.single => const SizedBox.shrink(),
+            CalendarDatePickerMode.multi => FormHeaderTextButton(
+              label: l10n.save,
+              identifier: SemanticsIds.datePickerSave,
+              onPressed: _selection.isEmpty && !widget.allowEmpty
+                  ? null
+                  : () => _answer({..._selection}),
+            ),
+            CalendarDatePickerMode.range => FormHeaderTextButton(
+              label: l10n.datePickerApply,
+              identifier: SemanticsIds.datePickerSave,
+              onPressed: _rangeStart == null ? null : _answerRange,
+            ),
+          },
         ),
-        if (isMulti) ...[
-          _buildSummary(l10n, theme, colorScheme, sorted),
+        if (isMulti || isRange) ...[
+          if (isMulti)
+            _buildSummary(l10n, theme, colorScheme, sorted)
+          else
+            _buildRangeSummary(l10n, theme, colorScheme),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: SegmentedButton<CalendarDatePickerView>(
               segments: [
-                for (final view in CalendarDatePickerView.values)
+                for (final view in views)
                   ButtonSegment<CalendarDatePickerView>(
                     value: view,
                     label: Text(
@@ -479,7 +613,10 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     var height = 0.0;
     for (var month = DateTime.january; month <= DateTime.december; month++) {
       final painter = TextPainter(
-        text: TextSpan(text: format.format(DateTime(year, month)), style: style),
+        text: TextSpan(
+          text: format.format(DateTime(year, month)),
+          style: style,
+        ),
         textDirection: direction,
         textScaler: scaler,
         maxLines: FormMetrics.periodTitleMaxLines,
@@ -547,6 +684,43 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
             child: Text(l10n.datePickerClear),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Range mode's line in the summary's slot: the span and its length, or
+  /// the prompt while there is no start. The slot is always two lines tall,
+  /// so a span that wraps where the prompt did not never moves the grid.
+  Widget _buildRangeSummary(
+    AppLocalizations l10n,
+    ThemeData theme,
+    ColorScheme colorScheme,
+  ) {
+    final style = theme.textTheme.bodyMedium?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+    );
+    final start = _rangeStart;
+    final String text;
+    if (start == null) {
+      text = l10n.datePickerRangeNone;
+    } else {
+      final end = _rangeEnd ?? start;
+      final span = end == start
+          ? DateFormat.yMMMd(l10n.localeName).format(start)
+          : dateSpanLabel(l10n, start, end);
+      final days = end.difference(start).inDays + 1;
+      text = '$span · ${l10n.upcomingPeriodDays(days)}';
+    }
+    return Padding(
+      padding: FormMetrics.rangeSummaryPadding,
+      child: FormCaptionSlot(
+        candidates: [Text('\n', style: style, maxLines: 2)],
+        child: Text(
+          text,
+          style: style,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -655,7 +829,8 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                                         style: titleStyle,
                                         textAlign: TextAlign.center,
                                         softWrap: true,
-                                        maxLines: FormMetrics.periodTitleMaxLines,
+                                        maxLines:
+                                            FormMetrics.periodTitleMaxLines,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -700,22 +875,29 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
 
   /// Twelve tiles with the picked days marked and a count each, paged by
   /// year. Overview and travel only — a square is too small to toggle, so a
-  /// tile opens its month on the grid.
+  /// tile opens its month on the grid. In range mode a tile picks its whole
+  /// month instead ([_pickRangeMonth]): a past year is then two taps away
+  /// without paging the grid month by month.
   Widget _buildYear(
     AppLocalizations l10n,
     ThemeData theme,
     ColorScheme colorScheme,
     Color accent,
-    DateTime today,
-  ) {
+    DateTime today, {
+    required double bottomPadding,
+  }) {
     final firstYear = widget.firstDate.year;
     final lastYear = widget.lastDate.year;
     final marks = List<int>.filled(13, 0);
     final counts = List<int>.filled(13, 0);
-    for (final day in _selection) {
-      if (day.year != _focusedYear) continue;
-      marks[day.month] |= 1 << (day.day - 1);
-      counts[day.month]++;
+    if (_isRange) {
+      _markRange(marks, counts);
+    } else {
+      for (final day in _selection) {
+        if (day.year != _focusedYear) continue;
+        marks[day.month] |= 1 << (day.day - 1);
+        counts[day.month]++;
+      }
     }
     final tileBackground = colorScheme.surfaceContainerHigh;
     final unmarked = colorScheme.outline.withValues(
@@ -763,7 +945,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
         ),
         Expanded(
           child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPadding),
             gridDelegate: YearMonthTile.gridDelegate,
             itemCount: 12,
             itemBuilder: (context, index) {
@@ -779,7 +961,9 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                 semanticsLabel:
                     '$label, ${l10n.datePickerSelectedCount(count)}',
                 background: tileBackground,
-                onTap: () => _showMonthOf(first),
+                onTap: _isRange
+                    ? () => _pickRangeMonth(first)
+                    : () => _showMonthOf(first),
                 matrix: MonthDotMatrix(
                   daysInMonth: daysInMonth,
                   firstWeekdayColumn: weekdayColumnOf(
@@ -799,6 +983,12 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                   todayColor: accent,
                   backgroundColor: tileBackground,
                   outlineColor: colorScheme.outline,
+                  dayColors: _isRange
+                      ? [
+                          for (var day = 0; day < daysInMonth; day++)
+                            marks[month] & (1 << day) != 0 ? accent : null,
+                        ]
+                      : null,
                 ),
               );
             },
@@ -806,6 +996,25 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
         ),
       ],
     );
+  }
+
+  /// Marks the span's days of [_focusedYear] month by month — the overlap of
+  /// the span with each month, never a walk over every day of a long span.
+  void _markRange(List<int> marks, List<int> counts) {
+    final start = _rangeStart;
+    if (start == null) return;
+    final end = _rangeEnd ?? start;
+    for (var month = DateTime.january; month <= DateTime.december; month++) {
+      final first = DateTime.utc(_focusedYear, month, 1);
+      final last = DateTime.utc(_focusedYear, month + 1, 0);
+      if (end.isBefore(first) || start.isAfter(last)) continue;
+      final from = start.isAfter(first) ? start.day : 1;
+      final to = end.isBefore(last) ? end.day : last.day;
+      for (var day = from; day <= to; day++) {
+        marks[month] |= 1 << (day - 1);
+      }
+      counts[month] = to - from + 1;
+    }
   }
 
   /// Every picked date in order, grouped by month, a ✕ each. Past dates read
@@ -1060,13 +1269,16 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
   /// Builds one day cell. [now] and [accent] are resolved once per grid
   /// build and threaded in: a month shows ~42 cells, and re-deriving either
   /// per cell allocated a `Color` and read the clock 42 times a frame.
+  ///
+  /// In range mode the span's two ends are the selected chips and every day
+  /// of the span between them sits on a band behind the chip.
   Widget _cell(
     DateTime day,
     Color accent, {
     required bool isOutside,
     required DateTime now,
   }) {
-    return CalendarDayCell(
+    final cell = CalendarDayCell(
       day: day,
       isToday: isSameDay(day, now),
       isSelected: _isSelected(day),
@@ -1075,6 +1287,71 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
       todayStyle: _appearance.todayStyle,
       highlightWeekends: _appearance.highlightWeekends,
       accent: accent,
+    );
+    if (!_isRange) return cell;
+    return _rangeBand(day, accent, isOutside: isOutside, cell: cell);
+  }
+
+  /// The span's band under [cell]: the accent at the avatar's alpha, in two
+  /// halves so it runs from an end's centre outwards and is continuous from
+  /// cell to cell along a row. Square inside a row; capped only on the row's
+  /// outer edges, where the span leaves it — an end's own outer side is the
+  /// chip's circle.
+  Widget _rangeBand(
+    DateTime day,
+    Color accent, {
+    required bool isOutside,
+    required Widget cell,
+  }) {
+    final start = _rangeStart;
+    final end = _rangeEnd;
+    if (start == null || end == null || end == start) return cell;
+    final date = CalendarDatePickerSheet._dateOnly(day);
+    if (date.isBefore(start) || date.isAfter(end)) return cell;
+    final column = weekdayColumnOf(date, _appearance.weekStart);
+    final band = accent.withValues(
+      alpha:
+          EventAvatar.backgroundAlpha *
+          (isOutside ? CalendarDayCell.outsideAlpha : 1),
+    );
+    const cap = Radius.circular(CalendarDayCell.chipSize / 2);
+    Widget half({required bool painted, required BorderRadius radius}) {
+      return Expanded(
+        child: painted
+            ? DecoratedBox(
+                decoration: BoxDecoration(color: band, borderRadius: radius),
+              )
+            : const SizedBox.shrink(),
+      );
+    }
+
+    return Stack(
+      children: [
+        Positioned(
+          top: CalendarDayCell.chipTop,
+          height: CalendarDayCell.chipSize,
+          left: 0,
+          right: 0,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              half(
+                painted: date != start,
+                radius: column == 0
+                    ? const BorderRadius.horizontal(left: cap)
+                    : BorderRadius.zero,
+              ),
+              half(
+                painted: date != end,
+                radius: column == DateTime.daysPerWeek - 1
+                    ? const BorderRadius.horizontal(right: cap)
+                    : BorderRadius.zero,
+              ),
+            ],
+          ),
+        ),
+        cell,
+      ],
     );
   }
 

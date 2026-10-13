@@ -6868,3 +6868,117 @@ header for its 2 s (app-wide, so `21_removed_holidays` waits it out);
 2.0; and three clamps kept by the language's own rules — the fasting
 preview's one-line sample title, the day list's two-line entry captions and
 the sheet headers' titles.
+
+## Addendum 2026-10-11 — the overview's List mode: a period, the day list's rows, exact extents, a scrubber
+
+**The report.** The owner asked for the overview's List mode to become "a
+lot more useful": a date picker that selects ranges, "more things that help
+with a huge list view", and a deep performance review. The record is
+`docs/calendar-overview-list-roadmap.md` (D1–D11 delegated to the lead, the
+recommended option each; T1–T11 the lead's technical decisions; §9 the
+ledger per slice); the mock https://claude.ai/artifact/GpAs4MTkY1Vc4gY9wyBhnq
+(revision 2, after the owner found the first revision's centered period
+nav between two chip rows out of place and asked that every component
+respect the language). An independent review before the design (§1.3,
+R1–R21) confirmed, among others, that a row tap from the view-menu path
+popped the overview itself (`_collapseOnto` → `navigator.pop()`), that a
+store run longer than twelve months was only asserted and silently
+truncated in release, that every keystroke dropped every cache and
+re-expanded the year's recurrences, and that the rows had no extents (a
+far `jumpTo` laid out 6 346 rows in 13 s at 10 000 events).
+
+**What shipped** (seven slices on `ae98d62`, uncommitted on the day):
+
+- **The chrome in the language.** The title's view menu carries a second
+  radio group Year · Month · List (`CalendarViewMenu(presentation:,
+  onPresentationSelected:)`, the calendar's own pattern for its formats); a
+  tune button before the ⋮ opens `OverviewOptionsSheet`, a live-apply
+  sub-sheet with Order (oldest / newest first), Rows (every occurrence /
+  one per event) and Missed only, the badge counting restrictions; one
+  filter group — `FormSearchRow`, a Categories picker row reading back
+  through `namesReadBack`, and a Period `FormMenuRow` (This year · Last 12
+  months · Last 90 days · All time · Custom range…) — with the listed count
+  as the group's caption slot. List mode carries no nav; year and month
+  modes keep theirs. The `SegmentedButton`, the raw `TextField`,
+  `CategoryFilterTile` with `_CategoryAvatarCluster`, `AgendaDayListRowView`
+  and `overviewEmptyYear` are gone.
+- **The period** (`lib/models/overview_period.dart`): a year, a rolling
+  preset or a custom span, resolved to a date-only UTC `DateRange`; All time
+  reaches from the first event year to today (the list is the log; the
+  future is the agenda's); a preset persists (`calendar_overview_period`),
+  a custom span or a year set by year mode is session-only; year paging
+  sets the period to that year, a rolling or custom period survives a mode
+  switch and year mode shows its first year.
+- **The range picker**: `CalendarDatePickerSheet.pickRange` — a third mode
+  of the Dates sheet (✕ · Period · Apply, the span and its day count in a
+  two-line caption slot, Month and Year views only, two taps on the grid
+  or two tiles on the year view for whole months, the band at the avatar's
+  alpha behind the chips, `CalendarDayCell.chipTop` named for it). The
+  Upcoming agenda's "Custom range…" opens it instead of Flutter's Material
+  dialog (now seeded empty when no range is pinned). The span grammar
+  lives in `lib/utils/date_span_label.dart`.
+- **The rows**: `AgendaDayListRowBuilder` — the day list sheet's three row
+  builders hoisted, so the sheet and the page render one piece of code;
+  month section labels carry their counts on the page; three additive
+  primitive changes (`FormLabelValue.wrap`, `FormPickerRow.singleLine`,
+  `FormSectionLabel.singleLine`, the stacked caption honouring
+  `captionMaxLines`) give every page row one geometry per kind.
+- **Exact extents**: `_RowExtents` measured from an `Offstage` probe before
+  the list's first build, a `ListView.custom` whose delegate reports the
+  exact max scroll offset, `_ListLayout` prefix sums; the far jump went
+  from 13 237 ms / 6 346 row builds to 45 ms / 15 builds; the pinned month
+  label (shown once the group's own row has passed the top); anchoring by
+  the first visible row across emits; landing on today on open, on a
+  switch into List and on every period / query / order / rows change.
+- **The query as a post-filter**: `EventQueryMatcher`
+  (`lib/utils/event_query_matcher.dart`, extracted from the scan's
+  candidate pass and per-day match with its fold caches; the scan calls it
+  too, parity proven on the six fold-budget and agenda suites); the store
+  is query-free, filtered buckets serve list, month and year modes; a
+  keystroke pause costs 0 `occursOn` calls (385 before, after a full
+  rescan of the year).
+- **Long periods**: `AgendaMonthStore` chunks every run at twelve months;
+  the page resolves `OverviewListMetrics.syncMonths` (24) in the frame and
+  `batchMonths` (12) per event-loop turn under a generation token, paused
+  while a page covers the overview; "Loading more…" as the tail; the cap
+  at `maxEntries` (20 000) listed entries with its own caption. All time
+  over eight years of 10 000 events: 59 ms in the frame, 51 ms in the turns.
+- **The scrubber**: `ListScrubber` (`lib/widgets/list_scrubber.dart`), a
+  48 dp translucent lane along the right edge whose vertical drag maps to
+  the scroll extent, a month bubble on `menuSurface`, the list's
+  `Scrollbar` owned (thumb visible while scrubbing, `interactive: false`);
+  numbers in `FormMetrics.scrubber*`.
+- **The row tap**: `AppNavigator.toCalendarOccurrence` pushes an unstamped
+  calendar (`occurrenceCalendarRouteName`) over the overview instead of
+  collapsing onto the one beneath; a second tap is served by that calendar
+  in place (`servesCalendarOccurrence`, `ensureVisualUpdate` after the
+  post-frame registration); launch restore never replays it. Back returns
+  to the list anchored where it was.
+- **The small fixes**: R3 (the fade's `RangeError`), R5 (`occurrenceRevision`
+  while searching), R7 (the prewarm only in year mode for a year period),
+  R15 (one rebuild on return), R16 (a month header always), R17 (`_today`
+  re-read), R18 (the keyboard drops on drag), R19 (pending work cancelled
+  under a cover), month mode's section header on the builder (its 25 px
+  overflow gone).
+
+**Guards.** `OverviewRobot` and `OverviewOptionsRobot` in
+`test/widgets/support/`; `calendar_overview_page_test.dart` (the `list
+mode`, `resolution between frames` and `the scrubber` groups beside the
+header group), `overview_options_sheet_test.dart`, `list_scrubber_test.dart`,
+`agenda_day_list_rows_test.dart`, `overview_period_test.dart`,
+`calendar_overview_settings_test.dart`, `event_query_matcher_test.dart`,
+the range group of `calendar_date_picker_views_test.dart`, the chunking
+cases of `agenda_month_store_test.dart`, three clearance cases, and
+`overview_list_benchmark_test.dart` (tag `benchmark`: scan and build
+budgets asserted, timings printed). Flows: `05_overview` through the menu's
+ids, `23_overview_list` new. The suite went from `+7317 ~7 -1` to
+`+7498 ~8 -1` over the slices (the one failure the known Windows-only
+`host_devices_test` case).
+
+**Left on purpose** (the record's §8): the detail sheet over the list
+without navigation (the calendar's detail loop and its twelve page-private
+dependencies would have to move into a shared controller); a stepping nav
+for a span; `toCalendarQuickAlarm` matching stamped calendars only; store
+eviction; lazy bars; lighter entries; fading through colours instead of
+`Opacity`; a cross-year search index; sharing a period as text;
+collapsible months; per-category totals; more presets; saved views.

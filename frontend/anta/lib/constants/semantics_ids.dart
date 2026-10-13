@@ -403,6 +403,44 @@ abstract final class SemanticsIds {
   static const String dayListNavToday = 'day-list-nav-today';
   static const String dayListNavTitle = 'day-list-nav-title';
 
+  /// The calendar overview (`docs/calendar-overview-list-roadmap.md` §3.10):
+  /// the view menu's three modes, the list options sheet and its rows, the
+  /// search, categories and period rows with the period menu's items, year
+  /// and month mode's nav, the list, the scrubber, and one id per row — a
+  /// title repeats down a list of occurrences, so a flow taps a row by event
+  /// and day, or by event alone under "One per event".
+  static const String overviewViewYear = 'overview-view-year';
+  static const String overviewViewMonth = 'overview-view-month';
+  static const String overviewViewList = 'overview-view-list';
+  static const String overviewOptionsOpen = 'overview-options-open';
+  static const String overviewOptionsClose = 'overview-options-close';
+  static const String overviewOrder = 'overview-order';
+  static const String overviewOrderOldest = 'overview-order-oldest';
+  static const String overviewOrderNewest = 'overview-order-newest';
+  static const String overviewRows = 'overview-rows';
+  static const String overviewRowsEvery = 'overview-rows-every';
+  static const String overviewRowsPerEvent = 'overview-rows-per-event';
+  static const String overviewMissedOnly = 'overview-missed-only';
+  static const String overviewSearch = 'overview-search';
+  static const String overviewCategories = 'overview-categories';
+  static const String overviewPeriod = 'overview-period';
+  static const String overviewPeriodThisYear = 'overview-period-this-year';
+  static const String overviewPeriodLast12Months =
+      'overview-period-last-12-months';
+  static const String overviewPeriodLast90Days = 'overview-period-last-90-days';
+  static const String overviewPeriodAllTime = 'overview-period-all-time';
+  static const String overviewPeriodCustom = 'overview-period-custom';
+  static const String overviewNavPrevious = 'overview-nav-previous';
+  static const String overviewNavNext = 'overview-nav-next';
+  static const String overviewNavToday = 'overview-nav-today';
+  static const String overviewNavTitle = 'overview-nav-title';
+  static const String overviewList = 'overview-list';
+  static const String overviewWholeMonth = 'overview-whole-month';
+  static const String overviewScrubber = 'overview-scrubber';
+  static String overviewRow(String eventId, DateTime day) =>
+      'overview-row-$eventId-${_isoDate(day)}';
+  static String overviewEventRow(String eventId) => 'overview-event-$eventId';
+
   /// The "Show every day" button of an agenda summary card, keyed by the
   /// card's summary key (`category:<id>`, `holiday`, `fasting:<tradition>`)
   /// with its colon folded: every card's button wears the same tooltip, and

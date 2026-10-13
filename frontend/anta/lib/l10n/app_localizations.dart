@@ -7996,11 +7996,131 @@ abstract class AppLocalizations {
   /// **'Switch view'**
   String get calendarViewMenuTooltip;
 
-  /// Empty state of the overview page's list mode when the shown year holds no entry
+  /// Label of the overview page's row choosing which event categories it shows
   ///
   /// In en, this message translates to:
-  /// **'Nothing in {year}'**
-  String overviewEmptyYear(int year);
+  /// **'Categories'**
+  String get overviewCategories;
+
+  /// Label of the overview list's row choosing the span of days it lists, and the title of the picker choosing a custom span
+  ///
+  /// In en, this message translates to:
+  /// **'Period'**
+  String get overviewPeriod;
+
+  /// Overview list period: the twelve months ending today
+  ///
+  /// In en, this message translates to:
+  /// **'Last 12 months'**
+  String get overviewPeriodLast12Months;
+
+  /// Overview list period: the ninety days ending today
+  ///
+  /// In en, this message translates to:
+  /// **'Last 90 days'**
+  String get overviewPeriodLast90Days;
+
+  /// Overview list period: from the first year any event falls in up to today
+  ///
+  /// In en, this message translates to:
+  /// **'All time'**
+  String get overviewPeriodAllTime;
+
+  /// Tooltip of the overview list's options button and the title of the sheet it opens
+  ///
+  /// In en, this message translates to:
+  /// **'List options'**
+  String get overviewListOptions;
+
+  /// Label of the overview list options' row choosing which end of the period the list starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Order'**
+  String get overviewOrder;
+
+  /// Overview list order: earliest day at the top
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest first'**
+  String get overviewOrderOldestFirst;
+
+  /// Overview list order: latest day at the top
+  ///
+  /// In en, this message translates to:
+  /// **'Newest first'**
+  String get overviewOrderNewestFirst;
+
+  /// Label of the overview list options' row choosing whether a recurring event lists every occurrence or one row
+  ///
+  /// In en, this message translates to:
+  /// **'Rows'**
+  String get overviewRows;
+
+  /// Overview list rows: one row per occurrence of a recurring event
+  ///
+  /// In en, this message translates to:
+  /// **'Every occurrence'**
+  String get overviewRowsEveryOccurrence;
+
+  /// Overview list rows: one row standing for all of an event's occurrences in the period
+  ///
+  /// In en, this message translates to:
+  /// **'One per event'**
+  String get overviewRowsPerEvent;
+
+  /// Switch in the overview list options keeping only the occurrences marked missed
+  ///
+  /// In en, this message translates to:
+  /// **'Missed only'**
+  String get overviewMissedOnly;
+
+  /// Empty state of the overview list when the chosen period holds no entry
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing in this period'**
+  String get overviewEmptyPeriod;
+
+  /// Caption at the end of the overview list while the rest of a long period is still being resolved
+  ///
+  /// In en, this message translates to:
+  /// **'Loading more…'**
+  String get overviewLoading;
+
+  /// Caption at the end of the overview list when a long period holds more entries than the list shows
+  ///
+  /// In en, this message translates to:
+  /// **'Showing the first {count} entries. Narrow the period to see the rest.'**
+  String overviewCapReached(int count);
+
+  /// How many events a category group of the overview list holds
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 event} other {{count} events}}'**
+  String overviewEventCount(int count);
+
+  /// The first and last day an event occurs on within the overview list's period
+  ///
+  /// In en, this message translates to:
+  /// **'{first} – {last}'**
+  String overviewEventSpan(String first, String last);
+
+  /// Accessibility label of the overview list's month scrubber along its right edge
+  ///
+  /// In en, this message translates to:
+  /// **'Scroll by month'**
+  String get overviewScrubberLabel;
+
+  /// Confirm button of the date picker when it picks a span of days
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get datePickerApply;
+
+  /// Summary of the date picker's span mode before any day is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a start day'**
+  String get datePickerRangeNone;
 
   /// Tooltip of the drill-down month navigation's button returning to the current month
   ///

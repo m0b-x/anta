@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:intl/intl.dart';
 
 import '../services/folder_search_service.dart' show normalizeForSearch;
@@ -35,6 +36,15 @@ class EventSearchClause {
   final EventSearchDate? date;
 
   const EventSearchClause({required this.termMask, this.date});
+
+  @override
+  bool operator ==(Object other) =>
+      other is EventSearchClause &&
+      other.termMask == termMask &&
+      other.date == date;
+
+  @override
+  int get hashCode => Object.hash(termMask, date);
 }
 
 class EventSearchQuery {
@@ -58,6 +68,23 @@ class EventSearchQuery {
 
   bool get isEmpty => clauses.isEmpty;
   bool get isNotEmpty => clauses.isNotEmpty;
+
+  /// Value equality, so a surface can tell a keystroke that re-parses to the
+  /// same query (a trailing space, a case change) from one that changes what
+  /// matches, and keep what it resolved.
+  @override
+  bool operator ==(Object other) =>
+      other is EventSearchQuery &&
+      other.hasDateClauses == hasDateClauses &&
+      listEquals(other.terms, terms) &&
+      listEquals(other.clauses, clauses);
+
+  @override
+  int get hashCode => Object.hash(
+    Object.hashAll(terms),
+    Object.hashAll(clauses),
+    hasDateClauses,
+  );
 
   static final RegExp _whitespace = RegExp(r'\s+');
   static final RegExp _isoDate = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$');

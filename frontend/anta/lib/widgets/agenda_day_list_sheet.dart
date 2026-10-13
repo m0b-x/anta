@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
-import '../constants/calendar_colors.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
@@ -20,7 +19,6 @@ import 'agenda_month_grid.dart';
 import 'agenda_period_nav.dart';
 import 'agenda_year_grid.dart';
 import 'agenda_year_pager.dart';
-import 'event_avatar.dart';
 import 'form_rows.dart';
 import 'month_year_picker_sheet.dart';
 
@@ -602,6 +600,12 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
   }
 
   Widget _buildBody(AppLocalizations l10n, double bottomClearance) {
+    final rows = AgendaDayListRowBuilder(
+      rows: _rows,
+      today: widget.today,
+      onEntryTap: (entry) => _popDay(entry.day),
+      onEntryEdit: (entry) => _popEdit(entry.onEdit!),
+    );
     switch (_mode) {
       case AgendaDayListMode.list:
         final padding = EdgeInsets.fromLTRB(
@@ -624,7 +628,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
         return ListView.builder(
           padding: padding,
           itemCount: _rows.length,
-          itemBuilder: (context, index) => _buildRow(l10n, index),
+          itemBuilder: rows.build,
         );
       case AgendaDayListMode.month:
         final selected = _selectedDay;
@@ -658,8 +662,8 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
                   : SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) => selected != null && index == 0
-                            ? _buildPickedDayRow(l10n, selected)
-                            : _buildRow(l10n, index - leadingRows),
+                            ? _buildPickedDayRow(context, l10n, rows, selected)
+                            : rows.build(context, index - leadingRows),
                         childCount: _rows.length + leadingRows,
                       ),
                     ),
@@ -674,50 +678,20 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     }
   }
 
-  /// One row of [_rows] in its shell: a month separator as a section label,
-  /// a day as the head of its group, an entry under it. The hairline rule
-  /// and the corners are the shell's; the gap between groups rides the last
-  /// row of each, as `FormRowGroup` carries it, and the list's last row
-  /// carries none — the body's own bottom padding follows it.
-  Widget _buildRow(AppLocalizations l10n, int index) {
-    final row = _rows[index];
-    final isLast = index == _rows.length - 1;
-    switch (row) {
-      case AgendaDayListMonthRow(:final month, :final showYear):
-        return FormSectionLabel(
-          text: AgendaListView.monthLabel(
-            l10n.localeName,
-            month,
-            withYear: showYear,
-          ),
-        );
-      case AgendaDayListDayRow(:final day, :final count, :final missed):
-        // A day row is never a group's last: the builder emits one only
-        // above the day's entries.
-        return FormRowShell(
-          first: true,
-          last: false,
-          child: _buildReadRow(l10n, day: day, kept: count, missed: missed),
-        );
-      case AgendaDayListEntryRow(:final entry):
-        return FormRowShell(
-          first: false,
-          last: isLast || _rows[index + 1] is! AgendaDayListEntryRow,
-          trailingGap: !isLast,
-          child: _buildEntryRow(l10n, entry),
-        );
-    }
-  }
-
   /// The picked day's head in month mode: its read row with "Whole month" as
   /// the second target (D3), above its entries.
-  Widget _buildPickedDayRow(AppLocalizations l10n, DateTime day) {
+  Widget _buildPickedDayRow(
+    BuildContext context,
+    AppLocalizations l10n,
+    AgendaDayListRowBuilder rows,
+    DateTime day,
+  ) {
     final kept = _monthBucket.keptCountForDay(day);
     return FormRowShell(
       first: true,
       last: false,
-      child: _buildReadRow(
-        l10n,
+      child: rows.readRow(
+        context,
         day: day,
         kept: kept,
         missed: _monthBucket.countForDay(day) - kept,
@@ -728,54 +702,6 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
           onPressed: () => _toggleSelectedDay(day),
         ),
       ),
-    );
-  }
-
-  /// A day's head: its label and its attendance count as a read row — fully
-  /// drawn and inert, never dimmed, since there is nothing a tap could do.
-  Widget _buildReadRow(
-    AppLocalizations l10n, {
-    required DateTime day,
-    required int kept,
-    required int missed,
-    FormTrailingButton? trailingButton,
-  }) {
-    return FormPickerRow(
-      label: AgendaListView.dayHeaderLabel(l10n, day, widget.today),
-      value: agendaDayListCountLabel(l10n, kept, missed),
-      onTap: null,
-      showChevron: false,
-      dividerIndent: FormMetrics.dividerIndentPlain,
-      trailingButton: trailingButton,
-    );
-  }
-
-  /// An entry: the event's look, its title over the agenda row's own
-  /// subtitle, the pencil as the second target where the entry carries an
-  /// edit. No chevron in either case — a tap selects the entry's day on the
-  /// calendar under the sheet and opens nothing.
-  Widget _buildEntryRow(AppLocalizations l10n, AgendaDayListEntry entry) {
-    final onEdit = entry.onEdit;
-    final row = FormPickerRow(
-      leading: EventAvatar(icon: entry.icon, color: entry.color),
-      label: entry.title,
-      caption: entry.subtitle,
-      onTap: () => _popDay(entry.day),
-      showChevron: false,
-      trailingButton: onEdit == null
-          ? null
-          : FormTrailingButton(
-              icon: Icons.edit_outlined,
-              tooltip: l10n.upcomingEditEvent,
-              onPressed: () => _popEdit(onEdit),
-            ),
-    );
-    if (!entry.missed) return row;
-    // The shell reads the hairline's indent off a `FormDividedRow` alone, so
-    // the faded row hands its title indent out through the wrapper.
-    return FormIndentedRow(
-      dividerIndent: FormMetrics.dividerIndentTitle,
-      child: Opacity(opacity: CalendarColors.missedEventAlpha, child: row),
     );
   }
 

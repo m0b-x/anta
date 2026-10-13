@@ -231,6 +231,21 @@ class SettingsKeys {
   /// [defaultCalendarOverviewMode].
   static const String calendarOverviewMode = 'calendar_overview_mode';
 
+  /// The overview list's period, as `OverviewPeriod.encode` writes it:
+  /// `thisYear` or `preset:<name>`. Absent — the default — is this year; a
+  /// custom span or a past year is never stored, so the next launch opens on
+  /// this year.
+  static const String calendarOverviewPeriod = 'calendar_overview_period';
+
+  /// The overview list's order (`OverviewOrder` name). Parsed with a
+  /// forward-compatible fallback to [defaultCalendarOverviewOrder].
+  static const String calendarOverviewOrder = 'calendar_overview_order';
+
+  /// Whether the overview list shows every occurrence or one row per event
+  /// (`OverviewRows` name). Parsed with a forward-compatible fallback to
+  /// [defaultCalendarOverviewRows].
+  static const String calendarOverviewRows = 'calendar_overview_rows';
+
   /// Whether day-panel / agenda event rows mention the repeat pattern
   /// ("Daily", "Every 2 weeks", …) in their subtitle.
   static const String calendarShowRecurrenceLabels =
@@ -519,6 +534,13 @@ class SettingsKeys {
 
   /// Default overview-page presentation: the year of dot-matrix tiles.
   static const String defaultCalendarOverviewMode = 'year';
+
+  /// Default overview-list order: oldest first, so the list reads like the
+  /// calendar it summarises (see `OverviewOrder`).
+  static const String defaultCalendarOverviewOrder = 'oldestFirst';
+
+  /// Default overview-list rows: every occurrence (see `OverviewRows`).
+  static const String defaultCalendarOverviewRows = 'everyOccurrence';
 
   // ── Event alerts (v40) ──────────────────────────────────────────────
 

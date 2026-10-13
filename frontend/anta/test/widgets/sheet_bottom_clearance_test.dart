@@ -58,6 +58,8 @@ import 'package:anta/widgets/removed_holidays_sheet.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
+import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/widgets/overview_options_sheet.dart';
 import 'package:anta/widgets/pairing_sheet.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
@@ -876,6 +878,38 @@ void main() {
     );
   });
 
+  testWidgets('the date picker sheet clears the navigation bar in range mode', (
+    tester,
+  ) async {
+    // Range mode has no footer, so whichever view is up owns the bottom
+    // edge: the month grid's scroll view, then the year view's tile grid.
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => CalendarDatePickerSheet.pickRange(
+        context,
+        initialRange: (
+          start: DateTime.utc(2026, 8, 20),
+          end: DateTime.utc(2026, 9, 5),
+        ),
+        firstDate: CalendarBounds.earliest,
+        lastDate: CalendarBounds.latest,
+        appearance: const CalendarAppearance(),
+      ),
+    );
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+
+    await tester.tap(find.text('Year'));
+    await tester.pumpAndSettle();
+    final grid = tester.widget<GridView>(find.byType(GridView));
+    expect(
+      grid.padding!.resolve(TextDirection.ltr).bottom,
+      greaterThanOrEqualTo(navBar),
+      reason: 'the year tiles ran under the gesture bar',
+    );
+  });
+
   testWidgets('the month/year picker clears the navigation bar', (
     tester,
   ) async {
@@ -1089,6 +1123,31 @@ void main() {
     await tester.tap(close);
     await tester.pumpAndSettle();
     expect(find.byType(FastingStyleSheet), findsNothing);
+  });
+
+  testWidgets('the overview options sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => OverviewOptionsSheet.show(
+        context,
+        initial: OverviewListOptions.defaults,
+        listMode: true,
+        onChanged: (_) {},
+      ),
+    );
+
+    // Missed only is the last row of a sheet as tall as its rows.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.overviewMissedOnly))
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the last row ran under the gesture bar',
+    );
   });
 
   group('the removed holidays sheet', () {

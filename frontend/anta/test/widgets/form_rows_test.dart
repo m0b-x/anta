@@ -181,6 +181,120 @@ void main() {
       );
     });
 
+    group('one line', () {
+      const longLabel =
+          'Wednesday, September 30, 2026 — a label far wider than its row';
+      const longCaption =
+          'Gym · Every week on Mon, Wed, Fri · 18:00–19:30 · a caption that '
+          'would wrap';
+
+      Future<double> heightOf(WidgetTester tester, Widget row) async {
+        addTearDown(tester.view.reset);
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(360, 780);
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2.0)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: ListView(
+                children: [
+                  FormRowGroup(children: [row]),
+                ],
+              ),
+            ),
+          ),
+        );
+        expect(tester.takeException(), isNull);
+        return tester.getSize(find.byType(row.runtimeType)).height;
+      }
+
+      testWidgets('a single-line picker row keeps a long label beside its '
+          'value, one row high', (tester) async {
+        final short = await heightOf(
+          tester,
+          const FormPickerRow(
+            label: 'Today',
+            value: '3 entries',
+            onTap: null,
+            showChevron: false,
+            singleLine: true,
+          ),
+        );
+        final long = await heightOf(
+          tester,
+          const FormPickerRow(
+            label: longLabel,
+            value: '31 entries · 2 missed',
+            onTap: null,
+            showChevron: false,
+            singleLine: true,
+          ),
+        );
+        expect(long, short);
+        // The value stays on the label's line instead of dropping under it.
+        expect(
+          tester.getCenter(find.text('31 entries · 2 missed')).dy,
+          moreOrLessEquals(tester.getCenter(find.text(longLabel)).dy),
+        );
+
+        final wrapped = await heightOf(
+          tester,
+          const FormPickerRow(
+            label: longLabel,
+            value: '31 entries · 2 missed',
+            onTap: null,
+            showChevron: false,
+          ),
+        );
+        expect(wrapped, greaterThan(short), reason: 'the default still wraps');
+      });
+
+      testWidgets('a single-line row with a leading widget keeps its title '
+          'and a one-line caption to one line each', (tester) async {
+        Widget row(String title, String caption) => FormPickerRow(
+          leading: const EventAvatar(
+            icon: Icons.fitness_center,
+            color: Colors.blue,
+          ),
+          label: title,
+          caption: caption,
+          captionMaxLines: 1,
+          singleLine: true,
+          showChevron: false,
+          onTap: () {},
+        );
+        final short = await heightOf(tester, row('Leg day', 'Gym'));
+        final long = await heightOf(tester, row(longLabel, longCaption));
+        expect(long, short);
+      });
+
+      testWidgets('a single-line section label keeps a long label and its '
+          'count to one line', (tester) async {
+        final short = await heightOf(
+          tester,
+          const FormSectionLabel(
+            text: 'May',
+            trailing: '3 entries',
+            singleLine: true,
+          ),
+        );
+        final long = await heightOf(
+          tester,
+          const FormSectionLabel(
+            text: 'September 2026',
+            trailing: '31 entries · 12 missed',
+            singleLine: true,
+          ),
+        );
+        expect(long, short);
+      });
+    });
+
     testWidgets('a picker row with a leading widget takes the title row '
         'shape, the title indent and stays one node', (tester) async {
       var taps = 0;

@@ -42,12 +42,16 @@ class CalendarDayCell extends StatelessWidget {
   static double chipDiameterFor(DayRailStyle railStyle) =>
       railStyle == DayRailStyle.dot ? railChipSize : chipSize;
 
+  /// The full-size chip's inset from the cell's top — shared with the date
+  /// picker's range band, which has to sit behind the chip to the pixel.
+  static const double chipTop = 4;
+
   /// Vertical space reserved above the marker strip: top inset + chip + gap.
   ///
   /// Deliberately **not** a function of [chipDiameterFor]: a smaller chip is
   /// re-centred inside the same zone, so enabling the rail cannot change the
   /// row height and resize the whole grid.
-  static const double chipZoneHeight = 4 + chipSize + 2;
+  static const double chipZoneHeight = chipTop + chipSize + 2;
 
   /// Rail height in a default row — a 62px row less the 4px top inset and the
   /// 20px a three-bar marker strip takes. Only a fallback: both call sites
@@ -342,7 +346,7 @@ class CalendarDayCell extends StatelessWidget {
         // The rail's smaller chip is re-centred in the zone the full-size one
         // occupies, so turning the rail on shrinks the circle without moving
         // the digit inside it. With the rail off this is exactly `top: 4`.
-        padding: EdgeInsets.only(top: 4 + (chipSize - diameter) / 2),
+        padding: EdgeInsets.only(top: chipTop + (chipSize - diameter) / 2),
         child: chip,
       ),
     );

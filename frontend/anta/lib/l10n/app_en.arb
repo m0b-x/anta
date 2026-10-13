@@ -5835,14 +5835,108 @@
   "@calendarViewMenuTooltip": {
     "description": "Tooltip of the calendar's and the overview's app-bar title, which opens the menu switching between the two pages and between the grid's month, two-week and week views"
   },
-  "overviewEmptyYear": "Nothing in {year}",
-  "@overviewEmptyYear": {
-    "description": "Empty state of the overview page's list mode when the shown year holds no entry",
+  "overviewCategories": "Categories",
+  "@overviewCategories": {
+    "description": "Label of the overview page's row choosing which event categories it shows"
+  },
+  "overviewPeriod": "Period",
+  "@overviewPeriod": {
+    "description": "Label of the overview list's row choosing the span of days it lists, and the title of the picker choosing a custom span"
+  },
+  "overviewPeriodLast12Months": "Last 12 months",
+  "@overviewPeriodLast12Months": {
+    "description": "Overview list period: the twelve months ending today"
+  },
+  "overviewPeriodLast90Days": "Last 90 days",
+  "@overviewPeriodLast90Days": {
+    "description": "Overview list period: the ninety days ending today"
+  },
+  "overviewPeriodAllTime": "All time",
+  "@overviewPeriodAllTime": {
+    "description": "Overview list period: from the first year any event falls in up to today"
+  },
+  "overviewListOptions": "List options",
+  "@overviewListOptions": {
+    "description": "Tooltip of the overview list's options button and the title of the sheet it opens"
+  },
+  "overviewOrder": "Order",
+  "@overviewOrder": {
+    "description": "Label of the overview list options' row choosing which end of the period the list starts from"
+  },
+  "overviewOrderOldestFirst": "Oldest first",
+  "@overviewOrderOldestFirst": {
+    "description": "Overview list order: earliest day at the top"
+  },
+  "overviewOrderNewestFirst": "Newest first",
+  "@overviewOrderNewestFirst": {
+    "description": "Overview list order: latest day at the top"
+  },
+  "overviewRows": "Rows",
+  "@overviewRows": {
+    "description": "Label of the overview list options' row choosing whether a recurring event lists every occurrence or one row"
+  },
+  "overviewRowsEveryOccurrence": "Every occurrence",
+  "@overviewRowsEveryOccurrence": {
+    "description": "Overview list rows: one row per occurrence of a recurring event"
+  },
+  "overviewRowsPerEvent": "One per event",
+  "@overviewRowsPerEvent": {
+    "description": "Overview list rows: one row standing for all of an event's occurrences in the period"
+  },
+  "overviewMissedOnly": "Missed only",
+  "@overviewMissedOnly": {
+    "description": "Switch in the overview list options keeping only the occurrences marked missed"
+  },
+  "overviewEmptyPeriod": "Nothing in this period",
+  "@overviewEmptyPeriod": {
+    "description": "Empty state of the overview list when the chosen period holds no entry"
+  },
+  "overviewLoading": "Loading more…",
+  "@overviewLoading": {
+    "description": "Caption at the end of the overview list while the rest of a long period is still being resolved"
+  },
+  "overviewCapReached": "Showing the first {count} entries. Narrow the period to see the rest.",
+  "@overviewCapReached": {
+    "description": "Caption at the end of the overview list when a long period holds more entries than the list shows",
     "placeholders": {
-      "year": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "overviewEventCount": "{count, plural, one {1 event} other {{count} events}}",
+  "@overviewEventCount": {
+    "description": "How many events a category group of the overview list holds",
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }
+  },
+  "overviewEventSpan": "{first} – {last}",
+  "@overviewEventSpan": {
+    "description": "The first and last day an event occurs on within the overview list's period",
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "last": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewScrubberLabel": "Scroll by month",
+  "@overviewScrubberLabel": {
+    "description": "Accessibility label of the overview list's month scrubber along its right edge"
+  },
+  "datePickerApply": "Apply",
+  "@datePickerApply": {
+    "description": "Confirm button of the date picker when it picks a span of days"
+  },
+  "datePickerRangeNone": "Pick a start day",
+  "@datePickerRangeNone": {
+    "description": "Summary of the date picker's span mode before any day is picked"
   },
   "dayListJumpToToday": "This month",
   "@dayListJumpToToday": {

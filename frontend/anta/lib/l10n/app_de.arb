@@ -2552,7 +2552,52 @@
   "calendarOverview": "Übersicht",
   "calendarOverviewDesc": "Ereignisse nach Kategorie, Jahr für Jahr",
   "calendarViewMenuTooltip": "Ansicht wechseln",
-  "overviewEmptyYear": "Nichts in {year}",
+  "overviewCategories": "Kategorien",
+  "overviewPeriod": "Zeitraum",
+  "overviewPeriodLast12Months": "Letzte 12 Monate",
+  "overviewPeriodLast90Days": "Letzte 90 Tage",
+  "overviewPeriodAllTime": "Gesamter Zeitraum",
+  "overviewListOptions": "Listenoptionen",
+  "overviewOrder": "Reihenfolge",
+  "overviewOrderOldestFirst": "Älteste zuerst",
+  "overviewOrderNewestFirst": "Neueste zuerst",
+  "overviewRows": "Zeilen",
+  "overviewRowsEveryOccurrence": "Jedes Vorkommen",
+  "overviewRowsPerEvent": "Eine pro Termin",
+  "overviewMissedOnly": "Nur verpasste",
+  "overviewEmptyPeriod": "Nichts in diesem Zeitraum",
+  "overviewLoading": "Weitere werden geladen…",
+  "overviewCapReached": "Die ersten {count} Einträge werden angezeigt. Grenze den Zeitraum ein, um den Rest zu sehen.",
+  "@overviewCapReached": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "overviewEventCount": "{count, plural, one {1 Termin} other {{count} Termine}}",
+  "@overviewEventCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "overviewEventSpan": "{first} – {last}",
+  "@overviewEventSpan": {
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "last": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewScrubberLabel": "Nach Monat scrollen",
+  "datePickerApply": "Übernehmen",
+  "datePickerRangeNone": "Starttag wählen",
   "dayListJumpToToday": "Dieser Monat",
   "dayListMissedCount": "{count, plural, one {1 verpasst} other {{count} verpasst}}",
   "@dayListMissedCount": {

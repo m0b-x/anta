@@ -280,6 +280,33 @@ abstract final class AppNavigator {
         .toList();
   }
 
+  static bool _isStamped(Route<dynamic> route, NavDestinationKind kind) {
+    final destination = route.settings.arguments;
+    return destination is NavDestination && destination.kind == kind;
+  }
+
+  /// The route name of a calendar [toCalendarOccurrence] pushed over the
+  /// overview. A name and never a `NavDestination`, so launch restore does
+  /// not record it.
+  static const String occurrenceCalendarRouteName = 'calendar-occurrence';
+
+  static bool _isCalendar(Route<dynamic> route) =>
+      _isStamped(route, NavDestinationKind.calendar) ||
+      route.settings.name == occurrenceCalendarRouteName;
+
+  /// Whether the calendar page on [route] is the one a published
+  /// [pendingCalendarOccurrence] is for: the last live calendar route. A
+  /// calendar pushed over the overview leaves another beneath it, and only
+  /// one of the two may open the occurrence. Any route serves while no
+  /// calendar route is known — a calendar mounted without the observer.
+  static bool servesCalendarOccurrence(Route<dynamic> route) {
+    final navigator = route.navigator;
+    if (navigator == null) return true;
+    final routes = _livePageRoutes(navigator);
+    final index = routes.lastIndexWhere(_isCalendar);
+    return index < 0 || identical(routes[index], route);
+  }
+
   /// Leaves `routes[index]` on top, playing exactly one transition: every
   /// route above it except the current one is removed outright, and the
   /// current one is popped so its page still gets the exit its own `PopScope`
@@ -451,6 +478,17 @@ abstract final class AppNavigator {
   /// `CalendarPage` would stack two of the app's heaviest page over each
   /// other, each with its own grid, panel and scroll position, and leave the
   /// user two back gestures from where they were.
+  ///
+  /// Except over the overview: with an overview above the calendar found, a
+  /// collapse would pop the overview and lose its period, its search and its
+  /// place in the list, so the calendar is pushed over it and back returns to
+  /// the list — and so it is with no calendar beneath, an overview opened
+  /// from the drawer (review 3). That calendar is named
+  /// [occurrenceCalendarRouteName] and
+  /// **unstamped**: restore records the longest stamped prefix, so the next
+  /// launch reopens the overview it came from rather than replaying a
+  /// calendar over it, while the name lets the next warm tap find it and
+  /// serve it in place instead of stacking a third.
   static Future<void> toCalendarOccurrence({
     required DateTime day,
     required String? eventId,
@@ -458,11 +496,21 @@ abstract final class AppNavigator {
     final navigator = navigatorKey.currentState;
     if (navigator != null) {
       final routes = _livePageRoutes(navigator);
-      final index = routes.lastIndexWhere((route) {
-        final destination = route.settings.arguments;
-        return destination is NavDestination &&
-            destination.kind == NavDestinationKind.calendar;
-      });
+      final index = routes.lastIndexWhere(_isCalendar);
+      final overviewAbove = routes
+          .skip(index + 1)
+          .any(
+            (route) => _isStamped(route, NavDestinationKind.calendarOverview),
+          );
+      if (overviewAbove) {
+        return navigator.push<void>(
+          MaterialPageRoute(
+            builder: (_) =>
+                CalendarPage(initialDay: day, initialEventId: eventId),
+            settings: const RouteSettings(name: occurrenceCalendarRouteName),
+          ),
+        );
+      }
       if (index >= 0) {
         pendingCalendarOccurrence.value = (day: day, eventId: eventId);
         _collapseOnto(navigator, routes, index);

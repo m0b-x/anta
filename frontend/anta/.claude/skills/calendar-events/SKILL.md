@@ -141,8 +141,11 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 
 ## Overview, drill-down, years
 
-- `AgendaMonthStore`: **resolve on navigation, never in build** (bar `tilesFor`); never re-add the twelve-months-back window.
-- `CalendarOverviewPage` owns no data and ignores the grid filters.
+- `AgendaMonthStore`: **resolve on navigation, never in build** (bar `tilesFor`); never re-add the twelve-months-back window; `ensure` chunks every run at twelve months (a longer run is split, never truncated).
+- `CalendarOverviewPage` owns no data and ignores the grid filters. Its list's unit is an `OverviewPeriod` (this year · a rolling preset · a custom span), never a bare year; **the search query is a post-filter** through `EventQueryMatcher` over a query-free store, never a scan input; a period longer than `OverviewListMetrics.syncMonths` resolves in runs between frames under a generation token and stops at `maxEntries`; the rows have one geometry per kind (exact extents, `captionMaxLines: 1`, single-line headers) — never give a page row a height that depends on its text.
+- A row tap from the overview **pushes** a calendar over it (`AppNavigator.occurrenceCalendarRouteName`, unstamped, never restored); only the last live calendar serves `pendingCalendarOccurrence`.
+- `AgendaDayListRowBuilder` is the one renderer of dated entry rows, for the day list sheet and the overview alike; a row look change goes there, never into one surface.
+- A gesture lane over a scrollable (`ListScrubber`) gives its recognizer `MediaQuery.maybeGestureSettingsOf(context)`: the `Scrollable` takes Android's 8 dp touch slop from the platform while a bare recognizer waits for `kTouchSlop` (18), so without it the list wins every real touch although widget tests pass.
 
 ## Event editor and sub-sheets
 

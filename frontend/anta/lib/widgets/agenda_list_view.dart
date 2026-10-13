@@ -560,6 +560,7 @@ class AgendaListView extends StatelessWidget {
   /// Cached `DateFormat.MMMMEEEEd` per locale — it parses a skeleton on
   /// construction and every visible day header would otherwise rebuild one.
   static final Map<String, DateFormat> _dayHeaderFormatCache = {};
+  static final Map<String, DateFormat> _dayHeaderYearFormatCache = {};
 
   /// Same caching rule for the three other skeletons the agenda formats with:
   /// the abbreviated day used by range labels, and the month separators.
@@ -653,14 +654,21 @@ class AgendaListView extends StatelessWidget {
   }
 
   /// [today] is passed in rather than read here so the owner computes it once
-  /// per build instead of once per visible header row.
+  /// per build instead of once per visible header row. [withYear] names the
+  /// year, for a list whose days cross one; Today and Tomorrow need none.
   static String dayHeaderLabel(
     AppLocalizations l10n,
     DateTime day,
-    DateTime today,
-  ) {
+    DateTime today, {
+    bool withYear = false,
+  }) {
     if (day == today) return l10n.upcomingToday;
     if (day == today.add(const Duration(days: 1))) return l10n.upcomingTomorrow;
+    if (withYear) {
+      return (_dayHeaderYearFormatCache[l10n.localeName] ??=
+              DateFormat.yMMMMEEEEd(l10n.localeName))
+          .format(day);
+    }
     return (_dayHeaderFormatCache[l10n.localeName] ??= DateFormat.MMMMEEEEd(
       l10n.localeName,
     )).format(day);

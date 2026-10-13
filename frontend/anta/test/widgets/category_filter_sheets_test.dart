@@ -789,7 +789,6 @@ void main() {
 
         await scrollToCategories(tester);
         expect(categoriesValue(tester), 'All', reason: '$count categories');
-        expect(find.byType(CategoryFilterTile), findsNothing);
         expect(find.byType(FilterChip), findsNothing);
         // Popped before the next open: a re-pumped host keeps its Navigator,
         // and with it the sheet still up.

@@ -4737,9 +4737,84 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarViewMenuTooltip => 'Schimbă vizualizarea';
 
   @override
-  String overviewEmptyYear(int year) {
-    return 'Nimic în $year';
+  String get overviewCategories => 'Categorii';
+
+  @override
+  String get overviewPeriod => 'Perioadă';
+
+  @override
+  String get overviewPeriodLast12Months => 'Ultimele 12 luni';
+
+  @override
+  String get overviewPeriodLast90Days => 'Ultimele 90 de zile';
+
+  @override
+  String get overviewPeriodAllTime => 'Toată perioada';
+
+  @override
+  String get overviewListOptions => 'Opțiuni listă';
+
+  @override
+  String get overviewOrder => 'Ordine';
+
+  @override
+  String get overviewOrderOldestFirst => 'Cele mai vechi întâi';
+
+  @override
+  String get overviewOrderNewestFirst => 'Cele mai noi întâi';
+
+  @override
+  String get overviewRows => 'Rânduri';
+
+  @override
+  String get overviewRowsEveryOccurrence => 'Fiecare apariție';
+
+  @override
+  String get overviewRowsPerEvent => 'Unul pe eveniment';
+
+  @override
+  String get overviewMissedOnly => 'Doar ratate';
+
+  @override
+  String get overviewEmptyPeriod => 'Nimic în această perioadă';
+
+  @override
+  String get overviewLoading => 'Se încarcă mai multe…';
+
+  @override
+  String overviewCapReached(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    return 'Intrări afișate: primele $countString. Restrânge perioada ca să vezi restul.';
   }
+
+  @override
+  String overviewEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: '1 eveniment',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String overviewEventSpan(String first, String last) {
+    return '$first – $last';
+  }
+
+  @override
+  String get overviewScrubberLabel => 'Derulează pe luni';
+
+  @override
+  String get datePickerApply => 'Aplică';
+
+  @override
+  String get datePickerRangeNone => 'Alege ziua de început';
 
   @override
   String get dayListJumpToToday => 'Luna aceasta';

@@ -290,10 +290,10 @@ abstract final class CalendarFilterSummary {
   /// by ", " and, past them, `categoriesMore(rest)`: "Gym, Strength +3 more".
   ///
   /// The one read-back rule for every set — the Categories, Priority and Only
-  /// show rows of the filter sheet and `CategoryFilterTile` — so a count can
-  /// never hide behind an ellipsis on one surface and read "+N more" on
-  /// another. An empty list reads as nothing; each caller owns its own word
-  /// for that ("All", "Any", "Everything").
+  /// show rows of the filter sheets and the overview's Categories row — so a
+  /// count can never hide behind an ellipsis on one surface and read "+N
+  /// more" on another. An empty list reads as nothing; each caller owns its
+  /// own word for that ("All", "Any", "Everything").
   static String namesReadBack(List<String> names, AppLocalizations l10n) {
     if (names.length <= namedLimit) return names.join(', ');
     final named = names.take(namedLimit).join(', ');

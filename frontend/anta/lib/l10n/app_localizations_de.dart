@@ -4689,9 +4689,83 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarViewMenuTooltip => 'Ansicht wechseln';
 
   @override
-  String overviewEmptyYear(int year) {
-    return 'Nichts in $year';
+  String get overviewCategories => 'Kategorien';
+
+  @override
+  String get overviewPeriod => 'Zeitraum';
+
+  @override
+  String get overviewPeriodLast12Months => 'Letzte 12 Monate';
+
+  @override
+  String get overviewPeriodLast90Days => 'Letzte 90 Tage';
+
+  @override
+  String get overviewPeriodAllTime => 'Gesamter Zeitraum';
+
+  @override
+  String get overviewListOptions => 'Listenoptionen';
+
+  @override
+  String get overviewOrder => 'Reihenfolge';
+
+  @override
+  String get overviewOrderOldestFirst => 'Älteste zuerst';
+
+  @override
+  String get overviewOrderNewestFirst => 'Neueste zuerst';
+
+  @override
+  String get overviewRows => 'Zeilen';
+
+  @override
+  String get overviewRowsEveryOccurrence => 'Jedes Vorkommen';
+
+  @override
+  String get overviewRowsPerEvent => 'Eine pro Termin';
+
+  @override
+  String get overviewMissedOnly => 'Nur verpasste';
+
+  @override
+  String get overviewEmptyPeriod => 'Nichts in diesem Zeitraum';
+
+  @override
+  String get overviewLoading => 'Weitere werden geladen…';
+
+  @override
+  String overviewCapReached(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    return 'Die ersten $countString Einträge werden angezeigt. Grenze den Zeitraum ein, um den Rest zu sehen.';
   }
+
+  @override
+  String overviewEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Termine',
+      one: '1 Termin',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String overviewEventSpan(String first, String last) {
+    return '$first – $last';
+  }
+
+  @override
+  String get overviewScrubberLabel => 'Nach Monat scrollen';
+
+  @override
+  String get datePickerApply => 'Übernehmen';
+
+  @override
+  String get datePickerRangeNone => 'Starttag wählen';
 
   @override
   String get dayListJumpToToday => 'Dieser Monat';
