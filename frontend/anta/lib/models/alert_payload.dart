@@ -38,6 +38,15 @@ abstract final class AlertPayloadKeys {
   static const String languageCode = 'lang';
   static const String iconFile = 'iconFile';
   static const String grouped = 'grp';
+  static const String isDigest = 'dg';
+  static const String digestId = 'di';
+  static const String spanStartMs = 'ss';
+  static const String spanEndMs = 'se';
+  static const String categoryIds = 'cat';
+  static const String digestText = 'dtx';
+  static const String digestLines = 'dln';
+  static const String digestSummary = 'dsm';
+  static const String inherited = 'inh';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -190,6 +199,44 @@ class AlertPayload extends Equatable {
   /// and on an older one, which is the loose notification both always were.
   final bool grouped;
 
+  /// Whether this entry is a digest (**v42**) — one notification listing a
+  /// span's events — rather than an alert of one event. A digest carries no
+  /// event ([eventId] is `''`), [alertId] is the digest's id, [dayUtcMs] the
+  /// span's first day; its tap opens the overview on the span.
+  final bool isDigest;
+
+  /// The digest this entry was armed for, or null on every alert's entry.
+  final String? digestId;
+
+  /// The span a digest lists, inclusive, each a date-only UTC day as epoch
+  /// ms — what its tap opens the overview on. Null on every alert's entry.
+  final int? spanStartMs;
+  final int? spanEndMs;
+
+  /// The categories a digest lists, comma-separated; null or empty for every
+  /// category, as the overview reads an empty allowlist.
+  final String? categoryIdsCsv;
+
+  /// A digest's collapsed line, written at arm time on the UI isolate like
+  /// every other label — a digest's words are a list of days no field could
+  /// carry unwritten.
+  final String? digestText;
+
+  /// A digest's expanded lines, one occurrence each; empty on every alert's
+  /// entry.
+  final List<String> digestLines;
+
+  /// The note under [digestLines] ("+2 more"), or null for none.
+  final String? digestSummary;
+
+  /// Whether the alert this entry was armed for is inherited from the
+  /// event's category (**v42**) rather than the event's own. [categoryId] is
+  /// the event's category either way, so only this says it; a snooze taken
+  /// from the payload alone — the reminder's, in the background isolate —
+  /// seeds its id with the event when it is set, as the scheduler does,
+  /// because one category alert is shared by every event in the category.
+  final bool inherited;
+
   const AlertPayload({
     required this.database,
     required this.eventId,
@@ -216,6 +263,15 @@ class AlertPayload extends Equatable {
     this.languageCode,
     this.iconFile,
     this.grouped = false,
+    this.isDigest = false,
+    this.digestId,
+    this.spanStartMs,
+    this.spanEndMs,
+    this.categoryIdsCsv,
+    this.digestText,
+    this.digestLines = const <String>[],
+    this.digestSummary,
+    this.inherited = false,
   });
 
   /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
@@ -237,6 +293,12 @@ class AlertPayload extends Equatable {
   );
 
   bool get isAlarm => mode == AlertMode.ring;
+
+  /// The categories a digest lists — empty for every category.
+  Set<String> get categoryIdSet => {
+    for (final id in (categoryIdsCsv ?? '').split(','))
+      if (id.isNotEmpty) id,
+  };
 
   /// The colour the payload's icon wears, by the one icon rule: its own
   /// colour only while it tints the icon, else the category's.
@@ -260,6 +322,7 @@ class AlertPayload extends Equatable {
     String? languageCode,
     String? iconFile,
     bool? grouped,
+    bool? inherited,
   }) {
     return AlertPayload(
       database: database,
@@ -287,6 +350,15 @@ class AlertPayload extends Equatable {
       languageCode: languageCode ?? this.languageCode,
       iconFile: iconFile ?? this.iconFile,
       grouped: grouped ?? this.grouped,
+      isDigest: isDigest,
+      digestId: digestId,
+      spanStartMs: spanStartMs,
+      spanEndMs: spanEndMs,
+      categoryIdsCsv: categoryIdsCsv,
+      digestText: digestText,
+      digestLines: digestLines,
+      digestSummary: digestSummary,
+      inherited: inherited ?? this.inherited,
     );
   }
 
@@ -316,6 +388,15 @@ class AlertPayload extends Equatable {
     if (languageCode != null) AlertPayloadKeys.languageCode: languageCode,
     if (iconFile != null) AlertPayloadKeys.iconFile: iconFile,
     if (grouped) AlertPayloadKeys.grouped: true,
+    if (isDigest) AlertPayloadKeys.isDigest: true,
+    if (digestId != null) AlertPayloadKeys.digestId: digestId,
+    if (spanStartMs != null) AlertPayloadKeys.spanStartMs: spanStartMs,
+    if (spanEndMs != null) AlertPayloadKeys.spanEndMs: spanEndMs,
+    if (categoryIdsCsv != null) AlertPayloadKeys.categoryIds: categoryIdsCsv,
+    if (digestText != null) AlertPayloadKeys.digestText: digestText,
+    if (digestLines.isNotEmpty) AlertPayloadKeys.digestLines: digestLines,
+    if (digestSummary != null) AlertPayloadKeys.digestSummary: digestSummary,
+    if (inherited) AlertPayloadKeys.inherited: true,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -323,14 +404,17 @@ class AlertPayload extends Equatable {
   /// Everything but the four identity fields falls back to a default rather
   /// than rejecting the entry: an entry written by a newer build, or one whose
   /// title the platform truncated, is still an alarm that has to be stoppable.
+  /// A digest's identity has no event, so its empty [eventId] is the one
+  /// that is accepted.
   static AlertPayload? fromJson(Map<String, dynamic> map) {
     final database = map[AlertPayloadKeys.database];
     final eventId = map[AlertPayloadKeys.eventId];
     final alertId = map[AlertPayloadKeys.alertId];
     final osId = map[AlertPayloadKeys.osId];
     final dayUtcMs = map[AlertPayloadKeys.dayUtcMs];
+    final isDigest = map[AlertPayloadKeys.isDigest] == true;
     if (database is! String || database.isEmpty) return null;
-    if (eventId is! String || eventId.isEmpty) return null;
+    if (eventId is! String || (eventId.isEmpty && !isDigest)) return null;
     if (alertId is! String || alertId.isEmpty) return null;
     if (osId is! int || dayUtcMs is! int) return null;
     return AlertPayload(
@@ -393,6 +477,31 @@ class AlertPayload extends Equatable {
           ? map[AlertPayloadKeys.iconFile] as String
           : null,
       grouped: map[AlertPayloadKeys.grouped] == true,
+      isDigest: isDigest,
+      digestId: map[AlertPayloadKeys.digestId] is String
+          ? map[AlertPayloadKeys.digestId] as String
+          : null,
+      spanStartMs: map[AlertPayloadKeys.spanStartMs] is int
+          ? map[AlertPayloadKeys.spanStartMs] as int
+          : null,
+      spanEndMs: map[AlertPayloadKeys.spanEndMs] is int
+          ? map[AlertPayloadKeys.spanEndMs] as int
+          : null,
+      categoryIdsCsv: map[AlertPayloadKeys.categoryIds] is String
+          ? map[AlertPayloadKeys.categoryIds] as String
+          : null,
+      digestText: map[AlertPayloadKeys.digestText] is String
+          ? map[AlertPayloadKeys.digestText] as String
+          : null,
+      digestLines: map[AlertPayloadKeys.digestLines] is List
+          ? List<String>.unmodifiable(
+              (map[AlertPayloadKeys.digestLines] as List).whereType<String>(),
+            )
+          : const <String>[],
+      digestSummary: map[AlertPayloadKeys.digestSummary] is String
+          ? map[AlertPayloadKeys.digestSummary] as String
+          : null,
+      inherited: map[AlertPayloadKeys.inherited] == true,
     );
   }
 
@@ -440,5 +549,14 @@ class AlertPayload extends Equatable {
     languageCode,
     iconFile,
     grouped,
+    isDigest,
+    digestId,
+    spanStartMs,
+    spanEndMs,
+    categoryIdsCsv,
+    digestText,
+    digestLines,
+    digestSummary,
+    inherited,
   ];
 }

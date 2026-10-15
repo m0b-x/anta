@@ -117,6 +117,36 @@
       "removeAfterAlert": false,
       "createdAtMs": "{{now}}",
       "updatedAtMs": "{{now}}"
+    },
+    {
+      "id": "qa-alert-birthday",
+      "title": "Ana",
+      "category": "birthday",
+      "startDateMs": "{{today+2}}",
+      "allDay": true,
+      "iconKey": null,
+      "ruleKind": "yearly",
+      "rulePayload": null,
+      "endDateMs": null,
+      "startMinute": null,
+      "durationMinutes": null,
+      "description": "",
+      "noteId": null,
+      "colorValue": null,
+      "tintIcon": true,
+      "priority": 3,
+      "retroactive": false,
+      "countOccurrences": true,
+      "countStyle": "numbered",
+      "tracksPresence": false,
+      "assumeAbsent": false,
+      "assumeAbsentFromMs": null,
+      "perOccurrenceDescriptions": false,
+      "showInDayRail": null,
+      "removeAfterAlert": false,
+      "categoryAlerts": true,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
     }
   ],
   "eventAlerts": [
@@ -153,6 +183,40 @@
       "dayMinute": null,
       "sound": null,
       "enabled": true,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    }
+  ],
+  "categoryAlerts": [
+    {
+      "id": "qa-alert-category-birthday",
+      "categoryId": "birthday",
+      "mode": "notify",
+      "offsetMinutes": 30,
+      "daysBefore": 1,
+      "dayMinute": 540,
+      "sound": null,
+      "enabled": true,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    }
+  ],
+  "eventDigests": [
+    {
+      "id": "qa-alert-digest-birthdays",
+      "name": "",
+      "payload": "{\"cadence\":\"monthly\",\"anchor\":1,\"minute\":540,\"leadDays\":0,\"categories\":[\"birthday\"],\"includeEmpty\":true}",
+      "enabled": true,
+      "sortOrder": 0,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    },
+    {
+      "id": "qa-alert-digest-soon",
+      "name": "Next days",
+      "payload": "{\"cadence\":\"daily\",\"anchor\":0,\"minute\":{{minute+9}},\"leadDays\":2,\"categories\":[\"birthday\"],\"includeEmpty\":false}",
+      "enabled": true,
+      "sortOrder": 1,
       "createdAtMs": "{{now}}",
       "updatedAtMs": "{{now}}"
     }

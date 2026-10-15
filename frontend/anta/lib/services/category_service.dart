@@ -10,6 +10,8 @@ import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_category_dao.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import 'alert_scheduler.dart';
+import 'event_alert_service.dart';
 
 /// Loads and seeds the `calendar_categories` table and publishes a
 /// synchronous in-memory cache via [CalendarCategories.updateCache] so calendar
@@ -324,16 +326,37 @@ class CategoryService {
   /// Deletes a custom category and reassigns its events to the built-in
   /// fallback ([kFallbackCategoryId]) in one transaction. Built-ins cannot be
   /// deleted (the seeder would re-add them anyway). No-op for unknown ids.
-  Future<void> deleteCategory(String id) {
-    return _serialize(() async {
+  ///
+  /// The category's alerts (**v42**) are tombstoned in the same transaction —
+  /// the `CalendarEventService.deleteById` cascade's shape, so the category
+  /// and its alerts go as one act on this service's own database — and the
+  /// alert facade is republished before the write chain moves on.
+  ///
+  /// The re-plan is only *requested*, once the chain's link has completed and
+  /// without being awaited, so no category write ever queues behind a
+  /// platform pass: the moved events no longer inherit anything, and a fire
+  /// armed for them must go. That pass may read an event cache the calendar
+  /// page has not re-read yet (the events still carry the deleted id, which
+  /// `EventAlerts.effectiveFor` resolves to `other` as rendering does); the
+  /// next pass heals whatever it planned from them.
+  Future<void> deleteCategory(String id) async {
+    final deleted = await _serialize(() async {
       final category = CalendarCategories.byId(id);
-      if (category == null || category.isBuiltIn) return;
+      if (category == null || category.isBuiltIn) return false;
       await _db.transaction(() async {
         await _db.calendarEventDao.reassignCategory(id, kFallbackCategoryId);
+        await _db.categoryAlertDao.tombstoneForCategory(id);
         await _dao.deleteById(id);
       });
       await _load();
+      await EventAlertService.refreshAfterCategoryRemoval();
+      return true;
     });
+    if (deleted) {
+      unawaited(
+        AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
+      );
+    }
   }
 
   // ── Backup export / import ───────────────────────────────────────────

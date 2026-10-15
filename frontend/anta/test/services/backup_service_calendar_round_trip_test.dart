@@ -16,7 +16,9 @@ import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/event_template.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
@@ -27,6 +29,7 @@ import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/event_digest_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
@@ -566,6 +569,205 @@ void main() {
         (await OverviewViewService.getInstance()).views.map((v) => v.name),
         ['Q1 gym'],
       );
+    });
+  });
+
+  group('category alerts and digests (v42)', () {
+    late AppDatabase db;
+    late BackupService backup;
+
+    const dayBefore = CategoryAlert(
+      id: 'cat-alert-1',
+      categoryId: kBirthdayCategoryId,
+      daysBefore: 1,
+      dayMinute: 1200,
+      sound: 'chime',
+    );
+
+    /// A birthday that opted out of its category's alerts, the category's
+    /// alert, an own alert, a template and a digest — exported, then the v42
+    /// rows wiped along with every singleton that caches them.
+    Future<Map<String, dynamic>> seedAndExport() async {
+      db = await AppDatabase.getInstance();
+      await db.calendarEventDao.deleteAll();
+      await db.eventAlertDao.deleteAll();
+      await db.categoryAlertDao.deleteAll();
+      await db.eventDigestDao.deleteAll();
+      await db.delete(db.eventTemplates).go();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      await (await CalendarEventService.getInstance()).upsert(
+        CalendarEvent(
+          id: 'opted-out',
+          title: 'Ana',
+          categoryId: kBirthdayCategoryId,
+          startDate: DateTime.utc(2026, 10, 4),
+          rule: const OneTimeRecurrence(),
+          categoryAlerts: false,
+        ),
+      );
+      final alerts = await EventAlertService.getInstance();
+      await alerts.replaceForCategory(kBirthdayCategoryId, const [dayBefore]);
+      await alerts.replaceForEvent('opted-out', const [
+        EventAlert(id: 'own-1', eventId: 'opted-out', daysBefore: 2),
+      ]);
+      await (await EventTemplateService.getInstance()).create(
+        EventTemplate(
+          id: 'draft',
+          name: 'Party',
+          categoryId: kBirthdayCategoryId,
+          rule: const OneTimeRecurrence(),
+        ),
+      );
+      await (await EventDigestService.getInstance()).create(
+        const EventDigest(
+          id: 'draft',
+          name: 'Birthdays',
+          cadence: DigestCadence.monthly,
+          anchor: 25,
+          leadDays: 1,
+          categoryIds: {kBirthdayCategoryId},
+        ),
+      );
+
+      backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(
+        exported['version'],
+        7,
+        reason: 'both keys are additive; the format version must not move',
+      );
+      return jsonDecode(jsonEncode(exported)) as Map<String, dynamic>;
+    }
+
+    Future<void> wipe() async {
+      await db.categoryAlertDao.deleteAll();
+      await db.eventDigestDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await EventAlertService.getInstance();
+      expect(
+        EventAlerts.categoryAlertsFor(kBirthdayCategoryId),
+        isEmpty,
+        reason: 'the wipe must land or the assertions below prove nothing',
+      );
+      expect((await EventDigestService.getInstance()).digests, isEmpty);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+    }
+
+    test('both keys round-trip, and the opt-out rides the event', () async {
+      final exported = await seedAndExport();
+      expect(exported['categoryAlerts'], hasLength(1));
+      expect(exported['eventDigests'], hasLength(1));
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await EventAlertService.getInstance();
+      expect(EventAlerts.categoryAlertsFor(kBirthdayCategoryId), [dayBefore]);
+      final digest = (await EventDigestService.getInstance()).digests.single;
+      expect(digest.name, 'Birthdays');
+      expect(digest.anchor, 25);
+      expect(digest.leadDays, 1);
+      expect(digest.categoryIds, {kBirthdayCategoryId});
+      final event = (await CalendarEventService.getInstance()).events.single;
+      expect(event.categoryAlerts, isFalse);
+      expect(
+        EventAlerts.effectiveFor(event).map((a) => a.id),
+        ['own-1'],
+        reason: 'the restored opt-out still drops the inherited alert',
+      );
+    });
+
+    test(
+      'an archive with categories and no categoryAlerts clears the table',
+      () async {
+        final exported = await seedAndExport()
+          ..remove('categoryAlerts');
+        expect(exported['calendarCategories'], isNotEmpty);
+
+        // Not a wipe first: the alerts are still there, which is the point.
+        // The categories import replaces the id space, so a kept alert would
+        // orphan on an old custom id or quietly ring for restored events.
+        final result = await backup.importFromJson(jsonEncode(exported));
+        expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+        await EventAlertService.getInstance();
+        expect(EventAlerts.categoryAlertsFor(kBirthdayCategoryId), isEmpty);
+        expect(await db.select(db.calendarCategoryAlerts).get(), isEmpty);
+      },
+    );
+
+    test('an archive with neither key leaves the digests alone', () async {
+      final exported = await seedAndExport()
+        ..remove('categoryAlerts')
+        ..remove('eventDigests');
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      expect(
+        (await EventDigestService.getInstance()).digests.map((d) => d.name),
+        ['Birthdays'],
+      );
+    });
+
+    test('an archive without categories keeps category alerts', () async {
+      final exported = await seedAndExport()
+        ..remove('categoryAlerts')
+        ..remove('calendarCategories');
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await EventAlertService.getInstance();
+      expect(EventAlerts.categoryAlertsFor(kBirthdayCategoryId), [dayBefore]);
+    });
+
+    test('an event written before v42 imports as inheriting', () async {
+      final exported = await seedAndExport();
+      for (final raw in exported['calendarEvents'] as List) {
+        (raw as Map).remove('categoryAlerts');
+      }
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      final event = (await CalendarEventService.getInstance()).events.single;
+      expect(event.categoryAlerts, isTrue);
+      await EventAlertService.getInstance();
+      expect(EventAlerts.effectiveFor(event).map((a) => a.id), [
+        'own-1',
+        'cat-alert-1',
+      ]);
+    });
+
+    test('category alerts import right after the categories', () async {
+      final exported = await seedAndExport();
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      // Every import stamps a fresh, monotonic HLC, so the stamps spell out
+      // the order the branches ran in. The categories themselves carry no
+      // stamp; the templates are the next category-keyed import after them,
+      // and the events' own alerts come last.
+      Future<String> stampOf(String table) async {
+        final row = await db
+            .customSelect('SELECT MAX(hlc_timestamp) AS stamp FROM $table')
+            .getSingle();
+        return row.read<String>('stamp');
+      }
+
+      final categoryAlert = await stampOf('calendar_category_alerts');
+      final template = await stampOf('calendar_event_templates');
+      final eventAlert = await stampOf('calendar_event_alerts');
+      expect(categoryAlert.compareTo(template), lessThan(0));
+      expect(categoryAlert.compareTo(eventAlert), lessThan(0));
     });
   });
 }

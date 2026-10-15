@@ -6,6 +6,7 @@ import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
 import '../../models/event_alert.dart';
+import '../../models/event_digest.dart';
 
 sealed class CalendarPageEvent extends Equatable {
   const CalendarPageEvent();
@@ -207,4 +208,49 @@ final class ToggleEventAlert extends CalendarPageEvent {
 
   @override
   List<Object?> get props => [eventId, alertId, enabled];
+}
+
+/// A category's alerts were saved by the category editor (**v42**), which
+/// writes them itself through `EventAlertService.replaceForCategory`.
+///
+/// Carries nothing: the write has already landed and the scheduler already
+/// re-plans. What is left is the calendar's row badges and the Alerts hub,
+/// which read the facade inside memoized rows and re-read on a revision.
+final class CategoryAlertsChanged extends CalendarPageEvent {
+  const CategoryAlertsChanged();
+}
+
+/// Saves a digest from the digest sheet (**v42**): a create when its id is
+/// empty — the service mints the id and the position — else an update in
+/// place, skipped when it equals the stored digest. A create past
+/// `kDigestHorizon.maxDigests` is refused and changes nothing.
+final class SaveEventDigest extends CalendarPageEvent {
+  final EventDigest digest;
+
+  const SaveEventDigest(this.digest);
+
+  @override
+  List<Object?> get props => [digest];
+}
+
+/// Deletes a digest (a tombstone) after the sheet's confirmation.
+final class DeleteEventDigest extends CalendarPageEvent {
+  final String id;
+
+  const DeleteEventDigest(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}
+
+/// The hub switch on a digest's row: kept either way, armed only while on.
+/// Setting the value a digest already has is a no-op.
+final class ToggleEventDigest extends CalendarPageEvent {
+  final String id;
+  final bool enabled;
+
+  const ToggleEventDigest(this.id, {required this.enabled});
+
+  @override
+  List<Object?> get props => [id, enabled];
 }

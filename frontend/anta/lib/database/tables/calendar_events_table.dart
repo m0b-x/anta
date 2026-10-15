@@ -118,6 +118,13 @@ class CalendarEvents extends Table {
   /// the grid, presence and skips never see it.
   BoolColumn get removeAfterAlert =>
       boolean().withDefault(const Constant(false))();
+
+  /// Whether this event inherits its category's alerts (**v42**). On by
+  /// default — the reason to set an alert on a category at all — and off is
+  /// the one-event opt-out ("not this birthday") that spares a second
+  /// category. Read only through `EventAlerts.effectiveFor`.
+  BoolColumn get categoryAlerts =>
+      boolean().withDefault(const Constant(true))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

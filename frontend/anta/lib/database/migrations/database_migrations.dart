@@ -211,6 +211,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v41OverviewViews,
       migrate: _migrateV40ToV41,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v41OverviewViews,
+      toVersion: DatabaseSchema.v42CategoryAlertsAndDigests,
+      migrate: _migrateV41ToV42,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1672,5 +1677,98 @@ class DatabaseMigrations {
         deleted_at INTEGER NULL
       )
     ''');
+  }
+
+  /// v41 → v42: category alerts and digests — `calendar_category_alerts`,
+  /// `event_digests`, the per-event opt-out on `calendar_events` and the
+  /// registry's `source`.
+  ///
+  /// Two brand-new tables and two guarded columns, the v40 step's shape:
+  ///
+  /// - `calendar_category_alerts` is the `calendar_event_alerts` row keyed by
+  ///   `category_id`, with the CRDT block and **no** `DEFAULT ''` on the
+  ///   identity pair. It carries the block although `calendar_categories` does
+  ///   not: the alert is user data that must merge, and it references its
+  ///   category by the stable id, built-ins included.
+  /// - `event_digests` is the v41 `overview_views` shape plus `enabled` — one
+  ///   `payload` blob through one codec.
+  /// - `calendar_events.category_alerts` and `alert_registrations.source` are
+  ///   `ALTER TABLE`s guarded by `PRAGMA table_info`. Neither needs a backfill:
+  ///   every existing event already inherited nothing, which `1` (inherit)
+  ///   reads the same as while no category has an alert, and every existing
+  ///   registration was armed for an event's own alert.
+  ///
+  /// The index goes through its own creator rather than `createAlertIndexes`,
+  /// which the v40 step calls before this table exists. No backup version
+  /// bump — both tables travel under keys an older archive simply lacks.
+  ///
+  /// The DDL is frozen at this version and must never be re-derived from the
+  /// live Drift declarations. Idempotent by `CREATE TABLE IF NOT EXISTS`, the
+  /// column guards and the creator's own `IF NOT EXISTS`.
+  Future<void> _migrateV41ToV42(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS calendar_category_alerts (
+        id TEXT NOT NULL PRIMARY KEY,
+        category_id TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'notify',
+        offset_minutes INTEGER NOT NULL DEFAULT 0,
+        days_before INTEGER NOT NULL DEFAULT 0,
+        day_minute INTEGER NULL,
+        sound TEXT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS event_digests (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
+
+    final eventColumns = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!eventColumns.contains('category_alerts')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events '
+        'ADD COLUMN category_alerts INTEGER NOT NULL DEFAULT 1',
+      );
+    }
+
+    final registrationColumns = <String>{
+      for (final row
+          in await _db
+              .customSelect('PRAGMA table_info(alert_registrations)')
+              .get())
+        row.read<String>('name'),
+    };
+    if (!registrationColumns.contains('source')) {
+      await _db.customStatement(
+        'ALTER TABLE alert_registrations '
+        "ADD COLUMN source TEXT NOT NULL DEFAULT 'event'",
+      );
+    }
+
+    await DatabaseIndexes(_db).createCategoryAlertIndexes();
   }
 }

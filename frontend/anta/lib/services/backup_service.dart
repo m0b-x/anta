@@ -15,6 +15,7 @@ import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_alert_service.dart';
+import 'event_digest_service.dart';
 import 'event_skip_service.dart';
 import 'event_template_service.dart';
 import 'calendar_palette_service.dart';
@@ -108,13 +109,16 @@ class BackupService {
         .exportData();
     final eventSkips = await (await EventSkipService.getInstance())
         .exportData();
-    final eventAlerts = await (await EventAlertService.getInstance())
-        .exportData();
+    final alertService = await EventAlertService.getInstance();
+    final eventAlerts = await alertService.exportData();
+    final categoryAlerts = await alertService.exportCategoryAlerts();
     final eventTemplates = await (await EventTemplateService.getInstance())
         .exportData();
     final filterPresets = await (await FilterPresetService.getInstance())
         .exportData();
     final overviewViews = await (await OverviewViewService.getInstance())
+        .exportData();
+    final eventDigests = await (await EventDigestService.getInstance())
         .exportData();
     final vocabularies = await (await VocabularyService.getInstance())
         .exportData();
@@ -157,6 +161,11 @@ class BackupService {
       // the next reconcile. The event's own `removeAfterAlert` rides
       // `calendarEvents`, so the version stays 7.
       'eventAlerts': eventAlerts,
+      // Purely additive (v42): an absent key is an install where no category
+      // ever had an alert. Keyed by category ids, so its strand rule follows
+      // `calendarCategories` (the `eventTemplates` rule), not `calendarEvents`.
+      // The event's own opt-out rides `calendarEvents`.
+      'categoryAlerts': categoryAlerts,
       // Purely additive (v29): an absent key on an older backup is a database
       // with no templates, which is what those installs had.
       'eventTemplates': eventTemplates,
@@ -170,6 +179,10 @@ class BackupService {
       // reference is the category ids inside its payload, where a stale one
       // simply lists nothing — no strand rule, no version bump.
       'overviewViews': overviewViews,
+      // Purely additive (v42), the v41 key's reasoning: an absent key is an
+      // install with no digests, and a digest's only foreign reference is the
+      // category ids inside its payload — no strand rule, no version bump.
+      'eventDigests': eventDigests,
       // Purely additive (v32): an absent key is an install with no suggestion
       // lists. Each entry nests its own terms, so a vocabulary and its items
       // can never be restored apart.
@@ -453,6 +466,21 @@ class BackupService {
           calendarCategories,
         );
       }
+      // Category alerts (v42+ backups), right after the categories they hang
+      // off and before the events' own alerts. The templates' strand rule,
+      // keyed to categories for their reason: the import above wiped and
+      // replaced the category id space, so alerts kept from this device would
+      // orphan on its old custom ids — and its built-in categories' alerts
+      // would quietly start ringing for the restored events.
+      final categoryAlerts = data['categoryAlerts'] as List?;
+      if (categoryAlerts != null || calendarCategories != null) {
+        final alerts = await EventAlertService.getInstance();
+        if (categoryAlerts != null) {
+          await alerts.importCategoryAlerts(categoryAlerts);
+        } else {
+          await alerts.clearCategoryAlertsForImport();
+        }
+      }
       // Event templates (v29+ backups). The strand rule applies, but keyed to
       // **categories** rather than events — a template's only foreign
       // reference is its category id, and the category import above just
@@ -484,6 +512,11 @@ class BackupService {
         await (await OverviewViewService.getInstance()).importData(
           overviewViews,
         );
+      }
+      // Digests (v42+ backups), the same rule as the saved lists above.
+      final eventDigests = data['eventDigests'] as List?;
+      if (eventDigests != null) {
+        await (await EventDigestService.getInstance()).importData(eventDigests);
       }
       // Vocabularies (v32+ backups). Self-contained — no foreign reference to
       // strand — so an absent key simply leaves existing lists in place.

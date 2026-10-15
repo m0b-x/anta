@@ -1,0 +1,98 @@
+# Digests in the Alerts hub (docs/category-alerts-and-digests-roadmap.md
+# §6.4, §6.5): the fixture's two digests as rows of the Digests group with
+# their switches beside Add digest — "Birthday" (qa-alert-digest-birthdays:
+# no name, monthly on the 1st at 09:00, Birthday only, Also when empty) and
+# "Next days" (qa-alert-digest-soon: daily nine minutes after the seed, two
+# days ahead, Birthday only) — and each one's next fire among the day
+# groups; the monthly one's sheet, every row by id; Every turned to Week,
+# which turns On into a weekday, and back to Month, so the draft is as it
+# came and ✕ leaves without the discard question. Nothing is written.
+# - Starts on the calendar, where 03_category_alerts leaves it.
+# - The hub loads behind a spinner; the Digests group heads the list once it
+#   has. A digest with no name is titled by its one category, "Birthday",
+#   which other rows also say, so each row is read by its id and by how it
+#   fires, "Monthly on the 1st" and "Daily at" — the time after either is
+#   written in the device's own clock format and is not read.
+# - A fire row's id carries its instant (alerts-digest-fire-<id>-<epoch
+#   ms>), which a step cannot spell, so a fire row is found by its count
+#   line. "Next days" fires once, nine minutes after the seed was resolved,
+#   listing Ana two days out: "1 event from <Mon d> to <Mon d>" (a daily
+#   digest names only today and tomorrow; two days ahead is a span of one
+#   day). Its next fires list today + 3 and + 4, where nothing is, so once it
+#   has fired the row is gone from the day groups: it is read first, and the
+#   flow must reach the hub inside the nine minutes — run straight after
+#   01–03, as `qa flows alerts` does (the hub opens about seven minutes in).
+#   A seed resolved after 23:50 puts the ninth minute in tomorrow, whose span
+#   holds no Ana, and the digest plans nothing; relaunch before 23:50.
+# - The monthly digest's coming fire is on the 1st and lists that month,
+#   "… this month" — "No events this month" on most runs: Ana, two days out,
+#   falls in the coming month only on a month's last two days. It lists two
+#   fires, so the scroll takes the first. A run started on the 1st just
+#   before nine sees that one land on the shade mid-pass.
+# - The sheet's caption names the next fire, "Next: <day> <time> · <count>";
+#   only its "Next:" is read, the rest moves with the run. A menu on top
+#   takes the sheet out of the tree, so the menu is waited out by its own
+#   item going before the sheet is read again. Week's On row shows a weekday
+#   that depends on the run, so it is read by its id and by the month's
+#   "1st" being gone; Month brings "1st" back.
+#
+# The ring is the qa-runner's, by hand after this flow: the shade is
+# SystemUI's window, driven by `look --all` and `#N`, which a step file
+# cannot hold.
+# 1. Wait for the "Next days" fire: nine minutes after the relaunch, at the
+#    time its fire row read (or the resolved `minute` in
+#    build/qa/seed_resolved.json).
+# 2. `swipe down --via native --from 540,8 --dist 1400` once opens the shade
+#    (the plain mid-screen `swipe down --via native` did not on the
+#    2026-10-15 pass; a second swipe would expand Quick Settings over the
+#    rows); `look --all` cannot read the shade (uiautomator returns no XML,
+#    the known trap), so expand and tap by raw pixels; expand the
+#    notification if it is collapsed, then `shot 04_digest_notification`.
+#    In English, with Ana on <day> = today + 2:
+#      title  "Next days"
+#      text   "1 event from <Mon d> to <Mon d> · <Mon d> · Ana" (collapsed)
+#      line   "<Wkd, Mon d> · Ana · Year 1" (expanded; inbox style, one line)
+#    e.g. for a seed on Sat Sep 26: "1 event from Sep 28 to Sep 28 · Sep 28
+#    · Ana" and "Mon, Sep 28 · Ana · Year 1" (alerts_fixture_test pins both).
+# 3. `look --all`, tap the notification by its `#N`, then, on the agent
+#    (`--via agent`): `wait id:overview-list`, `expect id:overview-nav-title
+#    id:overview-row-qa-alert-birthday-{{day+2}}` (through `qa steps`, which
+#    resolves the placeholder), `tap id:overview-options-open`, `wait
+#    id:overview-options-close`, `expect id:overview-categories "Birthday"`,
+#    `shot 04_digest_overview`, `tap id:overview-options-close`, `errors`.
+tap id:calendar-more
+wait id:calendar-alerts-open
+tap id:calendar-alerts-open
+wait id:alerts-digest-add
+expect id:alerts-digest-qa-alert-digest-birthdays id:alerts-digest-switch-qa-alert-digest-birthdays id:alerts-digest-qa-alert-digest-soon id:alerts-digest-switch-qa-alert-digest-soon id:alerts-digest-add "Monthly on the 1st" "Daily at"
+shot 04_digests_group
+scroll-to "1 event from"
+expect "Next days" "1 event from"
+shot 04_digest_soon_fire_row
+scroll-to id:alerts-digest-qa-alert-digest-birthdays --up
+tap id:alerts-digest-qa-alert-digest-birthdays
+wait id:digest-sheet-close
+scroll-to id:digest-delete
+expect id:digest-sheet-save id:digest-name id:digest-categories id:digest-cadence id:digest-anchor id:digest-time id:digest-lead id:digest-include-empty id:digest-delete "Edit digest" "Birthday" "1st" "Next:"
+shot 04_digest_sheet
+tap id:digest-cadence
+wait id:digest-cadence-weekly
+expect id:digest-cadence-daily id:digest-cadence-monthly
+tap id:digest-cadence-weekly
+wait id:digest-cadence-weekly --gone
+expect id:digest-anchor "Week" --absent "1st"
+shot 04_digest_sheet_weekly
+tap id:digest-cadence
+wait id:digest-cadence-monthly
+tap id:digest-cadence-monthly
+wait id:digest-cadence-monthly --gone
+expect id:digest-anchor "1st"
+tap id:digest-sheet-close
+wait id:digest-sheet-close --gone
+expect id:alerts-digest-add --absent "Unsaved changes"
+scroll-to "this month" --nth 0
+expect "this month"
+shot 04_digest_fire_row
+key back
+wait id:calendar-add-event
+errors

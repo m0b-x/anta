@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import 'calendar_event.dart';
 import 'event_alert.dart';
+import 'event_digest.dart';
 
 /// One row of the Alerts hub: one alert, on one occurrence, at the instant the
 /// phone will next speak up for it.
@@ -51,6 +52,37 @@ class AlertHubEntry extends Equatable {
   ];
 }
 
+/// One fire of a digest as the hub lists it: when it next speaks up, which
+/// span it lists and how many occurrences that is.
+///
+/// Planned fresh rather than read from the registry, the way a disabled
+/// alert's row is: a disabled digest still shows what it would do, so its
+/// switch is there to turn it back on — [digest] carries the switch as it is.
+class DigestHubEntry extends Equatable {
+  final EventDigest digest;
+
+  /// Local instant the digest fires at.
+  final DateTime fireAt;
+
+  /// The span it lists, date-only UTC, inclusive.
+  final DateTime spanStart;
+  final DateTime spanEnd;
+
+  /// Occurrences in the span.
+  final int count;
+
+  const DigestHubEntry({
+    required this.digest,
+    required this.fireAt,
+    required this.spanStart,
+    required this.spanEnd,
+    required this.count,
+  });
+
+  @override
+  List<Object?> get props => [digest, fireAt, spanStart, spanEnd, count];
+}
+
 /// What became of one settled registration (OS-4, **B7**).
 enum AlertOutcome {
   /// It rang and ended without the app hearing a Stop — natively, with no
@@ -77,9 +109,13 @@ enum AlertOutcome {
 /// [event] and [alert] are null once removed — the row is kept, titled by the
 /// hub's own fallback, because the registration is the phone's record of a
 /// ring whether or not the event outlived it.
+///
+/// A digest's delivery (**v42**) carries [digest] and neither of the other
+/// two: a digest belongs to no event.
 class AlertHistoryEntry extends Equatable {
   final CalendarEvent? event;
   final EventAlert? alert;
+  final EventDigest? digest;
 
   /// Occurrence day, date-only UTC.
   final DateTime day;
@@ -95,6 +131,7 @@ class AlertHistoryEntry extends Equatable {
   const AlertHistoryEntry({
     required this.event,
     required this.alert,
+    this.digest,
     required this.day,
     required this.fireAt,
     required this.settledAt,
@@ -102,5 +139,13 @@ class AlertHistoryEntry extends Equatable {
   });
 
   @override
-  List<Object?> get props => [event, alert, day, fireAt, settledAt, outcome];
+  List<Object?> get props => [
+    event,
+    alert,
+    digest,
+    day,
+    fireAt,
+    settledAt,
+    outcome,
+  ];
 }

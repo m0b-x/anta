@@ -402,6 +402,70 @@ void main() {
     });
   });
 
+  group('a digest', () {
+    // Its words were written whole when it was armed (`digestNotificationContent`);
+    // here they are only placed, in any language the call names.
+    final digest = AlertPayload(
+      database: 'gym_notes',
+      eventId: '',
+      alertId: 'd1',
+      dayUtcMs: DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+      osId: 9,
+      mode: AlertMode.notify,
+      title: 'Birthdays',
+      timeLabel: '09:00',
+      categoryId: 'birthday',
+      isDigest: true,
+      digestText: '2 events this month · Sun, Oct 4 · Ana, Mon, Oct 12 · Mihai',
+      digestLines: const ['Sun, Oct 4 · Ana', 'Mon, Oct 12 · Mihai'],
+      digestSummary: '+1 more',
+    );
+
+    test('places the title, the text, the lines and the summary it carries',
+        () {
+      for (final strings in [en, de]) {
+        final content = alertNotificationContent(
+          AlertNotificationKind.digest,
+          digest,
+          strings,
+        );
+        expect(content.title, 'Birthdays');
+        expect(content.text, digest.digestText);
+        expect(content.lines, digest.digestLines);
+        expect(content.summary, '+1 more');
+        expect(content.expandedText, isNull);
+        expect(content.actions, isEmpty);
+      }
+    });
+
+    test('a payload that lost its words is an empty line, never a crash', () {
+      final bare = AlertPayload.fromJson(
+        digest.toJson()
+          ..remove('dtx')
+          ..remove('dln')
+          ..remove('dsm'),
+      )!;
+      final content = alertNotificationContent(
+        AlertNotificationKind.digest,
+        bare,
+        en,
+      );
+
+      expect(content.text, '');
+      expect(content.lines, isEmpty);
+      expect(content.summary, isNull);
+    });
+
+    test('every other kind has no lines', () {
+      for (final kind in AlertNotificationKind.values) {
+        if (kind == AlertNotificationKind.digest) continue;
+        final content = alertNotificationContent(kind, payloadOf(), en);
+        expect(content.lines, isEmpty, reason: kind.name);
+        expect(content.summary, isNull, reason: kind.name);
+      }
+    });
+  });
+
   group('the fallback alarm', () {
     AlertNotificationContent fallback(AppLocalizations strings) =>
         alertNotificationContent(

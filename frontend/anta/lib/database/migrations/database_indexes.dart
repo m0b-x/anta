@@ -13,6 +13,7 @@ class DatabaseIndexes {
     await createCalendarIndexes();
     await createCalendarDeltaIndexes();
     await createAlertIndexes();
+    await createCategoryAlertIndexes();
     await _createFtsTable();
     await createUniqueNameIndexes();
     await createNoteTitleIndex();
@@ -242,6 +243,25 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_alert_registrations_event '
       'ON alert_registrations(event_id)',
+    );
+  }
+
+  /// The index behind `CategoryAlertDao`'s per-category writes — the
+  /// `replaceForCategory` read and the `deleteCategory` cascade (**v42**).
+  ///
+  /// A creator of its own, not a line in [createAlertIndexes]: the v40 step
+  /// calls that one before `calendar_category_alerts` exists, and an old step
+  /// must never reach a table a later one creates. Called by the v42 step and
+  /// by `createAllIndexes`, so both paths build one definition.
+  ///
+  /// Plain rather than partial on live rows, as the record's DDL has it: the
+  /// whole table is read once into the facade, and the writes that use this
+  /// index want the category's tombstones too (a re-added id resurrects its
+  /// row).
+  Future<void> createCategoryAlertIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_category_alerts_category '
+      'ON calendar_category_alerts(category_id)',
     );
   }
 

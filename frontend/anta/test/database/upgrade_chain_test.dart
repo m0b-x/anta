@@ -240,7 +240,11 @@ void main() {
       await db.customStatement('DROP TABLE overview_views');
       expect(await tableNames(db), isNot(contains('overview_views')));
 
-      await _upgrade(db, DatabaseSchema.v40EventAlerts);
+      await _upgrade(
+        db,
+        DatabaseSchema.v40EventAlerts,
+        DatabaseSchema.v41OverviewViews,
+      );
 
       expect(await tableNames(db), contains('overview_views'));
       expect(await _userVersion(db), DatabaseSchema.v41OverviewViews);

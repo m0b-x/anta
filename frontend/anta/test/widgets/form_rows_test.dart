@@ -24,6 +24,89 @@ void main() {
     ),
   );
 
+  group('picker row with a switch', () {
+    Widget row({
+      bool value = true,
+      VoidCallback? onTap,
+      ValueChanged<bool>? onChanged,
+      bool dimOff = false,
+    }) => host(
+      FormPickerSwitchRow(
+        glyph: Icons.summarize_rounded,
+        label: 'Birthdays',
+        caption: 'Monthly on the 1st, 09:00',
+        value: value,
+        dimOff: dimOff,
+        identifier: 'row',
+        switchIdentifier: 'row-switch',
+        onTap: onTap ?? () {},
+        onChanged: onChanged,
+      ),
+    );
+
+    testWidgets('the row and its switch are two targets, two nodes', (
+      tester,
+    ) async {
+      var taps = 0;
+      bool? switched;
+      await tester.pumpWidget(
+        row(onTap: () => taps++, onChanged: (value) => switched = value),
+      );
+
+      await tester.tap(find.bySemanticsIdentifier('row'));
+      expect(taps, 1);
+      expect(switched, isNull);
+
+      await tester.tap(find.bySemanticsIdentifier('row-switch'));
+      expect(switched, isFalse);
+      expect(taps, 1);
+      // The switch is named for what it switches.
+      expect(
+        find.ancestor(
+          of: find.byType(Switch),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Semantics && widget.properties.label == 'Birthdays',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('off and dimOff dims the text, never the switch; on is full', (
+      tester,
+    ) async {
+      Finder dimmed() => find.byWidgetPredicate(
+        (widget) =>
+            widget is Opacity &&
+            widget.opacity == FormMetrics.switchedOffOpacity,
+      );
+      await tester.pumpWidget(row(value: false, dimOff: true));
+      expect(
+        find.descendant(of: dimmed(), matching: find.text('Birthdays')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: dimmed(), matching: find.byType(Switch)),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(row(value: true, dimOff: true));
+      expect(dimmed(), findsNothing);
+      await tester.pumpWidget(row(value: false));
+      expect(dimmed(), findsNothing);
+    });
+
+    testWidgets('a null onChanged disables the switch alone', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(row(onTap: () => taps++));
+
+      expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
+      await tester.tap(find.bySemanticsIdentifier('row'));
+      expect(taps, 1);
+    });
+  });
+
   group('identifiers', () {
     testWidgets('a picker row merges the id, the label and the tap', (
       tester,

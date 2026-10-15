@@ -333,6 +333,51 @@ abstract final class SemanticsIds {
   static const String alertRemoveAfter = 'alert-remove-after';
   static const String alertRemove = 'alert-remove';
 
+  /// The alert sheet's second When row, offered for a category alert only
+  /// (**v42**): a category serves timed and all-day events at once, so the
+  /// sheet edits both offset sets, the timed one on [alertWhen].
+  static const String alertWhenAllDay = 'alert-when-all-day';
+
+  /// The category editor's Alerts group (**v42**) by position — a category
+  /// alert's label is a locale's phrase — with each row's switch, the
+  /// category's own on / off for that alert (D5); the event editor's switch
+  /// that opts one event out of its category's alerts, and its read rows of
+  /// what the event inherits.
+  static const String categoryAlertAdd = 'category-alert-add';
+  static String categoryAlertRow(int index) => 'category-alert-$index';
+  static String categoryAlertSwitch(int index) =>
+      'category-alert-switch-$index';
+  static const String eventCategoryAlerts = 'event-category-alerts';
+  static String eventInheritedAlert(int index) =>
+      'event-inherited-alert-$index';
+
+  /// The Alerts hub's Digests group (**v42**): Add digest, each digest's row
+  /// and its switch, and a digest's fire row among the day groups — by the
+  /// digest's id, since its title may be derived and so not unique; a fire
+  /// also by its instant (epoch ms), since a digest lists two.
+  static const String alertsDigestAdd = 'alerts-digest-add';
+  static String alertsDigestRow(String id) => 'alerts-digest-$id';
+  static String alertsDigestSwitch(String id) => 'alerts-digest-switch-$id';
+  static String alertsDigestFire(String id, DateTime fireAt) =>
+      'alerts-digest-fire-$id-${fireAt.millisecondsSinceEpoch}';
+
+  /// The digest sheet's ✕, Save and rows. A menu item is keyed by what it
+  /// stores — the cadence's name, the anchor's weekday (1–7) or day of the
+  /// month (1–28), the lead in days — because its label is the locale's.
+  static const String digestSheetClose = 'digest-sheet-close';
+  static const String digestSheetSave = 'digest-sheet-save';
+  static const String digestName = 'digest-name';
+  static const String digestCategories = 'digest-categories';
+  static const String digestCadence = 'digest-cadence';
+  static String digestCadenceItem(String name) => 'digest-cadence-$name';
+  static const String digestAnchor = 'digest-anchor';
+  static String digestAnchorItem(int value) => 'digest-anchor-$value';
+  static const String digestTime = 'digest-time';
+  static const String digestLead = 'digest-lead';
+  static String digestLeadItem(int days) => 'digest-lead-$days';
+  static const String digestIncludeEmpty = 'digest-include-empty';
+  static const String digestDelete = 'digest-delete';
+
   /// The Custom sub-sheet behind the When menu's last item: its ✕ and Done,
   /// the three unit chips a timed event gets and the stepper's two buttons.
   static const String alertCustomClose = 'alert-custom-close';

@@ -63,8 +63,18 @@ class AlertSheetRobot {
     (row) => row.identifier == SemanticsIds.alertTimeOfDay,
   );
 
-  FormMenuRow<int> get _whenRow =>
-      tester.widget(_in(_sheet, find.byType(FormMenuRow<int>)));
+  /// The When row — for a category alert, the timed one of its two, which
+  /// keeps the id the one row of an event's alert has.
+  FormMenuRow<int> get _whenRow => tester.widget(
+    _row<FormMenuRow<int>>((row) => row.identifier == SemanticsIds.alertWhen),
+  );
+
+  Finder get _allDayWhenFinder => _row<FormMenuRow<int>>(
+    (row) => row.identifier == SemanticsIds.alertWhenAllDay,
+  );
+
+  /// A category alert's second When row, the all-day events' one.
+  FormMenuRow<int> get _allDayWhenRow => tester.widget(_allDayWhenFinder);
 
   /// What of the Custom sub-sheet a finger can reach. The sheet also lays out
   /// every unit's group and every line its read-back can say, unseen, to
@@ -191,6 +201,44 @@ class AlertSheetRobot {
 
   /// Opens the Custom sub-sheet through the When menu's last item.
   Future<void> openCustom() => _chooseWhen(_whenRow.items.last);
+
+  // --- A category alert's all-day When row -----------------------------------
+
+  /// Whether the sheet shows the second When row a category alert has.
+  bool get allDayWhenVisible => _shown(_allDayWhenFinder);
+
+  /// The labels the two When rows carry, timed first — what each row says it
+  /// edits.
+  List<String> get whenRowLabels => [
+    _whenRow.label,
+    if (allDayWhenVisible) _allDayWhenRow.label,
+  ];
+
+  /// What the all-day When row reads.
+  String get allDayWhenLabel => _allDayWhenRow.value;
+
+  /// The labels of the all-day When menu, top to bottom, Custom… last.
+  List<String> get allDayWhenChoices => [
+    for (final item in _allDayWhenRow.items) item.label,
+  ];
+
+  Future<void> openAllDayWhen() => _tap(_byId(SemanticsIds.alertWhenAllDay));
+
+  /// Picks the all-day preset reading [label] — "The day before" — from the
+  /// all-day When menu.
+  Future<void> chooseAllDayPreset(String label) async {
+    final item = _allDayWhenRow.items.firstWhere((item) => item.label == label);
+    await openAllDayWhen();
+    await tester.tap(_byId(item.identifier!));
+    await tester.pumpAndSettle();
+  }
+
+  /// Opens the Custom sub-sheet through the all-day When menu's last item.
+  Future<void> openAllDayCustom() async {
+    await openAllDayWhen();
+    await tester.tap(_byId(_allDayWhenRow.items.last.identifier!));
+    await tester.pumpAndSettle();
+  }
 
   Future<void> chooseUnit(AlertOffsetUnit unit) => _tap(_byId(_unitId(unit)));
 

@@ -1,21 +1,35 @@
+import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
+import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/event_alert.dart';
+import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
+import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
 
 import '../database/support/db_test_support.dart';
+import '../services/permission_support.dart';
+import 'support/alert_sheet_robot.dart';
 import 'support/category_editor_robot.dart';
 import 'support/layout_errors.dart';
 
@@ -590,12 +604,457 @@ void main() {
     expect(icon.label, contains('Choose icon'));
     expect(icon.hasAction(SemanticsAction.tap), isTrue);
   });
+
+  // The category's alerts (v42): drafted here, edited in the alert sheet's
+  // category mode, written through the real alert service on Save.
+  group('alerts', () {
+    late EventAlertService alerts;
+
+    setUp(() async {
+      EventAlertService.reset();
+      alerts = await EventAlertService.forTesting(db);
+    });
+
+    tearDown(EventAlertService.reset);
+
+    CategoryAlert seeded(String id, {AlertMode mode = AlertMode.notify}) =>
+        CategoryAlert(
+          id: id,
+          categoryId: kBirthdayCategoryId,
+          mode: mode,
+          offsetMinutes: 10,
+          daysBefore: 1,
+          dayMinute: 9 * 60,
+        );
+
+    CalendarCategory birthdays() =>
+        CalendarCategories.byId(kBirthdayCategoryId)!;
+
+    testWidgets('a seeded alert reads its all-day wording over its timed '
+        'one and its tier, on a built-in too', (tester) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        seeded('a1'),
+        seeded('a2', mode: AlertMode.ring),
+      ]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: birthdays());
+
+      expect(robot.alertLabels, hasLength(2));
+      expect(robot.alertLabels.first, startsWith('The day before, '));
+      expect(robot.alertCaptions, [
+        'Timed events: 10 min before · Reminder',
+        'Timed events: 10 min before · Alarm',
+      ]);
+      expect(robot.canAddAlert, isTrue);
+      expect(robot.alertsHintShown, isTrue);
+    });
+
+    testWidgets('a new category starts with no alerts and Add alert', (
+      tester,
+    ) async {
+      final robot = CategoryEditorRobot(tester);
+      await robot.show();
+
+      expect(robot.alertLabels, isEmpty);
+      expect(robot.canAddAlert, isTrue);
+    });
+
+    testWidgets('Add alert opens the category mode of the alert sheet and '
+        'Save writes the new alert under a fresh id', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final sheet = AlertSheetRobot(tester);
+      final outcome = await robot.show(initial: birthdays());
+
+      await robot.addAlert();
+      expect(sheet.whenRowLabels, ['Timed events', 'All-day events']);
+      expect(sheet.removeAlertVisible, isFalse);
+      await sheet.chooseAllDayPreset('The day before');
+      await sheet.save();
+      expect(robot.alertLabels, hasLength(1));
+
+      await robot.save();
+
+      expect(outcome.result?.id, kBirthdayCategoryId);
+      final stored = EventAlerts.categoryAlertsFor(kBirthdayCategoryId);
+      expect(stored, hasLength(1));
+      expect(stored.single.daysBefore, 1);
+      expect(stored.single.categoryId, kBirthdayCategoryId);
+      expect(stored.single.id, isNot(isEmpty));
+    });
+
+    testWidgets('a created category takes its alerts under its new id', (
+      tester,
+    ) async {
+      final robot = CategoryEditorRobot(tester);
+      final sheet = AlertSheetRobot(tester);
+      final outcome = await robot.show();
+
+      await robot.typeName('Training');
+      await robot.addAlert();
+      await sheet.save();
+      await robot.save();
+
+      final created = outcome.result!;
+      expect(EventAlerts.categoryAlertsFor(created.id), hasLength(1));
+      expect(
+        EventAlerts.categoryAlertsFor(created.id).single.categoryId,
+        created.id,
+      );
+    });
+
+    testWidgets('editing a row writes what the sheet hands back', (
+      tester,
+    ) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [seeded('a1')]);
+      final robot = CategoryEditorRobot(tester);
+      final sheet = AlertSheetRobot(tester);
+      await robot.show(initial: birthdays());
+
+      await robot.editAlert(0);
+      await sheet.choosePreset('30 min before');
+      await sheet.save();
+      expect(robot.alertCaptions.single, startsWith('Timed events: 30 min'));
+      await robot.save();
+
+      final stored = EventAlerts.categoryAlertsFor(kBirthdayCategoryId).single;
+      expect(stored.id, 'a1');
+      expect(stored.offsetMinutes, 30);
+    });
+
+    testWidgets('the alert sheet\'s Remove removes a row, and Save tombstones '
+        'it', (tester) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        seeded('a1'),
+        seeded('a2'),
+      ]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: birthdays());
+      expect(robot.alertRowsHaveRemove, isFalse);
+
+      await robot.removeAlert(0);
+      expect(robot.alertLabels, hasLength(1));
+      await robot.save();
+
+      expect(
+        EventAlerts.categoryAlertsFor(
+          kBirthdayCategoryId,
+        ).map((alert) => alert.id),
+        ['a2'],
+      );
+    });
+
+    testWidgets('Add alert leaves at the cap', (tester) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        for (var i = 0; i < kMaxAlertsPerCategory; i++) seeded('a$i'),
+      ]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: birthdays());
+
+      expect(robot.alertLabels, hasLength(kMaxAlertsPerCategory));
+      expect(robot.canAddAlert, isFalse);
+
+      await robot.removeAlert(0);
+      expect(robot.canAddAlert, isTrue);
+    });
+
+    testWidgets('a closed sheet writes no alert', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final sheet = AlertSheetRobot(tester);
+      await robot.show(initial: birthdays());
+
+      await robot.addAlert();
+      await sheet.save();
+      await robot.close();
+
+      expect(EventAlerts.categoryAlertsFor(kBirthdayCategoryId), isEmpty);
+    });
+
+    testWidgets('a failed alert write keeps the sheet open, says so, and the '
+        'retry writes one category', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final sheet = AlertSheetRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Training');
+      await robot.addAlert();
+      await sheet.save();
+
+      writes
+        ..fail = true
+        ..failOnly = 'calendar_category_alerts';
+      await robot.save();
+
+      expect(robot.isOpen, isTrue);
+      expect(robot.canSave, isTrue);
+      expect(robot.saveFailureShown, isTrue);
+
+      writes.fail = false;
+      await robot.save();
+
+      expect(robot.isOpen, isFalse);
+      final created = outcome.result!;
+      expect(
+        service.categories.where((c) => c.name == 'Training'),
+        hasLength(1),
+      );
+      expect(EventAlerts.categoryAlertsFor(created.id), hasLength(1));
+    });
+
+    testWidgets('after a failed alert write ✕ hands back the category the '
+        'save did write', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final sheet = AlertSheetRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Training');
+      await robot.addAlert();
+      await sheet.save();
+      writes
+        ..fail = true
+        ..failOnly = 'calendar_category_alerts';
+      await robot.save();
+      expect(robot.isOpen, isTrue);
+
+      await robot.close();
+
+      expect(robot.isOpen, isFalse);
+      final stored = service.categories.singleWhere(
+        (c) => c.name == 'Training',
+      );
+      expect(outcome.result, stored);
+    });
+
+    testWidgets('a row\'s switch is the category\'s own on / off for the '
+        'alert, and Save writes it', (tester) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        seeded('a1'),
+        seeded('a2'),
+      ]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: birthdays());
+      expect(robot.alertSwitches, [true, true]);
+
+      await robot.toggleAlert(1);
+      expect(robot.alertSwitches, [true, false]);
+      expect(robot.alertLabels, hasLength(2));
+      await robot.save();
+
+      final stored = EventAlerts.categoryAlertsFor(kBirthdayCategoryId);
+      expect(stored.map((alert) => (alert.id, alert.enabled)), [
+        ('a1', true),
+        ('a2', false),
+      ]);
+    });
+
+    testWidgets('a paused alert opens off and is switched back on', (
+      tester,
+    ) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        seeded('a1').copyWith(enabled: false),
+      ]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: birthdays());
+      expect(robot.alertSwitches, [false]);
+
+      await robot.toggleAlert(0);
+      await robot.save();
+
+      expect(
+        EventAlerts.categoryAlertsFor(kBirthdayCategoryId).single.enabled,
+        isTrue,
+      );
+    });
+
+    group('what the calendar is told', () {
+      late CalendarBloc bloc;
+      late _RecordingObserver observer;
+      late BlocObserver previousObserver;
+
+      setUp(() {
+        previousObserver = Bloc.observer;
+        observer = _RecordingObserver();
+        Bloc.observer = observer;
+        bloc = CalendarBloc(
+          service: Completer<CalendarEventService>().future,
+          alertReconciler: (_, _) async {},
+          alertWriter: (_, _) async {},
+        );
+      });
+
+      tearDown(() async {
+        await bloc.close();
+        Bloc.observer = previousObserver;
+      });
+
+      testWidgets('a save that wrote the alerts announces it once', (
+        tester,
+      ) async {
+        final robot = CategoryEditorRobot(tester);
+        final sheet = AlertSheetRobot(tester);
+        await robot.show(initial: birthdays(), bloc: bloc);
+
+        await robot.addAlert();
+        await sheet.save();
+        await robot.save();
+
+        expect(
+          observer.events.whereType<CategoryAlertsChanged>(),
+          hasLength(1),
+        );
+      });
+
+      testWidgets('a save that left the alerts alone says nothing', (
+        tester,
+      ) async {
+        final robot = CategoryEditorRobot(tester);
+        await robot.show(initial: birthdays(), bloc: bloc);
+
+        await robot.pickSwatch(green);
+        await robot.save();
+
+        expect(robot.isOpen, isFalse);
+        expect(observer.events.whereType<CategoryAlertsChanged>(), isEmpty);
+      });
+
+      testWidgets('a failed alert write says nothing', (tester) async {
+        final robot = CategoryEditorRobot(tester);
+        final sheet = AlertSheetRobot(tester);
+        await robot.show(initial: birthdays(), bloc: bloc);
+        await robot.addAlert();
+        await sheet.save();
+        writes
+          ..fail = true
+          ..failOnly = 'calendar_category_alerts';
+
+        await robot.save();
+
+        expect(robot.isOpen, isTrue);
+        expect(observer.events.whereType<CategoryAlertsChanged>(), isEmpty);
+      });
+    });
+
+    group('the permission check', () {
+      late FakePermissionGateway gateway;
+
+      setUp(() async {
+        // Asked once already: the check then only says whether the alert
+        // can ring, with no prompt in the way.
+        await (await SettingsService.getInstance()).setAlertNotificationsAsked(
+          true,
+        );
+        gateway = FakePermissionGateway(
+          statuses: {
+            AppPermission.notifications: PermissionStatus.granted,
+            AppPermission.exactAlarms: PermissionStatus.denied,
+            AppPermission.fullScreenIntent: PermissionStatus.granted,
+            AppPermission.batteryOptimization: PermissionStatus.granted,
+          },
+        );
+        final permissions = permissionServiceOver(gateway);
+        GetIt.I.registerSingleton<PermissionService>(permissions);
+        addTearDown(() async {
+          await GetIt.I.unregister<PermissionService>();
+          await permissions.dispose();
+        });
+      });
+
+      Finder blocked() =>
+          find.text("This can't ring until a permission is turned on");
+
+      Future<void> settle(WidgetTester tester) async {
+        for (var i = 0; i < 5; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+      }
+
+      testWidgets('an enabled alert saved where it cannot ring says so', (
+        tester,
+      ) async {
+        final robot = CategoryEditorRobot(tester);
+        final sheet = AlertSheetRobot(tester);
+        await robot.show(initial: birthdays());
+
+        await robot.addAlert();
+        await sheet.save();
+        await robot.save();
+        await settle(tester);
+
+        expect(robot.isOpen, isFalse);
+        expect(blocked(), findsOneWidget);
+        await tester.pump(const Duration(seconds: 10));
+      });
+
+      testWidgets('only paused alerts, or untouched ones, ask nothing', (
+        tester,
+      ) async {
+        await alerts.replaceForCategory(kBirthdayCategoryId, [seeded('a1')]);
+        final robot = CategoryEditorRobot(tester);
+        await robot.show(initial: birthdays());
+
+        await robot.toggleAlert(0);
+        await robot.save();
+        await settle(tester);
+        expect(blocked(), findsNothing);
+
+        await robot.show(initial: birthdays());
+        await robot.pickSwatch(green);
+        await robot.save();
+        await settle(tester);
+        expect(blocked(), findsNothing);
+      });
+    });
+
+    testWidgets('German at text scale 2.0 on 360 × 780 lays two alert rows '
+        'out whole, each at a height its switch never moves', (tester) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        seeded('a1'),
+        seeded('a2', mode: AlertMode.ring),
+      ]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(
+        initial: birthdays(),
+        locale: const Locale('de'),
+        textScale: 2.0,
+        surface: const Size(360, 780),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(robot.alertLabels, hasLength(2));
+      final heights = robot.alertRowHeights;
+      for (final height in heights) {
+        expect(height, greaterThanOrEqualTo(FormMetrics.rowMinHeight));
+      }
+
+      await robot.toggleAlert(0);
+      await robot.toggleAlert(1);
+
+      expect(tester.takeException(), isNull);
+      expect(robot.alertSwitches, [false, false]);
+      expect(robot.alertRowHeights, heights);
+    });
+  });
 }
 
-/// Fails every write on demand, so a save can be made to fail without
-/// closing the database under the sheet.
+class _RecordingObserver extends BlocObserver {
+  final List<Object?> events = [];
+
+  @override
+  void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
+    super.onEvent(bloc, event);
+    events.add(event);
+  }
+}
+
+/// Fails every write on demand — or only the ones whose statement names
+/// [failOnly] — so a save can be made to fail without closing the database
+/// under the sheet.
 class _WriteFailure extends QueryInterceptor {
   bool fail = false;
+  String? failOnly;
+
+  bool _fails(String statement) =>
+      fail && (failOnly == null || statement.contains(failOnly!));
 
   @override
   Future<int> runInsert(
@@ -603,7 +1062,7 @@ class _WriteFailure extends QueryInterceptor {
     String statement,
     List<Object?> args,
   ) {
-    if (fail) return Future.error(StateError('the write failed'));
+    if (_fails(statement)) return Future.error(StateError('the write failed'));
     return super.runInsert(executor, statement, args);
   }
 
@@ -613,7 +1072,7 @@ class _WriteFailure extends QueryInterceptor {
     String statement,
     List<Object?> args,
   ) {
-    if (fail) return Future.error(StateError('the write failed'));
+    if (_fails(statement)) return Future.error(StateError('the write failed'));
     return super.runUpdate(executor, statement, args);
   }
 }

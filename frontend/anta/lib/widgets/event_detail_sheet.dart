@@ -257,10 +257,15 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// instead of waiting for a reopen.
   late PresenceStats? _stats = _computeStats();
 
-  /// The event's alerts, read once from the synchronous facade. Rebuilding
-  /// this list in `build` would be another map probe per scroll frame for a
-  /// set that cannot change while a read-only sheet is open.
-  late final List<EventAlert> _alerts = EventAlerts.alertsFor(widget.event.id);
+  /// The event's alerts — its own, then its category's while it inherits
+  /// them (**v42**) — read once from the synchronous facade. Rebuilding this
+  /// list in `build` would be another map probe per scroll frame for a set
+  /// that cannot change while a read-only sheet is open. An inherited alert
+  /// the category editor paused (D5) fires for no event and is left out.
+  late final List<EventAlert> _alerts = [
+    for (final alert in EventAlerts.effectiveFor(widget.event))
+      if (alert.categoryId == null || alert.enabled) alert,
+  ];
 
   /// When each alert is next due, keyed by alert id — resolved **once** from
   /// the registry, never in `build`, exactly like [_upcoming].
@@ -723,6 +728,17 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                 EventTimeFormatter.formatMinute(minute, context),
           ),
           value: _alertValue(context, alert, l10n, localeName),
+          // An inherited alert says where it comes from; the editor it
+          // opens shows it read-only, beside the switch that drops it.
+          caption: switch (alert.categoryId) {
+            final categoryId? => l10n.eventAlertFromCategory(
+              CalendarCategories.labelOf(
+                CalendarCategories.resolve(categoryId),
+                l10n,
+              ),
+            ),
+            null => null,
+          },
           onTap: () => _close(EventDetailAction.edit),
         ),
       if (event.removeAfterAlert)

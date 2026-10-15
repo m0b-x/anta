@@ -6451,6 +6451,231 @@
   "@alertsQuietChannelDesc": {
     "description": "Android notification channel description for the quiet channel (alertsQuietChannel)"
   },
+  "alertsDigestChannel": "Digests",
+  "@alertsDigestChannel": {
+    "description": "Android notification channel name for digests: one notification on a schedule that lists the events of a coming day, week or month. Read in the phone's own notification settings, beside Reminders, Alarms and Quiet notices"
+  },
+  "alertsDigestChannelDesc": "Bundled summaries of upcoming events",
+  "@alertsDigestChannelDesc": {
+    "description": "Android notification channel description for the digest channel (alertsDigestChannel)"
+  },
+  "digestAllCategories": "Events",
+  "@digestAllCategories": {
+    "description": "Title of a digest notification that has no name of its own and lists every category"
+  },
+  "digestCategoriesCount": "{count, plural, one{1 category} other{{count} categories}}",
+  "@digestCategoriesCount": {
+    "description": "Title of a digest notification that has no name of its own and lists several categories",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "digestCountPeriod": "{count, plural, =0{No events {period}} one{1 event {period}} other{{count} events {period}}}",
+  "@digestCountPeriod": {
+    "description": "Text of a digest notification: how many events the span holds and which span. period is one of digestPeriodToday … digestPeriodNextMonth, or a date range such as '4 Nov – 10 Nov'",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      },
+      "period": {
+        "type": "String",
+        "example": "this month"
+      }
+    }
+  },
+  "digestPeriodToday": "today",
+  "@digestPeriodToday": {
+    "description": "The span of a daily digest that lists the day it fires on, inside digestCountPeriod (3 events today)"
+  },
+  "digestPeriodTomorrow": "tomorrow",
+  "@digestPeriodTomorrow": {
+    "description": "The span of a daily digest that lists the day after it fires, inside digestCountPeriod (3 events tomorrow)"
+  },
+  "digestPeriodThisWeek": "this week",
+  "@digestPeriodThisWeek": {
+    "description": "The span of a weekly digest that lists the calendar week it fires in, inside digestCountPeriod (3 events this week)"
+  },
+  "digestPeriodNextWeek": "next week",
+  "@digestPeriodNextWeek": {
+    "description": "The span of a weekly digest that lists the calendar week after it fires, inside digestCountPeriod (3 events next week)"
+  },
+  "digestPeriodThisMonth": "this month",
+  "@digestPeriodThisMonth": {
+    "description": "The span of a monthly digest that lists the calendar month it fires in, inside digestCountPeriod (3 events this month)"
+  },
+  "digestPeriodNextMonth": "next month",
+  "@digestPeriodNextMonth": {
+    "description": "The span of a monthly digest that lists the calendar month after it fires, inside digestCountPeriod (3 events next month)"
+  },
+  "digestPeriodSpan": "from {start} to {end}",
+  "@digestPeriodSpan": {
+    "description": "The span of a digest that no calendar word names (a week from Wednesday, a month from the 15th), inside digestCountPeriod (3 events from Nov 4 to Nov 10). start and end are dates without a weekday",
+    "placeholders": {
+      "start": {
+        "type": "String",
+        "example": "Nov 4"
+      },
+      "end": {
+        "type": "String",
+        "example": "Nov 10"
+      }
+    }
+  },
+  "digestMoreCount": "{count, plural, one{+1 more} other{+{count} more}}",
+  "@digestMoreCount": {
+    "description": "Last line of an expanded digest notification: how many events the span holds beyond the five it lists",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "digestsAdd": "Add digest",
+  "@digestsAdd": {
+    "description": "Last row of the Alerts hub's Digests group: opens the digest sheet on a new digest"
+  },
+  "digestNew": "New digest",
+  "@digestNew": {
+    "description": "Title of the digest sheet when it creates a digest"
+  },
+  "digestEdit": "Edit digest",
+  "@digestEdit": {
+    "description": "Title of the digest sheet when it edits an existing digest"
+  },
+  "digestEvery": "Every",
+  "@digestEvery": {
+    "description": "Digest sheet row label for the cadence; its value is Day, Week or Month (Every · Month)"
+  },
+  "digestOn": "On",
+  "@digestOn": {
+    "description": "Digest sheet row label for the day a digest fires on; its value is a weekday (On · Monday) or a day of the month (On · the 1st)"
+  },
+  "digestOnDayOfMonth": "{day, select, 1{1st} 2{2nd} 3{3rd} 21{21st} 22{22nd} 23{23rd} other{{day}th}}",
+  "@digestOnDayOfMonth": {
+    "description": "A monthly digest's day of the month (1 to 28, written as digits) in its bare form, as the On row's value (On · 1st) and inside digestDescribeMonthly (Monthly on the 1st, 09:00). A select on the digits, so each language writes its own ordinal: German '1.', Romanian '1'",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "1"
+      }
+    }
+  },
+  "digestAt": "At",
+  "@digestAt": {
+    "description": "Digest sheet row label for the time a digest fires at (At · 09:00), and the title of the time pad it opens"
+  },
+  "digestCovers": "Covers",
+  "@digestCovers": {
+    "description": "Digest sheet row label for which span a digest lists: from the day it fires or from the next day"
+  },
+  "digestCoversSameDay": "From that day",
+  "@digestCoversSameDay": {
+    "description": "Covers row value: the digest lists a span that starts on the day it fires (this month, this week, today)"
+  },
+  "digestCoversNextDay": "From the next day",
+  "@digestCoversNextDay": {
+    "description": "Covers row value: the digest lists a span that starts the day after it fires (next week from a Sunday evening, tomorrow)"
+  },
+  "digestIncludeEmpty": "Also when empty",
+  "@digestIncludeEmpty": {
+    "description": "Digest sheet switch: the digest still arrives when its span lists no events"
+  },
+  "digestIncludeEmptyDesc": "Send it when nothing is due",
+  "@digestIncludeEmptyDesc": {
+    "description": "Second line of the Also when empty switch (digestIncludeEmpty)"
+  },
+  "digestNext": "Next: {when} · {count}",
+  "@digestNext": {
+    "description": "Caption under the digest sheet's rows: when the digest as drafted next arrives and what it would say. when is a day and a time (Sat 1 Nov 09:00); count is digestCountPeriod (3 events this month)",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "Sat 1 Nov 09:00"
+      },
+      "count": {
+        "type": "String",
+        "example": "3 events this month"
+      }
+    }
+  },
+  "digestNextNone": "Nothing to send yet",
+  "@digestNextNone": {
+    "description": "Caption under the digest sheet's rows when the digest as drafted would send nothing in its next twelve fires (its spans list no events and Also when empty is off)"
+  },
+  "digestUnreadable": "Saved by a newer version of the app",
+  "@digestUnreadable": {
+    "description": "Caption of a digest row in the Alerts hub whose settings this version cannot read; its switch is disabled and it does not open"
+  },
+  "digestNextFire": "next {when}",
+  "@digestNextFire": {
+    "description": "End of a digest's caption in the Alerts hub, after digestDescribe*: the day it next arrives (Monthly on the 1st, 09:00 · next Sat 1 Nov)",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "Sat 1 Nov"
+      }
+    }
+  },
+  "digestDelete": "Delete digest",
+  "@digestDelete": {
+    "description": "Destructive row at the end of the digest sheet when it edits a digest, and the title of its confirmation"
+  },
+  "digestDeleteConfirm": "Delete this digest?",
+  "@digestDeleteConfirm": {
+    "description": "Text of the confirmation before a digest is deleted; the events it lists are not touched"
+  },
+  "digestLimitReached": "You can keep up to {count} digests",
+  "@digestLimitReached": {
+    "description": "Shown on the digest sheet's Save when the digest limit is reached",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "digestDescribeDaily": "Daily at {time}",
+  "@digestDescribeDaily": {
+    "description": "How a daily digest fires, the first line of its caption in the Alerts hub",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "09:00"
+      }
+    }
+  },
+  "digestDescribeWeekly": "Weekly on {weekday}, {time}",
+  "@digestDescribeWeekly": {
+    "description": "How a weekly digest fires. weekday is a full weekday name as intl writes it inside a sentence",
+    "placeholders": {
+      "weekday": {
+        "type": "String",
+        "example": "Monday"
+      },
+      "time": {
+        "type": "String",
+        "example": "08:00"
+      }
+    }
+  },
+  "digestDescribeMonthly": "Monthly on the {day}, {time}",
+  "@digestDescribeMonthly": {
+    "description": "How a monthly digest fires. day is digestOnDayOfMonth (1st)",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "1st"
+      },
+      "time": {
+        "type": "String",
+        "example": "09:00"
+      }
+    }
+  },
   "alertsDoneAction": "Done",
   "@alertsDoneAction": {
     "description": "First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it"
@@ -6560,6 +6785,48 @@
         "example": "Mon, 21 Sep 06:50"
       }
     }
+  },
+  "eventAlertFromCategory": "From {category}",
+  "@eventAlertFromCategory": {
+    "description": "Caption of an alert an event inherits from its category, in the event editor, the detail sheet and the Alerts hub",
+    "placeholders": {
+      "category": {
+        "type": "String",
+        "example": "Birthdays"
+      }
+    }
+  },
+  "eventCategoryAlerts": "Category alerts",
+  "@eventCategoryAlerts": {
+    "description": "Switch in the event editor's Alerts group: whether this event inherits its category's alerts"
+  },
+  "eventCategoryAlertsDesc": "Use the alerts set on {category}",
+  "@eventCategoryAlertsDesc": {
+    "description": "Second line of the Category alerts switch in the event editor",
+    "placeholders": {
+      "category": {
+        "type": "String",
+        "example": "Birthdays"
+      }
+    }
+  },
+  "categoryAlertsHint": "Every event in this category gets these alerts.",
+  "@categoryAlertsHint": {
+    "description": "Caption under the category editor's alerts group"
+  },
+  "categoryAlertTimedCaption": "Timed events: {when}",
+  "@categoryAlertTimedCaption": {
+    "description": "Second line of a category alert's row: how the alert reads on the category's timed events (the first line is the all-day reading)",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "10 min before"
+      }
+    }
+  },
+  "categoryHasAlerts": "Has alerts",
+  "@categoryHasAlerts": {
+    "description": "Tooltip of the bell on a categories page row whose category carries an enabled alert"
   },
   "eventAlertCountdown": "{kind} in {duration}",
   "@eventAlertCountdown": {

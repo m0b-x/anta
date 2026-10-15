@@ -32,33 +32,47 @@ String alertDayIso(DateTime dayUtc) {
   return '${dayUtc.year.toString().padLeft(4, '0')}-$month-$day';
 }
 
-/// The string the os id is derived from: `db|alertId|dayIso|kind`.
+/// The string the os id is derived from: `db|alertId|dayIso|kind`, or
+/// `db|alertId|eventId|dayIso|kind` when [eventId] is given.
 ///
 /// The database name leads it so two databases can never cancel each other's
 /// alarms (**A9**) — which is the whole reason the payload carries `db` as
 /// well.
+///
+/// [eventId] is for a category alert (**v42**), whose one id every event in
+/// the category shares: without it two birthdays on one day would seed the
+/// same slot. An event's own alert and a digest leave it out, so every id an
+/// earlier build armed — and every standing snooze — keeps its seed.
 String alertOsIdKey({
   required String database,
   required String alertId,
+  String? eventId,
   required DateTime dayUtc,
   required AlertKind kind,
-}) => '$database|$alertId|${alertDayIso(dayUtc)}|${kind.name}';
+}) => eventId == null
+    ? '$database|$alertId|${alertDayIso(dayUtc)}|${kind.name}'
+    : '$database|$alertId|$eventId|${alertDayIso(dayUtc)}|${kind.name}';
 
-/// The deterministic id for one (database, alert, day, kind), before any
-/// collision probe.
+/// The deterministic id for one (database, alert, [eventId], day, kind),
+/// before any collision probe — see [alertOsIdKey] for when [eventId] is
+/// given.
 int alertOsIdSeed({
   required String database,
   required String alertId,
+  String? eventId,
   required DateTime dayUtc,
   required AlertKind kind,
-}) => fnv1a32(
-  alertOsIdKey(
-    database: database,
-    alertId: alertId,
-    dayUtc: dayUtc,
-    kind: kind,
-  ),
-) & kAlertOsIdMask;
+}) =>
+    fnv1a32(
+      alertOsIdKey(
+        database: database,
+        alertId: alertId,
+        eventId: eventId,
+        dayUtc: dayUtc,
+        kind: kind,
+      ),
+    ) &
+    kAlertOsIdMask;
 
 /// Resolves [seed] to a free id by linear probe, asking [isTaken] about each
 /// candidate.

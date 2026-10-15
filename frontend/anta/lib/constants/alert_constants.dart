@@ -36,21 +36,72 @@ const AlertHorizon kAlertHorizon = AlertHorizon(
   total: 48,
 );
 
+/// How much of each digest's future may reach the operating system (D15).
+///
+/// Outside [kAlertHorizon] on purpose: a monthly digest's next fire is
+/// usually beyond the alerts' 30-day walk, and spending the alerts' `total`
+/// on summaries would push out the alarms they summarize.
+class DigestHorizon {
+  /// Fires armed per digest, whatever their distance. Two survives a month
+  /// without opening the app.
+  final int perDigest;
+
+  /// Digests one database keeps — a product cap on the plan: the service
+  /// refuses to create past it. It promises nothing about a platform's
+  /// pending limit (48 + 20 is past iOS's 64); the Darwin binding owns a
+  /// rolling window of its own.
+  final int maxDigests;
+
+  const DigestHorizon({required this.perDigest, required this.maxDigests});
+}
+
+/// The shipped digest horizon, a value for the [kAlertHorizon] reason.
+const DigestHorizon kDigestHorizon = DigestHorizon(
+  perDigest: 2,
+  maxDigests: 10,
+);
+
+/// Lines a digest's expanded notification lists before "+N more" (D10):
+/// the inbox style draws what it is given in a fixed height, and past five
+/// the shade cuts the list where the summary would have said how much is
+/// left.
+const int kDigestMaxLines = 5;
+
 /// Why a registration exists — the `kind` column of `alert_registrations`.
 ///
 /// A snooze is deliberately its own registration rather than a moved one: an
 /// unrelated reconcile of the same event re-derives every `scheduled` entry
 /// from the plan and would otherwise wipe a snooze the user set thirty
-/// seconds ago.
+/// seconds ago. A [digest] is one bundled notification for a span of days,
+/// owned by no single event.
 enum AlertKind {
   scheduled,
-  snooze;
+  snooze,
+  digest;
 
   static AlertKind fromName(String? raw) {
     for (final kind in AlertKind.values) {
       if (kind.name == raw) return kind;
     }
     return AlertKind.scheduled;
+  }
+}
+
+/// What a registration was armed for — the `source` column (**v42**): an
+/// event's own alert, a category alert inherited by an event, or a digest.
+///
+/// An unknown value decodes to [event], the reading of every row written
+/// before the column existed.
+enum AlertRegistrationSource {
+  event,
+  category,
+  digest;
+
+  static AlertRegistrationSource fromName(String? raw) {
+    for (final source in AlertRegistrationSource.values) {
+      if (source.name == raw) return source;
+    }
+    return AlertRegistrationSource.event;
   }
 }
 

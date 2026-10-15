@@ -15,6 +15,11 @@ import 'calendar_event.dart';
 /// the alert itself switched off instead, the hub's own move. The pair is
 /// resolved together so the snackbar's Undo is always the exact inverse.
 ///
+/// An alert the one-time event inherits from its category (**v42**) is not
+/// the event's to switch off — that would silence every event in the
+/// category — so Skip opts this event out of its category's alerts
+/// (`categoryAlerts = false`, the D3 switch) and Undo opts it back in.
+///
 /// Null when there is nothing honest to do: the occurrence day is already
 /// behind [today] (a notice that outlived its alarm), or the one-time event's
 /// alert is gone or already off (`ToggleEventAlert` would be a silent no-op
@@ -27,10 +32,20 @@ abstract final class AlertSkipAction {
   }) {
     if (payload.dayUtc.isBefore(today)) return null;
     if (event.rule is OneTimeRecurrence) {
-      final alert = EventAlerts.alertsFor(event.id)
+      final alert = EventAlerts.effectiveFor(event)
           .where((candidate) => candidate.id == payload.alertId)
           .firstOrNull;
       if (alert == null || !alert.enabled) return null;
+      if (alert.categoryId != null) {
+        return (
+          apply: UpdateCalendarEvent(
+            event: event.copyWith(categoryAlerts: false),
+          ),
+          undo: UpdateCalendarEvent(
+            event: event.copyWith(categoryAlerts: true),
+          ),
+        );
+      }
       return (
         apply: ToggleEventAlert(
           eventId: event.id,

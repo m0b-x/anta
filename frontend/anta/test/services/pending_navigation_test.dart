@@ -404,6 +404,67 @@ void main() {
     expect(const OpenAlertsHubIntent().collapsesAfterDrain, isTrue);
   });
 
+  group("a digest's tap (v42)", () {
+    AlertPayload digestOf(int osId, {bool spanned = true}) => AlertPayload(
+      database: 'gym_notes',
+      eventId: '',
+      alertId: 'd1',
+      dayUtcMs: DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+      osId: osId,
+      mode: AlertMode.notify,
+      title: 'Birthdays',
+      timeLabel: '09:00',
+      categoryId: 'birthday',
+      isDigest: true,
+      spanStartMs: spanned
+          ? DateTime.utc(2026, 10, 1).millisecondsSinceEpoch
+          : null,
+      spanEndMs: spanned
+          ? DateTime.utc(2026, 10, 31).millisecondsSinceEpoch
+          : null,
+      categoryIdsCsv: 'birthday',
+    );
+
+    test('dedupes against itself and never against an alert under the same '
+        'id', () {
+      // A cold start delivers the tap twice; a stale alert tap queued under
+      // a number the digest now holds is another request.
+      queue.enqueue(OpenOverviewIntent(payload: digestOf(5)));
+      queue.enqueue(OpenOverviewIntent(payload: digestOf(5)));
+      queue.enqueue(OpenEventIntent(payload: payloadOf(5)));
+
+      final drained = queue.drain();
+      expect(drained, hasLength(2));
+      expect(drained.first, isA<OpenOverviewIntent>());
+      expect(drained.first.dedupeKey, 'overview:5');
+      expect(drained.last, isA<OpenEventIntent>());
+
+      // And across a drain, like any double delivery.
+      queue.enqueue(OpenOverviewIntent(payload: digestOf(5)));
+      expect(queue.isEmpty, isTrue);
+    });
+
+    test('waits while a ring holds the screen', () {
+      queue.enqueue(OpenOverviewIntent(payload: digestOf(6)));
+      queue.enqueue(OpenAlarmIntent(payload: payloadOf(7)));
+
+      final drained = queue.drain(where: (intent) => intent is OpenAlarmIntent);
+      expect(drained.single, isA<OpenAlarmIntent>());
+      expect(queue.drain().single, isA<OpenOverviewIntent>());
+    });
+
+    test('names the span the digest listed, or its first day alone', () {
+      expect(OpenOverviewIntent(payload: digestOf(8)).span, (
+        start: DateTime.utc(2026, 10, 1),
+        end: DateTime.utc(2026, 10, 31),
+      ));
+      expect(OpenOverviewIntent(payload: digestOf(8, spanned: false)).span, (
+        start: DateTime.utc(2026, 10, 1),
+        end: DateTime.utc(2026, 10, 1),
+      ));
+    });
+  });
+
   test('the app-wide instance is a singleton', () {
     expect(
       identical(PendingNavigationQueue.instance, PendingNavigationQueue.instance),

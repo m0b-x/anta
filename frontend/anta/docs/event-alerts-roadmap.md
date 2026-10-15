@@ -174,6 +174,8 @@ created_at INTEGER NOT NULL
 updated_at INTEGER NOT NULL
 ```
 
+*Since v42 (2026-10-15):* the row carries `source TEXT NOT NULL DEFAULT 'event'` (`event | category | digest`), a registration's identity is `(alert_id, event_id, day, kind)`, and `kind` has a third value, `digest` (`event_id = ''`, `day` = the span's first day).
+
 Indexes: `idx_alert_registrations_pending (fire_at) WHERE state = 'pending'`
 and `idx_alert_registrations_event (event_id)`. Rows in `fired`/`stopped`/
 `cancelled` older than 7 days are swept by reconcile.
@@ -292,6 +294,8 @@ make reconcile idempotent across process deaths; namespacing by database
 name keeps two databases from cancelling each other's alarms. The payload
 also carries `db`, and reconcile ignores platform entries whose `db` is not
 the active database name (`DatabaseManager.getActiveDatabaseName()`).
+
+*Since v42:* a category-sourced fire seeds `"$db|$alertId|$eventId|$dayIso|$kind"`, a digest `"$db|$digestId|$spanStartIso|digest"`; event-sourced seeds are unchanged, so nothing standing moved.
 
 ### 3.4 Firing
 
@@ -685,6 +689,8 @@ rows show the snoozed time with the original below. Tap = detail sheet;
 long-press on a `removeAfterAlert` event = Cancel (deletes the event, A3).
 Reads the registry through the scheduler; `EventAlerts.revision` and the
 registry revision drive rebuilds.
+
+*Since 2026-10-15:* a Digests group at the top (the one creation affordance the hub holds), digest fires among the day groups, digest deliveries under Recent; an inherited alert's row reads "From {category}" and its switch is the event's `category_alerts` flag — `docs/category-alerts-and-digests-roadmap.md` §6.4.
 
 ### 5.7 Calendar settings (`calendar_settings_page.dart`)
 
@@ -1683,8 +1689,7 @@ would wipe data), run S2–S7 and S9–S10 by hand, then reinstall `main`.
 ## 12. Deferred, not planned here
 
 - Negative offsets (after start), "time to leave" and location triggers.
-- A per-category default alert (categories have no CRDT; templates own
-  defaults — `category-scaling-roadmap.md:826-828`).
+- ~~A per-category default alert~~ — **delivered 2026-10-15 as category alerts** (`docs/category-alerts-and-digests-roadmap.md`): a table with its own CRDT block keyed by category id, evaluated at read time.
 - Per-occurrence alert overrides (would inherit the sparse-delta table
   shape and its device-local status).
 - A "now" line or overdue styling in the day panel (the clock-free read

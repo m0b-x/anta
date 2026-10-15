@@ -8,6 +8,7 @@ import '../constants/alert_constants.dart';
 import '../constants/app_theme.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
+import '../constants/event_digests.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/settings_keys.dart';
 import '../database/daos/alert_registration_dao.dart';
@@ -16,18 +17,22 @@ import '../database/database_lifecycle.dart';
 import '../models/alert_hub_entry.dart';
 import '../models/alert_payload.dart';
 import '../models/alert_sound.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../utils/alert_excerpt.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
+import '../utils/digest_notification_content.dart';
+import '../utils/digest_planner.dart';
 import '../utils/quick_alarm.dart';
 import 'alert_gateway.dart';
 import 'calendar_event_service.dart';
 import 'category_service.dart';
 import 'database_manager.dart';
 import 'event_alert_service.dart';
+import 'event_digest_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_skip_service.dart';
 import 'public_holiday_service.dart';
@@ -49,6 +54,12 @@ enum AlertReconcileReason {
 /// test can watch the call without standing up a database.
 typedef AlertReconciler =
     Future<void> Function(String eventId, AlertReconcileReason reason);
+
+/// Reconciles the whole horizon — what a digest's write needs (D22), since a
+/// digest belongs to no event. The seam `CalendarBloc` holds beside
+/// [AlertReconciler].
+typedef AllAlertsReconciler =
+    Future<void> Function(AlertReconcileReason reason);
 
 /// Everything one registration was armed **under**, as one comparable token.
 ///
@@ -89,6 +100,34 @@ String alertArmSignature({
   if (fire.alert.mode != AlertMode.ring) return context;
   final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
   return '$context#$sound$kAlertArmClockToken~$snoozeMinutes~n$noticeLeadMinutes';
+}
+
+/// What a digest entry is armed **under**: the pass's [context] and a hash of
+/// every word and the avatar its notification shows, and of what its tap
+/// opens — the digest, its allowlist and its span.
+///
+/// A digest's payload is frozen into its platform entry when it is armed and
+/// its instant rarely moves, so the instant alone would never see an event
+/// added to its span, nor a category added to its allowlist that lists
+/// nothing yet; the hash does, and the next pass re-arms it. The context
+/// carries `kAlertArmGrammarToken` as it does for every entry.
+String digestArmSignature({
+  required String context,
+  required AlertPayload payload,
+}) {
+  final shown = [
+    payload.digestId ?? '',
+    payload.categoryIdsCsv ?? '',
+    '${payload.spanStartMs}',
+    '${payload.spanEndMs}',
+    payload.title,
+    payload.digestText ?? '',
+    payload.digestLines.join('\n'),
+    payload.digestSummary ?? '',
+    '${payload.tintValue}',
+    payload.glyphKey ?? '',
+  ].join('|');
+  return '$context~d#${fnv1a32(shown).toRadixString(16)}';
 }
 
 /// When the upcoming notice for [fire] is posted (OS-3, **B6**), or null for
@@ -403,7 +442,13 @@ class AlertScheduler {
       if (!answered && !payload.isTest) await _gateway.showMissed(payload);
     });
     if (!ours || payload.isTest) return;
-    if (answered) await cancelSnoozeForAlert(payload.alertId, payload.dayUtc);
+    if (answered) {
+      await cancelSnoozeForAlert(
+        payload.alertId,
+        payload.eventId,
+        payload.dayUtc,
+      );
+    }
     await reconcileEvent(payload.eventId, AlertReconcileReason.ringHandled);
   }
 
@@ -429,7 +474,15 @@ class AlertScheduler {
   /// the 07:20 snooze armed to ring a third time for a session already
   /// acknowledged. The alarm page's Stop calls both; a reconcile calls
   /// neither, because a snooze is never the plan's to cancel.
-  Future<void> cancelSnoozeForAlert(String alertId, DateTime dayUtc) {
+  ///
+  /// Matched on [eventId] too (**v42**): a category alert's one id is shared
+  /// by every event in the category, and Stop on one event's ring must leave
+  /// another event's snooze of the same alert standing.
+  Future<void> cancelSnoozeForAlert(
+    String alertId,
+    String eventId,
+    DateTime dayUtc,
+  ) {
     return _serialize(() async {
       final dayMs = DateTime.utc(
         dayUtc.year,
@@ -438,6 +491,7 @@ class AlertScheduler {
       ).millisecondsSinceEpoch;
       for (final row in await _dao.pending()) {
         if (row.alertId != alertId) continue;
+        if (row.eventId != eventId) continue;
         if (row.day != dayMs) continue;
         if (AlertKind.fromName(row.kind) != AlertKind.snooze) continue;
         await _gateway.cancel(row.osId);
@@ -503,7 +557,9 @@ class AlertScheduler {
   /// alert's next occurrence, planned on the spot with the switch imagined on,
   /// because a registry-only list would make the hub's own switch a one-way
   /// door — the row would vanish with the registration and take the way back
-  /// with it.
+  /// with it. An event opted out of its category's alerts (**v42**) is that
+  /// case too: their enabled rows are imagined the same way, under the
+  /// event's switch.
   ///
   /// A read outside the serialized chain, for [nextFiresForEvent]'s reason. A
   /// test ring is left out: it has no event to show and nothing to toggle.
@@ -511,6 +567,8 @@ class AlertScheduler {
     await _resolveQuietly(EventSkipService.getInstance(), 'skips');
     await _resolveQuietly(PublicHolidayService.getInstance(), 'holidays');
     await _resolveQuietly(EventAlertService.getInstance(), 'alerts');
+    // An inherited alert is found through the event's resolved category.
+    await _resolveQuietly(CategoryService.getInstance(), 'categories');
 
     final CalendarEventService eventService;
     final AlertSettings settings;
@@ -529,11 +587,13 @@ class AlertScheduler {
     final entries = <AlertHubEntry>[];
 
     for (final row in await _dao.pending()) {
+      // Listed through [digestEntries] instead: a digest has no event.
+      if (AlertKind.fromName(row.kind) == AlertKind.digest) continue;
       final fireAt = DateTime.fromMillisecondsSinceEpoch(row.fireAt);
       if (!fireAt.isAfter(now)) continue;
       final event = eventsById[row.eventId];
       if (event == null) continue;
-      final alert = _alertOf(row.eventId, row.alertId);
+      final alert = _alertOf(row.eventId, row.alertId, event: event);
       if (alert == null) continue;
       final day = DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true);
       final snoozed = AlertKind.fromName(row.kind) == AlertKind.snooze;
@@ -559,15 +619,30 @@ class AlertScheduler {
       );
     }
 
+    // Keyed by event and alert: an inherited alert's one id is shared by
+    // every event in its category.
     final disabled = <String, EventAlert>{};
     final imagined = <String, List<EventAlert>>{};
     for (final event in events) {
-      for (final alert in EventAlerts.alertsFor(event.id)) {
+      for (final alert in EventAlerts.effectiveFor(event)) {
         if (alert.enabled) continue;
-        disabled[alert.id] = alert;
+        // A category alert paused in the category editor (D5) has no switch
+        // here: the row's switch is the event's opt-out, and it would read
+        // "on" for an alert that cannot fire.
+        if (alert.categoryId != null) continue;
+        disabled['${event.id}|${alert.id}'] = alert;
         (imagined[event.id] ??= <EventAlert>[]).add(
           alert.copyWith(enabled: true),
         );
+      }
+      // An event opted out of its category's alerts keeps their rows with
+      // the switch off — the event's flag — or switching one off in the hub
+      // would be a one-way door.
+      if (event.categoryAlerts) continue;
+      for (final alert in EventAlerts.inheritedFor(event, ignoreOptOut: true)) {
+        if (!alert.enabled) continue;
+        disabled['${event.id}|${alert.id}'] = alert;
+        (imagined[event.id] ??= <EventAlert>[]).add(alert);
       }
     }
     if (imagined.isNotEmpty) {
@@ -586,7 +661,7 @@ class AlertScheduler {
         entries.add(
           AlertHubEntry(
             event: fire.event,
-            alert: disabled[fire.alert.id]!,
+            alert: disabled['${fire.event.id}|${fire.alert.id}']!,
             day: fire.day,
             fireAt: fire.fireAt,
           ),
@@ -616,20 +691,99 @@ class AlertScheduler {
     }
   }
 
+  /// Every digest's next fires as the hub lists them, soonest first.
+  ///
+  /// The enabled digests are planned exactly as the pass plans them — the
+  /// same subset under the same cap, so a row never promises a fire that is
+  /// not armed. A disabled digest is then imagined on, the way [hubEntries]
+  /// plans a disabled alert, so its row still says what it would do; those
+  /// are not counted against [DigestHorizon.maxDigests]. A span with nothing
+  /// to list is left out, as it is from the plan.
+  ///
+  /// A read outside the serialized chain, for [nextFiresForEvent]'s reason.
+  Future<List<DigestHubEntry>> digestEntries() async {
+    await _resolveQuietly(EventSkipService.getInstance(), 'skips');
+    await _resolveQuietly(PublicHolidayService.getInstance(), 'holidays');
+    await _resolveQuietly(EventDigestService.getInstance(), 'digests');
+    final CalendarEventService eventService;
+    try {
+      eventService = await CalendarEventService.getInstance();
+    } catch (e) {
+      debugPrint('[AlertScheduler] digest entries setup failed: $e');
+      return const [];
+    }
+    final digests = EventDigests.all;
+    final events = eventService.events;
+    final now = _clock();
+    final armed = DigestPlanner.plan(
+      digests: digests,
+      events: events,
+      horizon: kDigestHorizon,
+      now: now,
+    );
+    final disabled = [
+      for (final digest in digests)
+        if (!digest.enabled) digest,
+    ];
+    final imagined = disabled.isEmpty
+        ? const <PlannedDigest>[]
+        : DigestPlanner.plan(
+            digests: [
+              for (final digest in disabled) digest.copyWith(enabled: true),
+            ],
+            events: events,
+            horizon: DigestHorizon(
+              perDigest: kDigestHorizon.perDigest,
+              maxDigests: disabled.length,
+            ),
+            now: now,
+          );
+    final disabledById = {for (final digest in disabled) digest.id: digest};
+    final entries = [
+      for (final fire in [...armed, ...imagined])
+        DigestHubEntry(
+          digest: disabledById[fire.digest.id] ?? fire.digest,
+          fireAt: fire.fireAt,
+          spanStart: fire.spanStart,
+          spanEnd: fire.spanEnd,
+          count: fire.entries.length,
+        ),
+    ];
+    entries.sort((a, b) {
+      final byInstant = a.fireAt.compareTo(b.fireAt);
+      if (byInstant != 0) return byInstant;
+      return a.digest.id.compareTo(b.digest.id);
+    });
+    return entries;
+  }
+
+  /// [digestEntries] for a page that holds no scheduler, swallowing every
+  /// failure into an empty list — the [hubEntriesOrEmpty] rule.
+  static Future<List<DigestHubEntry>> digestEntriesOrEmpty() async {
+    if (_instance == null && !_hasGateway) return const [];
+    try {
+      return await (await getInstance()).digestEntries();
+    } catch (e) {
+      debugPrint('[AlertScheduler] digest entries failed: $e');
+      return const [];
+    }
+  }
+
   /// The hub's *Recent* section (OS-4, **B7**): every registration that
   /// settled inside [kAlertRegistrationRetention], newest first, with what
   /// became of it — `rang`, `stopped`, `snoozed` or `missed`. Cancelled rows
   /// are left out (the plan changing is not history), and so is the settings
-  /// page's test ring.
+  /// page's test ring. A digest's delivery is listed with its digest.
   ///
   /// One query and no per-row lookups: events and alerts are resolved from
-  /// the two in-memory facades, and a row whose event is gone is kept with
+  /// the in-memory facades, and a row whose event is gone is kept with
   /// nothing attached — the registration is the phone's own record of a ring,
   /// whether or not the event outlived it. A read outside the chain, for
   /// [nextFiresForEvent]'s reason.
   Future<List<AlertHistoryEntry>> recentEntries() async {
     await _resolveQuietly(EventAlertService.getInstance(), 'alerts');
     await _resolveQuietly(CategoryService.getInstance(), 'categories');
+    await _resolveQuietly(EventDigestService.getInstance(), 'digests');
     final now = _clock();
     final CalendarEventService eventService;
     try {
@@ -645,6 +799,27 @@ class AlertScheduler {
     final entries = <AlertHistoryEntry>[];
     for (final row in rows) {
       if (row.eventId == AlertPayload.testEventId) continue;
+      // A digest's delivery (D16): `fired` the moment its instant passed,
+      // since the platform posts it whether or not the app runs — so no
+      // grace to wait out, and never missed. Its registration names the
+      // digest, not an event; a deleted digest's row is left out, having
+      // nothing left to name.
+      if (AlertKind.fromName(row.kind) == AlertKind.digest) {
+        final digest = EventDigests.byId(row.alertId);
+        if (digest == null) continue;
+        entries.add(
+          AlertHistoryEntry(
+            event: null,
+            alert: null,
+            digest: digest,
+            day: DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
+            fireAt: DateTime.fromMillisecondsSinceEpoch(row.fireAt),
+            settledAt: row.updatedAt,
+            outcome: AlertOutcome.delivered,
+          ),
+        );
+        continue;
+      }
       // A `fired` row inside the grace window is a ring in progress — the
       // ring handler marked it a moment ago — not history yet.
       if (AlertRegistrationState.fromName(row.state) ==
@@ -654,7 +829,9 @@ class AlertScheduler {
         continue;
       }
       final event = eventsById[row.eventId];
-      final alert = event == null ? null : _alertOf(row.eventId, row.alertId);
+      final alert = event == null
+          ? null
+          : _alertOf(row.eventId, row.alertId, event: event);
       entries.add(
         AlertHistoryEntry(
           event: event,
@@ -851,13 +1028,18 @@ class AlertScheduler {
     // silent when unconfigured, which on the launch path they would be.
     await _resolveQuietly(EventOccurrenceService.getInstance(), 'occurrences');
     await _resolveQuietly(CategoryService.getInstance(), 'categories');
+    // The digests' own facade: a pass after a cold start runs before any
+    // calendar page has loaded it.
+    await _resolveQuietly(EventDigestService.getInstance(), 'digests');
 
     final CalendarEventService eventService;
     final AlertSettings settings;
+    final CalendarWeekStart weekStart;
     try {
       eventService = await CalendarEventService.getInstance();
-      settings = await (await SettingsService.getInstance())
-          .getAlertSettings();
+      final settingsService = await SettingsService.getInstance();
+      settings = await settingsService.getAlertSettings();
+      weekStart = await settingsService.getCalendarWeekStart();
     } catch (e) {
       debugPrint('[AlertScheduler] reconcile(${reason.name}) setup failed: $e');
       return;
@@ -889,9 +1071,11 @@ class AlertScheduler {
 
     final events = eventService.events;
     final eventsById = {for (final event in events) event.id: event};
+    // Inherited alerts included (D2): the planner plans a category's alert on
+    // each of its events as it plans the event's own.
     final alertsByEvent = <String, List<EventAlert>>{};
     for (final event in events) {
-      final alerts = EventAlerts.alertsFor(event.id);
+      final alerts = EventAlerts.effectiveFor(event);
       if (alerts.isNotEmpty) alertsByEvent[event.id] = alerts;
     }
 
@@ -928,6 +1112,14 @@ class AlertScheduler {
       horizon: _horizon,
       now: now,
     );
+    // Outside the alerts' horizon (D15), and diffed with them: one id probe,
+    // one cancel pass, so a digest and an alert can never claim one slot.
+    final digestPlan = DigestPlanner.plan(
+      digests: EventDigests.all,
+      events: events,
+      horizon: kDigestHorizon,
+      now: now,
+    );
 
     // The ids of the `fired` rows, read once a pass at most and only when
     // something needs them: a planned fire with no registration of its own
@@ -938,7 +1130,7 @@ class AlertScheduler {
     // In-flight rows occupy ids the probe must route around, even though they
     // are not part of the diff.
     final desired = await _assignOsIds(
-      plan,
+      [...plan, ...digestPlan],
       [...live, ...settled.inFlight],
       firedIds: firedIds,
     );
@@ -947,7 +1139,7 @@ class AlertScheduler {
 
     for (final entry in desired.entries) {
       final osId = entry.key;
-      final fire = entry.value.fire;
+      final planned = entry.value.planned;
       final existing = entry.value.existing;
       // The registry stores the instant and the arm signature, not the payload
       // — so a rename, a recolour, a new icon or a flipped "remove after it
@@ -960,18 +1152,43 @@ class AlertScheduler {
       // The signature is the other half of the same idea, and the half that
       // reaches changes no event provoked: a sound moved in Calendar settings,
       // or the phone's alarm volume crossing the floor while the app was away,
-      // both land here on the very next pass.
-      final refresh = eventId != null && fire.event.id == eventId;
-      final signature = alertArmSignature(
-        context: armContext,
-        fire: fire,
-        snoozeMinutes: settings.snoozeMinutes,
-        noticeLeadMinutes: settings.noticeLeadMinutes,
-      );
+      // both land here on the very next pass. A digest's signature carries its
+      // words, so an event added to its span lands here too.
+      final refresh = eventId != null && planned.eventId == eventId;
+      final String signature;
+      final Future<bool> Function() arm;
+      switch (planned) {
+        case PlannedFire():
+          signature = alertArmSignature(
+            context: armContext,
+            fire: planned,
+            snoozeMinutes: settings.snoozeMinutes,
+            noticeLeadMinutes: settings.noticeLeadMinutes,
+          );
+          arm = () => _gateway.schedule(
+            planned,
+            _payloadFor(planned, osId, settings.snoozeMinutes),
+            noticeAt: noticeInstantFor(
+              fire: planned,
+              leadMinutes: settings.noticeLeadMinutes,
+              now: now,
+            ),
+          );
+        case PlannedDigest():
+          final payload = _payloadForDigest(planned, osId, weekStart);
+          signature = digestArmSignature(context: armContext, payload: payload);
+          arm = () => _gateway.scheduleDigest(planned, payload);
+        default:
+          // Degrades to one entry left unarmed, never a pass aborted midway.
+          debugPrint(
+            '[AlertScheduler] no arming for ${planned.runtimeType}; skipped',
+          );
+          continue;
+      }
       if (!refresh &&
           existing != null &&
           existing.osId == osId &&
-          existing.fireAt == fire.fireAt.millisecondsSinceEpoch &&
+          existing.fireAt == planned.fireAt.millisecondsSinceEpoch &&
           existing.backend == signature) {
         continue;
       }
@@ -1001,33 +1218,24 @@ class AlertScheduler {
       // and has to be armed.
       if (_gateway.ringingIds.contains(osId)) continue;
       if (existing != null &&
-          existing.fireAt == fire.fireAt.millisecondsSinceEpoch &&
-          !fire.fireAt.isAfter(_clock())) {
+          existing.fireAt == planned.fireAt.millisecondsSinceEpoch &&
+          !planned.fireAt.isAfter(_clock())) {
         continue;
       }
-      final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
-      final armed = await _gateway.schedule(
-        fire,
-        payload,
-        noticeAt: noticeInstantFor(
-          fire: fire,
-          leadMinutes: settings.noticeLeadMinutes,
-          now: now,
-        ),
-      );
-      if (!armed) continue;
+      if (!await arm()) continue;
       await _dao.put(
         AlertRegistrationsCompanion(
           osId: Value(osId),
-          alertId: Value(fire.alert.id),
-          eventId: Value(fire.event.id),
-          day: Value(fire.day.millisecondsSinceEpoch),
-          fireAt: Value(fire.fireAt.millisecondsSinceEpoch),
-          kind: Value(fire.kind.name),
+          alertId: Value(planned.alertId),
+          eventId: Value(planned.eventId),
+          day: Value(planned.day.millisecondsSinceEpoch),
+          fireAt: Value(planned.fireAt.millisecondsSinceEpoch),
+          kind: Value(planned.kind.name),
           state: Value(AlertRegistrationState.pending.name),
           backend: Value(signature),
           createdAt: Value(existing?.createdAt ?? now),
           updatedAt: Value(now),
+          source: Value(planned.source.name),
         ),
       );
       scheduled++;
@@ -1114,6 +1322,7 @@ class AlertScheduler {
       '[AlertScheduler] reconcile(${reason.name}'
       '${eventId == null ? '' : ', $eventId'}) '
       'backend=${_gateway.backendName} planned=${plan.length} '
+      'digests=${digestPlan.length} '
       'scheduled=$scheduled cancelled=$cancelled',
     );
   }
@@ -1151,6 +1360,7 @@ class AlertScheduler {
             backend: Value(row.backend),
             createdAt: Value(row.createdAt),
             updatedAt: Value(now),
+            source: Value(row.source),
           ),
         );
       }
@@ -1244,6 +1454,15 @@ class AlertScheduler {
         live.add(row);
         continue;
       }
+      // A digest past its instant was delivered (D16), in every band: the
+      // notification plugin posts it at the instant whether or not the app
+      // runs, and one held back posts as soon as the phone can. Never missed,
+      // never cancelled — a cancel would pull it off the shade — and, `fired`,
+      // its entry is no stray to the OS-truth pass below.
+      if (AlertKind.fromName(row.kind) == AlertKind.digest) {
+        await _dao.markState(row.osId, AlertRegistrationState.fired.name);
+        continue;
+      }
       final lateness = now.difference(fireAt);
       // While anything rings, a row past the grace is in flight as well. The
       // `alarm` host rings one alarm at a time, and one that comes due behind
@@ -1279,7 +1498,9 @@ class AlertScheduler {
         continue;
       }
       final event = eventsById[row.eventId];
-      final alert = event == null ? null : _alertOf(row.eventId, row.alertId);
+      final alert = event == null
+          ? null
+          : _alertOf(row.eventId, row.alertId, event: event);
       if (event == null || alert == null || alert.mode != AlertMode.ring) {
         await _dao.markState(row.osId, AlertRegistrationState.cancelled.name);
         continue;
@@ -1322,9 +1543,13 @@ class AlertScheduler {
   ///
   /// [firedIds] is asked the first time a fire has no registration of its
   /// own: one that keeps its row's id probes nothing.
-  Future<Map<int, ({PlannedFire fire, AlertRegistrationRow? existing})>>
+  ///
+  /// Alerts and digests go through here together, keyed by the registration
+  /// tuple (alert, event, day, kind) — the event is what tells two events'
+  /// entries of one category alert apart.
+  Future<Map<int, ({PlannedEntry planned, AlertRegistrationRow? existing})>>
   _assignOsIds(
-    List<PlannedFire> plan,
+    List<PlannedEntry> plan,
     List<AlertRegistrationRow> live, {
     required Future<Set<int>> Function() firedIds,
   }) async {
@@ -1337,6 +1562,7 @@ class AlertScheduler {
     for (final row in live) {
       final key = _registrationKey(
         row.alertId,
+        row.eventId,
         DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
         AlertKind.fromName(row.kind),
       );
@@ -1345,9 +1571,15 @@ class AlertScheduler {
     }
 
     var firedTaken = false;
-    final desired = <int, ({PlannedFire fire, AlertRegistrationRow? existing})>{};
-    for (final fire in plan) {
-      final key = _registrationKey(fire.alert.id, fire.day, fire.kind);
+    final desired =
+        <int, ({PlannedEntry planned, AlertRegistrationRow? existing})>{};
+    for (final planned in plan) {
+      final key = _registrationKey(
+        planned.alertId,
+        planned.eventId,
+        planned.day,
+        planned.kind,
+      );
       final existing = byKey[key];
       if (existing == null && !firedTaken) {
         firedTaken = true;
@@ -1359,11 +1591,16 @@ class AlertScheduler {
       final osId =
           existing?.osId ??
           resolveAlertOsId(
+            // Only a category alert's seed names the event: an event's own
+            // alert and a digest keep the seed every earlier build armed.
             seed: alertOsIdSeed(
               database: _databaseName,
-              alertId: fire.alert.id,
-              dayUtc: fire.day,
-              kind: fire.kind,
+              alertId: planned.alertId,
+              eventId: planned.source == AlertRegistrationSource.category
+                  ? planned.eventId
+                  : null,
+              dayUtc: planned.day,
+              kind: planned.kind,
             ),
             isTaken: (candidate) {
               final holder = taken[candidate];
@@ -1371,16 +1608,20 @@ class AlertScheduler {
             },
           );
       taken[osId] = key;
-      desired[osId] = (fire: fire, existing: existing);
+      desired[osId] = (planned: planned, existing: existing);
     }
     return desired;
   }
 
+  /// A registration's identity (§3.7). An event's alert always had its event
+  /// filled in, so every row an earlier build wrote still matches its own
+  /// entry; a digest's event is `''`.
   static String _registrationKey(
     String alertId,
+    String eventId,
     DateTime dayUtc,
     AlertKind kind,
-  ) => '$alertId|${alertDayIso(dayUtc)}|${kind.name}';
+  ) => '$alertId|$eventId|${alertDayIso(dayUtc)}|${kind.name}';
 
   /// Whether a snooze outlived the thing it postpones: its event was deleted,
   /// or its alert was removed from the event.
@@ -1395,8 +1636,9 @@ class AlertScheduler {
     Map<String, CalendarEvent> eventsById,
   ) {
     if (eventId == AlertPayload.testEventId) return false;
-    if (!eventsById.containsKey(eventId)) return true;
-    return _alertOf(eventId, alertId) == null;
+    final event = eventsById[eventId];
+    if (event == null) return true;
+    return _alertOf(eventId, alertId, event: event) == null;
   }
 
   // ── Ring handling ────────────────────────────────────────────────────
@@ -1457,7 +1699,7 @@ class AlertScheduler {
           event = candidate;
           break;
         }
-        alert = _alertOf(eventId, alertId);
+        alert = _alertOf(eventId, alertId, event: event);
       } catch (e) {
         debugPrint('[AlertScheduler] snooze($osId) setup failed: $e');
         if (payload == null) return;
@@ -1490,6 +1732,9 @@ class AlertScheduler {
         id: payload.alertId,
         eventId: payload.eventId,
         mode: payload.mode,
+        // Inherited as the payload says, so the seed below and the row's
+        // `source` are a category alert's.
+        categoryId: payload.inherited ? payload.categoryId : null,
       );
       ringing = payload;
     }
@@ -1515,15 +1760,21 @@ class AlertScheduler {
         ? const <int>{}
         : {
             for (final other in await _dao.pending())
+              // The event too: one category alert snoozed on two events
+              // of one day is two snoozes, never one replacing the other.
               if (other.alertId != alert.id ||
+                  other.eventId != event.id ||
                   other.day != day.millisecondsSinceEpoch ||
                   AlertKind.fromName(other.kind) != AlertKind.snooze)
                 other.osId,
           };
+    // An inherited alert's seed names the event, as the plan's and the
+    // background isolate's do, so the two paths land on one slot.
     final snoozeOsId = resolveAlertOsId(
       seed: alertOsIdSeed(
         database: database,
         alertId: alert.id,
+        eventId: alert.categoryId == null ? null : event.id,
         dayUtc: day,
         kind: AlertKind.snooze,
       ),
@@ -1573,6 +1824,7 @@ class AlertScheduler {
         ),
         createdAt: Value(now),
         updatedAt: Value(now),
+        source: Value(fire.source.name),
       ),
     );
   }
@@ -1595,6 +1847,7 @@ class AlertScheduler {
       fireAt: fire.fireAt,
       snooze: fire.kind == AlertKind.snooze,
       snoozeMinutes: snoozeMinutes,
+      inherited: fire.alert.categoryId != null,
     );
   }
 
@@ -1608,12 +1861,17 @@ class AlertScheduler {
       database: _databaseName,
       event: event,
       alertId: row.alertId,
-      mode: _alertOf(row.eventId, row.alertId)?.mode ?? AlertMode.notify,
+      mode:
+          _alertOf(row.eventId, row.alertId, event: event)?.mode ??
+          AlertMode.notify,
       day: DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
       osId: row.osId,
       fireAt: fireAt,
       snooze: AlertKind.fromName(row.kind) == AlertKind.snooze,
       snoozeMinutes: snoozeMinutes,
+      inherited:
+          AlertRegistrationSource.fromName(row.source) ==
+          AlertRegistrationSource.category,
     );
   }
 
@@ -1637,6 +1895,7 @@ class AlertScheduler {
     required DateTime fireAt,
     required bool snooze,
     required int snoozeMinutes,
+    required bool inherited,
   }) {
     final labels = _gateway.labels;
     // A test ring stands in for no event. Stamped here rather than where it
@@ -1659,6 +1918,7 @@ class AlertScheduler {
       removeAfterAlert: event.removeAfterAlert,
       snooze: snooze,
       snoozeMinutes: snoozeMinutes,
+      inherited: inherited,
       excerpt: alertExcerptFor(
         OccurrenceDescriptions.descriptionFor(event, day),
       ),
@@ -1688,10 +1948,72 @@ class AlertScheduler {
     );
   }
 
+  /// One digest entry's payload: every word its notification shows, written
+  /// here on the UI isolate in the binding's language and on its clock —
+  /// the background never formats a day — and the avatar of the one category
+  /// it lists. A digest over several categories, or over all, wears none:
+  /// no one category's colour speaks for it.
+  AlertPayload _payloadForDigest(
+    PlannedDigest fire,
+    int osId,
+    CalendarWeekStart weekStart,
+  ) {
+    final labels = _gateway.labels;
+    final strings = labels.strings;
+    final content = digestNotificationContent(
+      fire,
+      strings,
+      labels,
+      categoryLabel: (id) =>
+          CalendarCategories.labelOf(CalendarCategories.resolve(id), strings),
+      weekStart: weekStart,
+    );
+    final categoryIds = fire.digest.categoryIds.toList()..sort();
+    final single = categoryIds.length == 1
+        ? CalendarCategories.resolve(categoryIds.single)
+        : null;
+    return AlertPayload(
+      database: _databaseName,
+      eventId: '',
+      alertId: fire.digest.id,
+      dayUtcMs: fire.spanStart.millisecondsSinceEpoch,
+      osId: osId,
+      mode: AlertMode.notify,
+      title: content.title,
+      timeLabel: labels.timeLabel(fire.fireAt),
+      categoryId: single?.id ?? '',
+      fireAtMs: fire.fireAt.millisecondsSinceEpoch,
+      tintValue: single?.colorValue,
+      glyphKey: single?.iconKey,
+      languageCode: labels.languageCode,
+      isDigest: true,
+      digestId: fire.digest.id,
+      spanStartMs: fire.spanStart.millisecondsSinceEpoch,
+      spanEndMs: fire.spanEnd.millisecondsSinceEpoch,
+      categoryIdsCsv: categoryIds.join(','),
+      digestText: content.text,
+      digestLines: content.lines,
+      digestSummary: content.summary,
+    );
+  }
+
   /// One alert of one event by id, or null once it has been removed. A plain
   /// loop over an unmodifiable list of at most five.
-  static EventAlert? _alertOf(String eventId, String alertId) {
+  ///
+  /// With [event], an alert it inherits from its category is found too
+  /// (**v42**) — by `EventAlerts.effectiveFor`, so an inherited alert the
+  /// event's own one shadows, or one the event opted out of, is gone here as
+  /// it is from the plan.
+  static EventAlert? _alertOf(
+    String eventId,
+    String alertId, {
+    CalendarEvent? event,
+  }) {
     for (final candidate in EventAlerts.alertsFor(eventId)) {
+      if (candidate.id == alertId) return candidate;
+    }
+    if (event == null) return null;
+    for (final candidate in EventAlerts.effectiveFor(event)) {
       if (candidate.id == alertId) return candidate;
     }
     return null;

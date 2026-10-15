@@ -39,6 +39,15 @@ import '../pages/sync_settings_page.dart';
 
 enum SettingsResult { openDrawer }
 
+/// What a digest's tap asks the overview to show: the list on [start]..[end]
+/// (date-only UTC, inclusive) over the [categoryIds] allowlist — empty for
+/// every category.
+typedef OverviewLook = ({
+  DateTime start,
+  DateTime end,
+  Set<String> categoryIds,
+});
+
 abstract final class AppNavigator {
   static final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -664,6 +673,61 @@ abstract final class AppNavigator {
       const AlertsPage(),
       destination: const NavDestination(NavDestinationKind.alerts),
     );
+  }
+
+  /// The look a digest's tap asked the overview for (**v42**, D13): its span
+  /// and its allowlist. The [pendingCalendarOccurrence] twin — a live
+  /// overview cannot be handed constructor arguments, so it serves this, and
+  /// clears it so a page mounting later does not replay a trip already made.
+  static final ValueNotifier<OverviewLook?> pendingOverviewLook = ValueNotifier(
+    null,
+  );
+
+  /// The overview in List mode on [start]..[end] with [categoryIds] — where a
+  /// digest's tap lands — asked for by the platform with no `BuildContext` of
+  /// its own. Published first, then [toAlertsFromPlatform]'s shape: collapsed
+  /// onto a live overview route, else root-pushed under the `calendarOverview`
+  /// stamp, so a pushed page finds the look waiting at mount and a live one
+  /// hears it through its listener.
+  static Future<void> toCalendarOverviewLook({
+    required DateTime start,
+    required DateTime end,
+    required Set<String> categoryIds,
+  }) {
+    pendingOverviewLook.value = (
+      start: start,
+      end: end,
+      categoryIds: categoryIds,
+    );
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere(
+        (route) => _isStamped(route, NavDestinationKind.calendarOverview),
+      );
+      if (index >= 0) {
+        _collapseOnto(navigator, routes, index);
+        return Future<void>.value();
+      }
+    }
+    return rootPush<void>(
+      const CalendarOverviewPage(),
+      destination: const NavDestination(NavDestinationKind.calendarOverview),
+    );
+  }
+
+  /// Whether the overview on [route] is the one a published
+  /// [pendingOverviewLook] is for: the last live overview route — the one
+  /// [toCalendarOverviewLook] collapsed onto or pushed. Any route serves while
+  /// none is known, as [servesCalendarOccurrence] answers.
+  static bool servesOverviewLook(Route<dynamic> route) {
+    final navigator = route.navigator;
+    if (navigator == null) return true;
+    final routes = _livePageRoutes(navigator);
+    final index = routes.lastIndexWhere(
+      (candidate) => _isStamped(candidate, NavDestinationKind.calendarOverview),
+    );
+    return index < 0 || identical(routes[index], route);
   }
 
   /// A note opened by the platform with no `BuildContext` of its own — *Open

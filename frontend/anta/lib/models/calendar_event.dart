@@ -238,6 +238,14 @@ class CalendarEvent extends Equatable {
   /// syncs and survives an Undo.
   final bool removeAfterAlert;
 
+  /// Whether this event inherits its category's alerts (**v42**). On by
+  /// default; off is the one-event opt-out that spares a second category.
+  ///
+  /// Like [removeAfterAlert], nothing on the rendering path reads it: only
+  /// `EventAlerts.effectiveFor` does, so membership, the grid and the agenda
+  /// are unaware.
+  final bool categoryAlerts;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
   /// no description. Stored verbatim as markdown source — rendering happens
@@ -289,6 +297,7 @@ class CalendarEvent extends Equatable {
     this.perOccurrenceDescriptions = false,
     this.showInDayRail,
     this.removeAfterAlert = false,
+    this.categoryAlerts = true,
     this.time,
     this.description,
     this.noteId,
@@ -355,6 +364,7 @@ class CalendarEvent extends Equatable {
     bool? perOccurrenceDescriptions,
     bool? showInDayRail,
     bool? removeAfterAlert,
+    bool? categoryAlerts,
     EventTime? time,
     String? description,
     String? noteId,
@@ -392,6 +402,7 @@ class CalendarEvent extends Equatable {
           ? null
           : (showInDayRail ?? this.showInDayRail),
       removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
+      categoryAlerts: categoryAlerts ?? this.categoryAlerts,
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -539,6 +550,7 @@ class CalendarEvent extends Equatable {
     perOccurrenceDescriptions,
     showInDayRail,
     removeAfterAlert,
+    categoryAlerts,
     time,
     description,
     noteId,

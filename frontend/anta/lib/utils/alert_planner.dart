@@ -6,6 +6,29 @@ import '../models/alert_sound.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 
+/// What the registry knows of one planned platform entry, whichever planner
+/// made it — an alert's [PlannedFire] or a digest's `PlannedDigest`.
+///
+/// The scheduler assigns os ids and diffs the desired set against the
+/// registry over this alone, so the two kinds of entry share one id probe
+/// and one cancel pass rather than two that could disagree about a slot.
+/// (`alertId`, `eventId`, `day`, `kind`) is a registration's identity; a
+/// digest's `eventId` is `''`, the global-counter convention.
+abstract interface class PlannedEntry {
+  String get alertId;
+  String get eventId;
+
+  /// Date-only UTC: the occurrence day, or a digest's first day.
+  DateTime get day;
+
+  AlertKind get kind;
+
+  /// The local instant the platform is asked to fire at.
+  DateTime get fireAt;
+
+  AlertRegistrationSource get source;
+}
+
 /// One alert, on one occurrence, at one instant — the unit the scheduler
 /// diffs and the gateway hands to the platform.
 ///
@@ -15,16 +38,19 @@ import '../models/event_alert.dart';
 /// another: the day says which occurrence this is, the instant says when the
 /// phone speaks. Running one through the other is how an alert ends up a day
 /// or an hour out.
-class PlannedFire extends Equatable {
+class PlannedFire extends Equatable implements PlannedEntry {
   final CalendarEvent event;
   final EventAlert alert;
 
   /// Occurrence day, date-only UTC.
+  @override
   final DateTime day;
 
   /// Local instant the platform is asked to fire at.
+  @override
   final DateTime fireAt;
 
+  @override
   final AlertKind kind;
 
   /// The sound this fire will be armed with, already resolved against the
@@ -43,6 +69,19 @@ class PlannedFire extends Equatable {
     this.kind = AlertKind.scheduled,
     this.sound = const AlertSoundSystemDefault(),
   });
+
+  @override
+  String get alertId => alert.id;
+
+  @override
+  String get eventId => event.id;
+
+  /// An inherited alert is registered as the category's: its id is shared by
+  /// every event in the category, so its entries are told apart by the event.
+  @override
+  AlertRegistrationSource get source => alert.categoryId == null
+      ? AlertRegistrationSource.event
+      : AlertRegistrationSource.category;
 
   @override
   List<Object?> get props => [event.id, alert.id, day, fireAt, kind, sound];

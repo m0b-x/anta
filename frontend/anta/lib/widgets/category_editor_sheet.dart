@@ -1,18 +1,31 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../bloc/calendar/calendar_bloc.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/category_name.dart';
+import '../constants/event_alerts.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
+import '../controllers/alert_permission_check.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../models/calendar_event.dart';
+import '../models/category_alert.dart';
+import '../models/recurrence_rule.dart';
+import '../services/alert_scheduler.dart';
 import '../services/category_service.dart';
+import '../services/event_alert_service.dart';
+import '../services/event_time_formatter.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import 'alert_editor_sheet.dart';
+import 'automation_id.dart';
 import 'color_swatch_picker.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -24,14 +37,19 @@ const String _defaultCategoryIconKey = 'event';
 
 /// The form for creating or editing a [CalendarCategory]: a sub-sheet of the
 /// UI language (Tier 3, D12) in the quick alarm's shape — ✕ · title · Save
-/// over one group of the name, an Icon row and the colour strip.
+/// over one group of the name, an Icon row and the colour strip, then the
+/// category's alerts (**v42**), which every event in it inherits.
 ///
-/// Persists through [CategoryService] inside the sheet and returns the saved
-/// category, or `null` when dismissed. The row is written before the pop
-/// because the callers rely on it: the categories page refreshes from the
-/// service, the picker ticks the returned id. A built-in keeps its stored
-/// name — its localized label is a read row — while its colour and icon stay
-/// editable. Unguarded, as every sub-sheet: a draft is three taps to redo.
+/// Persists through [CategoryService] — and the alerts through
+/// [EventAlertService] — inside the sheet and returns the saved category, or
+/// `null` when dismissed before anything was written. The row is written
+/// before the pop because the callers rely on it: the categories page
+/// refreshes from the service, the picker ticks the returned id. A built-in
+/// keeps its stored name — its localized label is a read row — while its
+/// colour, icon and alerts stay editable.
+///
+/// Unguarded, as every sub-sheet: the name, icon and colour are three taps to
+/// redo, and each alert it holds is one row to re-add.
 class CategoryEditorSheet extends StatefulWidget {
   final CalendarCategory? initial;
 
@@ -80,6 +98,25 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   late String _iconKey;
   bool _saving = false;
 
+  /// The category's alerts as the sheet is editing them, seeded from the
+  /// synchronous facade so they are on screen in the first frame. Written on
+  /// Save only once [_alertsTouched]: an untouched set is what is stored.
+  late List<CategoryAlert> _alerts;
+  bool _alertsTouched = false;
+
+  /// Held while the alert sheet is up, so a second tap on a row or on Add
+  /// alert during its opening animation cannot stack a second sheet.
+  bool _alertSheetOpen = false;
+
+  /// The category a create wrote before its alerts failed to, so the next
+  /// Save updates that row rather than creating a second one.
+  CalendarCategory? _created;
+
+  /// The category row as the last Save wrote it, when its alerts then failed
+  /// to: leaving hands it back rather than `null`, so the caller still
+  /// refreshes and the picker ticks it.
+  CalendarCategory? _written;
+
   /// Memo behind [_duplicateOf]: the folded term it last scanned for, the
   /// catalog revision and locale it scanned under, and what it found.
   String? _duplicateTerm;
@@ -102,6 +139,9 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     );
     _colorValue = initial?.colorValue ?? _defaultCategoryColor;
     _iconKey = initial?.iconKey ?? _defaultCategoryIconKey;
+    _alerts = initial == null
+        ? const []
+        : List<CategoryAlert>.of(EventAlerts.categoryAlertsFor(initial.id));
   }
 
   @override
@@ -141,7 +181,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   }
 
   CalendarCategory? _scanForDuplicate(String typed, AppLocalizations l10n) {
-    final selfId = widget.initial?.id;
+    final selfId = widget.initial?.id ?? _created?.id;
     for (final category in CalendarCategories.all) {
       if (category.id == selfId) continue;
       final label = normalizeForSearch(
@@ -188,6 +228,107 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     setState(() => _iconKey = picked);
   }
 
+  /// The id the alerts are drafted under: the category's, or empty for one
+  /// still to be created — `replaceForCategory` re-owns every alert it is
+  /// handed under the id it writes for.
+  String get _alertCategoryId => widget.initial?.id ?? _created?.id ?? '';
+
+  /// A stand-in event of this category carrying the one property
+  /// [EventAlert.describe] reads, the derived `allDay`: a category alert
+  /// serves both shapes, and each row names both readings. Nothing else on it
+  /// is read.
+  CalendarEvent _previewEvent({required bool allDay}) => CalendarEvent(
+    id: '',
+    title: '',
+    categoryId: _alertCategoryId,
+    startDate: DateTime.utc(2026),
+    rule: const OneTimeRecurrence(),
+    time: allDay ? null : const EventTime(startMinute: 0),
+  );
+
+  /// Opens the alert sheet on a brand-new alert, and keeps it only if the
+  /// user saves. Never offers Remove there: closing the sheet already means
+  /// "no". Not a settings-default pre-fill (D7): the draft's own defaults.
+  Future<void> _addAlert() async {
+    if (_alertSheetOpen) return;
+    _blur();
+    if (_alerts.length >= kMaxAlertsPerCategory) return;
+    _alertSheetOpen = true;
+    final AlertEditorResult? result;
+    try {
+      result = await AlertEditorSheet.show(
+        context,
+        alert: AlertEditorSheet.draft(eventId: '', allDay: false),
+        event: _previewEvent(allDay: true),
+        canRemove: false,
+        forCategory: true,
+      );
+    } finally {
+      _alertSheetOpen = false;
+    }
+    if (!mounted) return;
+    if (result case AlertEditorSaved(:final alert)) {
+      setState(() {
+        _alertsTouched = true;
+        _alerts = [
+          ..._alerts,
+          CategoryAlert.fromEventAlert(alert, categoryId: _alertCategoryId),
+        ];
+      });
+    }
+  }
+
+  Future<void> _editAlert(CategoryAlert alert) async {
+    if (_alertSheetOpen) return;
+    _blur();
+    _alertSheetOpen = true;
+    final AlertEditorResult? answer;
+    try {
+      answer = await AlertEditorSheet.show(
+        context,
+        alert: alert.toEventAlert(''),
+        event: _previewEvent(allDay: true),
+        forCategory: true,
+      );
+    } finally {
+      _alertSheetOpen = false;
+    }
+    final result = answer;
+    if (!mounted || result == null) return;
+    setState(() {
+      _alertsTouched = true;
+      _alerts = switch (result) {
+        AlertEditorRemoved() => [
+          for (final existing in _alerts)
+            if (existing.id != alert.id) existing,
+        ],
+        AlertEditorSaved(alert: final saved) => [
+          for (final existing in _alerts)
+            existing.id == alert.id
+                ? CategoryAlert.fromEventAlert(
+                    saved,
+                    categoryId: existing.categoryId,
+                  )
+                : existing,
+        ],
+      };
+    });
+  }
+
+  /// The category's own switch for one alert (D5): off pauses it for every
+  /// event in the category, and keeps it here to switch back on.
+  void _setAlertEnabled(CategoryAlert alert, bool enabled) {
+    setState(() {
+      _alertsTouched = true;
+      _alerts = [
+        for (final existing in _alerts)
+          existing.id == alert.id
+              ? existing.copyWith(enabled: enabled)
+              : existing,
+      ];
+    });
+  }
+
   /// Persists and pops with the saved category.
   ///
   /// The failure path is the point of the `try`: `_saving` gates Save, so a
@@ -197,6 +338,16 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// act on. Everything else in this subsystem that fires a write from a
   /// callback goes through the categories page's `_guarded`; this is that
   /// wrapper's counterpart for the one write the sheet owns.
+  ///
+  /// The alerts are written after the category, which a new one needs for
+  /// its id, and a failure there reads as the category's: the sheet stays
+  /// open on the draft, the next Save updates the row the write left, and ✕
+  /// hands that row back ([_written]).
+  ///
+  /// A successful alert write is announced to the calendar
+  /// ([CategoryAlertsChanged]) and, when it left an alert that can fire,
+  /// followed by the permission check every saved alert gets — the message
+  /// only: a category alert has no one next fire to count down to.
   Future<void> _onSave() async {
     if (!_canSave) return;
     setState(() => _saving = true);
@@ -204,13 +355,14 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     try {
       final service = await CategoryService.getInstance();
       CalendarCategory saved;
-      final initial = widget.initial;
+      final initial = widget.initial ?? _created;
       if (initial == null) {
         saved = await service.create(
           name: _nameController.text.trim(),
           colorValue: _colorValue,
           iconKey: _iconKey,
         );
+        _created = saved;
       } else {
         final updated = initial.copyWith(
           name: _isBuiltIn ? initial.name : _nameController.text.trim(),
@@ -219,6 +371,26 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
         );
         await service.updateCategory(updated);
         saved = updated;
+      }
+      _written = saved;
+      if (_alertsTouched) {
+        final alerts = await EventAlertService.getInstance();
+        await alerts.replaceForCategory(saved.id, _alerts);
+        // A category alert touches every event in the category, so the whole
+        // plan is redone (D22).
+        unawaited(
+          AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
+        );
+        if (!mounted) return;
+        // Nullable: a host without the app's bloc has no badges to redraw.
+        context.read<CalendarBloc?>()?.add(const CategoryAlertsChanged());
+        if (_alerts.any((alert) => alert.enabled)) {
+          // The navigator's context, which outlives this sheet: the check
+          // may prompt and raise its message after the pop below.
+          unawaited(
+            AlertPermissionCheck.afterSave(Navigator.of(context).context),
+          );
+        }
       }
       if (!mounted) return;
       Navigator.of(context).pop(saved);
@@ -248,6 +420,22 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       MediaQuery.viewInsetsOf(context).bottom,
       MediaQuery.viewPaddingOf(context).bottom,
     );
+    // Back and the barrier leave the way ✕ does: with the row a failed alert
+    // write left behind, when there is one.
+    return PopScope<CalendarCategory>(
+      canPop: _written == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) Navigator.of(context).pop(_written);
+      },
+      child: _buildBody(context, l10n, clearance),
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context,
+    AppLocalizations l10n,
+    double clearance,
+  ) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -257,7 +445,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
           leadingIcon: Icons.close_rounded,
           leadingTooltip: l10n.cancel,
           leadingIdentifier: SemanticsIds.categoryEditorClose,
-          onLeading: () => Navigator.of(context).pop(),
+          onLeading: () => Navigator.of(context).pop(_written),
           title: _isEditing ? l10n.editCategory : l10n.createCategory,
           scrolled: _hairline.scrolled,
           trailingInset: FormMetrics.headerActionInset,
@@ -281,12 +469,25 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
                 RowMetrics.groupInset,
                 FormMetrics.bodyBottom + clearance,
               ),
-              child: FormRowGroup(
-                trailingGap: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildNameRow(l10n),
-                  _buildIconRow(l10n),
-                  _buildColorRow(),
+                  FormRowGroup(
+                    children: [
+                      _buildNameRow(l10n),
+                      _buildIconRow(l10n),
+                      _buildColorRow(),
+                    ],
+                  ),
+                  FormSectionLabel(text: l10n.eventAlerts),
+                  FormRowGroup(
+                    trailingGap: false,
+                    children: _buildAlertRows(l10n),
+                  ),
+                  FormCaption(
+                    text: l10n.categoryAlertsHint,
+                    padding: FormMetrics.groupCaptionPadding,
+                  ),
                 ],
               ),
             ),
@@ -346,6 +547,49 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       onTap: _pickIcon,
       identifier: SemanticsIds.categoryEditorIcon,
     );
+  }
+
+  /// One row per alert, named both ways because it serves both shapes: the
+  /// all-day reading as the label, the timed one and the tier in the
+  /// caption, and the category's switch for it at the end. A tap edits it,
+  /// and the sheet it opens is where it is removed. Then Add alert while
+  /// there is room under the cap.
+  List<Widget> _buildAlertRows(AppLocalizations l10n) {
+    final allDay = _previewEvent(allDay: true);
+    final timed = _previewEvent(allDay: false);
+    String formatMinute(int minute) =>
+        EventTimeFormatter.formatMinute(minute, context);
+    return [
+      for (final (index, alert) in _alerts.indexed)
+        FormPickerSwitchRow(
+          glyph: alert.isAlarm
+              ? Icons.alarm_outlined
+              : Icons.notifications_outlined,
+          label: alert
+              .toEventAlert('')
+              .describe(l10n, allDay, formatMinute: formatMinute),
+          caption: [
+            l10n.categoryAlertTimedCaption(
+              alert.toEventAlert('').describe(l10n, timed),
+            ),
+            alert.isAlarm ? l10n.eventAlertModeRing : l10n.eventAlertModeNotify,
+          ].join(' · '),
+          identifier: SemanticsIds.categoryAlertRow(index),
+          switchIdentifier: SemanticsIds.categoryAlertSwitch(index),
+          value: alert.enabled,
+          onTap: () => _editAlert(alert),
+          onChanged: (value) => _setAlertEnabled(alert, value),
+        ),
+      if (_alerts.length < kMaxAlertsPerCategory)
+        AutomationId(
+          identifier: SemanticsIds.categoryAlertAdd,
+          child: FormActionRow(
+            glyph: Icons.add_rounded,
+            label: l10n.eventAlertAdd,
+            onTap: _addAlert,
+          ),
+        ),
+    ];
   }
 
   /// No default dot: a category *is* the colour everything else falls back

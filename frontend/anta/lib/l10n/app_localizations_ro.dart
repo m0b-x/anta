@@ -5207,6 +5207,157 @@ class AppLocalizationsRo extends AppLocalizations {
       'Anunțuri pentru alarme viitoare sau ratate și sesiunea în curs, mereu fără sunet';
 
   @override
+  String get alertsDigestChannel => 'Rezumate';
+
+  @override
+  String get alertsDigestChannelDesc =>
+      'Rezumate grupate ale evenimentelor viitoare';
+
+  @override
+  String get digestAllCategories => 'Evenimente';
+
+  @override
+  String digestCategoriesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de categorii',
+      few: '$count categorii',
+      one: '1 categorie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String digestCountPeriod(int count, String period) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente $period',
+      few: '$count evenimente $period',
+      one: '1 eveniment $period',
+      zero: 'Niciun eveniment $period',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get digestPeriodToday => 'azi';
+
+  @override
+  String get digestPeriodTomorrow => 'mâine';
+
+  @override
+  String get digestPeriodThisWeek => 'săptămâna aceasta';
+
+  @override
+  String get digestPeriodNextWeek => 'săptămâna viitoare';
+
+  @override
+  String get digestPeriodThisMonth => 'luna aceasta';
+
+  @override
+  String get digestPeriodNextMonth => 'luna viitoare';
+
+  @override
+  String digestPeriodSpan(String start, String end) {
+    return 'din $start până pe $end';
+  }
+
+  @override
+  String digestMoreCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '+$count în plus',
+      few: '+$count în plus',
+      one: '+1 în plus',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get digestsAdd => 'Adaugă un rezumat';
+
+  @override
+  String get digestNew => 'Rezumat nou';
+
+  @override
+  String get digestEdit => 'Editează rezumatul';
+
+  @override
+  String get digestEvery => 'Frecvență';
+
+  @override
+  String get digestOn => 'Ziua';
+
+  @override
+  String digestOnDayOfMonth(String day) {
+    String _temp0 = intl.Intl.selectLogic(day, {'other': '$day'});
+    return '$_temp0';
+  }
+
+  @override
+  String get digestAt => 'La ora';
+
+  @override
+  String get digestCovers => 'Acoperă';
+
+  @override
+  String get digestCoversSameDay => 'Din ziua respectivă';
+
+  @override
+  String get digestCoversNextDay => 'Din ziua următoare';
+
+  @override
+  String get digestIncludeEmpty => 'Și când e gol';
+
+  @override
+  String get digestIncludeEmptyDesc => 'Trimite-l și când nu e nimic programat';
+
+  @override
+  String digestNext(String when, String count) {
+    return 'Următorul: $when · $count';
+  }
+
+  @override
+  String get digestNextNone => 'Încă nimic de trimis';
+
+  @override
+  String get digestUnreadable => 'Salvat de o versiune mai nouă a aplicației';
+
+  @override
+  String digestNextFire(String when) {
+    return 'următorul $when';
+  }
+
+  @override
+  String get digestDelete => 'Șterge rezumatul';
+
+  @override
+  String get digestDeleteConfirm => 'Ștergi acest rezumat?';
+
+  @override
+  String digestLimitReached(int count) {
+    return 'Poți păstra până la $count rezumate';
+  }
+
+  @override
+  String digestDescribeDaily(String time) {
+    return 'Zilnic la $time';
+  }
+
+  @override
+  String digestDescribeWeekly(String weekday, String time) {
+    return 'Săptămânal, $weekday, la $time';
+  }
+
+  @override
+  String digestDescribeMonthly(String day, String time) {
+    return 'Lunar, pe $day, la $time';
+  }
+
+  @override
   String get alertsDoneAction => 'Gata';
 
   @override
@@ -5289,6 +5440,31 @@ class AppLocalizationsRo extends AppLocalizations {
   String eventAlertNext(String time) {
     return 'Următoarea $time';
   }
+
+  @override
+  String eventAlertFromCategory(String category) {
+    return 'Din $category';
+  }
+
+  @override
+  String get eventCategoryAlerts => 'Alertele categoriei';
+
+  @override
+  String eventCategoryAlertsDesc(String category) {
+    return 'Folosește alertele setate pentru $category';
+  }
+
+  @override
+  String get categoryAlertsHint =>
+      'Fiecare eveniment din această categorie primește aceste alerte.';
+
+  @override
+  String categoryAlertTimedCaption(String when) {
+    return 'Evenimente cu oră: $when';
+  }
+
+  @override
+  String get categoryHasAlerts => 'Are alerte';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

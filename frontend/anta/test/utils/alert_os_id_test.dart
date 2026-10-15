@@ -67,6 +67,74 @@ void main() {
     });
   });
 
+  group('the three seeds (v42)', () {
+    final day = DateTime.utc(2026, 9, 20);
+
+    test("an event's own alert keeps the key every earlier build armed", () {
+      // Byte for byte: a standing entry or snooze armed before v42 must
+      // still be found under the id it holds.
+      const key = 'gym_notes|alert-1|2026-09-20|scheduled';
+      expect(
+        alertOsIdKey(
+          database: 'gym_notes',
+          alertId: 'alert-1',
+          dayUtc: day,
+          kind: AlertKind.scheduled,
+        ),
+        key,
+      );
+      expect(seedOf(day: day), fnv1a32(key) & kAlertOsIdMask);
+    });
+
+    test('a category alert names the event, so two events differ', () {
+      int categorySeed(String eventId) => alertOsIdSeed(
+        database: 'gym_notes',
+        alertId: 'ca1',
+        eventId: eventId,
+        dayUtc: day,
+        kind: AlertKind.scheduled,
+      );
+
+      expect(
+        alertOsIdKey(
+          database: 'gym_notes',
+          alertId: 'ca1',
+          eventId: 'e1',
+          dayUtc: day,
+          kind: AlertKind.scheduled,
+        ),
+        'gym_notes|ca1|e1|2026-09-20|scheduled',
+      );
+      expect(
+        categorySeed('e1'),
+        fnv1a32('gym_notes|ca1|e1|2026-09-20|scheduled') & kAlertOsIdMask,
+      );
+      expect(categorySeed('e1'), isNot(categorySeed('e2')));
+    });
+
+    test('a digest is keyed by its id and its first day', () {
+      const key = 'gym_notes|d1|2026-10-01|digest';
+      expect(
+        alertOsIdKey(
+          database: 'gym_notes',
+          alertId: 'd1',
+          dayUtc: DateTime.utc(2026, 10, 1),
+          kind: AlertKind.digest,
+        ),
+        key,
+      );
+      expect(
+        alertOsIdSeed(
+          database: 'gym_notes',
+          alertId: 'd1',
+          dayUtc: DateTime.utc(2026, 10, 1),
+          kind: AlertKind.digest,
+        ),
+        fnv1a32(key) & kAlertOsIdMask,
+      );
+    });
+  });
+
   group('the probe', () {
     test('returns the seed when the slot is free', () {
       expect(

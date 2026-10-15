@@ -10,7 +10,9 @@ import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/event_time_formatter.dart';
@@ -424,6 +426,98 @@ void main() {
       await openSheet(tester, event(), use24HourFormat: false);
       expect(find.text('The day before, 8:00 PM'), findsOneWidget);
       expect(find.text('The day before, 20:00'), findsNothing);
+    });
+
+    group('inherited from the category', () {
+      setUp(() {
+        CalendarCategories.updateCache(const [
+          CalendarCategory(
+            id: 'gym',
+            name: 'Gym',
+            colorValue: 0xFF43A047,
+            iconKey: 'event',
+            sortOrder: 0,
+            isBuiltIn: false,
+          ),
+        ]);
+        EventAlerts.updateCategoryCache(
+          byCategory: {
+            'gym': const [
+              CategoryAlert(
+                id: 'c1',
+                categoryId: 'gym',
+                offsetMinutes: 15,
+                daysBefore: 1,
+              ),
+            ],
+          },
+        );
+      });
+
+      tearDown(() => CalendarCategories.updateCache(const []));
+
+      testWidgets('an inherited alert follows the own ones, captioned with '
+          'its category, and still opens the editor', (tester) async {
+        EventAlerts.updateCache(
+          byEvent: {
+            'e1': const [
+              EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring),
+            ],
+          },
+        );
+        final actions = await openSheet(
+          tester,
+          event(time: const EventTime(startMinute: 450)),
+        );
+
+        expect(find.text('At start'), findsOneWidget);
+        expect(find.text('15 min before'), findsOneWidget);
+        expect(find.text('From Gym'), findsOneWidget);
+        FormPickerRow rowReading(String label) => tester.widget(
+          find.byWidgetPredicate((w) => w is FormPickerRow && w.label == label),
+        );
+        expect(rowReading('At start').caption, isNull);
+        expect(rowReading('15 min before').caption, 'From Gym');
+        expect(
+          tester.getTopLeft(find.text('15 min before')).dy,
+          greaterThan(tester.getTopLeft(find.text('At start')).dy),
+        );
+
+        await tester.tap(find.text('15 min before'));
+        await tester.pumpAndSettle();
+        expect(actions, [EventDetailAction.edit]);
+      });
+
+      testWidgets('an alert the category paused is not listed', (tester) async {
+        EventAlerts.updateCategoryCache(
+          byCategory: {
+            'gym': const [
+              CategoryAlert(
+                id: 'c1',
+                categoryId: 'gym',
+                offsetMinutes: 15,
+                enabled: false,
+              ),
+            ],
+          },
+        );
+        await openSheet(tester, event(time: const EventTime(startMinute: 450)));
+
+        expect(find.text('15 min before'), findsNothing);
+        expect(find.text('From Gym'), findsNothing);
+      });
+
+      testWidgets('an opted-out event lists none of them', (tester) async {
+        await openSheet(
+          tester,
+          event(
+            time: const EventTime(startMinute: 450),
+          ).copyWith(categoryAlerts: false),
+        );
+
+        expect(find.text('From Gym'), findsNothing);
+        expect(find.text('ALERTS'), findsNothing);
+      });
     });
   });
 

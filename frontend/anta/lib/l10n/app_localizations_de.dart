@@ -5151,6 +5151,155 @@ class AppLocalizationsDe extends AppLocalizations {
       'Hinweise auf anstehende und verpasste Alarme und die laufende Einheit, immer lautlos';
 
   @override
+  String get alertsDigestChannel => 'Zusammenfassungen';
+
+  @override
+  String get alertsDigestChannelDesc =>
+      'Gebündelte Übersichten anstehender Termine';
+
+  @override
+  String get digestAllCategories => 'Termine';
+
+  @override
+  String digestCategoriesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Kategorien',
+      one: '1 Kategorie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String digestCountPeriod(int count, String period) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Termine $period',
+      one: '1 Termin $period',
+      zero: 'Keine Termine $period',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get digestPeriodToday => 'heute';
+
+  @override
+  String get digestPeriodTomorrow => 'morgen';
+
+  @override
+  String get digestPeriodThisWeek => 'in dieser Woche';
+
+  @override
+  String get digestPeriodNextWeek => 'in der nächsten Woche';
+
+  @override
+  String get digestPeriodThisMonth => 'in diesem Monat';
+
+  @override
+  String get digestPeriodNextMonth => 'im nächsten Monat';
+
+  @override
+  String digestPeriodSpan(String start, String end) {
+    return 'vom $start bis $end';
+  }
+
+  @override
+  String digestMoreCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '+$count weitere',
+      one: '+1 weiterer',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get digestsAdd => 'Zusammenfassung hinzufügen';
+
+  @override
+  String get digestNew => 'Neue Zusammenfassung';
+
+  @override
+  String get digestEdit => 'Zusammenfassung bearbeiten';
+
+  @override
+  String get digestEvery => 'Rhythmus';
+
+  @override
+  String get digestOn => 'Am';
+
+  @override
+  String digestOnDayOfMonth(String day) {
+    String _temp0 = intl.Intl.selectLogic(day, {'other': '$day.'});
+    return '$_temp0';
+  }
+
+  @override
+  String get digestAt => 'Um';
+
+  @override
+  String get digestCovers => 'Umfasst';
+
+  @override
+  String get digestCoversSameDay => 'Ab diesem Tag';
+
+  @override
+  String get digestCoversNextDay => 'Ab dem nächsten Tag';
+
+  @override
+  String get digestIncludeEmpty => 'Auch wenn leer';
+
+  @override
+  String get digestIncludeEmptyDesc => 'Auch senden, wenn nichts ansteht';
+
+  @override
+  String digestNext(String when, String count) {
+    return 'Nächste: $when · $count';
+  }
+
+  @override
+  String get digestNextNone => 'Noch nichts zu senden';
+
+  @override
+  String get digestUnreadable =>
+      'Mit einer neueren Version der App gespeichert';
+
+  @override
+  String digestNextFire(String when) {
+    return 'nächste $when';
+  }
+
+  @override
+  String get digestDelete => 'Zusammenfassung löschen';
+
+  @override
+  String get digestDeleteConfirm => 'Diese Zusammenfassung löschen?';
+
+  @override
+  String digestLimitReached(int count) {
+    return 'Du kannst bis zu $count Zusammenfassungen behalten';
+  }
+
+  @override
+  String digestDescribeDaily(String time) {
+    return 'Täglich um $time';
+  }
+
+  @override
+  String digestDescribeWeekly(String weekday, String time) {
+    return 'Wöchentlich am $weekday, $time';
+  }
+
+  @override
+  String digestDescribeMonthly(String day, String time) {
+    return 'Monatlich am $day, $time';
+  }
+
+  @override
   String get alertsDoneAction => 'Erledigt';
 
   @override
@@ -5233,6 +5382,31 @@ class AppLocalizationsDe extends AppLocalizations {
   String eventAlertNext(String time) {
     return 'Nächste $time';
   }
+
+  @override
+  String eventAlertFromCategory(String category) {
+    return 'Aus $category';
+  }
+
+  @override
+  String get eventCategoryAlerts => 'Kategorie-Erinnerungen';
+
+  @override
+  String eventCategoryAlertsDesc(String category) {
+    return 'Die Erinnerungen von $category verwenden';
+  }
+
+  @override
+  String get categoryAlertsHint =>
+      'Jeder Termin in dieser Kategorie erhält diese Erinnerungen.';
+
+  @override
+  String categoryAlertTimedCaption(String when) {
+    return 'Termine mit Uhrzeit: $when';
+  }
+
+  @override
+  String get categoryHasAlerts => 'Hat Erinnerungen';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

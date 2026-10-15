@@ -1077,6 +1077,82 @@ class FormPickerRow extends FormDividedRow {
   }
 }
 
+/// `[glyph] label / caption ⟷` — a two-line picker row with a switch of its
+/// own at the end: the tap edits the thing (opens its sheet), the switch
+/// turns it on or off in place. A category's alerts and the Alerts hub's
+/// digests are lists of such things, and one shape keeps them reading alike.
+///
+/// Two nodes, never one: the row's (label and caption, a button) and the
+/// switch's, named [label] so a screen reader says what it switches. The
+/// switch keeps its padded 48 dp target, a sibling of the row's ink well.
+/// While [value] is off and [dimOff] is set, the text and glyph dim to
+/// [FormMetrics.switchedOffOpacity] — off, not disabled, so the switch stays
+/// full; a null [onChanged] disables the switch alone, in place.
+class FormPickerSwitchRow extends FormDividedRow {
+  final IconData glyph;
+  final String label;
+  final String caption;
+  final int? captionMaxLines;
+  final bool value;
+  final VoidCallback onTap;
+  final ValueChanged<bool>? onChanged;
+  final bool dimOff;
+  final String? identifier;
+  final String? switchIdentifier;
+
+  const FormPickerSwitchRow({
+    super.key,
+    required this.glyph,
+    required this.label,
+    required this.caption,
+    this.captionMaxLines,
+    required this.value,
+    required this.onTap,
+    required this.onChanged,
+    this.dimOff = false,
+    this.identifier,
+    this.switchIdentifier,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentGlyph;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget row = FormPickerRow(
+      glyph: glyph,
+      label: label,
+      caption: caption,
+      captionMaxLines: captionMaxLines,
+      identifier: identifier,
+      showChevron: false,
+      onTap: onTap,
+    );
+    if (dimOff && !value) {
+      row = Opacity(opacity: FormMetrics.switchedOffOpacity, child: row);
+    }
+    Widget toggle = Semantics(
+      label: label,
+      child: Switch(
+        value: value,
+        onChanged: onChanged,
+        // A target of its own beside the row's, so the full 48 dp.
+        materialTapTargetSize: MaterialTapTargetSize.padded,
+      ),
+    );
+    if (switchIdentifier case final id?) {
+      toggle = AutomationId(identifier: id, child: toggle);
+    }
+    return Row(
+      children: [
+        Expanded(child: row),
+        toggle,
+        const SizedBox(width: FormMetrics.rowEndPadding),
+      ],
+    );
+  }
+}
+
 /// The row a form opens with: `[avatar] title` as one field that wraps and,
 /// from [counterFrom] characters on, a counter under it — the event editor's
 /// title, the quick alarm's, the template form's name.

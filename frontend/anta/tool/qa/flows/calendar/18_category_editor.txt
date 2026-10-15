@@ -9,6 +9,8 @@
 # - A built-in's name is a read row; Strength is custom, so its name is the
 #   text field id:category-editor-name.
 # - The editor is an unguarded sub-sheet: ✕ leaves without asking.
+# - The edit form ends with its Alerts group (v42); this seed gives no
+#   category an alert, so the group is Add alert alone.
 tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
@@ -19,6 +21,7 @@ scroll-to "Strength"
 tap "Strength"
 wait id:category-editor-name
 expect id:category-editor-close id:category-editor-save id:category-editor-icon id:swatch-row id:swatch-add id:swatch-manage "Edit category" "#3F51B5"
+expect id:category-alert-add
 shot 18_category_edit
 tap id:category-editor-icon
 wait id:icon-pick-close

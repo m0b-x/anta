@@ -196,7 +196,11 @@ class AlertRingController extends ChangeNotifier {
     try {
       final scheduler = await AlertScheduler.getInstance();
       await scheduler.stop(payload.osId);
-      await scheduler.cancelSnoozeForAlert(payload.alertId, payload.dayUtc);
+      await scheduler.cancelSnoozeForAlert(
+        payload.alertId,
+        payload.eventId,
+        payload.dayUtc,
+      );
     } catch (e) {
       debugPrint('[AlertRingController] stop failed: $e');
     }

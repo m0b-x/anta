@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
@@ -14,7 +15,9 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/pages/calendar_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -25,6 +28,7 @@ import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/calendar_add_fab.dart';
 import 'package:anta/widgets/calendar_day_bars.dart';
@@ -32,6 +36,7 @@ import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 
 import '../database/support/db_test_support.dart';
+import '../services/permission_support.dart';
 
 /// What the calendar says after the editor's Save changed an event's alerts:
 /// how long until the next one.
@@ -294,5 +299,89 @@ void main() {
 
     expect(find.byType(EventDetailSheet), findsOneWidget);
     expect(countdown, findsNothing);
+  });
+
+  // v42: an event whose only alerts are its category's is followed like any
+  // other — the permission check, else the countdown.
+  group('inherited alerts', () {
+    Future<void> setCategoryAlerts(
+      WidgetTester tester,
+      List<CategoryAlert> alerts,
+    ) async {
+      await tester.runAsync(
+        () async => (await EventAlertService.getInstance()).replaceForCategory(
+          'other',
+          alerts,
+        ),
+      );
+    }
+
+    Future<void> saveNewEventWithNoAlertOfItsOwn(WidgetTester tester) async {
+      await pumpCalendar(tester);
+      await tester.tap(find.byType(CalendarAddFab));
+      await settleSheet(tester);
+      final editor = tester.element(find.byType(EventEditorSheet));
+      Navigator.of(editor).pop(
+        EventEditorSaved(
+          legDay.copyWith(id: 'pull-day', title: 'Pull day'),
+          alerts: const [],
+        ),
+      );
+      await settleSheet(tester);
+    }
+
+    testWidgets('a new event whose only alert is its category\'s says when '
+        'it is next due', (tester) async {
+      await setCategoryAlerts(tester, const [
+        CategoryAlert(id: 'c1', categoryId: 'other'),
+      ]);
+
+      await saveNewEventWithNoAlertOfItsOwn(tester);
+      await letTheSaveLand(
+        tester,
+        until: () => countdown.evaluate().isNotEmpty,
+        within: const Duration(seconds: 30),
+      );
+
+      expect(countdown, findsOneWidget);
+      await setCategoryAlerts(tester, const []);
+    });
+
+    testWidgets('one that cannot ring says so instead', (tester) async {
+      await setCategoryAlerts(tester, const [
+        CategoryAlert(id: 'c1', categoryId: 'other'),
+      ]);
+      await tester.runAsync(
+        () async => (await SettingsService.getInstance())
+            .setAlertNotificationsAsked(true),
+      );
+      final permissions = permissionServiceOver(
+        FakePermissionGateway(
+          statuses: {
+            AppPermission.notifications: PermissionStatus.granted,
+            AppPermission.exactAlarms: PermissionStatus.denied,
+            AppPermission.fullScreenIntent: PermissionStatus.granted,
+            AppPermission.batteryOptimization: PermissionStatus.granted,
+          },
+        ),
+      );
+      GetIt.I.registerSingleton<PermissionService>(permissions);
+      final blocked = find.text(
+        "This can't ring until a permission is turned on",
+      );
+
+      await saveNewEventWithNoAlertOfItsOwn(tester);
+      await letTheSaveLand(
+        tester,
+        until: () => blocked.evaluate().isNotEmpty,
+        within: const Duration(seconds: 30),
+      );
+
+      expect(blocked, findsOneWidget);
+      expect(countdown, findsNothing);
+      await GetIt.I.unregister<PermissionService>();
+      await tester.runAsync(permissions.dispose);
+      await setCategoryAlerts(tester, const []);
+    });
   });
 }

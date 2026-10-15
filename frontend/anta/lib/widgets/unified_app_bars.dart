@@ -51,6 +51,9 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.backgroundColor,
   }) : style = AppBarStyle.main;
 
+  /// [backgroundColor], when given, draws the bar flat on that ground — a
+  /// settings-family page that owns a ground of its own (the Alerts hub's
+  /// `pageGround`) — instead of the settings gradient.
   const UnifiedAppBar.settings({
     super.key,
     this.leading,
@@ -60,8 +63,8 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.elevation,
     this.toolbarHeight,
     this.leadingWidth,
-  }) : style = AppBarStyle.settings,
-       backgroundColor = null;
+    this.backgroundColor,
+  }) : style = AppBarStyle.settings;
 
   @override
   Size get preferredSize =>
@@ -78,7 +81,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     // that owns a ground of its own hands it over as `backgroundColor`, which
     // also switches the scrolled-under tint off. The settings pages keep the
     // gradient until they are redesigned.
-    if (style == AppBarStyle.main) {
+    if (style == AppBarStyle.main || backgroundColor != null) {
       final ground = backgroundColor;
       return AppBar(
         leading: leading,
@@ -402,12 +405,17 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// caller would either ignore or, worse, honour.
   final bool popsToDrawer;
 
+  /// The page's own ground, for a page that paints one; null keeps the
+  /// settings gradient ([UnifiedAppBar.settings]).
+  final Color? backgroundColor;
+
   const SettingsAppBar({
     super.key,
     required this.title,
     this.actions,
     this.showMenuButton = true,
     this.popsToDrawer = false,
+    this.backgroundColor,
   });
 
   @override
@@ -418,6 +426,7 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     final scaffold = Scaffold.maybeOf(context);
     final drawsPair = showMenuButton && (scaffold?.hasDrawer ?? false);
     return UnifiedAppBar.settings(
+      backgroundColor: backgroundColor,
       toolbarHeight: AppBarMetrics.toolbarHeight,
       leadingWidth: drawsPair ? LeadingNavPair.width : null,
       leading: showMenuButton ? _buildLeading(context, scaffold) : null,

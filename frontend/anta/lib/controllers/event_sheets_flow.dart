@@ -13,7 +13,6 @@ import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../l10n/app_localizations.dart';
-import '../models/app_permission.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
@@ -21,7 +20,6 @@ import '../models/recurrence_rule.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/note_storage_service.dart';
-import '../services/permission_service.dart';
 import '../services/settings_service.dart';
 import '../utils/alert_countdown.dart';
 import '../utils/custom_snackbar.dart';
@@ -33,6 +31,7 @@ import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
 import '../widgets/overlay_snackbar.dart';
+import 'alert_permission_check.dart';
 
 /// An event's trip through its sheets — the detail sheet, and from it the
 /// editor, the quick description edit, the dates picker, a skip, the linked
@@ -430,10 +429,11 @@ class EventSheetsFlow {
     switch (result) {
       case EventEditorSaved(:final event, :final alerts):
         // Read before the dispatch: once the write lands, the facade answers
-        // with the alerts being saved.
+        // with the alerts being saved. Inherited ones included, as the saved
+        // side is.
         final previousAlerts = initialEvent == null
             ? const <EventAlert>[]
-            : EventAlerts.alertsFor(initialEvent.id);
+            : EventAlerts.effectiveFor(initialEvent);
         if (initialEvent == null) {
           bloc.add(CreateCalendarEvent(event: event, alerts: alerts));
         } else {
@@ -473,15 +473,21 @@ class EventSheetsFlow {
   /// sheets holds the slot — a save made from the detail sheet reopens that
   /// sheet at once — a `Scaffold`'s bar is drawn under it, and the overlay is
   /// the one place the line can be read.
+  ///
+  /// The alerts are what the event will fire (**v42**): the ones it was saved
+  /// with, then what it inherits from its category — read against the saved
+  /// set, since the bloc may not have written it yet — so an event whose only
+  /// alerts are its category's is followed like any other.
   Future<void> _afterAlertsSaved(
     BuildContext context,
     EventEditorSaved saved, {
     required CalendarEvent? previousEvent,
     required List<EventAlert> previousAlerts,
   }) async {
-    final alerts = saved.alerts;
-    if (alerts == null || alerts.isEmpty) return;
-    if (await _checkAlertPermissions(context, alerts)) return;
+    final own = saved.alerts ?? EventAlerts.alertsFor(saved.event.id);
+    final alerts = [...own, ...EventAlerts.inheritedFor(saved.event, own: own)];
+    if (alerts.isEmpty) return;
+    if (await AlertPermissionCheck.afterSave(context)) return;
     try {
       final settings = await SettingsService.getInstance();
       final defaults = await settings.getAlertSettings();
@@ -513,52 +519,6 @@ class EventSheetsFlow {
       }
     } catch (e) {
       debugPrint('[EventSheetsFlow] alert countdown skipped: $e');
-    }
-  }
-
-  /// Raises the system notification prompt the **first** time an alert is
-  /// saved (§6.1), and says so every time an alert is saved that cannot ring —
-  /// which is what it answers: whether it had to.
-  ///
-  /// The prompt is contextual and latched: it follows a user action, the alert
-  /// is already persisted so a refusal costs nothing but the ring, and a
-  /// denial is never asked about again from here — the launch dialog and the
-  /// Permissions page are where it can still be granted. The snackbar is not
-  /// latched, because an alert saved without an essential permission is an
-  /// alert that silently never fires. Everything here is best-effort; a build
-  /// with no permission service simply never asks.
-  Future<bool> _checkAlertPermissions(
-    BuildContext context,
-    List<EventAlert> alerts,
-  ) async {
-    try {
-      if (!GetIt.I.isRegistered<PermissionService>()) return false;
-      final permissions = GetIt.I<PermissionService>();
-      final settings = await SettingsService.getInstance();
-      var snapshot = await permissions.refresh();
-      if (!await settings.getAlertNotificationsAsked()) {
-        if (snapshot.isMissing(AppPermission.notifications)) {
-          snapshot = await permissions.promptFor(const [
-            AppPermission.notifications,
-          ]);
-        }
-        await settings.setAlertNotificationsAsked(true);
-      }
-      if (!snapshot.needsAttention) return false;
-      if (!context.mounted) return true;
-      final l10n = AppLocalizations.of(context)!;
-      CustomSnackbar.showWithAction(
-        context,
-        message: l10n.permissionsAlertBlocked,
-        actionLabel: l10n.permissionsReview,
-        onAction: () {
-          if (context.mounted) AppNavigator.toPermissions(context);
-        },
-      );
-      return true;
-    } catch (e) {
-      debugPrint('[EventSheetsFlow] alert permission check skipped: $e');
-      return false;
     }
   }
 

@@ -1,9 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/event_alert.dart';
 import 'package:anta/services/category_service.dart';
+import 'package:anta/services/event_alert_service.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -371,6 +375,65 @@ void main() {
             'must not throw the whole row out of the restore, which for a '
             'custom category is unrecoverable data loss',
       );
+    });
+  });
+
+  group('deleteCategory cascades to its alerts (v42)', () {
+    Future<CalendarCategory> customWithAlerts() async {
+      final custom = await service.create(
+        name: 'Dentist',
+        colorValue: 0xFF00AAFF,
+        iconKey: 'event',
+      );
+      final alerts = await EventAlertService.forTesting(db);
+      await alerts.replaceForCategory(custom.id, [
+        CategoryAlert(id: 'c1', categoryId: custom.id, daysBefore: 1),
+        CategoryAlert(id: 'c2', categoryId: custom.id, mode: AlertMode.ring),
+      ]);
+      await alerts.replaceForCategory('birthday', const [
+        CategoryAlert(id: 'b1', categoryId: 'birthday'),
+      ]);
+      return custom;
+    }
+
+    tearDown(EventAlertService.reset);
+
+    test('tombstones the category\'s alerts and republishes', () async {
+      final custom = await customWithAlerts();
+      expect(EventAlerts.categoryAlertsFor(custom.id), hasLength(2));
+
+      await service.deleteCategory(custom.id);
+
+      expect(CalendarCategories.byId(custom.id), isNull);
+      expect(EventAlerts.categoryAlertsFor(custom.id), isEmpty);
+      expect(
+        EventAlerts.categoryAlertsFor('birthday'),
+        hasLength(1),
+        reason: 'another category\'s alerts are not the delete\'s business',
+      );
+      final rows = await db.select(db.calendarCategoryAlerts).get();
+      final byId = {for (final row in rows) row.id: row};
+      expect(byId['c1']!.isDeleted, isTrue);
+      expect(byId['c2']!.isDeleted, isTrue);
+      expect(byId['b1']!.isDeleted, isFalse);
+    });
+
+    test('lands in the table with no alert service loaded', () async {
+      final custom = await customWithAlerts();
+      EventAlertService.reset();
+
+      await service.deleteCategory(custom.id);
+
+      final live = await db.categoryAlertDao.getAllActive();
+      expect(live.map((r) => r.id), ['b1']);
+    });
+
+    test('a built-in is refused and keeps its alerts', () async {
+      await customWithAlerts();
+
+      await service.deleteCategory('birthday');
+
+      expect(EventAlerts.categoryAlertsFor('birthday'), hasLength(1));
     });
   });
 }

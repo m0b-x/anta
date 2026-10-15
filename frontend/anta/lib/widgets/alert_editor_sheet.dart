@@ -96,6 +96,13 @@ class AlertEditorSheet extends StatefulWidget {
 
   final bool removeAfterAlert;
 
+  /// Whether the alert is a category's (**v42**), which every event in the
+  /// category inherits whatever its shape: the sheet then shows a When row
+  /// for each offset set — timed events, then all-day events with their time
+  /// of day — instead of the one [event] reads, and never the remove-after
+  /// switch, which is a one-time event's own flag and is never inherited.
+  final bool forCategory;
+
   const AlertEditorSheet({
     super.key,
     required this.alert,
@@ -104,6 +111,7 @@ class AlertEditorSheet extends StatefulWidget {
     this.showSound = true,
     this.showRemoveAfter = false,
     this.removeAfterAlert = false,
+    this.forCategory = false,
   });
 
   static Future<AlertEditorResult?> show(
@@ -114,6 +122,7 @@ class AlertEditorSheet extends StatefulWidget {
     bool showSound = true,
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
+    bool forCategory = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<AlertEditorResult>(
@@ -139,6 +148,7 @@ class AlertEditorSheet extends StatefulWidget {
           showSound: showSound,
           showRemoveAfter: showRemoveAfter,
           removeAfterAlert: removeAfterAlert,
+          forCategory: forCategory,
         ),
       ),
     );
@@ -240,9 +250,17 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
 
   bool get _allDay => widget.event.allDay;
 
-  /// The number the When row edits: minutes before the start for a timed
-  /// event, whole days before for an all-day one.
-  int get _whenValue => _allDay ? _daysBefore : _offsetMinutes;
+  /// [widget.event] read as a timed event, for the timed When row of a
+  /// category alert: [EventAlert.describe] picks the offset set by the
+  /// event's shape, and the stand-in a category passes may be all-day.
+  CalendarEvent get _timedEvent => widget.event.allDay
+      ? widget.event.copyWith(time: const EventTime(startMinute: 0))
+      : widget.event;
+
+  /// The number a When row edits: minutes before the start on a timed row,
+  /// whole days before on an all-day one.
+  int _whenValue({required bool allDay}) =>
+      allDay ? _daysBefore : _offsetMinutes;
 
   @override
   void initState() {
@@ -335,9 +353,9 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     });
   }
 
-  void _setWhenValue(int value) {
+  void _setWhenValue(int value, {required bool allDay}) {
     setState(() {
-      if (_allDay) {
+      if (allDay) {
         _daysBefore = value;
       } else {
         _offsetMinutes = value;
@@ -349,22 +367,22 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   /// is confirmed: opening it on "At start" and backing out leaves the alert
   /// at start, and a value the stepper cannot count is kept until Done hands
   /// back the one it clamped to.
-  Future<void> _onWhenSelected(int item) async {
+  Future<void> _onWhenSelected(int item, {required bool allDay}) async {
     if (item != _customItem) {
-      _setWhenValue(item);
+      _setWhenValue(item, allDay: allDay);
       return;
     }
     final l10n = AppLocalizations.of(context)!;
     final picked = await AlertOffsetSheet.show(
       context,
-      initial: _whenValue,
-      allDay: _allDay,
+      initial: _whenValue(allDay: allDay),
+      allDay: allDay,
       // The When row's own wording, so the sub-sheet shows before Done what
       // this row says after it.
-      readBack: (stored) => _whenLabel(l10n, stored),
+      readBack: (stored) => _whenLabel(l10n, stored, allDay: allDay),
     );
     if (picked == null || !mounted) return;
-    _setWhenValue(picked);
+    _setWhenValue(picked, allDay: allDay);
   }
 
   Future<void> _pickDayMinute() async {
@@ -418,10 +436,21 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     // nothing to remove.
     final groups = <List<Widget>>[
       [_buildTypeRow(l10n)],
-      [_buildWhenRow(l10n), if (_allDay) _buildTimeOfDayRow(l10n)],
+      if (widget.forCategory)
+        [
+          _buildWhenRow(l10n, allDay: false),
+          _buildWhenRow(l10n, allDay: true),
+          _buildTimeOfDayRow(l10n),
+        ]
+      else
+        [
+          _buildWhenRow(l10n, allDay: _allDay),
+          if (_allDay) _buildTimeOfDayRow(l10n),
+        ],
       [
         if (widget.showSound) _buildSoundRow(l10n),
-        if (widget.showRemoveAfter) _buildRemoveAfterRow(l10n),
+        if (widget.showRemoveAfter && !widget.forCategory)
+          _buildRemoveAfterRow(l10n),
       ],
       [if (widget.canRemove) _buildRemoveRow(l10n)],
     ].where((rows) => rows.isNotEmpty).toList();
@@ -481,34 +510,53 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     );
   }
 
-  Widget _buildWhenRow(AppLocalizations l10n) {
-    final presets = _allDay ? _allDayPresets : _timedPresets;
-    final value = _whenValue;
+  /// The When row for one offset set. A category alert shows both, each
+  /// named for the events it serves; the all-day one keeps
+  /// [SemanticsIds.alertWhen] off, so a flow tells the two apart.
+  Widget _buildWhenRow(AppLocalizations l10n, {required bool allDay}) {
+    final presets = allDay ? _allDayPresets : _timedPresets;
+    final value = _whenValue(allDay: allDay);
+    final String label;
+    final IconData glyph;
+    final String identifier;
+    if (!widget.forCategory) {
+      label = l10n.eventAlertWhenSection;
+      glyph = Icons.timer_outlined;
+      identifier = SemanticsIds.alertWhen;
+    } else if (allDay) {
+      label = l10n.alertsDefaultAllDay;
+      glyph = Icons.today_outlined;
+      identifier = SemanticsIds.alertWhenAllDay;
+    } else {
+      label = l10n.alertsDefaultTimed;
+      glyph = Icons.timer_outlined;
+      identifier = SemanticsIds.alertWhen;
+    }
     return FormMenuRow<int>(
-      glyph: Icons.timer_outlined,
-      label: l10n.eventAlertWhenSection,
-      value: _whenLabel(l10n, value),
+      glyph: glyph,
+      label: label,
+      value: _whenLabel(l10n, value, allDay: allDay),
       selected: presets.contains(value) ? value : _customItem,
-      identifier: SemanticsIds.alertWhen,
+      identifier: identifier,
       menuWidth: FormMetrics.menuWidth,
       items: [
         for (final preset in presets)
           FormMenuItem(
             value: preset,
-            label: _whenLabel(l10n, preset),
-            identifier: _allDay
+            label: _whenLabel(l10n, preset, allDay: allDay),
+            identifier: allDay
                 ? SemanticsIds.alertWhenDayItem(preset)
                 : SemanticsIds.alertWhenItem(preset),
           ),
         FormMenuItem(
           value: _customItem,
           label: l10n.eventAlertCustomItem,
-          identifier: _allDay
+          identifier: allDay
               ? SemanticsIds.alertWhenDayCustom
               : SemanticsIds.alertWhenCustom,
         ),
       ],
-      onSelected: _onWhenSelected,
+      onSelected: (item) => _onWhenSelected(item, allDay: allDay),
     );
   }
 
@@ -517,11 +565,11 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   /// through [EventAlert.describe], the one formatter every other surface
   /// reads. An all-day one is named without its time of day, which has the
   /// row under this one to itself.
-  String _whenLabel(AppLocalizations l10n, int value) {
-    if (!_allDay) {
+  String _whenLabel(AppLocalizations l10n, int value, {required bool allDay}) {
+    if (!allDay) {
       return widget.alert
           .copyWith(offsetMinutes: value)
-          .describe(l10n, widget.event);
+          .describe(l10n, _timedEvent);
     }
     return switch (value) {
       <= 0 => l10n.eventAlertOnTheDay,

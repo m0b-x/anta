@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
@@ -119,12 +121,16 @@ class CategoryEditorRobot {
 
   /// Opens the editor the way its callers do — through `show`, from a button
   /// on a page — and captures its result.
+  ///
+  /// [bloc] puts the app's calendar bloc in scope, as the app has it, for a
+  /// case that watches what the sheet tells the calendar.
   Future<CategoryEditorOutcome> show({
     CalendarCategory? initial,
     String? initialName,
     Locale locale = const Locale('en'),
     double? textScale,
     Size? surface,
+    CalendarBloc? bloc,
   }) async {
     if (surface != null) {
       addTearDown(tester.view.reset);
@@ -133,30 +139,33 @@ class CategoryEditorRobot {
     }
     final outcome = CategoryEditorOutcome();
     await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: locale,
-        builder: textScale == null
-            ? null
-            : (context, child) => MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(textScaler: TextScaler.linear(textScale)),
-                child: child!,
+      _withBloc(
+        bloc,
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: locale,
+          builder: textScale == null
+              ? null
+              : (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(textScale)),
+                  child: child!,
+                ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  outcome.result = await CategoryEditorSheet.show(
+                    context,
+                    initial: initial,
+                    initialName: initialName,
+                  );
+                  outcome.returned = true;
+                },
+                child: const Text(_openLabel),
               ),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () async {
-                outcome.result = await CategoryEditorSheet.show(
-                  context,
-                  initial: initial,
-                  initialName: initialName,
-                );
-                outcome.returned = true;
-              },
-              child: const Text(_openLabel),
             ),
           ),
         ),
@@ -166,6 +175,12 @@ class CategoryEditorRobot {
     await tester.pumpAndSettle();
     return outcome;
   }
+
+  /// Above the app, where the app has it: the sheet is a route of its own,
+  /// not a descendant of the page that opened it.
+  static Widget _withBloc(CalendarBloc? bloc, Widget child) => bloc == null
+      ? child
+      : BlocProvider<CalendarBloc>.value(value: bloc, child: child);
 
   bool get isOpen => _shown(_sheet);
 
@@ -292,6 +307,77 @@ class CategoryEditorRobot {
   List<Size> get dotTargets => [
     for (final dot in _in(find.byType(ColorSwatchDot)).evaluate())
       tester.getSize(find.byWidget(dot.widget)),
+  ];
+
+  // --- The alerts ------------------------------------------------------------
+
+  /// The Alerts group's alert rows, top to bottom — the picker rows carrying
+  /// a `category-alert-<i>` id.
+  List<FormPickerRow> get _alertRows {
+    final rows = _in(
+      find.byWidgetPredicate(
+        (w) =>
+            w is FormPickerRow &&
+            (w.identifier?.startsWith('category-alert-') ?? false),
+      ),
+    );
+    return [for (final e in rows.evaluate()) e.widget as FormPickerRow];
+  }
+
+  /// What each alert row says first: its reading on an all-day event.
+  List<String> get alertLabels => [for (final row in _alertRows) row.label];
+
+  /// What each alert row says under it: the timed reading and the tier.
+  List<String?> get alertCaptions => [
+    for (final row in _alertRows) row.caption,
+  ];
+
+  /// Whether Add alert is offered — it leaves at the cap.
+  bool get canAddAlert => _shown(_byId(SemanticsIds.categoryAlertAdd));
+
+  /// Whether the caption under the group, saying every event gets these
+  /// alerts, is drawn.
+  bool get alertsHintShown => _shown(_in(find.text(_l10n.categoryAlertsHint)));
+
+  /// Add alert: the alert sheet opens on a new alert (`AlertSheetRobot`).
+  Future<void> addAlert() => _tap(_byId(SemanticsIds.categoryAlertAdd));
+
+  /// Opens alert [index] in the alert sheet.
+  Future<void> editAlert(int index) =>
+      _tap(_byId(SemanticsIds.categoryAlertRow(index)));
+
+  /// Removes alert [index] the one way there is: its sheet's Remove row.
+  Future<void> removeAlert(int index) async {
+    await editAlert(index);
+    await _tap(find.bySemanticsIdentifier(SemanticsIds.alertRemove));
+  }
+
+  /// The category's switch on each alert row, top to bottom.
+  List<bool> get alertSwitches => [
+    for (var i = 0; i < _alertRows.length; i++)
+      tester
+          .widget<Switch>(
+            find.descendant(
+              of: _byId(SemanticsIds.categoryAlertSwitch(i)),
+              matching: find.byType(Switch),
+            ),
+          )
+          .value,
+  ];
+
+  /// Flips the category's switch on alert [index].
+  Future<void> toggleAlert(int index) =>
+      _tap(_byId(SemanticsIds.categoryAlertSwitch(index)));
+
+  /// Whether any alert row carries a ✕ — none should: removal is the alert
+  /// sheet's.
+  bool get alertRowsHaveRemove =>
+      _in(find.byTooltip(_l10n.eventAlertRemove)).evaluate().isNotEmpty;
+
+  /// The on-screen height of each alert row.
+  List<double> get alertRowHeights => [
+    for (var i = 0; i < _alertRows.length; i++)
+      tester.getSize(_byId(SemanticsIds.categoryAlertRow(i))).height,
   ];
 
   // --- Geometry ---------------------------------------------------------------

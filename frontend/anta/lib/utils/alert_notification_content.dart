@@ -25,6 +25,10 @@ enum AlertNotificationKind {
   /// The alarm tier on the notification backend, behind
   /// `kAlarmTierUsesNotifications`.
   fallbackAlarm,
+
+  /// A digest: the events of a coming span as a list, written whole when it
+  /// was armed (`digestNotificationContent`).
+  digest,
 }
 
 /// What a button on a notification does, whatever it is called.
@@ -40,6 +44,8 @@ class AlertNotificationContent {
     required this.text,
     this.expandedText,
     this.actions = const <AlertActionLabel>[],
+    this.lines = const <String>[],
+    this.summary,
   });
 
   final String title;
@@ -53,6 +59,13 @@ class AlertNotificationContent {
 
   /// The buttons, in the order they are drawn: the one that settles first.
   final List<AlertActionLabel> actions;
+
+  /// What a list-shaped notification reads once expanded, one row each —
+  /// a digest's occurrences. Empty for every other kind.
+  final List<String> lines;
+
+  /// The note under [lines] — a digest's "+N more" — or null for none.
+  final String? summary;
 
   /// The label of the button that does [action], or null when this
   /// notification has none.
@@ -202,6 +215,15 @@ AlertNotificationContent alertNotificationContent(
                 : strings.alarmOpenEvent,
           ),
         ],
+      );
+    case AlertNotificationKind.digest:
+      // Every word was written at arm time; a tap opens the overview, so
+      // there is no button to name.
+      return AlertNotificationContent(
+        title: title,
+        text: payload.digestText ?? '',
+        lines: payload.digestLines,
+        summary: payload.digestSummary,
       );
   }
 }

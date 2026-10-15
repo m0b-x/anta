@@ -1,0 +1,79 @@
+# A category's alerts (docs/category-alerts-and-digests-roadmap.md §6.1,
+# §6.2, §6.4): the fixture's Birthday alert (qa-alert-category-birthday — a
+# Reminder 30 min before a timed event, the day before at 09:00 for an
+# all-day one) in the category editor's Alerts group and in the alert sheet
+# it opens, which shows both When rows; then the one event it reaches, the
+# yearly "Ana" (qa-alert-birthday, two days ahead), as an inherited row in
+# the Alerts hub and in her editor. Nothing is written.
+# - Starts on the calendar, where 02_remove_after leaves it; run on its own,
+#   open the calendar first. It rings nothing: the inherited reminder is due
+#   tomorrow at 09:00 whatever the hour the seed went in — Ana sits two days
+#   out so that it is, and so the hub has it to list.
+# - "Birthday" is the built-in's label, singular. A built-in's name is a read
+#   row, so the editor is waited for on its alert row, not the name field.
+#   The row reads the all-day wording as its label and the timed one in its
+#   caption, "Timed events: 30 min before · Reminder"; the all-day label
+#   carries a clock time in the device's own format and is not read.
+# - Opened from a category, the alert sheet shows a When row per shape —
+#   id:alert-when for timed events, id:alert-when-all-day for all-day ones —
+#   and the time of day; remove-after is an event's flag and is absent.
+#   A sheet on top takes the editor under it out of the tree, so the words
+#   read there are the sheet's own.
+# - ✕ on the alert sheet hands nothing back, and the category editor is
+#   unguarded: ✕ leaves it as it was.
+# - Ana is reached through the hub rather than a day cell: two days ahead
+#   can be outside the month the grid draws, and the hub's row opens her
+#   detail sheet on her day wherever that is (AppNavigator.toCalendarOccurrence,
+#   which takes the hub off the stack). The hub loads behind a spinner, and
+#   the Digests group's Add row is there once it has; Ana's row is found by
+#   its caption, "The day before, <time> · From Birthday", and its switch by
+#   its spoken label.
+# - In the editor the inherited row is a read row with its source in the
+#   caption, "From Birthday · Reminder", and the Category alerts switch ends
+#   the group; scrolling to the switch inside id:event-form brings the group
+#   on screen (the header strip is the first scrollable). Nothing is changed,
+#   so ✕ leaves without the discard question and the detail sheet is back.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap "Create and customize event categories"
+wait "Create category"
+scroll-to "Birthday"
+tap "Birthday"
+wait id:category-alert-0
+expect id:category-editor-close id:category-editor-save id:category-alert-0 id:category-alert-switch-0 id:category-alert-add "Edit category" "Timed events: 30 min before · Reminder" "Every event in this category gets these alerts."
+shot 03_category_alerts_group
+tap id:category-alert-0
+wait id:alert-sheet-save
+scroll-to id:alert-remove
+expect id:alert-sheet-close id:alert-type-reminder id:alert-type-alarm id:alert-when id:alert-when-all-day id:alert-time-of-day id:alert-sound id:alert-remove "Timed events" "All-day events" "30 min before" --absent id:alert-remove-after
+shot 03_category_alert_sheet
+tap id:alert-sheet-close
+wait id:alert-sheet-save --gone
+wait id:category-alert-add
+tap id:category-editor-close
+wait "Create category"
+key back
+wait "Search settings"
+key back
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-alerts-open
+tap id:calendar-alerts-open
+wait id:alerts-digest-add
+scroll-to "From Birthday"
+expect "From Birthday" "Alert for Ana"
+shot 03_hub_inherited
+tap "From Birthday"
+wait id:event-detail-edit
+tap id:event-detail-edit
+wait id:event-close
+scroll-to id:event-category-alerts --in id:event-form
+expect id:event-inherited-alert-0 id:event-alert-add id:event-category-alerts "From Birthday · Reminder" "Use the alerts set on Birthday"
+shot 03_inherited_rows
+tap id:event-close
+wait id:event-detail-close
+tap id:event-detail-close
+wait id:calendar-add-event
+errors

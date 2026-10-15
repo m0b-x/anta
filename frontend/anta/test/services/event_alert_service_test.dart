@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -81,8 +82,8 @@ void main() {
       ]);
 
       expect(EventAlerts.alertsFor('e1'), hasLength(2));
-      expect(EventAlerts.hasAlarm('e1'), isTrue);
-      expect(EventAlerts.hasReminder('e1'), isTrue);
+      expect(EventAlerts.hasAlarm(eventOf('e1')), isTrue);
+      expect(EventAlerts.hasReminder(eventOf('e1')), isTrue);
       expect(EventAlerts.alertsFor('e2'), isEmpty);
     });
 
@@ -115,7 +116,7 @@ void main() {
       await service.replaceForEvent('e1', const []);
 
       expect(EventAlerts.alertsFor('e1'), isEmpty);
-      expect(EventAlerts.hasReminder('e1'), isFalse);
+      expect(EventAlerts.hasReminder(eventOf('e1')), isFalse);
       expect((await allRows()).every((r) => r.isDeleted), isTrue);
     });
 
@@ -192,7 +193,7 @@ void main() {
 
       expect(EventAlerts.alertsFor('e1'), hasLength(1));
       expect(
-        EventAlerts.hasAlarm('e1'),
+        EventAlerts.hasAlarm(eventOf('e1')),
         isFalse,
         reason: 'a disabled alert registers nothing, so it badges nothing',
       );
@@ -220,7 +221,7 @@ void main() {
       EventAlertService.reset();
 
       expect(EventAlerts.alertsFor('e1'), isEmpty);
-      expect(EventAlerts.hasReminder('e1'), isFalse);
+      expect(EventAlerts.hasReminder(eventOf('e1')), isFalse);
     });
 
     test('a reload republishes what the table holds', () async {
@@ -414,6 +415,271 @@ void main() {
       await events.importData([legacy]);
 
       expect(events.events.single.removeAfterAlert, isFalse);
+    });
+  });
+
+  group('categoryAlerts on the event (v42)', () {
+    late CalendarEventService events;
+
+    setUp(() async {
+      events = await CalendarEventService.forTesting(db);
+    });
+
+    test('defaults to on; the opt-out round-trips the DAO', () async {
+      await events.upsert(eventOf('e1'));
+      await events.upsert(eventOf('e2').copyWith(categoryAlerts: false));
+      await events.reload();
+
+      final byId = {for (final e in events.events) e.id: e};
+      expect(byId['e1']!.categoryAlerts, isTrue);
+      expect(byId['e2']!.categoryAlerts, isFalse);
+    });
+
+    test('rides the event backup key, and its absence imports as on', () async {
+      await events.upsert(eventOf('e1').copyWith(categoryAlerts: false));
+      final exported = (await events.exportData()).single;
+      expect(exported['categoryAlerts'], isFalse);
+
+      await events.importData([exported]);
+      expect(events.events.single.categoryAlerts, isFalse);
+
+      await events.importData([
+        Map<String, dynamic>.of(exported)..remove('categoryAlerts'),
+      ]);
+      expect(
+        events.events.single.categoryAlerts,
+        isTrue,
+        reason: 'before v42 no category had an alert, so every event inherited',
+      );
+    });
+  });
+
+  group('category alerts (v42)', () {
+    CategoryAlert categoryAlertOf(
+      String id, {
+      String categoryId = 'birthday',
+      AlertMode mode = AlertMode.notify,
+      int daysBefore = 1,
+      bool enabled = true,
+    }) => CategoryAlert(
+      id: id,
+      categoryId: categoryId,
+      mode: mode,
+      daysBefore: daysBefore,
+      enabled: enabled,
+    );
+
+    Future<CategoryAlertRow> categoryRow(String id) {
+      return (db.select(
+        db.calendarCategoryAlerts,
+      )..where((a) => a.id.equals(id))).getSingle();
+    }
+
+    test('replaceForCategory publishes and bumps the revision', () async {
+      final before = EventAlerts.revision;
+
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2', mode: AlertMode.ring),
+      ]);
+
+      expect(EventAlerts.revision, greaterThan(before));
+      expect(service.categoryAlertsFor('birthday').map((a) => a.id), [
+        'c1',
+        'c2',
+      ]);
+      expect(EventAlerts.categoryAlertsFor('gym'), isEmpty);
+    });
+
+    test('a removed alert is tombstoned and a kept one upserted', () async {
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+      ]);
+
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1', daysBefore: 7),
+        categoryAlertOf('c3'),
+      ]);
+
+      expect(EventAlerts.categoryAlertsFor('birthday').map((a) => a.id), [
+        'c1',
+        'c3',
+      ]);
+      final gone = await categoryRow('c2');
+      expect(gone.isDeleted, isTrue);
+      expect(gone.deletedAt, isNotNull);
+      expect(gone.version, 2);
+      final kept = await categoryRow('c1');
+      expect(kept.daysBefore, 7);
+      expect(kept.version, 2);
+      final added = await categoryRow('c3');
+      expect(added.version, 1);
+      expect(added.deviceId, 'test-device');
+    });
+
+    test('an unchanged alert is not re-stamped', () async {
+      await service.replaceForCategory('birthday', [categoryAlertOf('c1')]);
+      final first = await categoryRow('c1');
+
+      await service.replaceForCategory('birthday', [categoryAlertOf('c1')]);
+
+      final second = await categoryRow('c1');
+      expect(second.version, first.version);
+      expect(second.hlcTimestamp, first.hlcTimestamp);
+    });
+
+    test('the tombstones and the upserts are one transaction', () async {
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+      ]);
+      await service.replaceForCategory('gym', [
+        categoryAlertOf('g1', categoryId: 'gym'),
+      ]);
+
+      // `g1` belongs to another category, so this set reads it as new and the
+      // insert collides on the primary key — after `c2` was already
+      // tombstoned in the same call.
+      await expectLater(
+        db.categoryAlertDao.replaceForCategory('birthday', [
+          CalendarCategoryAlertsCompanion(id: const Value('c1')),
+          CalendarCategoryAlertsCompanion(id: const Value('g1')),
+        ]),
+        throwsA(anything),
+      );
+
+      expect(
+        (await categoryRow('c2')).isDeleted,
+        isFalse,
+        reason: 'a failed write must roll the whole set back',
+      );
+      expect((await categoryRow('g1')).categoryId, 'gym');
+    });
+
+    test('an alert handed in under another category is re-owned', () async {
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1', categoryId: 'gym'),
+      ]);
+
+      expect((await categoryRow('c1')).categoryId, 'birthday');
+      expect(
+        EventAlerts.categoryAlertsFor('birthday').single.categoryId,
+        'birthday',
+      );
+    });
+
+    test('tombstoneForCategory tombstones only that category', () async {
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+      ]);
+      await service.replaceForCategory('gym', [
+        categoryAlertOf('g1', categoryId: 'gym'),
+      ]);
+      final before = EventAlerts.revision;
+
+      await service.tombstoneForCategory('birthday');
+
+      expect(EventAlerts.revision, greaterThan(before));
+      expect(EventAlerts.categoryAlertsFor('birthday'), isEmpty);
+      expect(EventAlerts.categoryAlertsFor('gym'), hasLength(1));
+      expect((await categoryRow('c1')).isDeleted, isTrue);
+      expect((await categoryRow('c2')).version, 2);
+      expect((await categoryRow('g1')).isDeleted, isFalse);
+
+      await service.tombstoneForCategory('birthday');
+      expect(
+        (await categoryRow('c2')).version,
+        2,
+        reason: 'a repeat must not churn versions',
+      );
+    });
+
+    test('getInstance loads both tables, and reset clears both', () async {
+      await service.replaceForEvent('e1', [alertOf('a1')]);
+      await service.replaceForCategory('birthday', [categoryAlertOf('c1')]);
+
+      EventAlertService.reset();
+      expect(EventAlerts.categoryAlertsFor('birthday'), isEmpty);
+      expect(EventAlerts.alertsFor('e1'), isEmpty);
+
+      await EventAlertService.forTesting(db);
+      expect(EventAlerts.categoryAlertsFor('birthday').single.id, 'c1');
+      expect(EventAlerts.alertsFor('e1').single.id, 'a1');
+    });
+
+    test('refreshAfterCategoryRemoval republishes a live instance', () async {
+      await service.replaceForCategory('birthday', [categoryAlertOf('c1')]);
+      await db.categoryAlertDao.tombstoneForCategory('birthday');
+
+      await EventAlertService.refreshAfterCategoryRemoval();
+
+      expect(EventAlerts.categoryAlertsFor('birthday'), isEmpty);
+    });
+
+    test('racing constructions share one instance', () async {
+      EventAlertService.reset();
+
+      final first = EventAlertService.forTesting(db);
+      final second = EventAlertService.forTesting(db);
+
+      expect(identical(await first, await second), isTrue);
+    });
+
+    test('refreshAfterCategoryRemoval waits for a loading instance', () async {
+      await service.replaceForCategory('birthday', [categoryAlertOf('c1')]);
+      EventAlertService.reset();
+      expect(EventAlerts.categoryAlertsFor('birthday'), isEmpty);
+
+      final loading = EventAlertService.forTesting(db);
+      await EventAlertService.refreshAfterCategoryRemoval();
+
+      expect(
+        EventAlerts.categoryAlertsFor('birthday').map((a) => a.id),
+        ['c1'],
+        reason:
+            'the refresh must not return before the instance it found '
+            'still loading has published',
+      );
+      await loading;
+    });
+
+    test('replaceForEvent never stores a projected alert', () async {
+      final projected = categoryAlertOf('c1').toEventAlert('e1');
+
+      await expectLater(
+        service.replaceForEvent('e1', [alertOf('a1'), projected]),
+        throwsA(isA<AssertionError>()),
+      );
+
+      expect(await allRows(), isEmpty);
+      expect(EventAlerts.alertsFor('e1'), isEmpty);
+    });
+
+    test('export and import round-trip without CRDT identity', () async {
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1', mode: AlertMode.ring, enabled: false),
+      ]);
+      final exported = await service.exportCategoryAlerts();
+      expect(exported.single.keys, isNot(contains('hlcTimestamp')));
+      expect(exported.single[EventAlertKeys.categoryId], 'birthday');
+
+      await service.clearCategoryAlertsForImport();
+      expect(EventAlerts.categoryAlertsFor('birthday'), isEmpty);
+      expect(await db.select(db.calendarCategoryAlerts).get(), isEmpty);
+
+      await service.importCategoryAlerts([
+        ...exported,
+        {'id': 'broken'},
+        'not a map',
+      ]);
+
+      final restored = EventAlerts.categoryAlertsFor('birthday').single;
+      expect(restored.id, 'c1');
+      expect(restored.mode, AlertMode.ring);
+      expect(restored.enabled, isFalse);
+      expect((await categoryRow('c1')).version, 1);
     });
   });
 }

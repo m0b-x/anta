@@ -8,15 +8,20 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
 import 'support/alert_sheet_robot.dart';
@@ -353,5 +358,277 @@ void main() {
     );
 
     expect(find.text('The day before, 9:00 AM'), findsOneWidget);
+  });
+
+  // v42: a category's alerts are shown on its events read-only, in the
+  // event's own wording, beside the switch that opts the event out (D3).
+  group('category alerts', () {
+    const inheritedCaption = 'From Gym · Reminder';
+
+    CalendarCategory category(String id, String name, int sortOrder) =>
+        CalendarCategory(
+          id: id,
+          name: name,
+          colorValue: 0xFF43A047,
+          iconKey: 'event',
+          sortOrder: sortOrder,
+          isBuiltIn: false,
+        );
+
+    CategoryAlert categoryAlert(String id, String categoryId) => CategoryAlert(
+      id: id,
+      categoryId: categoryId,
+      offsetMinutes: 30,
+      daysBefore: 1,
+      dayMinute: 9 * 60,
+    );
+
+    setUp(() {
+      CalendarCategories.updateCache([
+        category('gym', 'Gym', 0),
+        category('party', 'Party', 1),
+      ]);
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': List<CategoryAlert>.unmodifiable([categoryAlert('c1', 'gym')]),
+        },
+      );
+    });
+
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    Finder inheritedRows() => find.byWidgetPredicate(
+      (w) => w is FormPickerRow && (w.caption?.startsWith('From ') ?? false),
+    );
+
+    Future<void> tapAndSettle(WidgetTester tester, Finder target) async {
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('an inherited alert is a read row in the event\'s wording', (
+      tester,
+    ) async {
+      await open(tester, initial: eventOf());
+
+      expect(inheritedRows(), findsOneWidget);
+      final row = tester.widget<FormPickerRow>(inheritedRows());
+      // The timed event reads the timed offset, not the category's all-day
+      // one.
+      expect(row.label, '30 min before');
+      expect(row.caption, inheritedCaption);
+      expect(row.onTap, isNull);
+      expect(row.trailingButton, isNull);
+      expect(row.showChevron, isFalse);
+      expect(find.text('Category alerts'), findsOneWidget);
+    });
+
+    testWidgets('an all-day event reads the all-day offset', (tester) async {
+      await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Leg day',
+          categoryId: 'gym',
+          startDate: startDate,
+          rule: const OneTimeRecurrence(),
+        ),
+      );
+
+      expect(
+        tester.widget<FormPickerRow>(inheritedRows()).label,
+        'The day before, 9:00 AM',
+      );
+    });
+
+    testWidgets('no switch while the category hands nothing down', (
+      tester,
+    ) async {
+      EventAlerts.updateCategoryCache(byCategory: const {});
+      await open(tester, initial: eventOf());
+
+      expect(inheritedRows(), findsNothing);
+      expect(find.text('Category alerts'), findsNothing);
+    });
+
+    testWidgets('Add alert counts the event\'s own alerts only', (
+      tester,
+    ) async {
+      EventAlerts.updateCache(
+        byEvent: {
+          'e1': List<EventAlert>.unmodifiable([
+            for (var i = 0; i < kMaxAlertsPerEvent - 1; i++)
+              EventAlert(id: 'a$i', eventId: 'e1', offsetMinutes: (i + 1) * 5),
+          ]),
+        },
+      );
+      await open(tester, initial: eventOf());
+
+      expect(inheritedRows(), findsOneWidget);
+      expect(find.text('Add alert'), findsOneWidget);
+    });
+
+    testWidgets('switching it off dims the rows where they stand, rides the '
+        'event and is never saved as an own alert', (tester) async {
+      final results = await open(tester, initial: eventOf());
+      await tester.ensureVisible(find.text('Category alerts'));
+      await tester.pumpAndSettle();
+      final before = tester.getRect(inheritedRows());
+
+      await tapAndSettle(tester, find.text('Category alerts'));
+      expect(inheritedRows(), findsOneWidget);
+      expect(tester.widget<FormPickerRow>(inheritedRows()).enabled, isFalse);
+      expect(tester.getRect(inheritedRows()), before);
+
+      await tapAndSettle(tester, find.text('Category alerts'));
+      expect(tester.widget<FormPickerRow>(inheritedRows()).enabled, isTrue);
+      await tapAndSettle(tester, find.text('Category alerts'));
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.categoryAlerts, isFalse);
+      expect(saved.alerts, isEmpty);
+    });
+
+    testWidgets('an opted-out event opens with the rows dimmed and saves '
+        'its flag back on', (tester) async {
+      final results = await open(
+        tester,
+        initial: eventOf().copyWith(categoryAlerts: false),
+      );
+
+      expect(tester.widget<FormPickerRow>(inheritedRows()).enabled, isFalse);
+      await tapAndSettle(tester, find.text('Category alerts'));
+      expect(tester.widget<FormPickerRow>(inheritedRows()).enabled, isTrue);
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.categoryAlerts, isTrue);
+    });
+
+    testWidgets('a new event saved with the switch off carries the opt-out', (
+      tester,
+    ) async {
+      final results = await open(tester);
+      await typeTitle(tester);
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.eventCategory),
+      );
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickRow('gym')),
+      );
+      expect(inheritedRows(), findsOneWidget);
+
+      await tapAndSettle(tester, find.text('Category alerts'));
+      final saved = await saveAnd(tester, results);
+
+      expect(saved.event.categoryId, 'gym');
+      expect(saved.event.categoryAlerts, isFalse);
+      expect(saved.alerts, isEmpty);
+    });
+
+    testWidgets('toggling All day re-describes the inherited rows', (
+      tester,
+    ) async {
+      await open(tester, initial: eventOf());
+      expect(
+        tester.widget<FormPickerRow>(inheritedRows()).label,
+        '30 min before',
+      );
+
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.eventAllDay),
+      );
+
+      expect(
+        tester.widget<FormPickerRow>(inheritedRows()).label,
+        'The day before, 9:00 AM',
+      );
+    });
+
+    testWidgets('an alert the category paused is not listed on its events', (
+      tester,
+    ) async {
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': List<CategoryAlert>.unmodifiable([
+            categoryAlert('c1', 'gym'),
+            categoryAlert('c2', 'gym').copyWith(enabled: false),
+          ]),
+        },
+      );
+      await open(tester, initial: eventOf());
+
+      expect(inheritedRows(), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.eventInheritedAlert(0)),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.eventInheritedAlert(1)),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a category whose every alert is paused offers no switch', (
+      tester,
+    ) async {
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': List<CategoryAlert>.unmodifiable([
+            categoryAlert('c1', 'gym').copyWith(enabled: false),
+          ]),
+        },
+      );
+      await open(tester, initial: eventOf());
+
+      expect(inheritedRows(), findsNothing);
+      expect(find.text('Category alerts'), findsNothing);
+    });
+
+    testWidgets('the switch makes the form dirty', (tester) async {
+      final results = await open(tester, initial: eventOf());
+
+      await tapAndSettle(tester, find.text('Category alerts'));
+      await tapAndSettle(tester, find.byTooltip('Cancel'));
+
+      expect(find.text('Discard changes'), findsOneWidget);
+      await tapAndSettle(tester, find.text('Discard changes'));
+      expect(results.single, isNull);
+    });
+
+    testWidgets('an inherited alarm never offers remove-after', (tester) async {
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': List<CategoryAlert>.unmodifiable([
+            categoryAlert('c1', 'gym').copyWith(mode: AlertMode.ring),
+          ]),
+        },
+      );
+      await open(tester, initial: eventOf());
+
+      expect(inheritedRows(), findsOneWidget);
+      expect(find.text('Remove after it rings'), findsNothing);
+    });
+
+    testWidgets('a category pick re-reads the inherited rows', (tester) async {
+      await open(tester, initial: eventOf());
+      expect(inheritedRows(), findsOneWidget);
+
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.eventCategory),
+      );
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickRow('party')),
+      );
+
+      expect(inheritedRows(), findsNothing);
+      expect(find.text('Category alerts'), findsNothing);
+    });
   });
 }

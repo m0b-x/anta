@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../bloc/calendar/calendar_bloc.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/event_alerts.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/calendar_event_service.dart';
@@ -182,6 +185,10 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     if (!confirmed || !mounted) return;
     final deleted = await _guarded(() => _service!.deleteCategory(category.id));
     if (!mounted || !deleted) return;
+    // The cascade tombstoned the category's alerts and moved its events onto
+    // Other's, which the calendar's badges and the Alerts hub draw. Nullable:
+    // a host without the app's bloc has nothing to redraw.
+    context.read<CalendarBloc?>()?.add(const CategoryAlertsChanged());
     await _refreshCounts();
     if (!mounted) return;
     CustomSnackbar.showSuccess(context, l10n.categoryDeleted);
@@ -367,6 +374,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     final row = _CategoryRow(
       category: category,
       eventCount: _counts[category.id] ?? 0,
+      // Read per build from the facade, which the editor republishes before
+      // it pops — and [_refresh] rebuilds the rows when it does.
+      hasAlerts: EventAlerts.categoryAlertsFor(
+        category.id,
+      ).any((alert) => alert.enabled),
       dragIndex: dragIndex,
       onToggleHidden: () => _setHidden(category, !category.isHidden),
       onAction: (action) => _onCategoryAction(action, category),
@@ -417,6 +429,10 @@ class _CategoryRow extends StatelessWidget {
   final CalendarCategory category;
   final int eventCount;
 
+  /// Whether the category carries an enabled alert its events inherit
+  /// (**v42**, D19): a bell answers "which categories remind me" at a glance.
+  final bool hasAlerts;
+
   /// Index in the enclosing reorderable list, or `null` while a query is
   /// active and reorder is therefore off.
   final int? dragIndex;
@@ -425,9 +441,14 @@ class _CategoryRow extends StatelessWidget {
   final ValueChanged<_CategoryAction> onAction;
   final VoidCallback onTap;
 
+  /// The bell's slot, the trailing icons' own size: it never sets the row's
+  /// height.
+  static const double _bellSize = 24;
+
   const _CategoryRow({
     required this.category,
     required this.eventCount,
+    required this.hasAlerts,
     required this.dragIndex,
     required this.onToggleHidden,
     required this.onAction,
@@ -473,6 +494,28 @@ class _CategoryRow extends StatelessWidget {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // A fixed box on every row, empty where there is no bell: a
+                // bell that took its width only where it is drawn would wrap
+                // that row's text a line sooner and make it taller at large
+                // text. Spoken as a label of its own — a tooltip is not read
+                // on Android 9+.
+                SizedBox.square(
+                  dimension: _bellSize,
+                  child: hasAlerts
+                      ? Semantics(
+                          label: l10n.categoryHasAlerts,
+                          child: Tooltip(
+                            message: l10n.categoryHasAlerts,
+                            excludeFromSemantics: true,
+                            child: Icon(
+                              Icons.notifications_outlined,
+                              size: _bellSize,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )
+                      : null,
+                ),
                 IconButton(
                   icon: Icon(
                     category.isHidden ? Icons.visibility_off : Icons.visibility,

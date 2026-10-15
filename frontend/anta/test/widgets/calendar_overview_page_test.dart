@@ -2433,6 +2433,180 @@ void main() {
       expect(robot.currentMode, AgendaDayListMode.year);
     });
 
+    group("a digest's look (v42, D13)", () {
+      final march = OverviewCustomPeriod(
+        DateTime.utc(year, 3, 1),
+        DateTime.utc(year, 3, 31),
+      );
+
+      void publishMarch() {
+        AppNavigator.pendingOverviewLook.value = (
+          start: march.start,
+          end: march.end,
+          categoryIds: const {'mobility'},
+        );
+      }
+
+      setUp(() => AppNavigator.pendingOverviewLook.value = null);
+      tearDown(() => AppNavigator.pendingOverviewLook.value = null);
+
+      testWidgets('is served once: the list on the span over the allowlist, '
+          'the mode and the allowlist kept, the period the user kept left '
+          'alone', (tester) async {
+        const last90Days = OverviewRollingPeriod(
+          OverviewRollingPreset.last90Days,
+        );
+        final settings = await SettingsService.getInstance();
+        await settings.setCalendarOverviewCategories({'gym'});
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.year,
+          period: last90Days,
+        );
+
+        publishMarch();
+        await tester.pumpAndSettle();
+
+        expect(AppNavigator.pendingOverviewLook.value, isNull);
+        expect(robot.currentMode, AgendaDayListMode.list);
+        expect(robot.periodValue, march.menuValue(en));
+        expect(robot.shows('Stretch class'), isTrue);
+        expect(robot.shows('Leg day'), isFalse);
+
+        final stored = await settings.getCalendarOverviewSettings();
+        expect(stored.mode, AgendaDayListMode.list);
+        expect(stored.categoryIds, {'mobility'});
+        expect(
+          stored.period,
+          last90Days,
+          reason: 'a look writes no period: the kept one survives the tap',
+        );
+      });
+
+      testWidgets('drops a typed query and Missed only, and keeps Order and '
+          'Rows as they were', (tester) async {
+        const options = OverviewListOptions(
+          order: OverviewOrder.newestFirst,
+          rows: OverviewRows.everyOccurrence,
+        );
+        final robot = OverviewRobot(tester);
+        await openList(robot);
+        await robot.setOrder(options.order);
+        await robot.setMissedOnly(true);
+        await robot.typeQuery('Leg');
+
+        publishMarch();
+        await tester.pumpAndSettle();
+
+        expect(robot.searchText, isEmpty);
+        expect(robot.shows('Stretch class'), isTrue);
+        await robot.openOptions();
+        expect(robot.options.missedOnly, isFalse);
+        expect(robot.options.order, OverviewOrder.newestFirst);
+        expect(robot.options.rows, OverviewRows.everyOccurrence);
+        await robot.options.close();
+        final stored = await (await SettingsService.getInstance())
+            .getCalendarOverviewSettings();
+        expect(stored.listOptions.order, OverviewOrder.newestFirst);
+      });
+
+      testWidgets('published before the settings load, it wins over them', (
+        tester,
+      ) async {
+        final settings = await SettingsService.getInstance();
+        await settings.setCalendarOverviewCategories({'gym'});
+        publishMarch();
+
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.year,
+          period: const OverviewRollingPeriod(
+            OverviewRollingPreset.last90Days,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(AppNavigator.pendingOverviewLook.value, isNull);
+        expect(robot.currentMode, AgendaDayListMode.list);
+        expect(robot.periodValue, march.menuValue(en));
+        expect(robot.shows('Stretch class'), isTrue);
+        expect(robot.shows('Leg day'), isFalse);
+        expect(
+          (await settings.getCalendarOverviewSettings()).categoryIds,
+          {'mobility'},
+        );
+      });
+
+      testWidgets('a tap with an overview under another page collapses onto '
+          'it and lands the look there, pushing no second one', (tester) async {
+        final robot = OverviewRobot(tester);
+        await robot.openFromDrawer(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.year,
+        );
+        await robot.cover();
+        expect(robot.isOpen, isFalse);
+
+        unawaited(
+          AppNavigator.toCalendarOverviewLook(
+            start: march.start,
+            end: march.end,
+            categoryIds: const {'mobility'},
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(robot.isOpen, isTrue);
+        expect(find.text('covering'), findsNothing);
+        expect(
+          find.byType(CalendarOverviewPage, skipOffstage: false),
+          findsOneWidget,
+        );
+        expect(AppNavigator.pendingOverviewLook.value, isNull);
+        expect(robot.currentMode, AgendaDayListMode.list);
+        expect(robot.periodValue, march.menuValue(en));
+      });
+
+      testWidgets('a tap with no overview open pushes one, stamped to restore '
+          'like the drawer\'s, which serves the look', (tester) async {
+        await tester.pumpWidget(
+          app(
+            navigatorKey: AppNavigator.navigatorKey,
+            home: const Scaffold(body: Text('root')),
+          ),
+        );
+
+        unawaited(
+          AppNavigator.toCalendarOverviewLook(
+            start: march.start,
+            end: march.end,
+            categoryIds: const {'mobility'},
+          ),
+        );
+        await pumpUntilLoaded(tester);
+        await tester.pumpAndSettle();
+
+        final robot = OverviewRobot(tester);
+        expect(robot.isOpen, isTrue);
+        final top = AppNavigator.routeObserver.pageRoutes.lastWhere(
+          (route) => route.isActive,
+        );
+        expect(
+          top.settings.arguments,
+          const NavDestination(NavDestinationKind.calendarOverview),
+        );
+        expect(AppNavigator.pendingOverviewLook.value, isNull);
+        expect(robot.currentMode, AgendaDayListMode.list);
+        expect(robot.periodValue, march.menuValue(en));
+        expect(robot.shows('Stretch class'), isTrue);
+      });
+    });
+
     group('saved views (slice 9c, D17)', () {
       const last90Days = OverviewRollingPeriod(
         OverviewRollingPreset.last90Days,

@@ -42,8 +42,8 @@ class AlertRegistrations extends Table {
   /// The local instant the platform was asked to fire at, epoch milliseconds.
   IntColumn get fireAt => integer()();
 
-  /// `scheduled` | `snooze`. A snooze is its own registration, so an unrelated
-  /// reconcile of the same event leaves it alone.
+  /// `scheduled` | `snooze` | `digest`. A snooze is its own registration, so an
+  /// unrelated reconcile of the same event leaves it alone.
   TextColumn get kind => text().withDefault(const Constant('scheduled'))();
 
   /// `pending` | `fired` | `stopped` | `cancelled`.
@@ -61,6 +61,13 @@ class AlertRegistrations extends Table {
 
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+
+  /// What the entry was armed for — `event` | `category` | `digest`, see
+  /// `AlertRegistrationSource` (**v42**). Declared last because the v42 step
+  /// appends it with `ALTER TABLE`, so a fresh table and an upgraded one list
+  /// their columns in the same order. Every row older than v42 was an event's
+  /// own alert, which is what the default says.
+  TextColumn get source => text().withDefault(const Constant('event'))();
 
   @override
   Set<Column> get primaryKey => {osId};

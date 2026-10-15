@@ -35,6 +35,7 @@ import '../utils/alert_labels.dart';
 import '../utils/alert_notification_content.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
+import '../utils/digest_planner.dart';
 import '../widgets/event_avatar.dart';
 import 'alert_gateway.dart';
 import 'lock_screen_state.dart';
@@ -87,8 +88,13 @@ const bool kAlarmTierUsesNotifications = false;
 /// the section, and in the silent one nothing sounds, alone or bundled, and
 /// nothing shares a bundle with a reminder
 /// (`docs/alert-surfaces-redesign-roadmap.md` §3.7).
+///
+/// [kAlertDigestChannelId] (**v42**, D12) holds digests at **default**
+/// importance: a morning list should sound and sit in the shade, never peek
+/// over what the user is doing; the owner can raise it in system settings.
 const String kAlertReminderChannelId = 'alerts_reminder';
 const String kAlertQuietChannelId = 'alerts_quiet';
+const String kAlertDigestChannelId = 'alerts_digest';
 const String kAlertAlarmChannelId = 'alerts_alarm_v2';
 const String kAlertLegacyAlarmChannelId = 'alerts_alarm';
 const String kAlarmPluginChannelId = 'alarm_plugin_channel';
@@ -417,7 +423,9 @@ SnoozedRepost snoozedRepostTitleOnly(AlertPayload payload, DateTime now) {
 /// id, due at its own instant.
 ///
 /// The id is the bare seed — there is no registry here to probe against, so
-/// re-snoozing the same alert on the same day lands on the same entry.
+/// re-snoozing the same alert on the same day lands on the same entry. An
+/// inherited alert's seed names the event, the scheduler's rule: two events
+/// of one category alert snoozed on one day are two entries.
 ({DateTime at, AlertPayload payload}) _snoozedEntry(
   AlertPayload payload,
   DateTime now,
@@ -427,6 +435,7 @@ SnoozedRepost snoozedRepostTitleOnly(AlertPayload payload, DateTime now) {
     seed: alertOsIdSeed(
       database: payload.database,
       alertId: payload.alertId,
+      eventId: payload.inherited ? payload.eventId : null,
       dayUtc: payload.dayUtc,
       kind: AlertKind.snooze,
     ),
@@ -546,6 +555,43 @@ AndroidNotificationDetails alertReminderDetails(
     largeIcon: _largeIconOf(decor),
     styleInformation: _expandedOf(content),
     actions: _actionsOf(content, showsUserInterface: false),
+    groupKey: group.key,
+    groupAlertBehavior: group.alertBehavior,
+  );
+}
+
+/// How a digest is posted: on [kAlertDigestChannelId], its occurrences as an
+/// inbox list under the title with "+N more" as the summary, and no buttons —
+/// the tap opens the overview on the span.
+///
+/// Grouped by the reminder's rule ([_reminderGroup]), so on Android 16 a
+/// digest that lands beside a reminder neither silences it nor sounds for it;
+/// never a summary of its own.
+AndroidNotificationDetails alertDigestDetails(
+  AppLocalizations strings,
+  AlertNotificationContent content, {
+  AlertDecor decor = (color: null, iconFile: null),
+  bool grouped = false,
+}) {
+  final group = _reminderGroup(grouped);
+  return AndroidNotificationDetails(
+    kAlertDigestChannelId,
+    strings.alertsDigestChannel,
+    channelDescription: strings.alertsDigestChannelDesc,
+    importance: Importance.defaultImportance,
+    priority: Priority.defaultPriority,
+    category: AndroidNotificationCategory.event,
+    icon: kAlertSmallIcon,
+    color: decor.color,
+    largeIcon: _largeIconOf(decor),
+    styleInformation: content.lines.isEmpty
+        ? null
+        : InboxStyleInformation(
+            content.lines,
+            contentTitle: content.title,
+            summaryText: content.summary,
+          ),
+    autoCancel: true,
     groupKey: group.key,
     groupAlertBehavior: group.alertBehavior,
   );
@@ -1145,6 +1191,14 @@ class AndroidAlertGateway extends AlertGateway {
         enableVibration: false,
       ),
     );
+    await _android?.createNotificationChannel(
+      AndroidNotificationChannel(
+        kAlertDigestChannelId,
+        l10n.alertsDigestChannel,
+        description: l10n.alertsDigestChannelDesc,
+        importance: Importance.defaultImportance,
+      ),
+    );
     await _android?.deleteNotificationChannel(
       channelId: kAlertLegacyAlarmChannelId,
     );
@@ -1576,6 +1630,13 @@ class AndroidAlertGateway extends AlertGateway {
   void _handleResponse(NotificationResponse response) {
     final payload = AlertPayload.decode(response.payload);
     if (payload == null) return;
+    // A digest names a span, not an event: its tap is the overview's list.
+    if (payload.isDigest) {
+      PendingNavigationQueue.instance.enqueue(
+        OpenOverviewIntent(payload: payload),
+      );
+      return;
+    }
     // An upcoming notice carries its alarm's payload; the id says which of the
     // two was tapped, and the action says what for. Skip is the one intent
     // that changes the plan, so it goes to the calendar page rather than to a
@@ -1847,6 +1908,50 @@ class AndroidAlertGateway extends AlertGateway {
     // worse for drawing one than this pass is.
     unawaited(_iconFileFor(payload));
     return true;
+  }
+
+  /// A digest is posted like a reminder — exact, allowed while idle, in the
+  /// reminders' group shape — with every word placed from its payload. Only
+  /// a digest over one category wears that category's avatar.
+  @override
+  Future<bool> scheduleDigest(PlannedDigest fire, AlertPayload payload) async {
+    await initialize();
+    final l10n = _l10n;
+    try {
+      final AlertDecor decor = payload.categoryId.isEmpty
+          ? (color: null, iconFile: null)
+          : await _decorFor(payload);
+      final content = alertNotificationContent(
+        AlertNotificationKind.digest,
+        payload,
+        l10n,
+      );
+      final grouped = await _groupsReminders();
+      final carried = payload.copyWith(
+        iconFile: decor.iconFile,
+        grouped: grouped,
+      );
+      await _plugin.zonedSchedule(
+        id: payload.osId,
+        title: content.title,
+        body: content.text,
+        scheduledDate: tz.TZDateTime.from(fire.fireAt, tz.local),
+        payload: carried.encode(),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        notificationDetails: NotificationDetails(
+          android: alertDigestDetails(
+            l10n,
+            content,
+            decor: decor,
+            grouped: grouped,
+          ),
+        ),
+      );
+      return true;
+    } catch (e, st) {
+      debugPrint('[AndroidAlertGateway] digest zonedSchedule failed: $e\n$st');
+      return false;
+    }
   }
 
   /// Arms the upcoming notice beside its alarm, or takes a standing one down
@@ -2282,6 +2387,7 @@ class AndroidAlertGateway extends AlertGateway {
     final response = details?.notificationResponse;
     final payload = AlertPayload.decode(response?.payload);
     if (payload == null) return null;
+    if (payload.isDigest) return OpenOverviewIntent(payload: payload);
     if (isNoticeNotification(response?.id, payload)) {
       return response?.actionId == kAlertSkipActionId
           ? SkipNextFireIntent(payload: payload)

@@ -374,6 +374,103 @@ void main() {
     });
   });
 
+  group('a digest', () {
+    final digest = AlertPayload(
+      database: 'gym_notes',
+      eventId: '',
+      alertId: 'd1',
+      dayUtcMs: DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+      osId: 4343,
+      mode: AlertMode.notify,
+      title: 'Birthdays',
+      timeLabel: '09:00',
+      categoryId: 'birthday',
+      isDigest: true,
+      digestText: '7 events this month · Sun, Oct 4 · Ana, …',
+      digestLines: const [
+        'Sun, Oct 4 · Ana · Year 30',
+        'Mon, Oct 12 · Mihai',
+        'Tue, Oct 13 · Ioana',
+        'Wed, Oct 14 · Dan',
+        'Thu, Oct 15 · Elena',
+      ],
+      digestSummary: '+2 more',
+    );
+    final content = contentOf(AlertNotificationKind.digest, payload: digest);
+    final details = alertDigestDetails(en, content, decor: dressed);
+
+    InboxStyleInformation? inboxOf(AndroidNotificationDetails details) =>
+        details.styleInformation as InboxStyleInformation?;
+
+    test('sounds without peeking, on the digest channel', () {
+      expect(details.channelId, 'alerts_digest');
+      expect(details.channelName, 'Digests');
+      expect(details.channelDescription, 'Bundled summaries of upcoming events');
+      expect(details.importance, Importance.defaultImportance);
+      expect(details.priority, Priority.defaultPriority);
+      expect(details.category, AndroidNotificationCategory.event);
+      expect(details.icon, 'ic_alert');
+      expect(details.silent, isFalse);
+      expect(details.autoCancel, isTrue);
+      expect(details.fullScreenIntent, isFalse);
+    });
+
+    test('lists its lines under its title, with how many more', () {
+      final inbox = inboxOf(details)!;
+      expect(inbox.lines, digest.digestLines);
+      expect(inbox.contentTitle, 'Birthdays');
+      expect(inbox.summaryText, '+2 more');
+    });
+
+    test('has no button: the tap is the overview', () {
+      expect(idsOf(details), isEmpty);
+    });
+
+    test('wears the one category\'s colour and avatar it is given', () {
+      expect(details.color, teal);
+      expect(largeIconOf(details), avatar);
+      final bare = alertDigestDetails(en, content);
+      expect(bare.color, isNull);
+      expect(bare.largeIcon, isNull);
+    });
+
+    test('an empty span is its text alone, with no list', () {
+      final empty = alertDigestDetails(
+        en,
+        contentOf(
+          AlertNotificationKind.digest,
+          payload: AlertPayload(
+            database: 'gym_notes',
+            eventId: '',
+            alertId: 'd1',
+            dayUtcMs: DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+            osId: 4343,
+            mode: AlertMode.notify,
+            title: 'Birthdays',
+            timeLabel: '09:00',
+            categoryId: 'birthday',
+            isDigest: true,
+            digestText: 'No events this month',
+          ),
+        ),
+      );
+      expect(empty.styleInformation, isNull);
+    });
+
+    test('is grouped by the reminders\' rule, never as a summary', () {
+      final grouped = alertDigestDetails(en, content, grouped: true);
+      expect(grouped.groupKey, kAlertGroupKey);
+      expect(grouped.groupAlertBehavior, GroupAlertBehavior.children);
+      expect(grouped.setAsGroupSummary, isFalse);
+      expect(details.groupKey, isNull);
+      expect(details.groupAlertBehavior, GroupAlertBehavior.all);
+    });
+
+    test('names its channel in the language it is given', () {
+      expect(alertDigestDetails(de, content).channelName, 'Zusammenfassungen');
+    });
+  });
+
   group('the fallback alarm', () {
     final details = alertFallbackAlarmDetails(
       en,
@@ -590,6 +687,30 @@ void main() {
       expect(repost.osId, snoozeId);
       expect(repost.osId, isNot(armed.osId));
       expect(repost.payload.osId, snoozeId);
+    });
+
+    test("an inherited alert's snooze is seeded by its event, as the "
+        "scheduler's is (v42)", () {
+      // One category alert on two events of one day: snoozed from the shade,
+      // each comes back under an id of its own.
+      int seededFor(String eventId) => resolveAlertOsId(
+        seed: alertOsIdSeed(
+          database: 'gym_notes',
+          alertId: 'a1',
+          eventId: eventId,
+          dayUtc: day,
+          kind: AlertKind.snooze,
+        ),
+        isTaken: (_) => false,
+      );
+      final inherited = armed.copyWith(inherited: true);
+
+      final repost = snoozedRepost(inherited, now, en);
+
+      expect(repost.osId, seededFor('e1'));
+      expect(repost.osId, isNot(snoozeId));
+      expect(repost.payload.inherited, isTrue);
+      expect(snoozedRepostTitleOnly(inherited, now).osId, seededFor('e1'));
     });
 
     test('says it was snoozed, and still names the event\'s time', () {

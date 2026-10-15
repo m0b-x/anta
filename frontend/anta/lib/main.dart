@@ -527,6 +527,14 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           unawaited(_openSession(intent.payload));
         case QuickAlarmIntent():
           unawaited(AppNavigator.toCalendarQuickAlarm());
+        case OpenOverviewIntent():
+          unawaited(
+            AppNavigator.toCalendarOverviewLook(
+              start: intent.span.start,
+              end: intent.span.end,
+              categoryIds: intent.payload.categoryIdSet,
+            ),
+          );
       }
     }
   }

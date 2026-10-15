@@ -4,23 +4,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:intl/intl.dart';
+
 import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/permissions/permissions_bloc.dart';
+import '../constants/alert_constants.dart';
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/calendar_icons.dart';
 import '../constants/event_alerts.dart';
+import '../constants/event_digests.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
+import '../controllers/alert_permission_check.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_hub_entry.dart';
 import '../models/app_permission.dart';
+import '../models/calendar_appearance.dart';
+import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../models/event_digest.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../services/permission_service.dart';
+import '../services/settings_service.dart';
+import '../utils/alert_labels.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/digest_labels.dart';
 import '../widgets/agenda_list_view.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
+import '../widgets/digest_editor_sheet.dart';
+import '../widgets/form_rows.dart';
 import '../widgets/permission_tile.dart';
 import '../widgets/unified_app_bars.dart';
 
@@ -31,6 +49,9 @@ typedef AlertHubLoader = Future<List<AlertHubEntry>> Function();
 /// Reads the hub's *Recent* section (OS-4), the same seam.
 typedef AlertHistoryLoader = Future<List<AlertHistoryEntry>> Function();
 
+/// Reads the digests' next fires (**v42**), the same seam.
+typedef DigestHubLoader = Future<List<DigestHubEntry>> Function();
+
 /// The Alerts hub (§5.6): every alert the phone is about to act on, by day.
 ///
 /// **A view over events' alerts, never a list of its own** — there is no
@@ -39,9 +60,15 @@ typedef AlertHistoryLoader = Future<List<AlertHistoryEntry>> Function();
 /// armed rather than what a fresh plan would like to be; disabled ones are
 /// planned on the spot so the switch that silenced them stays reachable.
 ///
+/// The one thing created here is a digest (**v42**, D14): its Digests group
+/// heads the page, its fires sit among the alerts' days and its deliveries
+/// under Recent. A digest belongs to no event, so the hub is its only home —
+/// still never an event alert's.
+///
 /// Writes go through the app-wide `CalendarBloc` (`ToggleEventAlert`,
-/// `DeleteCalendarEvent`), which is also what guarantees the facades the rows
-/// read are configured: the body is only built under `CalendarPageLoaded`.
+/// `DeleteCalendarEvent`, the three digest events), which is also what
+/// guarantees the facades the rows read are configured: the body is only
+/// built under `CalendarPageLoaded`.
 /// Re-reads ride two signals — a bloc emit (an alert or an event changed) and
 /// `AlertScheduler.registryRevision` (the reconcile that change provoked has
 /// landed). The banners ride a page-scoped `PermissionsBloc`, which mirrors
@@ -50,22 +77,40 @@ typedef AlertHistoryLoader = Future<List<AlertHistoryEntry>> Function();
 class AlertsPage extends StatefulWidget {
   final AlertHubLoader? _loadEntries;
   final AlertHistoryLoader? _loadRecent;
+  final DigestHubLoader? _loadDigests;
   final PermissionService? _permissions;
+
+  /// The week start a test hands over in place of the settings read.
+  final CalendarWeekStart _testWeekStart;
+
+  /// What runs after an enabled digest is saved — the shared permission
+  /// check, or a test's recorder.
+  final Future<bool> Function(BuildContext context) _afterDigestSaved;
 
   const AlertsPage({super.key})
     : _loadEntries = null,
       _loadRecent = null,
-      _permissions = null;
+      _loadDigests = null,
+      _permissions = null,
+      _testWeekStart = CalendarWeekStart.monday,
+      _afterDigestSaved = AlertPermissionCheck.afterSave;
 
   @visibleForTesting
   const AlertsPage.forTesting({
     super.key,
     required AlertHubLoader loadEntries,
     AlertHistoryLoader? loadRecent,
+    DigestHubLoader? loadDigests,
     PermissionService? permissions,
+    CalendarWeekStart weekStart = CalendarWeekStart.monday,
+    Future<bool> Function(BuildContext context) afterDigestSaved =
+        AlertPermissionCheck.afterSave,
   }) : _loadEntries = loadEntries,
        _loadRecent = loadRecent,
-       _permissions = permissions;
+       _loadDigests = loadDigests,
+       _permissions = permissions,
+       _testWeekStart = weekStart,
+       _afterDigestSaved = afterDigestSaved;
 
   @override
   State<AlertsPage> createState() => _AlertsPageState();
@@ -77,15 +122,30 @@ class _AlertsPageState extends State<AlertsPage> {
   /// The *Recent* section (OS-4): what the phone did in the last week,
   /// newest first, read beside the live rows on every reload.
   List<AlertHistoryEntry> _recent = const [];
+
+  /// Every digest's next fires, soonest first — a disabled digest's as if it
+  /// were on, so its row can say when it would fire.
+  List<DigestHubEntry> _digestFires = const [];
+
+  /// The app's week start, which decides whether a weekly span is "this
+  /// week" and orders the digest sheet's weekdays.
+  CalendarWeekStart _weekStart = CalendarWeekStart.monday;
   bool _isLoading = true;
   int _loadGeneration = 0;
 
   PermissionsBloc? _permissionsBloc;
 
   /// Switch positions the user has set and the store has not echoed yet,
-  /// keyed by alert id. Dropped wholesale by the next load, which by then
-  /// carries the written value.
+  /// keyed by [_pendingKey]. Dropped wholesale by the next load, which by
+  /// then carries the written value.
   final Map<String, bool> _pendingEnabled = {};
+
+  /// [_pendingEnabled]'s twin for the Digests group, keyed by digest id.
+  final Map<String, bool> _pendingDigestEnabled = {};
+
+  /// Held while the digest sheet is up, so a second tap during its opening
+  /// animation cannot stack a second sheet.
+  bool _digestSheetOpen = false;
 
   @override
   void initState() {
@@ -120,13 +180,22 @@ class _AlertsPageState extends State<AlertsPage> {
     final generation = ++_loadGeneration;
     final loader = widget._loadEntries ?? AlertScheduler.hubEntriesOrEmpty;
     final history = widget._loadRecent ?? _defaultRecent;
-    final results = await Future.wait([loader(), history()]);
+    final digests = widget._loadDigests ?? _defaultDigests;
+    final results = await Future.wait<Object>([
+      loader(),
+      history(),
+      digests(),
+      _readWeekStart(),
+    ]);
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
       _entries = results[0] as List<AlertHubEntry>;
       _recent = results[1] as List<AlertHistoryEntry>;
+      _digestFires = results[2] as List<DigestHubEntry>;
+      _weekStart = results[3] as CalendarWeekStart;
       _isLoading = false;
       _pendingEnabled.clear();
+      _pendingDigestEnabled.clear();
     });
   }
 
@@ -137,9 +206,56 @@ class _AlertsPageState extends State<AlertsPage> {
           ? AlertScheduler.recentEntriesOrEmpty()
           : Future.value(const []);
 
+  /// [_defaultRecent]'s rule for the digests' fires.
+  Future<List<DigestHubEntry>> _defaultDigests() => widget._loadEntries == null
+      ? AlertScheduler.digestEntriesOrEmpty()
+      : Future.value(const []);
+
+  /// Read on every load, as the calendar settings may have moved it; a test
+  /// handing over rows gets the default rather than a settings lookup.
+  Future<CalendarWeekStart> _readWeekStart() async {
+    if (widget._loadEntries != null) return widget._testWeekStart;
+    try {
+      return await (await SettingsService.getInstance()).getCalendarWeekStart();
+    } catch (e) {
+      debugPrint('[AlertsPage] week start read failed: $e');
+      return CalendarWeekStart.monday;
+    }
+  }
+
+  /// The key [_pendingEnabled] holds a row's switch under: the alert for an
+  /// own alert, the event for an inherited one — whose switch is the
+  /// event's flag, shared by every inherited row of that event, while the
+  /// alert's id is shared by every event in the category.
+  static String _pendingKey(AlertHubEntry entry) =>
+      entry.alert.categoryId == null
+      ? entry.alert.id
+      : 'category-alerts:${entry.event.id}';
+
+  /// An own alert's switch is the alert's `enabled`; an inherited alert's is
+  /// the event's `categoryAlerts` (D5) — the alert belongs to the category,
+  /// and switching it off there would silence every other event in it. The
+  /// notice's Skip takes the same meaning for an inherited alert.
   void _toggle(AlertHubEntry entry, bool enabled) {
-    setState(() => _pendingEnabled[entry.alert.id] = enabled);
-    context.read<CalendarBloc>().add(
+    final bloc = context.read<CalendarBloc>();
+    if (entry.alert.categoryId != null) {
+      // The whole event is written back, so it is read at the press from the
+      // bloc rather than taken from the row, which holds it as the last load
+      // did: an edit since then would be overwritten, a deleted event
+      // resurrected.
+      final state = bloc.state;
+      final current = state is CalendarPageLoaded
+          ? state.allEvents.where((e) => e.id == entry.event.id).firstOrNull
+          : null;
+      if (current == null) return;
+      setState(() => _pendingEnabled[_pendingKey(entry)] = enabled);
+      bloc.add(
+        UpdateCalendarEvent(event: current.copyWith(categoryAlerts: enabled)),
+      );
+      return;
+    }
+    setState(() => _pendingEnabled[_pendingKey(entry)] = enabled);
+    bloc.add(
       ToggleEventAlert(
         eventId: entry.event.id,
         alertId: entry.alert.id,
@@ -190,11 +306,89 @@ class _AlertsPageState extends State<AlertsPage> {
     );
   }
 
+  void _toggleDigest(EventDigest digest, bool enabled) {
+    setState(() => _pendingDigestEnabled[digest.id] = enabled);
+    context.read<CalendarBloc>().add(
+      ToggleEventDigest(digest.id, enabled: enabled),
+    );
+  }
+
+  /// Opens the digest sheet on [digest], or on a new one, and hands what it
+  /// returns to the bloc — the sheet writes nothing and neither does the
+  /// hub. The events it counts over are read at the press, as the alert
+  /// rows read theirs.
+  ///
+  /// Never for a digest this build cannot read: its sheet would show the
+  /// defaults it fell back to, and a save would overwrite the newer build's.
+  Future<void> _openDigest(EventDigest? digest) async {
+    if (_digestSheetOpen || (digest != null && !digest.isReadable)) return;
+    final bloc = context.read<CalendarBloc>();
+    final state = bloc.state;
+    _digestSheetOpen = true;
+    final DigestEditorResult? result;
+    try {
+      result = await DigestEditorSheet.show(
+        context,
+        initial: digest,
+        events: state is CalendarPageLoaded
+            ? state.allEvents
+            : const <CalendarEvent>[],
+        weekStart: _weekStart,
+      );
+    } finally {
+      _digestSheetOpen = false;
+    }
+    if (!mounted) return;
+    switch (result) {
+      case DigestEditorSaved(:final digest):
+        bloc.add(SaveEventDigest(digest));
+        // A digest is a notification: the first one ever may need the
+        // permission to post, which only a save can ask for in context.
+        if (digest.enabled) unawaited(widget._afterDigestSaved(context));
+      case DigestEditorDeleted(:final id):
+        bloc.add(DeleteEventDigest(id));
+      case null:
+        break;
+    }
+  }
+
+  /// The digest a fire or a delivery names, as the facade holds it now — the
+  /// row's copy is the last load's.
+  void _openDigestById(EventDigest digest) =>
+      unawaited(_openDigest(EventDigests.byId(digest.id) ?? digest));
+
+  String _categoryLabel(String id, AppLocalizations l10n) =>
+      CalendarCategories.labelOf(CalendarCategories.resolve(id), l10n);
+
+  String _digestTitle(EventDigest digest, AppLocalizations l10n) =>
+      digestTitleOf(
+        digest,
+        l10n,
+        categoryLabel: (id) => _categoryLabel(id, l10n),
+      );
+
+  String _digestDescribe(EventDigest digest, AppLocalizations l10n) =>
+      digestDescribe(
+        digest,
+        l10n,
+        formatMinute: (minute) =>
+            EventTimeFormatter.formatMinute(minute, context),
+        weekdayName: (weekday) => digestWeekdayName(weekday, l10n.localeName),
+      );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // The page ground the mock draws, one tone under the Digests group's
+    // `rowGroup` in both themes; the bar sits on it so no seam shows.
+    final ground = Theme.of(context).colorScheme.pageGround;
     return Scaffold(
-      appBar: SettingsAppBar(title: l10n.alertsTitle, showMenuButton: false),
+      backgroundColor: ground,
+      appBar: SettingsAppBar(
+        title: l10n.alertsTitle,
+        showMenuButton: false,
+        backgroundColor: ground,
+      ),
       body: SafeArea(
         top: false,
         child: BlocConsumer<CalendarBloc, CalendarPageState>(
@@ -228,10 +422,34 @@ class _AlertsPageState extends State<AlertsPage> {
     AppLocalizations l10n,
     List<Widget> banners,
   ) {
-    if (_entries.isEmpty && _recent.isEmpty) {
+    final now = DateTime.now();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final theme = Theme.of(context);
+    final labels = AlertLabels(
+      strings: l10n,
+      use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
+    // Only an enabled digest's fires are coming; a disabled one's are what
+    // its group row says it would do. Read through the facade, so a digest
+    // switched or deleted since the last load is not listed as it was.
+    final digestFires = [
+      for (final fire in _digestFires)
+        if (EventDigests.byId(fire.digest.id) case final digest?
+            when _pendingDigestEnabled[digest.id] ?? digest.enabled)
+          (fire: fire, digest: digest),
+    ];
+    final group = _buildDigestGroup(l10n);
+    final empty = _entries.isEmpty && digestFires.isEmpty;
+    // Nothing at all to show: the empty state takes the page's middle as it
+    // always has, under the group's one Add row.
+    if (empty &&
+        _recent.isEmpty &&
+        banners.isEmpty &&
+        EventDigests.all.isEmpty) {
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ...banners,
+          group,
           Expanded(
             child: _EmptyState(
               title: l10n.alertsEmpty,
@@ -241,23 +459,35 @@ class _AlertsPageState extends State<AlertsPage> {
         ],
       );
     }
-
-    final now = DateTime.now();
-    final today = DateTime.utc(now.year, now.month, now.day);
-    final theme = Theme.of(context);
-    final children = <Widget>[...banners];
-    if (_entries.isEmpty) {
+    final children = <Widget>[...banners, group];
+    if (empty) {
       children.add(
-        _EmptyState(title: l10n.alertsEmpty, body: l10n.alertsEmptyDesc),
+        Padding(
+          padding: const EdgeInsets.only(top: RowMetrics.groupGap),
+          child: _EmptyState(
+            title: l10n.alertsEmpty,
+            body: l10n.alertsEmptyDesc,
+          ),
+        ),
       );
     }
+    // The alerts and the digests' fires merged in one order — both lists come
+    // soonest first — a digest first at a shared instant: it is the summary
+    // the alerts after it belong to.
     DateTime? currentDay;
-    for (final entry in _entries) {
-      final fireDay = DateTime.utc(
-        entry.fireAt.year,
-        entry.fireAt.month,
-        entry.fireAt.day,
-      );
+    var nextAlert = 0;
+    var nextDigest = 0;
+    while (nextAlert < _entries.length || nextDigest < digestFires.length) {
+      final takeDigest =
+          nextDigest < digestFires.length &&
+          (nextAlert >= _entries.length ||
+              !digestFires[nextDigest].fire.fireAt.isAfter(
+                _entries[nextAlert].fireAt,
+              ));
+      final fireAt = takeDigest
+          ? digestFires[nextDigest].fire.fireAt
+          : _entries[nextAlert].fireAt;
+      final fireDay = DateTime.utc(fireAt.year, fireAt.month, fireAt.day);
       if (fireDay != currentDay) {
         currentDay = fireDay;
         children.add(
@@ -277,14 +507,49 @@ class _AlertsPageState extends State<AlertsPage> {
           ),
         );
       }
+      if (takeDigest) {
+        final (:fire, :digest) = digestFires[nextDigest++];
+        children.add(
+          _DigestFireRow(
+            // Its own key shape: a digest has no event, and two fires of one
+            // digest differ by their instant.
+            key: ValueKey(
+              'digest|${digest.id}|${fire.fireAt.toIso8601String()}',
+            ),
+            digest: digest,
+            fireAt: fire.fireAt,
+            title: _digestTitle(digest, l10n),
+            subtitle: l10n.digestCountPeriod(
+              fire.count,
+              digestPeriodOf(
+                digest,
+                spanStart: fire.spanStart,
+                spanEnd: fire.spanEnd,
+                strings: l10n,
+                labels: labels,
+                weekStart: _weekStart,
+              ),
+            ),
+            onTap: () => _openDigestById(digest),
+          ),
+        );
+        continue;
+      }
+      final entry = _entries[nextAlert++];
       children.add(
         _AlertHubRow(
+          // The event as well as the alert: an inherited alert's one id is
+          // shared by every event in its category, on the same day too.
           key: ValueKey(
-            '${entry.alert.id}|${entry.day.millisecondsSinceEpoch}|'
-            '${entry.snoozeOsId ?? ''}',
+            '${entry.event.id}|${entry.alert.id}|'
+            '${entry.day.millisecondsSinceEpoch}|${entry.snoozeOsId ?? ''}',
           ),
           entry: entry,
-          enabled: _pendingEnabled[entry.alert.id] ?? entry.alert.enabled,
+          enabled:
+              _pendingEnabled[_pendingKey(entry)] ??
+              (entry.alert.categoryId == null
+                  ? entry.alert.enabled
+                  : entry.event.categoryAlerts),
           onTap: () => _open(entry),
           onLongPress: entry.event.removeAfterAlert
               ? () => _cancelRemovable(entry)
@@ -312,11 +577,32 @@ class _AlertsPageState extends State<AlertsPage> {
         ),
       );
       for (final entry in _recent) {
+        // The registry holds no count for a delivery, so a digest's row says
+        // how it fires instead of what it said.
+        final digest = entry.digest;
+        if (digest != null) {
+          children.add(
+            _AlertHistoryRow(
+              key: ValueKey(
+                'recent|digest|${digest.id}|'
+                '${entry.fireAt.millisecondsSinceEpoch}|'
+                '${entry.settledAt.millisecondsSinceEpoch}',
+              ),
+              entry: entry,
+              today: today,
+              digestTitle: _digestTitle(digest, l10n),
+              digestDescribe: _digestDescribe(digest, l10n),
+              onTap: () => _openDigestById(digest),
+            ),
+          );
+          continue;
+        }
         children.add(
           _AlertHistoryRow(
             key: ValueKey(
               'recent|${entry.fireAt.millisecondsSinceEpoch}|'
-              '${entry.alert?.id ?? ''}|${entry.settledAt.millisecondsSinceEpoch}',
+              '${entry.event?.id ?? ''}|${entry.alert?.id ?? ''}|'
+              '${entry.settledAt.millisecondsSinceEpoch}',
             ),
             entry: entry,
             today: today,
@@ -335,6 +621,80 @@ class _AlertsPageState extends State<AlertsPage> {
     return ListView(
       padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
       children: children,
+    );
+  }
+
+  /// The Digests group (§6.4): one row per digest in display order — what it
+  /// is called over how it fires and when next, its switch at the end — then
+  /// Add digest while there is room under the cap. On the UI language from
+  /// its first day; the rows under it keep their look until Tier 4.
+  Widget _buildDigestGroup(AppLocalizations l10n) {
+    final digests = EventDigests.all;
+    final nextFire = <String, DateTime>{};
+    for (final fire in _digestFires) {
+      nextFire.putIfAbsent(fire.digest.id, () => fire.fireAt);
+    }
+    final dayFormat = DateFormat.MMMEd(l10n.localeName);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        RowMetrics.groupInset,
+        FormMetrics.bodyTop,
+        RowMetrics.groupInset,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FormSectionLabel(text: l10n.alertsDigestChannel),
+          FormRowGroup(
+            trailingGap: false,
+            children: [
+              for (final digest in digests)
+                _digestRow(digest, nextFire[digest.id], dayFormat, l10n),
+              if (digests.length < kDigestHorizon.maxDigests)
+                FormActionRow(
+                  glyph: Icons.add_rounded,
+                  label: l10n.digestsAdd,
+                  identifier: SemanticsIds.alertsDigestAdd,
+                  onTap: () => unawaited(_openDigest(null)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// One digest's row: what it is called over how it fires and, while it is
+  /// on, when next — a switched-off digest promises no fire, and dims as a
+  /// switched-off alert's row does. A digest this build cannot read says so,
+  /// with its switch disabled and no sheet behind it.
+  Widget _digestRow(
+    EventDigest digest,
+    DateTime? next,
+    DateFormat dayFormat,
+    AppLocalizations l10n,
+  ) {
+    final enabled = _pendingDigestEnabled[digest.id] ?? digest.enabled;
+    final describe = _digestDescribe(digest, l10n);
+    return FormPickerSwitchRow(
+      key: ValueKey('digest-row|${digest.id}'),
+      glyph: Icons.summarize_rounded,
+      label: _digestTitle(digest, l10n),
+      caption: !digest.isReadable
+          ? l10n.digestUnreadable
+          : next == null || !enabled
+          ? describe
+          : '$describe · ${l10n.digestNextFire(dayFormat.format(next))}',
+      captionMaxLines: 2,
+      value: enabled,
+      dimOff: true,
+      identifier: SemanticsIds.alertsDigestRow(digest.id),
+      switchIdentifier: SemanticsIds.alertsDigestSwitch(digest.id),
+      onTap: () => unawaited(_openDigest(digest)),
+      onChanged: digest.isReadable
+          ? (value) => _toggleDigest(digest, value)
+          : null,
     );
   }
 
@@ -427,6 +787,21 @@ class _AlertHubRow extends StatelessWidget {
       formatMinute: (minute) =>
           EventTimeFormatter.formatMinute(minute, context),
     );
+    final categoryId = entry.alert.categoryId;
+    final timing = original == null
+        ? describe
+        : l10n.alertsSnoozedRow(describe);
+    // An inherited alert says where it comes from, which is also what its
+    // switch stands for: the event's opt-out, not the alert.
+    final subtitle = switch (categoryId) {
+      null => timing,
+      final id => [
+        timing,
+        l10n.eventAlertFromCategory(
+          CalendarCategories.labelOf(CalendarCategories.resolve(id), l10n),
+        ),
+      ].join(' · '),
+    };
 
     return Card(
       margin: const EdgeInsets.symmetric(
@@ -446,13 +821,18 @@ class _AlertHubRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              SizedBox(
-                width: _timeWidth,
+              // Grows with the text scale, and past it with the time itself:
+              // a fixed 64 dp broke "09:00" over two lines at 200 %.
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: MediaQuery.textScalerOf(context).scale(_timeWidth),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       _clock(context, entry.fireAt),
+                      softWrap: false,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontFeatures: const [FontFeature.tabularFigures()],
                         color: colorScheme.onSurface.withValues(alpha: dim),
@@ -461,6 +841,7 @@ class _AlertHubRow extends StatelessWidget {
                     if (original != null)
                       Text(
                         _clock(context, original),
+                        softWrap: false,
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontFeatures: const [FontFeature.tabularFigures()],
                           color: colorScheme.onSurfaceVariant,
@@ -505,9 +886,7 @@ class _AlertHubRow extends StatelessWidget {
                         const SizedBox(width: AppSpacing.xs),
                         Flexible(
                           child: Text(
-                            original == null
-                                ? describe
-                                : l10n.alertsSnoozedRow(describe),
+                            subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
@@ -531,6 +910,7 @@ class _AlertHubRow extends StatelessWidget {
               else
                 Semantics(
                   label: l10n.alertsToggleLabel(entry.event.title),
+                  hint: categoryId == null ? null : l10n.eventCategoryAlerts,
                   child: Switch(value: enabled, onChanged: onToggle),
                 ),
             ],
@@ -541,13 +921,160 @@ class _AlertHubRow extends StatelessWidget {
   }
 }
 
+/// One fire of an enabled digest among the day groups: [_AlertHubRow]'s
+/// shape — the time, what it lists, the count line under the digest's glyph
+/// — with no switch of its own (M3 · A: the group's switch is the one
+/// control), its slot held empty so the column of switches stays put.
+class _DigestFireRow extends StatelessWidget {
+  final EventDigest digest;
+  final DateTime fireAt;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  static const double _timeWidth = 64;
+  static const double _glyphSize = 14;
+
+  const _DigestFireRow({
+    super.key,
+    required this.digest,
+    required this.fireAt,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final look = _digestLook(digest, colorScheme);
+    return Card(
+      margin: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xxs,
+      ),
+      child: AutomationId(
+        identifier: SemanticsIds.alertsDigestFire(digest.id, fireAt),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                // [_AlertHubRow]'s time slot: scaled, never wrapped.
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: MediaQuery.textScalerOf(
+                      context,
+                    ).scale(_timeWidth),
+                  ),
+                  child: Text(
+                    MaterialLocalizations.of(context).formatTimeOfDay(
+                      TimeOfDay.fromDateTime(fireAt),
+                      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(
+                        context,
+                      ),
+                    ),
+                    softWrap: false,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                Icon(look.icon, size: 20, color: look.color),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xxs),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.summarize_rounded,
+                            size: _glyphSize,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: AppSpacing.xs),
+                          Flexible(
+                            child: Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // The alert rows' switch, unseen and inert: its exact box.
+                const ExcludeSemantics(
+                  child: Visibility(
+                    visible: false,
+                    maintainSize: true,
+                    maintainAnimation: true,
+                    maintainState: true,
+                    child: Switch(value: false, onChanged: null),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The glyph and tint a digest's day and history rows lead with: what it
+/// lists — one category's own icon in its colour, else the digest glyph.
+({IconData icon, Color color}) _digestLook(
+  EventDigest digest,
+  ColorScheme colorScheme,
+) {
+  if (digest.categoryIds.length == 1) {
+    final category = CalendarCategories.resolve(digest.categoryIds.single);
+    return (
+      icon: CalendarIcons.forKey(category.iconKey) ?? Icons.summarize_rounded,
+      color: category.color,
+    );
+  }
+  return (icon: Icons.summarize_rounded, color: colorScheme.primary);
+}
+
 /// One row of the *Recent* section: the day and time it was armed for, the
 /// outcome's glyph, the event's title (or the removed fallback) and what the
-/// alert was.
+/// alert was — or, for a digest's delivery, the digest's title and how it
+/// fires.
 class _AlertHistoryRow extends StatelessWidget {
   final AlertHistoryEntry entry;
   final DateTime today;
   final VoidCallback? onTap;
+
+  /// Set for a digest's delivery, whose entry carries neither an event nor
+  /// an alert to name it by.
+  final String? digestTitle;
+  final String? digestDescribe;
 
   static const double _timeWidth = 64;
   static const double _glyphSize = 14;
@@ -557,6 +1084,8 @@ class _AlertHistoryRow extends StatelessWidget {
     required this.entry,
     required this.today,
     required this.onTap,
+    this.digestTitle,
+    this.digestDescribe,
   });
 
   static IconData iconFor(AlertOutcome outcome) => switch (outcome) {
@@ -589,14 +1118,18 @@ class _AlertHistoryRow extends StatelessWidget {
       entry.fireAt.day,
     );
     final missed = entry.outcome == AlertOutcome.missed;
-    final tint = event == null
-        ? colorScheme.onSurfaceVariant
-        : EventSummaryProvider.colorFor(
-            event,
-            CalendarCategories.resolve(event.categoryId),
-          );
+    final digest = entry.digest;
+    final digestLook = digest == null ? null : _digestLook(digest, colorScheme);
+    final tint =
+        digestLook?.color ??
+        (event == null
+            ? colorScheme.onSurfaceVariant
+            : EventSummaryProvider.colorFor(
+                event,
+                CalendarCategories.resolve(event.categoryId),
+              ));
     final describe = event == null || alert == null
-        ? null
+        ? digestDescribe
         : alert.describe(
             l10n,
             event,
@@ -624,8 +1157,11 @@ class _AlertHistoryRow extends StatelessWidget {
           ),
           child: Row(
             children: [
+              // [_AlertHubRow]'s time slot scaled and never wrapped, but a
+              // fixed width: the day label under the time is clamped to it,
+              // and a slot that grew with its text grew with "Yesterday".
               SizedBox(
-                width: _timeWidth,
+                width: MediaQuery.textScalerOf(context).scale(_timeWidth),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -635,6 +1171,7 @@ class _AlertHistoryRow extends StatelessWidget {
                         alwaysUse24HourFormat:
                             MediaQuery.alwaysUse24HourFormatOf(context),
                       ),
+                      softWrap: false,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontFeatures: const [FontFeature.tabularFigures()],
                         color: colorScheme.onSurface,
@@ -652,9 +1189,10 @@ class _AlertHistoryRow extends StatelessWidget {
                 ),
               ),
               Icon(
-                event == null
-                    ? Icons.event_busy_rounded
-                    : CalendarCategories.iconFor(event),
+                digestLook?.icon ??
+                    (event == null
+                        ? Icons.event_busy_rounded
+                        : CalendarCategories.iconFor(event)),
                 size: 20,
                 color: tint,
               ),
@@ -664,7 +1202,7 @@ class _AlertHistoryRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      event?.title ?? l10n.alertsHistoryRemoved,
+                      digestTitle ?? event?.title ?? l10n.alertsHistoryRemoved,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(

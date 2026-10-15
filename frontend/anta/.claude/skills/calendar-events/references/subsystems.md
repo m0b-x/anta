@@ -273,6 +273,27 @@ Rule lines in full:
 - The header (2026-09-26, `docs/calendar-header-roadmap.md`): the calendar's and the overview's title is `CalendarViewMenu` — Calendar / Overview, plus Month / 2 weeks / Week on the calendar, the one control that picks the grid format (never the filter sheet; the grid's own vertical swipe still changes it and the check follows); their ⋮ is `CalendarOverflowMenu` (Alerts · Export · Calendar settings). Switch pages through `AppNavigator.switchToCalendar` / `switchToCalendarOverview` / `toAlertsFromCalendar` (`returnOrPush`: the page directly beneath is returned to, anything else pushed), never a bare push. A page exports through its own `CalendarExportController`, which answers only for its own export.
 - `.ics` goes `IcsSerializer` → `ImportExportService.exportCalendar` → `ExportCalendarRequested`; no `ics` `ExportFormat` variant.
 
+## Category alerts and digests (2026-10-15)
+
+Record `docs/category-alerts-and-digests-roadmap.md`; feature doc addendum of the same date; mock https://claude.ai/artifact/3BRnAxW21fH7WsjdD1tPat.
+
+Anatomy: `calendar_category_alerts` (the v40 alert row keyed by `category_id`, CRDT block) → `CategoryAlertDao` → `EventAlertService` (both tables) → `EventAlerts` (`categoryAlertsFor`, `effectiveFor`, `inheritedFor`, `hasAlarm(event)`); `event_digests` (the `overview_views` shape + `enabled`) → `EventDigestDao` → `EventDigestService` → `EventDigests`; `DigestPlanner` → `PlannedDigest` → `digestNotificationContent` (+ `digestTitleOf`, `digestCategoriesLabel`, `digestPeriodOf`, shared with `digest_labels.dart`'s `digestDescribe` / `digestDayOfMonth` / `digestWeekdayName`) → `AlertScheduler` (one `PlannedEntry` loop, `digestArmSignature`, `digestEntries`) → `AlertGateway.scheduleDigest` → `AndroidAlertGateway` (`alerts_digest`, `alertDigestDetails`) → `OpenOverviewIntent` → `toCalendarOverviewLook` → the overview's `_listLook`. Surfaces: the category editor's Alerts group (`_CategoryAlertRow`), `AlertEditorSheet(forCategory:)`, the event editor's inherited rows + switch, the detail sheet, the categories page bell, the hub's Digests group + `_DigestRow` + `_DigestFireRow`, `DigestEditorSheet` + `DigestSheetRobot`.
+
+Rule lines in full and their whys:
+
+- **Evaluate, never copy.** A category alert reaches an event only through `effectiveFor` at read time. Materializing rows per event (the rejected B of D2) has a tail of membership changes — events moving category, `deleteCategory` reassigning, imports, templates, sync — and each miss is a birthday that never rang.
+- **The dedupe key is the offset set the event's shape uses.** Both sets are always stored (an alert drafted on a timed event carries the all-day defaults of the day it was drafted), so comparing all four fields let an own "30 min before" and an inherited one fire twice (S1 review #2).
+- **The category is resolved as rendering resolves it.** An event drawn as Other inherits Other's alerts, whether its id went stale through a reassignment the event cache has not re-read or a restore that lacked the category (S1 review #3).
+- **The registry keys on the event** because a category alert's id is shared by every event in the category: `(alert, day, kind)` collided for twins. Event-sourced seeds stayed byte-for-byte so standing alarms and snoozes survived; the payload's `inherited` is what lets the background isolate seed a re-posted snooze with the event without a database (S2 review #1, #2).
+- **A digest row past its instant is `fired` in every band.** The reminder rule's 24 h branch cancels the OS entry, which pulls a posted digest off the shade — data vanishing for a list the owner keeps (S2 review #8).
+- **The look never persists the period.** `OverviewPeriod.encode` returns null for a custom span and the setter deletes the key; a notification tap is not a pick (S2 review #3). It clears the query and Missed only so the list shows what the notification counted (S2 review #7).
+- **The hub is never a one-way switch.** `hubEntries()` imagines an opted-out event's inherited rows as it imagines disabled own alerts; without that the row vanished on the first toggle and the only way back was the editor (S3 review #2).
+- **Inherited rows dim, they never leave.** The kit's "nothing moves under the finger": removing the rows on the switch moved the switch (S3 review #6).
+- **The first alert on the phone may be a category's.** `AlertPermissionCheck.afterSave` is shared by the flow, the category editor and the digest sheet; the flow checks effective alerts (S3 review #3).
+- **Never a duplicate-wording key.** Four were dropped for `eventAlerts`, `eventAlertAdd`, `alertsDefaultTimed`, `alertsDefaultAllDay`; the digest sheet reuses seven more (S3 review #10, the owner's 2026-10-11 rule).
+- **`digestOnDayOfMonth` is an ICU `select` on the digits**, the ordinal inside the English ARB — gen-l10n refuses `=3` / `=21` plural cases and Dart builds no ordinals.
+- **The hub's ground** stays `surface` for now (the Digests group reads flat against it in the light theme; the page is Tier 4 of the adoption roadmap, and its ground changes with its rows).
+
 ## Change-set recipes
 
 The recipes in full:

@@ -403,6 +403,8 @@ reads `SemanticsData.identifier` off the merged node, which is exactly what
 Android exposes as the resource id and iOS as `accessibilityIdentifier` — so
 `id:` targets are the ones to use in step files.
 
+2026-10-15 — category alerts and digests: `tool/qa/fixtures/alerts.json` seeds a yearly birthday "Ana" two days out, a Birthday category alert (the day before at 09:00, Reminder — Ana inherits it, so it fires tomorrow at 09:00), a monthly digest (Birthday, the 1st, 09:00, also when empty — on most days its notification reads "No events this month") and a daily digest "Next days" whose fire is `{{minute+9}}` after the relaunch with a two-day lead, so it lists Ana and lands on the shade nine minutes into the pass; `test/qa/alerts_fixture_test.dart` pins all four. Flows `tool/qa/flows/alerts/03_category_alerts.txt` (the category editor's Alerts group, the alert sheet's two When rows, the hub's inherited row, the event editor's inherited row and switch) and `04_digests.txt` (the hub's Digests group, the sheet, the cadence round trip, the fire rows); 04's header carries the ring sequence the runner does by hand — wait for the "Next days" fire, open the shade, screenshot the inbox notification, tap it by `#N`, expect the overview's list on the span with Birthday. There is no `qa fire` / `qa alerts` verb (Session 7 of `docs/event-alerts-roadmap.md` was never built); the timed daily digest stands in for it.
+
 ## Alarm-clock evidence (2026-09-22)
 
 Event-alerts session OS-1 made the Alarm tier an `AlarmManager.setAlarmClock`

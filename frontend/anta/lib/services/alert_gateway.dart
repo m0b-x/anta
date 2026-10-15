@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/alert_payload.dart';
 import '../utils/alert_labels.dart';
 import '../utils/alert_planner.dart';
+import '../utils/digest_planner.dart';
 import 'pending_navigation.dart';
 
 /// Single gate deciding whether alerts can reach an operating system at all.
@@ -216,6 +217,14 @@ abstract class AlertGateway {
     DateTime? noticeAt,
   });
 
+  /// Hands one planned digest to the platform, [schedule]'s contract: false
+  /// when the platform refused it, and nothing is recorded for a refusal.
+  ///
+  /// [payload] already carries every word the notification shows, written on
+  /// the UI isolate when the scheduler armed it; a binding places them and
+  /// writes none of its own. A digest has no notice, no snooze and no ring.
+  Future<bool> scheduleDigest(PlannedDigest fire, AlertPayload payload);
+
   /// Cancels one entry by the id it was scheduled under. Cancelling an id the
   /// platform does not hold is a no-op, never an error — a process death
   /// between the cancel and the registry write has to be replayable.
@@ -347,6 +356,10 @@ class NoOpAlertGateway extends AlertGateway {
     AlertPayload payload, {
     DateTime? noticeAt,
   }) async => true;
+
+  @override
+  Future<bool> scheduleDigest(PlannedDigest fire, AlertPayload payload) async =>
+      true;
 
   @override
   Future<void> cancel(int osId) async {}

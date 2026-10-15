@@ -34,6 +34,7 @@ import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/digest_editor_sheet.dart';
 import 'package:anta/widgets/filter_check_list_sheet.dart';
 import 'package:anta/widgets/filter_preset_sheet.dart';
 import 'package:anta/services/filter_preset_service.dart';
@@ -505,6 +506,34 @@ void main() {
     await tester.tap(find.bySemanticsIdentifier(SemanticsIds.templateClose));
     await tester.pumpAndSettle();
     expect(find.byType(EventTemplateEditorSheet), findsNothing);
+  });
+
+  testWidgets('the digest editor sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(tester, (context) => DigestEditorSheet.show(context));
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the digest editor sheet keeps its header when the keyboard is '
+      'taller than the sheet', (tester) async {
+    // Typing its name on a short screen: the form sheet's box is a fixed
+    // share of the screen, so the inset goes on the scroll view.
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFrom(tester, (context) => DigestEditorSheet.show(context));
+
+    final box = tester.getSize(find.byType(DigestEditorSheet));
+    expect(box.height, surface.height * 0.92);
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(1180));
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.digestSheetSave),
+      findsOneWidget,
+    );
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.digestSheetClose));
+    await tester.pumpAndSettle();
+    expect(find.byType(DigestEditorSheet), findsNothing);
   });
 
   testWidgets('the event editor sheet clears the navigation bar', (

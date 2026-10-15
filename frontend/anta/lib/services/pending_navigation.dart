@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/alert_payload.dart';
+import '../models/date_range.dart';
 
 /// Where a tap on an alert should land (**A12**).
 ///
@@ -71,6 +72,32 @@ final class SkipNextFireIntent extends AlertEntryIntent {
 
   @override
   Object get dedupeKey => 'skip:$osId';
+}
+
+/// A digest was tapped (**v42**, D13): the calendar overview, in List mode, on
+/// the span the digest listed with its categories.
+///
+/// Keyed apart from every alert's intent: a digest's os id is a slot like any
+/// other, and a stale alert tap queued under the same number must not be
+/// taken for this one.
+final class OpenOverviewIntent extends AlertEntryIntent {
+  const OpenOverviewIntent({required super.payload});
+
+  @override
+  Object get dedupeKey => 'overview:$osId';
+
+  /// The span the digest listed, date-only UTC; a payload that lost its
+  /// bounds opens on the day it was armed for.
+  DateRange get span {
+    final start = payload.spanStartMs ?? payload.dayUtcMs;
+    return (
+      start: DateTime.fromMillisecondsSinceEpoch(start, isUtc: true),
+      end: DateTime.fromMillisecondsSinceEpoch(
+        payload.spanEndMs ?? start,
+        isUtc: true,
+      ),
+    );
+  }
 }
 
 /// *Open note* on the session chip (OS-5, **B8**): the session an alarm was

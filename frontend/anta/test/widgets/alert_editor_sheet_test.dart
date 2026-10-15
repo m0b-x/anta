@@ -64,6 +64,7 @@ void main() {
     bool showSound = true,
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
+    bool forCategory = false,
     Size? surface,
     Locale locale = const Locale('en'),
     double? textScale,
@@ -101,6 +102,7 @@ void main() {
                   showSound: showSound,
                   showRemoveAfter: showRemoveAfter,
                   removeAfterAlert: removeAfterAlert,
+                  forCategory: forCategory,
                 );
                 result.closed = true;
               },
@@ -334,6 +336,103 @@ void main() {
   List<FormRowGroup> groupsOf(WidgetTester tester) => tester
       .widgetList<FormRowGroup>(inSheet(find.byType(FormRowGroup)))
       .toList();
+
+  group('a category alert', () {
+    // A category serves timed and all-day events at once, so the sheet edits
+    // both offset sets on two When rows instead of the one an event reads.
+    testWidgets('shows a When row per offset set, whatever the stand-in '
+        'event\'s shape', (tester) async {
+      final sheet = AlertSheetRobot(tester);
+      await openSheet(tester, allDay: true, forCategory: true);
+
+      expect(sheet.whenRowLabels, ['Timed events', 'All-day events']);
+      expect(sheet.whenLabel, '10 min before');
+      expect(sheet.whenChoices, contains('30 min before'));
+      expect(sheet.allDayWhenLabel, '2 days before');
+      expect(sheet.allDayWhenChoices, contains('The day before'));
+      expect(sheet.timeOfDayVisible, isTrue);
+    });
+
+    testWidgets('each row edits its own set and Save hands back both', (
+      tester,
+    ) async {
+      final sheet = AlertSheetRobot(tester);
+      final result = await openSheet(tester, forCategory: true);
+
+      await sheet.choosePreset('30 min before');
+      await sheet.chooseAllDayPreset('The day before');
+      await sheet.pickTimeOfDay(const TimeOfDay(hour: 9, minute: 0));
+      await sheet.chooseTier(AlertMode.ring);
+      await sheet.save();
+
+      final saved = result.value as AlertEditorSaved;
+      expect(saved.alert.offsetMinutes, 30);
+      expect(saved.alert.daysBefore, 1);
+      expect(saved.alert.dayMinute, 9 * 60);
+      expect(saved.alert.mode, AlertMode.ring);
+      expect(saved.alert.id, alert.id);
+    });
+
+    testWidgets('the all-day Custom edits days, the timed row stays put', (
+      tester,
+    ) async {
+      final sheet = AlertSheetRobot(tester);
+      final result = await openSheet(tester, forCategory: true);
+
+      await sheet.openAllDayCustom();
+      expect(sheet.customOpen, isTrue);
+      await sheet.stepCustom(up: true);
+      await sheet.confirmCustom();
+      await sheet.save();
+
+      final saved = result.value as AlertEditorSaved;
+      expect(saved.alert.daysBefore, 3);
+      expect(saved.alert.offsetMinutes, 10);
+    });
+
+    testWidgets('never offers remove-after, which is an event\'s own flag', (
+      tester,
+    ) async {
+      final sheet = AlertSheetRobot(tester);
+      final result = await openSheet(
+        tester,
+        initial: alert.copyWith(mode: AlertMode.ring),
+        forCategory: true,
+        showRemoveAfter: true,
+      );
+
+      expect(sheet.removeAfterVisible, isFalse);
+      expect(sheet.soundRowVisible, isTrue);
+      expect(sheet.soundRowEnabled, isTrue);
+      await sheet.save();
+
+      expect((result.value as AlertEditorSaved).removeAfterAlert, isFalse);
+    });
+
+    testWidgets('an event\'s alert keeps its one When row', (tester) async {
+      final sheet = AlertSheetRobot(tester);
+      await openSheet(tester);
+
+      expect(sheet.allDayWhenVisible, isFalse);
+      expect(sheet.whenRowLabels, ['When']);
+    });
+
+    testWidgets('German at text scale 2.0 on 360 × 780 lays out cleanly', (
+      tester,
+    ) async {
+      final sheet = AlertSheetRobot(tester);
+      await openSheet(
+        tester,
+        forCategory: true,
+        locale: const Locale('de'),
+        textScale: 2.0,
+        surface: const Size(360, 780),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(sheet.allDayWhenVisible, isTrue);
+    });
+  });
 
   group('chrome and ways out', () {
     testWidgets('the header is a close, the title and a text Done on the save '

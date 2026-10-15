@@ -28,6 +28,7 @@ import '../controllers/shortcut_applier.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/category_alert.dart';
 import '../models/event_alert.dart';
 import '../models/event_template.dart';
 import '../models/custom_markdown_shortcut.dart';
@@ -589,6 +590,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// that case — the same shape [_assumeAbsent] follows.
   bool _removeAfterAlert = false;
 
+  /// Draft state for `CalendarEvent.categoryAlerts` (**v42**, D3): whether
+  /// this event inherits its category's alerts.
+  bool _categoryAlerts = true;
+
+  /// The alerts the category the form currently has would hand down, read
+  /// synchronously from the facade on open and on every category pick. Shown
+  /// read-only beside the own ones; never part of [_alerts], so the cap, the
+  /// remove-after gate and the saved set stay the event's own.
+  List<CategoryAlert> _inheritedAlerts = const [];
+
   TimedAlertDefault? _timedAlertDefault;
   AllDayAlertDefault? _allDayAlertDefault;
 
@@ -695,6 +706,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         ? const []
         : List<EventAlert>.of(EventAlerts.alertsFor(initial.id));
     _removeAfterAlert = initial?.removeAfterAlert ?? false;
+    _categoryAlerts = initial?.categoryAlerts ?? true;
+    _inheritedAlerts = _categoryAlertsOf(_categoryId);
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -1471,6 +1484,17 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     }
   }
 
+  /// The alerts an event in [categoryId] inherits — through the resolved
+  /// category, the rendering rule `EventAlerts.effectiveFor` follows, so an
+  /// unknown id reads as Other's. Enabled ones only: an alert the category
+  /// editor paused (D5) fires for no event, and is shown only there.
+  static List<CategoryAlert> _categoryAlertsOf(String categoryId) => [
+    for (final alert in EventAlerts.categoryAlertsFor(
+      CalendarCategories.resolve(categoryId).id,
+    ))
+      if (alert.enabled) alert,
+  ];
+
   Future<void> _pickCategory() async {
     _blur();
     final picked = await CategoryPickerSheet.pickSingle(
@@ -1480,6 +1504,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (picked == null || !mounted) return;
     setState(() {
       _categoryId = picked;
+      _inheritedAlerts = _categoryAlertsOf(picked);
       // Birthdays are inherently yearly. When the user tags a brand-new,
       // still-one-time event as a birthday, pre-fill a yearly recurrence so it
       // repeats every year with no extra taps. A recurrence the user already
@@ -1687,6 +1712,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             removeAfterAlert: effectiveRemoveAfterAlert,
+            categoryAlerts: _categoryAlerts,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1710,6 +1736,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             removeAfterAlert: effectiveRemoveAfterAlert,
+            categoryAlerts: _categoryAlerts,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1935,6 +1962,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _durationMinutes,
       alerts,
       _removeAfterAlert,
+      _categoryAlerts,
       _countOccurrences,
       _countStyle,
       _tracksPresence,
@@ -2590,19 +2618,27 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     ];
   }
 
+  /// The event's own alerts, then its category's as read rows in this event's
+  /// wording (M4 · A: information, never a control; the switch at the end is
+  /// the one control), Add alert counting own rows only, the remove-after
+  /// switch and the Category alerts switch, which exists only while the
+  /// category hands something down. Switched off, the inherited rows stay
+  /// and dim rather than leave: nothing in the group moves under the finger.
   List<Widget> _buildAlertRows(AppLocalizations l10n) {
+    final previewEvent = _alertPreviewEvent;
+    String formatMinute(int minute) =>
+        EventTimeFormatter.formatMinute(minute, context);
+    final categoryLabel = CalendarCategories.labelOf(
+      CalendarCategories.resolve(_categoryId),
+      l10n,
+    );
     return [
       for (final alert in _alerts)
         FormPickerRow(
           glyph: alert.isAlarm
               ? Icons.alarm_outlined
               : Icons.notifications_outlined,
-          label: alert.describe(
-            l10n,
-            _alertPreviewEvent,
-            formatMinute: (minute) =>
-                EventTimeFormatter.formatMinute(minute, context),
-          ),
+          label: alert.describe(l10n, previewEvent, formatMinute: formatMinute),
           value: alert.isAlarm
               ? l10n.eventAlertModeRing
               : l10n.eventAlertModeNotify,
@@ -2612,6 +2648,25 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             tooltip: l10n.eventAlertRemove,
             onPressed: () => _removeAlert(alert),
           ),
+        ),
+      for (final (index, inherited) in _inheritedAlerts.indexed)
+        FormPickerRow(
+          glyph: inherited.isAlarm
+              ? Icons.alarm_outlined
+              : Icons.notifications_outlined,
+          label: inherited
+              .toEventAlert(previewEvent.id)
+              .describe(l10n, previewEvent, formatMinute: formatMinute),
+          caption: [
+            l10n.eventAlertFromCategory(categoryLabel),
+            inherited.isAlarm
+                ? l10n.eventAlertModeRing
+                : l10n.eventAlertModeNotify,
+          ].join(' · '),
+          identifier: SemanticsIds.eventInheritedAlert(index),
+          onTap: null,
+          showChevron: false,
+          enabled: _categoryAlerts,
         ),
       if (_alerts.length < kMaxAlertsPerEvent)
         AutomationId(
@@ -2630,6 +2685,17 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             label: l10n.eventAlertRemoveAfter,
             value: _removeAfterAlert,
             onChanged: (value) => setState(() => _removeAfterAlert = value),
+          ),
+        ),
+      if (_inheritedAlerts.isNotEmpty)
+        AutomationId(
+          identifier: SemanticsIds.eventCategoryAlerts,
+          child: FormSwitchRow(
+            glyph: Icons.layers_outlined,
+            label: l10n.eventCategoryAlerts,
+            subtitle: l10n.eventCategoryAlertsDesc(categoryLabel),
+            value: _categoryAlerts,
+            onChanged: (value) => setState(() => _categoryAlerts = value),
           ),
         ),
     ];

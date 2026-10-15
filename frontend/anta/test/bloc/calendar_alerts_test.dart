@@ -1,21 +1,28 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/alert_skip_action.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/alert_constants.dart';
+import 'package:anta/constants/event_digests.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/models/alert_payload.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/event_digest_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/utils/quick_alarm.dart';
 
@@ -40,6 +47,12 @@ void main() {
   late CalendarBloc bloc;
   late List<({String eventId, AlertReconcileReason reason})> calls;
   late List<({String eventId, List<EventAlert> alerts})> writes;
+
+  /// The whole-horizon seam a digest's write reconciles through (D22).
+  late List<AlertReconcileReason> fullCalls;
+
+  /// What the bloc's digest events write through; set by the digest group.
+  DigestWriter? digestWriter;
 
   /// Both seams appending to one list, so "the rows are written **before** the
   /// platform is asked to plan from them" is a property the suite can state
@@ -70,6 +83,7 @@ void main() {
     await EventSkipService.forTesting(db);
     calls = [];
     writes = [];
+    fullCalls = [];
     order = [];
     bloc = CalendarBloc(
       service: CalendarEventService.forTesting(db),
@@ -81,6 +95,9 @@ void main() {
         writes.add((eventId: eventId, alerts: alerts));
         order.add('write');
       },
+      allAlertsReconciler: (reason) async => fullCalls.add(reason),
+      // Handed over, never resolved: no test reaches the service singleton.
+      digestWriter: () async => digestWriter!,
     );
   });
 
@@ -243,6 +260,47 @@ void main() {
       await dispatch(action.undo);
       expect(writes, hasLength(2));
       expect(writes.last.alerts.single.enabled, isTrue);
+    });
+
+    test("opts a one-time event out of its category's alerts for an "
+        'inherited alarm, and Undo opts it back in (v42)', () async {
+      await dispatch(const LoadCalendarEvents());
+      final event = eventOf();
+      await dispatch(CreateCalendarEvent(event: event));
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          CalendarCategories.resolve(event.categoryId).id: [
+            CategoryAlert(
+              id: 'a1',
+              categoryId: CalendarCategories.resolve(event.categoryId).id,
+              mode: AlertMode.ring,
+            ),
+          ],
+        },
+      );
+      calls.clear();
+      writes.clear();
+      final action = AlertSkipAction.resolve(
+        event: event,
+        payload: payloadFor(event, DateTime.utc(2026, 9, 20)),
+        today: DateTime.utc(2026, 9, 19),
+      )!;
+      expect(action.apply, isA<UpdateCalendarEvent>());
+
+      await dispatch(action.apply);
+
+      final service = await CalendarEventService.getInstance();
+      CalendarEvent stored() =>
+          service.events.singleWhere((candidate) => candidate.id == event.id);
+      expect(stored().categoryAlerts, isFalse);
+      // The category's alert is the category's: nothing of it was written,
+      // and the event's own alerts were left as they were.
+      expect(writes, isEmpty);
+      expect(calls.map((call) => call.eventId), [event.id]);
+
+      await dispatch(action.undo);
+      expect(stored().categoryAlerts, isTrue);
+      expect(writes, isEmpty);
     });
 
     test('resolves to nothing for a day already gone', () {
@@ -551,6 +609,173 @@ void main() {
 
       expect(writes, isEmpty);
       expect(calls, isEmpty);
+    });
+  });
+
+  // v42: the category editor writes a category's alerts itself; the bloc
+  // only re-renders what draws them.
+  group('CategoryAlertsChanged', () {
+    test('bumps the occurrence revision and writes nothing', () async {
+      await dispatch(const LoadCalendarEvents());
+      await dispatch(CreateCalendarEvent(event: eventOf()));
+      calls.clear();
+      writes.clear();
+      final before = bloc.state as CalendarPageLoaded;
+
+      await dispatch(const CategoryAlertsChanged());
+
+      final after = bloc.state as CalendarPageLoaded;
+      expect(after.occurrenceRevision, before.occurrenceRevision + 1);
+      expect(after.membershipRevision, before.membershipRevision);
+      expect(writes, isEmpty);
+      expect(calls, isEmpty);
+    });
+  });
+
+  // v42, D22: a digest belongs to no event, so each of its three writes
+  // reconciles the whole horizon, once, and bumps the revision the hub
+  // re-reads on.
+  group('digests', () {
+    late EventDigestService digests;
+
+    // A new digest reaches the bloc without an id: the service mints it.
+    const draft = EventDigest(id: '', name: 'Birthdays');
+
+    setUp(() async {
+      EventDigestService.reset();
+      digests = await EventDigestService.forTesting(db);
+      digestWriter = digests;
+    });
+
+    tearDown(() {
+      digestWriter = null;
+      EventDigestService.reset();
+    });
+
+    Future<int> loadedRevision() async {
+      await dispatch(const LoadCalendarEvents());
+      return (bloc.state as CalendarPageLoaded).occurrenceRevision;
+    }
+
+    int revision() => (bloc.state as CalendarPageLoaded).occurrenceRevision;
+
+    test('a save of a new digest creates it, reconciles all, bumps', () async {
+      final before = await loadedRevision();
+
+      await dispatch(const SaveEventDigest(draft));
+
+      expect(EventDigests.all.single.name, 'Birthdays');
+      expect(EventDigests.all.single.id, isNotEmpty);
+      expect(fullCalls, [AlertReconcileReason.eventChanged]);
+      expect(calls, isEmpty);
+      expect(revision(), before + 1);
+    });
+
+    test('a save of a known digest updates it in place', () async {
+      final saved = (await digests.create(draft))!;
+      final before = await loadedRevision();
+
+      await dispatch(SaveEventDigest(saved.copyWith(leadDays: 1)));
+
+      expect(EventDigests.all.single.id, saved.id);
+      expect(EventDigests.all.single.leadDays, 1);
+      expect(fullCalls, hasLength(1));
+      expect(revision(), before + 1);
+    });
+
+    test('the toggle writes the switch; the same value is a no-op', () async {
+      final saved = (await digests.create(draft))!;
+      final before = await loadedRevision();
+
+      await dispatch(ToggleEventDigest(saved.id, enabled: false));
+      expect(EventDigests.byId(saved.id)!.enabled, isFalse);
+      expect(fullCalls, hasLength(1));
+      expect(revision(), before + 1);
+
+      bloc.add(ToggleEventDigest(saved.id, enabled: false));
+      await pumpEventQueue();
+      expect(fullCalls, hasLength(1));
+      expect(revision(), before + 1);
+    });
+
+    test('the toggle writes the column alone: a payload this build cannot '
+        'fully read keeps every byte', () async {
+      // A newer build's digest: a field this one does not know.
+      const payload =
+          '{"cadence":"monthly","anchor":1,"minute":540,"leadDays":0,'
+          '"categories":[],"includeEmpty":false,"pinnedTo":"lockscreen"}';
+      await db.eventDigestDao.upsertDigest(
+        const EventDigestsCompanion(
+          id: Value('newer'),
+          name: Value('Newer'),
+          payload: Value(payload),
+          enabled: Value(true),
+          sortOrder: Value(0),
+        ),
+      );
+      await digests.reload();
+      final version = (await db.eventDigestDao.getAll()).single.version;
+      await loadedRevision();
+
+      await dispatch(const ToggleEventDigest('newer', enabled: false));
+
+      final row = (await db.eventDigestDao.getAll()).single;
+      expect(row.payload, payload);
+      expect(row.enabled, isFalse);
+      expect(row.version, version + 1);
+    });
+
+    test('a save equal to the stored digest writes nothing', () async {
+      final saved = (await digests.create(draft))!;
+      final version = (await db.eventDigestDao.getAll()).single.version;
+      final before = await loadedRevision();
+
+      bloc.add(SaveEventDigest(saved));
+      await pumpEventQueue();
+
+      expect((await db.eventDigestDao.getAll()).single.version, version);
+      expect(fullCalls, isEmpty);
+      expect(revision(), before);
+    });
+
+    test('an edit whose digest vanished meanwhile is written back', () async {
+      final before = await loadedRevision();
+
+      await dispatch(
+        const SaveEventDigest(EventDigest(id: 'gone', name: 'Kept')),
+      );
+
+      expect(EventDigests.byId('gone')?.name, 'Kept');
+      expect(revision(), before + 1);
+    });
+
+    test('a delete tombstones it, reconciles all, bumps', () async {
+      final saved = (await digests.create(draft))!;
+      final before = await loadedRevision();
+
+      await dispatch(DeleteEventDigest(saved.id));
+
+      expect(EventDigests.all, isEmpty);
+      expect(fullCalls, [AlertReconcileReason.eventChanged]);
+      expect(revision(), before + 1);
+    });
+
+    test('a create past the cap is refused and emits nothing', () async {
+      for (var i = 0; i < kDigestHorizon.maxDigests; i++) {
+        await digests.create(EventDigest(id: 'x', name: 'D$i'));
+      }
+      final before = await loadedRevision();
+      final emitted = <CalendarPageState>[];
+      final subscription = bloc.stream.listen(emitted.add);
+      addTearDown(subscription.cancel);
+
+      bloc.add(const SaveEventDigest(draft));
+      await pumpEventQueue();
+
+      expect(EventDigests.all, hasLength(kDigestHorizon.maxDigests));
+      expect(emitted, isEmpty);
+      expect(fullCalls, isEmpty);
+      expect(revision(), before);
     });
   });
 }

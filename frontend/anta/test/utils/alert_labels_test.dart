@@ -336,6 +336,38 @@ void main() {
     });
   });
 
+  group("a digest's days", () {
+    test('a line names its day as the notice does', () {
+      expect(english.entryDayLabel(sunday), 'Sun, Sep 20');
+      expect(german.entryDayLabel(sunday), 'So., 20. Sept.');
+      expect(AlertLabels.fixed.entryDayLabel(sunday), 'Sun, Sep 20');
+    });
+
+    test('the collapsed line names its date without the weekday', () {
+      expect(english.entryDateLabel(sunday), 'Sep 20');
+      expect(german.entryDateLabel(sunday), '20. Sept.');
+      expect(AlertLabels.fixed.entryDateLabel(sunday), 'Sep 20');
+    });
+
+    test('a span is both ends, even inside one month', () {
+      final start = DateTime.utc(2026, 11, 4);
+      final end = DateTime.utc(2026, 11, 10);
+
+      expect(english.spanLabel(start, end), 'Nov 4 – Nov 10');
+      expect(german.spanLabel(start, end), '4. Nov. – 10. Nov.');
+      expect(
+        AlertLabels.fixed.spanLabel(start, DateTime.utc(2026, 12, 3)),
+        'Nov 4 – Dec 3',
+      );
+    });
+
+    test('a span of one day is that day', () {
+      final day = DateTime.utc(2026, 11, 4);
+
+      expect(english.spanLabel(day, day), 'Nov 4');
+    });
+  });
+
   group("the chip's end", () {
     test("is the clock time the session ends at, on the phone's clock", () {
       final end = at(sunday, 19 * 60 + 30);

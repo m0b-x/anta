@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../constants/event_alerts.dart';
+import '../../constants/event_digests.dart';
 import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
@@ -14,6 +15,7 @@ import '../../services/category_service.dart';
 import '../../services/event_occurrence_service.dart';
 import '../../services/event_presence_service.dart';
 import '../../services/event_alert_service.dart';
+import '../../services/event_digest_service.dart';
 import '../../services/event_skip_service.dart';
 import '../../services/event_template_service.dart';
 import '../../services/note_money_ledger_service.dart';
@@ -191,13 +193,28 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// that started before they landed would arm the previous set.
   final AlertWriter _writeAlerts;
 
+  /// Brings the operating system back in line after a digest changed — the
+  /// whole horizon, since a digest belongs to no event (D22). Injected for
+  /// [_reconcileAlerts]'s reason.
+  final AllAlertsReconciler _reconcileAllAlerts;
+
+  /// What the three digest events write through — the service by default,
+  /// injected for [_writeAlerts]'s reason: a test watches the writes without
+  /// opening a database.
+  final Future<DigestWriter> Function() _digestWriter;
+
   CalendarBloc({
     required FutureOr<CalendarEventService> service,
     AlertReconciler? alertReconciler,
     AlertWriter? alertWriter,
+    AllAlertsReconciler? allAlertsReconciler,
+    Future<DigestWriter> Function()? digestWriter,
   }) : _seed = service,
        _reconcileAlerts = alertReconciler ?? AlertScheduler.reconcileEventById,
        _writeAlerts = alertWriter ?? EventAlertService.replaceForEventById,
+       _reconcileAllAlerts =
+           allAlertsReconciler ?? AlertScheduler.reconcileAllQuietly,
+       _digestWriter = digestWriter ?? EventDigestService.getInstance,
        super(const CalendarPageInitial()) {
     on<LoadCalendarEvents>(_onLoad);
     on<SelectCalendarDay>(_onSelectDay);
@@ -213,11 +230,15 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<SetOccurrenceSkipped>(_onSetOccurrenceSkipped);
     on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
     on<ToggleEventAlert>(_onToggleEventAlert);
+    on<CategoryAlertsChanged>(_onCategoryAlertsChanged);
+    on<SaveEventDigest>(_onSaveEventDigest);
+    on<DeleteEventDigest>(_onDeleteEventDigest);
+    on<ToggleEventDigest>(_onToggleEventDigest);
   }
 
   /// Awaits one service's construction, logging rather than rethrowing.
   ///
-  /// Lets the eight resolve through a single [Future.wait] without its
+  /// Lets the nine resolve through a single [Future.wait] without its
   /// fail-fast semantics turning one bad service into an empty calendar.
   static Future<void> _resolveQuietly(
     Future<Object?> init,
@@ -619,7 +640,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// This is where the calendar's first load lives now that the services are
   /// no longer constructed before `runApp`. Two properties it must keep:
   ///
-  /// The eight `getInstance()` calls run through one [Future.wait] rather than
+  /// The nine `getInstance()` calls run through one [Future.wait] rather than
   /// sequentially — each is a separate round trip to the Drift isolate, so
   /// awaiting them in order makes the latencies add rather than overlap. That
   /// was the roadmap's complaint about the old DI block, and it applies just
@@ -651,6 +672,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       _resolveQuietly(EventSkipService.getInstance(), 'skips'),
       _resolveQuietly(EventTemplateService.getInstance(), 'templates'),
       _resolveQuietly(EventAlertService.getInstance(), 'alerts'),
+      _resolveQuietly(EventDigestService.getInstance(), 'digests'),
     ]);
     try {
       final resolved = await resolving;
@@ -1100,6 +1122,86 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     unawaited(
       _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
     );
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
+  }
+
+  /// Re-renders what draws a category's alerts after the category editor
+  /// wrote them: the same `occurrenceRevision` bump [_onToggleEventAlert]
+  /// ends with, and for the same reason — no membership changed.
+  void _onCategoryAlertsChanged(
+    CategoryAlertsChanged event,
+    Emitter<CalendarPageState> emit,
+  ) {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
+  }
+
+  /// Creates [SaveEventDigest.digest] when it has no id yet — the service
+  /// mints the id and the position — else writes it back in place; an edit
+  /// whose digest vanished meanwhile upserts, the saved views' behaviour.
+  ///
+  /// A save equal to the stored digest writes nothing: an unchanged upsert
+  /// would still bump `version` and could win a merge over a real edit made
+  /// on another device. A create the service refuses (the cap) emits
+  /// nothing: the hub hides Add digest at the cap and the sheet refuses
+  /// first, so a refusal here is a race nobody needs told about.
+  Future<void> _onSaveEventDigest(
+    SaveEventDigest event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final digest = event.digest;
+    await _writeDigest(emit, 'save', (writer) async {
+      if (digest.id.isEmpty) return await writer.create(digest) != null;
+      if (EventDigests.byId(digest.id) == digest) return false;
+      await writer.update(digest);
+      return true;
+    });
+  }
+
+  Future<void> _onDeleteEventDigest(
+    DeleteEventDigest event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    await _writeDigest(emit, 'delete', (writer) async {
+      if (EventDigests.byId(event.id) == null) return false;
+      await writer.delete(event.id);
+      return true;
+    });
+  }
+
+  /// The switch alone ([DigestWriter.setEnabled]): never the payload, so a
+  /// digest a newer build wrote is not re-encoded by this one.
+  Future<void> _onToggleEventDigest(
+    ToggleEventDigest event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    await _writeDigest(emit, 'toggle', (writer) async {
+      final digest = EventDigests.byId(event.id);
+      if (digest == null || digest.enabled == event.enabled) return false;
+      await writer.setEnabled(event.id, event.enabled);
+      return true;
+    });
+  }
+
+  /// The digest handlers' one shape, [_onToggleEventAlert]'s: the write, a
+  /// full reconcile (D22), then the `occurrenceRevision` bump that makes the
+  /// hub's consumer re-read. [write] answers whether it changed anything.
+  Future<void> _writeDigest(
+    Emitter<CalendarPageState> emit,
+    String label,
+    Future<bool> Function(DigestWriter writer) write,
+  ) async {
+    if (state is! CalendarPageLoaded) return;
+    try {
+      if (!await write(await _digestWriter())) return;
+    } catch (e) {
+      debugPrint('[CalendarBloc] Digest $label error: $e');
+      return;
+    }
+    unawaited(_reconcileAllAlerts(AlertReconcileReason.eventChanged));
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
     emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));

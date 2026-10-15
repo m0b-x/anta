@@ -8710,6 +8710,216 @@ abstract class AppLocalizations {
   /// **'Notices of upcoming and missed alarms and the session in progress, always silent'**
   String get alertsQuietChannelDesc;
 
+  /// Android notification channel name for digests: one notification on a schedule that lists the events of a coming day, week or month. Read in the phone's own notification settings, beside Reminders, Alarms and Quiet notices
+  ///
+  /// In en, this message translates to:
+  /// **'Digests'**
+  String get alertsDigestChannel;
+
+  /// Android notification channel description for the digest channel (alertsDigestChannel)
+  ///
+  /// In en, this message translates to:
+  /// **'Bundled summaries of upcoming events'**
+  String get alertsDigestChannelDesc;
+
+  /// Title of a digest notification that has no name of its own and lists every category
+  ///
+  /// In en, this message translates to:
+  /// **'Events'**
+  String get digestAllCategories;
+
+  /// Title of a digest notification that has no name of its own and lists several categories
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 category} other{{count} categories}}'**
+  String digestCategoriesCount(int count);
+
+  /// Text of a digest notification: how many events the span holds and which span. period is one of digestPeriodToday … digestPeriodNextMonth, or a date range such as '4 Nov – 10 Nov'
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No events {period}} one{1 event {period}} other{{count} events {period}}}'**
+  String digestCountPeriod(int count, String period);
+
+  /// The span of a daily digest that lists the day it fires on, inside digestCountPeriod (3 events today)
+  ///
+  /// In en, this message translates to:
+  /// **'today'**
+  String get digestPeriodToday;
+
+  /// The span of a daily digest that lists the day after it fires, inside digestCountPeriod (3 events tomorrow)
+  ///
+  /// In en, this message translates to:
+  /// **'tomorrow'**
+  String get digestPeriodTomorrow;
+
+  /// The span of a weekly digest that lists the calendar week it fires in, inside digestCountPeriod (3 events this week)
+  ///
+  /// In en, this message translates to:
+  /// **'this week'**
+  String get digestPeriodThisWeek;
+
+  /// The span of a weekly digest that lists the calendar week after it fires, inside digestCountPeriod (3 events next week)
+  ///
+  /// In en, this message translates to:
+  /// **'next week'**
+  String get digestPeriodNextWeek;
+
+  /// The span of a monthly digest that lists the calendar month it fires in, inside digestCountPeriod (3 events this month)
+  ///
+  /// In en, this message translates to:
+  /// **'this month'**
+  String get digestPeriodThisMonth;
+
+  /// The span of a monthly digest that lists the calendar month after it fires, inside digestCountPeriod (3 events next month)
+  ///
+  /// In en, this message translates to:
+  /// **'next month'**
+  String get digestPeriodNextMonth;
+
+  /// The span of a digest that no calendar word names (a week from Wednesday, a month from the 15th), inside digestCountPeriod (3 events from Nov 4 to Nov 10). start and end are dates without a weekday
+  ///
+  /// In en, this message translates to:
+  /// **'from {start} to {end}'**
+  String digestPeriodSpan(String start, String end);
+
+  /// Last line of an expanded digest notification: how many events the span holds beyond the five it lists
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{+1 more} other{+{count} more}}'**
+  String digestMoreCount(int count);
+
+  /// Last row of the Alerts hub's Digests group: opens the digest sheet on a new digest
+  ///
+  /// In en, this message translates to:
+  /// **'Add digest'**
+  String get digestsAdd;
+
+  /// Title of the digest sheet when it creates a digest
+  ///
+  /// In en, this message translates to:
+  /// **'New digest'**
+  String get digestNew;
+
+  /// Title of the digest sheet when it edits an existing digest
+  ///
+  /// In en, this message translates to:
+  /// **'Edit digest'**
+  String get digestEdit;
+
+  /// Digest sheet row label for the cadence; its value is Day, Week or Month (Every · Month)
+  ///
+  /// In en, this message translates to:
+  /// **'Every'**
+  String get digestEvery;
+
+  /// Digest sheet row label for the day a digest fires on; its value is a weekday (On · Monday) or a day of the month (On · the 1st)
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get digestOn;
+
+  /// A monthly digest's day of the month (1 to 28, written as digits) in its bare form, as the On row's value (On · 1st) and inside digestDescribeMonthly (Monthly on the 1st, 09:00). A select on the digits, so each language writes its own ordinal: German '1.', Romanian '1'
+  ///
+  /// In en, this message translates to:
+  /// **'{day, select, 1{1st} 2{2nd} 3{3rd} 21{21st} 22{22nd} 23{23rd} other{{day}th}}'**
+  String digestOnDayOfMonth(String day);
+
+  /// Digest sheet row label for the time a digest fires at (At · 09:00), and the title of the time pad it opens
+  ///
+  /// In en, this message translates to:
+  /// **'At'**
+  String get digestAt;
+
+  /// Digest sheet row label for which span a digest lists: from the day it fires or from the next day
+  ///
+  /// In en, this message translates to:
+  /// **'Covers'**
+  String get digestCovers;
+
+  /// Covers row value: the digest lists a span that starts on the day it fires (this month, this week, today)
+  ///
+  /// In en, this message translates to:
+  /// **'From that day'**
+  String get digestCoversSameDay;
+
+  /// Covers row value: the digest lists a span that starts the day after it fires (next week from a Sunday evening, tomorrow)
+  ///
+  /// In en, this message translates to:
+  /// **'From the next day'**
+  String get digestCoversNextDay;
+
+  /// Digest sheet switch: the digest still arrives when its span lists no events
+  ///
+  /// In en, this message translates to:
+  /// **'Also when empty'**
+  String get digestIncludeEmpty;
+
+  /// Second line of the Also when empty switch (digestIncludeEmpty)
+  ///
+  /// In en, this message translates to:
+  /// **'Send it when nothing is due'**
+  String get digestIncludeEmptyDesc;
+
+  /// Caption under the digest sheet's rows: when the digest as drafted next arrives and what it would say. when is a day and a time (Sat 1 Nov 09:00); count is digestCountPeriod (3 events this month)
+  ///
+  /// In en, this message translates to:
+  /// **'Next: {when} · {count}'**
+  String digestNext(String when, String count);
+
+  /// Caption under the digest sheet's rows when the digest as drafted would send nothing in its next twelve fires (its spans list no events and Also when empty is off)
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to send yet'**
+  String get digestNextNone;
+
+  /// Caption of a digest row in the Alerts hub whose settings this version cannot read; its switch is disabled and it does not open
+  ///
+  /// In en, this message translates to:
+  /// **'Saved by a newer version of the app'**
+  String get digestUnreadable;
+
+  /// End of a digest's caption in the Alerts hub, after digestDescribe*: the day it next arrives (Monthly on the 1st, 09:00 · next Sat 1 Nov)
+  ///
+  /// In en, this message translates to:
+  /// **'next {when}'**
+  String digestNextFire(String when);
+
+  /// Destructive row at the end of the digest sheet when it edits a digest, and the title of its confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'Delete digest'**
+  String get digestDelete;
+
+  /// Text of the confirmation before a digest is deleted; the events it lists are not touched
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this digest?'**
+  String get digestDeleteConfirm;
+
+  /// Shown on the digest sheet's Save when the digest limit is reached
+  ///
+  /// In en, this message translates to:
+  /// **'You can keep up to {count} digests'**
+  String digestLimitReached(int count);
+
+  /// How a daily digest fires, the first line of its caption in the Alerts hub
+  ///
+  /// In en, this message translates to:
+  /// **'Daily at {time}'**
+  String digestDescribeDaily(String time);
+
+  /// How a weekly digest fires. weekday is a full weekday name as intl writes it inside a sentence
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly on {weekday}, {time}'**
+  String digestDescribeWeekly(String weekday, String time);
+
+  /// How a monthly digest fires. day is digestOnDayOfMonth (1st)
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly on the {day}, {time}'**
+  String digestDescribeMonthly(String day, String time);
+
   /// First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it
   ///
   /// In en, this message translates to:
@@ -8865,6 +9075,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Next {time}'**
   String eventAlertNext(String time);
+
+  /// Caption of an alert an event inherits from its category, in the event editor, the detail sheet and the Alerts hub
+  ///
+  /// In en, this message translates to:
+  /// **'From {category}'**
+  String eventAlertFromCategory(String category);
+
+  /// Switch in the event editor's Alerts group: whether this event inherits its category's alerts
+  ///
+  /// In en, this message translates to:
+  /// **'Category alerts'**
+  String get eventCategoryAlerts;
+
+  /// Second line of the Category alerts switch in the event editor
+  ///
+  /// In en, this message translates to:
+  /// **'Use the alerts set on {category}'**
+  String eventCategoryAlertsDesc(String category);
+
+  /// Caption under the category editor's alerts group
+  ///
+  /// In en, this message translates to:
+  /// **'Every event in this category gets these alerts.'**
+  String get categoryAlertsHint;
+
+  /// Second line of a category alert's row: how the alert reads on the category's timed events (the first line is the all-day reading)
+  ///
+  /// In en, this message translates to:
+  /// **'Timed events: {when}'**
+  String categoryAlertTimedCaption(String when);
+
+  /// Tooltip of the bell on a categories page row whose category carries an enabled alert
+  ///
+  /// In en, this message translates to:
+  /// **'Has alerts'**
+  String get categoryHasAlerts;
 
   /// Snackbar after saving an event whose alerts changed: how long until the next one, under a day away
   ///

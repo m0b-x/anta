@@ -2,9 +2,11 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
 import '../constants/event_alerts.dart';
+import '../database/daos/category_alert_dao.dart';
 import '../database/daos/event_alert_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
+import '../models/category_alert.dart';
 import '../models/event_alert.dart';
 
 /// Writes one event's complete alert set. The seam `CalendarBloc` holds, so a
@@ -12,8 +14,10 @@ import '../models/event_alert.dart';
 typedef AlertWriter =
     Future<void> Function(String eventId, List<EventAlert> alerts);
 
-/// Owns the rows of `calendar_event_alerts` and publishes them to the
-/// synchronous [EventAlerts] facade.
+/// Owns the rows of `calendar_event_alerts` and, since **v42**,
+/// `calendar_category_alerts`, and publishes both to the synchronous
+/// [EventAlerts] facade — one owner, so one `revision` covers every alert an
+/// event can carry, its own or its category's.
 ///
 /// The [EventSkipService] shape verbatim — loaded at [getInstance] and
 /// published with it, never configured from a page after the first frame —
@@ -32,13 +36,20 @@ typedef AlertWriter =
 class EventAlertService {
   static EventAlertService? _instance;
 
+  /// The first construction while it is in flight, so callers racing it share
+  /// one load rather than each publishing their own — and so
+  /// [refreshAfterCategoryRemoval] can wait for an instance that is still
+  /// reading the table instead of missing it.
+  static Future<EventAlertService>? _initializing;
+
   late EventAlertDao _dao;
+  late CategoryAlertDao _categoryDao;
 
   EventAlertService._();
 
   static Future<EventAlertService> getInstance() async {
     if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
+    return _createOnce(AppDatabase.getInstance);
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
@@ -50,23 +61,43 @@ class EventAlertService {
   @visibleForTesting
   static Future<EventAlertService> forTesting(AppDatabase db) async {
     if (_instance != null) return _instance!;
-    return _create(db);
+    return _createOnce(() async => db);
+  }
+
+  static Future<EventAlertService> _createOnce(
+    Future<AppDatabase> Function() open,
+  ) {
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<EventAlertService> creating;
+    creating = () async {
+      try {
+        return await _create(await open());
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
   static Future<EventAlertService> _create(AppDatabase db) async {
     final service = EventAlertService._();
     service._dao = db.eventAlertDao;
+    service._categoryDao = db.categoryAlertDao;
     await service._load();
+    await service._loadCategories();
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
     return service;
   }
 
-  /// Drops the cached singleton and clears the static facade, so alerts from a
-  /// closed database cannot leak into render paths — or into a plan — before
-  /// the next [getInstance] republishes. Invoked by [DatabaseLifecycle].
+  /// Drops the cached singleton and clears the static facade — the category
+  /// half included — so alerts from a closed database cannot leak into render
+  /// paths — or into a plan — before the next [getInstance] republishes.
+  /// Invoked by [DatabaseLifecycle].
   static void reset() {
     _instance = null;
+    _initializing = null;
     EventAlerts.resetCache();
   }
 
@@ -91,7 +122,15 @@ class EventAlertService {
   /// patches this and republishes rather than re-reading the table.
   final Map<String, List<EventAlert>> _byEvent = {};
 
-  Future<void> reload() => _load();
+  /// The category half's working copy, published wholesale on every write —
+  /// a handful of rows, and one category alert changes every event in its
+  /// category anyway.
+  final Map<String, List<CategoryAlert>> _byCategory = {};
+
+  Future<void> reload() async {
+    await _load();
+    await _loadCategories();
+  }
 
   Future<void> _load() async {
     _byEvent.clear();
@@ -105,6 +144,31 @@ class EventAlertService {
       _byEvent.clear();
     }
     _publish();
+  }
+
+  Future<void> _loadCategories() async {
+    _byCategory.clear();
+    try {
+      final rows = await _categoryDao.getAllActive();
+      for (final row in rows) {
+        (_byCategory[row.categoryId] ??= <CategoryAlert>[]).add(
+          _rowToCategoryAlert(row),
+        );
+      }
+    } catch (e) {
+      debugPrint('[EventAlertService] Category load error: $e');
+      _byCategory.clear();
+    }
+    _publishCategories();
+  }
+
+  void _publishCategories() {
+    EventAlerts.updateCategoryCache(
+      byCategory: {
+        for (final entry in _byCategory.entries)
+          entry.key: List.unmodifiable(entry.value),
+      },
+    );
   }
 
   /// The snapshot the facade is currently serving. Held so [_publishFor] can
@@ -146,10 +210,21 @@ class EventAlertService {
   ///
   /// The single write path for the editor, so there is exactly one place a
   /// saved event's alerts can diverge from what the sheet showed.
+  ///
+  /// An alert projected from a category (`categoryId != null`) is never
+  /// stored as the event's own: it lives on the category, and a copy here
+  /// would keep ringing after the category dropped it. Such an alert is
+  /// filtered out — and asserted against in debug, since a caller handing one
+  /// in has mixed `EventAlerts.effectiveFor` into an own-alert list.
   Future<void> replaceForEvent(String eventId, List<EventAlert> alerts) async {
+    assert(
+      alerts.every((alert) => alert.categoryId == null),
+      'replaceForEvent was handed an inherited alert',
+    );
     final owned = [
       for (final alert in alerts)
-        alert.eventId == eventId ? alert : alert.copyWith(eventId: eventId),
+        if (alert.categoryId == null)
+          alert.eventId == eventId ? alert : alert.copyWith(eventId: eventId),
     ];
     await _dao.replaceForEvent(eventId, [
       for (final alert in owned) _toCompanion(alert),
@@ -171,7 +246,121 @@ class EventAlertService {
     await _load();
   }
 
+  // ── Category alerts (v42) ────────────────────────────────────────────
+
+  /// Every alert of [categoryId], enabled or not — the facade's list.
+  List<CategoryAlert> categoryAlertsFor(String categoryId) =>
+      EventAlerts.categoryAlertsFor(categoryId);
+
+  /// Makes [alerts] the complete set for [categoryId] — [replaceForEvent]'s
+  /// contract: removed alerts tombstoned, kept ones re-stamped only if they
+  /// changed, new ones inserted, one transaction in the DAO, one republish.
+  Future<void> replaceForCategory(
+    String categoryId,
+    List<CategoryAlert> alerts,
+  ) async {
+    final owned = [
+      for (final alert in alerts)
+        alert.categoryId == categoryId
+            ? alert
+            : alert.copyWith(categoryId: categoryId),
+    ];
+    await _categoryDao.replaceForCategory(categoryId, [
+      for (final alert in owned) _toCategoryCompanion(alert),
+    ]);
+    if (owned.isEmpty) {
+      _byCategory.remove(categoryId);
+    } else {
+      _byCategory[categoryId] = owned;
+    }
+    _publishCategories();
+  }
+
+  /// Tombstones every alert of [categoryId] — what a category delete means
+  /// for them — and republishes.
+  Future<void> tombstoneForCategory(String categoryId) async {
+    await _categoryDao.tombstoneForCategory(categoryId);
+    _byCategory.remove(categoryId);
+    _publishCategories();
+  }
+
+  /// Republishes the category half after `CategoryService.deleteCategory`
+  /// tombstoned a category's alerts inside its own transaction.
+  ///
+  /// Touches only a live or loading instance — one still loading may have
+  /// read the table before the cascade, so it is awaited and reloaded. With
+  /// neither, nothing has been published yet and the next [getInstance] reads
+  /// the table as the cascade left it; resolving one here would bind it to
+  /// whatever database [AppDatabase.getInstance] opens, not the one the
+  /// category service holds.
+  static Future<void> refreshAfterCategoryRemoval() async {
+    var service = _instance;
+    final pending = _initializing;
+    if (service == null && pending != null) {
+      try {
+        service = await pending;
+      } catch (_) {
+        // That construction's failure is its own caller's to report; with no
+        // instance there is nothing published to refresh.
+      }
+    }
+    await service?._loadCategories();
+  }
+
   // ── Backup export / import ───────────────────────────────────────────
+
+  /// Live category alerts only, without CRDT identity — [exportData]'s rule.
+  Future<List<Map<String, dynamic>>> exportCategoryAlerts() async {
+    final rows = await _categoryDao.getAllActive();
+    return [
+      for (final row in rows)
+        {
+          ..._rowToCategoryAlert(row).toJson(),
+          EventAlertKeys.createdAtMs: row.createdAt.millisecondsSinceEpoch,
+          EventAlertKeys.updatedAtMs: row.updatedAt.millisecondsSinceEpoch,
+        },
+    ];
+  }
+
+  /// Wipe-then-reinsert, [importData]'s shape: audit timestamps preserved,
+  /// identity stamped fresh by the DAO, a malformed row skipped.
+  Future<void> importCategoryAlerts(List<dynamic> data) async {
+    await _categoryDao.deleteAll();
+    final companions = <CalendarCategoryAlertsCompanion>[];
+    for (final raw in data) {
+      if (raw is! Map) continue;
+      final map = raw.cast<String, dynamic>();
+      try {
+        final alert = CategoryAlert.fromJson(map);
+        if (alert == null) continue;
+        final now = DateTime.now();
+        final createdMs = map[EventAlertKeys.createdAtMs];
+        final updatedMs = map[EventAlertKeys.updatedAtMs];
+        companions.add(
+          _toCategoryCompanion(
+            alert,
+            createdAt: createdMs is int
+                ? DateTime.fromMillisecondsSinceEpoch(createdMs)
+                : now,
+            updatedAt: updatedMs is int
+                ? DateTime.fromMillisecondsSinceEpoch(updatedMs)
+                : now,
+          ),
+        );
+      } catch (e) {
+        debugPrint('[EventAlertService] Category import row error: $e');
+      }
+    }
+    await _categoryDao.importAll(companions);
+    await _loadCategories();
+  }
+
+  /// Clears every category alert, tombstones included, for an import that
+  /// replaces them.
+  Future<void> clearCategoryAlertsForImport() async {
+    await _categoryDao.deleteAll();
+    await _loadCategories();
+  }
 
   /// Live alerts only, without CRDT identity. Backups are not a sync channel:
   /// identity is regenerated on restore, exactly as it is for notes, folders
@@ -257,6 +446,38 @@ class EventAlertService {
     return EventAlertsCompanion(
       id: Value(alert.id),
       eventId: Value(alert.eventId),
+      mode: Value(alert.mode.name),
+      offsetMinutes: Value(alert.offsetMinutes),
+      daysBefore: Value(alert.daysBefore),
+      dayMinute: Value(alert.dayMinute),
+      sound: Value(alert.sound),
+      enabled: Value(alert.enabled),
+      createdAt: createdAt == null ? const Value.absent() : Value(createdAt),
+      updatedAt: updatedAt == null ? const Value.absent() : Value(updatedAt),
+    );
+  }
+
+  static CategoryAlert _rowToCategoryAlert(CategoryAlertRow row) {
+    return CategoryAlert(
+      id: row.id,
+      categoryId: row.categoryId,
+      mode: AlertMode.fromName(row.mode),
+      offsetMinutes: row.offsetMinutes,
+      daysBefore: row.daysBefore,
+      dayMinute: row.dayMinute,
+      sound: row.sound,
+      enabled: row.enabled,
+    );
+  }
+
+  static CalendarCategoryAlertsCompanion _toCategoryCompanion(
+    CategoryAlert alert, {
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return CalendarCategoryAlertsCompanion(
+      id: Value(alert.id),
+      categoryId: Value(alert.categoryId),
       mode: Value(alert.mode.name),
       offsetMinutes: Value(alert.offsetMinutes),
       daysBefore: Value(alert.daysBefore),

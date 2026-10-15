@@ -147,6 +147,38 @@ void main() {
     });
   });
 
+  group('categoryId (v42)', () {
+    const own = EventAlert(id: 'a1', eventId: 'e1');
+    const inherited = EventAlert(id: 'a1', eventId: 'e1', categoryId: 'gym');
+
+    test('is part of equality', () {
+      expect(own, isNot(inherited));
+      expect(
+        inherited,
+        const EventAlert(id: 'a1', eventId: 'e1', categoryId: 'gym'),
+      );
+    });
+
+    test('copyWith carries it through', () {
+      expect(inherited.copyWith(enabled: false).categoryId, 'gym');
+      expect(own.copyWith(enabled: false).categoryId, isNull);
+    });
+
+    test('never rides the codec', () {
+      final json = inherited.toJson();
+      expect(json.containsKey(EventAlertKeys.categoryId), isFalse);
+      expect(EventAlert.fromJson(json)!.categoryId, isNull);
+    });
+
+    test('does not change the wording', () {
+      final event = eventOf(time: timed);
+      expect(
+        inherited.copyWith(offsetMinutes: 10).describe(l10n, event),
+        own.copyWith(offsetMinutes: 10).describe(l10n, event),
+      );
+    });
+  });
+
   group('describe', () {
     final cases = <({String name, EventAlert alert, bool allDay, String text})>[
       (

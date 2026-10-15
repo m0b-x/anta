@@ -117,6 +117,11 @@ abstract final class IcsSerializer {
   /// through would give this file a second source of truth for them.
   /// A disabled alert registers nothing on the phone, so it exports nothing.
   ///
+  /// The alerts are the event's **effective** ones (**v42**, D18): an alert
+  /// inherited from its category exports like its own, because a consumer of
+  /// the file expects the alarms the phone will ring — and an event that opted
+  /// out of its category's alerts exports none of them.
+  ///
   /// The two tiers map to the two actions RFC 5545 has: `DISPLAY` for a
   /// reminder (which needs a `DESCRIPTION`), `AUDIO` for an alarm. Nothing in
   /// the format can express "ring until stopped", so a receiving calendar will
@@ -132,7 +137,7 @@ abstract final class IcsSerializer {
   /// absolute `VALUE=DATE-TIME` trigger, which this used to emit, has to be UTC
   /// and covers the first occurrence only.
   static List<String> _alarms(CalendarEvent event, EventTime? time) {
-    final alerts = EventAlerts.alertsFor(event.id);
+    final alerts = EventAlerts.effectiveFor(event);
     if (alerts.isEmpty) return const [];
     final lines = <String>[];
     for (final alert in alerts) {

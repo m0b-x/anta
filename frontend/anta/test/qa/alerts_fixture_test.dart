@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,10 +10,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/event_digests.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/backup_service.dart';
@@ -20,9 +25,13 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/event_digest_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/alert_excerpt.dart';
+import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/alert_planner.dart';
+import 'package:anta/utils/digest_notification_content.dart';
+import 'package:anta/utils/digest_planner.dart';
 import 'package:anta/utils/quick_alarm.dart';
 
 import '../../tool/qa/src/placeholders.dart';
@@ -36,12 +45,22 @@ import '../../tool/qa/src/placeholders.dart';
 /// and the minute arithmetic. That last one fails silently: an event that
 /// lands in the past arms nothing, and the flow waits out its timeout on a
 /// phone that never rings.
+///
+/// Since v42 it also carries what `03_category_alerts` and `04_digests` read:
+/// a yearly birthday two days ahead, the Birthday category's one alert it
+/// inherits, a monthly Birthday digest, and "Next days" — a daily digest
+/// nine minutes out, after the alarm flows, whose one fire lists the
+/// birthday, so the pass has a digest notification on the shade.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const plainId = 'qa-alert-plain';
   const removeId = 'qa-alert-remove';
   const reminderId = 'qa-alert-reminder';
+  const birthdayId = 'qa-alert-birthday';
+  const categoryAlertId = 'qa-alert-category-birthday';
+  const digestId = 'qa-alert-digest-birthdays';
+  const soonDigestId = 'qa-alert-digest-soon';
 
   /// The minutes each event is seeded ahead of the run, which is the order
   /// the flows wait for them in.
@@ -96,6 +115,7 @@ void main() {
     await CategoryService.getInstance();
     await CalendarEventService.getInstance();
     await EventAlertService.getInstance();
+    await EventDigestService.getInstance();
   });
 
   tearDownAll(() async {
@@ -111,11 +131,13 @@ void main() {
     return {for (final event in service.events) event.id: event};
   }
 
-  test('the three events land, each in a category the app has', () async {
+  test('the four events land, each in a category the app has', () async {
     final events = await eventsById();
-    expect(events.keys, unorderedEquals(minutesAhead.keys));
+    expect(events.keys, unorderedEquals([...minutesAhead.keys, birthdayId]));
     for (final event in events.values) {
-      expect(event.rule, isA<OneTimeRecurrence>(), reason: event.id);
+      if (minutesAhead.containsKey(event.id)) {
+        expect(event.rule, isA<OneTimeRecurrence>(), reason: event.id);
+      }
       expect(
         CalendarCategories.byId(event.categoryId),
         isNotNull,
@@ -278,9 +300,242 @@ void main() {
     final seed = jsonDecode(raw) as Map<String, dynamic>;
     for (final event in seed['calendarEvents'] as List) {
       final map = event as Map<String, dynamic>;
+      if (map['id'] == birthdayId) {
+        // All-day: a day and no minute.
+        expect(map['startDateMs'], '{{today+2}}', reason: '$map');
+        expect(map['startMinute'], isNull, reason: '$map');
+        continue;
+      }
       final minutes = minutesAhead[map['id']];
       expect(map['startDateMs'], '{{minuteday+$minutes}}', reason: '$map');
       expect(map['startMinute'], '{{minute+$minutes}}', reason: '$map');
     }
+  });
+
+  test('the birthday is yearly, all-day and counted, with no alert of its '
+      'own', () async {
+    final ana = (await eventsById())[birthdayId]!;
+    expect(ana.title, 'Ana');
+    expect(ana.categoryId, kBirthdayCategoryId);
+    expect(ana.rule, isA<YearlyRecurrence>());
+    expect(ana.allDay, isTrue);
+    expect(ana.countOccurrences, isTrue);
+    expect(ana.categoryAlerts, isTrue);
+    expect(EventAlerts.alertsFor(birthdayId), isEmpty);
+  });
+
+  test('the Birthday category alert lands with both offsets, and the '
+      'birthday inherits it', () async {
+    final alert = EventAlerts.categoryAlertsFor(kBirthdayCategoryId).single;
+    expect(alert.id, categoryAlertId);
+    expect(alert.mode, AlertMode.notify);
+    expect(alert.offsetMinutes, 30);
+    expect(alert.daysBefore, 1);
+    expect(alert.dayMinute, 540);
+    expect(alert.sound, isNull);
+    expect(alert.enabled, isTrue);
+
+    final ana = (await eventsById())[birthdayId]!;
+    final inherited = EventAlerts.effectiveFor(ana).single;
+    expect(inherited.id, categoryAlertId);
+    expect(inherited.categoryId, kBirthdayCategoryId);
+    // The alarm flows' events are in other categories and inherit nothing.
+    for (final eventId in minutesAhead.keys) {
+      final event = (await eventsById())[eventId]!;
+      expect(EventAlerts.effectiveFor(event), hasLength(1), reason: eventId);
+    }
+  });
+
+  test('the inherited reminder is planned for the day before at 09:00, after '
+      'the alarm flows and inside the hub\'s window', () async {
+    final service = await CalendarEventService.getInstance();
+    final settings = await (await SettingsService.getInstance())
+        .getAlertSettings();
+    final ana = service.events.firstWhere((event) => event.id == birthdayId);
+    final plan = AlertPlanner.plan(
+      events: [ana],
+      alertsByEvent: {birthdayId: EventAlerts.effectiveFor(ana)},
+      defaults: settings,
+      horizon: kAlertHorizon,
+      now: now,
+    );
+    expect(plan.single.alert.id, categoryAlertId);
+    expect(plan.single.fireAt, DateTime(2026, 9, 27, 9));
+
+    // Two days ahead puts the fire on tomorrow's morning whatever the hour
+    // the seed goes in — tomorrow would put it this morning, behind the
+    // clock for most of the day, and the hub would list nothing to read.
+    for (final seededAt in [
+      DateTime(2026, 9, 26, 0, 0, 10),
+      DateTime(2026, 9, 26, 8, 59, 50),
+      DateTime(2026, 9, 26, 23, 59, 50),
+    ]) {
+      final seed =
+          jsonDecode(resolvePlaceholders(raw, now: seededAt))
+              as Map<String, dynamic>;
+      final map = (seed['calendarEvents'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((event) => event['id'] == birthdayId);
+      final day = DateTime.fromMillisecondsSinceEpoch(
+        map['startDateMs'] as int,
+        isUtc: true,
+      );
+      final fireAt = DateTime(day.year, day.month, day.day - 1, 0, 540);
+      expect(
+        fireAt.isAfter(wallClockAhead(seededAt, minutesAhead[reminderId]!)),
+        isTrue,
+        reason: 'seeded at $seededAt',
+      );
+      expect(
+        fireAt.difference(seededAt),
+        lessThan(Duration(days: kAlertHorizon.days)),
+        reason: 'seeded at $seededAt',
+      );
+    }
+  });
+
+  test('the digest lands as a monthly Birthday digest that fires when '
+      'empty', () async {
+    final digest = EventDigests.byId(digestId)!;
+    expect(digest.name, '');
+    expect(digest.isReadable, isTrue);
+    expect(digest.cadence, DigestCadence.monthly);
+    expect(digest.anchor, 1);
+    expect(digest.minute, 540);
+    expect(digest.leadDays, 0);
+    expect(digest.categoryIds, {kBirthdayCategoryId});
+    expect(digest.includeEmpty, isTrue);
+    expect(digest.enabled, isTrue);
+
+    // The next fire is the coming 1st and lists that month, which the
+    // birthday two days out is usually not in: Also when empty is what puts
+    // the fire row in the hub on every run.
+    final service = await CalendarEventService.getInstance();
+    final plan = DigestPlanner.plan(
+      digests: [digest],
+      events: service.events,
+      horizon: kDigestHorizon,
+      now: now,
+    );
+    expect(plan, hasLength(kDigestHorizon.perDigest));
+    expect(plan.first.fireAt, DateTime(2026, 10, 1, 9));
+    expect(plan.first.spanStart, DateTime.utc(2026, 10, 1));
+    expect(plan.first.entries, isEmpty);
+  });
+
+  test('"Next days" lands as a daily digest two days ahead, nine minutes '
+      'out', () {
+    final digest = EventDigests.byId(soonDigestId)!;
+    expect(digest.name, 'Next days');
+    expect(digest.isReadable, isTrue, reason: 'the minute resolved in place');
+    expect(digest.cadence, DigestCadence.daily);
+    final ninth = wallClockAhead(now, 9);
+    expect(digest.minute, ninth.hour * 60 + ninth.minute);
+    expect(digest.leadDays, 2);
+    expect(digest.categoryIds, {kBirthdayCategoryId});
+    expect(digest.includeEmpty, isFalse);
+    expect(digest.enabled, isTrue);
+    expect(
+      EventDigests.all.map((digest) => digest.id),
+      [digestId, soonDigestId],
+      reason: 'the hub lists the monthly digest first',
+    );
+  });
+
+  test('"Next days" fires once, after the alarm flows, listing Ana in the '
+      'words the shade shows', () async {
+    final service = await CalendarEventService.getInstance();
+    final plan = DigestPlanner.plan(
+      digests: [EventDigests.byId(soonDigestId)!],
+      events: service.events,
+      horizon: kDigestHorizon,
+      now: now,
+    );
+    // Tomorrow's fire lists today + 3, which is empty, and an empty span
+    // with Also when empty off plans nothing.
+    final fire = plan.single;
+    expect(fire.fireAt, wallClockAhead(now, 9));
+    expect(
+      fire.fireAt.isAfter(wallClockAhead(now, minutesAhead[reminderId]!)),
+      isTrue,
+    );
+    expect(fire.spanStart, DateTime.utc(2026, 9, 28));
+    expect(fire.spanEnd, fire.spanStart);
+    expect(fire.entries.single.event.id, birthdayId);
+
+    final content = digestNotificationContent(
+      fire,
+      lookupAppLocalizations(const Locale('en')),
+      AlertLabels.fixed,
+      categoryLabel: (_) => 'Birthday',
+      weekStart: CalendarWeekStart.monday,
+    );
+    expect(content.title, 'Next days');
+    // A daily digest names only today and tomorrow; two days ahead is
+    // written as a span of one day.
+    expect(content.text, '1 event from Sep 28 to Sep 28 · Sep 28 · Ana');
+    expect(content.lines, ['Mon, Sep 28 · Ana · Year 1']);
+    expect(content.summary, isNull);
+  });
+
+  test('"Next days" lists Ana for a seed at any hour that leaves nine '
+      'minutes in the day', () {
+    PlannedDigest? firstFire(DateTime seededAt) {
+      final seed =
+          jsonDecode(resolvePlaceholders(raw, now: seededAt))
+              as Map<String, dynamic>;
+      final row = (seed['eventDigests'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((digest) => digest['id'] == soonDigestId);
+      final map = (seed['calendarEvents'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((event) => event['id'] == birthdayId);
+      final ana = CalendarEvent(
+        id: birthdayId,
+        title: 'Ana',
+        categoryId: kBirthdayCategoryId,
+        startDate: DateTime.fromMillisecondsSinceEpoch(
+          map['startDateMs'] as int,
+          isUtc: true,
+        ),
+        rule: const YearlyRecurrence(),
+        countOccurrences: true,
+      );
+      final plan = DigestPlanner.plan(
+        digests: [
+          EventDigest.fromRow(
+            id: row['id'] as String,
+            name: row['name'] as String,
+            payload: row['payload'] as String,
+          ),
+        ],
+        events: [ana],
+        horizon: kDigestHorizon,
+        now: seededAt,
+      );
+      return plan.isEmpty ? null : plan.single;
+    }
+
+    for (final seededAt in [
+      DateTime(2026, 9, 26, 0, 0, 10),
+      DateTime(2026, 9, 26, 8, 59, 50),
+      DateTime(2026, 9, 26, 23, 50, 10),
+    ]) {
+      final fire = firstFire(seededAt)!;
+      expect(fire.fireAt, wallClockAhead(seededAt, 9), reason: '$seededAt');
+      expect(fire.spanStart, DateTime.utc(2026, 9, 28), reason: '$seededAt');
+      expect(fire.entries.single.event.id, birthdayId, reason: '$seededAt');
+    }
+
+    // Past 23:50 the ninth minute is tomorrow's: the fire moves to tomorrow,
+    // its span to today + 3, where Ana is not, and nothing is planned — the
+    // ring part of the pass needs a seed before 23:50.
+    final lateSeed = DateTime(2026, 9, 26, 23, 55, 10);
+    expect(firstFire(lateSeed), isNull);
+    final digest = EventDigests.byId(soonDigestId)!;
+    expect(
+      DigestPlanner.spanFor(digest, DateTime.utc(2026, 9, 27)).start,
+      DateTime.utc(2026, 9, 29),
+    );
   });
 }

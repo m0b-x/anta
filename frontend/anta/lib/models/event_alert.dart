@@ -66,6 +66,14 @@ class EventAlert extends Equatable {
   /// The hub switch. A disabled alert persists and registers nothing.
   final bool enabled;
 
+  /// The category this alert is inherited from, or `null` for the event's
+  /// own (**v42**). **In memory only**: set by `CategoryAlert.toEventAlert`
+  /// when `EventAlerts.effectiveFor` projects a category's alert onto an
+  /// event, never written by the DAO and never carried by [toJson] — so
+  /// everything downstream stays on one alert type and asks this where the
+  /// source matters.
+  final String? categoryId;
+
   const EventAlert({
     required this.id,
     required this.eventId,
@@ -75,6 +83,7 @@ class EventAlert extends Equatable {
     this.dayMinute,
     this.sound,
     this.enabled = true,
+    this.categoryId,
   });
 
   bool get isAlarm => mode == AlertMode.ring;
@@ -100,6 +109,7 @@ class EventAlert extends Equatable {
       dayMinute: clearDayMinute ? null : (dayMinute ?? this.dayMinute),
       sound: clearSound ? null : (sound ?? this.sound),
       enabled: enabled ?? this.enabled,
+      categoryId: categoryId,
     );
   }
 
@@ -200,6 +210,7 @@ class EventAlert extends Equatable {
     dayMinute,
     sound,
     enabled,
+    categoryId,
   ];
 }
 

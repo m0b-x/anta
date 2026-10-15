@@ -29,8 +29,14 @@ import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/constants/event_digests.dart';
+import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/event_digest.dart';
+import 'package:anta/services/event_digest_service.dart';
 import 'package:anta/utils/alert_labels.dart';
+import 'package:anta/utils/alert_os_id.dart';
 import 'package:anta/utils/alert_planner.dart';
+import 'package:anta/utils/digest_planner.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -112,6 +118,7 @@ class FakeAlertGateway implements AlertGateway {
 
   void resetCalls() {
     scheduled.clear();
+    scheduledDigests.clear();
     cancelled.clear();
     stopped.clear();
     missed.clear();
@@ -137,6 +144,16 @@ class FakeAlertGateway implements AlertGateway {
     scheduled.add(fire);
     platform[payload.osId] = payload;
     notices[payload.osId] = noticeAt;
+    return true;
+  }
+
+  final List<PlannedDigest> scheduledDigests = [];
+
+  @override
+  Future<bool> scheduleDigest(PlannedDigest fire, AlertPayload payload) async {
+    if (!accepts) return false;
+    scheduledDigests.add(fire);
+    platform[payload.osId] = payload;
     return true;
   }
 
@@ -259,6 +276,7 @@ void main() {
     EventSkipService.reset();
     EventOccurrenceService.reset();
     CategoryService.reset();
+    EventDigestService.reset();
     SettingsService.reset();
   }
 
@@ -274,6 +292,7 @@ void main() {
     await EventSkipService.forTesting(db);
     await EventOccurrenceService.forTesting(db);
     await CategoryService.forTesting(db);
+    await EventDigestService.forTesting(db);
     now = DateTime(2026, 9, 15, 12);
   });
 
@@ -2896,6 +2915,679 @@ void main() {
           reason: 'the chain advanced, in the order the turns were enqueued',
         );
       });
+    });
+  });
+
+  group('the registration tuple (v42)', () {
+    test('rows a v41 build armed survive a pass untouched', () async {
+      // An event's own alert, armed by a build from before the event joined
+      // the key: the bare seed, the default `source`, the signature that
+      // build recorded. The upgrade must re-arm nothing.
+      await seed();
+      final day = DateTime.utc(2026, 9, 20);
+      final osId = resolveAlertOsId(
+        seed: alertOsIdSeed(
+          database: 'gym_notes',
+          alertId: 'a1',
+          dayUtc: day,
+          kind: AlertKind.scheduled,
+        ),
+        isTaken: (_) => false,
+      );
+      await db.alertRegistrationDao.put(
+        AlertRegistrationsCompanion(
+          osId: Value(osId),
+          alertId: const Value('a1'),
+          eventId: const Value('e1'),
+          day: Value(day.millisecondsSinceEpoch),
+          fireAt: Value(DateTime(2026, 9, 20, 18).millisecondsSinceEpoch),
+          kind: Value(AlertKind.scheduled.name),
+          state: Value(AlertRegistrationState.pending.name),
+          backend: const Value('fake#system:default~clock~10~n120'),
+          createdAt: Value(now),
+          updatedAt: Value(now),
+        ),
+      );
+      gateway.seedPlatform(
+        AlertPayload(
+          database: 'gym_notes',
+          eventId: 'e1',
+          alertId: 'a1',
+          dayUtcMs: day.millisecondsSinceEpoch,
+          osId: osId,
+          mode: AlertMode.ring,
+          title: 'Leg day',
+          timeLabel: '18:00',
+          categoryId: 'gym',
+        ),
+      );
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+      final row = (await registrations()).single;
+      expect(row.osId, osId);
+      expect(row.source, AlertRegistrationSource.event.name);
+    });
+
+    test('a standing snooze a v41 build armed survives a pass untouched',
+        () async {
+      await seed();
+      final day = DateTime.utc(2026, 9, 20);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final snoozeId = resolveAlertOsId(
+        seed: alertOsIdSeed(
+          database: 'gym_notes',
+          alertId: 'a1',
+          dayUtc: day,
+          kind: AlertKind.snooze,
+        ),
+        isTaken: (_) => false,
+      );
+      final snoozeAt = DateTime(2026, 9, 20, 18, 10);
+      await db.alertRegistrationDao.put(
+        AlertRegistrationsCompanion(
+          osId: Value(snoozeId),
+          alertId: const Value('a1'),
+          eventId: const Value('e1'),
+          day: Value(day.millisecondsSinceEpoch),
+          fireAt: Value(snoozeAt.millisecondsSinceEpoch),
+          kind: Value(AlertKind.snooze.name),
+          state: Value(AlertRegistrationState.pending.name),
+          backend: const Value('fake#system:default~clock~10~n120'),
+          createdAt: Value(now),
+          updatedAt: Value(now),
+        ),
+      );
+      gateway.seedPlatform(
+        AlertPayload(
+          database: 'gym_notes',
+          eventId: 'e1',
+          alertId: 'a1',
+          dayUtcMs: day.millisecondsSinceEpoch,
+          osId: snoozeId,
+          mode: AlertMode.ring,
+          title: 'Leg day',
+          timeLabel: '18:10',
+          categoryId: 'gym',
+          snooze: true,
+        ),
+      );
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+      final row = (await registrations()).firstWhere(
+        (row) => row.osId == snoozeId,
+      );
+      expect(row.state, AlertRegistrationState.pending.name);
+      expect(row.fireAt, snoozeAt.millisecondsSinceEpoch);
+    });
+  });
+
+  group('category alerts (v42)', () {
+    Future<void> twoEventsUnderOneAlert({
+      int offsetMinutes = 0,
+      AlertMode mode = AlertMode.notify,
+    }) async {
+      await events.upsert(eventOf(id: 'e1'));
+      await events.upsert(eventOf(id: 'e2', title: 'Arm day'));
+      await alerts.replaceForCategory('gym', [
+        CategoryAlert(
+          id: 'ca1',
+          categoryId: 'gym',
+          offsetMinutes: offsetMinutes,
+          mode: mode,
+        ),
+      ]);
+    }
+
+    final day = DateTime.utc(2026, 9, 20);
+
+    int categorySnoozeSeed(String eventId) => resolveAlertOsId(
+      seed: alertOsIdSeed(
+        database: 'gym_notes',
+        alertId: 'ca1',
+        eventId: eventId,
+        dayUtc: day,
+        kind: AlertKind.snooze,
+      ),
+      isTaken: (_) => false,
+    );
+
+    Future<Map<String, int>> armedByEvent(AlertScheduler scheduler) async {
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      return {for (final row in await registrations()) row.eventId: row.osId};
+    }
+
+    List<AlertRegistrationRow> snoozesIn(List<AlertRegistrationRow> rows) => [
+      for (final row in rows)
+        if (row.kind == AlertKind.snooze.name) row,
+    ];
+
+    test('an inherited entry says so in its payload', () async {
+      await twoEventsUnderOneAlert();
+      final armed = await armedByEvent(schedulerOf());
+
+      expect(gateway.platform[armed['e1']]!.inherited, isTrue);
+    });
+
+    test('two events snoozed on one day are two snoozes, each seeded by its '
+        'event', () async {
+      await twoEventsUnderOneAlert(mode: AlertMode.ring);
+      final scheduler = schedulerOf();
+      final armed = await armedByEvent(scheduler);
+      now = DateTime(2026, 9, 20, 18);
+
+      await scheduler.snooze(armed['e1']!);
+      await scheduler.snooze(armed['e2']!);
+
+      final snoozes = snoozesIn(await registrations());
+      expect(
+        {for (final row in snoozes) row.eventId: row.osId},
+        {'e1': categorySnoozeSeed('e1'), 'e2': categorySnoozeSeed('e2')},
+      );
+      expect(
+        snoozes.map((row) => row.state).toSet(),
+        {AlertRegistrationState.pending.name},
+      );
+      expect(
+        snoozes.map((row) => row.source).toSet(),
+        {AlertRegistrationSource.category.name},
+      );
+    });
+
+    test("Stop on one event's ring leaves the other's snooze standing",
+        () async {
+      await twoEventsUnderOneAlert(mode: AlertMode.ring);
+      final scheduler = schedulerOf();
+      final armed = await armedByEvent(scheduler);
+      final ringB = gateway.platform[armed['e2']]!;
+      now = DateTime(2026, 9, 20, 18);
+      await scheduler.snooze(armed['e1']!);
+
+      await scheduler.settleEndedRing(ringB, answered: true);
+
+      final snoozeA = snoozesIn(await registrations()).single;
+      expect(snoozeA.eventId, 'e1');
+      expect(snoozeA.state, AlertRegistrationState.pending.name);
+      expect(gateway.cancelled, isNot(contains(snoozeA.osId)));
+    });
+
+    test('a snooze rebuilt from its payload is still the category\'s',
+        () async {
+      // The registration is gone and so is the alert: the payload alone
+      // says the alert was inherited, which decides the seed and the source.
+      await twoEventsUnderOneAlert(mode: AlertMode.ring);
+      final scheduler = schedulerOf();
+      final armed = await armedByEvent(scheduler);
+      final ringA = gateway.platform[armed['e1']]!;
+      await db.alertRegistrationDao.deleteAll();
+      await alerts.replaceForCategory('gym', const []);
+      now = DateTime(2026, 9, 20, 18);
+
+      await scheduler.snooze(ringA.osId, payload: ringA);
+
+      final snooze = snoozesIn(await registrations()).single;
+      expect(snooze.osId, categorySnoozeSeed('e1'));
+      expect(snooze.source, AlertRegistrationSource.category.name);
+      expect(gateway.platform[snooze.osId]!.inherited, isTrue);
+    });
+
+    test('one alert on two events of one day is two entries', () async {
+      await twoEventsUnderOneAlert();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduled, hasLength(2));
+      final rows = await registrations();
+      expect(rows.map((row) => row.eventId).toSet(), {'e1', 'e2'});
+      expect(rows.map((row) => row.alertId).toSet(), {'ca1'});
+      expect(rows.map((row) => row.osId).toSet(), hasLength(2));
+      expect(
+        rows.map((row) => row.source).toSet(),
+        {AlertRegistrationSource.category.name},
+      );
+      for (final row in rows) {
+        // The category alert's seed names the event; nothing collided.
+        expect(
+          row.osId,
+          alertOsIdSeed(
+            database: 'gym_notes',
+            alertId: 'ca1',
+            eventId: row.eventId,
+            dayUtc: DateTime.utc(2026, 9, 20),
+            kind: AlertKind.scheduled,
+          ),
+        );
+      }
+    });
+
+    test('an edit of the category alert re-arms both in place', () async {
+      await twoEventsUnderOneAlert();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = {
+        for (final row in await registrations()) row.eventId: row.osId,
+      };
+      gateway.resetCalls();
+
+      await alerts.replaceForCategory('gym', [
+        const CategoryAlert(id: 'ca1', categoryId: 'gym', offsetMinutes: 30),
+      ]);
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduled, hasLength(2));
+      expect(gateway.cancelled, isEmpty);
+      final rows = await registrations();
+      expect({for (final row in rows) row.eventId: row.osId}, before);
+      for (final row in rows) {
+        expect(row.fireAt, DateTime(2026, 9, 20, 17, 30).millisecondsSinceEpoch);
+      }
+    });
+
+    test("an event's opt-out cancels what it inherited", () async {
+      await twoEventsUnderOneAlert();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final e1 = (await registrations()).firstWhere(
+        (row) => row.eventId == 'e1',
+      );
+      gateway.resetCalls();
+
+      await events.upsert(eventOf(id: 'e1').copyWith(categoryAlerts: false));
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, [e1.osId]);
+      final pending = (await registrations()).where(
+        (row) => row.state == AlertRegistrationState.pending.name,
+      );
+      expect(pending.map((row) => row.eventId), ['e2']);
+    });
+
+    test("the hub keeps an opted-out event's inherited row, its switch the "
+        "event's flag, so the way back stays", () async {
+      await twoEventsUnderOneAlert();
+      await events.upsert(eventOf(id: 'e1').copyWith(categoryAlerts: false));
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect((await registrations()).map((row) => row.eventId), ['e2']);
+
+      final entries = await scheduler.hubEntries();
+
+      final e1 = entries.where((entry) => entry.event.id == 'e1').single;
+      expect(e1.event.categoryAlerts, isFalse);
+      expect(e1.alert.id, 'ca1');
+      expect(e1.alert.categoryId, 'gym');
+      expect(e1.alert.enabled, isTrue);
+      expect(e1.fireAt, DateTime(2026, 9, 20, 18));
+      expect(entries.where((entry) => entry.event.id == 'e2'), hasLength(1));
+    });
+
+    test('the hub lists no row for a category alert paused in the category '
+        'editor', () async {
+      await twoEventsUnderOneAlert();
+      await alerts.replaceForCategory('gym', [
+        const CategoryAlert(id: 'ca1', categoryId: 'gym', enabled: false),
+      ]);
+      await events.upsert(eventOf(id: 'e2').copyWith(categoryAlerts: false));
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(await scheduler.hubEntries(), isEmpty);
+    });
+  });
+
+  group('digests (v42)', () {
+    final october = DateTime.utc(2026, 10, 1);
+
+    Future<EventDigest> digestOf({
+      String name = '',
+      Set<String> categoryIds = const {'gym'},
+      bool includeEmpty = false,
+      bool enabled = true,
+    }) async {
+      final service = await EventDigestService.getInstance();
+      final created = await service.create(
+        EventDigest(
+          id: '',
+          name: name,
+          categoryIds: categoryIds,
+          includeEmpty: includeEmpty,
+        ),
+      );
+      if (!enabled) await service.update(created!.copyWith(enabled: false));
+      return created!;
+    }
+
+    Future<void> octoberBirthdays() async {
+      await events.upsert(
+        eventOf(
+          id: 'b1',
+          title: 'Ana',
+          startDate: DateTime.utc(2026, 10, 4),
+          time: null,
+        ),
+      );
+      await events.upsert(
+        eventOf(
+          id: 'b2',
+          title: 'Mihai',
+          startDate: DateTime.utc(2026, 10, 12),
+          time: null,
+        ),
+      );
+    }
+
+    test('a monthly digest is armed with its words and its span', () async {
+      await octoberBirthdays();
+      final digest = await digestOf();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      // November lists nothing and is not armed.
+      expect(gateway.scheduledDigests, hasLength(1));
+      expect(gateway.scheduled, isEmpty);
+      final fire = gateway.scheduledDigests.single;
+      expect(fire.fireAt, DateTime(2026, 10, 1, 9));
+      final row = (await registrations()).single;
+      expect(row.alertId, digest.id);
+      expect(row.eventId, '');
+      expect(row.day, october.millisecondsSinceEpoch);
+      expect(row.kind, AlertKind.digest.name);
+      expect(row.source, AlertRegistrationSource.digest.name);
+      expect(row.backend, startsWith('fake~d#'));
+      expect(
+        row.osId,
+        alertOsIdSeed(
+          database: 'gym_notes',
+          alertId: digest.id,
+          dayUtc: october,
+          kind: AlertKind.digest,
+        ),
+      );
+
+      final payload = gateway.platform[row.osId]!;
+      final gym = CalendarCategories.resolve('gym');
+      expect(payload.isDigest, isTrue);
+      expect(payload.eventId, '');
+      expect(payload.alertId, digest.id);
+      expect(payload.digestId, digest.id);
+      expect(payload.mode, AlertMode.notify);
+      expect(payload.snooze, isFalse);
+      expect(payload.dayUtcMs, october.millisecondsSinceEpoch);
+      expect(payload.spanStartMs, october.millisecondsSinceEpoch);
+      expect(
+        payload.spanEndMs,
+        DateTime.utc(2026, 10, 31).millisecondsSinceEpoch,
+      );
+      expect(payload.categoryIdSet, {'gym'});
+      expect(
+        payload.title,
+        CalendarCategories.labelOf(gym, lookupAppLocalizations(const Locale('en'))),
+      );
+      expect(payload.timeLabel, '09:00');
+      expect(payload.digestLines, ['Sun, Oct 4 · Ana', 'Mon, Oct 12 · Mihai']);
+      expect(
+        payload.digestText,
+        '2 events this month · Oct 4 · Ana, Oct 12 · Mihai',
+      );
+      expect(payload.digestSummary, isNull);
+      expect(payload.categoryId, 'gym');
+      expect(payload.tintValue, gym.colorValue);
+      expect(payload.glyphKey, gym.iconKey);
+      expect(payload.languageCode, 'en');
+    });
+
+    test('a digest over every category wears no avatar', () async {
+      await octoberBirthdays();
+      await digestOf(categoryIds: const {});
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final payload = gateway.platform.values.single;
+      expect(payload.title, 'Events');
+      expect(payload.categoryId, '');
+      expect(payload.tintValue, isNull);
+      expect(payload.glyphKey, isNull);
+      expect(payload.categoryIdSet, isEmpty);
+    });
+
+    test('an unchanged digest is skipped', () async {
+      await octoberBirthdays();
+      await digestOf();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduledDigests, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+    });
+
+    test('an event added to the span re-arms it in place', () async {
+      await octoberBirthdays();
+      await digestOf();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = (await registrations()).single;
+      gateway.resetCalls();
+
+      await events.upsert(
+        eventOf(
+          id: 'b3',
+          title: 'Ioana',
+          startDate: DateTime.utc(2026, 10, 27),
+          time: null,
+        ),
+      );
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduledDigests, hasLength(1));
+      expect(gateway.cancelled, isEmpty);
+      final after = (await registrations()).single;
+      expect(after.osId, before.osId);
+      expect(after.backend, isNot(before.backend));
+      expect(gateway.platform[after.osId]!.digestLines, hasLength(3));
+    });
+
+    test('a monthly digest arms its second fire too', () async {
+      await octoberBirthdays();
+      await digestOf(includeEmpty: true);
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduledDigests.map((fire) => fire.fireAt), [
+        DateTime(2026, 10, 1, 9),
+        DateTime(2026, 11, 1, 9),
+      ]);
+      expect(
+        gateway.platform.values
+            .firstWhere(
+              (payload) =>
+                  payload.spanStartMs ==
+                  DateTime.utc(2026, 11, 1).millisecondsSinceEpoch,
+            )
+            .digestText,
+        'No events this month',
+        reason: 'Also when empty arms the November digest over nothing',
+      );
+    });
+
+    test('the OS-truth pass re-arms a digest the platform forgot', () async {
+      await octoberBirthdays();
+      await digestOf();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final osId = (await registrations()).single.osId;
+      gateway.platform.clear();
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduledDigests, hasLength(1));
+      final pending = (await registrations()).where(
+        (row) => row.state == AlertRegistrationState.pending.name,
+      );
+      expect(pending.single.osId, osId);
+    });
+
+    test('a category added to the allowlist re-arms it, words unchanged',
+        () async {
+      // Named, and the new category lists nothing in October: every word
+      // the notification shows is the same, and only what its tap opens
+      // moved.
+      await octoberBirthdays();
+      final digest = await digestOf(name: 'Family');
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = (await registrations()).single;
+      gateway.resetCalls();
+
+      await (await EventDigestService.getInstance()).update(
+        EventDigests.byId(digest.id)!.copyWith(
+          categoryIds: const {'gym', 'travel'},
+        ),
+      );
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduledDigests, hasLength(1));
+      final after = (await registrations()).single;
+      expect(after.osId, before.osId);
+      expect(after.backend, isNot(before.backend));
+      final payload = gateway.platform[after.osId]!;
+      expect(payload.categoryIdSet, {'gym', 'travel'});
+      expect(payload.digestLines, hasLength(2));
+    });
+
+    test('a disabled digest is cancelled', () async {
+      await octoberBirthdays();
+      final digest = await digestOf();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final osId = (await registrations()).single.osId;
+      gateway.resetCalls();
+
+      await (await EventDigestService.getInstance()).update(
+        EventDigests.byId(digest.id)!.copyWith(enabled: false),
+      );
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, [osId]);
+      expect(gateway.platform, isEmpty);
+    });
+
+    group('past its instant', () {
+      // The notification plugin posts a digest at its instant whether or not
+      // the app runs, so a digest row behind now was delivered — in every
+      // band, evidence or none — and a cancel would pull it off the shade.
+      late AlertScheduler scheduler;
+
+      Future<AlertRegistrationRow> runLate(
+        Duration lateness, {
+        DateTime? startedAt,
+      }) async {
+        await octoberBirthdays();
+        await digestOf();
+        scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final armed = (await registrations()).single;
+        gateway.resetCalls();
+        gateway.startedAt = startedAt;
+        now = DateTime(2026, 10, 1, 9).add(lateness);
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        return (await registrations()).firstWhere(
+          (row) => row.osId == armed.osId,
+        );
+      }
+
+      test('is fired under the delivery evidence', () async {
+        final row = await runLate(
+          const Duration(minutes: 31),
+          startedAt: DateTime(2026, 10, 1, 8),
+        );
+
+        expect(row.state, AlertRegistrationState.fired.name);
+        expect(gateway.cancelled, isEmpty);
+        expect(gateway.missed, isEmpty);
+      });
+
+      test('is fired without it, never missed and never cancelled', () async {
+        final row = await runLate(const Duration(minutes: 31));
+
+        expect(row.state, AlertRegistrationState.fired.name);
+        expect(gateway.cancelled, isEmpty);
+        expect(gateway.missed, isEmpty);
+      });
+
+      test('is fired inside the grace too', () async {
+        final row = await runLate(const Duration(minutes: 5));
+
+        expect(row.state, AlertRegistrationState.fired.name);
+        expect(gateway.cancelled, isEmpty);
+      });
+
+      test('two days on, is still fired and left on the shade', () async {
+        final row = await runLate(const Duration(days: 2));
+
+        expect(row.state, AlertRegistrationState.fired.name);
+        expect(gateway.cancelled, isEmpty);
+        expect(gateway.missed, isEmpty);
+      });
+
+      test('Recent lists the delivery with its digest', () async {
+        await runLate(const Duration(minutes: 31));
+        final digest = EventDigests.all.single;
+
+        final recent = (await scheduler.recentEntries()).single;
+
+        expect(recent.digest, digest);
+        expect(recent.event, isNull);
+        expect(recent.alert, isNull);
+        expect(recent.outcome, AlertOutcome.delivered);
+        expect(recent.fireAt, DateTime(2026, 10, 1, 9));
+        expect(recent.day, october);
+      });
+
+      test('Recent leaves out a delivery whose digest is gone', () async {
+        await runLate(const Duration(minutes: 31));
+        await (await EventDigestService.getInstance()).delete(
+          EventDigests.all.single.id,
+        );
+
+        expect(await scheduler.recentEntries(), isEmpty);
+      });
+    });
+
+    test('digestEntries plans every digest; the hub lists no digest row',
+        () async {
+      await octoberBirthdays();
+      final armed = await digestOf();
+      final off = await digestOf(categoryIds: const {}, enabled: false);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      final entries = await scheduler.digestEntries();
+
+      // The armed one and the switched-off one, each at October's fire —
+      // November lists nothing for either.
+      expect(
+        entries.map((entry) => (entry.digest.id, entry.digest.enabled)),
+        unorderedEquals([(armed.id, true), (off.id, false)]),
+      );
+      for (final entry in entries) {
+        expect(entry.fireAt, DateTime(2026, 10, 1, 9));
+        expect(entry.spanStart, october);
+        expect(entry.spanEnd, DateTime.utc(2026, 10, 31));
+        expect(entry.count, 2);
+      }
+      expect(await scheduler.hubEntries(), isEmpty);
+      expect(await scheduler.recentEntries(), isEmpty);
     });
   });
 }

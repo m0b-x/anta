@@ -190,7 +190,13 @@ void main() {
       final created = await columnShape('alert_registrations');
 
       await dropV40();
-      await runV40();
+      // v42 appends `source` to this table, so the shape a fresh install
+      // creates is the v40 DDL plus every later step that widens it.
+      await DatabaseMigrations(db).runMigrations(
+        db.createMigrator(),
+        DatabaseSchema.v39ItemLabels,
+        DatabaseSchema.currentVersion,
+      );
 
       expect(await columnShape('alert_registrations'), created);
     });

@@ -1,0 +1,240 @@
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:anta/constants/alert_constants.dart';
+import 'package:anta/constants/event_digests.dart';
+import 'package:anta/database/database.dart';
+import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/event_digest.dart';
+import 'package:anta/services/event_digest_service.dart';
+
+import '../database/support/db_test_support.dart';
+
+/// Runs the real DAO, the real codec and the real facade against
+/// `NativeDatabase.memory()` — the overview view service's suite cloned, plus
+/// the facade it does not have: every write republishes [EventDigests], the
+/// cap refuses at [DigestHorizon.maxDigests], a delete is a tombstone, and a
+/// backup keeps what a newer build wrote.
+void main() {
+  late AppDatabase db;
+  late EventDigestService service;
+
+  const birthdays = EventDigest(
+    id: 'draft',
+    name: '  Birthdays ',
+    cadence: DigestCadence.weekly,
+    anchor: DateTime.sunday,
+    minute: 20 * 60,
+    leadDays: 1,
+    categoryIds: {'birthday'},
+    includeEmpty: true,
+  );
+
+  Future<String> save([EventDigest draft = birthdays]) async {
+    final digest = await service.create(draft);
+    return digest!.id;
+  }
+
+  setUp(() async {
+    EventDigestService.reset();
+    db = await openTestDatabase();
+    service = await EventDigestService.forTesting(db);
+  });
+
+  tearDown(() async {
+    EventDigestService.reset();
+    await db.close();
+  });
+
+  test('a fresh database has no digests, and the facade agrees', () {
+    expect(service.digests, isEmpty);
+    expect(EventDigests.all, isEmpty);
+  });
+
+  test(
+    'create assigns an id, trims the name and round-trips the rest',
+    () async {
+      final before = EventDigests.revision;
+
+      final id = await save();
+
+      expect(id, isNot('draft'));
+      final digest = EventDigests.byId(id)!;
+      expect(digest.name, 'Birthdays');
+      expect(
+        digest,
+        birthdays.copyWith(id: id, name: 'Birthdays', sortOrder: 0),
+      );
+      expect(EventDigests.revision, greaterThan(before));
+      expect(EventDigests.all, service.digests);
+    },
+  );
+
+  test('digests append in save order', () async {
+    await save(const EventDigest(id: 'x', name: 'First'));
+    await save(const EventDigest(id: 'x', name: 'Second'));
+
+    expect(EventDigests.all.map((d) => d.name), ['First', 'Second']);
+    expect(EventDigests.all.map((d) => d.sortOrder), [0, 1]);
+  });
+
+  test('update rewrites in place, keeping the position', () async {
+    await save(const EventDigest(id: 'x', name: 'First'));
+    final id = await save(const EventDigest(id: 'x', name: 'Second'));
+
+    await service.update(
+      EventDigests.byId(id)!.copyWith(enabled: false, minute: 60),
+    );
+
+    final updated = EventDigests.byId(id)!;
+    expect(updated.enabled, isFalse);
+    expect(updated.minute, 60);
+    expect(updated.sortOrder, 1);
+    final row = await (db.select(
+      db.eventDigests,
+    )..where((t) => t.id.equals(id))).getSingle();
+    expect(row.version, 2);
+    expect(row.enabled, isFalse);
+  });
+
+  test('delete leaves a tombstone, not a hole', () async {
+    final id = await save();
+
+    await service.delete(id);
+
+    expect(service.digests, isEmpty);
+    expect(EventDigests.byId(id), isNull);
+    final row = await (db.select(
+      db.eventDigests,
+    )..where((t) => t.id.equals(id))).getSingle();
+    expect(row.isDeleted, isTrue);
+    expect(row.version, 2);
+    expect(await db.eventDigestDao.nextSortOrder(), 1);
+  });
+
+  group('reorder', () {
+    test('the new order persists and survives a reload', () async {
+      final a = await save(const EventDigest(id: 'x', name: 'A'));
+      final b = await save(const EventDigest(id: 'x', name: 'B'));
+      final c = await save(const EventDigest(id: 'x', name: 'C'));
+
+      await service.reorder([c, a, b]);
+      expect(EventDigests.all.map((d) => d.name), ['C', 'A', 'B']);
+
+      await service.reload();
+      expect(EventDigests.all.map((d) => d.name), ['C', 'A', 'B']);
+      expect(EventDigests.all.map((d) => d.sortOrder), [0, 1, 2]);
+    });
+
+    test('racing reorders land in the order they were issued', () async {
+      final a = await save(const EventDigest(id: 'x', name: 'A'));
+      final b = await save(const EventDigest(id: 'x', name: 'B'));
+
+      await Future.wait([
+        service.reorder([b, a]),
+        service.reorder([a, b]),
+      ]);
+
+      expect(EventDigests.all.map((d) => d.name), ['A', 'B']);
+    });
+  });
+
+  test('create refuses at the cap', () async {
+    for (var i = 0; i < kDigestHorizon.maxDigests; i++) {
+      await save(EventDigest(id: 'x', name: 'Digest $i'));
+    }
+
+    expect(kDigestHorizon.maxDigests, 10);
+    expect(service.isFull, isTrue);
+    expect(await service.create(birthdays), isNull);
+    expect(EventDigests.all, hasLength(kDigestHorizon.maxDigests));
+  });
+
+  test('a database switch drops the singleton and the facade', () async {
+    await save();
+
+    DatabaseLifecycle.notifyDatabaseSwitching();
+    expect(EventDigests.all, isEmpty);
+
+    final other = await openTestDatabase();
+    addTearDown(other.close);
+    final rebound = await EventDigestService.forTesting(other);
+    expect(identical(rebound, service), isFalse);
+    expect(rebound.digests, isEmpty);
+  });
+
+  group('backup', () {
+    test('round-trips digests, the switch included', () async {
+      final id = await save();
+      await service.update(EventDigests.byId(id)!.copyWith(enabled: false));
+
+      final exported = await service.exportData();
+      expect(exported.single.keys, isNot(contains('hlcTimestamp')));
+      await service.importData(exported);
+
+      final restored = EventDigests.all.single;
+      expect(restored.id, id);
+      expect(restored.enabled, isFalse);
+      expect(restored.cadence, DigestCadence.weekly);
+      expect(restored.categoryIds, {'birthday'});
+    });
+
+    test('import replaces rather than merges', () async {
+      await save();
+
+      await service.importData([
+        {
+          'id': 'imported',
+          'name': '',
+          'payload': '{"cadence":"daily","minute":480}',
+        },
+      ]);
+
+      final only = EventDigests.all.single;
+      expect(only.id, 'imported');
+      expect(only.cadence, DigestCadence.daily);
+      expect(only.minute, 480);
+      expect(only.enabled, isTrue, reason: 'an absent switch is on');
+    });
+
+    test('an unknown key survives a restore', () async {
+      await service.importData([
+        {
+          'id': 'future',
+          'name': 'From a newer build',
+          'payload': '{"cadence":"weekly","anchor":3,"someFutureKey":"yes"}',
+        },
+      ]);
+
+      final exported = await service.exportData();
+      expect(exported.single['payload'], contains('someFutureKey'));
+      expect(EventDigests.all.single.anchor, 3);
+    });
+
+    test(
+      'a malformed row is skipped and an unparseable payload kept',
+      () async {
+        await service.importData([
+          'not a map',
+          {'name': 'No id'},
+          {'id': 'broken', 'name': 'Broken', 'payload': 'not json'},
+        ]);
+
+        final only = EventDigests.all.single;
+        expect(only.name, 'Broken');
+        expect(only.cadence, DigestCadence.monthly);
+        expect(only.anchor, 1);
+        expect(only.enabled, isFalse, reason: 'nothing arms an unread row');
+      },
+    );
+
+    test('a row with no payload imports disabled', () async {
+      await service.importData([
+        {'id': 'bare', 'name': 'Bare', 'enabled': true},
+      ]);
+
+      final only = EventDigests.all.single;
+      expect(only.id, 'bare');
+      expect(only.enabled, isFalse);
+    });
+  });
+}

@@ -251,4 +251,8 @@ abstract final class FormMetrics {
   static const double yearViewBottomGap = 8;
 
   static const double disabledOpacity = 0.38;
+
+  /// A row whose own switch is off: still a control, so lighter than
+  /// [disabledOpacity] — the Alerts hub's switched-off alert rows' 50 %.
+  static const double switchedOffOpacity = 0.5;
 }

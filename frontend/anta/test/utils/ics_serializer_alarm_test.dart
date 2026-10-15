@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/utils/ics_serializer.dart';
@@ -182,5 +185,106 @@ void main() {
     final ics = export(event(time: const EventTime(startMinute: 18 * 60)));
 
     expect(ics, isNot(contains('VALARM')));
+  });
+
+  group('category alerts (v42)', () {
+    // The facade resolves the category as rendering does; unconfigured, every
+    // id resolves to `other`.
+    setUp(
+      () => CalendarCategories.updateCache(const [
+        CalendarCategory(
+          id: 'gym',
+          name: 'Gym',
+          colorValue: 0xFF000000,
+          iconKey: 'event',
+          sortOrder: 0,
+          isBuiltIn: true,
+        ),
+      ]),
+    );
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    void publishCategory(List<CategoryAlert> alerts) {
+      EventAlerts.updateCategoryCache(
+        byCategory: {'gym': List.unmodifiable(alerts)},
+      );
+    }
+
+    const timed = EventTime(startMinute: 18 * 60);
+
+    test('an inherited alarm exports like an own one', () {
+      publishCategory(const [
+        CategoryAlert(
+          id: 'c1',
+          categoryId: 'gym',
+          mode: AlertMode.ring,
+          offsetMinutes: 30,
+        ),
+      ]);
+
+      final ics = export(event(time: timed));
+
+      expect('BEGIN:VALARM'.allMatches(ics), hasLength(1));
+      expect(ics, contains('ACTION:AUDIO'));
+      expect(ics, contains('TRIGGER:-PT30M'));
+    });
+
+    test('own and inherited export together, a duplicate once', () {
+      publish([alert(offsetMinutes: 10)]);
+      publishCategory(const [
+        CategoryAlert(id: 'c1', categoryId: 'gym', offsetMinutes: 10),
+        CategoryAlert(id: 'c2', categoryId: 'gym', offsetMinutes: 60),
+      ]);
+
+      final ics = export(event(time: timed));
+
+      expect('BEGIN:VALARM'.allMatches(ics), hasLength(2));
+      expect('TRIGGER:-PT10M'.allMatches(ics), hasLength(1));
+      expect(ics, contains('TRIGGER:-PT60M'));
+    });
+
+    test('a duplicate is judged on the offset set the event uses', () {
+      publish([alert(offsetMinutes: 30)]);
+      publishCategory(const [
+        CategoryAlert(
+          id: 'c1',
+          categoryId: 'gym',
+          offsetMinutes: 30,
+          daysBefore: 1,
+          dayMinute: 540,
+        ),
+      ]);
+
+      final ics = export(event(time: timed));
+
+      expect('TRIGGER:-PT30M'.allMatches(ics), hasLength(1));
+      expect('BEGIN:VALARM'.allMatches(ics), hasLength(1));
+    });
+
+    test('an opted-out event exports none of them', () {
+      publish([alert(offsetMinutes: 10)]);
+      publishCategory(const [
+        CategoryAlert(id: 'c1', categoryId: 'gym', offsetMinutes: 60),
+      ]);
+
+      final ics = export(event(time: timed).copyWith(categoryAlerts: false));
+
+      expect('BEGIN:VALARM'.allMatches(ics), hasLength(1));
+      expect(ics, contains('TRIGGER:-PT10M'));
+      expect(ics, isNot(contains('TRIGGER:-PT60M')));
+    });
+
+    test('a disabled inherited alert exports nothing', () {
+      publishCategory(const [
+        CategoryAlert(
+          id: 'c1',
+          categoryId: 'gym',
+          offsetMinutes: 60,
+          enabled: false,
+        ),
+      ]);
+
+      expect(export(event(time: timed)), isNot(contains('VALARM')));
+    });
   });
 }

@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/category_alert.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
@@ -78,17 +84,37 @@ void main() {
 
   /// A viewport tall enough that every row is built — the assertions here are
   /// about which rows exist, not about scrolling to them.
-  Future<void> pumpPage(WidgetTester tester, {double width = 900}) async {
-    tester.view.physicalSize = Size(width, 2000);
+  ///
+  /// [bloc] puts the app's calendar bloc above the app, where the app has it;
+  /// [textScale] scales the text as the phone's setting would.
+  Future<void> pumpPage(
+    WidgetTester tester, {
+    double width = 900,
+    double height = 2000,
+    CalendarBloc? bloc,
+    double? textScale,
+  }) async {
+    tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
+    final app = MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: const Locale('en'),
+      builder: textScale == null
+          ? null
+          : (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+      home: CalendarCategoriesPage(key: ValueKey(pumps++)),
+    );
     await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
-        home: CalendarCategoriesPage(key: ValueKey(pumps++)),
-      ),
+      bloc == null
+          ? app
+          : BlocProvider<CalendarBloc>.value(value: bloc, child: app),
     );
     await pumpUntil(
       tester,
@@ -416,4 +442,137 @@ void main() {
       reason: 'built-ins can be hidden; they still cannot be deleted',
     );
   });
+
+  // v42, D19: a bell on the row of a category whose events inherit an
+  // enabled alert.
+  group('the alerts bell', () {
+    tearDown(EventAlerts.resetCache);
+
+    testWidgets('marks a category with an enabled alert and no other', (
+      tester,
+    ) async {
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'birthday': const [
+            CategoryAlert(id: 'c1', categoryId: 'birthday', daysBefore: 1),
+          ],
+          'gym': const [
+            CategoryAlert(id: 'c2', categoryId: 'gym', enabled: false),
+          ],
+        },
+      );
+      await pumpPage(tester);
+
+      final bell = find.byTooltip('Has alerts');
+      expect(bell, findsOneWidget);
+      final birthdays = CalendarCategories.labelOf(
+        CalendarCategories.byId('birthday')!,
+        AppLocalizations.of(tester.element(bell))!,
+      );
+      expect(
+        find.descendant(
+          of: find.ancestor(of: bell, matching: find.byType(ListTile)),
+          matching: find.text(birthdays),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('no category with alerts draws no bell', (tester) async {
+      await pumpPage(tester);
+
+      expect(find.byTooltip('Has alerts'), findsNothing);
+    });
+
+    testWidgets('a screen reader hears the bell', (tester) async {
+      final semantics = tester.ensureSemantics();
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': const [CategoryAlert(id: 'c1', categoryId: 'gym')],
+        },
+      );
+      await pumpPage(tester);
+
+      // Folded into the row's own announcement, after its name and count.
+      expect(find.bySemanticsLabel(RegExp('Has alerts')), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('the bell never makes a row taller, at text scale 2.0 on '
+        '360 × 780', (tester) async {
+      Finder gymRow() =>
+          find.ancestor(of: find.text('Gym'), matching: find.byType(ListTile));
+
+      await pumpPage(tester, width: 360, height: 780, textScale: 2.0);
+      final unbelled = tester.getSize(gymRow()).height;
+
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': const [CategoryAlert(id: 'c1', categoryId: 'gym')],
+        },
+      );
+      await pumpPage(tester, width: 360, height: 780, textScale: 2.0);
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.descendant(of: gymRow(), matching: find.byTooltip('Has alerts')),
+        findsOneWidget,
+      );
+      expect(tester.getSize(gymRow()).height, unbelled);
+    });
+  });
+
+  // v42: deleting a category moves its events onto Other's alerts, so the
+  // calendar's badges and the hub are told.
+  group('what the calendar is told', () {
+    late CalendarBloc bloc;
+    late _RecordingObserver observer;
+    late BlocObserver previousObserver;
+
+    setUp(() {
+      previousObserver = Bloc.observer;
+      observer = _RecordingObserver();
+      Bloc.observer = observer;
+      bloc = CalendarBloc(
+        service: Completer<CalendarEventService>().future,
+        alertReconciler: (_, _) async {},
+        alertWriter: (_, _) async {},
+      );
+    });
+
+    tearDown(() async {
+      await bloc.close();
+      Bloc.observer = previousObserver;
+    });
+
+    testWidgets('a delete announces the alerts changed', (tester) async {
+      await service.create(
+        name: 'Fitness',
+        colorValue: 0xFF112233,
+        iconKey: 'event',
+      );
+      await pumpPage(tester, bloc: bloc);
+
+      await openRowMenu(tester, CalendarCategories.all.length - 1);
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pump();
+      await settleWrites(tester);
+
+      expect(service.categories.map((c) => c.name), isNot(contains('Fitness')));
+      expect(observer.events.whereType<CategoryAlertsChanged>(), hasLength(1));
+      await tester.pump(const Duration(seconds: 10));
+    });
+  });
+}
+
+class _RecordingObserver extends BlocObserver {
+  final List<Object?> events = [];
+
+  @override
+  void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
+    super.onEvent(bloc, event);
+    events.add(event);
+  }
 }

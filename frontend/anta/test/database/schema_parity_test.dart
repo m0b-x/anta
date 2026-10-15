@@ -471,6 +471,86 @@ void main() {
     expect(byName['id']!.read<int>('pk'), 1);
   });
 
+  test('the category alert table matches its frozen migration DDL', () async {
+    // Frozen at v42: the v40 alert row keyed by `category_id`, column for
+    // column, with the same nullable trio and no DEFAULT on the identity pair.
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_category_alerts)')
+        .get();
+    final byName = {for (final row in columns) row.read<String>('name'): row};
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'category_id',
+      'mode',
+      'offset_minutes',
+      'days_before',
+      'day_minute',
+      'sound',
+      'enabled',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    for (final name in byName.keys) {
+      final nullable = const {'day_minute', 'sound', 'deleted_at'};
+      expect(
+        byName[name]!.read<int>('notnull'),
+        nullable.contains(name) ? 0 : 1,
+        reason: 'calendar_category_alerts.$name nullability',
+      );
+    }
+    expect(byName['day_minute']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['mode']!.read<String>('dflt_value'), "'notify'");
+    expect(byName['enabled']!.read<String>('dflt_value'), '1');
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
+  test('the digest table matches its frozen migration DDL', () async {
+    // Frozen at v42: the v41 overview view shape plus `enabled`, and `name`
+    // defaulting to '' — the derived title.
+    final columns = await db
+        .customSelect('PRAGMA table_info(event_digests)')
+        .get();
+    final byName = {for (final row in columns) row.read<String>('name'): row};
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'name',
+      'payload',
+      'enabled',
+      'sort_order',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    for (final name in byName.keys) {
+      expect(
+        byName[name]!.read<int>('notnull'),
+        name == 'deleted_at' ? 0 : 1,
+        reason: 'event_digests.$name nullability',
+      );
+    }
+    expect(byName['name']!.read<String>('dflt_value'), "''");
+    expect(byName['enabled']!.read<String>('dflt_value'), '1');
+    expect(byName['sort_order']!.read<String>('dflt_value'), '0');
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
   test('the registration table matches its frozen migration DDL', () async {
     // The one calendar table with **no** CRDT block, and that is the feature:
     // it mirrors a single device's OS scheduler, is never exported or merged,
@@ -491,6 +571,9 @@ void main() {
       'backend',
       'created_at',
       'updated_at',
+      // v42: what the entry was armed for. Every older row was an event's own
+      // alert, which is what the default says, so no backfill.
+      'source',
     });
 
     for (final name in byName.keys) {
@@ -500,6 +583,7 @@ void main() {
         reason: 'alert_registrations.$name should be NOT NULL',
       );
     }
+    expect(byName['source']!.read<String>('dflt_value'), "'event'");
 
     // `day` is a date-only **UTC** day and `fire_at` a **local** instant, both
     // in epoch milliseconds. Storing them as Drift `DateTime`s would put them
@@ -614,10 +698,15 @@ void main() {
         // Same two paths again, and the same no-backfill argument: an event
         // that could not carry an alarm could not be removed by one.
         'remove_after_alert',
+        // v42's opt-out from the category's alerts. On by default: no event
+        // inherited anything before, which inheriting reads the same as.
+        'category_alerts',
       ]),
     );
     expect(byName['remove_after_alert']!.read<int>('notnull'), 1);
     expect(byName['remove_after_alert']!.read<String>('dflt_value'), '0');
+    expect(byName['category_alerts']!.read<int>('notnull'), 1);
+    expect(byName['category_alerts']!.read<String>('dflt_value'), '1');
     expect(byName['per_occurrence_descriptions']!.read<int>('notnull'), 1);
     // Off is the pre-v28 reading: one shared description for every day.
     expect(

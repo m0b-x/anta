@@ -399,5 +399,67 @@ void main() {
         ),
       );
     });
+
+    test("a digest its own words, and the details of its own channel in the "
+        "reminders' group shape", () {
+      final method = codeOf(
+        'Future<bool> scheduleDigest(PlannedDigest fire, AlertPayload payload) '
+        'async {',
+      );
+
+      expect(method, contains('AlertNotificationKind.digest,'));
+      expect(method, contains('final grouped = await _groupsReminders();'));
+      expect(method, contains('payload: carried.encode(),'));
+      expect(
+        method,
+        matches(
+          RegExp(
+            r'android: alertDigestDetails\(\s*l10n,\s*content,\s*'
+            r'decor: decor,\s*grouped: grouped,?\s*\)',
+          ),
+        ),
+      );
+    });
+  });
+
+  group('the digest channel', () {
+    test('is spelled once, and never moves', () {
+      // Android freezes a channel's importance at creation: a new id is the
+      // only way to change it, and a changed id orphans the owner's settings.
+      expect(
+        gatewayCode,
+        contains("const String kAlertDigestChannelId = 'alerts_digest';"),
+      );
+    });
+
+    test('is created at every start at default importance, named from the '
+        'strings of the day', () {
+      expect(
+        codeOf('Future<void> _initialize() async {'),
+        matches(
+          RegExp(
+            r'AndroidNotificationChannel\(\s*kAlertDigestChannelId,\s*'
+            r'l10n\.alertsDigestChannel,\s*'
+            r'description: l10n\.alertsDigestChannelDesc,\s*'
+            r'importance: Importance\.defaultImportance,?\s*\)',
+          ),
+        ),
+      );
+    });
+
+    test("a digest's tap opens the overview, warm and cold", () {
+      for (final signature in [
+        'void _handleResponse(NotificationResponse response) {',
+        'Future<AlertIntent?> _notificationLaunchIntent() async {',
+      ]) {
+        final method = codeOf(signature);
+        expect(method, contains('payload.isDigest'), reason: signature);
+        expect(
+          method,
+          contains('OpenOverviewIntent(payload: payload)'),
+          reason: signature,
+        );
+      }
+    });
   });
 }

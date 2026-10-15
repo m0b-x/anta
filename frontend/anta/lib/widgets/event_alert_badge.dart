@@ -15,7 +15,8 @@ import '../services/event_time_formatter.dart';
 /// kind of thing.
 ///
 /// Read **synchronously** from [EventAlerts], which is what makes this usable
-/// inside a list row at all: one map probe, no allocation, no future. Like
+/// inside a list row at all: map probes and no future — an allocation only
+/// for an event that inherits its category's alerts. Like
 /// every other facade here an unconfigured read is silent — a surface that
 /// lives above the calendar's service resolution simply draws no badge, which
 /// is why nothing but the day panel and the agenda use this.
@@ -34,8 +35,11 @@ class EventAlertBadges extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasAlarm = EventAlerts.hasAlarm(event.id);
-    final hasReminder = EventAlerts.hasReminder(event.id);
+    // One read for both tiers and both tooltips: an event with inherited
+    // alerts gets its projected list built once per build, not per question.
+    final alerts = EventAlerts.effectiveFor(event);
+    final hasAlarm = _anyEnabled(alerts, AlertMode.ring);
+    final hasReminder = _anyEnabled(alerts, AlertMode.notify);
     if (!hasAlarm && !hasReminder) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
@@ -45,7 +49,7 @@ class EventAlertBadges extends StatelessWidget {
         if (hasAlarm) ...[
           const SizedBox(width: _gap),
           Tooltip(
-            message: _describe(context, l10n, AlertMode.ring),
+            message: _describe(context, l10n, alerts, AlertMode.ring),
             child: Icon(
               Icons.alarm_rounded,
               size: _size,
@@ -56,7 +60,7 @@ class EventAlertBadges extends StatelessWidget {
         if (hasReminder) ...[
           const SizedBox(width: _gap),
           Tooltip(
-            message: _describe(context, l10n, AlertMode.notify),
+            message: _describe(context, l10n, alerts, AlertMode.notify),
             child: Icon(
               Icons.notifications_active_rounded,
               size: _size,
@@ -74,10 +78,11 @@ class EventAlertBadges extends StatelessWidget {
   String _describe(
     BuildContext context,
     AppLocalizations l10n,
+    List<EventAlert> alerts,
     AlertMode mode,
   ) {
     final parts = <String>[
-      for (final alert in EventAlerts.alertsFor(event.id))
+      for (final alert in alerts)
         if (alert.enabled && alert.mode == mode)
           alert.describe(
             l10n,
@@ -87,5 +92,12 @@ class EventAlertBadges extends StatelessWidget {
           ),
     ];
     return parts.join(' · ');
+  }
+
+  static bool _anyEnabled(List<EventAlert> alerts, AlertMode mode) {
+    for (final alert in alerts) {
+      if (alert.enabled && alert.mode == mode) return true;
+    }
+    return false;
   }
 }

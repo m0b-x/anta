@@ -400,6 +400,15 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         _serveKeepNotice();
       });
     }
+    // A digest's tap collapses onto a live overview rather than pushing a
+    // second one, so its look arrives through the notifier; a pushed page
+    // finds it waiting, and serves it once its settings are in.
+    AppNavigator.pendingOverviewLook.addListener(_serveOverviewLook);
+    if (AppNavigator.pendingOverviewLook.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveOverviewLook();
+      });
+    }
   }
 
   @override
@@ -430,6 +439,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void dispose() {
     _resolveGeneration++;
     AlertKeepNotice.instance.removeListener(_serveKeepNotice);
+    AppNavigator.pendingOverviewLook.removeListener(_serveOverviewLook);
     WidgetsBinding.instance.removeObserver(this);
     if (_route != null) AppNavigator.routeObserver.unsubscribe(this);
     _searchDebounce?.cancel();
@@ -525,6 +535,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _settingsLoaded = true;
     _storeStale = true;
     _rebuild();
+    // A look that arrived while the settings loaded wins over what they kept.
+    _serveOverviewLook();
   }
 
   Future<void> _loadViews() async {
@@ -2036,21 +2048,79 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// event, which have no day to mark. The query stays as typed.
   void _applyView(OverviewView view) {
     if (!mounted) return;
-    final period = view.period;
-    final options = view.options.copyWith(
-      markPresence:
-          _options.markPresence &&
-          view.options.rows == OverviewRows.everyOccurrence,
+    _listLook(
+      period: view.period,
+      categoryIds: view.categoryIds,
+      options: view.options.copyWith(
+        markPresence:
+            _options.markPresence &&
+            view.options.rows == OverviewRows.everyOccurrence,
+      ),
     );
-    final categoriesChanged = !setEquals(view.categoryIds, _categoryIds);
+  }
+
+  /// Serves — and clears — the look a digest's tap published through
+  /// `AppNavigator.toCalendarOverviewLook` (D13): the list on its span with
+  /// its allowlist. The allowlist and the mode persist as picks; the span is
+  /// a look and writes nothing, so a period the user kept survives the tap.
+  ///
+  /// Held until the settings are in — their period and allowlist would
+  /// otherwise land over the look — and served by the one overview the
+  /// navigator collapsed onto or pushed.
+  void _serveOverviewLook() {
+    if (!mounted || !_settingsLoaded) return;
+    final look = AppNavigator.pendingOverviewLook.value;
+    if (look == null) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !AppNavigator.servesOverviewLook(route)) return;
+    // Cleared before it is acted on, so a page mounting later cannot replay
+    // a trip already made.
+    AppNavigator.pendingOverviewLook.value = null;
+    _listLook(
+      period: OverviewCustomPeriod(look.start, look.end),
+      categoryIds: look.categoryIds,
+    );
+  }
+
+  /// Turns the page to the list on [period] over [categoryIds] in one
+  /// rebuild and one landing — the shared body of a saved view and a digest's
+  /// look. Mark presence ends where the rows have no day to mark.
+  ///
+  /// With [options] it is a view, applied as its picks would be: the options
+  /// taken, and the period persisted too, a custom span clearing its key per
+  /// D4. Without, it is a look: it lands on exactly what the digest counted,
+  /// so a typed query and Missed only — both session-only — are dropped, while
+  /// Order and Rows stay the user's and the period key is left alone.
+  void _listLook({
+    required OverviewPeriod period,
+    required Set<String> categoryIds,
+    OverviewListOptions? options,
+  }) {
+    final isView = options != null;
+    final next =
+        options ??
+        _options.copyWith(
+          missedOnly: false,
+          markPresence:
+              _options.markPresence &&
+              _options.rows == OverviewRows.everyOccurrence,
+        );
+    final queryDropped =
+        !isView && (_query.isNotEmpty || _searchController.text.isNotEmpty);
+    if (queryDropped) {
+      _searchDebounce?.cancel();
+      _searchController.clear();
+      _setQuery('');
+    }
+    final categoriesChanged = !setEquals(categoryIds, _categoryIds);
     setState(() {
       _mode = AgendaDayListMode.list;
       _period = _home = period;
       _year = _firstYearOf(period);
       _selectedDay = null;
-      _options = options;
+      _options = next;
       if (categoriesChanged) {
-        _categoryIds = view.categoryIds;
+        _categoryIds = categoryIds;
         _categoryRevision = null;
         _refreshCategoryLabels();
         _storeStale = true;
@@ -2059,13 +2129,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       }
     });
     // The allowlist is an input of the scan, so a new one rebuilds the store
-    // as a category pick does; the landing below then wins over its anchor.
-    if (categoriesChanged) _rebuild();
+    // as a category pick does, and a dropped query refilters as a cleared
+    // field does; the landing below then wins over its anchor.
+    if (categoriesChanged || queryDropped) _rebuild();
     _land();
     unawaited(_persistMode(AgendaDayListMode.list));
-    unawaited(_persistPeriod(period));
-    unawaited(_persistOptions(options));
-    if (categoriesChanged) unawaited(_persistCategories(view.categoryIds));
+    if (options != null) {
+      unawaited(_persistPeriod(period));
+      unawaited(_persistOptions(options));
+    }
+    if (categoriesChanged) unawaited(_persistCategories(categoryIds));
   }
 
   Future<void> _persistCategories(Set<String> categoryIds) async {

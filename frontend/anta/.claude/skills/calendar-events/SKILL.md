@@ -7,7 +7,7 @@ description: The rulebook and file map for ANTA's calendar, events and alerts - 
 
 ## Hardest constraints
 
-- **The eight calendar services are lazy**: `await X.getInstance()`, never `GetIt.I<>`; `CalendarBloc._onLoad` awaits all eight in one wrapped `Future.wait` and **only then emits `CalendarPageLoaded`**; other facade readers live under it or await the owner.
+- **The nine calendar services are lazy** (`EventDigestService` since v42): `await X.getInstance()`, never `GetIt.I<>`; `CalendarBloc._onLoad` awaits all nine in one wrapped `Future.wait` and **only then emits `CalendarPageLoaded`**; other facade readers live under it or await the owner.
 - `TableCalendar.eventLoader` is `CalendarBloc.eventsForDay`: memoized per day, pure O(1). Never dispatch, call a service or expand a recurrence inside it.
 - A handler changing events or filters calls `_invalidateDayCache()` in its emit's synchronous turn, after the last await; never a day / focus / format handler. Async handlers re-read `state` after the last await.
 - A re-load copies `CalendarPageLoaded` (`selectedDay`, `focusedDay`, `format`, `selectionSource`) and bumps `membershipRevision`.
@@ -38,7 +38,7 @@ Read only the `docs/calendar-events-feature.md` section you touch (§1–§13: v
 
 Reworks follow `ui-revamp`. **Before changing a surface, read its section in `references/subsystems.md`**.
 
-## Schema lineage (current v41)
+## Schema lineage (current v42)
 
 Chain: `references/schema-lineage.md`. Rules for every version:
 
@@ -48,6 +48,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - A new index goes in the creator whose tables exist when it runs (`createCalendarDeltaIndexes()` vs `createCalendarIndexes()`).
 - `alert_registrations` is **device-local**: no CRDT, hard deletes, never exported or synced.
 - Backup: an absent `eventOccurrences` / `eventSkips` / `eventAlerts` beside `calendarEvents` **clears** the table; `calendarFilterPresets` and `overviewViews` (v41, the same shape) have no strand rule; categories import **before** events.
+- `categoryAlerts` is keyed to categories (the `eventTemplates` rule: absent beside `calendarCategories` **clears**); `eventDigests` follows `overviewViews` (absent → untouched); the event's `categoryAlerts` flag absent → on.
 
 ## Bloc, caches, revisions
 
@@ -65,6 +66,9 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - `CategoryService` mutations share one chain whose tail starts **`null`**; `updateCategory` never writes `sort_order` / `is_built_in` / `is_hidden`; `setHidden` writes only the flag.
 - `FilterPresetService` has no facade (await it), refuses past 50. The occurrence-descriptions `reset()` clears singleton and facade.
 - `FastingCalendar.resetConfiguration()` belongs to `SettingsService.reset`, never a direct `DatabaseLifecycle` registration. Counts per category: `countByCategory()`.
+- `EventAlertService` owns `calendar_category_alerts` too (`categoryAlertsFor`, `replaceForCategory`, `tombstoneForCategory`); **`EventAlerts.effectiveFor(event)` is the one read for what an event's alerts are** — own + the category's projected (`toEventAlert`, the in-memory `categoryId`), the category resolved as rendering does (unknown → `other`), an inherited alert dropped when it would fire at the same instant as an own one (the offset set the event's shape uses, `dayMinute` null read as the default); `hasAlarm` / `hasReminder` take the event; `inheritedFor(event, own:)` is the inherited tail; `replaceForEvent` never stores a projected alert (`categoryId != null`).
+- `EventDigestService` is `OverviewViewService`'s twin (ten at most on `create`; `importData` uncapped — the planner is the bound), facade `EventDigests`; an unreadable payload or unknown cadence decodes **`enabled = false`**.
+- `CategoryService.deleteCategory` tombstones the category's alerts in its own transaction and requests `reconcileAllQuietly` **unawaited after** its serialize chain, never inside it.
 
 ## Settings
 
@@ -170,10 +174,12 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - Reminder tier: sound and remove-after at 38 %, never hidden. **Remove-after is the event's flag**: handed back as it came, `false` only when this sheet made an alarm a reminder.
 - `EventAlert.describe` is the one formatter.
 - **After Save, one message at most** (`_afterAlertsSaved`: permission, else `AlertCountdown`); `OverlaySnackbar` under a sheet.
+- `AlertEditorSheet.show(forCategory: true)` shows **two** When rows (`alertsDefaultTimed`, `alertsDefaultAllDay` — both sets are on screen and both reach Save) and never remove-after; the two existing callers see what they saw. The category editor's alert rows are two-line (the all-day wording over "Timed events: … · tier") with a trailing **enabled switch** (the category's master switch); removal is the sheet's Remove; a new category alert drafts without the settings defaults (D7) and takes a fresh id — `replaceForCategory` refuses an id another category owns.
+- The event editor lists **enabled** inherited alerts read-only ("From {category}"), re-read on a category pick; Add alert counts own rows only; remove-after reads own alarms only; the Category alerts switch is **last** in the group and **dims** the inherited rows at 38 % where they stand — they never leave.
 
 ## Alerts hub, navigation, export
 
-- The Alerts hub owns no data, writes only via `CalendarBloc`; never poll or create alerts there. Only the Alarm tier reaches `packages/alarm/`.
+- The Alerts hub owns no data, writes only via `CalendarBloc`; never poll; never an *event-alert*-creation affordance there — Add digest is the one creation the hub holds, because a digest has no other owner. Only the Alarm tier reaches `packages/alarm/`.
 - Only the alarm page shows above the keyguard; `MainActivity.ringObserver` leaves with **`moveTaskToBack` first, lowers the flags second**.
 - While ringing, `_drainPendingNavigation` routes **only** `OpenAlarmIntent`s; an action into the app calls `unlock()` **before** stopping; never `showWhenLocked` / `turnScreenOn` in the manifest.
 - `AlarmPage` **renders from the `AlertPayload` alone**, **its rows settled on the first frame**; no perpetual animation, no text field; back does nothing; it closes its own route, never the navigator's top.
@@ -191,6 +197,11 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - `AppNavigator.toCalendar` is a normal push; options only on `CalendarSettingsPage`; no `AppLocalizations.byKey`.
 - `CalendarViewMenu` is the one grid-format control; switch pages via `AppNavigator.switchTo…`, never a bare push.
 - Each page exports via its own `CalendarExportController`; `.ics` via `IcsSerializer`, no `ics` `ExportFormat`.
+- The hub's Digests group (on the UI language; the day rows stay Tier 4) lists `EventDigests.all` with a switch each (`ToggleEventDigest`), tap → `DigestEditorSheet` (`SaveEventDigest` / `DeleteEventDigest`), Add digest under `kDigestHorizon.maxDigests`; the fires of enabled digests sit among the day groups from `AlertScheduler.digestEntries()` (planned fresh, no switch of their own), deliveries under Recent (`AlertHistoryEntry.digest`). An inherited row's switch is **the event's `categoryAlerts` flag** (`UpdateCalendarEvent` with the flag alone, the event read from the bloc state at press time); `hubEntries()` imagines an opted-out event's inherited rows and skips paused category alerts, so the hub is never a one-way switch. Row keys carry the event id (twins share an alert id).
+- **Registry identity is `(alert_id, event_id, day, kind)`** with `source` (`event | category | digest`); seeds: event-sourced unchanged, category-sourced with the event, a digest `"$db|$digestId|$spanStartIso|digest"`. A category-sourced payload carries `inherited` (`inh`): the background Snooze re-post seeds with the event and `cancelSnoozeForAlert(alertId, eventId, day)` matches it. Every snooze a v41 build armed survives a pass.
+- **Digests**: `DigestPlanner` is pure (`now` injected; the wall-clock constructor; the span = fire day + lead, one unit; `occurrencesInRange` with the allowlist alone — never `hiddenCategoryIds`; every occurrence a line; an empty span unarmed unless `includeEmpty`; clamps what it reads); every word is written at arm time on the UI isolate by `digestNotificationContent` through `AlertLabels` (the period phrase from the app's `CalendarWeekStart` and `spanStart.day == 1`, never the locale); `AlertNotificationKind.digest` places strings; the channel is `alerts_digest` at **default** importance; `scheduleDigest` is abstract (the no-op answers true); a digest row past its instant is **`fired` in every band** — never cancelled, never an OS cancel, never missed, never a notice or a snooze; the signature hashes words, tint, glyph, allowlist and span.
+- **A digest's tap** is `OpenOverviewIntent` → `AppNavigator.toCalendarOverviewLook` → `pendingOverviewLook` (the `pendingCalendarOccurrence` twin): the overview serves it once settings have loaded (a look wins), clears the query and Missed only, lands in List mode on the custom span with the allowlist, persists mode and allowlist and **never the period** (`encode` would delete the key), keeps Order and Rows; `_listLook` is shared with `_applyView`, which still persists a view's period. While a ring is in progress the intent waits.
+- `AlertPermissionCheck.afterSave(context)` is the one permission check after a save (the flow, the category editor, the digest sheet); the flow checks effective alerts, so an event whose only alerts are inherited still asks and still shows the countdown.
 
 ## Change-set recipes
 
@@ -198,16 +209,18 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - **New holiday profile**: `HolidayProfile` value → `profileNameOf` → `holidayProfile<Name>` ARB trio → `_<name>Seeds(year)` from `_buildSeeds`; new holidays: `PublicHoliday` value + `nameOf` + ARB trio. No schema change.
 - **New grid filter axis**: `CalendarGridFilters` field + codec + `apply` (or `allowsOccurrence` + `hasOccurrenceAxis`) + `CalendarFilterSummary` facet + `_Trait` in `_traitsOf` or a row + chip label.
 - **New sheet**: the `ui-language` chrome, the clearance test entry, its own widget suite.
+- **New alert offset semantics**: land it in `EventAlert` **and** `CategoryAlert` (both store both offset sets), in `effectiveFor`'s dedupe key, in `describe`, in the alert sheet's two When rows, and in the fixture.
 
 ## File map
 
-- Pages: `calendar_page.dart, calendar_overview_page.dart, calendar_settings_page.dart, calendar_categories_page.dart, alerts_page.dart, alarm_page.dart`; `lib/bloc/calendar/calendar_bloc.dart`; `lib/controllers/`: `alert_ring_controller.dart, calendar_export_controller.dart, event_sheets_flow.dart`.
-- Services: `calendar_event_service.dart, category_service.dart, public_holiday_service.dart, event_occurrence_service.dart, event_presence_service.dart, event_skip_service.dart, event_template_service.dart, overview_view_service.dart, event_alert_service.dart, filter_preset_service.dart, day_summary_resolver.dart, alert_scheduler.dart, alert_gateway.dart, android_alert_gateway.dart, alert_keep_notice.dart, session_chip.dart`.
-- Models: `calendar_event.dart, recurrence_rule.dart, calendar_grid_filters.dart, calendar_appearance.dart, upcoming_agenda_filters.dart, calendar_panel_mode.dart, agenda_day_list.dart, overview_period.dart, overview_list_options.dart, overview_view.dart, alert_payload.dart`.
-- Utils: `event_agenda.dart, agenda_month_store.dart, agenda_day_list_index.dart, calendar_filter_summary.dart, category_search.dart, date_stamp.dart, ics_serializer.dart, day_timeline_layout.dart, alert_offset.dart, quick_alarm.dart, alert_notification_content.dart, alert_labels.dart, alert_excerpt.dart, sheet_guard.dart`.
-- Widgets: `calendar_bottom_panel.dart, upcoming_agenda_view.dart, agenda_list_view.dart, agenda_filters_sheet.dart, agenda_day_list_sheet.dart, agenda_day_list_rows.dart, agenda_period_nav.dart, overview_options_sheet.dart, overview_view_sheet.dart, agenda_month_grid.dart, agenda_year_grid.dart, agenda_year_pager.dart, calendar_add_fab.dart, calendar_header_menus.dart, calendar_day_cell.dart, calendar_day_bars.dart, calendar_day_rail.dart, day_summary_panel.dart, day_timeline_view.dart, event_detail_sheet.dart, event_editor_sheet.dart, event_repeat_sheet.dart, event_look_sheet.dart, event_description_sheet.dart, calendar_date_picker_sheet.dart, time_pad_sheet.dart, month_year_picker_sheet.dart, category_picker_sheet.dart, calendar_filter_sheet.dart, filter_check_list_sheet.dart, filter_preset_sheet.dart, alert_editor_sheet.dart, alert_offset_sheet.dart, alert_type_row.dart, alert_sound_sheet.dart, quick_alarm_sheet.dart, event_template_editor_sheet.dart, event_template_picker_sheet.dart, category_editor_sheet.dart, fasting_schedule_sheet.dart, fasting_style_sheet.dart, removed_holidays_sheet.dart, color_swatch_picker.dart, color_palette_sheet.dart, color_picker_sheet.dart, lock_screen_curtain.dart` (`alarm_metrics.dart, alarm_ground.dart`: `ui-language`).
-- Constants: `calendar_bounds.dart, calendar_categories.dart, calendar_icons.dart, public_holidays.dart, fasting_calendar.dart, event_priorities.dart, event_presence.dart, event_skips.dart, occurrence_descriptions.dart, event_alerts.dart, alert_constants.dart, event_title.dart, category_name.dart, fasting_style_limits.dart`.
-- QA: `tool/qa/fixtures/calendar.json, alerts.json, alerts_pair.json` (`test/qa/calendar_fixture_test.dart` pins the first); `tool/qa/flows/calendar/*.txt, alerts/, alerts_pair/`. Update a flow in the slice that changes its screen.
+- Pages: `calendar_page.dart, calendar_overview_page.dart, calendar_settings_page.dart, calendar_categories_page.dart, alerts_page.dart, alarm_page.dart`; `lib/bloc/calendar/calendar_bloc.dart`; `lib/controllers/`: `alert_ring_controller.dart, calendar_export_controller.dart, event_sheets_flow.dart, alert_permission_check.dart`.
+- Services: `event_digest_service.dart, calendar_event_service.dart, category_service.dart, public_holiday_service.dart, event_occurrence_service.dart, event_presence_service.dart, event_skip_service.dart, event_template_service.dart, overview_view_service.dart, event_alert_service.dart, filter_preset_service.dart, day_summary_resolver.dart, alert_scheduler.dart, alert_gateway.dart, android_alert_gateway.dart, alert_keep_notice.dart, session_chip.dart`.
+- Models: `calendar_event.dart, recurrence_rule.dart, calendar_grid_filters.dart, calendar_appearance.dart, upcoming_agenda_filters.dart, calendar_panel_mode.dart, agenda_day_list.dart, overview_period.dart, overview_list_options.dart, overview_view.dart, alert_payload.dart, category_alert.dart, event_digest.dart`.
+- Utils: `event_agenda.dart, agenda_month_store.dart, agenda_day_list_index.dart, calendar_filter_summary.dart, category_search.dart, date_stamp.dart, ics_serializer.dart, day_timeline_layout.dart, alert_offset.dart, quick_alarm.dart, alert_notification_content.dart, alert_labels.dart, alert_excerpt.dart, sheet_guard.dart, digest_planner.dart, digest_notification_content.dart, digest_labels.dart`.
+- Widgets: `calendar_bottom_panel.dart, upcoming_agenda_view.dart, agenda_list_view.dart, agenda_filters_sheet.dart, agenda_day_list_sheet.dart, agenda_day_list_rows.dart, agenda_period_nav.dart, overview_options_sheet.dart, overview_view_sheet.dart, agenda_month_grid.dart, agenda_year_grid.dart, agenda_year_pager.dart, calendar_add_fab.dart, calendar_header_menus.dart, calendar_day_cell.dart, calendar_day_bars.dart, calendar_day_rail.dart, day_summary_panel.dart, day_timeline_view.dart, event_detail_sheet.dart, event_editor_sheet.dart, event_repeat_sheet.dart, event_look_sheet.dart, event_description_sheet.dart, calendar_date_picker_sheet.dart, time_pad_sheet.dart, month_year_picker_sheet.dart, category_picker_sheet.dart, calendar_filter_sheet.dart, filter_check_list_sheet.dart, filter_preset_sheet.dart, alert_editor_sheet.dart, alert_offset_sheet.dart, alert_type_row.dart, alert_sound_sheet.dart, quick_alarm_sheet.dart, event_template_editor_sheet.dart, event_template_picker_sheet.dart, category_editor_sheet.dart, fasting_schedule_sheet.dart, fasting_style_sheet.dart, removed_holidays_sheet.dart, color_swatch_picker.dart, color_palette_sheet.dart, color_picker_sheet.dart, lock_screen_curtain.dart, digest_editor_sheet.dart` (`alarm_metrics.dart, alarm_ground.dart`: `ui-language`).
+- Constants: `calendar_bounds.dart, calendar_categories.dart, calendar_icons.dart, public_holidays.dart, fasting_calendar.dart, event_priorities.dart, event_presence.dart, event_skips.dart, occurrence_descriptions.dart, event_alerts.dart, alert_constants.dart, event_title.dart, category_name.dart, fasting_style_limits.dart, event_digests.dart`.
+- DAOs: `category_alert_dao.dart, event_digest_dao.dart`.
+- QA: `tool/qa/fixtures/calendar.json, alerts.json, alerts_pair.json` (`test/qa/calendar_fixture_test.dart` pins the first); `tool/qa/flows/calendar/*.txt, alerts/, alerts_pair/`; the alerts fixture's category alert and digest, flows `alerts/03_category_alerts.txt`, `alerts/04_digests.txt` (names as S5 lands them). Robots: `category_editor_robot.dart`, `digest_sheet_robot.dart`. Update a flow in the slice that changes its screen.
 
 ## References
 

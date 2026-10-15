@@ -51,10 +51,15 @@ class AlertLabels {
   final bool use24Hour;
 
   late final DateFormat _dayFormat = DateFormat.MMMEd(_dateLocale);
+  late final DateFormat _dateFormat = DateFormat.MMMd(_dateLocale);
 
   /// The language these labels are written in, which a payload records as
   /// the language of every string it carries.
   String get languageCode => _strings.localeName;
+
+  /// The strings these labels are written with, for words composed beside
+  /// them at arm time — a digest's — so one entry never mixes two languages.
+  AppLocalizations get strings => _strings;
 
   /// The clock time an entry is due at, on the phone's clock like every
   /// other label here.
@@ -114,6 +119,24 @@ class AlertLabels {
     if (_sameDay(fireAt, noticeAt)) return null;
     return _written(null, () => _dayOf(fireAt));
   }
+
+  /// The day one line of a digest names (date-only UTC) — "Sat 4 Oct", the
+  /// day [whenLabel] leads with.
+  String entryDayLabel(DateTime dayUtc) => _written('', () => _dayOf(dayUtc));
+
+  /// A day with no weekday (date-only UTC) — "Oct 4": a digest's collapsed
+  /// line, where the platform cuts what does not fit, and the ends of its
+  /// span inside the count.
+  String entryDateLabel(DateTime dayUtc) => _written('', () => _dateOf(dayUtc));
+
+  /// A digest's span as a caption — "4 Nov – 10 Nov", both ends written in
+  /// full even inside one month, and one day alone when the span is a single
+  /// day. Date-only UTC ends.
+  String spanLabel(DateTime startUtc, DateTime endUtc) => _written('', () {
+    final start = _dateOf(startUtc);
+    if (_sameDay(startUtc, endUtc)) return start;
+    return '$start – ${_dateOf(endUtc)}';
+  });
 
   /// The clock time a session ends at, for the session chip.
   ///
@@ -201,6 +224,9 @@ class AlertLabels {
 
   String _dayOf(DateTime day) =>
       _dayFormat.format(DateTime(day.year, day.month, day.day));
+
+  String _dateOf(DateTime day) =>
+      _dateFormat.format(DateTime(day.year, day.month, day.day));
 
   /// A date-only UTC day and a local instant are compared by their calendar
   /// fields: the day says which date, the instant says when on the wall

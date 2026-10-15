@@ -370,4 +370,122 @@ void main() {
       });
     });
   });
+
+  group('an inherited alert', () {
+    test('is written only when true, under its own short key', () {
+      expect(payloadOf().toJson().containsKey('inh'), isFalse);
+      final inherited = payloadOf().copyWith(inherited: true);
+      expect(inherited.toJson()['inh'], isTrue);
+    });
+
+    test('survives the wire and a copy, and reads as own when absent', () {
+      final inherited = payloadOf().copyWith(inherited: true);
+
+      expect(AlertPayload.decode(inherited.encode()), inherited);
+      expect(AlertPayload.decode(inherited.encode())!.inherited, isTrue);
+      expect(inherited.copyWith(osId: 9).inherited, isTrue);
+      expect(AlertPayload.decode(payloadOf().encode())!.inherited, isFalse);
+      expect(inherited, isNot(payloadOf()));
+    });
+  });
+
+  // A digest (v42) is one more set of optional facts: an alert's payload
+  // never carries them, and one written before them reads as no digest.
+  group('a digest', () {
+    final spanStart = DateTime.utc(2026, 10, 1).millisecondsSinceEpoch;
+    final spanEnd = DateTime.utc(2026, 10, 31).millisecondsSinceEpoch;
+
+    AlertPayload digestOf() => AlertPayload(
+      database: 'gym_notes',
+      eventId: '',
+      alertId: 'd1',
+      dayUtcMs: spanStart,
+      osId: 77,
+      mode: AlertMode.notify,
+      title: 'Birthdays',
+      timeLabel: '09:00',
+      categoryId: 'birthday',
+      isDigest: true,
+      digestId: 'd1',
+      spanStartMs: spanStart,
+      spanEndMs: spanEnd,
+      categoryIdsCsv: 'birthday,family',
+      digestText: '2 events this month · Sun, Oct 4 · Ana, Mon, Oct 12 · Mihai',
+      digestLines: const ['Sun, Oct 4 · Ana', 'Mon, Oct 12 · Mihai'],
+      digestSummary: '+2 more',
+    );
+
+    test('round-trips through the wire form', () {
+      final decoded = AlertPayload.decode(digestOf().encode());
+
+      expect(decoded, digestOf());
+      expect(decoded!.isDigest, isTrue);
+      expect(decoded.eventId, '');
+      expect(decoded.digestLines, ['Sun, Oct 4 · Ana', 'Mon, Oct 12 · Mihai']);
+      expect(decoded.digestSummary, '+2 more');
+      expect(decoded.categoryIdSet, {'birthday', 'family'});
+    });
+
+    test('each goes on the wire under its own short key', () {
+      final json = digestOf().toJson();
+
+      expect(json['dg'], isTrue);
+      expect(json['di'], 'd1');
+      expect(json['ss'], spanStart);
+      expect(json['se'], spanEnd);
+      expect(json['cat'], 'birthday,family');
+      expect(json['dtx'], startsWith('2 events'));
+      expect(json['dln'], hasLength(2));
+      expect(json['dsm'], '+2 more');
+    });
+
+    test("an alert's payload carries none of them, and reads as no digest",
+        () {
+      final json = payloadOf().toJson();
+      for (final key in ['dg', 'di', 'ss', 'se', 'cat', 'dtx', 'dln', 'dsm']) {
+        expect(json.containsKey(key), isFalse, reason: key);
+      }
+
+      final decoded = AlertPayload.fromJson(json)!;
+      expect(decoded.isDigest, isFalse);
+      expect(decoded.digestId, isNull);
+      expect(decoded.spanStartMs, isNull);
+      expect(decoded.spanEndMs, isNull);
+      expect(decoded.categoryIdsCsv, isNull);
+      expect(decoded.categoryIdSet, isEmpty);
+      expect(decoded.digestText, isNull);
+      expect(decoded.digestLines, isEmpty);
+      expect(decoded.digestSummary, isNull);
+    });
+
+    test('an empty event id is an identity only for a digest', () {
+      expect(AlertPayload.decode(digestOf().encode()), isNotNull);
+      final alert = digestOf().toJson()..remove('dg');
+      expect(AlertPayload.fromJson(alert), isNull);
+    });
+
+    test('lines of the wrong kind are dropped, never a crash', () {
+      final map = digestOf().toJson()..['dln'] = ['Sun, Oct 4 · Ana', 3, null];
+      expect(AlertPayload.fromJson(map)!.digestLines, ['Sun, Oct 4 · Ana']);
+      final broken = digestOf().toJson()..['dln'] = 'not a list';
+      expect(AlertPayload.fromJson(broken)!.digestLines, isEmpty);
+    });
+
+    test('copyWith carries them', () {
+      final copy = digestOf().copyWith(
+        osId: 78,
+        iconFile: '/data/alert_icons/cake.png',
+        grouped: true,
+      );
+
+      expect(copy.isDigest, isTrue);
+      expect(copy.digestId, 'd1');
+      expect(copy.spanStartMs, spanStart);
+      expect(copy.spanEndMs, spanEnd);
+      expect(copy.categoryIdsCsv, 'birthday,family');
+      expect(copy.digestText, digestOf().digestText);
+      expect(copy.digestLines, digestOf().digestLines);
+      expect(copy.digestSummary, '+2 more');
+    });
+  });
 }

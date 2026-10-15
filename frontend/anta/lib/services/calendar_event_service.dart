@@ -265,6 +265,7 @@ class CalendarEventService {
           'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
           'showInDayRail': row.showInDayRail,
           'removeAfterAlert': row.removeAfterAlert,
+          'categoryAlerts': row.categoryAlerts,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -398,6 +399,13 @@ class CalendarEventService {
             removeAfterAlert: map['removeAfterAlert'] is bool
                 ? Value(map['removeAfterAlert'] as bool)
                 : const Value.absent(),
+            // Absent in pre-v42 backups: default on, which is what every
+            // event of those installs meant — no category had an alert to
+            // inherit. The category alerts ride their own `categoryAlerts`
+            // key at the top of the archive.
+            categoryAlerts: map['categoryAlerts'] is bool
+                ? Value(map['categoryAlerts'] as bool)
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -442,6 +450,7 @@ class CalendarEventService {
       perOccurrenceDescriptions: row.perOccurrenceDescriptions,
       showInDayRail: row.showInDayRail,
       removeAfterAlert: row.removeAfterAlert,
+      categoryAlerts: row.categoryAlerts,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -508,6 +517,7 @@ class CalendarEventService {
       perOccurrenceDescriptions: Value(event.perOccurrenceDescriptions),
       showInDayRail: Value(event.showInDayRail),
       removeAfterAlert: Value(event.removeAfterAlert),
+      categoryAlerts: Value(event.categoryAlerts),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );
