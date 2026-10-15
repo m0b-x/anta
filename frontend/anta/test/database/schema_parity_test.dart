@@ -369,6 +369,47 @@ void main() {
     expect(byName['id']!.read<int>('pk'), 1);
   });
 
+  test('the overview view table matches its frozen migration DDL', () async {
+    // Frozen at v41, the v35 preset table's shape column for column: the CRDT
+    // block with **no** DEFAULT on the identity columns, one NOT NULL blob.
+    final columns = await db
+        .customSelect('PRAGMA table_info(overview_views)')
+        .get();
+    final byName = {for (final row in columns) row.read<String>('name'): row};
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'name',
+      'payload',
+      'sort_order',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    for (final name in byName.keys) {
+      expect(
+        byName[name]!.read<int>('notnull'),
+        name == 'deleted_at' ? 0 : 1,
+        reason: name == 'deleted_at'
+            ? 'deleted_at must stay nullable'
+            : '$name should be NOT NULL',
+      );
+    }
+
+    expect(byName['payload']!.read<String>('type'), 'TEXT');
+    expect(byName['sort_order']!.read<String>('dflt_value'), '0');
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
   test('the alert table matches its frozen migration DDL', () async {
     // Frozen at v40, born with the CRDT block — so the v29/v32 shape, not the
     // v27 one: **no** DEFAULT on the identity columns, because this is a new

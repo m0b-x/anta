@@ -8026,6 +8026,30 @@ abstract class AppLocalizations {
   /// **'All time'**
   String get overviewPeriodAllTime;
 
+  /// Tooltip of the overview list nav's left chevron, which shows the span of the same length just before the one listed
+  ///
+  /// In en, this message translates to:
+  /// **'Previous period'**
+  String get overviewPeriodPrevious;
+
+  /// Tooltip of the overview list nav's right chevron, which shows the span of the same length just after the one listed
+  ///
+  /// In en, this message translates to:
+  /// **'Next period'**
+  String get overviewPeriodNext;
+
+  /// Tooltip of the overview list nav's today button, which returns from a stepped span to the period last picked
+  ///
+  /// In en, this message translates to:
+  /// **'Back to {period}'**
+  String overviewPeriodHome(String period);
+
+  /// One category's entry count in the overview's totals caption, e.g. 'Gym 41'; several are joined with ' · '
+  ///
+  /// In en, this message translates to:
+  /// **'{label} {count}'**
+  String overviewCategoryTotal(String label, int count);
+
   /// Tooltip of the overview list's options button and the title of the sheet it opens
   ///
   /// In en, this message translates to:
@@ -8073,6 +8097,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Missed only'**
   String get overviewMissedOnly;
+
+  /// Switch in the overview list options: while on, a tap on an entry row toggles that day between present and missed instead of opening the event
+  ///
+  /// In en, this message translates to:
+  /// **'Mark presence'**
+  String get overviewMarkPresence;
+
+  /// Title of the overview's saved views sheet and tooltip of its app-bar button; a view is a saved period, list options and categories
+  ///
+  /// In en, this message translates to:
+  /// **'Saved views'**
+  String get overviewViewsTitle;
+
+  /// Row in the saved views sheet, and the naming dialog's title, that saves the overview list as shown
+  ///
+  /// In en, this message translates to:
+  /// **'Save the current list'**
+  String get overviewViewSaveCurrent;
+
+  /// Confirmation after saving the overview list as a view
+  ///
+  /// In en, this message translates to:
+  /// **'Saved as \"{name}\"'**
+  String overviewViewSaved(String name);
+
+  /// Saved view menu action: re-point the view at the list the overview shows now
+  ///
+  /// In en, this message translates to:
+  /// **'Update to current list'**
+  String get overviewViewUpdate;
+
+  /// Title of the confirmation for deleting a saved overview view
+  ///
+  /// In en, this message translates to:
+  /// **'Delete saved view'**
+  String get overviewViewDelete;
+
+  /// Confirmation body for deleting a saved overview view
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{name}\"? The events it lists are untouched.'**
+  String overviewViewDeleteConfirm(String name);
+
+  /// Tooltip of a saved view row's more button
+  ///
+  /// In en, this message translates to:
+  /// **'Saved view options'**
+  String get overviewViewActions;
+
+  /// Shown when the saved view limit is reached
+  ///
+  /// In en, this message translates to:
+  /// **'You can save up to {count} views'**
+  String overviewViewLimitReached(int count);
+
+  /// Hint of the saved views sheet's search field
+  ///
+  /// In en, this message translates to:
+  /// **'Search saved views'**
+  String get overviewViewSearchHint;
+
+  /// Shown in the saved views sheet when the search matches nothing
+  ///
+  /// In en, this message translates to:
+  /// **'No saved view matches your search'**
+  String get overviewViewNoMatches;
 
   /// Empty state of the overview list when the chosen period holds no entry
   ///

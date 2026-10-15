@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/models/agenda_day_list_mode.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/overview_list_options.dart';
 
 import 'support/layout_errors.dart';
@@ -111,7 +114,7 @@ void main() {
   testWidgets('outside list mode Order and Rows are disabled, never hidden; '
       'Missed only stays live', (tester) async {
     final robot = OverviewOptionsRobot(tester);
-    await robot.show(listMode: false, onChanged: writes.add);
+    await robot.show(mode: AgendaDayListMode.month, onChanged: writes.add);
 
     expect(robot.enabled(SemanticsIds.overviewOrder), isFalse);
     expect(robot.enabled(SemanticsIds.overviewRows), isFalse);
@@ -147,8 +150,245 @@ void main() {
       SemanticsIds.overviewOrder,
       SemanticsIds.overviewRows,
       SemanticsIds.overviewMissedOnly,
+      SemanticsIds.overviewMarkPresence,
     ]) {
       expect(robot.controlLabelWhole(id), isTrue, reason: id);
     }
+  });
+
+  group('Mark presence (D18)', () {
+    for (final (mode, rows) in [
+      (AgendaDayListMode.list, OverviewRows.everyOccurrence),
+      (AgendaDayListMode.month, OverviewRows.everyOccurrence),
+      (AgendaDayListMode.month, OverviewRows.perEvent),
+    ]) {
+      testWidgets('live in ${mode.name} mode with ${rows.name} rows', (
+        tester,
+      ) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          mode: mode,
+          initial: OverviewListOptions(rows: rows),
+          onChanged: writes.add,
+        );
+
+        expect(robot.enabled(SemanticsIds.overviewMarkPresence), isTrue);
+        await robot.toggleMarkPresence();
+
+        expect(writes, [OverviewListOptions(rows: rows, markPresence: true)]);
+        expect(robot.markPresence, isTrue);
+        expect(robot.isOpen, isTrue);
+      });
+    }
+
+    for (final (mode, rows) in [
+      (AgendaDayListMode.year, OverviewRows.everyOccurrence),
+      (AgendaDayListMode.list, OverviewRows.perEvent),
+    ]) {
+      testWidgets('disabled, never hidden, in ${mode.name} mode with '
+          '${rows.name} rows', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          mode: mode,
+          initial: OverviewListOptions(rows: rows),
+          onChanged: writes.add,
+        );
+
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.overviewMarkPresence),
+          findsOneWidget,
+        );
+        expect(robot.enabled(SemanticsIds.overviewMarkPresence), isFalse);
+        await robot.tapRow(SemanticsIds.overviewMarkPresence);
+
+        expect(writes, isEmpty);
+        expect(robot.markPresence, isFalse);
+      });
+    }
+
+    for (final mode in [AgendaDayListMode.list, AgendaDayListMode.month]) {
+      testWidgets('disabled, never hidden, in ${mode.name} mode while missed '
+          'entries are hidden (review 2)', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(mode: mode, missedHidden: true, onChanged: writes.add);
+
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.overviewMarkPresence),
+          findsOneWidget,
+        );
+        expect(robot.enabled(SemanticsIds.overviewMarkPresence), isFalse);
+        expect(robot.enabled(SemanticsIds.overviewMissedOnly), isTrue);
+        await robot.tapRow(SemanticsIds.overviewMarkPresence);
+
+        expect(writes, isEmpty);
+        expect(robot.markPresence, isFalse);
+      });
+    }
+
+    testWidgets('Rows → One per event turns it off in the same write and '
+        'disables it; back to every occurrence leaves it off', (tester) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(
+        initial: const OverviewListOptions(markPresence: true),
+        onChanged: writes.add,
+      );
+      expect(robot.markPresence, isTrue);
+
+      await robot.pickRows(OverviewRows.perEvent);
+      expect(writes, [const OverviewListOptions(rows: OverviewRows.perEvent)]);
+      expect(robot.markPresence, isFalse);
+      expect(robot.enabled(SemanticsIds.overviewMarkPresence), isFalse);
+
+      await robot.pickRows(OverviewRows.everyOccurrence);
+      expect(writes.last, OverviewListOptions.defaults);
+      expect(robot.markPresence, isFalse);
+      expect(robot.enabled(SemanticsIds.overviewMarkPresence), isTrue);
+    });
+
+    testWidgets('a Rows change while it is off writes rows alone', (
+      tester,
+    ) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(onChanged: writes.add);
+
+      await robot.pickRows(OverviewRows.perEvent);
+
+      expect(writes, [const OverviewListOptions(rows: OverviewRows.perEvent)]);
+    });
+  });
+
+  group('Categories (D22)', () {
+    late List<Set<String>> picks;
+
+    setUp(() {
+      picks = [];
+      CalendarCategories.updateCache([
+        for (var i = 0; i < 4; i++)
+          CalendarCategory(
+            id: 'c$i',
+            name: 'Cat$i',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: i,
+            isBuiltIn: false,
+          ),
+      ]);
+    });
+
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    testWidgets('the first row reads the allowlist back: All, two names, '
+        'then "+N more"', (tester) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(onChanged: writes.add);
+      expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+      expect(
+        tester
+            .getTopLeft(
+              find.bySemanticsIdentifier(SemanticsIds.overviewCategories),
+            )
+            .dy,
+        lessThan(
+          tester
+              .getTopLeft(
+                find.bySemanticsIdentifier(SemanticsIds.overviewOrder),
+              )
+              .dy,
+        ),
+        reason: 'above Order',
+      );
+      await robot.close();
+
+      await robot.show(onChanged: writes.add, categoryIds: {'c2', 'c0'});
+      expect(robot.categoriesValue, 'Cat0, Cat2');
+      await robot.close();
+
+      await robot.show(onChanged: writes.add, categoryIds: {'c0', 'c1', 'c3'});
+      expect(
+        robot.categoriesValue,
+        'Cat0, Cat1 ${robot.l10n.categoriesMore(1)}',
+      );
+    });
+
+    testWidgets('a pick opens the picker over the sheet, applies at once and '
+        'reports once; the same set again reports nothing', (tester) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(onChanged: writes.add, onCategoriesChanged: picks.add);
+
+      await robot.openCategories();
+      expect(robot.pickerOpen, isTrue);
+      expect(robot.isOpen, isTrue, reason: 'the sheet stays under it');
+      await robot.pickerSelectNone();
+      await robot.togglePickerRow('c1');
+      await robot.pickerDone();
+
+      expect(robot.pickerOpen, isFalse);
+      expect(picks, [
+        {'c1'},
+      ]);
+      expect(robot.categoriesValue, 'Cat1');
+
+      await robot.pickCategories({'c1'});
+      expect(picks, hasLength(1));
+
+      await robot.openCategories();
+      await robot.pickerClose();
+      expect(picks, hasLength(1), reason: 'a dismissed picker changes nothing');
+      expect(writes, isEmpty);
+    });
+
+    testWidgets('a pick covering every offered category collapses to the '
+        'empty allowlist', (tester) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(
+        onChanged: writes.add,
+        categoryIds: {'c0'},
+        onCategoriesChanged: picks.add,
+      );
+
+      await robot.openCategories();
+      await robot.pickerSelectAll();
+      await robot.pickerDone();
+
+      expect(picks, [<String>{}]);
+      expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+    });
+
+    testWidgets('the sheet keeps its height when a pick turns All into two '
+        'names and "+N more": the row is single-line', (tester) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(onChanged: writes.add, surface: const Size(360, 780));
+      expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+      final before = robot.sheetRect.height;
+
+      await robot.pickCategories({'c0', 'c1', 'c3'});
+
+      expect(
+        robot.categoriesValue,
+        'Cat0, Cat1 ${robot.l10n.categoriesMore(1)}',
+      );
+      expect(robot.sheetRect.height, before);
+    });
+
+    testWidgets('an archived category in the allowlist is still read back', (
+      tester,
+    ) async {
+      CalendarCategories.updateCache([
+        for (var i = 0; i < 4; i++)
+          CalendarCategory(
+            id: 'c$i',
+            name: 'Cat$i',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: i,
+            isBuiltIn: false,
+            isHidden: i == 2,
+          ),
+      ]);
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(onChanged: writes.add, categoryIds: {'c2', 'c0'});
+
+      expect(robot.categoriesValue, 'Cat0, Cat2');
+    });
   });
 }

@@ -24,6 +24,7 @@ import 'tables/event_skips_table.dart';
 import 'tables/event_alerts_table.dart';
 import 'tables/alert_registrations_table.dart';
 import 'tables/calendar_filter_presets_table.dart';
+import 'tables/overview_views_table.dart';
 import 'tables/event_templates_table.dart';
 import 'tables/vocabularies_table.dart';
 import 'tables/vocabulary_items_table.dart';
@@ -40,6 +41,7 @@ import 'daos/event_occurrence_dao.dart';
 import 'daos/event_absence_dao.dart';
 import 'daos/event_template_dao.dart';
 import 'daos/filter_preset_dao.dart';
+import 'daos/overview_view_dao.dart';
 import 'daos/event_skip_dao.dart';
 import 'daos/event_alert_dao.dart';
 import 'daos/alert_registration_dao.dart';
@@ -67,6 +69,7 @@ part 'database.g.dart';
     EventAbsences,
     EventTemplates,
     CalendarFilterPresets,
+    OverviewViews,
     EventSkips,
     EventAlerts,
     AlertRegistrations,
@@ -87,6 +90,7 @@ part 'database.g.dart';
     EventAbsenceDao,
     EventTemplateDao,
     FilterPresetDao,
+    OverviewViewDao,
     EventSkipDao,
     EventAlertDao,
     AlertRegistrationDao,

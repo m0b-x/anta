@@ -11,9 +11,11 @@ import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
 import '../controllers/calendar_export_controller.dart';
+import '../controllers/event_sheets_flow.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/event_presence.dart';
 import '../constants/overview_list_metrics.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -26,15 +28,20 @@ import '../models/date_range.dart';
 import '../models/day_bar.dart';
 import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
+import '../models/overview_view.dart';
 import '../services/agenda_search_text.dart';
+import '../services/alert_keep_notice.dart';
 import '../services/app_navigator.dart';
+import '../services/overview_view_service.dart';
 import '../services/settings_service.dart';
 import '../utils/agenda_day_list_index.dart';
 import '../utils/agenda_month_store.dart';
-import '../utils/calendar_filter_summary.dart';
+import '../utils/date_span_label.dart';
 import '../utils/event_agenda.dart';
 import '../utils/event_query_matcher.dart';
 import '../utils/event_search_query.dart';
+import '../utils/markdown_color_syntax.dart';
+import '../utils/sheet_guard.dart';
 import '../widgets/agenda_day_list_rows.dart';
 import '../widgets/agenda_list_view.dart';
 import '../widgets/agenda_month_grid.dart';
@@ -44,15 +51,11 @@ import '../widgets/agenda_year_pager.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/calendar_date_picker_sheet.dart';
 import '../widgets/calendar_header_menus.dart';
-import '../widgets/category_picker_sheet.dart';
+import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart';
 import '../widgets/list_scrubber.dart';
-import '../widgets/month_year_picker_sheet.dart';
 import '../widgets/overview_options_sheet.dart';
-
-/// Opens the calendar on one occurrence. A seam so a widget test can watch a
-/// row tap without a navigator key.
-typedef OverviewOccurrenceOpener = void Function(DateTime day, String eventId);
+import '../widgets/overview_view_sheet.dart';
 
 /// The calendar overview: every event of the chosen categories as a year of
 /// dot-matrix tiles, a month grid or a dated list over a period — the agenda
@@ -66,15 +69,14 @@ typedef OverviewOccurrenceOpener = void Function(DateTime day, String eventId);
 /// a year, a span ending today, or one picked in the Dates sheet. It owns no
 /// data either. Events come from the app-wide `CalendarBloc`, whose loaded
 /// state is also what guarantees the category and presence facades the rows
-/// read are configured; every row tap leads to the calendar, where the
-/// occurrence is shown and edited. The category allowlist (empty = all, the
+/// read are configured; a row tap opens the occurrence's detail sheet right
+/// over the list (D14 · A), the calendar's own trip through it
+/// ([EventSheetsFlow]), so back closes it onto the row. The category allowlist (empty = all, the
 /// agenda's convention), the presentation, a preset period and the list's
 /// order and rows are persisted; a custom span, Missed only and the search
 /// are not, so the page never opens on a narrowing nobody remembers asking
 /// for.
 class CalendarOverviewPage extends StatefulWidget {
-  final OverviewOccurrenceOpener? _openOccurrence;
-
   /// Handed every store the page resolves into, so a budget test can ask
   /// which months it holds.
   final ValueChanged<AgendaMonthStore>? _onStore;
@@ -90,17 +92,13 @@ class CalendarOverviewPage extends StatefulWidget {
   @visibleForTesting
   static void resetDebugListedEntryVisits() => _debugListedEntryVisits = 0;
 
-  const CalendarOverviewPage({super.key})
-    : _openOccurrence = null,
-      _onStore = null;
+  const CalendarOverviewPage({super.key}) : _onStore = null;
 
   @visibleForTesting
   const CalendarOverviewPage.forTesting({
     super.key,
-    required OverviewOccurrenceOpener openOccurrence,
     ValueChanged<AgendaMonthStore>? onStore,
-  }) : _openOccurrence = openOccurrence,
-       _onStore = onStore;
+  }) : _onStore = onStore;
 
   @override
   State<CalendarOverviewPage> createState() => _CalendarOverviewPageState();
@@ -116,6 +114,25 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   );
 
   CalendarAppearance _appearance = const CalendarAppearance();
+
+  /// The markdown palette a row's detail sheet renders the description in.
+  MarkdownColorPalette _palette = MarkdownColorPalette.presets;
+
+  /// Guards the detail sheet a row opens, and the trip from it, against a
+  /// double tap.
+  final SheetGuard _sheetGuard = SheetGuard();
+
+  /// How many Keeps this page has heard of; a detail-sheet trip compares it
+  /// at its start and after each step, as on the calendar.
+  int _keepsHeard = 0;
+
+  late final EventSheetsFlow _sheets = EventSheetsFlow(
+    guard: _sheetGuard,
+    appearance: () => _appearance,
+    palette: () => _palette,
+    keepsHeard: () => _keepsHeard,
+  );
+
   Set<String> _categoryIds = const {};
   AgendaDayListMode _mode = AgendaDayListMode.year;
   bool _hapticFeedback = false;
@@ -135,22 +152,35 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// survives a look at the year tiles.
   late OverviewPeriod _period;
 
+  /// The period as picked — the Period menu's last pick, or the persisted
+  /// one — which the list nav's Today slot returns to (D15b). A step and
+  /// year paging move [_period] and never this.
+  late OverviewPeriod _home;
+
   /// Set when the persisted period is not a year: year mode opens on the
   /// period's first year, as a switch into it does, once the year bounds the
   /// events give are known (review 7).
   bool _yearFromPeriod = false;
   OverviewListOptions _options = OverviewListOptions.defaults;
 
+  /// The saved views (D17), awaited once and held: the bar button asks it
+  /// for a match on every rebuild, which its cache answers with no query.
+  /// Null until it answers, and the button is disabled until then.
+  OverviewViewService? _viewService;
+
   /// The years the chosen events can be in — the pager's pages and the
   /// chevrons' stops. Always holds today's year.
   AgendaYearBounds _years = (first: 0, last: 0);
   PageController? _yearPager;
   final Map<int, List<AgendaYearTile>> _tilesByYear = {};
-  DateTime? _highlightMonth;
-  int _highlightToken = 0;
   Timer? _prewarm;
 
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  /// Whether the chip row's search button has revealed the Search row;
+  /// session-only like the query, and closed on open.
+  bool _searchOpen = false;
   final ScrollController _monthScroll = ScrollController();
   final ScrollController _listScroll = ScrollController();
   Timer? _searchDebounce;
@@ -184,6 +214,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// the categories, the locale, the appearance, the day — and cleared when
   /// [_rebuild] resolves a new store. A query change leaves it alone.
   bool _storeStale = true;
+
+  /// The marks a Mark presence tap dispatched whose presence bump has not
+  /// come back yet, oldest first. A bump they account for re-resolves only
+  /// their months ([_forgetMarked]): a new store would list a long period in
+  /// runs again, shrinking the list under the finger before its next tap.
+  final List<(String eventId, DateTime day)> _pendingMarks = [];
 
   /// The query as a post-filter over the store's entries; null while the
   /// search is empty. A new one per [_rebuild]: its memo reads the
@@ -240,9 +276,25 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   int _yearKept = 0;
   int _yearMissed = 0;
 
-  /// The list's entries after every filter, for the count caption.
+  /// The list's entries after every filter, for the nav's count.
   int _listedKept = 0;
   int _listedMissed = 0;
+
+  /// What the totals caption counts per category id in the current mode
+  /// (D16): the kept entries, or the missed ones while Missed only narrows
+  /// the mode.
+  Map<String, int> _totals = {};
+
+  /// Kept marks per category per month key, folded as the year tiles'
+  /// marks are resolved, so year mode's totals cost no rows (the tiles are
+  /// marks only). Lives as long as [_store]; a month absent here was
+  /// resolved as a bucket and is counted from its entries.
+  final Map<int, Map<String, int>> _markedKept = {};
+
+  /// The navs' title templates and the locale and year they were built for
+  /// ([_titleTemplates]).
+  String? _titleTemplatesKey;
+  List<String> _titleTemplatesCache = const [];
 
   /// Whether the list's period crosses New Year, which names the year in
   /// its month and day headers.
@@ -276,9 +328,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// the calendar beneath answers for its own.
   final CalendarExportController _export = CalendarExportController();
 
-  /// A row tap pushes the calendar over this page, and every edit made there
-  /// emits. Resolving a whole period for each one underneath would be pure
-  /// waste, so the state is parked while covered and adopted on return.
+  /// A page pushed over this one — an alert's calendar, the note editor,
+  /// settings, Alerts — can edit events, and every edit emits. Resolving a
+  /// whole period for each one underneath would be pure waste, so the state
+  /// is parked while covered and adopted on return; the same holds while a
+  /// row's detail sheet holds [_sheetGuard] (see [_onStateChanged]).
   PageRoute<dynamic>? _route;
   bool _covered = false;
   CalendarPageState? _pendingState;
@@ -291,11 +345,20 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _year = _today.year;
     _years = (first: _year, last: _year);
     _month = AgendaMonthStore.monthOf(_today);
-    _period = OverviewPeriod.thisYear(today: _today);
+    _period = _home = OverviewPeriod.thisYear(today: _today);
     _listScroll.addListener(_updatePinned);
     final bloc = context.read<CalendarBloc>();
     if (bloc.isStale) bloc.add(const LoadCalendarEvents());
     unawaited(_loadSettings());
+    unawaited(_loadViews());
+    // The alarm page's Keep, as the calendar page hears it: this page reads
+    // the same bloc, and may be the only one open when Keep is pressed.
+    AlertKeepNotice.instance.addListener(_serveKeepNotice);
+    if (AlertKeepNotice.instance.hasPending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveKeepNotice();
+      });
+    }
   }
 
   @override
@@ -320,16 +383,35 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   @override
   void dispose() {
     _resolveGeneration++;
+    AlertKeepNotice.instance.removeListener(_serveKeepNotice);
     WidgetsBinding.instance.removeObserver(this);
     if (_route != null) AppNavigator.routeObserver.unsubscribe(this);
     _prewarm?.cancel();
     _searchDebounce?.cancel();
     _searchController.dispose();
+    _searchFocus.dispose();
     _monthScroll.dispose();
     _listScroll.dispose();
     _pinned.dispose();
     _yearPager?.dispose();
     super.dispose();
+  }
+
+  /// Reloads the bloc after a Keep on the alarm page cleared an event's
+  /// "remove after it rings" behind its back, and counts it, so a detail
+  /// sheet open here learns that a Keep happened.
+  ///
+  /// Never takes the notice. A calendar beneath this page registered first
+  /// and has taken it already — its reload is on its way — when the flag is
+  /// down here. With no calendar beneath, the alarm page's Open event may
+  /// push one over this page next, and that calendar must still find the
+  /// flag standing: it is how it knows its initial target may predate the
+  /// Keep and defers the sheet to the reload.
+  void _serveKeepNotice() {
+    if (!mounted) return;
+    _keepsHeard++;
+    if (!AlertKeepNotice.instance.hasPending) return;
+    context.read<CalendarBloc>().add(const LoadCalendarEvents());
   }
 
   @override
@@ -367,6 +449,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (today == _today) return false;
     final before = _today;
     _today = today;
+    _home = _home.followingToday(before: before, today: today);
     if (_mode != AgendaDayListMode.year) {
       final period = _period.followingToday(before: before, today: today);
       if (period != _period) {
@@ -382,9 +465,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final loaded = await settings.getCalendarOverviewSettings(today: _today);
     if (!mounted) return;
     _appearance = loaded.appearance;
+    _palette = loaded.palette;
     _categoryIds = loaded.categoryIds;
     _mode = loaded.mode;
-    _period = loaded.period;
+    _period = _home = loaded.period;
     if (loaded.period case OverviewYearPeriod(:final year)) {
       _year = year;
     } else {
@@ -395,6 +479,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _settingsLoaded = true;
     _storeStale = true;
     _rebuild();
+  }
+
+  Future<void> _loadViews() async {
+    try {
+      final service = await OverviewViewService.getInstance();
+      if (!mounted) return;
+      setState(() => _viewService = service);
+    } catch (e) {
+      debugPrint('[CalendarOverviewPage] Saved views load failed: $e');
+    }
   }
 
   /// Catches up with everything that moved while a page covered this one, in
@@ -412,12 +506,19 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (_refreshToday()) _storeStale = true;
     if (_settingsLoaded) {
       _hapticFeedback = loaded.hapticFeedback;
+      _palette = loaded.palette;
       if (loaded.appearance != _appearance) {
         _appearance = loaded.appearance;
         _storeStale = true;
+        // A mark would now take its row away with nothing here to undo it.
+        if (_missedHidden && _options.markPresence) {
+          _options = _options.copyWith(markPresence: false);
+        }
       }
     }
-    final pending = _pendingState;
+    // A page pushed from inside a row's trip returns to the trip: what was
+    // parked waits for its end.
+    final pending = _sheetGuard.isOpen ? null : _pendingState;
     var changed = _storeStale;
     if (pending != null) {
       _pendingState = null;
@@ -479,9 +580,17 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
             previous.occurrenceRevision != current.occurrenceRevision);
   }
 
+  /// Parked while covered, and while a row's detail sheet holds
+  /// [_sheetGuard]: a sheet never fires the route observer, yet every tick
+  /// in it gives the bloc's list a new identity, and the period under the
+  /// sheet would be resolved anew for each. The trip's end adopts what was
+  /// parked, once ([_openOn]).
   void _onStateChanged(CalendarPageState state) {
-    if (_covered) {
+    if (_covered || _sheetGuard.isOpen) {
       _pendingState = state;
+      // What is adopted later may carry presence writes of the sheet or the
+      // page above, which no mark accounts for: that state takes a new store.
+      _pendingMarks.clear();
       return;
     }
     // A return still reading the settings must not adopt the older state it
@@ -507,11 +616,62 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       loaded?.membershipRevision ?? 0,
       loaded?.presenceRevision ?? 0,
     );
-    if (inputs != _adoptedInputs) {
+    final adopted = _adoptedInputs;
+    if (inputs != adopted) {
       _adoptedInputs = inputs;
-      _storeStale = true;
+      if (!_forgetMarked(adopted, inputs)) _storeStale = true;
     }
     if (_refreshCategoryLabels()) _storeStale = true;
+  }
+
+  /// Whether [next] moved from [previous] by nothing but presence bumps the
+  /// pending marks account for. Then the marks' months — and only they — are
+  /// dropped from the store and resolved again at once, so the rows fold
+  /// anew under the same keys and the list's anchor finds its row in the
+  /// same frame (review 1). Any other bump — the detail sheet's pair, adopted
+  /// as its trip ends — is left to a new store, as is a bump arriving with
+  /// the list, the membership or the store itself moved. The bumps consume
+  /// the oldest marks either way; a mark's month is forgotten with every
+  /// bump until its own is consumed, since writes may land out of order.
+  bool _forgetMarked(
+    (List<CalendarEvent>?, int, int)? previous,
+    (List<CalendarEvent>?, int, int) next,
+  ) {
+    if (previous == null || _pendingMarks.isEmpty) return false;
+    final (events, membership, presence) = next;
+    final bumps = presence - previous.$3;
+    if (bumps <= 0) return false;
+    final months = {
+      for (final (_, day) in _pendingMarks) AgendaMonthStore.keyOf(day),
+    };
+    final accounted = bumps <= _pendingMarks.length;
+    if (accounted) {
+      _pendingMarks.removeRange(0, bumps);
+    } else {
+      _pendingMarks.clear();
+    }
+    final store = _store;
+    if (!accounted ||
+        store == null ||
+        _storeStale ||
+        !identical(events, previous.$1) ||
+        membership != previous.$2) {
+      return false;
+    }
+    for (final key in months) {
+      final month = AgendaMonthStore.monthOfKey(key);
+      final resolved = store.isResolved(month);
+      store.forget(month);
+      // The year tiles' kept marks of this month are folded anew with its
+      // tally; the filtered months, the bars and the tiles go whole with
+      // [_rebuild].
+      _markedKept.remove(key);
+      // A listed month must be back before [_listMore] runs: it extends the
+      // synchronous part over resolved months only, and stopping at this one
+      // would leave the rest to runs, which is the shrink this path avoids.
+      if (resolved) store.ensure([month]);
+    }
+    return true;
   }
 
   /// Resolves what the current presentation shows through the query, then
@@ -530,6 +690,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (events == null || !_settingsLoaded || l10n == null) {
       _resolveGeneration++;
       _store = null;
+      _markedKept.clear();
       _storeStale = true;
       _rows = const [];
       _monthBucket = null;
@@ -563,6 +724,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         _year = _year.clamp(years.first, years.last);
       }
       _syncPager();
+      _markedKept.clear();
       final store = _store = AgendaMonthStore(
         resolve: _resolve,
         resolveMarks: _resolveMarks,
@@ -615,8 +777,22 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   List<AgendaDayMark> _resolveMarks(DateTime start, DateTime end) {
+    final occurrences = _scan(start, end);
+    for (final month in _monthsOf((start: start, end: end))) {
+      _markedKept[AgendaMonthStore.keyOf(month)] = {};
+    }
+    for (final occurrence in occurrences) {
+      final event = occurrence.event;
+      if (EventPresence.appliesTo(event) &&
+          EventPresence.isMissed(event, occurrence.day)) {
+        continue;
+      }
+      final counts = _markedKept[AgendaMonthStore.keyOf(occurrence.day)]!;
+      final category = CalendarCategories.resolve(event.categoryId).id;
+      counts[category] = (counts[category] ?? 0) + 1;
+    }
     return AgendaListView.eventDayMarks(
-      _scan(start, end),
+      occurrences,
       missedDisplay: _appearance.missedDisplay,
     );
   }
@@ -651,6 +827,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
               AgendaMonthStore.buildBars(bucket, maxBars: store.maxBars);
         }
         _monthBucket = bucket;
+        _totals = {};
+        _tally(_totals, bucket.entries);
         final selected = _selectedDay;
         _rows = buildAgendaDayListRows(
           selected != null ? [selected] : bucket.days,
@@ -727,6 +905,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _listedEntries = [];
       _listedKept = 0;
       _listedMissed = 0;
+      _totals = {};
       _listCapped = false;
     }
     final span = _listSpan!;
@@ -780,6 +959,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final missed = listed.where((entry) => entry.missed).length;
     _listedKept += listed.length - missed;
     _listedMissed += missed;
+    _tally(_totals, listed);
     if (perEvent) {
       _listedEntries.addAll(listed);
       _rowsBase = null;
@@ -859,6 +1039,39 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     return CalendarCategories.resolve(event?.categoryId ?? '').id;
   }
 
+  /// Adds [entries] to [totals] per category: the kept ones, or the missed
+  /// ones while Missed only narrows this mode — year mode's tiles ignore it,
+  /// as its count does (D16a).
+  void _tally(Map<String, int> totals, Iterable<AgendaDayListEntry> entries) {
+    final missed = _options.missedOnly && _mode != AgendaDayListMode.year;
+    for (final entry in entries) {
+      if (entry.missed != missed) continue;
+      final category = _categoryOf(entry);
+      totals[category] = (totals[category] ?? 0) + 1;
+    }
+  }
+
+  /// The totals caption (D16): the categories with a count in catalog order,
+  /// [OverviewListMetrics.namedTotals] of them named and the rest summed up
+  /// as "+N more"; empty
+  /// when nothing is listed.
+  String _totalsLabel(AppLocalizations l10n) {
+    final parts = <String>[];
+    var rest = 0;
+    for (final category in CalendarCategories.all) {
+      final count = _totals[category.id];
+      if (count == null || count == 0) continue;
+      if (parts.length < OverviewListMetrics.namedTotals) {
+        final label = CalendarCategories.labelOf(category, l10n);
+        parts.add(l10n.overviewCategoryTotal(label, count));
+      } else {
+        rest++;
+      }
+    }
+    if (rest > 0) parts.add(l10n.categoriesMore(rest));
+    return parts.join(' · ');
+  }
+
   /// Whether [day] has anything listed: the store's mask, or the narrowed
   /// month's while a query is live. Cache-only, for the grid's builder.
   bool _hasEntry(DateTime day) {
@@ -922,6 +1135,26 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     }
     _yearKept = kept;
     _yearMissed = missed;
+    // The tiles above resolved every month of the year: as rows while a
+    // query is live, otherwise as marks (folded into [_markedKept]) or as
+    // the rows a list or month look resolved before.
+    final store = _store!;
+    final totals = <String, int>{};
+    for (final month in AgendaMonthStore.monthsOfYear(year)) {
+      final marked = _matcher == null
+          ? _markedKept[AgendaMonthStore.keyOf(month)]
+          : null;
+      if (marked != null) {
+        marked.forEach((category, count) {
+          totals[category] = (totals[category] ?? 0) + count;
+        });
+      } else if (_matcher != null) {
+        _tally(totals, _bucketOf(month).entries);
+      } else if (store.cached(month) case final bucket?) {
+        _tally(totals, bucket.entries);
+      }
+    }
+    _totals = totals;
   }
 
   /// Warms the neighbouring years once the page has settled, so the next
@@ -960,6 +1193,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
             : DateTime.utc(_year, _today.year == _year ? _today.month : 1, 1);
       }
       if (mode == AgendaDayListMode.year) _syncPager();
+      // Month mode marks under either Rows; the list under One per event has
+      // no day to mark, so marking ends rather than staying on, inert.
+      if (mode == AgendaDayListMode.list &&
+          _options.markPresence &&
+          !_dayRowsShown) {
+        _options = _options.copyWith(markPresence: false);
+      }
       _recompute();
     });
     // A switch into the list opens it, so it lands as an open does.
@@ -1005,44 +1245,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       );
     } else {
       _onYearPaged(target);
-    }
-  }
-
-  /// The jump control behind every period title: a picked date lands the
-  /// year pages on its year with its month flashed, the list on its year, or
-  /// month mode on its month.
-  Future<void> _pickDate() async {
-    if (_pickerOpen) return;
-    _pickerOpen = true;
-    try {
-      final inMonthMode = _mode == AgendaDayListMode.month;
-      final initial = inMonthMode
-          ? _month
-          : DateTime.utc(_year, _today.year == _year ? _today.month : 1, 1);
-      final picked = await MonthYearPickerSheet.show(
-        context,
-        initialDate: initial,
-        firstDate: inMonthMode
-            ? CalendarBounds.earliest
-            : DateTime.utc(_years.first, 1, 1),
-        lastDate: inMonthMode
-            ? CalendarBounds.latest
-            : DateTime.utc(_years.last, 12, 31),
-        accent: _appearance.accentOr(Theme.of(context).colorScheme.primary),
-      );
-      if (picked == null || !mounted) return;
-      _click();
-      if (inMonthMode) {
-        _goToMonth(AgendaMonthStore.monthOf(picked));
-        return;
-      }
-      setState(() {
-        _highlightMonth = AgendaMonthStore.monthOf(picked);
-        _highlightToken++;
-      });
-      _goToYear(picked.year);
-    } finally {
-      _pickerOpen = false;
     }
   }
 
@@ -1331,15 +1533,36 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _query = EventSearchQuery.parse(raw, localeName: _l10n?.localeName ?? '');
   }
 
-  /// The Period row's pick. A preset applies at once; Custom range… asks the
-  /// Dates sheet for a span, seeded with the one shown, and changes nothing
-  /// when it is cancelled.
+  /// The Period menu's pick, live in every mode (D13 · A). A preset applies at
+  /// once; Custom range… asks the Dates sheet for a span, seeded with the one
+  /// shown, and changes nothing — the mode included — when it is cancelled.
+  /// A period is the list's unit, so a pick outside the list opens the list
+  /// on it; This year in year mode only pages to this year, which the tiles
+  /// already show as a period.
   Future<void> _selectPeriod(OverviewPeriodChoice choice) async {
+    final OverviewPeriod period;
     if (choice != OverviewPeriodChoice.custom) {
-      _setPeriod(OverviewPeriod.fromChoice(choice, today: _today));
-      return;
+      period = OverviewPeriod.fromChoice(choice, today: _today);
+    } else {
+      final picked = await _pickRange();
+      if (picked == null) return;
+      period = picked;
     }
-    if (_pickerOpen) return;
+    final keepsMode =
+        _mode == AgendaDayListMode.list ||
+        (_mode == AgendaDayListMode.year &&
+            choice == OverviewPeriodChoice.thisYear);
+    if (keepsMode) {
+      _setPeriod(period);
+    } else {
+      _listPeriod(period);
+    }
+  }
+
+  /// The Dates sheet's range mode, seeded with the span shown; null when it
+  /// is cancelled, already open, or the page has gone.
+  Future<OverviewCustomPeriod?> _pickRange() async {
+    if (_pickerOpen) return null;
     _pickerOpen = true;
     try {
       _blur();
@@ -1350,11 +1573,87 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         lastDate: DateTime.utc(_years.last, 12, 31),
         appearance: _appearance,
       );
-      if (picked == null || !mounted) return;
-      _setPeriod(OverviewCustomPeriod(picked.start, picked.end));
+      if (picked == null || !mounted) return null;
+      return OverviewCustomPeriod(picked.start, picked.end);
     } finally {
       _pickerOpen = false;
     }
+  }
+
+  /// The nav's title in every mode (D19 · A): the Period menu, anchored to
+  /// the title, its pick taken as [_selectPeriod] takes any.
+  Future<void> _openPeriodMenu(BuildContext anchor) async {
+    final l10n = AppLocalizations.of(context)!;
+    _blur();
+    final choice = await showFormMenu<OverviewPeriodChoice>(
+      anchor,
+      items: [
+        for (final choice in OverviewPeriodChoice.values)
+          FormMenuItem(
+            value: choice,
+            label: _periodLabel(l10n, choice),
+            icon: _periodIcon(choice),
+            identifier: _periodId(choice),
+          ),
+      ],
+      selected: _shownPeriod.menuChoice(today: _today),
+      menuWidth: FormMetrics.menuWidth,
+    );
+    if (choice == null || !mounted) return;
+    await _selectPeriod(choice);
+  }
+
+  /// The list nav's neighbour of [_period] one step [direction] away, or
+  /// null where its chevron is disabled.
+  OverviewPeriod? _steppedPeriod(int direction) =>
+      _period.stepped(direction: direction, today: _today, yearBounds: _years);
+
+  /// A chevron of the list nav (D15a): a look at the neighbouring span,
+  /// never persisted and never the home (D15c), landing as a pick does. A
+  /// step back onto the home's own span is the home again (review 5), so the
+  /// Period menu checks the preset, Today disables and a saved view matches.
+  void _step(int direction) {
+    final stepped = _steppedPeriod(direction);
+    if (stepped == null) return;
+    final home = _home.resolve(today: _today, yearBounds: _years);
+    final span = stepped.resolve(today: _today, yearBounds: _years);
+    final period = span == home ? _home : stepped;
+    _click();
+    setState(() {
+      _period = period;
+      _year = _firstYearOf(period);
+      _recompute();
+    });
+    _land();
+    _schedulePrewarm();
+  }
+
+  /// The list nav's Today slot (D15b): back to the period as picked.
+  void _goHome() {
+    _click();
+    setState(() {
+      _period = _home;
+      _year = _firstYearOf(_home);
+      _recompute();
+    });
+    _land();
+  }
+
+  /// Turns the page to the list on [period] in one rebuild and one landing —
+  /// [_selectMode] then [_setPeriod] would resolve and land twice — and keeps
+  /// both the mode and the period for the next visit.
+  void _listPeriod(OverviewPeriod period) {
+    setState(() {
+      _mode = AgendaDayListMode.list;
+      _period = _home = period;
+      _year = _firstYearOf(period);
+      _selectedDay = null;
+      _recompute();
+    });
+    _land();
+    _schedulePrewarm();
+    unawaited(_persistMode(AgendaDayListMode.list));
+    unawaited(_persistPeriod(period));
   }
 
   /// Lists [period], landing per D7, and persists it — a preset is kept for
@@ -1365,7 +1664,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// without writing it, so "This year" picked after paging back to this
   /// year is a choice the next visit must see (review 1).
   void _setPeriod(OverviewPeriod period) {
+    _home = period;
     if (period == _period) {
+      // The Today slot reads the home, which may just have moved.
+      setState(() {});
       unawaited(_persistPeriod(period));
       return;
     }
@@ -1388,10 +1690,14 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     await settings.setCalendarOverviewPeriod(period, today: _today);
   }
 
-  /// What the Period row shows: year mode's year there, the list's period
-  /// everywhere else.
-  OverviewPeriod get _shownPeriod =>
-      _mode == AgendaDayListMode.year ? OverviewYearPeriod(_year) : _period;
+  /// What the title's Period menu checks: the year of the page in Year and
+  /// Month mode — a span stepped to in the list is no period of a month's
+  /// nav — and the list's period in List mode.
+  OverviewPeriod get _shownPeriod => switch (_mode) {
+    AgendaDayListMode.year => OverviewYearPeriod(_year),
+    AgendaDayListMode.month => OverviewYearPeriod(_month.year),
+    AgendaDayListMode.list => _period,
+  };
 
   void _openOptions() {
     _blur();
@@ -1399,19 +1705,27 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       OverviewOptionsSheet.show(
         context,
         initial: _options,
-        listMode: _mode == AgendaDayListMode.list,
+        mode: _mode,
+        missedHidden: _missedHidden,
         onChanged: _setOptions,
+        categoryIds: _categoryIds,
+        onCategoriesChanged: _onCategoriesChanged,
       ),
     );
   }
 
   /// The options sheet's live writes. Order and Rows re-present the list and
   /// land it anew (D7); Missed only narrows the rows shown and keeps the list
-  /// on its row. Order and Rows are kept for the next visit; Missed only is
-  /// not.
+  /// on its row. Order and Rows are kept for the next visit; Missed only and
+  /// Mark presence are not. Mark presence changes what a tap does, never
+  /// which rows show, so alone it only repaints.
   void _setOptions(OverviewListOptions next) {
     if (!mounted) return;
     final previous = _options;
+    if (next == previous.copyWith(markPresence: next.markPresence)) {
+      setState(() => _options = next);
+      return;
+    }
     final represented =
         next.order != previous.order || next.rows != previous.rows;
     final anchor = represented ? null : _anchorOfList();
@@ -1432,70 +1746,183 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     await settings.setCalendarOverviewListOptions(options);
   }
 
-  /// The multi picker over the allowlist. An empty allowlist means every
-  /// category, so it opens with every offered row ticked, and a result that
-  /// covers every offered row collapses back to empty rather than freezing
-  /// today's catalog into a list that silently excludes categories created
-  /// later.
-  Future<void> _pickCategories() async {
-    if (_pickerOpen) return;
-    _pickerOpen = true;
-    try {
-      final offered = {
-        for (final category in CalendarCategories.visiblePlus(_categoryIds))
-          category.id,
-      };
-      final picked = await CategoryPickerSheet.pickMulti(
-        context,
-        selected: _categoryIds.isEmpty ? offered : _categoryIds,
-      );
-      if (picked == null || !mounted) return;
-      final next = picked.containsAll(offered) ? const <String>{} : picked;
-      if (setEquals(next, _categoryIds)) return;
-      _categoryIds = next;
-      _categoryRevision = null;
-      _refreshCategoryLabels();
-      _storeStale = true;
-      _rebuild();
-      final settings = await SettingsService.getInstance();
-      await settings.setCalendarOverviewCategories(next);
-    } finally {
-      _pickerOpen = false;
-    }
+  /// The options sheet's Categories row (D22 · A): a new allowlist, already
+  /// collapsed to empty when it covers every offered category.
+  void _onCategoriesChanged(Set<String> next) {
+    if (!mounted) return;
+    _categoryIds = next;
+    _categoryRevision = null;
+    _refreshCategoryLabels();
+    _storeStale = true;
+    _rebuild();
+    unawaited(_persistCategories(next));
+  }
+
+  /// The saved views sheet over the list as shown — year mode's year is the
+  /// period there, as the Period menu reads it. Rebuilt on return so the bar
+  /// button follows a save, a rename or a delete made inside.
+  Future<void> _openViews() async {
+    _blur();
+    await OverviewViewSheet.show(
+      context,
+      current: OverviewView(
+        id: '',
+        name: '',
+        period: _shownPeriod,
+        options: _options,
+        categoryIds: _categoryIds,
+      ),
+      onApply: _applyView,
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// Applies [view] as the picks it holds would (D17c · A): the list on its
+  /// period — which becomes the nav's home — with its options and its
+  /// allowlist, each persisted as its own pick persists, a custom span
+  /// clearing the period key per D4. Mark presence stays as it was — it is a
+  /// session tool, not part of a view — unless the view's rows are One per
+  /// event, which have no day to mark. The query stays as typed.
+  void _applyView(OverviewView view) {
+    if (!mounted) return;
+    final period = view.period;
+    final options = view.options.copyWith(
+      markPresence:
+          _options.markPresence &&
+          view.options.rows == OverviewRows.everyOccurrence,
+    );
+    final categoriesChanged = !setEquals(view.categoryIds, _categoryIds);
+    setState(() {
+      _mode = AgendaDayListMode.list;
+      _period = _home = period;
+      _year = _firstYearOf(period);
+      _selectedDay = null;
+      _options = options;
+      if (categoriesChanged) {
+        _categoryIds = view.categoryIds;
+        _categoryRevision = null;
+        _refreshCategoryLabels();
+        _storeStale = true;
+      } else {
+        _recompute();
+      }
+    });
+    // The allowlist is an input of the scan, so a new one rebuilds the store
+    // as a category pick does; the landing below then wins over its anchor.
+    if (categoriesChanged) _rebuild();
+    _land();
+    _schedulePrewarm();
+    unawaited(_persistMode(AgendaDayListMode.list));
+    unawaited(_persistPeriod(period));
+    unawaited(_persistOptions(options));
+    if (categoriesChanged) unawaited(_persistCategories(view.categoryIds));
+  }
+
+  Future<void> _persistCategories(Set<String> categoryIds) async {
+    final settings = await SettingsService.getInstance();
+    await settings.setCalendarOverviewCategories(categoryIds);
   }
 
   void _openOccurrence(AgendaDayListEntry entry) =>
       _openOn(entry.day, entry.eventId);
 
-  /// A per-event row opens the calendar on the event's last day in the
-  /// period (D10 · A): the most recent of what the row counts.
+  /// Whether the appearance hides missed entries, under which Mark presence
+  /// is unavailable (review 2): a mark would remove its own row.
+  bool get _missedHidden =>
+      _appearance.missedDisplay == CalendarMissedDisplay.hidden;
+
+  /// Whether the mode shows a row per occurrence, the rows Mark presence
+  /// acts on: month mode's, and the list's under Every occurrence.
+  bool get _dayRowsShown =>
+      _mode == AgendaDayListMode.month ||
+      (_mode == AgendaDayListMode.list &&
+          _options.rows == OverviewRows.everyOccurrence);
+
+  /// Whether a tap on [entry] marks its day (D18 · A): Mark presence is on
+  /// and the entry's event keeps attendance. Any other row keeps opening
+  /// its sheet, so the switch never leaves a row that does nothing.
+  bool _marks(AgendaDayListEntry entry) {
+    if (!_options.markPresence) return false;
+    final event = _eventsById[entry.eventId];
+    return event != null && EventPresence.appliesTo(event);
+  }
+
+  /// The day panel's quick toggle from the row itself: one tap flips the
+  /// day between present and missed through the bloc, and the row's dimming
+  /// and its day's counts are the feedback once the state comes back.
+  void _onEntryTap(AgendaDayListEntry entry) {
+    final eventId = entry.eventId;
+    if (eventId == null || !_marks(entry)) {
+      _openOccurrence(entry);
+      return;
+    }
+    _click();
+    _pendingMarks.add((eventId, entry.day));
+    EventSheetsFlow.setOccurrencePresence(
+      context.read<CalendarBloc>(),
+      eventId,
+      entry.day,
+      !entry.missed,
+    );
+  }
+
+  /// A per-event row opens the event's last day in the period (D10 · A):
+  /// the most recent of what the row counts.
   void _openEventRow(AgendaDayListEventRow row) =>
       _openOn(row.last, row.entry.eventId);
 
+  /// The occurrence's detail sheet over the list (D14 · A): no calendar is
+  /// pushed, so back closes the sheet onto the row it came from. Read from
+  /// the loaded events, so an event gone since the list was drawn opens
+  /// nothing. The bloc states the trip's writes emit are parked while it
+  /// runs ([_onStateChanged]) and adopted once at its end.
   void _openOn(DateTime day, String? eventId) {
     if (eventId == null) return;
-    final open = widget._openOccurrence;
-    if (open != null) {
-      open(day, eventId);
+    _blur();
+    // [_events], not [_eventsById]: the list is taken with every adopted
+    // state, the map only when the store is resolved anew.
+    final events = _events;
+    if (events == null) return;
+    for (final event in events) {
+      if (event.id != eventId) continue;
+      unawaited(_openDetail(event, day));
       return;
     }
-    unawaited(AppNavigator.toCalendarOccurrence(day: day, eventId: eventId));
+  }
+
+  Future<void> _openDetail(CalendarEvent event, DateTime day) async {
+    await _sheets.openDetail(context, event, day);
+    if (!mounted || _covered || _sheetGuard.isOpen) return;
+    final pending = _pendingState;
+    if (pending == null) return;
+    _pendingState = null;
+    _adopt(pending);
   }
 
   /// The rows of the list and of month mode, one geometry per kind (T4, T8):
   /// titles on one line, a caption clamped to one, no pencil — a row opens
-  /// its occurrence on the calendar, where it is edited. The list's headers
-  /// take [headers], its slots' layout; month mode's sliver sizes each row
-  /// itself, so its headers wrap as their text needs.
+  /// its occurrence's detail sheet, where it is edited, or marks its day
+  /// while Mark presence is on, a long press then opening it. The list's
+  /// headers take [headers], its slots' layout; month mode's sliver sizes
+  /// each row itself, so its headers wrap as their text needs.
   AgendaDayListRowBuilder _rowBuilder(
     List<AgendaDayListRow> rows, {
     AgendaHeaderSlots? headers,
     bool? dayHeaderWithYear,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     return AgendaDayListRowBuilder(
       rows: rows,
       today: _today,
-      onEntryTap: _openOccurrence,
+      onEntryTap: _onEntryTap,
+      onEntryLongPress: _options.markPresence ? _openOccurrence : null,
+      entryHint: _options.markPresence
+          ? (entry) => !_marks(entry)
+                ? null
+                : entry.missed
+                ? l10n.eventMarkPresent
+                : l10n.eventMarkMissed
+          : null,
       onEventTap: _openEventRow,
       captionMaxLines: 1,
       dayHeaderWithYear:
@@ -1527,6 +1954,36 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final appBar = AppBar(
+      titleSpacing: CalendarViewMenu.titleSpacing,
+      excludeHeaderSemantics: true,
+      title: CalendarViewMenu(
+        page: CalendarViewPage.overview,
+        onPageSelected: (_) => AppNavigator.switchToCalendar(context),
+      ),
+      backgroundColor: colorScheme.surface,
+      scrolledUnderElevation: 0,
+      actions: [
+        _buildOptionsButton(l10n),
+        _buildViewsButton(l10n),
+        CalendarOverflowMenu(
+          onAlerts: () => AppNavigator.toAlertsFromCalendar(context),
+          onExport: (_events?.isNotEmpty ?? false) ? _exportEvents : null,
+          onSettings: _openSettings,
+        ),
+      ],
+    );
+    final chips = _buildModeChips(l10n);
+    final band = _buildBand(l10n);
+    final body = Expanded(
+      child: AnimatedSwitcher(
+        duration: OverviewListMetrics.modeSwitchDuration,
+        child: KeyedSubtree(
+          key: ValueKey(_mode),
+          child: _buildBody(l10n, colorScheme),
+        ),
+      ),
+    );
     return MultiBlocListener(
       listeners: [
         BlocListener<CalendarBloc, CalendarPageState>(
@@ -1537,64 +1994,89 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
           listener: _export.onState,
         ),
       ],
-      child: Scaffold(
-        // The language's ground, which the rows' groups are drawn against.
-        backgroundColor: colorScheme.pageGround,
-        appBar: AppBar(
-          titleSpacing: CalendarViewMenu.titleSpacing,
-          excludeHeaderSemantics: true,
-          title: CalendarViewMenu(
-            page: CalendarViewPage.overview,
-            onPageSelected: (_) => AppNavigator.switchToCalendar(context),
-            presentation: _mode,
-            onPresentationSelected: _selectMode,
-          ),
-          backgroundColor: colorScheme.surface,
-          scrolledUnderElevation: 0,
-          actions: [
-            _buildOptionsButton(l10n),
-            CalendarOverflowMenu(
-              onAlerts: () => AppNavigator.toAlertsFromCalendar(context),
-              onExport: (_events?.isNotEmpty ?? false) ? _exportEvents : null,
-              onSettings: _openSettings,
-            ),
-          ],
-        ),
-        body: SafeArea(
-          top: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildFilterGroup(l10n),
-              if (_mode == AgendaDayListMode.list)
-                _buildCount(l10n)
-              else
-                const SizedBox(height: FormMetrics.bodyTop),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: OverviewListMetrics.modeSwitchDuration,
-                  child: KeyedSubtree(
-                    key: ValueKey(_mode),
-                    child: _buildBody(l10n, colorScheme),
+      // The chips yield to the keyboard: on a small phone at a large text
+      // scale the chips, the Search row and the keyboard together leave the
+      // list no height. They fold over the keyboard's first
+      // [_chipRowHeight] of travel, frame by frame as the calendar's grid
+      // does, so the rows below follow the keyboard rather than jump. The
+      // inset is read above the scaffold, which takes it out of its body, and
+      // in a builder of its own, so a keyboard frame rebuilds the scaffold
+      // and none of the parts built above. Only the page's own keyboard
+      // folds them: one raised by a sheet over the page (the editor a row's
+      // trip opens) leaves the row whole behind it. A steady small inset — a
+      // floating keyboard's strip — half-folds the row by design.
+      child: Builder(
+        builder: (context) {
+          final inset = MediaQuery.viewInsetsOf(context).bottom;
+          final current = ModalRoute.of(context)?.isCurrent ?? true;
+          final factor = current
+              ? 1 - (inset / _chipRowHeight).clamp(0.0, 1.0)
+              : 1.0;
+          return Scaffold(
+            // The language's ground, which the rows' groups are drawn against.
+            backgroundColor: colorScheme.pageGround,
+            appBar: appBar,
+            body: SafeArea(
+              top: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Folded away, the chips leave semantics and hit testing,
+                  // so a flow's wait for a chip holds until the keyboard is
+                  // down.
+                  Visibility(
+                    visible: factor > 0,
+                    child: ClipRect(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        heightFactor: factor,
+                        child: chips,
+                      ),
+                    ),
                   ),
-                ),
+                  if (_searchOpen) ...[
+                    _buildSearchGroup(l10n),
+                    const SizedBox(height: FormMetrics.bodyTop),
+                  ],
+                  // The period band folds with the chips: at 200 % on a
+                  // small phone the nav's two-line title and the totals'
+                  // line alone are taller than what the keyboard
+                  // leaves the list, and while a query is typed the list's
+                  // rows are what is read.
+                  if (band != null)
+                    Visibility(
+                      visible: factor > 0,
+                      child: ClipRect(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          heightFactor: factor,
+                          child: band,
+                        ),
+                      ),
+                    ),
+                  body,
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  /// Badged by the restrictions alone — Missed only — as the calendar's
-  /// filter button is: Order and Rows re-present the same entries, and a
-  /// badge means something is hidden.
+  /// Badged by the restrictions alone — Missed only and the categories
+  /// allowlist — as the calendar's filter button is: Order and Rows
+  /// re-present the same entries, and a badge means something is hidden.
+  /// Mark presence hides nothing, so it selects the button without a count:
+  /// selected means "a tap on a row does something other than open it,
+  /// here" — never where no row is a day to mark (review 3).
   Widget _buildOptionsButton(AppLocalizations l10n) {
     // Missed only narrows the list and month mode's rows; year mode's tiles
-    // ignore it, so there it hides nothing (review 10).
-    final restrictions = _options.missedOnly && _mode != AgendaDayListMode.year
-        ? 1
-        : 0;
+    // ignore it, so there it hides nothing (review 10). The allowlist
+    // narrows every mode, the tiles included.
+    final restrictions =
+        (_options.missedOnly && _mode != AgendaDayListMode.year ? 1 : 0) +
+        (_categoryIds.isNotEmpty ? 1 : 0);
     return Badge.count(
       count: restrictions,
       isLabelVisible: restrictions > 0,
@@ -1602,7 +2084,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         identifier: SemanticsIds.overviewOptionsOpen,
         child: IconButton(
           tooltip: l10n.overviewListOptions,
-          isSelected: restrictions > 0,
+          isSelected:
+              restrictions > 0 || (_options.markPresence && _dayRowsShown),
           icon: const Icon(Icons.tune_rounded),
           onPressed: _openOptions,
         ),
@@ -1610,8 +2093,64 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     );
   }
 
-  Widget _buildFilterGroup(AppLocalizations l10n) {
-    final shown = _shownPeriod;
+  /// The saved views (D17a · A), the calendar bar's saved-filters button in
+  /// the overview's bar: selected while the list shown is a saved view, so a
+  /// glance says whether what is on screen can be had back in one tap.
+  Widget _buildViewsButton(AppLocalizations l10n) {
+    final service = _viewService;
+    final active = service?.matching(_shownPeriod, _options, _categoryIds);
+    return AutomationId(
+      identifier: SemanticsIds.overviewViewsOpen,
+      child: IconButton(
+        tooltip: l10n.overviewViewsTitle,
+        isSelected: active != null,
+        icon: const Icon(Icons.bookmarks_outlined),
+        onPressed: service == null ? null : _openViews,
+      ),
+    );
+  }
+
+  /// The page's primary control, on the page (D12 · A): the owner switches
+  /// presentation on every visit, and the mode persists, so a switch kept in
+  /// the title's menu left a page in List or Month with no visible way back.
+  /// The search button ends the row (D21 · A): search is a List-mode tool
+  /// most days, and the thumb is already on the chips.
+  Widget _buildModeChips(AppLocalizations l10n) {
+    return Padding(
+      padding: const EdgeInsets.only(top: FormMetrics.bodyTop),
+      child: Row(
+        children: [
+          Expanded(
+            child: FormChipRow(
+              indented: false,
+              chips: [
+                for (final mode in _modes)
+                  FormChip(
+                    label: _modeLabel(l10n, mode),
+                    selected: _mode == mode,
+                    onTap: () => _selectMode(mode),
+                    identifier: _modeId(mode),
+                  ),
+              ],
+            ),
+          ),
+          AutomationId(
+            identifier: SemanticsIds.overviewSearchOpen,
+            child: IconButton(
+              tooltip: l10n.search,
+              isSelected: _query.isNotEmpty,
+              icon: const Icon(Icons.search_rounded),
+              onPressed: _toggleSearch,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The Search row in a group box of its own, only while the chip row's
+  /// button has summoned it.
+  Widget _buildSearchGroup(AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.only(
         left: RowMetrics.groupInset,
@@ -1623,51 +2162,62 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         children: [
           FormSearchRow(
             controller: _searchController,
+            focusNode: _searchFocus,
             hint: l10n.upcomingSearchHint,
             clearTooltip: l10n.upcomingClearSearch,
             onChanged: _onQueryChanged,
             identifier: SemanticsIds.overviewSearch,
-          ),
-          FormPickerRow(
-            glyph: Icons.category_rounded,
-            label: l10n.overviewCategories,
-            value: _categoriesValue(l10n),
-            onTap: _pickCategories,
-            identifier: SemanticsIds.overviewCategories,
-          ),
-          FormMenuRow<OverviewPeriodChoice>(
-            glyph: Icons.date_range_rounded,
-            label: l10n.overviewPeriod,
-            value: shown.menuValue(l10n),
-            selected: shown.menuChoice(today: _today),
-            menuWidth: FormMetrics.menuWidth,
-            identifier: SemanticsIds.overviewPeriod,
-            items: [
-              for (final choice in OverviewPeriodChoice.values)
-                FormMenuItem(
-                  value: choice,
-                  label: _periodLabel(l10n, choice),
-                  icon: _periodIcon(choice),
-                  identifier: _periodId(choice),
-                ),
-            ],
-            // The month nav is month mode's period control.
-            onSelected: _mode == AgendaDayListMode.month ? null : _selectPeriod,
           ),
         ],
       ),
     );
   }
 
-  /// "All" for the empty allowlist, else the chosen categories read back in
-  /// catalog order — two names, then "+N more", never an ellipsis.
-  String _categoriesValue(AppLocalizations l10n) {
-    if (_categoryIds.isEmpty) return l10n.calendarFilterCategoriesAll;
-    return CalendarFilterSummary.namesReadBack([
-      for (final category in CalendarCategories.visiblePlus(_categoryIds))
-        if (_categoryIds.contains(category.id))
-          CalendarCategories.labelOf(category, l10n),
-    ], l10n);
+  /// Opens the Search row focused, or closes it and drops its query: the
+  /// query is session-only, so a closed row never hides a live one.
+  void _toggleSearch() {
+    if (!_searchOpen) {
+      setState(() => _searchOpen = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _searchOpen) _searchFocus.requestFocus();
+      });
+      return;
+    }
+    _blur();
+    if (_searchController.text.isNotEmpty || _query.isNotEmpty) {
+      _searchController.clear();
+      _onQueryChanged('');
+    }
+    setState(() => _searchOpen = false);
+  }
+
+  /// The chip row's height at the default text scale — its gap under the bar
+  /// and one run of chips, each on its 48 dp target — which is the
+  /// keyboard's travel the row folds over.
+  static const double _chipRowHeight =
+      FormMetrics.bodyTop + FormMetrics.chipTapTarget;
+
+  /// Widest to narrowest, the page's own order: it opens on the tiles.
+  static const List<AgendaDayListMode> _modes = [
+    AgendaDayListMode.year,
+    AgendaDayListMode.month,
+    AgendaDayListMode.list,
+  ];
+
+  static String _modeLabel(AppLocalizations l10n, AgendaDayListMode mode) {
+    return switch (mode) {
+      AgendaDayListMode.year => l10n.dayListModeYear,
+      AgendaDayListMode.month => l10n.dayListModeMonth,
+      AgendaDayListMode.list => l10n.dayListModeList,
+    };
+  }
+
+  static String _modeId(AgendaDayListMode mode) {
+    return switch (mode) {
+      AgendaDayListMode.year => SemanticsIds.overviewViewYear,
+      AgendaDayListMode.month => SemanticsIds.overviewViewMonth,
+      AgendaDayListMode.list => SemanticsIds.overviewViewList,
+    };
   }
 
   static String _periodLabel(
@@ -1704,17 +2254,88 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     };
   }
 
-  /// The listed entries, in a slot that changes text and never height.
-  Widget _buildCount(AppLocalizations l10n) {
-    final caption = FormCaption(
-      text: agendaDayListCountLabel(l10n, _listedKept, _listedMissed),
-      maxLines: 1,
+  /// The per-category totals under every mode's nav (D16), in a slot one
+  /// line tall whatever it reads (D23 · A) — none, one category or a dozen —
+  /// so the body below never moves. Empty, it is no semantics node at all
+  /// rather than an unlabeled stop (review 12).
+  Widget _buildTotals(AppLocalizations l10n) {
+    final template = FormCaption(
+      text: ' ',
+      maxLines: OverviewListMetrics.totalsMaxLines,
       padding: FormMetrics.groupCaptionPadding,
     );
+    final totals = _totalsLabel(l10n);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: RowMetrics.groupInset),
-      child: FormCaptionSlot(candidates: [caption], child: caption),
+      child: FormCaptionSlot(
+        candidates: [template],
+        child: Semantics(
+          container: totals.isNotEmpty,
+          excludeSemantics: totals.isEmpty,
+          child: FormCaption(
+            text: totals,
+            maxLines: OverviewListMetrics.totalsMaxLines,
+            padding: FormMetrics.groupCaptionPadding,
+          ),
+        ),
+      ),
     );
+  }
+
+  /// The list's period band (D15): the year and month navs' row over the
+  /// period, stepping by its own length, its title the Period menu.
+  Widget _buildListNav(AppLocalizations l10n) {
+    final previous = _steppedPeriod(-1);
+    final next = _steppedPeriod(1);
+    return AgendaPeriodNav(
+      title: _period.menuValue(l10n),
+      titleTemplates: _titleTemplates(l10n),
+      subtitle: agendaDayListCountLabel(l10n, _listedKept, _listedMissed),
+      previousTooltip: l10n.overviewPeriodPrevious,
+      nextTooltip: l10n.overviewPeriodNext,
+      todayTooltip: l10n.overviewPeriodHome(_home.menuValue(l10n)),
+      titleTooltip: l10n.overviewPeriod,
+      previousIdentifier: SemanticsIds.overviewNavPrevious,
+      nextIdentifier: SemanticsIds.overviewNavNext,
+      todayIdentifier: SemanticsIds.overviewNavToday,
+      titleIdentifier: SemanticsIds.overviewNavTitle,
+      onTitleTap: _openPeriodMenu,
+      onPrevious: previous == null ? null : () => _step(-1),
+      onNext: next == null ? null : () => _step(1),
+      onToday: _period == _home ? null : _goHome,
+    );
+  }
+
+  /// Every shape the list nav's title takes, so a step never moves the list
+  /// (D15): the presets, a year, and for every month a same-year and a
+  /// cross-year span on it with two-digit days — every month, because the
+  /// widest abbreviation is a matter of pixels, not characters (review 6).
+  /// The list's alone: Year's and Month's boxes are their own titles' (D20 ·
+  /// A), one line at 1.0, so the span's second line costs the tiles nothing.
+  /// Built once per locale and year.
+  List<String> _titleTemplates(AppLocalizations l10n) {
+    final year = _today.year;
+    final key = '${l10n.localeName} $year';
+    if (key == _titleTemplatesKey) return _titleTemplatesCache;
+    _titleTemplatesKey = key;
+    return _titleTemplatesCache = List.unmodifiable([
+      l10n.overviewPeriodLast12Months,
+      l10n.overviewPeriodLast90Days,
+      l10n.overviewPeriodAllTime,
+      '$year',
+      for (var m = DateTime.january; m <= DateTime.december; m++) ...[
+        dateSpanLabel(
+          l10n,
+          DateTime.utc(year, m, 10),
+          DateTime.utc(year, m, 28),
+        ),
+        dateSpanLabel(
+          l10n,
+          DateTime.utc(year - 1, m, 28),
+          DateTime.utc(year, m, 28),
+        ),
+      ],
+    ]);
   }
 
   /// The pinned band's height: the group gap, then one section slot.
@@ -1763,60 +2384,73 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     }
     switch (_mode) {
       case AgendaDayListMode.year:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildYearNav(l10n),
-            Expanded(
-              child: AgendaYearPager(
-                controller: _yearPager!,
-                firstYear: _years.first,
-                lastYear: _years.last,
-                tilesFor: _tilesFor,
-                color: _tileColor(colorScheme),
-                appearance: _appearance,
-                today: _today,
-                onOpenMonth: _openMonth,
-                onYearChanged: _onYearPaged,
-                // The scaffold already resizes for the keyboard, so the pager
-                // carries no inset of its own — and no inset frame rebuilds a
-                // year of tiles.
-                padding: OverviewListMetrics.yearPagerPadding,
-                highlightMonth: _highlightMonth,
-                highlightToken: _highlightToken,
-              ),
-            ),
-          ],
+        return AgendaYearPager(
+          controller: _yearPager!,
+          firstYear: _years.first,
+          lastYear: _years.last,
+          tilesFor: _tilesFor,
+          color: _tileColor(colorScheme),
+          appearance: _appearance,
+          today: _today,
+          onOpenMonth: _openMonth,
+          onYearChanged: _onYearPaged,
+          // The scaffold already resizes for the keyboard, so the pager
+          // carries no inset of its own — and no inset frame rebuilds a
+          // year of tiles.
+          padding: OverviewListMetrics.yearPagerPadding,
         );
       case AgendaDayListMode.list:
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            _checkExtentsInputs(context, constraints.maxWidth);
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Positioned(
-                  left: RowMetrics.groupInset,
-                  top: 0,
-                  right: RowMetrics.groupInset,
-                  child: _RowExtentProbe(
-                    builderOf: _rowBuilder,
-                    today: _today,
-                    measure: _extentsStale,
-                    onMeasured: _onExtentsMeasured,
-                  ),
-                ),
-                if (_currentLayout case final layout?)
-                  _buildList(l10n, layout)
-                else
-                  const Center(child: CircularProgressIndicator()),
-              ],
-            );
-          },
-        );
+        return _buildListBody(l10n);
       case AgendaDayListMode.month:
         return _buildMonthBody(l10n);
     }
+  }
+
+  /// The period band of year and list mode (D15, D16): the nav, then the
+  /// totals — one geometry in both, and month mode draws the same two at the
+  /// top of its scroll view. Null in month mode and until the store exists.
+  Widget? _buildBand(AppLocalizations l10n) {
+    if (_store == null) return null;
+    final nav = switch (_mode) {
+      AgendaDayListMode.year => _buildYearNav(l10n),
+      AgendaDayListMode.list => _buildListNav(l10n),
+      AgendaDayListMode.month => null,
+    };
+    if (nav == null) return null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [nav, _buildTotals(l10n)],
+    );
+  }
+
+  /// The list: the extents probe, then the list once the probe has
+  /// measured.
+  Widget _buildListBody(AppLocalizations l10n) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _checkExtentsInputs(context, constraints.maxWidth);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              left: RowMetrics.groupInset,
+              top: 0,
+              right: RowMetrics.groupInset,
+              child: _RowExtentProbe(
+                builderOf: _rowBuilder,
+                today: _today,
+                measure: _extentsStale,
+                onMeasured: _onExtentsMeasured,
+              ),
+            ),
+            if (_currentLayout case final layout?)
+              _buildList(l10n, layout)
+            else
+              const Center(child: CircularProgressIndicator()),
+          ],
+        );
+      },
+    );
   }
 
   /// The list on its exact extents (T4): every row's slot is its kind's
@@ -1998,6 +2632,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
           controller: _monthScroll,
           slivers: [
             SliverToBoxAdapter(child: _buildMonthNav(l10n, bucket)),
+            SliverToBoxAdapter(child: _buildTotals(l10n)),
             SliverToBoxAdapter(
               child: AgendaMonthGrid(
                 month: _month,
@@ -2094,8 +2729,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       previousTooltip: l10n.datePickerPreviousYear,
       nextTooltip: l10n.datePickerNextYear,
       todayTooltip: l10n.dayListScopeThisYear,
-      titleTooltip: l10n.monthYearPickerTitle,
-      onTitleTap: _pickDate,
+      titleTooltip: l10n.overviewPeriod,
+      previousIdentifier: SemanticsIds.overviewNavPrevious,
+      nextIdentifier: SemanticsIds.overviewNavNext,
+      todayIdentifier: SemanticsIds.overviewNavToday,
+      titleIdentifier: SemanticsIds.overviewNavTitle,
+      onTitleTap: _openPeriodMenu,
       onPrevious: _year > _years.first ? () => _goToYear(_year - 1) : null,
       onNext: _year < _years.last ? () => _goToYear(_year + 1) : null,
       onToday: _year == _today.year ? null : () => _goToYear(_today.year),
@@ -2116,8 +2755,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       previousTooltip: l10n.dayListPreviousMonth,
       nextTooltip: l10n.dayListNextMonth,
       todayTooltip: l10n.dayListJumpToToday,
-      titleTooltip: l10n.monthYearPickerTitle,
-      onTitleTap: _pickDate,
+      titleTooltip: l10n.overviewPeriod,
+      previousIdentifier: SemanticsIds.overviewNavPrevious,
+      nextIdentifier: SemanticsIds.overviewNavNext,
+      todayIdentifier: SemanticsIds.overviewNavToday,
+      titleIdentifier: SemanticsIds.overviewNavTitle,
+      onTitleTap: _openPeriodMenu,
       onPrevious: order > AgendaMonthStore.monthOrder(_firstMonth)
           ? () => _goToMonth(DateTime.utc(_month.year, _month.month - 1, 1))
           : null,

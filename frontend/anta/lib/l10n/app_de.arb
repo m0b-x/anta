@@ -2557,6 +2557,21 @@
   "overviewPeriodLast12Months": "Letzte 12 Monate",
   "overviewPeriodLast90Days": "Letzte 90 Tage",
   "overviewPeriodAllTime": "Gesamter Zeitraum",
+  "overviewPeriodPrevious": "Voriger Zeitraum",
+  "overviewPeriodNext": "Nächster Zeitraum",
+  "overviewPeriodHome": "Zurück zu {period}",
+  "@overviewPeriodHome": {
+    "placeholders": {
+      "period": { "type": "String", "example": "Last 90 days" }
+    }
+  },
+  "overviewCategoryTotal": "{label} {count}",
+  "@overviewCategoryTotal": {
+    "placeholders": {
+      "label": { "type": "String", "example": "Gym" },
+      "count": { "type": "int", "example": "41" }
+    }
+  },
   "overviewListOptions": "Listenoptionen",
   "overviewOrder": "Reihenfolge",
   "overviewOrderOldestFirst": "Älteste zuerst",
@@ -2565,6 +2580,38 @@
   "overviewRowsEveryOccurrence": "Jedes Vorkommen",
   "overviewRowsPerEvent": "Eine pro Termin",
   "overviewMissedOnly": "Nur verpasste",
+  "overviewMarkPresence": "Anwesenheit markieren",
+  "overviewViewsTitle": "Gespeicherte Ansichten",
+  "overviewViewSaveCurrent": "Aktuelle Liste speichern",
+  "overviewViewSaved": "Als \"{name}\" gespeichert",
+  "@overviewViewSaved": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewViewUpdate": "Auf aktuelle Liste aktualisieren",
+  "overviewViewDelete": "Gespeicherte Ansicht löschen",
+  "overviewViewDeleteConfirm": "\"{name}\" löschen? Die aufgelisteten Ereignisse bleiben unberührt.",
+  "@overviewViewDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewViewActions": "Optionen für gespeicherte Ansicht",
+  "overviewViewLimitReached": "Du kannst bis zu {count} Ansichten speichern",
+  "@overviewViewLimitReached": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "overviewViewSearchHint": "Gespeicherte Ansichten suchen",
+  "overviewViewNoMatches": "Keine gespeicherte Ansicht passt zur Suche",
   "overviewEmptyPeriod": "Nichts in diesem Zeitraum",
   "overviewLoading": "Weitere werden geladen…",
   "overviewCapReached": "Die ersten {count} Einträge werden angezeigt. Grenze den Zeitraum ein, um den Rest zu sehen.",

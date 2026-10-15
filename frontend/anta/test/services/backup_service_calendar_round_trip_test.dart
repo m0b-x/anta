@@ -18,6 +18,8 @@ import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_template.dart';
+import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -29,6 +31,7 @@ import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/event_template_service.dart';
+import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 
 /// Drives the exact code path onboarding takes to restore a backup —
@@ -503,6 +506,65 @@ void main() {
         isFalse,
         reason: 'an install that could not set an alarm could not have asked '
             'to be deleted by one',
+      );
+    });
+  });
+
+  group('overview views (v41)', () {
+    late AppDatabase db;
+    late BackupService backup;
+    final q1 = OverviewCustomPeriod(
+      DateTime.utc(2026, 1, 1),
+      DateTime.utc(2026, 3, 31),
+    );
+
+    Future<Map<String, dynamic>> seedAndExport() async {
+      db = await AppDatabase.getInstance();
+      await db.overviewViewDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await (await OverviewViewService.getInstance()).create(
+        name: 'Q1 gym',
+        period: q1,
+        options: const OverviewListOptions(rows: OverviewRows.perEvent),
+        categoryIds: const {'gym'},
+      );
+      backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(
+        exported['version'],
+        7,
+        reason: 'views are additive; the format version must not move',
+      );
+      return jsonDecode(jsonEncode(exported)) as Map<String, dynamic>;
+    }
+
+    test('views round-trip under their own key', () async {
+      final exported = await seedAndExport();
+      expect(exported['overviewViews'], hasLength(1));
+      await db.overviewViewDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      final view = (await OverviewViewService.getInstance()).views.single;
+      expect(view.name, 'Q1 gym');
+      expect(view.period, q1);
+      expect(view.options.rows, OverviewRows.perEvent);
+      expect(view.categoryIds, {'gym'});
+    });
+
+    test('an archive without the key leaves existing views alone', () async {
+      final exported = await seedAndExport()
+        ..remove('overviewViews');
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      expect(
+        (await OverviewViewService.getInstance()).views.map((v) => v.name),
+        ['Q1 gym'],
       );
     });
   });

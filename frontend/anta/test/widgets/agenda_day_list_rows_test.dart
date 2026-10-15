@@ -291,10 +291,14 @@ void main() {
       ValueChanged<AgendaDayListEventRow>? onEventTap,
       bool monthCounts = false,
       String? Function(AgendaDayListEntry entry)? rowIdentifier,
+      ValueChanged<AgendaDayListEntry>? onEntryLongPress,
+      String? Function(AgendaDayListEntry entry)? entryHint,
     }) => AgendaDayListRowBuilder(
       rows: rows,
       today: today,
       onEntryTap: onEntryTap ?? (_) {},
+      onEntryLongPress: onEntryLongPress,
+      entryHint: entryHint,
       onEntryEdit: onEntryEdit,
       onEventTap: onEventTap,
       monthCounts: monthCounts,
@@ -419,6 +423,49 @@ void main() {
         build([mar9]),
       );
       expect(find.bySemanticsIdentifier('row-Stretch'), findsOneWidget);
+    });
+
+    testWidgets('an entry row\'s long press hands back its entry and its hint '
+        'is the caller\'s per entry; without them there are neither', (
+      tester,
+    ) async {
+      final tapped = <AgendaDayListEntry>[];
+      final pressed = <AgendaDayListEntry>[];
+      final rows = build([jan5]);
+      String? hintOf(String title) => tester
+          .getSemantics(find.bySemanticsIdentifier('row-$title'))
+          .getSemanticsData()
+          .hint;
+
+      await pumpBuilder(
+        tester,
+        (r) => plain(
+          r,
+          onEntryTap: tapped.add,
+          rowIdentifier: (entry) => 'row-${entry.title}',
+          onEntryLongPress: pressed.add,
+          entryHint: (entry) => entry.missed ? 'present' : 'missed',
+        ),
+        rows,
+      );
+      expect(hintOf('Squat'), 'missed');
+      expect(hintOf('Row'), 'present');
+      await tester.longPress(find.text('Row'));
+      expect(pressed.single.title, 'Row');
+      expect(tapped, isEmpty);
+
+      await pumpBuilder(
+        tester,
+        (r) => plain(
+          r,
+          onEntryTap: tapped.add,
+          rowIdentifier: (entry) => 'row-${entry.title}',
+        ),
+        rows,
+      );
+      expect(hintOf('Squat'), isEmpty);
+      await tester.longPress(find.text('Squat'));
+      expect(pressed, hasLength(1));
     });
 
     testWidgets('an event row reads its count, its span and its missed ones, '

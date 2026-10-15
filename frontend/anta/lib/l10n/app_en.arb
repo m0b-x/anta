@@ -5855,6 +5855,29 @@
   "@overviewPeriodAllTime": {
     "description": "Overview list period: from the first year any event falls in up to today"
   },
+  "overviewPeriodPrevious": "Previous period",
+  "@overviewPeriodPrevious": {
+    "description": "Tooltip of the overview list nav's left chevron, which shows the span of the same length just before the one listed"
+  },
+  "overviewPeriodNext": "Next period",
+  "@overviewPeriodNext": {
+    "description": "Tooltip of the overview list nav's right chevron, which shows the span of the same length just after the one listed"
+  },
+  "overviewPeriodHome": "Back to {period}",
+  "@overviewPeriodHome": {
+    "description": "Tooltip of the overview list nav's today button, which returns from a stepped span to the period last picked",
+    "placeholders": {
+      "period": { "type": "String", "example": "Last 90 days" }
+    }
+  },
+  "overviewCategoryTotal": "{label} {count}",
+  "@overviewCategoryTotal": {
+    "description": "One category's entry count in the overview's totals caption, e.g. 'Gym 41'; several are joined with ' · '",
+    "placeholders": {
+      "label": { "type": "String", "example": "Gym" },
+      "count": { "type": "int", "example": "41" }
+    }
+  },
   "overviewListOptions": "List options",
   "@overviewListOptions": {
     "description": "Tooltip of the overview list's options button and the title of the sheet it opens"
@@ -5886,6 +5909,65 @@
   "overviewMissedOnly": "Missed only",
   "@overviewMissedOnly": {
     "description": "Switch in the overview list options keeping only the occurrences marked missed"
+  },
+  "overviewMarkPresence": "Mark presence",
+  "@overviewMarkPresence": {
+    "description": "Switch in the overview list options: while on, a tap on an entry row toggles that day between present and missed instead of opening the event"
+  },
+  "overviewViewsTitle": "Saved views",
+  "@overviewViewsTitle": {
+    "description": "Title of the overview's saved views sheet and tooltip of its app-bar button; a view is a saved period, list options and categories"
+  },
+  "overviewViewSaveCurrent": "Save the current list",
+  "@overviewViewSaveCurrent": {
+    "description": "Row in the saved views sheet, and the naming dialog's title, that saves the overview list as shown"
+  },
+  "overviewViewSaved": "Saved as \"{name}\"",
+  "@overviewViewSaved": {
+    "description": "Confirmation after saving the overview list as a view",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewViewUpdate": "Update to current list",
+  "@overviewViewUpdate": {
+    "description": "Saved view menu action: re-point the view at the list the overview shows now"
+  },
+  "overviewViewDelete": "Delete saved view",
+  "@overviewViewDelete": {
+    "description": "Title of the confirmation for deleting a saved overview view"
+  },
+  "overviewViewDeleteConfirm": "Delete \"{name}\"? The events it lists are untouched.",
+  "@overviewViewDeleteConfirm": {
+    "description": "Confirmation body for deleting a saved overview view",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewViewActions": "Saved view options",
+  "@overviewViewActions": {
+    "description": "Tooltip of a saved view row's more button"
+  },
+  "overviewViewLimitReached": "You can save up to {count} views",
+  "@overviewViewLimitReached": {
+    "description": "Shown when the saved view limit is reached",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "overviewViewSearchHint": "Search saved views",
+  "@overviewViewSearchHint": {
+    "description": "Hint of the saved views sheet's search field"
+  },
+  "overviewViewNoMatches": "No saved view matches your search",
+  "@overviewViewNoMatches": {
+    "description": "Shown in the saved views sheet when the search matches nothing"
   },
   "overviewEmptyPeriod": "Nothing in this period",
   "@overviewEmptyPeriod": {

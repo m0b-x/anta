@@ -13,6 +13,7 @@ import 'package:anta/widgets/filter_preset_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/semantics_geometry.dart';
 
 /// The saved-filter sheet is the one surface where a preset is *chosen*, so
 /// what it must get right is: finding one by what it does as well as by what
@@ -362,6 +363,36 @@ void main() {
       expect(rowNamed(tester, 'From here').checked, isTrue);
       // And the offer is dimmed, because the filter is saved now.
       expect(saveRow(tester).onTap, isNull);
+    });
+
+    /// The sheet grows on the name dialog's answer while the dialog's
+    /// barrier still blocks its semantics; the overview's views sheet, its
+    /// clone, reported its ✕ a row off until it closed (2026-10-13).
+    testWidgets('grows with the ✕ reported where it is painted', (
+      tester,
+    ) async {
+      await pumpSheet(tester, current: tracked, height: 952);
+      final close = id(SemanticsIds.filterPresetClose);
+      Rect reported() =>
+          semanticsGlobalRect(tester.getSemantics(close), tester.view);
+      final before = tester.getRect(close);
+      expect(reported(), before);
+
+      await tap(tester, find.text('Save the current filter'));
+      await tester.enterText(find.byType(TextField).last, 'From here');
+      await tap(tester, find.text('Save'));
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      final painted = tester.getRect(close);
+      expect(painted.top, lessThan(before.top));
+      expect(reported(), painted);
+      final save = id(SemanticsIds.filterPresetSave);
+      expect(
+        semanticsGlobalRect(tester.getSemantics(save), tester.view),
+        tester.getRect(save),
+      );
     });
   });
 

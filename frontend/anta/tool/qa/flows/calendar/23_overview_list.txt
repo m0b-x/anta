@@ -1,10 +1,11 @@
 # The overview's list (docs/calendar-overview-list-roadmap.md §3.2–§3.6,
-# slice 3b): List through the view menu, the Period menu and Custom range…
-# on the Dates sheet's grid, the landing on today, the pinned month label,
-# the options sheet (Newest first, One per event, Missed only) and back to
-# its defaults, a row tap into the calendar and back onto the list, the
-# search, Calendar through the view menu. Leaves the overview on Year and
-# This year, as the seed has it.
+# slice 3b): List through its mode chip, the Period menu from the nav's
+# title (§3.13) and Custom range… on the Dates sheet's grid, the landing on
+# today, the pinned month label, the options sheet (Newest first, One per
+# event, Missed only) and back to its defaults, its Categories row into the
+# picker and closed unchanged, a row tap into its detail sheet and back onto
+# the list, the search through the chip row's button, Calendar through the
+# view menu. Leaves the overview on Year and This year, as the seed has it.
 # - Today is always a Lifting day in this seed, and its first rows are the
 #   checkup at today − 40 and the first Lifting session at today − 28: inside
 #   This year from mid-February on.
@@ -15,6 +16,16 @@
 # - Under Last 90 days nothing but the pinned label names the year (the
 #   period's labels and rows name none inside one year), so "{{year}}" finds
 #   the pinned label; across New Year (January to March) every label does.
+# - The list nav's chevrons (slice 9a): ► lays the ninety days after Last 90
+#   days beside it — the seed has nothing in the ninety before, so ► goes
+#   first — and lands at its top, where today + 2 is a Lifting day; Today
+#   returns to the preset, landing on today; ► then ◄ is the preset again
+#   (review 5), so Today is disabled there and not tapped. The totals under
+#   the nav read "Gym 4 · Other N · Strength 8": the walk's four days, the
+#   standups and the checkup (N varies with the weekday), and Lifting's nine
+#   days less the one marked missed; the full prefix and the last part are
+#   expected, so a stray "Strength" cannot pass. On 31 December ► is
+#   disabled (the year bounds end).
 # - The list lands on today, so the checkup at today − 40 is reached with a
 #   `scroll-to … --up` before it is expected.
 # - The options sheet is modal: the list leaves the semantics tree while it
@@ -27,18 +38,27 @@
 #   lane is the rightmost 48 dp, x ≈ 1208 on the Pixel_9_Pro emulator
 #   (1280 × 2856 @ 3.0); another screen needs its own x. `drag` cannot
 #   scroll a list, so it is not used here.
+# - Mark presence (slice 9b, D18): switched on, a tap on today's Lifting row
+#   marks it missed instead of opening its sheet. The day header's count
+#   cannot be expected as text: the Standup (workdays, assumed absent) makes
+#   it differ by weekday, and a step cannot type the newline between "Today"
+#   and its count. So Missed only shows the mark — the row is listed — and a
+#   second tap marks the day present, which takes the row out of that list.
+#   Both switches go off again; today's Lifting is left marked present, which
+#   reads as the seed's unmarked day.
+# - The mode chips and the search button yield while the keyboard is up
+#   (slice 8a); the harness raises none, so the button that closes the
+#   search is in reach after the typing.
 tap id:calendar-view-menu
 wait id:calendar-overview-open
 tap id:calendar-overview-open
-wait id:overview-period
-tap id:calendar-view-menu
-wait id:overview-view-list
+wait id:overview-nav-title
 tap id:overview-view-list
 wait id:overview-list
 scroll-to id:overview-row-qa-cal-checkup-{{day-40}} --in id:overview-list --up --max 40
 expect "Lifting session" id:overview-row-qa-cal-checkup-{{day-40}}
 shot 23_overview_list_top
-tap id:overview-period
+tap id:overview-nav-title
 wait id:overview-period-custom
 tap id:overview-period-custom
 wait id:date-picker-save
@@ -50,12 +70,23 @@ tap id:date-picker-save
 wait id:date-picker-save --gone
 expect id:overview-list id:overview-row-qa-cal-lift-{{day}} --absent id:overview-row-qa-cal-checkup-{{day-40}}
 shot 23_overview_list_custom
-tap id:overview-period
+tap id:overview-nav-title
 wait id:overview-period-last-90-days
 tap id:overview-period-last-90-days
 wait id:overview-period-last-90-days --gone
 expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
 shot 23_overview_list_landed_today
+tap id:overview-nav-next
+expect id:overview-list id:overview-row-qa-cal-lift-{{day+2}} --absent id:overview-row-qa-cal-lift-{{day}}
+shot 23_overview_list_stepped
+tap id:overview-nav-today
+expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
+tap id:overview-nav-next
+expect id:overview-list id:overview-row-qa-cal-lift-{{day+2}}
+tap id:overview-nav-previous
+expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
+expect "Gym 4 · Other" "Strength 8"
+shot 23_overview_list_home
 scroll-to id:overview-row-qa-cal-lift-{{day-28}} --up --in id:overview-list --max 20
 expect "{{year}}"
 shot 23_overview_list_pinned
@@ -88,6 +119,15 @@ wait id:overview-rows-every --gone
 tap id:overview-missed-only
 tap id:overview-options-close
 wait id:overview-options-close --gone
+tap id:overview-options-open
+wait id:overview-categories
+tap id:overview-categories
+wait id:category-pick-close
+shot 23_overview_options_categories
+tap id:category-pick-close
+wait id:category-pick-close --gone
+tap id:overview-options-close
+wait id:overview-options-close --gone
 expect id:overview-scrubber
 swipe up --from 1208,1800 --dist 1000 --ms 800 --via native
 expect id:overview-row-qa-cal-checkup-{{day-40}}
@@ -99,21 +139,45 @@ wait id:event-detail-close
 shot 23_overview_row_opened
 key back
 wait id:event-detail-close --gone
-key back
-wait id:overview-period
+wait id:overview-nav-title
 expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
-tap id:overview-search
+tap id:overview-options-open
+wait id:overview-options-close
+tap id:overview-mark-presence
+shot 23_overview_options_mark_presence
+tap id:overview-options-close
+wait id:overview-options-close --gone
+tap id:overview-row-qa-cal-lift-{{day}}
+expect id:overview-row-qa-cal-lift-{{day}} --absent id:event-detail-close
+shot 23_overview_list_marked
+tap id:overview-options-open
+wait id:overview-options-close
+tap id:overview-missed-only
+tap id:overview-options-close
+wait id:overview-options-close --gone
+expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
+tap id:overview-row-qa-cal-lift-{{day}}
+expect id:overview-list --absent id:overview-row-qa-cal-lift-{{day}} --absent id:event-detail-close
+tap id:overview-options-open
+wait id:overview-options-close
+tap id:overview-missed-only
+tap id:overview-mark-presence
+tap id:overview-options-close
+wait id:overview-options-close --gone
+tap id:overview-search-open
+wait id:overview-search
 type "Lifting"
 expect "Lifting session" --absent "Morning walk"
 shot 23_overview_list_search
-tap id:overview-period
+tap id:overview-search-open
+wait id:overview-search --gone
+tap id:overview-nav-title
 wait id:overview-period-this-year
 tap id:overview-period-this-year
 wait id:overview-period-this-year --gone
-tap id:calendar-view-menu
 wait id:overview-view-year
 tap id:overview-view-year
-wait id:overview-view-year --gone
+wait id:overview-nav-title
 tap id:calendar-view-menu
 wait id:calendar-view-calendar
 tap id:calendar-view-calendar

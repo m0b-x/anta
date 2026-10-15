@@ -11,6 +11,7 @@ import 'form_menu_item.dart';
 import 'settings_reorder.dart';
 
 export '../constants/form_metrics.dart';
+export 'form_menu_item.dart' show FormMenuItem;
 export 'form_sheet_frame.dart';
 
 abstract class FormDividedRow extends StatelessWidget {
@@ -835,6 +836,16 @@ class FormPickerRow extends FormDividedRow {
   final Color? labelColor;
   final Color? valueColor;
   final VoidCallback? onTap;
+
+  /// A second gesture on the same target, for a row whose tap has been given
+  /// a quicker job — the overview's rows while they mark presence, where a
+  /// long press still opens what the tap used to. Null offers none.
+  final VoidCallback? onLongPress;
+
+  /// What a tap does when the label alone does not say so, as the row's one
+  /// node's hint. Never drawn.
+  final String? hint;
+
   final FormTrailingButton? trailingButton;
   final bool showChevron;
   final String? semanticsLabel;
@@ -892,6 +903,8 @@ class FormPickerRow extends FormDividedRow {
     this.labelColor,
     this.valueColor,
     required this.onTap,
+    this.onLongPress,
+    this.hint,
     this.trailingButton,
     this.showChevron = true,
     this.semanticsLabel,
@@ -920,6 +933,7 @@ class FormPickerRow extends FormDividedRow {
     final avatar = leading;
     final captionText = caption;
     final tap = enabled ? onTap : null;
+    final longPress = enabled ? onLongPress : null;
     final pair = FormLabelValue(
       label: label,
       value: value,
@@ -1019,19 +1033,25 @@ class FormPickerRow extends FormDividedRow {
               ),
             ],
           );
-    Widget well = InkWell(onTap: tap, child: body);
+    Widget well = InkWell(onTap: tap, onLongPress: longPress, child: body);
     if (semanticsLabel != null) {
       well = Semantics(
         label: semanticsLabel,
+        hint: hint,
         button: true,
         enabled: tap != null,
         onTap: tap,
+        onLongPress: longPress,
         child: ExcludeSemantics(child: well),
       );
-    } else if (!enabled) {
-      // Inside the merge below, so the flag lands on the row's one node
-      // beside its id and its label.
-      well = Semantics(enabled: false, child: well);
+    } else if (!enabled || hint != null) {
+      // Inside the merge below, so the flag and the hint land on the row's
+      // one node beside its id and its label.
+      well = Semantics(
+        enabled: enabled ? null : false,
+        hint: hint,
+        child: well,
+      );
     }
     if (!enabled) {
       well = Opacity(opacity: FormMetrics.disabledOpacity, child: well);
@@ -2542,6 +2562,10 @@ class FormSearchRow extends FormDividedRow {
   /// types into by id.
   final String? identifier;
 
+  /// For a caller that reveals the row and focuses it (the overview's search
+  /// button); the row itself never autofocuses.
+  final FocusNode? focusNode;
+
   const FormSearchRow({
     super.key,
     required this.controller,
@@ -2549,6 +2573,7 @@ class FormSearchRow extends FormDividedRow {
     required this.clearTooltip,
     required this.onChanged,
     this.identifier,
+    this.focusNode,
   });
 
   @override
@@ -2564,6 +2589,7 @@ class FormSearchRow extends FormDividedRow {
     );
     Widget field = TextField(
       controller: controller,
+      focusNode: focusNode,
       autofocus: false,
       textInputAction: TextInputAction.search,
       autocorrect: false,
@@ -2618,22 +2644,6 @@ class FormSearchRow extends FormDividedRow {
       ),
     );
   }
-}
-
-class FormMenuItem<T> {
-  final T value;
-  final String label;
-  final IconData? icon;
-
-  /// A `SemanticsIds` value for an item a device script picks by id.
-  final String? identifier;
-
-  const FormMenuItem({
-    required this.value,
-    required this.label,
-    this.icon,
-    this.identifier,
-  });
 }
 
 /// `label … value ›` opening a menu of [items] — the editor's Priority and
@@ -2693,39 +2703,11 @@ class FormMenuRow<T> extends FormDividedRow {
     final select = onSelected;
     if (select == null) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    final colorScheme = Theme.of(context).colorScheme;
-    final picked = await showMenu<T>(
-      context: context,
-      positionBuilder: (_, constraints) => formMenuPosition(
-        context,
-        constraints,
-        menuHeight: formMenuHeight(items.length),
-      ),
-      color: colorScheme.menuSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
-      ),
-      menuPadding: FormMetrics.menuPadding,
-      // `menuWidth` is the floor; a label that needs more widens the menu up
-      // to the cap rather than breaking mid-word, which it did at 200 % in
-      // German. The right edge stays on the group's whatever the width.
-      constraints: BoxConstraints(
-        minWidth: menuWidth,
-        maxWidth: FormMetrics.menuMaxWidth,
-      ),
-      items: [
-        for (final item in items)
-          FormMenuChoiceItem<T>(
-            value: item.value,
-            checked: item.value == selected,
-            child: FormMenuItemRow(
-              identifier: item.identifier,
-              icon: item.icon,
-              label: item.label,
-              checked: item.value == selected,
-            ),
-          ),
-      ],
+    final picked = await showFormMenu<T>(
+      context,
+      items: items,
+      selected: selected,
+      menuWidth: menuWidth,
     );
     if (picked == null) return;
     select(picked);

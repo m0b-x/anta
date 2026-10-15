@@ -6,15 +6,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/overview_options_sheet.dart';
 
 /// Drives the overview list's options sheet — [OverviewOptionsSheet] — for
 /// the suites: they say what the user does and read what the sheet shows.
 ///
-/// The finders are the sheet's ids: the ✕, the Order and Rows menu rows and
-/// their items, the Missed only switch.
+/// The finders are the sheet's ids: the ✕, the Categories row and the
+/// picker it opens, the Order and Rows menu rows and their items, the Missed
+/// only and Mark presence switches.
 class OverviewOptionsRobot {
   const OverviewOptionsRobot(this.tester);
 
@@ -40,8 +43,13 @@ class OverviewOptionsRobot {
     ),
   );
 
-  FormSwitchRow get _switchRow => tester.widget(
-    find.descendant(of: _sheet, matching: find.byType(FormSwitchRow)),
+  FormSwitchRow _switchRow(String id) => tester.widget(
+    find.descendant(
+      of: _sheet,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is FormSwitchRow && widget.identifier == id,
+      ),
+    ),
   );
 
   Future<void> _tap(Finder target) async {
@@ -54,8 +62,11 @@ class OverviewOptionsRobot {
   /// [onChanged]; there is nothing to return.
   Future<void> show({
     OverviewListOptions initial = OverviewListOptions.defaults,
-    bool listMode = true,
+    AgendaDayListMode mode = AgendaDayListMode.list,
+    bool missedHidden = false,
     required ValueChanged<OverviewListOptions> onChanged,
+    Set<String> categoryIds = const {},
+    ValueChanged<Set<String>>? onCategoriesChanged,
     Locale locale = const Locale('en'),
     Size surface = defaultSurface,
     double? textScale,
@@ -82,8 +93,11 @@ class OverviewOptionsRobot {
               onPressed: () => OverviewOptionsSheet.show(
                 context,
                 initial: initial,
-                listMode: listMode,
+                mode: mode,
+                missedHidden: missedHidden,
                 onChanged: onChanged,
+                categoryIds: categoryIds,
+                onCategoriesChanged: onCategoriesChanged ?? (_) {},
               ),
               child: const Text(_openLabel),
             ),
@@ -124,6 +138,9 @@ class OverviewOptionsRobot {
   Future<void> toggleMissedOnly() =>
       _tap(_byId(SemanticsIds.overviewMissedOnly));
 
+  Future<void> toggleMarkPresence() =>
+      _tap(_byId(SemanticsIds.overviewMarkPresence));
+
   /// Taps a row that may be disabled; a disabled one opens nothing.
   Future<void> tapRow(String id) async {
     await tester.tap(_byId(id), warnIfMissed: false);
@@ -142,7 +159,63 @@ class OverviewOptionsRobot {
   String get rowsLabel =>
       _menuRow<OverviewRows>(SemanticsIds.overviewRows).value;
 
-  bool get missedOnly => _switchRow.value;
+  /// What the Categories row reads back.
+  String get categoriesValue => tester
+      .widget<FormPickerRow>(
+        find.descendant(
+          of: _sheet,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is FormPickerRow &&
+                widget.identifier == SemanticsIds.overviewCategories,
+          ),
+        ),
+      )
+      .value!;
+
+  Finder get _picker => find.byType(CategoryPickerSheet);
+
+  /// Whether the category picker is up over the sheet.
+  bool get pickerOpen => _picker.evaluate().isNotEmpty;
+
+  /// Opens the multi picker from the Categories row and leaves it up.
+  Future<void> openCategories() => _tap(_byId(SemanticsIds.overviewCategories));
+
+  Finder _inPicker(String id) =>
+      find.descendant(of: _picker, matching: find.bySemanticsIdentifier(id));
+
+  /// Ticks or unticks the picker's row of category [id].
+  Future<void> togglePickerRow(String id) async {
+    final row = _inPicker(SemanticsIds.categoryPickRow(id));
+    await tester.ensureVisible(row);
+    await _tap(row);
+  }
+
+  /// The picker's Select all / Select none.
+  Future<void> pickerSelectAll() =>
+      _tap(_inPicker(SemanticsIds.categoryPickSelectAll));
+
+  Future<void> pickerSelectNone() =>
+      _tap(_inPicker(SemanticsIds.categoryPickSelectNone));
+
+  Future<void> pickerDone() => _tap(_inPicker(SemanticsIds.categoryPickDone));
+
+  Future<void> pickerClose() => _tap(_inPicker(SemanticsIds.categoryPickClose));
+
+  /// Narrows the allowlist to [ids] through the multi picker: none first,
+  /// then each id ticked, then Done.
+  Future<void> pickCategories(Set<String> ids) async {
+    await openCategories();
+    await pickerSelectNone();
+    for (final id in ids) {
+      await togglePickerRow(id);
+    }
+    await pickerDone();
+  }
+
+  bool get missedOnly => _switchRow(SemanticsIds.overviewMissedOnly).value;
+
+  bool get markPresence => _switchRow(SemanticsIds.overviewMarkPresence).value;
 
   /// Whether the control carrying [id] is enabled, as a screen reader hears
   /// it: a picker row marks only its disabled state, a switch both.

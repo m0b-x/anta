@@ -27,6 +27,7 @@ void main() {
     WidgetTester tester, {
     required String title,
     DateTime? month,
+    List<String>? titleTemplates,
     String? subtitle,
     Locale locale = const Locale('en'),
     double textScale = 1.0,
@@ -34,7 +35,7 @@ void main() {
     VoidCallback? onPrevious,
     VoidCallback? onNext,
     VoidCallback? onToday,
-    VoidCallback? onTitleTap,
+    ValueChanged<BuildContext>? onTitleTap,
     bool withIds = false,
     String? hostIdentifier,
   }) async {
@@ -64,6 +65,7 @@ void main() {
                   AgendaPeriodNav(
                     title: title,
                     month: month,
+                    titleTemplates: titleTemplates,
                     subtitle: subtitle,
                     previousTooltip: 'Previous month',
                     nextTooltip: 'Next month',
@@ -104,7 +106,7 @@ void main() {
       onPrevious: () => previous++,
       onNext: () => next++,
       onToday: () => today++,
-      onTitleTap: () => jumps++,
+      onTitleTap: (_) => jumps++,
       withIds: true,
     );
 
@@ -123,6 +125,40 @@ void main() {
     expect((previous, next, today, jumps), (1, 1, 1, 1));
   });
 
+  testWidgets('a title tap hands over the title\'s own context, so a menu '
+      'can anchor to it', (tester) async {
+    BuildContext? anchor;
+    await pumpNav(
+      tester,
+      title: '2026',
+      onTitleTap: (context) => anchor = context,
+      withIds: true,
+    );
+
+    await tester.tap(find.bySemanticsIdentifier(titleId));
+    await tester.pumpAndSettle();
+
+    final box = anchor!.findRenderObject()! as RenderBox;
+    final rect = box.localToGlobal(Offset.zero) & box.size;
+    expect(
+      rect,
+      tester.getRect(
+        find
+            .ancestor(of: find.text('2026'), matching: find.byType(InkWell))
+            .first,
+      ),
+    );
+    expect(
+      rect.contains(tester.getCenter(find.text('2026'))),
+      isTrue,
+      reason: 'the box is the title, not the chevrons or the row',
+    );
+    expect(
+      rect.width,
+      lessThan(tester.getSize(find.byType(AgendaPeriodNav)).width / 2),
+    );
+  });
+
   testWidgets('without identifiers no node carries one — the overview and '
       'the Dates sheet are untouched', (tester) async {
     await pumpNav(
@@ -132,7 +168,7 @@ void main() {
       onPrevious: () {},
       onNext: () {},
       onToday: () {},
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     for (final id in [previousId, nextId, todayId, titleId]) {
       expect(find.bySemanticsIdentifier(id), findsNothing);
@@ -151,7 +187,7 @@ void main() {
     expect(find.byIcon(Icons.today_rounded), findsOneWidget);
     expect(find.byIcon(Icons.arrow_drop_down_rounded), findsNothing);
 
-    await pumpNav(tester, title: '2026', onTitleTap: () {});
+    await pumpNav(tester, title: '2026', onTitleTap: (_) {});
     expect(find.byIcon(Icons.arrow_drop_down_rounded), findsOneWidget);
   });
 
@@ -161,7 +197,7 @@ void main() {
       tester,
       title: 'September 2026',
       month: DateTime.utc(2026, 9, 1),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     final text = tester.widget<Text>(find.text('September 2026'));
     expect(text.maxLines, FormMetrics.periodTitleMaxLines);
@@ -169,7 +205,7 @@ void main() {
     final lineHeight = tester.getSize(find.text('September 2026')).height;
     expect(rowHeight(tester), AgendaPeriodNav.slot + 4);
 
-    await pumpNav(tester, title: '2026', onTitleTap: () {});
+    await pumpNav(tester, title: '2026', onTitleTap: (_) {});
     expect(tester.getSize(find.text('2026')).height, lineHeight);
     expect(rowHeight(tester), AgendaPeriodNav.slot + 4);
   });
@@ -187,7 +223,7 @@ void main() {
       month: DateTime.utc(2026, 7, 1),
       locale: const Locale('de'),
       size: const Size(360, 780),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     final oneLine = tester.getSize(find.text('Juli 2026')).height;
     final juli = rowHeight(tester);
@@ -198,7 +234,7 @@ void main() {
       month: DateTime.utc(2026, 9, 1),
       locale: const Locale('de'),
       size: const Size(360, 780),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     final twoLines = tester.getSize(find.text('September 2026')).height;
     expect(twoLines, moreOrLessEquals(2 * oneLine, epsilon: 0.01));
@@ -215,7 +251,7 @@ void main() {
       locale: const Locale('de'),
       textScale: 2.0,
       size: const Size(360, 780),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     expect(yearErrors, isEmpty);
     final oneLine = tester.getSize(find.text('2026')).height;
@@ -231,7 +267,7 @@ void main() {
         locale: const Locale('de'),
         textScale: 2.0,
         size: const Size(360, 780),
-        onTitleTap: () {},
+        onTitleTap: (_) {},
       );
       expect(errors, isEmpty, reason: german(month));
       heights.add(rowHeight(tester));
@@ -256,7 +292,7 @@ void main() {
       tester,
       title: '2026',
       subtitle: count,
-      onTitleTap: () {},
+      onTitleTap: (_) {},
       withIds: true,
       hostIdentifier: 'host',
     );
@@ -276,7 +312,7 @@ void main() {
       locale: const Locale('de'),
       textScale: 2.0,
       size: const Size(360, 780),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     expect(errors, isEmpty);
     final paragraph = tester.renderObject<RenderParagraph>(find.text(long));
@@ -300,7 +336,7 @@ void main() {
       locale: const Locale('de'),
       textScale: 2.0,
       size: const Size(360, 780),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
     expect(rowHeight(tester), tall);
   });
@@ -325,7 +361,7 @@ void main() {
       locale: locale,
       textScale: textScale,
       size: size,
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
 
     await show('March 2031', DateTime.utc(2031, 3, 1));
@@ -344,7 +380,7 @@ void main() {
     expect(measured(), 1);
 
     // A year nav lays out its one title and never asks for a year's twelve.
-    await pumpNav(tester, title: '2031', onTitleTap: () {});
+    await pumpNav(tester, title: '2031', onTitleTap: (_) {});
     expect(measured(), 1);
 
     await show('January 2032', DateTime.utc(2032, 1, 1));
@@ -370,6 +406,42 @@ void main() {
     expect(measured(), 5);
   });
 
+  testWidgets('title templates fix the box: a short title sits in the box of '
+      'the tallest template, measured once per key (slice 9a)', (tester) async {
+    // Shapes no other case shows, so the shared cache is cold for them.
+    const templates = [
+      'Letzte 12 Monate',
+      '2033',
+      '10. Sept. – 28. Sept. 2033',
+      '28. Sept. 2032 – 28. Sept. 2033',
+    ];
+    final start = AgendaPeriodNav.measurementCount;
+    int measured() => AgendaPeriodNav.measurementCount - start;
+    Future<void> show(String title, {List<String>? withTemplates}) => pumpNav(
+      tester,
+      title: title,
+      titleTemplates: withTemplates,
+      subtitle: '41 Einträge',
+      locale: const Locale('de'),
+      textScale: 2.0,
+      size: const Size(360, 780),
+      onTitleTap: (_) {},
+    );
+
+    await show('2033');
+    final bare = rowHeight(tester);
+    await show(templates.last);
+    final tallest = rowHeight(tester);
+    expect(tallest, greaterThan(bare), reason: 'the span takes two lines');
+    expect(measured(), 0, reason: 'no templates, nothing cached');
+
+    for (final title in templates) {
+      await show(title, withTemplates: templates);
+      expect(rowHeight(tester), tallest, reason: title);
+    }
+    expect(measured(), 1, reason: 'one layout of the templates per key');
+  });
+
   testWidgets('the remembered boxes are bounded: past the cache size the '
       'least recently shown year is laid out again', (tester) async {
     final start = AgendaPeriodNav.measurementCount;
@@ -378,7 +450,7 @@ void main() {
       tester,
       title: 'January $year',
       month: DateTime.utc(year, 1, 1),
-      onTitleTap: () {},
+      onTitleTap: (_) {},
     );
 
     // One more year than the cache holds, every one new to it.

@@ -4704,6 +4704,22 @@ class AppLocalizationsDe extends AppLocalizations {
   String get overviewPeriodAllTime => 'Gesamter Zeitraum';
 
   @override
+  String get overviewPeriodPrevious => 'Voriger Zeitraum';
+
+  @override
+  String get overviewPeriodNext => 'Nächster Zeitraum';
+
+  @override
+  String overviewPeriodHome(String period) {
+    return 'Zurück zu $period';
+  }
+
+  @override
+  String overviewCategoryTotal(String label, int count) {
+    return '$label $count';
+  }
+
+  @override
   String get overviewListOptions => 'Listenoptionen';
 
   @override
@@ -4726,6 +4742,46 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get overviewMissedOnly => 'Nur verpasste';
+
+  @override
+  String get overviewMarkPresence => 'Anwesenheit markieren';
+
+  @override
+  String get overviewViewsTitle => 'Gespeicherte Ansichten';
+
+  @override
+  String get overviewViewSaveCurrent => 'Aktuelle Liste speichern';
+
+  @override
+  String overviewViewSaved(String name) {
+    return 'Als \"$name\" gespeichert';
+  }
+
+  @override
+  String get overviewViewUpdate => 'Auf aktuelle Liste aktualisieren';
+
+  @override
+  String get overviewViewDelete => 'Gespeicherte Ansicht löschen';
+
+  @override
+  String overviewViewDeleteConfirm(String name) {
+    return '\"$name\" löschen? Die aufgelisteten Ereignisse bleiben unberührt.';
+  }
+
+  @override
+  String get overviewViewActions => 'Optionen für gespeicherte Ansicht';
+
+  @override
+  String overviewViewLimitReached(int count) {
+    return 'Du kannst bis zu $count Ansichten speichern';
+  }
+
+  @override
+  String get overviewViewSearchHint => 'Gespeicherte Ansichten suchen';
+
+  @override
+  String get overviewViewNoMatches =>
+      'Keine gespeicherte Ansicht passt zur Suche';
 
   @override
   String get overviewEmptyPeriod => 'Nichts in diesem Zeitraum';

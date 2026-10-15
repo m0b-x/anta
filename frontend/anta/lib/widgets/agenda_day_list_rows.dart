@@ -327,6 +327,14 @@ class AgendaDayListRowBuilder {
 
   final ValueChanged<AgendaDayListEntry> onEntryTap;
 
+  /// An entry row's long press, for a surface whose tap does something
+  /// quicker than opening the entry; null offers none.
+  final ValueChanged<AgendaDayListEntry>? onEntryLongPress;
+
+  /// The hint an entry row's node carries — what a tap does when it is not
+  /// what the row reads as; null, or a null result, puts none on the row.
+  final String? Function(AgendaDayListEntry entry)? entryHint;
+
   /// Offered on rows whose entry carries an edit action; null hides the
   /// trailing button on every row.
   final ValueChanged<AgendaDayListEntry>? onEntryEdit;
@@ -364,6 +372,8 @@ class AgendaDayListRowBuilder {
     required this.rows,
     required this.today,
     required this.onEntryTap,
+    this.onEntryLongPress,
+    this.entryHint,
     this.onEntryEdit,
     this.onEventTap,
     this.captionMaxLines,
@@ -508,6 +518,7 @@ class AgendaDayListRowBuilder {
   /// day, never a form.
   Widget _entryRow(AppLocalizations l10n, AgendaDayListEntry entry) {
     final onEdit = onEntryEdit;
+    final onLongPress = onEntryLongPress;
     return _faded(
       entry.missed,
       FormPickerRow(
@@ -518,6 +529,8 @@ class AgendaDayListRowBuilder {
         singleLine: singleLineTitles,
         identifier: rowIdentifier?.call(entry),
         onTap: () => onEntryTap(entry),
+        onLongPress: onLongPress == null ? null : () => onLongPress(entry),
+        hint: entryHint?.call(entry),
         showChevron: false,
         trailingButton: onEdit == null || entry.onEdit == null
             ? null

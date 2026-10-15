@@ -7,13 +7,15 @@ import '../constants/form_metrics.dart';
 import '../utils/lru_cache.dart';
 import 'automation_id.dart';
 
-/// Everything the height of a year's twelve month titles depends on: the
-/// strings (the locale's `yMMMM` of each month of the year) and how they are
-/// laid out — the width they wrap in, the text scale, the style, the
-/// direction and the line limit.
+/// Everything the height of a nav's candidate titles depends on: the strings
+/// (the locale's `yMMMM` of each month of [year] when there is one, and the
+/// caller's templates joined by [AgendaPeriodNav._templateSeparator], `''`
+/// on a month nav) and how they are laid out — the width they wrap in, the
+/// text scale, the style, the direction and the line limit.
 typedef _YearTitlesKey = ({
   String locale,
-  int year,
+  int? year,
+  String templates,
   double width,
   TextScaler scaler,
   TextStyle? style,
@@ -24,8 +26,9 @@ typedef _YearTitlesKey = ({
 /// The navigation row above a month grid or a year overview: a chevron each
 /// side, the period's title and count in the middle, and a button back to the
 /// current period in a fixed slot so the title never shifts when it is
-/// disabled. With [onTitleTap] the title becomes the jump control — a tap
-/// opens a date picker — and wears a drop-down glyph to say so.
+/// disabled. With [onTitleTap] the title becomes a control — the day list's
+/// date picker, the overview's period menu — and wears a drop-down glyph to
+/// say so.
 ///
 /// The title may take two lines rather than drop its year ("Oktober 20…" at
 /// 200 % on the device, Tier 3 D6), and it sits in a box as tall as the
@@ -74,6 +77,13 @@ class AgendaPeriodNav extends StatelessWidget {
   /// title's box is measured over that year's twelve `yMMMM` titles; without
   /// it — a year nav, whose title is a bare year — over the title alone.
   final DateTime? month;
+
+  /// The other titles this row will show, when they are not one year's
+  /// months — the overview's list nav steps between a year, the presets and
+  /// date spans — so the box is as tall as the tallest of them and the title
+  /// itself, and a step never moves the list below. Measured and cached as
+  /// [month]'s twelve are.
+  final List<String>? titleTemplates;
   final String? subtitle;
   final String previousTooltip;
   final String nextTooltip;
@@ -84,7 +94,9 @@ class AgendaPeriodNav extends StatelessWidget {
   final VoidCallback? onNext;
   final VoidCallback? onToday;
 
-  final VoidCallback? onTitleTap;
+  /// Called with the title's own context, so a caller can anchor a menu to
+  /// the title.
+  final ValueChanged<BuildContext>? onTitleTap;
   final String? titleTooltip;
 
   /// `SemanticsIds` for the four controls, each on the control's own node.
@@ -100,6 +112,7 @@ class AgendaPeriodNav extends StatelessWidget {
     super.key,
     required this.title,
     this.month,
+    this.titleTemplates,
     this.subtitle,
     required this.previousTooltip,
     required this.nextTooltip,
@@ -140,20 +153,29 @@ class AgendaPeriodNav extends StatelessWidget {
     return height;
   }
 
+  /// Joins [titleTemplates] into the cache key's one string; no title holds
+  /// a unit separator.
+  static const String _templateSeparator = '\u001F';
+
   /// The box's height at the ambient text scale: the shown title's, and
   /// under a month grid at least the tallest of its year's twelve titles, so
-  /// no month is taller than the box — the Dates sheet's `_monthTitleHeight`.
-  /// The shown title is one layout per build; the year's twelve come from
+  /// no month is taller than the box — the Dates sheet's `_monthTitleHeight`
+  /// — and with [titleTemplates] at least the tallest of those. The shown
+  /// title is one layout per build; the candidates come from
   /// [_yearTitleHeights].
   double _titleHeight(BuildContext context, TextStyle? style, double maxWidth) {
     final scaler = MediaQuery.textScalerOf(context);
     final direction = Directionality.of(context);
     final shown = _measure(title, style, scaler, direction, maxWidth);
     final shownMonth = month;
-    if (shownMonth == null) return shown;
+    final templates = titleTemplates;
+    if (shownMonth == null && (templates == null || templates.isEmpty)) {
+      return shown;
+    }
     final tallestOfYear = _yearTitlesHeight((
       locale: Localizations.localeOf(context).toString(),
-      year: shownMonth.year,
+      year: shownMonth?.year,
+      templates: templates?.join(_templateSeparator) ?? '',
       width: maxWidth,
       scaler: scaler,
       style: style,
@@ -163,16 +185,22 @@ class AgendaPeriodNav extends StatelessWidget {
     return math.max(shown, tallestOfYear);
   }
 
-  /// The tallest of the twelve `yMMMM` titles [key] names, laid out on the
-  /// first build that asks and remembered after.
+  /// The tallest of the titles [key] names — a year's twelve `yMMMM` titles,
+  /// the templates, or both — laid out on the first build that asks and
+  /// remembered after.
   static double _yearTitlesHeight(_YearTitlesKey key) {
     final cached = _yearTitleHeights.get(key);
     if (cached != null) return cached;
     _yearMeasurements++;
     final format = DateFormat.yMMMM(key.locale);
+    final candidates = <String>[
+      if (key.year case final year?)
+        for (var m = DateTime.january; m <= DateTime.december; m++)
+          format.format(DateTime(year, m)),
+      if (key.templates.isNotEmpty) ...key.templates.split(_templateSeparator),
+    ];
     var height = 0.0;
-    for (var m = DateTime.january; m <= DateTime.december; m++) {
-      final candidate = format.format(DateTime(key.year, m));
+    for (final candidate in candidates) {
       height = math.max(
         height,
         _measure(candidate, key.style, key.scaler, key.direction, key.width),
@@ -226,23 +254,26 @@ class AgendaPeriodNav extends StatelessWidget {
         ),
       ),
     );
-    if (onTitleTap != null) {
+    if (onTitleTap case final onTap?) {
+      final label = heading;
       heading = Tooltip(
         message: titleTooltip ?? '',
-        child: InkWell(
-          onTap: onTitleTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 2, 2, 2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(child: heading),
-                Icon(
-                  Icons.arrow_drop_down_rounded,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ],
+        child: Builder(
+          builder: (titleContext) => InkWell(
+            onTap: () => onTap(titleContext),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 2, 2, 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(child: label),
+                  Icon(
+                    Icons.arrow_drop_down_rounded,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

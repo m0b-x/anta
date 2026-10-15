@@ -222,6 +222,44 @@ void main() {
       expect(tally.markedMask, 1 << 23);
     });
 
+    test('a forgotten month resolves again, rows and tally, and alone; the '
+        'months around it stay cached', () {
+      final s = withMarks();
+      s.ensure(AgendaMonthStore.monthsOfYear(2026));
+      calls.clear();
+      final january = DateTime.utc(2026, 1, 1);
+      final march = DateTime.utc(2026, 3, 1);
+      pool[0] = _entry(DateTime.utc(2026, 1, 5), missed: true);
+      addTearDown(() => pool[0] = _entry(DateTime.utc(2026, 1, 5)));
+
+      s.forget(january);
+
+      expect(s.isResolved(january), isFalse);
+      expect(s.cachedTally(january), isNull);
+      expect(s.barsFor(january), isNull);
+      expect(s.isResolved(march), isTrue);
+      expect(s.cachedTally(march)!.count, 1);
+      s.ensure(AgendaMonthStore.monthsOfYear(2026));
+      expect(calls, [(january, DateTime.utc(2026, 1, 31))]);
+      expect(markCalls, isEmpty, reason: 'the tally comes with the rows');
+      expect(s.cached(january)!.keptCountForDay(DateTime.utc(2026, 1, 5)), 0);
+      expect(s.cachedTally(january)!.keptCount, 0);
+    });
+
+    test('a forgotten marks-only month resolves its marks again', () {
+      final s = withMarks();
+      s.ensureTallies(AgendaMonthStore.monthsOfYear(2026));
+      markCalls.clear();
+
+      s.forget(DateTime.utc(2026, 3, 1));
+      s.ensureTallies(AgendaMonthStore.monthsOfYear(2026));
+
+      expect(markCalls, [
+        (DateTime.utc(2026, 3, 1), DateTime.utc(2026, 3, 31)),
+      ]);
+      expect(calls, isEmpty);
+    });
+
     test('without a marks resolver the rows stand in', () {
       final s = store();
       s.ensureTallies(AgendaMonthStore.monthsOfYear(2026));

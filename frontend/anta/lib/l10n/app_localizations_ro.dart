@@ -4728,7 +4728,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get dayListScopeCalendarYear => 'An calendaristic';
 
   @override
-  String get calendarOverview => 'Prezentare generală';
+  String get calendarOverview => 'Sumar';
 
   @override
   String get calendarOverviewDesc => 'Evenimente pe categorii, an de an';
@@ -4750,6 +4750,22 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get overviewPeriodAllTime => 'Toată perioada';
+
+  @override
+  String get overviewPeriodPrevious => 'Perioada anterioară';
+
+  @override
+  String get overviewPeriodNext => 'Perioada următoare';
+
+  @override
+  String overviewPeriodHome(String period) {
+    return 'Înapoi la $period';
+  }
+
+  @override
+  String overviewCategoryTotal(String label, int count) {
+    return '$label $count';
+  }
 
   @override
   String get overviewListOptions => 'Opțiuni listă';
@@ -4774,6 +4790,46 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get overviewMissedOnly => 'Doar ratate';
+
+  @override
+  String get overviewMarkPresence => 'Marchează prezența';
+
+  @override
+  String get overviewViewsTitle => 'Vizualizări salvate';
+
+  @override
+  String get overviewViewSaveCurrent => 'Salvează lista curentă';
+
+  @override
+  String overviewViewSaved(String name) {
+    return 'Salvat ca „$name”';
+  }
+
+  @override
+  String get overviewViewUpdate => 'Actualizează la lista curentă';
+
+  @override
+  String get overviewViewDelete => 'Șterge vizualizarea salvată';
+
+  @override
+  String overviewViewDeleteConfirm(String name) {
+    return 'Ștergi „$name”? Evenimentele listate rămân neatinse.';
+  }
+
+  @override
+  String get overviewViewActions => 'Opțiuni pentru vizualizarea salvată';
+
+  @override
+  String overviewViewLimitReached(int count) {
+    return 'Poți salva până la $count de vizualizări';
+  }
+
+  @override
+  String get overviewViewSearchHint => 'Caută vizualizări salvate';
+
+  @override
+  String get overviewViewNoMatches =>
+      'Nicio vizualizare salvată nu se potrivește căutării';
 
   @override
   String get overviewEmptyPeriod => 'Nimic în această perioadă';

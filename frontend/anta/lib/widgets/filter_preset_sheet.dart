@@ -14,6 +14,7 @@ import '../services/filter_preset_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
 import 'app_dialogs.dart';
+import 'automation_id.dart';
 import 'form_menu_item.dart';
 import 'form_rows.dart';
 import 'overlay_snackbar.dart';
@@ -71,12 +72,16 @@ class FilterPresetSheet extends StatefulWidget {
           top: Radius.circular(FormMetrics.sheetRadius),
         ),
       ),
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+      // Every save and delete resizes the sheet on a dialog's answer.
+      builder: (context) => FormSheetSemanticsRefresh(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                FormMetrics.sheetHeightFactor,
+          ),
+          child: FilterPresetSheet(current: current),
         ),
-        child: FilterPresetSheet(current: current),
       ),
     );
   }
@@ -784,7 +789,7 @@ class _NameDialogState extends State<_NameDialog> {
           final duplicate =
               trimmed.isNotEmpty &&
               widget.existingNames.contains(normalizeForSearch(trimmed));
-          return TextField(
+          final field = TextField(
             controller: _controller,
             autofocus: true,
             textInputAction: TextInputAction.done,
@@ -803,6 +808,10 @@ class _NameDialogState extends State<_NameDialog> {
             ),
             onSubmitted: (_) => _submit(),
           );
+          return AutomationId(
+            identifier: SemanticsIds.filterPresetName,
+            child: field,
+          );
         },
       ),
       actions: [
@@ -812,9 +821,12 @@ class _NameDialogState extends State<_NameDialog> {
         ),
         ListenableBuilder(
           listenable: _controller,
-          builder: (context, _) => FilledButton(
-            onPressed: _controller.text.trim().isEmpty ? null : _submit,
-            child: Text(l10n.save),
+          builder: (context, _) => AutomationId(
+            identifier: SemanticsIds.filterPresetNameSave,
+            child: FilledButton(
+              onPressed: _controller.text.trim().isEmpty ? null : _submit,
+              child: Text(l10n.save),
+            ),
           ),
         ),
       ],

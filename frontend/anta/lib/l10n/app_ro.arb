@@ -1403,7 +1403,7 @@
   "dayListScopeUpcoming": "Urmează",
   "dayListScopeThisYear": "Anul acesta",
   "dayListScopeCalendarYear": "An calendaristic",
-  "calendarOverview": "Prezentare generală",
+  "calendarOverview": "Sumar",
   "calendarOverviewDesc": "Evenimente pe categorii, an de an",
   "calendarViewMenuTooltip": "Schimbă vizualizarea",
   "overviewCategories": "Categorii",
@@ -1411,6 +1411,21 @@
   "overviewPeriodLast12Months": "Ultimele 12 luni",
   "overviewPeriodLast90Days": "Ultimele 90 de zile",
   "overviewPeriodAllTime": "Toată perioada",
+  "overviewPeriodPrevious": "Perioada anterioară",
+  "overviewPeriodNext": "Perioada următoare",
+  "overviewPeriodHome": "Înapoi la {period}",
+  "@overviewPeriodHome": {
+    "placeholders": {
+      "period": { "type": "String", "example": "Last 90 days" }
+    }
+  },
+  "overviewCategoryTotal": "{label} {count}",
+  "@overviewCategoryTotal": {
+    "placeholders": {
+      "label": { "type": "String", "example": "Gym" },
+      "count": { "type": "int", "example": "41" }
+    }
+  },
   "overviewListOptions": "Opțiuni listă",
   "overviewOrder": "Ordine",
   "overviewOrderOldestFirst": "Cele mai vechi întâi",
@@ -1419,6 +1434,38 @@
   "overviewRowsEveryOccurrence": "Fiecare apariție",
   "overviewRowsPerEvent": "Unul pe eveniment",
   "overviewMissedOnly": "Doar ratate",
+  "overviewMarkPresence": "Marchează prezența",
+  "overviewViewsTitle": "Vizualizări salvate",
+  "overviewViewSaveCurrent": "Salvează lista curentă",
+  "overviewViewSaved": "Salvat ca „{name}”",
+  "@overviewViewSaved": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewViewUpdate": "Actualizează la lista curentă",
+  "overviewViewDelete": "Șterge vizualizarea salvată",
+  "overviewViewDeleteConfirm": "Ștergi „{name}”? Evenimentele listate rămân neatinse.",
+  "@overviewViewDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "overviewViewActions": "Opțiuni pentru vizualizarea salvată",
+  "overviewViewLimitReached": "Poți salva până la {count} de vizualizări",
+  "@overviewViewLimitReached": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "overviewViewSearchHint": "Caută vizualizări salvate",
+  "overviewViewNoMatches": "Nicio vizualizare salvată nu se potrivește căutării",
   "overviewEmptyPeriod": "Nimic în această perioadă",
   "overviewLoading": "Se încarcă mai multe…",
   "overviewCapReached": "Intrări afișate: primele {count}. Restrânge perioada ca să vezi restul.",

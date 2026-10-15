@@ -69,14 +69,70 @@ sealed class OverviewPeriod extends Equatable {
     return (start: last.isBefore(first) ? last : first, end: last);
   }
 
+  /// The neighbouring period one step back (`direction < 0`) or forward, or
+  /// null where the nav's chevron is disabled.
+  ///
+  /// A year steps to the next year; anything else becomes a custom span of
+  /// its own resolved length laid beside it, because a rolling span moved
+  /// off today no longer ends today and must say which days it lists. All
+  /// time has no neighbour, and a result wholly outside
+  /// `[Jan 1 of yearBounds.first, Dec 31 of yearBounds.last]` or
+  /// [CalendarBounds] would list nothing the year nav can reach.
+  OverviewPeriod? stepped({
+    required int direction,
+    required DateTime today,
+    required AgendaYearBounds yearBounds,
+  }) {
+    final OverviewPeriod next;
+    switch (this) {
+      case OverviewYearPeriod(:final year):
+        next = OverviewYearPeriod(year + direction.sign);
+      case OverviewRollingPeriod(preset: OverviewRollingPreset.allTime):
+        return null;
+      case OverviewRollingPeriod() || OverviewCustomPeriod():
+        final span = resolve(today: today, yearBounds: yearBounds);
+        final length = Duration(
+          days: span.end.difference(span.start).inDays + 1,
+        );
+        next = direction < 0
+            ? OverviewCustomPeriod(
+                span.start.subtract(length),
+                span.start.subtract(const Duration(days: 1)),
+              )
+            : OverviewCustomPeriod(
+                span.end.add(const Duration(days: 1)),
+                span.end.add(length),
+              );
+    }
+    final (DateTime start, DateTime end) = switch (next) {
+      OverviewYearPeriod(:final year) => (
+        DateTime.utc(year, 1, 1),
+        DateTime.utc(year, 12, 31),
+      ),
+      OverviewCustomPeriod(:final start, :final end) => (start, end),
+      OverviewRollingPeriod() => throw StateError('a step is never rolling'),
+    };
+    final first = DateTime.utc(yearBounds.first, 1, 1);
+    final last = DateTime.utc(yearBounds.last, 12, 31);
+    final low = first.isAfter(CalendarBounds.earliest)
+        ? first
+        : CalendarBounds.earliest;
+    final high = last.isBefore(CalendarBounds.latest)
+        ? last
+        : CalendarBounds.latest;
+    if (end.isBefore(low) || start.isAfter(high)) return null;
+    return next;
+  }
+
   static DateTime _clamp(DateTime day) {
     if (day.isBefore(CalendarBounds.earliest)) return CalendarBounds.earliest;
     if (day.isAfter(CalendarBounds.latest)) return CalendarBounds.latest;
     return day;
   }
 
-  /// The Period row's value: the year's number, the preset's name, or the
-  /// custom span in the Dates sheet's grammar.
+  /// How the nav title's Period menu and a saved view's caption name the
+  /// period: the year's number, the preset's name, or the custom span in the
+  /// Dates sheet's grammar.
   String menuValue(AppLocalizations l10n) => switch (this) {
     OverviewYearPeriod(:final year) => '$year',
     OverviewRollingPeriod(:final preset) => switch (preset) {

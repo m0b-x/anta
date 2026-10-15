@@ -83,6 +83,70 @@ void main() {
       expect(rowTaps, 1);
     });
 
+    testWidgets('a picker row\'s long press and hint land on its one node '
+        'beside the tap; without them the node has neither', (tester) async {
+      var taps = 0;
+      var longPresses = 0;
+      Widget row({VoidCallback? onLongPress, String? hint}) => host(
+        FormPickerRow(
+          label: 'Lifting session',
+          identifier: 'overview-row',
+          showChevron: false,
+          onTap: () => taps++,
+          onLongPress: onLongPress,
+          hint: hint,
+        ),
+      );
+      SemanticsData node() => tester
+          .getSemantics(find.bySemanticsIdentifier('overview-row'))
+          .getSemanticsData();
+
+      await tester.pumpWidget(
+        row(onLongPress: () => longPresses++, hint: 'Mark as missed'),
+      );
+      expect(node().label, 'Lifting session');
+      expect(node().hint, 'Mark as missed');
+      expect(node().hasAction(SemanticsAction.tap), isTrue);
+      expect(node().hasAction(SemanticsAction.longPress), isTrue);
+      await tester.longPress(find.bySemanticsIdentifier('overview-row'));
+      expect((taps, longPresses), (0, 1));
+      await tester.tap(find.bySemanticsIdentifier('overview-row'));
+      expect((taps, longPresses), (1, 1));
+
+      await tester.pumpWidget(row());
+      expect(node().hint, isEmpty);
+      expect(node().hasAction(SemanticsAction.longPress), isFalse);
+      await tester.longPress(find.bySemanticsIdentifier('overview-row'));
+      expect(longPresses, 1);
+    });
+
+    testWidgets('a disabled picker row ignores its long press', (tester) async {
+      var longPresses = 0;
+      await tester.pumpWidget(
+        host(
+          FormPickerRow(
+            label: 'Lifting session',
+            identifier: 'overview-row',
+            enabled: false,
+            onTap: () {},
+            onLongPress: () => longPresses++,
+          ),
+        ),
+      );
+      await tester.longPress(
+        find.bySemanticsIdentifier('overview-row'),
+        warnIfMissed: false,
+      );
+      expect(longPresses, 0);
+      expect(
+        tester
+            .getSemantics(find.bySemanticsIdentifier('overview-row'))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.longPress),
+        isFalse,
+      );
+    });
+
     testWidgets('a switch row is one node that toggles from the id', (
       tester,
     ) async {
@@ -1672,6 +1736,39 @@ void main() {
       expect(
         tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
         isFalse,
+      );
+    });
+
+    testWidgets("a search row's focus node is its field's, so a caller that "
+        'reveals the row can focus it', (tester) async {
+      final controller = TextEditingController();
+      final focusNode = FocusNode();
+      addTearDown(controller.dispose);
+      addTearDown(focusNode.dispose);
+      await tester.pumpWidget(
+        host(
+          FormSearchRow(
+            controller: controller,
+            focusNode: focusNode,
+            hint: 'Search',
+            clearTooltip: 'Clear search',
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      final field = tester.widget<EditableText>(find.byType(EditableText));
+      expect(field.focusNode, same(focusNode));
+      expect(focusNode.hasFocus, isFalse);
+
+      focusNode.requestFocus();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
       );
     });
 

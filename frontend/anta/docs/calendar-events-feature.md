@@ -6982,3 +6982,199 @@ for a span; `toCalendarQuickAlarm` matching stamped calendars only; store
 eviction; lazy bars; lighter entries; fading through colours instead of
 `Opacity`; a cross-year search index; sharing a period as text;
 collapsible months; per-category totals; more presets; saved views.
+
+## Addendum 2026-10-13 — the overview after the first phone use: the mode chips, the Period row in every mode, the detail sheet over the list
+
+**Why.** The owner committed the List-mode rework (`c3a7447`) and opened it
+on the phone: the twelve-month tiles seemed gone, the Period row was
+disabled, and back after a row tap landed on a calendar. Three delegated
+decisions had each traded a visible thing for a tidier one. D8 · A had put
+the Year · Month · List switch into the title's view menu — and the mode
+persists, so a page left in List, or dropped into Month by a tile tap, had
+no way back on screen. D11 · A had disabled the Period row in Month mode and
+let it only page the year in Year mode. D1 · A had pushed a calendar to host
+the detail sheet, so one back closed the sheet onto that calendar. The
+record's §2.3 holds the three decisions that replaced them (D12–D14, the
+recommended option each).
+
+**What changed.**
+
+1. **The switch is a chip row on the page.** A `FormChipRow` under the bar at
+   `FormMetrics.bodyTop` — the day list sheet's own row — Year · Month · List
+   in the page's order, the ids `overview-view-*` unchanged; the title menu
+   carries pages only and `CalendarViewMenu` lost `presentation`. The page
+   overflowed by 50 px at 360 × 780 × 2.0 with the keyboard up, so the row
+   folds in sync with the keyboard inset over its own height
+   (`_chipRowHeight`, `bodyTop + chipTapTarget`; the keyboard-coupled grid's
+   precedent) through a `Builder` above the `Scaffold`, and leaves semantics
+   and hit testing once folded; it follows the page's own keyboard only
+   (`ModalRoute.isCurrent`), so the editor's keyboard leaves the row whole
+   behind its sheet. The parts are built before that `Builder`, so a
+   keyboard frame rebuilds no tiles and no rows.
+2. **The Period row is live in every mode.** In List mode a pick lists it as
+   before; This year in Year mode pages to this year as before; every other
+   pick outside List mode resolves the period first (the Dates sheet's range
+   mode for Custom range…, a cancel changing nothing) and then lists it in one
+   `setState` (`_listPeriod`), landing per D7 and persisting both the mode and
+   the period.
+3. **A row tap opens the detail sheet over the list.** The calendar page's
+   trip through an event's sheets — the detail loop with its `afterKeep`
+   guard, the editor's save path with its one message, the quick description
+   edit, the explicit dates, skip, the linked note and wiki links — moved
+   whole into `EventSheetsFlow` (`lib/controllers/event_sheets_flow.dart`),
+   owned by both pages, holding no `BuildContext`, writing only through
+   `context.read<CalendarBloc>()`, one `SheetGuard` slot per page
+   (`lib/utils/sheet_guard.dart`). The overview blurs, finds the event by id
+   in the bloc's list and opens the sheet in place; a per-event row opens on
+   its last day; the list stays mounted under the modal sheet, the bloc's
+   states parked while the trip holds the guard and adopted once when it
+   ends, so a tick in the sheet re-resolves nothing (the review's finding 7).
+   The overview serves `AlertKeepNotice` — it counts the Keep and, while the
+   notice is still pending, reloads the bloc, never taking the notice: a
+   calendar beneath has taken it first when the flag is down, and otherwise
+   the flag waits for the calendar an Open event pushes, whose deferral of
+   its initial target the review's finding 1 showed a taking overview would
+   have defeated; `getCalendarOverviewSettings`
+   returns the markdown palette the sheet reads. `AppNavigator.toCalendarOccurrence`
+   stays the alert paths' and still pushes an unstamped calendar over an
+   overview.
+
+**The lesson.** A control the owner looks at on every visit belongs on the
+page; a menu is for what is set once. And the "rework of its own" the
+2026-10-11 addendum deferred was one slice once someone noticed that the
+overview already reads the app-wide bloc. The gate, the device pass and the
+review's findings: the record's status line and §9.
+
+## Addendum 2026-10-13 (second) — the overview's List mode steps through time, counts per category, keeps saved views and marks presence from its rows
+
+**Why.** The same day the owner took three items out of the rework's
+Deferred section and added a fourth: chevrons that shift the period by
+its own length, the kept count per category under the count, named views
+that bring an exact list back in one tap, and marking a day present or
+missed without the detail sheet. The decisions (record §2.4, D15–D18) were
+delegated to the lead; the recommended option stands for each.
+
+**What changed.**
+
+1. **The period band.** List mode draws the `AgendaPeriodNav` Year and
+   Month modes already have, under the filter group: ◄ the period's label
+   with the count as its subtitle, the Today slot, ►. A step shifts the
+   period by its own inclusive length (`OverviewPeriod.stepped`): This year
+   to the neighbouring year, a rolling preset or a custom span to the span
+   of that length beside it — a stepped preset is a custom span and is
+   shown as one, Custom range… checked in the Period row; All time does
+   not step. The Today slot returns to the period as picked (`_home`, set
+   by every pick and never by a step or by Year-mode paging); a step never
+   persists, so a closed app reopens on the pick. The title opens the
+   range picker. The three navs share one title box
+   (`AgendaPeriodNav.titleTemplates`: the presets, a year, two spans on
+   the locale's widest month, the year's twelve month titles), so a mode
+   switch moves nothing. The band folds with the keyboard as the chips do.
+2. **Per-category totals.** A two-line caption slot under the nav in every
+   mode: the kept count per category in catalog order, three named then
+   "+N more"; under Missed only (List and Month) the missed ones instead;
+   Year mode counts from the tiles' marks. The slot's geometry never
+   changes.
+3. **Saved views.** `overview_views` (schema v41), the saved filters' shape
+   one for one: a Drift table with the v29 CRDT block and soft deletes, a
+   DAO, `OverviewViewService` (fifty views at most), the backup key
+   `overviewViews` (additive; an absent key leaves the table; the archive
+   version unchanged), `OverviewViewSheet` with the saved filters' chrome
+   behind a bar button beside the tune button, selected while the shown
+   list equals a saved view. A view holds the period (a custom span
+   included; "This year" stays rolling through its own kind, a paged year
+   pins its number), Order, Rows, Missed only and the categories allowlist
+   — not the query, not the mode; applying one switches to List mode and
+   persists each part as a pick would.
+4. **Mark presence.** A session-only switch in the options sheet; while
+   on, a tap on an entry row in List mode (every-occurrence rows) or Month
+   mode toggles the day's presence through `SetOccurrencePresence` —
+   explicit statuses, the day panel's words as the row's hint, the row's
+   dimming and the header's counts as feedback, a long press still opening
+   the sheet (`FormPickerRow` gained `onLongPress` and `hint`); the tune
+   button reads selected while marking can act, and the switch is disabled
+   while the missed display is hidden (a mark would remove its row with no
+   way back). A mark re-resolves only its month (`AgendaMonthStore.forget`
+   and the page's pending marks): the review found that dropping the whole
+   store on a presence bump shrank a long period's list under the finger,
+   so a second tap could mark the wrong day. A skip is not presence; the
+   `isMissed` rules are untouched.
+
+**What the device pass taught.** The Period row's value is one line now
+(`FormMenuRow.singleLine`): a stepped span wrapped it under its label at
+200 % and the whole band moved under the finger that had just tapped ◄.
+In Month mode the Period row reads the month's year, as Year mode reads
+its year. And the overlay snackbar's box, a coloured `Material`, had been
+swallowing every tap inside it — on a short sub-sheet that strip covered
+the header's ✕ right after "Saved as …", so the sheet could not be closed
+until the message timed out; the box lets taps through now outside its
+text and its ✕. The Romanian title became "Sumar": with three bar actions
+"Prezentare generală" no longer fit at text scale 1.0. And the flow's
+second failure uncovered a Flutter framework bug: a sheet that resizes
+while the dialog above it is still animating out keeps its nodes' old
+semantics geometry, so TalkBack and the harness aim at where the ✕ was;
+`FormSheetSemanticsRefresh` on the views and the saved filters sheets
+re-marks the subtree once the route above has left (the ui-language
+skill's `references/sheet-chrome.md` has the mechanism).
+
+**The price at the extreme cell:** at German 200 % on a 360 × 780 phone
+the band leaves the list a 50 dp viewport (the record's §8). The review,
+the device pass and the gate: the record's status line and §9.
+
+## Addendum 2026-10-14 — the overview's third follow-up: one period control, the filter rows off the page
+
+**Why.** After a day with the mode chips the owner found Year mode
+crowded and asked for the year's months to be seen better, and for the
+"datepicker" (the nav band) and the period picker to become one control.
+The tree agreed: on a 360 × 780 phone the chrome above the first month
+tile was 404 dp — the chip row, three filter rows, a nav whose title box
+was two lines in every mode because the List nav's date-span templates
+were measured into all three, and a two-line totals slot — against the
+504 dp the twelve tiles need, so the last row of months sat below the
+fold (the 952 dp emulator had hidden it). The decisions (record §2.5,
+D19–D25) were answered with the recommended option each; the mock is
+"Overview mock" (https://claude.ai/artifact/GSMUfABr93vsP1cyknoGsp).
+
+**What changed.**
+
+1. **The nav's title is the Period menu** (D19). In every mode a tap on
+   the title opens the Period row's five items — This year, Last 12
+   months, Last 90 days, All time, Custom range… — anchored under the
+   title through the same `showFormMenu` the form rows open theirs with
+   (`FormMenuRow._open`'s body, hoisted into `form_menu_item.dart`). A
+   pick does what the row's did: in List mode it is the period; This year
+   in Year mode pages to this year; any other pick outside List mode
+   switches to List on that period. The Period row is gone, and with it
+   the month/year jump picker the title used to open in Year and Month
+   mode (D25): ◄ ► page, the Year chip's tiles are the month jump, and
+   Custom range…'s year view picks whole months. `AgendaPeriodNav.onTitleTap`
+   now hands the title's own context to the caller so a menu can be
+   anchored to it; the day list's navs ignore it.
+2. **The title box is measured per mode** (D20). Year's box is the year's
+   one line, Month's the twelve month titles (the day list's rule), List's
+   the span templates — so Year and Month are one line at text 1.0 and
+   only a List span wraps. A mode switch may change the band's height;
+   inside a mode nothing moves.
+3. **Search is summoned** (D21). A search button ends the chip row; a tap
+   reveals the Search row above the band and focuses it, the row's ✕
+   clears, the button again closes the row and clears the query (a
+   keystroke still waiting on the debounce included). The button reads
+   selected while a query is set. The chips and the band still fold under
+   the keyboard, so while typing the button is away and the keyboard's
+   back comes first.
+4. **Categories live in the options sheet** (D22), its first row, with
+   the read-back the page's row had ("All", two names, "+N more") and the
+   same picker over it; the tune badge counts the allowlist as a
+   restriction, in every mode, since the tiles honour it. The totals line
+   on the page reads the chosen categories back.
+5. **The totals are one line** (D23): three names then "+N more", an
+   ellipsis past the width.
+
+The page in Year mode now has 206 dp above the first tile (the status
+bar, the bar, the chip row, a 52 dp nav, a 26 dp totals line) and the
+twelve months fit a 780 dp screen with 70 dp to spare; Month mode's grid
+starts at 206 too, List mode's pinned label at 226. Ids:
+`overview-search-open` added, `overview-period` retired (the menu's items
+keep `overview-period-*`), `overview-categories` on the sheet's row; flows
+05, 23 and 24 walk the menu from the title. The review, the device pass
+and the gate: the record's status line and §9.

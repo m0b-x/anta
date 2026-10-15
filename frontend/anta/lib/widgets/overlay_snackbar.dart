@@ -110,42 +110,55 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
       child: Semantics(
         container: true,
         liveRegion: true,
+        // Only the text and the close button take a tap; the rest of the
+        // box lets it through to what lies under. The box sits over whatever
+        // is near the bottom of the screen — a short sheet's header ✕ lay
+        // under its top edge on the device pass, dead for as long as it
+        // showed. Hence a transparency over a [PhysicalModel]: a coloured
+        // [Material] absorbs every hit inside its box.
         child: Material(
-          elevation: 6,
-          borderRadius: BorderRadius.circular(4),
-          color: colorScheme.inverseSurface,
-          child: Padding(
-            padding: const EdgeInsets.only(
-              left: 16,
-              top: 14,
-              bottom: 14,
-              right: 8,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.message,
-                    style: TextStyle(
-                      color: colorScheme.onInverseSurface,
-                      fontSize: 14,
+          type: MaterialType.transparency,
+          child: PhysicalModel(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(4),
+            color: colorScheme.inverseSurface,
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: 16,
+                top: 14,
+                bottom: 14,
+                right: 8,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.message,
+                      style: TextStyle(
+                        color: colorScheme.onInverseSurface,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(
-                    Icons.close,
-                    color: colorScheme.onInverseSurface,
-                    size: 20,
+                  // Its own ink layer, painted above the model's colour.
+                  Material(
+                    type: MaterialType.transparency,
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        color: colorScheme.onInverseSurface,
+                        size: 20,
+                      ),
+                      onPressed: widget.onDismiss,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                    ),
                   ),
-                  onPressed: widget.onDismiss,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

@@ -27,7 +27,7 @@ Around them: a bar reads `AppBarMetrics` (48 dp toolbar, 22 px glyphs, a 17 / 50
 | File | Holds |
 | --- | --- |
 | `lib/widgets/form_rows.dart` | every row primitive below; re-exports `form_metrics.dart` and `form_sheet_frame.dart` |
-| `lib/widgets/form_sheet_frame.dart` | `FormSheetFrame`, the form sheet's shell (`references/sheet-chrome.md`) |
+| `lib/widgets/form_sheet_frame.dart` | `FormSheetFrame`, the form sheet's shell, and `FormSheetSemanticsRefresh`, the wrapper a sheet that resizes on a dialog's answer needs (`references/sheet-chrome.md`) |
 | `lib/widgets/form_menu_item.dart` | `FormMenuChoiceItem`, `FormMenuItemRow`, `formMenuPosition` (`references/row-primitives.md`) |
 | `lib/constants/form_metrics.dart` | `FormMetrics` — every number a form uses |
 | `lib/constants/row_metrics.dart` | `RowMetrics`, the browser rows' geometry (`references/metrics.md`) |
@@ -81,7 +81,8 @@ Both:
 - **A live-apply sheet** (every control writes at once): ✕ with the `close` tooltip, an empty trailing slot.
 - Height: `FormMetrics.sheetHeightFactor` (0.92) is the editor's fixed height, every filler's box and every sub-sheet's clamp. A sheet that still carries its own factor takes a shape above and that constant when it migrates.
 - Every picker, menu and sub-sheet a form opens **drops focus first** (`_blur()`), or the modal's return re-raises the keyboard and scrolls the sheet back to the top.
-- **A message from inside a sheet goes through `OverlaySnackbar`**, never `CustomSnackbar`.
+- **A sheet that resizes on a dialog's or menu's answer wraps its box in `FormSheetSemanticsRefresh`** (`form_sheet_frame.dart`, 2026-10-13): Flutter 3.44 keeps a node's old semantics geometry when the sheet re-lays out while the route above is still leaving (its barrier still blocks semantics), so TalkBack and the QA harness aim at where the ✕ was; the saved filters and the saved views sheets carry it, the rest is an open app-wide decision (`references/sheet-chrome.md`).
+- **A message from inside a sheet goes through `OverlaySnackbar`**, never `CustomSnackbar`. Its box takes taps only on its text and its ✕ — a short sub-sheet's header sits under it (the overview's views sheet, 2026-10-13); never give the box a hit-testing surface again.
 - Each shape's flags and anatomy, and these rules in full: `references/sheet-chrome.md`.
 
 ## Dialogs

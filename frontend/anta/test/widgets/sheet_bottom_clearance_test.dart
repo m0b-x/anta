@@ -15,6 +15,7 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
+import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -59,7 +60,11 @@ import 'package:anta/widgets/icon_picker_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
 import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/models/overview_period.dart';
+import 'package:anta/models/overview_view.dart';
+import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/widgets/overview_options_sheet.dart';
+import 'package:anta/widgets/overview_view_sheet.dart';
 import 'package:anta/widgets/pairing_sheet.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
@@ -1134,20 +1139,56 @@ void main() {
       (context) => OverviewOptionsSheet.show(
         context,
         initial: OverviewListOptions.defaults,
-        listMode: true,
+        mode: AgendaDayListMode.list,
         onChanged: (_) {},
+        categoryIds: const {},
+        onCategoriesChanged: (_) {},
       ),
     );
 
-    // Missed only is the last row of a sheet as tall as its rows.
+    // Mark presence is the last row of a sheet as tall as its rows.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
     expect(
       tester
-          .getRect(find.bySemanticsIdentifier(SemanticsIds.overviewMissedOnly))
+          .getRect(
+            find.bySemanticsIdentifier(SemanticsIds.overviewMarkPresence),
+          )
           .bottom,
       lessThanOrEqualTo(surface.height - navBar),
       reason: 'the last row ran under the gesture bar',
     );
+  });
+
+  testWidgets('the overview saved views sheet clears the navigation bar', (
+    tester,
+  ) async {
+    // The sheet resolves the view service in its initState; bound to this
+    // test's in-memory database so the rows can fill in.
+    OverviewViewService.reset();
+    addTearDown(OverviewViewService.reset);
+    final views = await OverviewViewService.forTesting(db);
+    await views.create(
+      name: 'Last year',
+      period: const OverviewYearPeriod(2025),
+      options: OverviewListOptions.defaults,
+      categoryIds: const {},
+    );
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => OverviewViewSheet.show(
+        context,
+        current: const OverviewView(
+          id: '',
+          name: '',
+          period: OverviewRollingPeriod(OverviewRollingPreset.last90Days),
+        ),
+        onApply: (_) {},
+      ),
+    );
+
+    // The save row is the last thing in a short list that never scrolls.
+    expect(reorderableBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 
   group('the removed holidays sheet', () {

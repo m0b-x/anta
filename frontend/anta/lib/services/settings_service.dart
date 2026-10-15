@@ -1236,16 +1236,18 @@ class SettingsService {
     SettingsKeys.calendarOverviewOrder,
     SettingsKeys.calendarOverviewRows,
     SettingsKeys.hapticFeedback,
+    SettingsKeys.markdownCustomColors,
   ];
 
   /// Everything the calendar overview page needs before it can paint, in one
   /// statement — the appearance through the same decoder the calendar page
-  /// uses, the page's own settings, and the haptic switch its jumps obey.
-  /// [today] (date-only, defaulting to the wall clock's) is what a stored
-  /// `thisYear` means.
+  /// uses, the page's own settings, the haptic switch its jumps obey, and the
+  /// palette its detail sheets render descriptions in. [today] (date-only,
+  /// defaulting to the wall clock's) is what a stored `thisYear` means.
   Future<
     ({
       CalendarAppearance appearance,
+      MarkdownColorPalette palette,
       Set<String> categoryIds,
       AgendaDayListMode mode,
       OverviewPeriod period,
@@ -1259,6 +1261,7 @@ class SettingsService {
     );
     return (
       appearance: _decodeCalendarAppearance(values),
+      palette: _decodeColorPalette(values[SettingsKeys.markdownCustomColors]),
       categoryIds: UpcomingAgendaFilters.decodeCategories(
         values[SettingsKeys.calendarOverviewCategories] ?? '',
       ),

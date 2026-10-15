@@ -2,7 +2,24 @@ import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
+
+class FormMenuItem<T> {
+  final T value;
+  final String label;
+  final IconData? icon;
+
+  /// A `SemanticsIds` value for an item a device script picks by id.
+  final String? identifier;
+
+  const FormMenuItem({
+    required this.value,
+    required this.label,
+    this.icon,
+    this.identifier,
+  });
+}
 
 /// One choice of a group only one of which is on — a page, a grid format, a
 /// priority — announced as a radio item with its checked state rather than as
@@ -83,6 +100,52 @@ RelativeRect formMenuPosition(
   return RelativeRect.fromRect(
     Rect.fromLTWH(rect.right, top, 0, 0),
     Offset.zero & overlaySize,
+  );
+}
+
+/// Opens the language's choice menu of [items] at [anchor] and completes
+/// with the picked value, null when dismissed — `FormMenuRow`'s menu, for a
+/// control that is not a row (the overview's period title).
+///
+/// [menuWidth] is the floor; a label that needs more widens the menu up to
+/// `FormMetrics.menuMaxWidth` rather than breaking mid-word, which it did at
+/// 200 % in German. The right edge stays on the anchor's whatever the width.
+Future<T?> showFormMenu<T>(
+  BuildContext anchor, {
+  required List<FormMenuItem<T>> items,
+  required T? selected,
+  required double menuWidth,
+}) {
+  final colorScheme = Theme.of(anchor).colorScheme;
+  return showMenu<T>(
+    context: anchor,
+    positionBuilder: (_, constraints) => formMenuPosition(
+      anchor,
+      constraints,
+      menuHeight: formMenuHeight(items.length),
+    ),
+    color: colorScheme.menuSurface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+    ),
+    menuPadding: FormMetrics.menuPadding,
+    constraints: BoxConstraints(
+      minWidth: menuWidth,
+      maxWidth: FormMetrics.menuMaxWidth,
+    ),
+    items: [
+      for (final item in items)
+        FormMenuChoiceItem<T>(
+          value: item.value,
+          checked: item.value == selected,
+          child: FormMenuItemRow(
+            identifier: item.identifier,
+            icon: item.icon,
+            label: item.label,
+            checked: item.value == selected,
+          ),
+        ),
+    ],
   );
 }
 

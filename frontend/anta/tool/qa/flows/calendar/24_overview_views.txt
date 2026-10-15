@@ -1,0 +1,88 @@
+# The overview's saved views (docs/calendar-overview-list-roadmap.md §3.12,
+# slice 9c, D17): List through its mode chip on Last 90 days, the bar's
+# bookmarks button, the current list saved under a name through the name
+# dialog, the period moved to This year, the view applied from its row —
+# which closes the sheet and puts the list back on Last 90 days — then the
+# view renamed and deleted through its ⋮. Leaves the overview on Year and
+# This year, as the seed has it, with no saved view.
+# - A view's row, ⋮ and handle ids carry its UUID, which a flow cannot know:
+#   the row is tapped by its name and the ⋮ by its tooltip, "Saved view
+#   options", which is unique while one view exists.
+# - The name dialog opens with the period's words selected; `type` replaces
+#   them. "Save" alone is ambiguous here ("Saved views", "Save the current
+#   list"), so the dialog is waited on and saved by its ids.
+# - Applying closes the sheet; the nav's title then reads "Last 90 days" again
+#   and the bar button is selected (not readable as text: the sheet's ✓ on
+#   the row is what a reopen shows).
+# - The delete confirmation's button is "Delete"; the menu that also says
+#   "Delete" has closed by then.
+tap id:calendar-view-menu
+wait id:calendar-overview-open
+tap id:calendar-overview-open
+wait id:overview-nav-title
+tap id:overview-view-list
+wait id:overview-list
+tap id:overview-nav-title
+wait id:overview-period-last-90-days
+tap id:overview-period-last-90-days
+wait id:overview-period-last-90-days --gone
+expect "Last 90 days"
+tap id:overview-views-open
+wait id:overview-views-close
+expect id:overview-views-save "Saved views"
+shot 24_overview_views_empty
+tap id:overview-views-save
+wait id:filter-preset-name
+type "Ninety days"
+tap id:filter-preset-name-save
+wait id:filter-preset-name --gone
+expect "Ninety days" "Saved view options"
+shot 24_overview_views_saved
+tap id:overview-views-close
+wait id:overview-views-close --gone
+tap id:overview-nav-title
+wait id:overview-period-this-year
+tap id:overview-period-this-year
+wait id:overview-period-this-year --gone
+expect id:overview-list --absent "Last 90 days"
+tap id:overview-views-open
+wait id:overview-views-close
+tap "Ninety days"
+wait id:overview-views-close --gone
+expect "Last 90 days"
+shot 24_overview_views_applied
+tap id:overview-views-open
+wait id:overview-views-close
+expect "Ninety days"
+shot 24_overview_views_checked
+tap "Saved view options"
+wait id:overview-views-rename
+tap id:overview-views-rename
+wait id:filter-preset-name
+type "Last ninety"
+tap id:filter-preset-name-save
+wait id:filter-preset-name --gone
+expect "Last ninety" --absent "Ninety days"
+shot 24_overview_views_renamed
+tap "Saved view options"
+wait id:overview-views-delete
+tap id:overview-views-delete
+wait "Delete saved view"
+tap "Delete"
+wait "Delete saved view" --gone
+expect id:overview-views-save --absent "Last ninety"
+shot 24_overview_views_deleted
+tap id:overview-views-close
+wait id:overview-views-close --gone
+tap id:overview-nav-title
+wait id:overview-period-this-year
+tap id:overview-period-this-year
+wait id:overview-period-this-year --gone
+wait id:overview-view-year
+tap id:overview-view-year
+wait id:overview-nav-title
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+errors

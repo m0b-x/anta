@@ -1,6 +1,6 @@
 # Calendar overview — the List mode rework (2026-10-11)
 
-**Status: IMPLEMENTED 2026-10-12, uncommitted.** Slices 0–7 and the fix pass are in the tree (64 files): `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner reviews and commits; the next session that opens this record corrects this line from `git log`.
+**Status: IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c3a7447` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c3a7447` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11.
 Written on a clean tree at `ae98d62` from a read of the overview page, the
 store, the index, the rows, the Tier 3 day list and the scan, plus one
 independent read-only review of the list mode's performance and behaviour
@@ -177,6 +177,94 @@ feedback on the first mock.
 | T9 | The pushed calendar (D1 · A) is **stamped as the plain calendar destination**, as the alert tap's root push is, and `toCalendarOccurrence` collapses only when the overview is not above the calendar. | Launch restore must not replay a calendar over the overview; `_livePageRoutes` and the restore seal decide what a stamp means — the implementer verifies in slice 3. |
 | T10 | In range mode the Dates sheet's **year view picks whole months**: a tile tap sets the span to that month, a second tile extends it to that month's end; the month view refines days. | With the nav gone from list mode, a past year must still be two taps away (January, December); the tile is a 60 dp target, and travel to a month is the Month view's job. |
 | T11 | The options sheet's badge counts **restrictions only** (Missed only), as the agenda's and the calendar's filter buttons do. | Order and Rows re-present the same entries; a badge means "something is hidden". |
+
+### 2.3 Asked of the owner on 2026-10-13, after the first use on the phone — answered the same day: A, A, A
+
+The owner's three points, and what the tree said. "Where is the beautiful
+mode where we could see all the twelve months?" — year mode exists, but
+D8 · A moved the Year · Month · List control into the title menu and the mode
+persists, so a page left in List, or dropped into Month by a tile tap, shows
+no way back to the tiles. "The period is not even usable, it is disabled" —
+by §3.2 the Period row is disabled in month mode, and in year mode a pick
+only pages the year. "When I select an event and tap back I am instantly on
+the calendar even though I was in the overview" — D1 · A pushes a calendar
+with the detail sheet, so one back closes the sheet onto that calendar and
+only a second returns to the list. The overview already reads the app-wide
+`CalendarBloc` (`calendar_overview_page.dart:67`, `:296`), so D1 · B is one
+slice, not the rework §8 feared.
+
+| D | Question | Options |
+| --- | --- | --- |
+| D12 (supersedes D8) | Where the mode switch lives | **A** a chip row Year · Month · List on the page above the filter group — the day list sheet's pattern, one tap, always visible; the title menu's presentations group goes · B the chip row and the menu group both · C the menu only, the mode no longer persisted so every visit opens on the tiles |
+| D13 (supersedes D11's month-mode clause) | The Period row outside list mode | **A** enabled in every mode; a pick switches to List mode on that period (a period is the list's unit); This year picked in year mode pages to this year · B enabled, and the mode stays: year mode jumps to the span's first year, month mode to its first month · C the row only in List mode |
+| D14 (supersedes D1) | A row tap, and where back lands | **A** the detail sheet opens over the list, no calendar: back closes it onto the row; the calendar's detail loop becomes a shared controller (D1 · B) · B keep the push, closing the sheet pops the calendar too · C leave it, two backs |
+
+Lesson for the record: a delegated "two taps instead of a band" hid the
+page's primary control. A switch the owner looks at on every visit belongs
+on the page; the menu is for what is set once.
+
+### 2.4 Asked of the owner on 2026-10-13, second round — "decide each with Fable first": D15–D18, decided by the lead, the recommended option (A) stands
+
+The owner took three items out of §8 (the stepping nav, per-category totals,
+saved views) and added one (presence from the rows), each with its open
+sub-decisions. Options lettered, the recommended one first with its reason;
+the owner may overrule any line.
+
+| D | Question | Options |
+| --- | --- | --- |
+| D15 | A stepping nav in List mode (§8's D11 · B) | **A** the `AgendaPeriodNav` under the filter group in List mode too, as Year and Month modes already have it — ◄ the period's label with the count as its subtitle, the Today slot, ► — so the three modes share one band and nothing foreign is added; the count caption moves into the nav's subtitle · B chevrons on the Period row itself (a new row shape) · C no nav, the Period menu alone |
+| D15a | What a step does to a rolling preset | **A** a step turns it into a custom span of the same length, shifted by its own length (Last 90 days ◄ → the ninety days before, shown as "Apr 17 – Jul 15, 2026", the Period row reading the span with Custom range checked); This year steps to the neighbouring year; a custom span shifts by its own width; All time does not step (both chevrons disabled) — what a stepped window is, said honestly · B a rolling period with a step count (a new period kind, persisted) · C rolling presets do not step |
+| D15b | The Today slot | **A** back to the period as picked ("home": the last Period-row pick or the persisted one; stepping and Year-mode paging never move it), enabled while the shown period differs from it; its tooltip names the home period · B always "This year" · C re-anchor a span to end today |
+| D15c | Persistence of a step | **A** none: a step never writes the period key (the home stays persisted; D4's rule for custom spans is untouched), so a closed app reopens on the pick, not on a look · B persist the stepped span |
+| D16 | Per-category totals | **A** a two-line caption slot under the nav, in every mode, "Gym 41 · Run 12 · Yoga 3 · +2 more" in catalog order over what the mode lists — kept entries, or the missed ones while Missed only narrows the list — three named then "+N more" (`categoriesMore`), the text changing and the slot never · B list mode only · C all categories, wrapping and ellipsized |
+| D16a | Missed counts | **A** not beside the kept ones: the nav's count already says how many were missed in all, and under Missed only the totals are the missed ones per category · B both per category ("Gym 41 (3)") |
+| D17 | Saved views — persistence | **A** a Drift table `overview_views` (v41) byte-for-byte the presets table's shape (name, one JSON payload, sort order, the v29 CRDT block, soft delete), a DAO and an `OverviewViewService` mirroring `FilterPresetDao` / `FilterPresetService` (cache, the 50 cap, create / update / delete / reorder / matching / export / import, the lifecycle reset), the backup key `overviewViews` added the way `calendarFilterPresets` was (additive, absent leaves the table, the archive version unbumped) — the owner's "FilterPresetService shape" taken literally, with sync and backup parity for free · B a JSON list in one settings key · C rows in `calendar_filter_presets` with a kind column |
+| D17a | Where the entry point sits | **A** a bar button between the tune button and the ⋮ (`bookmarks_outlined`, "Saved views", `overview-views-open`, `isSelected` while the shown list equals a saved view) — the calendar bar's own pattern for its saved filters, two taps to any view, no fourth row in the filter group · B a row in the filter group · C the ⋮ |
+| D17b | A custom span in a view | **A** allowed: a view is the one place a fixed span earns its keep ("Q1 2026 · Gym · per event"); the view's JSON spells the period out, the settings key's codec is untouched · B presets and This year only |
+| D17c | What a view holds and does | **A** the period, Order, Rows, Missed only and the categories allowlist — not the query, not the mode; applying one switches to List mode, sets and persists each part as a pick would (a custom span stays session-only per D4), leaves the query as typed, lands per D7 · B the mode and the query too |
+| D18 | Presence from the rows | **A** (the owner's recommendation) a session-only Mark presence switch in the options sheet: while on, a tap on an entry row in List (every-occurrence rows) or Month mode toggles the day's presence through `SetOccurrencePresence` — the panel's quick-toggle semantics, one tap per day, the row's dimming and the header's counts as feedback, a long press still opening the detail sheet; no row geometry changes; the tune button reads selected while the switch is on · B a Present / Missed pair in the row's trailing slot · C the detail sheet only (D14) |
+
+### 2.5 Asked of the owner on 2026-10-14, after the chips' first days — answered "Okay, you may start implementation": the recommended option (A) stands for D19–D25
+
+The owner's words: the chips make switching seamless, but Year mode is "a
+bit too crowded" and they want to "focus on that year"; "the datepicker is
+too large for the yearly picker" — the months should be seen better; the
+date picker and the period picker should be "one so we don't waste so much
+space"; Month mode "looks okay" but could lose a bit of space too. What the
+tree says (en, text 1.0, 360 × 780, a 24 dp status bar): the chrome above
+the first tile is 404 dp — the status bar 24, the bar 48, the chip row 56
+(`bodyTop` + `chipTapTarget`), the filter group 152 (`bodyTop` + three
+48 dp rows), `belowFilters` 8, the nav 72 (a two-line title box of 48 in
+its 4 dp of ink padding, the 16 dp count, the row's 4 dp bottom padding),
+the totals 44 (`groupCaptionPadding`'s 8 over two 18 dp lines) — while
+the twelve tiles need 504 (four rows of `YearMonthTile.gridDelegate`'s 116
+with three 8 dp gaps and the pager's 16 dp bottom inset), so the fourth
+row of months is below the fold; on the 952 dp emulator it fits with 44 dp
+to spare, which is why the pass never showed it. The title box is two
+lines in every mode because slice 9a measures the List nav's span
+templates ("Dec 28, 2025 – Dec 28, 2026" at `titleMedium` 600 in the
+174 px the two chevrons, the Today slot and the drop-down glyph leave) into
+all three navs, so "2026" sits in a 48 dp box. The Period row and the nav's
+title both answer "which period". The mock: **"Overview mock"** —
+https://claude.ai/artifact/GSMUfABr93vsP1cyknoGsp — today's Year beside
+the proposed Year, Month and List, light and dark, List with the search
+open, the title's menu and the options sheet as insets.
+
+| D | Question | Options |
+| --- | --- | --- |
+| D19 (supersedes D11's row and D15's title) | The period control | **A** the nav's title opens the Period menu — This year · Last 12 months · Last 90 days · All time · Custom range…, the row's items and ids unchanged — in every mode, and the Period row goes; ◄ ► page years, months or step the list as today; the Today slot stays home. One control answers "which period", 48 dp back in every mode · B keep both, as today · C the Period row stays and the nav's title loses its tap |
+| D20 (supersedes slice 9a's one height) | The nav's height | **A** the title box is measured per mode — Year over the year, Month over the twelve month titles (the day list's month nav), List over the span templates — so Year and Month are one line at 1.0 and only a List span wraps; a mode switch may change the band's height (the body cross-fades under the chips, nothing is under a finger), inside a mode nothing moves · B one height across the three modes |
+| D21 | Search | **A** a search button at the end of the chip row reveals the Search row above the band and focuses it; it reads selected while a query is set; the row's ✕ clears, the button again closes and clears. Search is a List-mode tool most days, the button is where the thumb already is, and the bar keeps its three actions · B the Search row always on the page · C a fourth bar action |
+| D22 | Categories | **A** the first row of the options sheet behind the tune button ("Categories · All ›", the badge counts it as a restriction); the totals line reads the chosen categories back on the page. The calendar page keeps its categories behind its filter button the same way · B the row stays on the page, alone in its group (the tiles still fit, with 6 dp to spare) |
+| D23 (supersedes D16's two lines) | The totals | **A** one line: three names then "+N more", ellipsized past the width · B two lines, as today · C none in Year mode, where every tile carries its count |
+| D24 | The mode switch | **A** the chips stay, the day list sheet's twin, now with the search button at their end · B a `SegmentedButton`, the widget the Dates sheet and the panel already switch with (40 dp, full width, 8 dp back) · C a `TabBar` flush under the bar, swipeable; new to the app |
+| D25 | The jump picker | **A** `MonthYearPickerSheet` leaves the overview: ◄ ► page, the Year chip's tiles are the month jump, Custom range…'s year view picks whole months; the day list keeps its own · B a "Jump to…" item at the end of the menu |
+
+With every A, Year mode's chrome is 206 dp above the first tile (the
+status bar, the bar, the chip row, a 52 dp one-line nav, a 26 dp totals
+line) and the twelve months fit a 780 dp screen with 70 dp to spare; Month
+mode's grid starts at 206 too (404 today); List mode's pinned label at 226
+(its nav keeps two lines for a span).
 
 ## 3. The spec
 
@@ -546,6 +634,432 @@ year"), `upcomingPeriodCustom` ("Custom range…"), `upcomingSearchHint`,
 `overview-event-<eventId>`. `calendar-overview-open`, `calendar-view-menu`,
 `date-picker-save` / `-cancel` / `-today` stay.
 
+### 3.11 The follow-up (D12–D14, 2026-10-13)
+
+**The mode chips (D12 · A).** Under the bar, above the filter group:
+`FormChipRow(indented: false, chips: [for mode in Year · Month · List:
+FormChip(label: dayListModeYear / dayListModeMonth / dayListModeList,
+selected: _mode == mode, onTap: () => _selectMode(mode), identifier:
+overview-view-year / -month / -list)])` — the day list sheet's row
+(`agenda_day_list_sheet.dart:544–554`), in the page's order (the page opens
+on Year). The row sits at `FormMetrics.bodyTop` under the bar; the filter
+group keeps its `FormMetrics.bodyTop` above it. Nothing else moves: the
+count caption, the gap and the body follow the group as today.
+`CalendarViewMenu` loses `presentation`, `onPresentationSelected` and
+`_PresentationChoice`; the overview passes `page` and `onPageSelected` only,
+as the calendar does. The ids keep their names (never renamed); the robot's
+`selectMode` taps the chip and `currentMode` reads the selected one. Flows
+`05_overview` and `23_overview_list` switch modes by tapping the chip, with
+no `tap id:calendar-view-menu` before it.
+
+**The Period row in every mode (D13 · A).** `onSelected: _selectPeriod`
+whatever the mode. `_selectPeriod(choice)`: in list mode as today; in year
+mode `thisYear` as today (`_setPeriod(OverviewYearPeriod(today.year))` —
+the pager lands on this year, the choice persists); every other case — any
+other choice in year mode, every choice in month mode — resolves the period
+first (the picker for `custom`; a cancel changes nothing, the mode
+included), then in one `setState`: `_mode = list`, `_period = period`,
+`_year = _firstYearOf(period)`, `_selectedDay = null`, `_recompute()`; then
+`_land()`, `_schedulePrewarm()`, and both the mode and the period persist
+(`_persistMode`, `_persistPeriod`). The row's value outside list mode keeps
+reading the shown year (`_shownPeriod`); the options sheet's Order and Rows
+rows follow `listMode` as today.
+
+**The detail sheet over the list (D14 · A).**
+`lib/controllers/event_sheets_flow.dart`: `EventSheetsFlow`, the calendar
+page's trip through an event's sheets moved whole — `_detailSheetLoop`
+(`calendar_page.dart:874–1012`), `_pendingAfterSave`, `_occurrenceSurvives`,
+`_quickEditDescription`, `_skipOccurrence`, `_editExplicitDates`,
+`_editorSheet` with the save path it runs (`_dispatchOccurrenceResult`,
+`_dispatchSkipResult`, `_afterAlertsSaved`, `_checkAlertPermissions`),
+`_setOccurrencePresence`, `_resolveNoteTitle`, `_openLinkedNote`,
+`_openWikiLink` — behaviour-preserving: every write still goes through
+`context.read<CalendarBloc>()`, every sheet opens on the caller's context,
+and the suites that drive the page's trip (`calendar_keep_notice_test`,
+`event_detail_*_test`, `calendar_page_jump_test`, the editor suites) pass
+unchanged. The page's own editor opens (`_openEditorSheet`, the template
+quick add) call the flow's editor the way the trip does; the page keeps the
+FAB, the panel, the filters, the quick alarm and the templates.
+`SheetGuard` (`calendar_page.dart:134–147`) moves to
+`lib/utils/sheet_guard.dart`. The flow takes what the loop read off the
+page: a `SheetGuard`, `CalendarAppearance Function()`,
+`MarkdownColorPalette Function()` and `int Function() keepsHeard` (read at a
+trip's start and after each step, exactly as `_keepsHeard` is today). The
+calendar page keeps `_sheetGuard`, `_keepsHeard`, `_serveKeepNotice`,
+`_eventsBeforeKeep`, `_initialTargetDone` and `_openOccurrence` (the initial
+target and the pending request) and calls the flow where it called
+`_openDetailSheet` (`calendar_page.dart:710`, `:869`, `:1454`). The overview
+owns a `SheetGuard`, a `_keepsHeard` served by an `AlertKeepNotice.instance`
+listener of its own (registered as the calendar page's is,
+`calendar_page.dart:479–484`: count, and a `LoadCalendarEvents` while the
+notice is still pending — **never `take()`** (the review's finding 1, 2026-10-13):
+when a calendar beneath, the older listener, has taken it the flag is down
+and its reload is on its way; when none has, the flag stays for the calendar
+an Open event pushes, whose `_predatesKeep` defers its initial target to its
+own reload, a guard a taking overview defeated; a pending notice is served
+after the first frame, the listener removed in `dispose`) and the
+`_appearance` and palette it adopts from the settings (the palette joins
+`getCalendarOverviewSettings`). While the trip holds the guard the page
+parks bloc states as it does under a cover and adopts the last once the trip
+ends (finding 7: a tick in the sheet must not re-resolve the period). The
+chip row's fold follows the page's own keyboard only (`ModalRoute.isCurrent`,
+finding 6). `_openOn(day, eventId)`: `_blur()`, the event
+found by id in `_events` (none → nothing), `flow.open(context, event, day)`;
+a per-event row opens on `row.last` as D10 says. `CalendarOverviewPage.forTesting`
+loses `openOccurrence`; nothing navigates. `AppNavigator.toCalendarOccurrence`,
+`occurrenceCalendarRouteName`, `servesCalendarOccurrence` and the calendar
+page's serve gate stay for the alert paths (`main.dart`, `alarm_page.dart`,
+`alerts_page.dart`); the overview no longer calls them. Flow 23: the row tap
+waits for `event-detail-close`, one `key back` closes it, the row is expected
+on the list; the second `key back` goes.
+
+### 3.12 The second follow-up (D15–D18, 2026-10-13)
+
+**The period band in List mode (D15 · A).** Under the filter group, where
+Year and Month modes draw theirs (`_buildYearNav`
+`calendar_overview_page.dart:2272–2289`, `_buildMonthNav` `:2291–2316`),
+List mode draws an `AgendaPeriodNav` too: `title: _period.menuValue(l10n)`,
+`subtitle: agendaDayListCountLabel(l10n, _listedKept, _listedMissed)` (the
+count caption `_buildCount` `:1890–1900` goes; `belowFilters` `:1648–1650`
+becomes the nav in every mode, then D16's totals slot), `onPrevious` /
+`onNext` stepping (below), the Today slot per D15b, `onTitleTap` opening the
+Dates sheet's range mode (the same picker the Period row's Custom range…
+opens; a pick is a pick: `_setPeriod`), the four `overview-nav-*` ids,
+tooltips `overviewPeriodPrevious` / `overviewPeriodNext` and, on the Today
+slot, `overviewPeriodHome(period)` with the home's `menuValue`. Nothing
+centered is added: it is the band the other two modes already have.
+
+The title's box must not change height between periods (the nav's own
+rule): `AgendaPeriodNav` gains `titleTemplates: List<String>?`, measured
+the way the twelve month titles are (`_titleHeight`
+`agenda_period_nav.dart:148–164`; the LRU key `:14–22` gains a `templates`
+string, `''` on the month path) — the box is the tallest of the shown title
+and the templates, on `FormMetrics.periodTitleMaxLines`. The list nav
+passes the three preset labels, a year, and two spans in `dateSpanLabel`'s
+grammar built on the locale's widest `MMM` with two-digit days (the
+same-year and the cross-year shapes).
+
+**Stepping (D15a).** `OverviewPeriod.stepped({required int direction,
+required DateTime today, required AgendaYearBounds yearBounds})` →
+`OverviewPeriod?` (`lib/models/overview_period.dart`): a year →
+`OverviewYearPeriod(year ± 1)`; a rolling preset or a custom span → an
+`OverviewCustomPeriod` shifted by its resolved inclusive length L (back
+`[start − L, start − 1]`, forward `[end + 1, end + L]`); All time → null;
+null too when the result lies wholly outside `[Jan 1 of yearBounds.first,
+Dec 31 of yearBounds.last]` (the year nav's own bounds) or `CalendarBounds`.
+A chevron is disabled when `stepped` is null. The page's `_step(direction)`:
+`_click()`, `_period = stepped`, `_year = _firstYearOf(period)`,
+`_recompute()`, `_land()` (D7: today outside → the top),
+`_schedulePrewarm()`; no persistence (D15c).
+
+**Home (D15b).** `_home`: the period as picked — set by `_setPeriod` and
+`_listPeriod` beside `_period`, initialized from the persisted period,
+moved across New Year with `followingToday` as `_period` is; never by a
+step, never by Year-mode paging. The Today slot: `onToday: _period == _home
+? null : _goHome`, `_goHome` setting `_period = _home`, `_year`,
+`_recompute()`, `_land()`; tooltip `overviewPeriodHome(_home.menuValue(l10n))`.
+The Period row keeps reading `_shownPeriod`: a stepped span with Custom
+range… checked, as a paged year reads today.
+
+**Per-category totals (D16 · A).** Under the nav in every mode, a
+`FormCaptionSlot` whose candidate fixes two lines (a `FormCaption(maxLines:
+2)` over a two-line template), its child `FormCaption(text: totals,
+maxLines: 2, overflow: ellipsis)` at `FormMetrics.groupCaptionPadding`
+inside `RowMetrics.groupInset`, one semantics node. The tally runs over
+what the mode lists — List mode `_listedEntries` (`:252`), Month mode the
+month's listed entries, Year mode the twelve buckets' entries through
+`_listed` — and an entry counts when `!entry.missed`, or when it is missed
+while Missed only narrows this mode (`_options.missedOnly && _mode !=
+year`); its category comes from the lookup the per-event fold already uses
+(`categoryOf`, `:837`). Text: the categories in catalog order
+(`CalendarCategories.all` kept to those with a count), each
+`overviewCategoryTotal(label, count)`, joined with " · " as the count
+label's grammar joins, three named then `categoriesMore(rest)`; empty when
+nothing is listed. Computed in `_recompute` and when a batch run lands,
+beside `_listedKept`.
+
+**Saved views (D17 · A).** `lib/models/overview_view.dart`:
+`OverviewView({id, name, period: OverviewPeriod, options:
+OverviewListOptions, categoryIds: Set<String>, sortOrder})`, `toJson` /
+`fromJson` forward-compatible (the period as `{kind: year | preset |
+custom, year, preset, start, end}`, unknown → this year; absent options →
+defaults, `missedOnly` kept; `markPresence` never stored), `matches(period,
+options, categoryIds)` ignoring `markPresence`.
+`lib/database/tables/overview_views_table.dart` (`overview_views`, v41:
+`id`, `name`, `payload`, `sort_order`, `created_at`, `updated_at`, the v29
+CRDT block, `is_deleted`, `deleted_at`), `DatabaseSchema.currentVersion =
+41` with `v41OverviewViews`, `_migrateV40ToV41` (`CREATE TABLE IF NOT
+EXISTS`, the v35 step's shape `database_migrations.dart:1387–1389`),
+registered in `database.dart` as the presets are (`:69`, `:89`),
+`build_runner`; `lib/database/daos/overview_view_dao.dart` cloned from
+`filter_preset_dao.dart` (stamping in the DAO, soft delete,
+`nextSortOrder`, `reorder`, `importAll`, `deleteAll`);
+`lib/services/overview_view_service.dart` cloned from
+`filter_preset_service.dart` (`maxViews = 50`, `isFull`, `views`, `create`
+→ null when full, `update`, `delete`, `reorder`, `matching`, `exportData`,
+`importData`, `reload`, `DatabaseLifecycle.registerResetHandler`,
+`forTesting`); `backup_service.dart`: `'overviewViews'` exported beside
+`'calendarFilterPresets'` (`:114`, `:164`) and imported when present
+(`:464–471`), the archive version left at 1 as v35 left it
+(`import_export_service.dart:99`); `references/schema-lineage.md` gains v41.
+
+The bar (D17a): `_buildViewsButton` between the tune button and the ⋮
+(`:1637–1644`) — `AutomationId(overview-views-open)` over
+`IconButton(tooltip: overviewViewsTitle, isSelected: _activeView != null,
+icon: bookmarks_outlined)` (the calendar bar's `calendar_page.dart:878–884`),
+`_activeView` being `service.matching(_shownPeriod, _options,
+_categoryIds)` read on each rebuild from the service's cache.
+`lib/widgets/overview_view_sheet.dart`: `OverviewViewSheet.show(context,
+{required OverviewView current, required ValueChanged<OverviewView>
+onApply})` — the preset sheet's chrome one for one
+(`filter_preset_sheet.dart`): handle, `FormSheetHeader(✕
+overview-views-close, title overviewViewsTitle)`, the search row past the
+same threshold (`overview-views-search`), `FormActionRow(
+bookmark_add_outlined, overviewViewSaveCurrent, overview-views-save)`, one
+row per view (`overviewViewRow(id)` — a tap applies and closes; a ✓ on the
+matching one; the handle `overviewViewHandle(id)`; the ⋮
+`overviewViewOptions(id)` → Rename `overview-views-rename` / Update to
+current list `overview-views-update` / Move to top `overview-views-move-top`
+/ Delete `overview-views-delete`), the limit through
+`overviewViewLimitReached(50)`, delete through `AppDialogs.confirm`, names
+through the preset sheet's name dialog made shareable (title and labels
+passed in; no second dialog). No "None" row: a view is applied, never
+cleared. Applying (D17c): `_applyView(view)` — one `setState` with `_mode
+= list`, `_period = _home = view.period`, `_options = view.options`,
+`_categoryIds = view.categoryIds`, `_recompute()`, then `_land()` and the
+persistence each part has today (`_persistMode`, `_persistPeriod`,
+`_persistOptions`, `setCalendarOverviewCategories`); the query untouched.
+"Save the current list" snapshots `_shownPeriod`, `_options` and
+`_categoryIds`.
+
+**Mark presence (D18 · A).** `OverviewListOptions.markPresence`
+(session-only like `missedOnly`; `copyWith`, `props`). The options sheet
+takes `mode: AgendaDayListMode` in place of `listMode` (Order and Rows
+enabled in List as today) and gains `FormSwitchRow(label:
+overviewMarkPresence, identifier: overview-mark-presence)` under Missed
+only, enabled when `(mode == list && rows == everyOccurrence) || mode ==
+month`, disabled otherwise (38 %, never hidden); a Rows change to One per
+event turns it off. The page: `_rowBuilder`'s `onEntryTap` →
+`_onEntryTap(entry)`: while `_options.markPresence` and the entry's event
+tracks presence (`EventPresence.appliesTo`, as `event_detail_sheet.dart:288`
+tests) → `_click()` and `EventSheetsFlow.setOccurrencePresence(bloc,
+entry.eventId, entry.day, !entry.missed)` (`event_sheets_flow.dart:574–584`),
+nothing else — the bloc's `presenceRevision` reaches the listener and the
+row re-renders dimmed or not, the day header's counts with it; otherwise
+`_openOn` as today. `AgendaDayListRowBuilder` gains `onEntryLongPress`
+(`FormPickerRow` gains `onLongPress`, the one primitive extension): while
+marking, a long press opens the sheet; off, null. Semantics while marking:
+the entry row's node carries the hint `eventMarkMissed` / `eventMarkPresent`
+(the panel's words, `day_summary_panel.dart:216–226`). The tune button:
+`isSelected: restrictions > 0 || _options.markPresence`; the badge counts
+restrictions only (T11). A skip is not presence; the `isMissed` rules are
+untouched; per-event rows keep opening the sheet.
+
+**Copy** (en / de / ro together, `gen-l10n`, `untranslated.txt` `{}`):
+`overviewPeriodPrevious` "Previous period", `overviewPeriodNext` "Next
+period", `overviewPeriodHome` "Back to {period}", `overviewCategoryTotal`
+"{label} {count}", `overviewMarkPresence` "Mark presence",
+`overviewViewsTitle` "Saved views", `overviewViewSaveCurrent` "Save the
+current list", `overviewViewSaved` "Saved as \"{name}\"",
+`overviewViewUpdate` "Update to current list", `overviewViewDelete` "Delete
+saved view", `overviewViewDeleteConfirm` "Delete \"{name}\"? The events it
+lists are untouched.", `overviewViewActions` "Saved view options",
+`overviewViewLimitReached` "You can save up to {count} views",
+`overviewViewSearchHint` "Search saved views", `overviewViewNoMatches` "No
+saved view matches your search"; reused: `filterPresetName`,
+`filterPresetRename`, `filterPresetReorder`, `moveToTop`, `delete`,
+`cancel`, `categoriesMore`, `eventMarkMissed` / `eventMarkPresent`.
+
+**Ids** (`semantics_ids.dart`, the overview block `:406–442`):
+`overview-mark-presence`, `overview-views-open`, `overview-views-close`,
+`overview-views-search`, `overview-views-save`, `overviewViewRow(id)`
+(`overview-view-<id>`), `overviewViewOptions(id)`, `overviewViewHandle(id)`,
+`overview-views-rename`, `overview-views-update`, `overview-views-move-top`,
+`overview-views-delete`; the list nav wears the existing `overview-nav-*`.
+
+### 3.13 The third follow-up (D19–D25, 2026-10-14)
+
+Line numbers are from the uncommitted tree of 2026-10-14 (the two
+follow-ups on `c3a7447`); re-grep before editing.
+
+**The page in every mode, top to bottom** (en, 1.0, 360 wide): the bar as
+today; the chip row — `_buildModeChips` (`calendar_overview_page.dart:2153`)
+becomes a `Row` of the `FormChipRow(indented: false)` in an `Expanded` and,
+at its end, **the search button** (D21 · A):
+`AutomationId(overview-search-open)` over `IconButton(tooltip: l10n.search,
+isSelected: _query.isNotEmpty, icon: Icons.search_rounded, onPressed:
+_toggleSearch)` — a plain `IconButton` with `isSelected`, the tune
+button's own shape, never a tonal one; the row's height (`_chipRowHeight`,
+`:2173`) and its fold are unchanged; **the Search group, only while
+`_searchOpen`**: `Padding(left / top / right: groupInset / bodyTop /
+groupInset)` over `FormRowGroup(trailingGap: false, children:
+[FormSearchRow(controller: _searchController, focusNode: _searchFocus,
+hint: upcomingSearchHint, clearTooltip: upcomingClearSearch, onChanged:
+_onQueryChanged, identifier: overview-search)])` — the filter group's
+first row in the filter group's own box; `belowFilters` (8) follows it as
+it followed the group, and is absent with it; **the band** (the nav, then
+the totals), folding with the keyboard as today; the body.
+`_buildFilterGroup` (`:2200–2246`) is deleted with the Categories row
+(D22, into the options sheet) and the Period row (D19, into the nav's
+title); `_categoriesValue` (`:2250`) moves to the sheet; `_periodLabel` /
+`_periodIcon` / `_periodId` (`:2260–2298`) stay, read by the title's menu.
+`FormSearchRow` (`form_rows.dart:2551`) gains `focusNode: FocusNode?`,
+passed to its `TextField` — the one primitive extension; `form_rows_test`
+gains the case.
+
+**The search (D21 · A).** `_searchOpen` and `_searchFocus` are the page's,
+session-only, closed on open (the query is session-only too, so a closed
+row never hides a live query). `_toggleSearch`: closed → `setState(() =>
+_searchOpen = true)` and, after the frame, `_searchFocus.requestFocus()`;
+open → `_blur()`, then if the query is non-empty `_searchController.clear()`
+and `_onQueryChanged('')`, then `setState(() => _searchOpen = false)`. The
+row's own ✕ clears the text and the query and leaves the row open. The
+button reads selected while `_query.isNotEmpty`. Every sheet and menu the
+page opens `_blur()`s first, as today. `_searchFocus` is disposed beside
+the controller (`:390`).
+
+**The period control (D19 · A).** `AgendaPeriodNav.onTitleTap`
+(`agenda_period_nav.dart:94`) becomes `ValueChanged<BuildContext>?`: the
+title's own context — the `InkWell`'s, inside the `LayoutBuilder` (`:262`)
+— so a caller can anchor a menu to the title; the day list's two callers
+(`agenda_day_list_sheet.dart:723`, `:796`) become `(_) => _pickDate()`;
+`agenda_period_nav_test` pins that the argument is the title's context (its
+render box is the title's). The overview's three navs pass `onTitleTap:
+_openPeriodMenu` and `titleTooltip: l10n.overviewPeriod` (Year's and
+Month's read `monthYearPickerTitle` today, `:2781`, `:2808`; the title no
+longer picks a date). `_openPeriodMenu(BuildContext anchor)`: `_blur()`,
+then `showFormMenu<OverviewPeriodChoice>(anchor, items: [for each
+OverviewPeriodChoice: FormMenuItem(value, label: _periodLabel, icon:
+_periodIcon, identifier: _periodId)], selected:
+_shownPeriod.menuChoice(today: _today), menuWidth: FormMetrics.menuWidth)`;
+a non-null answer runs `_selectPeriod(choice)` (`:1578`) exactly as the
+row's `onSelected` did — D13 · A untouched: List → `_setPeriod`; This year
+in Year mode → `_setPeriod` (pages to this year); every other case resolves
+the period (the range picker for Custom range…, a cancel changes nothing)
+then `_listPeriod`. `showFormMenu<T>(BuildContext anchor, {required
+List<FormMenuItem<T>> items, required T? selected, required double
+menuWidth}) → Future<T?>` is `FormMenuRow._open`'s body
+(`form_rows.dart:2719–2760`) hoisted into `form_menu_item.dart` — the
+`showMenu` call with `formMenuPosition(anchor, …, menuHeight:
+formMenuHeight(items.length))`, `menuSurface`, `menuRadius`,
+`menuPadding`, the `minWidth: menuWidth` / `maxWidth: menuMaxWidth` box and
+the `FormMenuChoiceItem` / `FormMenuItemRow` items — and `FormMenuRow._open`
+calls it after its own `onSelected == null` return and unfocus, so the row
+behaves as before (`form_rows_test` unchanged). `_pickListRange` (`:1621`)
+goes: a span is picked through the menu's Custom range… (`_selectPeriod` →
+`_pickRange`, `:1601`). `MonthYearPickerSheet` leaves the page (D25 · A):
+`_pickDate` (`:1252–1283`), `_highlightMonth`, `_highlightToken` and the
+pager's `highlightMonth:` / `highlightToken:` arguments (`:2440–2441`) go;
+`AgendaYearPager.highlightMonth` itself stays for the day list sheet. The
+title's menu is the Period row's: the checked item follows `_shownPeriod`
+(`:1716`) — a paged year in Year mode checks Custom range…, as the row read
+it; the position is `formMenuPosition`'s (right edge on the title's, below
+it while it fits), and at 200 % the route's own clamp keeps it on screen
+(the device pass looks).
+
+**The nav's height per mode (D20 · A).** `_buildYearNav` (`:2769`) passes
+no `titleTemplates` and no `month`: its box is the year's one line, every
+year alike; `_buildMonthNav` (`:2789`) passes `month: _month` alone — the
+twelve `yMMMM` titles, the day list's month nav; `_buildListNav` (`:2327`)
+keeps `titleTemplates: _titleTemplates(l10n)`, from which the twelve month
+titles (`:2369–2370`) are dropped (the list's title is never a month). The
+tests "the nav is one height in Year, Month and List"
+(`calendar_overview_page_test.dart:1628`) and "the title box is as tall
+for a year, a preset and a span" (`:1516`) change per §4.2: Year's and
+Month's navs are the one-line height at en 1.0 on 360, List's is the
+templates' (two lines there), and a Year page, a Month page and a List
+step each move the body by nothing.
+
+**The totals (D23 · A).** `OverviewListMetrics.totalsMaxLines = 1`
+(`overview_list_metrics.dart:33`, its comment rewritten: one line, the
+list below never moves, three names then "+N more", an ellipsis past the
+width); the slot's template in `_buildTotals` (`:2301`) is a one-line
+caption (`text: ' '`); `namedTotals` stays 3. The "the totals (D16)" group
+(`:1653`) re-pins the slot at one line.
+
+**Categories in the options sheet (D22 · A).** `OverviewOptionsSheet.show`
+(`overview_options_sheet.dart:45`) and the widget gain `required
+Set<String> categoryIds` and `required ValueChanged<Set<String>>
+onCategoriesChanged`; the sheet's first row, above Order:
+`FormPickerRow(glyph: Icons.category_rounded, label:
+l10n.overviewCategories, value: <the read-back>, singleLine: true,
+identifier: SemanticsIds.overviewCategories, onTap: _pickCategories)`. The
+read-back is the page's `_categoriesValue` moved whole ("All" for the empty
+allowlist, else `CalendarFilterSummary.namesReadBack` over
+`CalendarCategories.visiblePlus(ids)`'s chosen labels); `singleLine` so the
+sheet never re-lays out on the picker's answer (the stale-semantics bug,
+§9 2026-10-13). `_pickCategories` is the page's (`:1772–1800`) moved whole
+— the offered set, `CategoryPickerSheet.pickMulti(context, selected:
+ids.isEmpty ? offered : ids)` over the sheet, the all-offered → empty
+collapse, the `setEquals` short-circuit, a local `_pickerOpen` — then
+`setState` on its own copy and `onCategoriesChanged(next)`. The page's
+`_onCategoriesChanged(next)` keeps what followed the pick: `_categoryIds =
+next; _categoryRevision = null; _refreshCategoryLabels(); _storeStale =
+true; _rebuild();` then `setCalendarOverviewCategories(next)` (`:1793`).
+`_openOptions` (`:1722`) passes `categoryIds: _categoryIds` and the
+callback. The tune button (`:2111`): `restrictions` counts the categories
+allowlist too — `(missedOnly && mode != year ? 1 : 0) +
+(_categoryIds.isNotEmpty ? 1 : 0)`, in every mode (the tiles honour the
+allowlist); `isSelected` unchanged in shape. `sheet_bottom_clearance_test`
+and `overview_options_sheet_test` take the two new arguments; the sheet
+suite gains the row: the read-back, a pick that applies and reports, the
+collapse to empty, the picker above the sheet.
+
+**Ids.** New: `overviewSearchOpen = 'overview-search-open'`. Retired:
+`SemanticsIds.overviewPeriod` (`semantics_ids.dart:430`) — the row is
+gone; the menu's items keep `overview-period-*`; `overview-categories`
+moves onto the sheet's row, `overview-search` onto the revealed row; the
+constant's doc comment (`:413–418`) and the `calendar-ui` catalogue say
+so. **Flows** (`tool/qa/flows/calendar/`): `05_overview.txt:14` waits on
+`overview-nav-title` instead of `overview-period` (and its header comment
+drops the "no nav in List" line, stale since 9a); `23_overview_list.txt`
+`:54`, `:132` likewise, `:60`, `:72`, `:161` tap `overview-nav-title` to
+open the menu, `:157` becomes `tap id:overview-search-open` · `wait
+id:overview-search` · the typing as today, and the search is closed after
+its check (`tap id:overview-search-open` · `wait id:overview-search
+--gone`); one Categories trip joins the options-sheet steps (`tap
+id:overview-options-open` · `wait id:overview-categories` · `tap
+id:overview-categories` · `wait id:category-pick-close` · `tap
+id:category-pick-close` · `tap id:overview-options-close` · `wait
+id:overview-options-close --gone`; the picker's ids are the calendar-ui
+catalogue's `category-pick-*`); `24_overview_views.txt` `:22` waits on and
+`:25`, `:43`, `:77` tap `overview-nav-title`.
+
+**Tests.** The robot (`test/widgets/support/overview_robot.dart`): the
+Period row block (`:459–512`) becomes the title's menu — `openPeriodMenu`
+taps `overview-nav-title`, `periodValue` reads the nav's title,
+`periodChoice` opens the menu and reads the checked `FormMenuItemRow` then
+dismisses, `periodEnabled` reads `onTitleTap != null`; the jump picker
+helpers (`:433–457`) go; `searchOpen`, `openSearch` / `closeSearch` (the
+chip row's button) and `searchFocused` join. Test bodies change only where
+§4.2 names the change (the Period row's cases, the jump picker's, the
+categories row on the page, the one-height band, the two-line totals, the
+search row's presence); new cases: the search button reveals the row
+focused, the ✕ clears text and query, the button again closes and clears,
+selected while a query is set, the chips and the band still fold over
+`_chipRowHeight` with the row open; the title opens the menu in Year,
+Month and List, a pick in Month mode switches to List (D13 · A), This year
+in Year mode pages, Custom range… opens the range picker and a cancel
+changes nothing, the checked item follows `_shownPeriod`; Year's box is
+one line at 1.0 and a page moves the pager by nothing, Month's over the
+twelve titles, List's over the templates; the options sheet's Categories
+row; the totals slot one line; **the geometry pin**: at en 1.0 on
+360 × 780 in Year mode the distance from the bar's bottom to the pager's
+top is 134 dp (the chip row 56, the nav 52, the totals 26) and the
+December tile's bottom edge lies within the page's first 756 dp (780 less
+the 24 dp status bar the test does not draw) — the reason for this
+follow-up.
+
+**Copy.** No new strings: `search` ("Search") for the button's tooltip,
+`overviewPeriod` ("Period") for the title's tooltip in every mode.
+
+**Numbers** (en, 1.0, 360 × 780, a 24 dp status bar): above the first
+tile 404 today → 206 (the status bar 24, the bar 48, the chip row 56, the
+one-line nav 52 — the 48 dp chevrons and the row's 4 dp bottom padding —
+the totals 26); the twelve tiles 504; 70 dp to spare. Month mode's grid
+starts at 206 (404 today); List mode's pinned label at 226 (its nav keeps
+two lines for a span).
+
 ## 4. Behaviour
 
 ### 4.1 Must not change
@@ -602,6 +1116,44 @@ year"), `upcomingPeriodCustom` ("Custom range…"), `upcomingSearchHint`,
   `sheet_bottom_clearance_test.dart` (the range mode and the options sheet
   join it); every existing calendar flow green; `05_overview` updated, never
   dropped.
+- (2026-10-13, slices 8a–8c) The calendar page's detail trip as its suites
+  pin it (`calendar_keep_notice_test`, `event_detail_*_test`,
+  `calendar_page_jump_test`, the editor suites): a Keep heard mid-trip takes the flag
+  from the bloc's copy, a pending occurrence description is carried
+  forward, the editor's Back reopens the sheet, Delete and an occurrence
+  that no longer survives close it, Skip closes it; `SheetGuard`'s one slot;
+  `toCalendarOccurrence`'s push over an overview for the alert paths; the
+  `AgendaDayListMode` names, the persisted keys and the ids
+  `overview-view-*` unchanged; the overview's anchoring and landing.
+- (2026-10-13, slices 9a–9d) `OverviewPeriod`'s settings codec and D4 (a
+  custom span never persists through the period key; a step never writes
+  it); `_setPeriod`'s "an unchanged pick still persists"; D7's landing; the
+  per-event fold; `FilterPresetService`, its table, DAO, sheet and backup
+  handling (cloned, never changed) and the archive version; the day
+  panel's quick toggle and the detail sheet's presence pair;
+  `SetOccurrencePresence`'s explicit statuses (never `clearMark`); the
+  `isMissed` rules and the skip filter; `AgendaPeriodNav`'s existing callers
+  (`titleTemplates` is optional; the day list's navs measure as before —
+  the overview's own three navs share one box since slice 9a); every
+  existing overview id; the mode chips and
+  the Period row of D12–D13; the sheet trip of D14; the exact extents and
+  the scrubber (the band above the list changes height between modes by
+  nothing — the nav and the slot are the same height in all three).
+- (2026-10-14, slices 10a–10c) D13 · A's switch into List on a pick
+  outside List mode and This year's paging in Year mode; `_setPeriod`,
+  `_listPeriod`, `_step`, `_goHome` and `_home`'s rules (D15a–c); the
+  period codec and D4; `CalendarDatePickerSheet.pickRange` and its other
+  caller (the agenda filters sheet); `MonthYearPickerSheet` and the day
+  list's use of it, `AgendaYearPager.highlightMonth` for the day list; the
+  saved views — what a view holds, `_applyView`, the bar button and the
+  categories a view sets; Mark presence and `_setOptions`'s rules; the
+  chips' ids and their fold; the `overview-period-*` item ids and their
+  labels and icons; `FormMenuRow`'s behaviour once its opener is hoisted
+  (`form_rows_test` unchanged); the row builder, the exact extents, the
+  pinned label and the scrubber; Month mode's grid, picked-day row and
+  sliver; `AgendaPeriodNav`'s anatomy and the day list's navs' behaviour;
+  the query's and the options' persistence rules (the query and
+  `_searchOpen` session-only); `YearMonthTile.gridDelegate`.
 
 ### 4.2 Deliberately changes
 
@@ -641,6 +1193,34 @@ year"), `upcomingPeriodCustom` ("Custom range…"), `upcomingSearchHint`,
 - The agenda filters' custom range opens the in-app picker (D9 · A), with
   no start when no range is pinned (the Material dialog pre-filled today →
   today + rangeDays − 1).
+- (2026-10-13, slices 8a–8b) The modes are a chip row on the page again
+  (D12 · A, superseding D8 · A) and the title menu carries pages only; the
+  chip row folds with the keyboard inset over its own height (the page
+  overflowed by 50 px at 360 × 780 × 2.0 with the keyboard up; the calendar
+  grid's keyboard-coupled precedent) and leaves semantics while folded. The
+  Period row is live in every mode (D13 · A): a pick outside List mode lists
+  that period, This year in Year mode pages. A row tap opens the detail
+  sheet in place (D14 · A, superseding D1 · A): nothing is pushed,
+  `forTesting` loses `openOccurrence`, the calendar page's sheet trip is
+  `EventSheetsFlow` (`lib/controllers/event_sheets_flow.dart`) and
+  `SheetGuard` is `lib/utils/sheet_guard.dart`; `getCalendarOverviewSettings`
+  also returns the markdown palette; the overview serves `AlertKeepNotice`
+  (count, and a reload while it is still pending — never `take()`); bloc
+  states are parked while the trip holds the guard and adopted once at its
+  end; the fold follows the page's own keyboard only; the year and month
+  navs wear `overview-nav-*` (declared by the rework, wired only now);
+  `EventSheetsFlow.setOccurrencePresence` is the one presence writer the
+  panel's toggle shares.
+
+- (2026-10-14, slices 10a–10c, D19–D25) The filter group leaves the page:
+  the Period row is the nav's title menu (the same five items), the
+  Categories row is the options sheet's first row (the tune badge counts
+  the allowlist), the Search row is summoned by the chip row's search
+  button and closed by it; the nav's title never opens the jump picker and
+  Year's and Month's title boxes are their own (one line at 1.0) while
+  List's keeps the span templates; the totals slot is one line;
+  `SemanticsIds.overviewPeriod` is retired, `overview-search-open` added;
+  flows 05, 23 and 24 walk the menu from the title.
 
 ## 5. Facts from the tree (`ae98d62`, re-grep before editing)
 
@@ -865,6 +1445,131 @@ tap pushes; the view menu carries the presentations); `calendar-ui`
 SKILL.md gets the ids and the flow count; this record's status line and the
 master's §9 table.
 
+### Slice 8a — The mode chips and the Period row in every mode (implementer, D12 + D13)
+
+`calendar_overview_page.dart` (the chip row, `_selectPeriod`, the menu's two
+arguments gone), `calendar_header_menus.dart` (`presentation` /
+`onPresentationSelected` / `_PresentationChoice` removed),
+`calendar_header_menus_test.dart` (the presentations group removed),
+`overview_robot.dart` (`selectMode` by chip, `currentMode` by the selected
+chip), `calendar_overview_page_test.dart` (the header group: the chips in
+every mode with the right one selected, the menu without a second group; new
+cases: Last 90 days picked in month mode → list mode on it, both persisted;
+Custom range… in year mode → the picker → list mode on the span; a cancelled
+picker leaves year mode; This year in year mode pages to this year and
+stays), flows `05_overview.txt` and `23_overview_list.txt` (the mode steps).
+Gate.
+
+### Slice 8b — The detail sheet over the list (implementer, D14)
+
+`lib/utils/sheet_guard.dart`, `lib/controllers/event_sheets_flow.dart`,
+`calendar_page.dart` delegating (the suites that drive it unchanged),
+`calendar_overview_page.dart` (`_openOn`, the guard, the keep listener,
+`forTesting` without `openOccurrence`), `calendar_overview_page_test.dart`
+(a row tap opens the sheet with the entry's title and day and pushes no
+page route; back closes it and the row is still listed at its offset; a
+per-event row opens on its last day; Missed from the sheet dims the row;
+the editor's Save from the sheet renames the row), flow 23's tap steps.
+Gate.
+
+### Slice 8c — Review, device pass, docs
+
+One `reviewer` over 8a + 8b's diff against §3.11 and §4.1; `qa-runner`:
+`qa relaunch --fresh --seed tool/qa/fixtures/calendar.json && qa flows
+calendar`, `qa errors`; docs: the feature doc's addendum,
+`references/subsystems.md` § Overview, both skills' rule lines, the master's
+row, this status line.
+
+### Slice 9a — The period band: the list nav, stepping, home, the totals (implementer, D15 + D16)
+
+`overview_period.dart` (`stepped`), `agenda_period_nav.dart`
+(`titleTemplates`, the key), `calendar_overview_page.dart` (the list nav,
+`_home`, `_step`, `_goHome`, the title tap into the range picker, the
+totals tally and slot in every mode, `_buildCount` gone), four ARB keys ×3,
+tests — `overview_period_test.dart` (stepping: a year, a preset, a span,
+All time, the bounds); `agenda_period_nav_test.dart` (templates fix the
+box); the overview suite: the nav in List mode with the count as its
+subtitle and no count caption; ◄ on Last 90 days lists the ninety days
+before with the Period row reading the span, Custom checked and nothing
+persisted; ► back; Today returns to the preset and is disabled there; This
+year ◄ → last year; All time's chevrons disabled; a step at the year bounds
+disabled; the title box's height equal across a year, a preset and a
+cross-year span at de 2.0; the totals in catalog order, three named and
+"+N more", kept only, the missed ones under Missed only; the slot's height
+constant between an empty and a full caption and across the three modes —
+and flow 23 (◄, ►, Today in List mode; the totals expected by text). Gate.
+
+### Slice 9b — Mark presence (implementer, D18)
+
+`overview_list_options.dart`, `overview_options_sheet.dart` (`mode:`, the
+switch), `form_rows.dart` (`FormPickerRow.onLongPress`),
+`agenda_day_list_rows.dart` (`onEntryLongPress`, the hint),
+`calendar_overview_page.dart` (`_onEntryTap`, the tune button), one ARB key
+×3, tests — the sheet: enabled in List with every-occurrence rows and in
+Month, disabled in Year and under One per event, turned off by a Rows
+change; the page: a tap while marking dispatches
+`SetOccurrencePresence(eventId, day, missed)` and the kept row dims once
+the state says so, a second tap dispatches present, a non-tracking event's
+row opens the sheet, a long press opens the sheet, the tune button reads
+selected, off → a tap opens the sheet as before — and flow 23 (switch on,
+tap a row, the header's count changes, tap again, switch off). Gate.
+
+### Slice 9c — Saved views (implementer, D17; load `drift-migrations`)
+
+The table, schema v41, the migration, `build_runner`, the DAO, the service,
+the model and its codec, the backup key, `schema-lineage.md`'s v41 line,
+`overview_view_sheet.dart`, the shareable name dialog, the bar button and
+`_applyView` in the page, the ARB keys ×3, the ids, tests —
+`overview_view_test.dart` (codec round trips, forward compatibility);
+`overview_view_service_test.dart` against `NativeDatabase.memory()` cloned
+from the preset service's suite (the cap, soft delete, reorder, export /
+import); the upgrade-chain test extended to v41 and the backup parity test
+gaining the key; `overview_view_sheet_test.dart` through a robot (save,
+apply, rename, update, delete, the limit) and the clearance test entry; the
+overview suite (the button, `isSelected` on a match, applying restores the
+period, the options and the categories and switches to List) — and the
+flow `24_overview_views.txt` (save the current list under a name, change
+the period, apply the view, rename, delete). Gate.
+
+### Slice 9d — Review, device pass, docs
+
+One `reviewer` over slices 9a–9c's whole diff against §3.12 and §4.1;
+`qa-runner` (`qa run`, `qa relaunch --fresh --seed`, `qa flows calendar`
+with the 24th flow, the matrix on the three modes, the views sheet and the
+options sheet); docs: the feature doc's addendum, `references/
+subsystems.md` § Overview, `references/schema-lineage.md`, the
+`calendar-events` rule lines (the view service and table, stepping,
+presence from rows), the `calendar-ui` ids and flow count, the master's
+row, this status line.
+
+### Slice 10a — The page, the sheet, the nav, the primitive (implementer)
+
+§3.13 whole: `showFormMenu` hoisted and `FormMenuRow` on it;
+`FormSearchRow.focusNode`; `AgendaPeriodNav.onTitleTap` with the title's
+context and the day list's two callers; the page — the search button and
+the summoned Search group, the filter group deleted, the nav's title menu,
+`_pickListRange` and the jump picker gone, the per-mode title boxes, the
+one-line totals; the options sheet's Categories row and the page's
+callback; the tune badge; the ids; the three flows; the robot and the
+suites; the gate.
+
+### Slice 10b — Review and the fix pass
+
+One `reviewer` over slice 10a's diff against §3.13 and §4.1 (its
+2026-10-14 bullet); confirmed defects fixed by the lead or one
+`implementer`; the gate again.
+
+### Slice 10c — Device pass and docs
+
+`qa-runner`: `qa relaunch --fresh --seed tool/qa/fixtures/calendar.json`,
+`qa flows calendar` (05, 23 and 24 green; 19 red as before), the matrix
+(`qa set theme=dark locale=de text-scale=2.0`) on the three modes with the
+search open and closed, the title's menu at 200 % (on screen, nothing
+clipped), the options sheet, both phone sizes, `qa errors` clean. Docs:
+the feature doc's addendum, `references/subsystems.md` § Overview (the
+chrome paragraph), the `calendar-ui` catalogue (the ids, the
+`AgendaPeriodNav` line, the flows), the master's row, this status line.
+
 ## 7. Definition of done
 
 1. The data the page writes equals what it wrote before for the same input:
@@ -898,16 +1603,86 @@ master's §9 table.
 
 ## 8. Deferred
 
-- **D1 · B — the detail sheet over the list.** Extract
-  `_detailSheetLoop` (`calendar_page.dart:865–1000`) and its twelve
-  dependencies (§5) into `lib/controllers/occurrence_detail_flow.dart`,
-  owned by whichever page opens it, writing only through the bloc; the
-  overview then opens an occurrence in place with no navigation. A rework of
-  its own with the detail, description and alert-keep guards as its must-not-
-  change list.
-- **D11 · B — a stepping nav in list mode**, if the owner wants chevrons
-  that shift a span by its own length: `OverviewPeriod.stepped(by:)` and
-  `AgendaPeriodNav` under the filter group, the Today slot as This year.
+- ~~**D1 · B — the detail sheet over the list.**~~ Shipped on 2026-10-13 as
+  D14 · A (slice 8b, `EventSheetsFlow`, §3.11): the "rework of its own" was
+  one slice once it was noticed that the overview already reads the
+  app-wide bloc.
+- **A guard for declared-but-unworn ids** (the 2026-10-13 review's finding
+  2): the rework declared `overview-nav-previous` / `-next` / `-today` /
+  `-title` in `SemanticsIds` and the catalogue listed them, but no widget
+  passed them until slice 8c's fix pass, and only a device run would have
+  shown it. A test that every `SemanticsIds` constant (and every helper's
+  prefix) has a reader under `lib/` other than the constants file would
+  have caught it at the gate; it belongs to the QA harness's suites
+  (`test/qa/`), not to this record's area.
+- **The list at the extreme cell** (slice 9a): at German 200 % on
+  360 × 780 the band under the filter group — a two-line nav box (every
+  period label wraps there, not only the cross-year span) over a two-line
+  totals slot — leaves the list a 50 dp viewport (471 at en 1.0 on 412),
+  so the pinned label always yields there. A one-line totals slot past
+  160 % (`FormChip`'s own threshold) would give 40 dp back at the cost of
+  an ellipsized caption; the owner decides after living with it. The
+  pinned-label de 2.0 case runs on the 412 phone since this slice.
+- **Stale semantics on a page after a popup leaves — a navigator observer**
+  (2026-10-14, the review's finding 1, CONFIRMED by the fix pass: in Year
+  mode a title-menu pick of Last 90 days switches to List and grows the
+  band from one line to two while the menu route is still leaving;
+  `overview-nav-next` is painted at `LTRB(308, 170, 356, 218)` and its
+  semantics node reports `LTRB(308, 160, 356, 208)`, 10 dp stale, the
+  totals caption 20 dp; the reproduction is
+  `calendar_overview_page_test.dart` ~1769, kept `skip: true` with the
+  reason). `FormSheetSemanticsRefresh` cannot help a page: it listens to
+  the route's `secondaryAnimation`, and a `PageRoute`'s only follows other
+  page routes (`canTransitionTo` is `nextRoute is PageRoute`), so a
+  popup's leaving never reaches it. The fix that works for every page and
+  every sheet at once: a `NavigatorObserver` registered in `main.dart`
+  beside the app's `RouteObserver` whose `didPop(route, previousRoute)`
+  awaits `route.completed` (a `TransitionRoute`'s future, resolved on its
+  dispose, after the leaving transition and the barrier's removal) and
+  then walks `previousRoute.subtreeContext?.findRenderObject()` with
+  `markNeedsSemanticsUpdate()` (hoist `FormSheetSemanticsRefresh._markSubtree`
+  into a shared helper); `markNeedsSemanticsUpdate` returns at once while
+  no semantics owner exists, so with TalkBack off it costs nothing, and
+  with it on one subtree geometry pass per pop. It subsumes
+  `FormSheetSemanticsRefresh` on the two sheets. About thirty lines plus
+  the un-skipped test; app-wide, so the owner's call. Until then the stale
+  rects last until the band's next layout (a mode switch, the keyboard
+  fold, a scale or locale change); a tap by id still lands inside the
+  48 dp button, TalkBack's highlight is drawn 10 dp off.
+- **`FormSheetSemanticsRefresh` beyond the two sheets that carry it**: the
+  framework bug it works around (a sheet resizing while the dialog or
+  menu above it is still leaving keeps stale semantics geometry — a
+  TalkBack defect, not only a harness one) can hit any content-tall
+  sub-sheet that resizes on a dialog's answer and any `FormSheetFrame`
+  sheet that adds rows after a picker; adopting it inside
+  `FormSheetFrame` and the sub-sheet chrome is an app-wide decision for
+  `docs/ui-language-adoption-roadmap.md`, and the bug deserves an
+  upstream report with the minimal sheet the investigation wrote.
+- ~~**The Categories row's value can wrap at 200 %**~~ — the row moved
+  into the options sheet on 2026-10-14 (D22 · A) and took `singleLine`
+  there, so the sheet never re-lays out on the picker's answer; the price
+  is the review's finding 2: at German 200 % beside a long read-back
+  ("Kraft, Gesundheit +2 weitere") the label "Kategorien" can ellipsize,
+  as the day list's single-line read rows can. The owner decides after
+  living with it; the alternative is the wrap layout under
+  `FormSheetSemanticsRefresh`, which would move the rows below on a pick.
+- **The search button and the chips at a large text scale** (2026-10-14,
+  the review's finding 7): the button takes 48 dp from the chip row, so
+  "Jahr · Monat · Liste" wraps onto a second run from about 150 % rather
+  than 180 %; the fold still travels over the 1.0-scale `_chipRowHeight`,
+  the existing rule, and the page fits at 360 × 780 × 2.0 with the
+  keyboard up. And while the keyboard is up the chips fold away with the
+  button, so closing the search takes the keyboard's back first — the
+  spec's "fold unchanged", which the owner may notice. Both for the owner
+  after the device pass.
+- **`filterPresetLimitReached` in Romanian** has the same missing "de" as
+  the views' key had ("50 de filtre"); the presets are not this record's.
+- **The fold under a steady small inset** (finding 6a): a floating
+  keyboard's strip or a hardware keyboard's toolbar leaves the chip row
+  half-folded and its visible half live; snapping to whole or folded past a
+  threshold would need a measured row height per text scale.
+- ~~**D11 · B — a stepping nav in list mode.**~~ Asked for by the owner on
+  2026-10-13 and built as D15 (slice 9a, §3.12).
 - **The lane as a whole-height drag target** (review 12): a vertical drag
   anywhere in the rows' trailing 48 dp scrubs; a right thumb scrolling at
   the edge jumps. D6 · A chose the lane; the alternative is to scrub only
@@ -938,9 +1713,9 @@ master's §9 table.
   a term index would make it instant.
 - **Share this period**: the listed rows as text (title · day per line) through
   `shareExport`; the ⋮'s `.ics` export stays event-level.
-- **Collapsible months**, **per-category totals under the caption**, **Last
-  30 days / Year to date** (D2 · B), **saved views** (period + options +
-  categories as a named preset, the saved filters' pattern).
+- **Collapsible months**, **Last 30 days / Year to date** (D2 · B).
+  ~~Per-category totals~~ and ~~saved views~~ were asked for on 2026-10-13
+  and built as D16 and D17 (slices 9a and 9c, §3.12).
 - **The jump picker's day wheel** and the **two-line sheet header at 200 %**
   (Tier 3 §8) stay open.
 
@@ -1235,3 +2010,363 @@ master's §9 table.
   Slice 0's note stands: no change under
   `lib/` went into
   the tree.
+- **2026-10-13 — follow-up IN PROGRESS.** The owner committed the rework as
+  `c3a7447` on 2026-10-12 and used it on the phone: the twelve-month mode
+  "gone" (the switch in the title menu, the mode persisted), the Period row
+  disabled (month mode), back after a row tap onto the pushed calendar.
+  D12–D14 asked and answered A, A, A (§2.3); §3.11, the §4.1 addition and
+  slices 8a–8c written; at dispatch nothing was in the tree beyond this
+  record and the master's row.
+- **2026-10-13 — slices 8a and 8b done, the review, the fix pass.** Slice 8a
+  (`implementer`, Opus 5.5): `_buildModeChips` (Year · Month · List,
+  `FormChipRow(indented: false)` under the bar), `CalendarViewMenu` without
+  `presentation`, the Period row live in every mode (`_selectPeriod`
+  resolves the period first, `_listPeriod` switches), the robot on the
+  chips, flows 05 and 23 on the chips; one deviation accepted by the lead —
+  the chip row folds with the keyboard (the page overflowed by 50 px at
+  360 × 780 × 2.0 with it up), changed on the lead's word from a
+  `Visibility` pop to an inset-coupled `Align(heightFactor)` over
+  `_chipRowHeight`; `+7527 ~8 -1`. Slice 8b (`implementer`, Opus 5.5):
+  `SheetGuard` → `lib/utils/sheet_guard.dart`, the trip → `EventSheetsFlow`
+  (`openDetail` / `openEditor` / `editorSheet` / `openLinkedNote`,
+  `setOccurrencePresence` public for the panel's toggle), the calendar page
+  delegating, the overview owning a guard, a flow, a Keep listener and the
+  palette (`getCalendarOverviewSettings` gained it — the loaded state holds
+  none), `forTesting(onStore:)`, six new tests, four re-targeted from the
+  push to the alert path, flow 23 with one back; `+7532 ~8 -1`. Review
+  (`reviewer`, Opus 5.5, read-only, the two untracked files included): 11
+  findings — (1) PLAUSIBLE and real: the overview taking the Keep notice
+  defeated the pushed calendar's `_predatesKeep`, so an Open event right
+  after a Keep could open the sheet on the copy still marked remove-after;
+  (2–3) CONFIRMED: the four `overview-nav-*` ids declared by the rework were
+  never wired, so both flows' waits would fail, and flow 05's month wait was
+  satisfied by the year nav; (4) a vacuous offset test; (5) test gaps; (6)
+  the fold — a steady small inset half-folds, 2.0 folds faster than the real
+  height, a sheet's keyboard folded the row behind it; (7) PLAUSIBLE: a
+  whole-period re-resolution per tick under the sheet; (8) three stale
+  comments; (9) a `path_provider` handler and a closed cached database left
+  behind by one group; (10) a scan worth a line; (11) four LF files
+  (normalized by the lead through temp files). Fix pass (the 8b
+  implementer resumed): the overview never `take()`s — count, reload while
+  pending (three tests); the four ids wired in both navs (one test); the
+  offset test on a mid-list row; the fold gated on `ModalRoute.isCurrent`
+  (one test); states parked while the guard is open and adopted once at the
+  trip's end (two tests re-targeted, one new on the `onStore` seam); the
+  comments; `tearDownAll` through `AppDatabase.deleteAllData()`; the line
+  on `_openOn`; `+7536 ~8 -1`. Flow 05 rewritten by the lead to Year → List
+  → Month → Year, Year waited on two tile labels (`Jan {{year}}`,
+  `Jul {{year}}` — the tiles read `DateFormat.yMMM`, the month nav spells
+  its month out). Docs placed by the lead: this record (§2.3, §3.11, §4.1,
+  §4.2, §6, §8), the feature doc's addendum 2026-10-13, `references/
+  subsystems.md` § Overview, the `calendar-events` and `calendar-ui` rule
+  lines, the master's row. Device pass: next.
+- **2026-10-13 — slice 8c done; IMPLEMENTED, uncommitted.** Device pass
+  (`qa-runner`, Sonnet 5.5, Pixel_9_Pro, `ANTA_QA_VIA=agent`): `qa run`,
+  `qa relaunch --fresh --seed`, `qa flows calendar` 23 / 24 —
+  `19_fasting_schedule` red at its known step (its sheet left open cascaded
+  into 20–23 in the full run; the four re-run alone all passed, 23 with the
+  row tap, `event-detail-close` and one `key back`), `05_overview` green in
+  the full run; `qa errors` clean twice. Matrix at de · dark · 2.0 and ro ·
+  light · 1.0 at 427 × 952 and 360 × 800 (the wrapper's `--phone` size;
+  360 × 780 and 412 × 915 are not settable): the chips, the Period menu, the
+  detail sheet over the list in List and in Month mode, one back onto the
+  row — right at both sizes. Two "clips" the runner reported (the pinned
+  label reading "OMBRIE 2026", the caption's number hidden, the German year
+  nav's count "overlapping" the chevrons) are the harness's semantics-overlay
+  badges painted over the first characters — the English shots read
+  "#16 OBER 2026" the same way; the screens are intact. Not verified on the
+  device: the chip row's fold under a real keyboard — the harness never
+  raises one (the agent owns text entry) and the VM-service inset recipe was
+  refused by the permission classifier, so the fold rests on the widget
+  tests (half at half, gone past, whole at zero, whole under a sheet's
+  keyboard). Final gate on the lead's own run: `dart analyze lib test tool
+  test_driver` clean, `flutter test` `+7536 ~8 -1`, `untranslated.txt` `{}`.
+  19 uncommitted files; the owner reviews and commits.
+- **2026-10-13 — second follow-up IN PROGRESS.** The owner asked for three
+  §8 items and one new one ("decide each with Fable first, then implement
+  with whatever you see fit"): D15–D18 decided by the lead (§2.4), §3.12,
+  the §4.1 addition and slices 9a–9d written on the facts one `explorer`
+  (Haiku 5.5) gathered; at dispatch nothing in the tree beyond this record.
+- **2026-10-13 — slice 9a done (the period band).** `OverviewPeriod.stepped`,
+  `AgendaPeriodNav.titleTemplates` (the LRU key gains `templates`), the
+  list nav with the count as its subtitle (`_buildCount` gone), `_home` /
+  `_step` / `_goHome`, the title tap into the range picker, the totals slot
+  in every mode (`OverviewListMetrics.namedTotals = 3`, `totalsMaxLines =
+  2`), four ARB keys ×3, flow 23's nav steps; `+7556 ~8 -1`. Deviations the
+  lead accepted: the band folds with the keyboard as the chips do (the
+  keyboard case at 360 × 780 × 2.0 overflowed by 126 dp otherwise — the
+  year nav folds while a search is typed now); Month mode's nav stays in
+  its scroll view with the totals under it; Year mode's totals come from
+  the tiles' marks (`_markedKept` per category per month, cleared with the
+  store) so the marks-only tiles stay marks-only, and from rows once a
+  month is loaded as rows or a query is live; Month mode's totals cover the
+  whole month; list totals are counted as each batch lands; `_home`
+  follows New Year in every mode; `_setPeriod` sets `_home` before its
+  unchanged-pick return; the span templates are "MMM 10 – MMM 28" on the
+  widest month and that month's 28th to the same date a year later; de and
+  ro carry placeholder metadata blocks. Decided by the lead on the report:
+  the 50 dp list at de 2.0 on 360 × 780 accepted (§8) and the pinned-label
+  de 2.0 case moved to the 412 phone; the nav's height unified across the
+  three modes — one `_titleTemplates(l10n)` (the presets, a year, the two
+  spans and this year's twelve month titles, cached per locale and year)
+  handed to all three navs, the month nav keeping `month:`; the list nav's
+  title tooltip `overviewPeriod`, the range mode's own header title. Flow
+  23 steps ► first (the seed holds nothing in the ninety days before Last
+  90 days). Not verified: the device.
+- **2026-10-13 — slice 9b done (Mark presence).**
+  `OverviewListOptions.markPresence` (session-only), the options sheet on
+  `mode:` with the switch (`how_to_reg_outlined`, `overview-mark-presence`;
+  enabled in List with every-occurrence rows and in Month; a Rows change
+  to One per event turns it off), `FormPickerRow.onLongPress` and `hint`
+  (the second field a deviation the lead accepted: a `MergeSemantics` from
+  outside would have merged the day list's pencil into the row),
+  `AgendaDayListRowBuilder.onEntryLongPress` / `entryHint`, the page's
+  `_marks` / `_onEntryTap` (a tap marks through
+  `EventSheetsFlow.setOccurrencePresence`, a long press opens the sheet,
+  the hint `eventMarkMissed` / `eventMarkPresent`), the tune button
+  selected while marking can act — not in Year mode, the lead's fix of the
+  implementer's literal reading — one ARB key ×3, flow 23's marking steps
+  (checked through Missed only by id: the day header's count depends on
+  the weekday and the harness cannot express its newline); `+7570 ~8 -1`,
+  the two suites `+154` after the fix. Not verified: the device,
+  TalkBack's reading of the hint, the long press on Android.
+- **2026-10-13 — slice 9c done (saved views).** `overview_views` (v41, the
+  presets table's shape with the blob as `payload`, a frozen `CREATE TABLE
+  IF NOT EXISTS` in `_migrateV40ToV41`, `DatabaseSchema.currentVersion =
+  41`), `OverviewViewDao` (the preset DAO's twin, stamping in the DAO),
+  `OverviewView` (`toJson` / `fromJson`: the period as `{kind, year |
+  preset | start, end}`, options by name, sorted categories, `markPresence`
+  never written; unknown kind, preset or date → this year; `matches`
+  ignores `markPresence`), `OverviewViewService` (`maxViews = 50`,
+  `matching`, `create` → null when full, the serialized write chain, export
+  / import, the lifecycle reset), the backup key `overviewViews` (additive,
+  no strand rule, archive version 1), `OverviewViewSheet` (the preset
+  sheet's chrome: search past `listSearchThreshold`, the save row disabled
+  while the shown list is saved or a query is live, the ✓ on the match, the
+  ⋮ with Rename / Update to current list — disabled while in use / Move to
+  top / Delete, drag reorder; the preset sheet's name dialog reused as it
+  stands — it already takes a title), the bar's `_buildViewsButton`
+  (selected on a match, disabled until the service loads), `_openViews`,
+  `_applyView` (List mode; the period, options and categories restored and
+  persisted as a pick would; the store rebuilt when the allowlist changed,
+  as `_pickCategories` does; `_year` and `_selectedDay` reset;
+  `markPresence` carried), ten ARB keys ×3, eleven ids, flow 24, the
+  lineage reference's v41 line; tests: 11 model, 18 service, 10 sheet, 4
+  page, the upgrade chain, the schema parity, the backup round trip, the
+  clearance entry; `+7618 ~8 -1`. Deviations the lead accepted: the row
+  caption and the save dialog's suggested name are the period's
+  `menuValue`; "Update to current list" stores `markPresence` false; the
+  ⋮ and handle ids carry the view's id. Not verified: the device (flow 24's
+  `type` into the dialog and the ⋮ by tooltip are assumptions), dark, ro,
+  412 × 915, an upgrade of a real v40 database through the app.
+- **2026-10-13 — the review of 9a–9c and the fix pass.** Review
+  (`reviewer`, Opus 5.5, read-only; it hit its turn limit once and was
+  resumed to report): no data-loss or compatibility defect; 12 findings —
+  (1) PLAUSIBLE and real: a presence mark bumped `presenceRevision`, the
+  page dropped the whole store and relisted the first `syncMonths`
+  synchronously, so on All time scrolled far down the list shrank under
+  the finger and a second tap could mark the wrong day; (2) with the
+  missed display hidden a mark removed its row with no way back; (3)
+  marking could read "on" in List mode with One per event (a mode switch,
+  a per-event view); (4) a "This year" view pinned the year's number —
+  decided by the lead: rolling, a `thisYear` kind; (5) ◄ then ► left a
+  custom span equal to the preset; (6) the widest month by character
+  count, not pixels; (7) flow 24's `wait "Save"` ambiguous under the
+  harness's substring pass; (8) flow 23's totals text too loose and ► on
+  Dec 31; (9) `dart format` drift in seven new files; (10) the Romanian
+  "50 de vizualizări"; (11) two stale doc lines (fixed by the lead); (12)
+  very low: a double tap dispatching missed twice, two taps on the views
+  sheet popping twice (the presets share it), an unlabeled empty totals
+  node. Not covered by the review: `query_count_test` for the views DAO,
+  a line-by-line ⋮ comparison with the preset sheet, the stale-`///`
+  sweep. Fix pass (a fresh `implementer`, Opus 5.5): `AgendaMonthStore.forget(month)`
+  and the page's `_pendingMarks` — a bump that only moves
+  `presenceRevision` by as many marks as are pending forgets their months
+  and re-resolves them at once, the store kept, every other bump the full
+  rebuild as before (the frame-by-frame test fails with the fix reverted:
+  the offset fell from 305 431 to 128 175 on the first frame);
+  `missedHidden` on the options sheet and marking turned off when the
+  appearance hides missed entries; `_dayRowsShown` gating the tune button,
+  `_selectMode` and `_applyView`; the `thisYear` kind (`toJson({today})`,
+  decode with today); `_step` landing on `_home` when the spans match;
+  span templates for all twelve months; `filterPresetName` /
+  `filterPresetNameSave` ids on the shared name dialog and flow 24 waiting
+  on them; flow 23's `expect "Gym 4 · Other" "Strength 8"` and the order
+  ► Today ► ◄; the seven files formatted; the Romanian value; the empty
+  totals node excluded; `+7630 ~8 -1`. Deviations accepted: pending marks
+  are consumed as many as the revision moved, cleared when a state is
+  parked, and a bump larger than the pending list falls back to a new
+  store; a forgotten listed month is re-resolved in `_forgetMarked`
+  itself; renaming or updating a view re-encodes its period with today's
+  date, so a future year's view edited in that year becomes "this year".
+- **2026-10-13 — the device pass of 9a–9c** (`qa-runner`, Sonnet 5.5,
+  Pixel_9_Pro): a plain `qa run` over the emulator's v40 database upgraded
+  it to v41 with nothing in `qa errors`; `qa flows calendar` 24 / 25 —
+  `19_fasting_schedule` red as known (20–22 re-run alone, green), `23_overview_list`
+  green with the nav steps, the totals text and the marking through Missed
+  only, **`24_overview_views` red at step 24 and reproduced on a fresh
+  relaunch**: right after the name dialog saves a view the sheet's ✕ does
+  nothing (the scrim and back close it; reopened, the ✕ works) — an app
+  defect; `qa errors` clean three times. In words: a ◄ tap at en 1.0 moves
+  nothing; at de 2.0 the Period row's value wraps for a stepped span and
+  the whole filter group grows by about 40 dp, moving the nav and the list
+  under the finger — the row, not the nav; a row tap while marking flips
+  the hint and the dimming at once and the totals follow; a tap on the
+  totals does nothing. Matrix (de · dark · 2.0 and ro · light · 1.0, the
+  default size and 360 × 800): the Mark presence row wraps to two lines and
+  clips nothing; the view row's ⋮ has its four items; the saved view shows
+  in de and ro; the Romanian page title is clipped at 1.0 ("Prezentare
+  gene…") now that the bar has three actions, the German one at 360 × 2.0;
+  in Month mode the Period row read the stepped span while the nav read
+  the month; the "cut" first day card in the English shot is a row
+  half-scrolled under the viewport's top, normal. Second fix pass
+  dispatched for the ✕, the Period row's one height (`singleLine`),
+  `_shownPeriod` in Month mode and the Romanian title ("Sumar").
+- **2026-10-13 — the second fix pass** (the same `implementer` resumed):
+  the dead ✕'s root cause is `OverlaySnackbar`'s box — a coloured
+  `Material` 76 dp tall, 80 dp above the bottom, absorbing every tap
+  inside it, so on a short sub-sheet it covered the lower part of the
+  header's ✕ until the message timed out; fixed once in
+  `lib/widgets/overlay_snackbar.dart` (a transparent `Material` over a
+  `PhysicalModel`; only the text line and the ✕ take taps; the text stays
+  tappable because nine existing suites pin "where a finger can reach the
+  message") with a regression test that failed before the fix (a ✕ whose
+  tap point falls on the text line itself would still be blocked — the
+  device's sits above it). `FormMenuRow.singleLine` added and set on the
+  Period row (the nav's top unchanged across a year, a preset and a
+  stepped span at de 2.0 on both widths — 40 dp of movement before);
+  `_shownPeriod` in Month mode reads `OverviewYearPeriod(_month.year)`
+  (the range picker, "Save the current list" and the views' match follow
+  it there); the Romanian `calendarOverview` "Sumar"; `+7635 ~8 -1`.
+- **2026-10-13 — the device re-run** (`qa-runner`): 24 / 25 again —
+  `23_overview_list` green (122 steps), the three checks green: after ◄ at
+  de 2.0 on 360 × 800 the nav and the list stay put (1956 both before and
+  after; the Period row one line with an ellipsis on a long span); the
+  Romanian bar reads "Sumar ▾" unclipped beside its three actions; a real
+  touch on the painted ✕ closes the views sheet on the first tap with
+  "Salvat ca …" still up. **`24_overview_views` still red at step 24, for
+  a new reason**: after the sheet resizes (a saved view adds a row; a
+  deleted one removes it) the semantics tree the harness taps by reports
+  the old geometry — the ✕ at y 2328–2472 while it is painted at about
+  2210, the save row at 2307 while painted at 2566 — and the dump stays
+  stale 25 s later, so an id tap misses while a raw tap at the painted
+  position works at once. App semantics or harness snapshot: unknown;
+  an investigation with a widget test (the painted rect against the
+  semantics node's global rect after a save and a delete) dispatched —
+  if the app's tree is stale it is an accessibility defect the preset
+  sheet shares. `qa errors` clean twice. Also noted: the "Salvat ca …"
+  message covers most of the saved view's row on a short sheet while it
+  is up.
+- **2026-10-13 — the stale-semantics investigation** (a fresh
+  `implementer`, Opus 5.5): **the app was at fault, and it is a Flutter
+  3.44.2 framework bug.** `await showDialog(...)` resumes as soon as the
+  dialog pops, while its barrier is still animating out and its
+  `BlockSemantics` still blocks the sheet beneath; a sheet that resizes
+  in that window has its geometry pass skipped for the blocked branch
+  (`PipelineOwner.flushSemantics` drops it), and once unblocked nothing
+  marks the branch dirty — `_RenderObjectSemantics._updateGeometry`
+  rebuilds a node only when its size or visibility changed, so a node
+  that merely moved keeps its old transform until its next layout. A
+  minimal sheet with no app code shows it; a plain `setState` resize is
+  fresh. In the widget test the ✕ was painted at y 757 and reported at
+  820 after a save (one row), the save row painted at 876 and reported
+  at 813 after a delete; the preset sheet showed the same (695 against
+  758). Fix: `FormSheetSemanticsRefresh` (`lib/widgets/form_sheet_frame.dart`)
+  listens to the sheet route's `secondaryAnimation` and, when the route
+  above has finished leaving, walks the sheet's render subtree once with
+  `markNeedsSemanticsUpdate()`; both sheets' `show` builders wrap their
+  box in it. Tests: a save and a delete on the views sheet, a save on the
+  preset sheet (painted and reported centres within 1 px; red before the
+  fix), the helper `test/widgets/support/semantics_geometry.dart`;
+  `+7638 ~8 -1`. Flow 19 is probably not this (no route leaves over the
+  fasting sheet before its failing step; its id more likely sits just
+  past the viewport, where Flutter drops a scrollable's clipped nodes).
+- **2026-10-13 — IMPLEMENTED, uncommitted.** The device re-run
+  (`qa-runner`): `24_overview_views` green, all 70 steps, `23_overview_list`
+  green again (122 steps), `qa errors` clean. The lead's own gate on the
+  final tree: `dart analyze lib test tool test_driver` clean, `flutter
+  test` `+7638 ~8 -1`, `untranslated.txt` `{}`; 71 uncommitted files; the
+  owner reviews and commits.
+- **2026-10-14 — PLAN, the third follow-up.** The owner's read of the chips
+  after a day (§2.5); the numbers from the tree (404 dp above the first
+  tile against 504 for the tiles on 360 × 780; the two-line title box in
+  every mode); one mock (https://claude.ai/artifact/GSMUfABr93vsP1cyknoGsp);
+  D19–D25 answered "Okay, you may start implementation" — the recommended
+  A stands for each; §3.13, §4.1's and §4.2's bullets, slices 10a–10c. 71
+  files were already uncommitted from the two follow-ups when this started;
+  the owner commits.
+- **2026-10-14 — slice 10a built** (one `implementer`, Opus 5.5): §3.13
+  as written, with these deviations kept: the robot's `periodChoice` and
+  `categoriesValue` are async (they open the menu and the sheet);
+  `_toggleSearch` clears when the field's text *or* the query is non-empty,
+  so a keystroke still on the 200 ms debounce never applies behind a closed
+  row; the exact 134 dp geometry pin runs at 412 × 915 because the test
+  font's square glyphs wrap the chips onto a second run at 360 (there the
+  test pins the nav at 52, the totals at 26 and the December tile above
+  the fold); Month mode's nav is pinned relative to Year's and List's,
+  not at 52, for the same font reason; flow 23 takes one more screenshot
+  (`23_overview_options_categories`). Gate: `dart analyze lib test tool
+  test_driver` clean, `flutter test` `+7652 ~8 -1` (the known Windows-only
+  `host_devices_test` case), no ARB touched.
+- **2026-10-14 — slice 10b review** (one `reviewer`, Opus 5.5, read-only):
+  no data-loss, persistence or crash defect; D13 · A, `_setPeriod`,
+  `_listPeriod`, `_step`, `_goHome`, `_home`, `_applyView` and Mark
+  presence as before. Findings, most severe first: (1) PLAUSIBLE — a
+  title-menu pick in Year or Month mode runs `_listPeriod` while the menu
+  route is still leaving, and with the title box per mode the band grows
+  from one line to two, so the nav's buttons and the totals move under a
+  blocked semantics tree (the 2026-10-13 Flutter stale-geometry case; the
+  page carried no `FormSheetSemanticsRefresh`); (2) PLAUSIBLE — the
+  options sheet's Categories label can ellipsize at German 200 % beside a
+  long read-back, the price of `singleLine`; (3) CONFIRMED — dead code,
+  `FormMenuRow.singleLine` with no caller once the row went; (4) CONFIRMED
+  — a circular import, `form_menu_item.dart` importing `form_rows.dart`
+  for `FormMenuItem`; (5) CONFIRMED — flow 05's wait after the Month tap
+  passed at once (List's nav wears the same id) so the Month screenshot
+  could catch the cross-fade; (6) CONFIRMED — stale comments naming the
+  Period row in five files; (7) PLAUSIBLE, low — the search button takes
+  48 dp from the chips, which wrap onto a second run sooner at a large
+  text scale; (8) low — the page-level menu-position test pinned "below
+  the title" only, and no test read an archived chosen category back
+  through `visiblePlus`. Clean: `_openPeriodMenu` and `_toggleSearch`'s
+  lifecycle, `_onCategoriesChanged` against `_applyView`, the moved
+  picker, the badge, the `Builder` around the title (no extra node, id and
+  tooltip kept), the per-mode boxes and the templates' cache key, the
+  totals, the Search group outside the fold and the page at 360 × 780 × 2.0
+  with the keyboard up, the flows' ids and verbs, `FormMenuRow`'s
+  behaviour, no new strings. Fix pass (one `implementer`, medium): 1 as a
+  test first and the wrap only if red, 3, 4 (`FormMenuItem` moved into
+  `form_menu_item.dart` and re-exported from `form_rows.dart`), 5, 6, a
+  sheet-height-unchanged-across-a-pick test for 2, the right-edge pin for
+  8; 2's label and 7 to the device pass and §8.
+- **2026-10-14 — slice 10b fix pass** (one `implementer`, Opus 5.5,
+  medium): `FormMenuItem` moved into `form_menu_item.dart` and re-exported
+  from `form_rows.dart` (the cycle gone); `FormMenuRow.singleLine` deleted;
+  flow 05 waits for `overview-list --gone` after the Month tap; the stale
+  "Period row" comments rewritten in seven files (the agenda filters
+  sheet's own Period row keeps its name); the options sheet keeps its
+  height across a pick (382 dp, and 408 with `singleLine` off, so the test
+  bites); an archived chosen category reads back through `visiblePlus`;
+  the menu's right edge pinned to the title's — with the route's 8 dp
+  clamp where the test font's 280 dp menu does not fit beside a short
+  title. **Finding 1 is real and not fixed here**: the test is red, the
+  `FormSheetSemanticsRefresh` wrap leaves it red (a page route's
+  `secondaryAnimation` never follows a popup), the wrap was taken out and
+  the test kept `skip: true`; the observer that fixes it app-wide is in §8.
+  Gate: `dart analyze lib test tool test_driver` clean, `flutter test`
+  `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; two new
+  sheet cases, one skipped), no ARB touched.
+- **2026-10-14 — slice 10c device pass and docs — IMPLEMENTED,
+  uncommitted.** `qa-runner` (Sonnet 5.5) on the Pixel_9_Pro: the first
+  installed build was stale (the old filter rows), so a plain `qa run`
+  preceded the results; flows 00–18 green, 19 red as before and its open
+  dialog failing every later flow's first step in the one-shot run, 20–24
+  green one by one, 23 red twice on data the earlier flows had mutated
+  (Gym 5 · Strength 9: today's two entries once more) and green from a
+  fresh seed, with a six-point bisect of its own steps (the custom span,
+  the preset, ►, Today, ►, ◄) reading 13 entries at every point — no
+  defect in the step, home or landing logic; the matrix as the status
+  line says; `qa errors` clean throughout. Docs: the feature doc's
+  addendum, `references/subsystems.md` § Overview, the `calendar-events`
+  rule lines, the `calendar-ui` file table, nav bullet, ids and device
+  pass, the master's row, this status line.

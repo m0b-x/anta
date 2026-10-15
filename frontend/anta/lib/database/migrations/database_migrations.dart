@@ -206,6 +206,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v40EventAlerts,
       migrate: _migrateV39ToV40,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v40EventAlerts,
+      toVersion: DatabaseSchema.v41OverviewViews,
+      migrate: _migrateV40ToV41,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1640,5 +1645,32 @@ class DatabaseMigrations {
     }
 
     await DatabaseIndexes(_db).createAlertIndexes();
+  }
+
+  /// v40 → v41: adds `overview_views`, the overview's saved lists.
+  ///
+  /// The v35 step's shape exactly — a brand-new table born with the CRDT
+  /// block and no `DEFAULT ''` on the identity pair, no backfill (every
+  /// install upgrades to "no saved views"), no index (a handful of rows read
+  /// wholesale by `OverviewViewService`, looked up only by primary key), the
+  /// whole view in one `payload` TEXT column. The DDL is frozen at this
+  /// version and must never be re-derived from the live Drift declaration.
+  /// Idempotent by `CREATE TABLE IF NOT EXISTS`.
+  Future<void> _migrateV40ToV41(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS overview_views (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
   }
 }

@@ -231,6 +231,33 @@ void main() {
     },
   );
 
+  // v41 is a brand-new table, so a v40 database is a fresh one without it.
+  // The re-run is what makes `IF NOT EXISTS` load-bearing: a partial upgrade
+  // replays the step over a table that already holds a view.
+  test(
+    'v40 upgrades to v41 with overview_views, and a re-run keeps its rows',
+    () async {
+      await db.customStatement('DROP TABLE overview_views');
+      expect(await tableNames(db), isNot(contains('overview_views')));
+
+      await _upgrade(db, DatabaseSchema.v40EventAlerts);
+
+      expect(await tableNames(db), contains('overview_views'));
+      expect(await _userVersion(db), DatabaseSchema.v41OverviewViews);
+
+      await db.overviewViewDao.upsertView(
+        const OverviewViewsCompanion(
+          id: Value('v1'),
+          name: Value('Q1 gym'),
+          payload: Value('{}'),
+        ),
+      );
+      await _upgrade(db, DatabaseSchema.v40EventAlerts);
+
+      expect(await db.overviewViewDao.getAll(), hasLength(1));
+    },
+  );
+
   test('a v30 database file opens through the real upgrade path', () async {
     final dir = await Directory.systemTemp.createTemp('upgrade_chain_test');
     addTearDown(() => dir.delete(recursive: true));

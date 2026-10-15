@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
+import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
@@ -21,13 +22,14 @@ import 'package:anta/utils/agenda_month_store.dart';
 import 'package:anta/widgets/agenda_day_list_rows.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
-import 'package:anta/widgets/calendar_header_menus.dart';
+import 'package:anta/widgets/event_detail_sheet.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/list_scrubber.dart';
-import 'package:anta/widgets/month_year_picker_sheet.dart';
 import 'package:anta/widgets/year_month_tile.dart';
 
 import 'overview_options_robot.dart';
+import 'overview_view_robot.dart';
 
 /// Drives the calendar overview — [CalendarOverviewPage] — for the suites:
 /// they say what the user does and read what the page shows.
@@ -37,14 +39,13 @@ import 'overview_options_robot.dart';
 /// later slice that changes the chrome rewrites the robot and leaves the
 /// bodies alone, but for the behaviour the record changes on purpose.
 ///
-/// Slice 3a's chrome: the mode is the view menu's second group, picked by
-/// id; one filter group carries the search, the categories and the Period
-/// row, whose menu and the Dates sheet's range mode set the list's period;
-/// the list's count is the caption under the group; the order, the rows and
-/// Missed only live in the options sheet behind the bar's tune button. Year
-/// and month mode keep their navs, which [navTitle] and [navCount] read — in
-/// list mode, which has no nav, the Period row's value and the count caption
-/// stand in.
+/// Slice 3a's chrome: the mode was the view menu's second group, picked by
+/// id, until slice 8a's chips below. Since slice 10a the Search row comes
+/// from a button at the end of the chip row, the period is set by the nav
+/// title's Period menu and the Dates sheet's range mode, and the categories,
+/// the order, the rows and Missed live in the options sheet behind the bar's
+/// tune button. Every mode draws a period nav, which [navTitle] and
+/// [navCount] read, over the per-category [totals] (slice 9a).
 ///
 /// Slice 3b's body: the list and month mode draw the day list's rows —
 /// section labels, read rows, entry rows — so the list is read off those
@@ -54,6 +55,22 @@ import 'overview_options_robot.dart';
 ///
 /// Slice 5's scrubber: a lane along the list's right edge ([hasScrubber],
 /// [scrub]) and its bubble ([scrubberBubble]).
+///
+/// Slice 8a's chips: the mode left the view menu for a chip row on the page
+/// ([modeChips], [currentMode], [selectMode]), and the period is live in
+/// every mode.
+///
+/// Slice 8b's detail sheet: a row tap opens the occurrence's detail sheet
+/// over the list instead of a calendar ([detailSheet], [tapInDetail]).
+///
+/// Slice 9c's saved views: a bookmarks button in the bar ([viewsSelected])
+/// opens their sheet, driven through [views].
+///
+/// Slice 10a's chrome (D19–D25): the filter group left the page. The nav's
+/// title is the Period menu in every mode ([openPeriodMenu], [periodValue],
+/// [periodChoice]); the Search row is summoned by the button ending the chip
+/// row ([openSearch], [closeSearch]); the categories are the options sheet's
+/// first row ([pickCategories], [categoriesValue]); the jump picker is gone.
 class OverviewRobot {
   const OverviewRobot(this.tester);
 
@@ -99,11 +116,14 @@ class OverviewRobot {
     List<NavigatorObserver> observers = const [],
     Locale locale = const Locale('en'),
     double? textScale,
+    MarkdownBarBloc? markdownBar,
   }) {
     return MultiBlocProvider(
       providers: [
         BlocProvider<CalendarBloc>.value(value: bloc),
         BlocProvider<ImportExportBloc>.value(value: importExport),
+        if (markdownBar != null)
+          BlocProvider<MarkdownBarBloc>.value(value: markdownBar),
       ],
       child: MaterialApp(
         navigatorKey: navigatorKey,
@@ -157,12 +177,13 @@ class OverviewRobot {
     await tester.pump();
   }
 
-  /// Pumps the page with its test seam and returns the `(day, eventId)`
-  /// pairs its row taps report. [mode], [period] and [options] are persisted
-  /// first, as a previous visit would have left them; [textScale] and
-  /// [surface] stand in for a phone's accessibility setting and size;
-  /// [onStore] is handed every month store the page resolves into.
-  Future<List<(DateTime, String)>> open({
+  /// Pumps the page with its test seam. [mode], [period] and [options] are
+  /// persisted first, as a previous visit would have left them; [textScale]
+  /// and [surface] stand in for a phone's accessibility setting and size;
+  /// [onStore] is handed every month store the page resolves into;
+  /// [markdownBar] is for the cases that go on from a row's detail sheet into
+  /// the event editor, which reads that bloc as it mounts.
+  Future<void> open({
     required CalendarBloc bloc,
     required ImportExportBloc importExport,
     AgendaDayListMode? mode,
@@ -172,24 +193,21 @@ class OverviewRobot {
     double? textScale,
     Size? surface,
     ValueChanged<AgendaMonthStore>? onStore,
+    MarkdownBarBloc? markdownBar,
   }) async {
     _setSurface(surface);
     await _persist(mode: mode, period: period, options: options);
-    final opened = <(DateTime, String)>[];
     await tester.pumpWidget(
       _app(
         bloc: bloc,
         importExport: importExport,
         locale: locale,
         textScale: textScale,
-        home: CalendarOverviewPage.forTesting(
-          openOccurrence: (day, eventId) => opened.add((day, eventId)),
-          onStore: onStore,
-        ),
+        markdownBar: markdownBar,
+        home: CalendarOverviewPage.forTesting(onStore: onStore),
       ),
     );
     await _pumpUntilLoaded();
-    return opened;
   }
 
   /// Draws what a bloc emit just changed without letting the clock move: the
@@ -207,8 +225,7 @@ class OverviewRobot {
     await tester.pump();
   }
 
-  /// Opens the real page — no test seam, so a row tap goes through
-  /// `AppNavigator.toCalendarOccurrence` — over a calendar route stamped the
+  /// Opens the real page — no test seam — over a calendar route stamped the
   /// way the view menu leaves one beneath it: a stand-in, or [calendar], the
   /// real page. [observers] join the navigator's, as launch restore's
   /// history observer does in the app.
@@ -302,8 +319,8 @@ class OverviewRobot {
   bool get calendarBeneathVisible =>
       find.text(calendarBeneathLabel).evaluate().isNotEmpty;
 
-  /// Pushes a plain route over the page, as a row tap's calendar does, and
-  /// pops it again with [uncover].
+  /// Pushes a plain route over the page, as an alert's calendar or a linked
+  /// note does, and pops it again with [uncover].
   Future<void> cover() async {
     unawaited(
       Navigator.of(tester.element(_page)).push(
@@ -334,55 +351,69 @@ class OverviewRobot {
 
   // --- The mode --------------------------------------------------------------
 
-  CalendarViewMenu get _viewMenu =>
-      tester.widget(find.byType(CalendarViewMenu));
-
-  AgendaDayListMode get currentMode => _viewMenu.presentation!;
-
   static String _modeId(AgendaDayListMode mode) => switch (mode) {
     AgendaDayListMode.year => SemanticsIds.overviewViewYear,
     AgendaDayListMode.month => SemanticsIds.overviewViewMonth,
     AgendaDayListMode.list => SemanticsIds.overviewViewList,
   };
 
-  /// Opens the view menu, the title, and leaves it up.
-  Future<void> openViewMenu() => _tap(_byId(SemanticsIds.calendarViewMenu));
+  Iterable<FormChip> get _modeChips => tester.widgetList<FormChip>(
+    find.descendant(of: _page, matching: find.byType(FormChip)),
+  );
 
-  /// Picks [mode] in the view menu [openViewMenu] left up. [settle] false
-  /// pumps one frame without moving the clock.
-  Future<void> pickOpenMode(AgendaDayListMode mode, {bool settle = true}) =>
+  /// The selected chip's mode.
+  AgendaDayListMode get currentMode =>
+      _modeOf(_modeChips.singleWhere((chip) => chip.selected).identifier);
+
+  /// The modes the chip row offers, in its order.
+  List<AgendaDayListMode> get modeChips => [
+    for (final chip in _modeChips) _modeOf(chip.identifier),
+  ];
+
+  /// The chip row's height as the keyboard has folded it: the box that clips
+  /// it, which holds its gap under the bar and its chips.
+  double get modeChipRowExtent => tester
+      .getSize(
+        find
+            .ancestor(
+              of: find.descendant(
+                of: _page,
+                matching: find.byType(FormChipRow),
+              ),
+              matching: find.byType(Align),
+            )
+            .first,
+      )
+      .height;
+
+  static AgendaDayListMode _modeOf(String? id) =>
+      AgendaDayListMode.values.singleWhere((mode) => _modeId(mode) == id);
+
+  /// Taps the mode's chip. [settle] false pumps one frame, leaving the
+  /// 150 ms cross-fade (and the prewarm, and any running fling) to the
+  /// caller.
+  Future<void> selectMode(AgendaDayListMode mode, {bool settle = true}) =>
       _tap(_byId(_modeId(mode)), settle: settle);
 
-  /// Whether the open view menu's item for [mode] is shown.
-  bool viewMenuOffers(AgendaDayListMode mode) =>
-      _byId(_modeId(mode)).evaluate().isNotEmpty;
+  // --- The period nav (every mode since slice 9a) ----------------------------
 
-  /// Picks the mode's row in the view menu. [settle] false lets the menu
-  /// open for its transition, picks, and pumps one frame, leaving the 150 ms
-  /// cross-fade (and the prewarm, and any running fling) to the caller.
-  Future<void> selectMode(AgendaDayListMode mode, {bool settle = true}) async {
-    if (settle) {
-      await openViewMenu();
-      await _tap(_byId(_modeId(mode)));
-      return;
-    }
-    await tester.tap(_byId(SemanticsIds.calendarViewMenu));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    await _tap(_byId(_modeId(mode)), settle: false);
-  }
+  /// The period's title on the nav.
+  String get navTitle => _nav.title;
 
-  // --- The period nav (year and month modes) ---------------------------------
+  /// The period's count, the nav's subtitle.
+  String? get navCount => _nav.subtitle;
 
-  /// The period's title: the nav's in year and month mode, the Period row's
-  /// value in list mode, which has no nav.
-  String get navTitle =>
-      currentMode == AgendaDayListMode.list ? periodValue : _nav.title;
+  /// The Today slot's tooltip, which names the list nav's home period.
+  String get navTodayTooltip => _nav.todayTooltip;
 
-  /// The period's count: the nav's in year and month mode, the caption
-  /// under the filter group in list mode.
-  String? get navCount =>
-      currentMode == AgendaDayListMode.list ? countCaption : _nav.subtitle;
+  /// The nav's title box: the row the chevrons and the title share.
+  Size get navSize => tester.getSize(find.byType(AgendaPeriodNav));
+
+  /// The nav's top edge: where the band under the filter group starts.
+  double get navTop => tester.getTopLeft(find.byType(AgendaPeriodNav)).dy;
+
+  Future<void> tapNavTitle({bool settle = true}) =>
+      _tap(_byId(SemanticsIds.overviewNavTitle), settle: settle);
 
   bool get canGoPrevious => _nav.onPrevious != null;
 
@@ -405,45 +436,41 @@ class OverviewRobot {
   Future<void> today({bool settle = true}) =>
       _tap(_navButton(Icons.today_rounded), settle: settle);
 
-  /// Taps the period title, the jump control.
-  Future<void> openJumpPicker() => _tap(
-    find.descendant(
-      of: find.byType(AgendaPeriodNav),
-      matching: find.text(_nav.title),
-    ),
-  );
-
-  bool get jumpPickerOpen =>
-      find.byType(MonthYearPickerSheet).evaluate().isNotEmpty;
-
-  /// Jumps through the picker's typed entry to [date].
-  Future<void> jumpTo(DateTime date) async {
-    await openJumpPicker();
-    await _tap(_carrier(SemanticsIds.monthYearTyped));
-    await tester.enterText(
-      find.descendant(
-        of: find.byType(MonthYearPickerSheet),
-        matching: find.byType(TextField),
-      ),
-      '${date.day}/${date.month}/${date.year}',
-    );
-    await _tap(_carrier(SemanticsIds.monthYearApply));
+  /// Pages month mode's nav to [month] with its chevrons: the jump picker
+  /// left the overview (D25).
+  Future<void> pageMonthTo(DateTime month) async {
+    final target = AgendaMonthStore.monthOrder(month);
+    while (true) {
+      final shown = AgendaMonthStore.monthOrder(_nav.month!);
+      if (shown == target) return;
+      shown < target ? await next() : await previous();
+    }
   }
 
-  // --- The Period row --------------------------------------------------------
+  // --- The Period menu: the nav's title (slice 10a, D19) ---------------------
 
-  FormMenuRow<OverviewPeriodChoice> get _periodRow => tester.widget(
-    find.byWidgetPredicate((w) => w is FormMenuRow<OverviewPeriodChoice>),
-  );
+  /// What the nav's title reads: a year, a month, a preset's name, or a span.
+  String get periodValue => _nav.title;
 
-  /// What the Period row reads: a year, a preset's name, or a span.
-  String get periodValue => _periodRow.value;
+  /// The Period menu's checked item: opens the menu from the title, reads
+  /// the item wearing the check, and dismisses the menu.
+  Future<OverviewPeriodChoice> periodChoice() async {
+    await openPeriodMenu();
+    final checked = tester
+        .widgetList<FormMenuItemRow>(find.byType(FormMenuItemRow))
+        .where((row) => row.checked)
+        .single;
+    final choice = OverviewPeriodChoice.values.singleWhere(
+      (choice) => _periodItemId(choice) == checked.identifier,
+    );
+    Navigator.of(tester.element(find.byType(FormMenuItemRow).first)).pop();
+    await tester.pumpAndSettle();
+    return choice;
+  }
 
-  /// The Period menu's checked item.
-  OverviewPeriodChoice get periodChoice => _periodRow.selected;
-
-  /// False while the row is drawn disabled — month mode.
-  bool get periodEnabled => _periodRow.onSelected != null;
+  /// False while the title opens nothing; since slice 10a it always opens
+  /// the menu.
+  bool get periodEnabled => _nav.onTitleTap != null;
 
   static String _periodItemId(OverviewPeriodChoice choice) => switch (choice) {
     OverviewPeriodChoice.thisYear => SemanticsIds.overviewPeriodThisYear,
@@ -454,15 +481,15 @@ class OverviewRobot {
     OverviewPeriodChoice.custom => SemanticsIds.overviewPeriodCustom,
   };
 
-  /// Picks [choice] from the Period row's menu. Custom range… leaves the
+  /// Picks [choice] from the title's Period menu. Custom range… leaves the
   /// Dates sheet up.
   Future<void> pickPeriod(OverviewPeriodChoice choice) async {
     await openPeriodMenu();
     await pickOpenPeriod(choice);
   }
 
-  /// Opens the Period row's menu and leaves it up.
-  Future<void> openPeriodMenu() => _tap(_byId(SemanticsIds.overviewPeriod));
+  /// Opens the Period menu from the nav's title and leaves it up.
+  Future<void> openPeriodMenu() => tapNavTitle();
 
   /// Picks [choice] in the menu [openPeriodMenu] left up. [settle] false
   /// pumps one frame without moving the clock, so nothing the pick
@@ -471,12 +498,6 @@ class OverviewRobot {
     OverviewPeriodChoice choice, {
     bool settle = true,
   }) => _tap(_byId(_periodItemId(choice)), settle: settle);
-
-  /// Taps the Period row whatever its state; a disabled one opens nothing.
-  Future<void> tapPeriodRow() async {
-    await tester.tap(_byId(SemanticsIds.overviewPeriod), warnIfMissed: false);
-    await tester.pumpAndSettle();
-  }
 
   bool get menuOpen =>
       find.byWidgetPredicate((w) => w is PopupMenuItem).evaluate().isNotEmpty;
@@ -575,6 +596,20 @@ class OverviewRobot {
     await options.close();
   }
 
+  Future<void> setMarkPresence(bool value) async {
+    await openOptions();
+    if (options.markPresence != value) await options.toggleMarkPresence();
+    await options.close();
+  }
+
+  /// Whether the tune button reads selected — a restriction or Mark
+  /// presence (D18).
+  bool get optionsSelected => tester
+      .widget<IconButton>(
+        find.descendant(of: _optionsButton, matching: find.byType(IconButton)),
+      )
+      .isSelected!;
+
   Badge get _optionsBadge => tester.widget(
     find.ancestor(of: _optionsButton, matching: find.byType(Badge)).first,
   );
@@ -586,17 +621,80 @@ class OverviewRobot {
     return (badge.label! as Text).data;
   }
 
-  // --- The search ------------------------------------------------------------
+  // --- The saved views (slice 9c) --------------------------------------------
+
+  Finder get _viewsButton => _byId(SemanticsIds.overviewViewsOpen);
+
+  IconButton get _viewsIconButton => tester.widget(
+    find.descendant(of: _viewsButton, matching: find.byType(IconButton)),
+  );
+
+  bool get hasViewsButton => _viewsButton.evaluate().isNotEmpty;
+
+  /// Whether the bookmarks button reads selected — the list shown is a
+  /// saved view.
+  bool get viewsSelected => _viewsIconButton.isSelected!;
+
+  bool get viewsEnabled => _viewsIconButton.onPressed != null;
+
+  /// The bar's buttons left to right by id, for the button's place.
+  double barButtonLeft(String id) => tester.getTopLeft(_byId(id)).dx;
+
+  /// The sheet's own handle, once [openViews] has it up.
+  OverviewViewRobot get views => OverviewViewRobot(tester);
+
+  Future<void> openViews() => _tap(_viewsButton);
+
+  /// Opens the saved views and applies the view [viewId].
+  Future<void> applyView(String viewId) async {
+    await openViews();
+    await views.apply(viewId);
+  }
+
+  // --- The search (summoned by the chip row's button since slice 10a) ------
+
+  Finder get _searchButton => _byId(SemanticsIds.overviewSearchOpen);
+
+  IconButton get _searchIconButton => tester.widget(
+    find.descendant(of: _searchButton, matching: find.byType(IconButton)),
+  );
+
+  /// Whether the Search row is on the page.
+  bool get searchOpen => find.byType(FormSearchRow).evaluate().isNotEmpty;
+
+  /// Whether the search button reads selected — a query is set.
+  bool get searchSelected => _searchIconButton.isSelected!;
+
+  /// The chip row's search button, whatever the row's state.
+  Future<void> tapSearchButton({bool settle = true}) =>
+      _tap(_searchButton, settle: settle);
+
+  /// Reveals the Search row through the chip row's button; it comes focused.
+  Future<void> openSearch() async {
+    if (searchOpen) return;
+    await tapSearchButton();
+  }
+
+  /// Closes the Search row through the same button, which drops the query.
+  Future<void> closeSearch() async {
+    if (!searchOpen) return;
+    await tapSearchButton();
+  }
+
+  /// What the search field holds, applied or not; empty while it is closed.
+  String get searchText =>
+      searchOpen ? tester.widget<TextField>(_searchField).controller!.text : '';
 
   Finder get _searchField => find.descendant(
     of: find.byType(FormSearchRow),
     matching: find.byType(TextField),
   );
 
-  /// Types [text] into the search and waits out the 200 ms debounce, so the
-  /// query has been applied when this returns — and nothing past it.
-  /// [wait] false returns inside the debounce.
+  /// Types [text] into the search — revealing it first — and waits out the
+  /// 200 ms debounce, so the query has been applied when this returns — and
+  /// nothing past it. [wait] false returns inside the debounce.
   Future<void> typeQuery(String text, {bool wait = true}) async {
+    await openSearch();
     await tester.enterText(_searchField, text);
     if (!wait) return;
     await tester.pump(const Duration(milliseconds: 200));
@@ -605,58 +703,69 @@ class OverviewRobot {
 
   Future<void> clearQuery() => _tap(find.byTooltip(_l10n.upcomingClearSearch));
 
-  /// Puts the caret in the search, raising the keyboard.
+  /// Puts the caret in the search — revealing it first — raising the
+  /// keyboard.
   Future<void> focusSearch() async {
+    await openSearch();
     await tester.tap(_searchField);
     await tester.pump();
   }
 
-  bool get searchFocused => tester
-      .widget<EditableText>(
-        find.descendant(of: _searchField, matching: find.byType(EditableText)),
-      )
-      .focusNode
-      .hasFocus;
+  bool get searchFocused =>
+      searchOpen &&
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: _searchField,
+              matching: find.byType(EditableText),
+            ),
+          )
+          .focusNode
+          .hasFocus;
 
-  // --- The categories --------------------------------------------------------
+  // --- The categories (the options sheet's first row since slice 10a) -------
 
-  FormPickerRow get _categoriesRow => tester.widget(
-    find.byWidgetPredicate(
-      (w) =>
-          w is FormPickerRow && w.identifier == SemanticsIds.overviewCategories,
-    ),
-  );
+  /// What the options sheet's Categories row reads back: opens the sheet,
+  /// reads the row, closes the sheet.
+  Future<String> categoriesValue() async {
+    await openOptions();
+    final value = options.categoriesValue;
+    await options.close();
+    return value;
+  }
 
-  /// What the Categories row reads back.
-  String get categoriesValue => _categoriesRow.value!;
-
-  /// Narrows the allowlist to [ids] through the multi picker: none first,
-  /// then each id ticked, then Done.
+  /// Narrows the allowlist to [ids] through the options sheet's Categories
+  /// row and the multi picker: none first, then each id ticked, then Done,
+  /// then the sheet closed.
   Future<void> pickCategories(Set<String> ids) async {
-    await _tap(_byId(SemanticsIds.overviewCategories));
-    await _tap(_carrier(SemanticsIds.categoryPickSelectNone));
-    for (final id in ids) {
-      final row = _carrier(SemanticsIds.categoryPickRow(id));
-      await tester.ensureVisible(row);
-      await _tap(row);
-    }
-    await _tap(_carrier(SemanticsIds.categoryPickDone));
+    await openOptions();
+    await options.pickCategories(ids);
+    await options.close();
   }
 
   // --- The list --------------------------------------------------------------
 
-  /// The count caption under the filter group, list mode only.
-  String get countCaption =>
-      (tester
-                  .widget<FormCaptionSlot>(
-                    find.descendant(
-                      of: _page,
-                      matching: find.byType(FormCaptionSlot),
-                    ),
-                  )
-                  .child
-              as FormCaption)
-          .text;
+  Finder get _totalsSlot =>
+      find.descendant(of: _page, matching: find.byType(FormCaptionSlot));
+
+  /// The per-category totals under the nav, in every mode (D16).
+  String get totals {
+    final slot = tester.widget<FormCaptionSlot>(_totalsSlot);
+    return ((slot.child as Semantics).child! as FormCaption).text;
+  }
+
+  /// The totals slot's height, which no text may change.
+  double get totalsHeight => tester.getSize(_totalsSlot).height;
+
+  /// Whether the totals caption is a semantics node of its own: the node
+  /// nearest it spans the caption exactly. Needs semantics enabled.
+  bool get totalsHasNode {
+    final caption = find.descendant(
+      of: find.byWidget(tester.widget<FormCaptionSlot>(_totalsSlot).child),
+      matching: find.byType(FormCaption),
+    );
+    return tester.getSemantics(caption).rect.size == tester.getSize(caption);
+  }
 
   /// Every text the list's rows carry, in row order — a section label's text
   /// and count, a row's label, value and caption — for the rows built so
@@ -870,6 +979,34 @@ class OverviewRobot {
     await tester.pumpAndSettle();
     await _tap(row.first, settle: settle);
   }
+
+  /// A long press on the first built entry titled [title] — the way to its
+  /// detail sheet while Mark presence has the tap (D18).
+  Future<void> longPressRow(String title) async {
+    final row = find.descendant(of: _list, matching: find.text(title));
+    await tester.ensureVisible(row.first);
+    await tester.pumpAndSettle();
+    await tester.longPress(row.first);
+    await tester.pumpAndSettle();
+  }
+
+  /// The hint on the entry row carrying [id], as a screen reader hears it.
+  String rowHint(String id) =>
+      tester.getSemantics(_byId(id)).getSemanticsData().hint;
+
+  // --- The detail sheet (slice 8b) -------------------------------------------
+
+  /// The detail sheet a row tap opened, or null while none is up.
+  EventDetailSheet? get detailSheet {
+    final sheet = find.byType(EventDetailSheet);
+    if (sheet.evaluate().isEmpty) return null;
+    return tester.widget<EventDetailSheet>(sheet);
+  }
+
+  /// Taps the control carrying [id] in the open detail sheet — its ✕, Edit,
+  /// Missed — and lets the route run. [settle] false pumps one frame.
+  Future<void> tapInDetail(String id, {bool settle = true}) =>
+      _tap(_byId(id), settle: settle);
 
   // --- The scrubber (slice 5) ------------------------------------------------
 

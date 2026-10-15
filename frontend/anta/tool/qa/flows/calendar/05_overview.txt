@@ -1,23 +1,32 @@
-# The overview page through the title's view menu: year, month and list
-# presentations — the view menu's second group — over the seeded events,
-# then back to the calendar through the overview's own view menu, which
-# returns to the calendar beneath rather than stacking another.
+# The overview page through the title's view menu, then its modes through
+# the chips under the bar — Year's tiles, List's rows, Month's nav, Year
+# again — over the seeded events, then back to the calendar through the
+# overview's own view menu, which returns to the calendar beneath rather
+# than stacking another.
+# - A chip stays on screen, so a switch waits for what the new mode draws.
+# - Year is waited on by two tiles' labels ("Jan <year>", "Jul <year>" — the
+#   month nav spells its month out and the list's headers carry a day, so
+#   neither can match).
+# - Month is waited on by the list leaving: List's nav carries the same title
+#   id, so the nav alone passes at once and the shot catches the cross-fade.
 tap id:calendar-view-menu
 wait id:calendar-overview-open
 tap id:calendar-overview-open
-wait id:overview-period
+wait id:overview-nav-title
+wait id:overview-view-year
+wait "Jan {{year}}"
 shot 05_overview_year
-tap id:calendar-view-menu
-wait id:overview-view-month
-tap id:overview-view-month
-wait id:overview-view-month --gone
-shot 05_overview_month
-tap id:calendar-view-menu
-wait id:overview-view-list
 tap id:overview-view-list
 wait id:overview-list
 expect "Lifting session"
 shot 05_overview_list
+tap id:overview-view-month
+wait id:overview-list --gone
+wait id:overview-nav-title
+shot 05_overview_month
+tap id:overview-view-year
+wait "Jan {{year}}"
+wait "Jul {{year}}"
 tap id:calendar-view-menu
 wait id:calendar-view-calendar
 shot 05_overview_menu

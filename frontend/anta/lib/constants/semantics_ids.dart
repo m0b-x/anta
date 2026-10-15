@@ -130,6 +130,12 @@ abstract final class SemanticsIds {
   static String filterPresetHandle(String id) => 'filter-preset-handle-$id';
   static const String filterPresetMoveToTop = 'filter-preset-move-top';
 
+  /// The name dialog the saved filters and the overview's saved views share:
+  /// its field and its Save button. "Save" alone is no target, since the
+  /// sheets behind it say "Save the current list" and "Saved views".
+  static const String filterPresetName = 'filter-preset-name';
+  static const String filterPresetNameSave = 'filter-preset-name-save';
+
   /// The Upcoming agenda's filter sheet (2026-09-27, Tier 1 of
   /// `docs/calendar-language-tier-1-roadmap.md`): the panel's tune button,
   /// the sheet's chrome and scrolling body, every row and every menu item.
@@ -404,14 +410,17 @@ abstract final class SemanticsIds {
   static const String dayListNavTitle = 'day-list-nav-title';
 
   /// The calendar overview (`docs/calendar-overview-list-roadmap.md` §3.10):
-  /// the view menu's three modes, the list options sheet and its rows, the
-  /// search, categories and period rows with the period menu's items, year
-  /// and month mode's nav, the list, the scrubber, and one id per row — a
-  /// title repeats down a list of occurrences, so a flow taps a row by event
-  /// and day, or by event alone under "One per event".
+  /// the mode chips (§3.11) and the search button ending their row, the
+  /// summoned search row, the list options sheet and its rows (the
+  /// categories row among them since §3.13), the nav — its title opens the
+  /// period menu, whose items are `overview-period-*` — the list, the
+  /// scrubber, and one id per row — a title repeats down a list of
+  /// occurrences, so a flow taps a row by event and day, or by event alone
+  /// under "One per event".
   static const String overviewViewYear = 'overview-view-year';
   static const String overviewViewMonth = 'overview-view-month';
   static const String overviewViewList = 'overview-view-list';
+  static const String overviewSearchOpen = 'overview-search-open';
   static const String overviewOptionsOpen = 'overview-options-open';
   static const String overviewOptionsClose = 'overview-options-close';
   static const String overviewOrder = 'overview-order';
@@ -421,9 +430,9 @@ abstract final class SemanticsIds {
   static const String overviewRowsEvery = 'overview-rows-every';
   static const String overviewRowsPerEvent = 'overview-rows-per-event';
   static const String overviewMissedOnly = 'overview-missed-only';
+  static const String overviewMarkPresence = 'overview-mark-presence';
   static const String overviewSearch = 'overview-search';
   static const String overviewCategories = 'overview-categories';
-  static const String overviewPeriod = 'overview-period';
   static const String overviewPeriodThisYear = 'overview-period-this-year';
   static const String overviewPeriodLast12Months =
       'overview-period-last-12-months';
@@ -440,6 +449,21 @@ abstract final class SemanticsIds {
   static String overviewRow(String eventId, DateTime day) =>
       'overview-row-$eventId-${_isoDate(day)}';
   static String overviewEventRow(String eventId) => 'overview-event-$eventId';
+
+  /// The overview's saved views (§3.12, D17): the bar button, the sheet's
+  /// chrome and one row per view with its handle and its ⋮ menu. A view's id
+  /// is a UUID, so `overview-view-<id>` never meets the mode chips' names.
+  static const String overviewViewsOpen = 'overview-views-open';
+  static const String overviewViewsClose = 'overview-views-close';
+  static const String overviewViewsSearch = 'overview-views-search';
+  static const String overviewViewsSave = 'overview-views-save';
+  static String overviewViewRow(String id) => 'overview-view-$id';
+  static String overviewViewOptions(String id) => 'overview-view-options-$id';
+  static String overviewViewHandle(String id) => 'overview-view-handle-$id';
+  static const String overviewViewsRename = 'overview-views-rename';
+  static const String overviewViewsUpdate = 'overview-views-update';
+  static const String overviewViewsMoveTop = 'overview-views-move-top';
+  static const String overviewViewsDelete = 'overview-views-delete';
 
   /// The "Show every day" button of an agenda summary card, keyed by the
   /// card's summary key (`category:<id>`, `holiday`, `fasting:<tradition>`)

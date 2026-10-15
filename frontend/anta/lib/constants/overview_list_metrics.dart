@@ -26,6 +26,14 @@ abstract final class OverviewListMetrics {
   /// hold the memory of tens of thousands of rows.
   static const int maxEntries = 20000;
 
+  /// Categories the totals caption names before "+N more" (D16).
+  static const int namedTotals = 3;
+
+  /// Lines of the totals caption's slot, whatever it reads (D23 · A): one,
+  /// so the list below never moves and the year's tiles keep the height —
+  /// [namedTotals] names, then "+N more", an ellipsis past the width.
+  static const int totalsMaxLines = 1;
+
   /// The most of the list's share of the page the pinned label's band may
   /// take: with the keyboard up at a large text scale on a small phone a
   /// two-line band would leave the list no height to drag, so it yields.

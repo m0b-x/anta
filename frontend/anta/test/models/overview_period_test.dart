@@ -8,7 +8,7 @@ import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 
 /// The overview list's unit and its options: what each period resolves to
-/// against today, how the Period row reads it back, and the codecs a stored
+/// against today, how the Period menu reads it back, and the codecs a stored
 /// value goes through — forward-compatible both ways.
 void main() {
   setUpAll(() async {
@@ -105,7 +105,7 @@ void main() {
     });
   });
 
-  group('the Period row', () {
+  group('the Period menu', () {
     test('menuValue names the year, the preset or the span', () {
       expect(const OverviewYearPeriod(2026).menuValue(en), '2026');
       expect(
@@ -279,6 +279,158 @@ void main() {
       ),
       const OverviewYearPeriod(2026),
     );
+  });
+
+  group('stepped (D15a)', () {
+    OverviewPeriod? step(
+      OverviewPeriod period,
+      int direction, {
+      ({int first, int last}) yearBounds = bounds,
+    }) => period.stepped(
+      direction: direction,
+      today: today,
+      yearBounds: yearBounds,
+    );
+
+    test('a year steps to the neighbouring year', () {
+      expect(
+        step(const OverviewYearPeriod(2026), -1),
+        isA<OverviewYearPeriod>(),
+      );
+      expect(
+        step(const OverviewYearPeriod(2026), -1),
+        const OverviewYearPeriod(2025),
+      );
+      expect(
+        step(const OverviewYearPeriod(2026), 1),
+        const OverviewYearPeriod(2027),
+      );
+    });
+
+    test('a rolling preset becomes the span of its length beside it', () {
+      const last90Days = OverviewRollingPeriod(
+        OverviewRollingPreset.last90Days,
+      );
+      // Today's ninety days are July 14 – October 11.
+      expect(
+        step(last90Days, -1),
+        OverviewCustomPeriod(
+          DateTime.utc(2026, 4, 15),
+          DateTime.utc(2026, 7, 13),
+        ),
+      );
+      expect(
+        step(last90Days, 1),
+        OverviewCustomPeriod(
+          DateTime.utc(2026, 10, 12),
+          DateTime.utc(2027, 1, 9),
+        ),
+      );
+      expect(
+        step(
+          const OverviewRollingPeriod(OverviewRollingPreset.last12Months),
+          -1,
+        ),
+        OverviewCustomPeriod(
+          DateTime.utc(2024, 10, 12),
+          DateTime.utc(2025, 10, 11),
+        ),
+      );
+    });
+
+    test('a custom span shifts by its own width, and back again', () {
+      final span = OverviewCustomPeriod(
+        DateTime.utc(2026, 3, 1),
+        DateTime.utc(2026, 3, 10),
+      );
+      final back = step(span, -1)!;
+      expect(
+        back,
+        OverviewCustomPeriod(
+          DateTime.utc(2026, 2, 19),
+          DateTime.utc(2026, 2, 28),
+        ),
+      );
+      expect(
+        step(span, 1),
+        OverviewCustomPeriod(
+          DateTime.utc(2026, 3, 11),
+          DateTime.utc(2026, 3, 20),
+        ),
+      );
+      expect(step(back, 1), span);
+    });
+
+    test('All time does not step', () {
+      const allTime = OverviewRollingPeriod(OverviewRollingPreset.allTime);
+      expect(step(allTime, -1), isNull);
+      expect(step(allTime, 1), isNull);
+    });
+
+    test('a step wholly outside the year bounds is none; one that still '
+        'reaches into them is kept', () {
+      expect(step(const OverviewYearPeriod(2019), -1), isNull);
+      expect(step(const OverviewYearPeriod(2030), 1), isNull);
+      expect(
+        step(
+          OverviewCustomPeriod(
+            DateTime.utc(2019, 1, 1),
+            DateTime.utc(2019, 1, 10),
+          ),
+          -1,
+        ),
+        isNull,
+      );
+      expect(
+        step(
+          OverviewCustomPeriod(
+            DateTime.utc(2019, 1, 3),
+            DateTime.utc(2019, 1, 12),
+          ),
+          -1,
+        ),
+        OverviewCustomPeriod(
+          DateTime.utc(2018, 12, 24),
+          DateTime.utc(2019, 1, 2),
+        ),
+      );
+      expect(
+        step(
+          OverviewCustomPeriod(
+            DateTime.utc(2030, 12, 22),
+            DateTime.utc(2030, 12, 31),
+          ),
+          1,
+        ),
+        isNull,
+      );
+    });
+
+    test('a step past the calendar bounds is none', () {
+      const wide = (first: 1800, last: 2200);
+      expect(
+        step(
+          OverviewCustomPeriod(
+            CalendarBounds.earliest,
+            DateTime.utc(1900, 1, 5),
+          ),
+          -1,
+          yearBounds: wide,
+        ),
+        isNull,
+      );
+      expect(
+        step(
+          OverviewCustomPeriod(
+            DateTime.utc(2100, 12, 27),
+            CalendarBounds.latest,
+          ),
+          1,
+          yearBounds: wide,
+        ),
+        isNull,
+      );
+    });
   });
 
   group('OverviewListOptions', () {

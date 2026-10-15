@@ -20,6 +20,7 @@ import 'event_template_service.dart';
 import 'calendar_palette_service.dart';
 import 'filter_preset_service.dart';
 import 'label_appearance_service.dart';
+import 'overview_view_service.dart';
 import 'vocabulary_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
@@ -113,6 +114,8 @@ class BackupService {
         .exportData();
     final filterPresets = await (await FilterPresetService.getInstance())
         .exportData();
+    final overviewViews = await (await OverviewViewService.getInstance())
+        .exportData();
     final vocabularies = await (await VocabularyService.getInstance())
         .exportData();
 
@@ -162,6 +165,11 @@ class BackupService {
       // category ids inside its blob, and a stale one already hides nothing
       // wherever the filter is read — so this key needs no strand rule.
       'calendarFilterPresets': filterPresets,
+      // Purely additive (v41), the v35 key's reasoning: an absent key is an
+      // install with no saved overview lists, and a view's only foreign
+      // reference is the category ids inside its payload, where a stale one
+      // simply lists nothing — no strand rule, no version bump.
+      'overviewViews': overviewViews,
       // Purely additive (v32): an absent key is an install with no suggestion
       // lists. Each entry nests its own terms, so a vocabulary and its items
       // can never be restored apart.
@@ -467,6 +475,14 @@ class BackupService {
       if (filterPresets != null) {
         await (await FilterPresetService.getInstance()).importData(
           filterPresets,
+        );
+      }
+      // Saved overview lists (v41+ backups), self-contained like the saved
+      // filters above: an absent key leaves existing views in place.
+      final overviewViews = data['overviewViews'] as List?;
+      if (overviewViews != null) {
+        await (await OverviewViewService.getInstance()).importData(
+          overviewViews,
         );
       }
       // Vocabularies (v32+ backups). Self-contained — no foreign reference to

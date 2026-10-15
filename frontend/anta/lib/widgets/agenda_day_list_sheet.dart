@@ -720,7 +720,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
       nextTooltip: l10n.dayListNextMonth,
       todayTooltip: l10n.dayListJumpToToday,
       titleTooltip: l10n.monthYearPickerTitle,
-      onTitleTap: _pickDate,
+      onTitleTap: (_) => _pickDate(),
       onPrevious: order > AgendaMonthStore.monthOrder(_firstMonth)
           ? () => _goToMonth(DateTime.utc(_month.year, _month.month - 1, 1))
           : null,
@@ -793,7 +793,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
             nextTooltip: l10n.datePickerNextYear,
             todayTooltip: l10n.dayListScopeThisYear,
             titleTooltip: l10n.monthYearPickerTitle,
-            onTitleTap: _pickDate,
+            onTitleTap: (_) => _pickDate(),
             onPrevious: _year > _years.first
                 ? () => _goToYear(_year - 1)
                 : null,

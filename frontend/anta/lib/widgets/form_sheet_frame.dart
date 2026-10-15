@@ -195,3 +195,58 @@ class _FormSheetFrameState extends State<FormSheetFrame>
     );
   }
 }
+
+/// Re-reads the sheet's semantics geometry once a route above it — a name
+/// dialog, a confirmation, a ⋮ menu — has finished leaving.
+///
+/// A content-tall sheet resizes on the answer while that route's barrier
+/// still blocks the sheet's semantics, and Flutter 3.44's geometry pass skips
+/// a blocked branch and never revisits it on unblocking: a node whose size
+/// did not change keeps the transform from before the resize (the
+/// overview's views sheet, 2026-10-13 — its ✕ reported a row below where it
+/// was painted until the sheet closed, so TalkBack and a tap by id missed
+/// it). Marking the subtree once on the route's dismissal makes the next
+/// frame recompute every node's geometry against the painted layout.
+class FormSheetSemanticsRefresh extends StatefulWidget {
+  final Widget child;
+
+  const FormSheetSemanticsRefresh({super.key, required this.child});
+
+  @override
+  State<FormSheetSemanticsRefresh> createState() =>
+      _FormSheetSemanticsRefreshState();
+}
+
+class _FormSheetSemanticsRefreshState extends State<FormSheetSemanticsRefresh> {
+  /// The sheet route's secondary animation, which tracks the route above.
+  Animation<double>? _above;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final above = ModalRoute.of(context)?.secondaryAnimation;
+    if (identical(above, _above)) return;
+    _above?.removeStatusListener(_onAboveStatus);
+    _above = above?..addStatusListener(_onAboveStatus);
+  }
+
+  @override
+  void dispose() {
+    _above?.removeStatusListener(_onAboveStatus);
+    super.dispose();
+  }
+
+  void _onAboveStatus(AnimationStatus status) {
+    if (status != AnimationStatus.dismissed || !mounted) return;
+    final root = context.findRenderObject();
+    if (root != null) _markSubtree(root);
+  }
+
+  static void _markSubtree(RenderObject node) {
+    node.markNeedsSemanticsUpdate();
+    node.visitChildren(_markSubtree);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}

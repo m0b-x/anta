@@ -38,10 +38,17 @@ class OverviewListOptions extends Equatable {
   final OverviewRows rows;
   final bool missedOnly;
 
+  /// Whether a tap on an entry row toggles the day's presence instead of
+  /// opening its detail sheet (D18 · A). Session-only like [missedOnly]: a
+  /// list that silently writes on the first tap of a later visit would mark
+  /// days nobody meant to.
+  final bool markPresence;
+
   const OverviewListOptions({
     this.order = OverviewOrder.oldestFirst,
     this.rows = OverviewRows.everyOccurrence,
     this.missedOnly = false,
+    this.markPresence = false,
   });
 
   static const OverviewListOptions defaults = OverviewListOptions();
@@ -50,14 +57,16 @@ class OverviewListOptions extends Equatable {
     OverviewOrder? order,
     OverviewRows? rows,
     bool? missedOnly,
+    bool? markPresence,
   }) {
     return OverviewListOptions(
       order: order ?? this.order,
       rows: rows ?? this.rows,
       missedOnly: missedOnly ?? this.missedOnly,
+      markPresence: markPresence ?? this.markPresence,
     );
   }
 
   @override
-  List<Object?> get props => [order, rows, missedOnly];
+  List<Object?> get props => [order, rows, missedOnly, markPresence];
 }

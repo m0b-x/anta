@@ -97,6 +97,17 @@ class AgendaMonthStore {
   /// Cache-only twin of [tallyFor].
   AgendaMonthTally? cachedTally(DateTime month) => _tallies[keyOf(month)];
 
+  /// Drops [month]'s bucket, day bars and tally, so the next [ensure] or
+  /// [ensureTallies] resolves it again. For a write known to touch that month
+  /// alone — a presence mark — which then costs one month's scan where a new
+  /// store would resolve the whole period anew; every other month is kept.
+  void forget(DateTime month) {
+    final key = keyOf(month);
+    _months.remove(key);
+    _bars.remove(key);
+    _tallies.remove(key);
+  }
+
   void _forEachMissingRun(
     Iterable<DateTime> months,
     Map<int, Object> cache,

@@ -4669,6 +4669,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get overviewPeriodAllTime => 'All time';
 
   @override
+  String get overviewPeriodPrevious => 'Previous period';
+
+  @override
+  String get overviewPeriodNext => 'Next period';
+
+  @override
+  String overviewPeriodHome(String period) {
+    return 'Back to $period';
+  }
+
+  @override
+  String overviewCategoryTotal(String label, int count) {
+    return '$label $count';
+  }
+
+  @override
   String get overviewListOptions => 'List options';
 
   @override
@@ -4691,6 +4707,45 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get overviewMissedOnly => 'Missed only';
+
+  @override
+  String get overviewMarkPresence => 'Mark presence';
+
+  @override
+  String get overviewViewsTitle => 'Saved views';
+
+  @override
+  String get overviewViewSaveCurrent => 'Save the current list';
+
+  @override
+  String overviewViewSaved(String name) {
+    return 'Saved as \"$name\"';
+  }
+
+  @override
+  String get overviewViewUpdate => 'Update to current list';
+
+  @override
+  String get overviewViewDelete => 'Delete saved view';
+
+  @override
+  String overviewViewDeleteConfirm(String name) {
+    return 'Delete \"$name\"? The events it lists are untouched.';
+  }
+
+  @override
+  String get overviewViewActions => 'Saved view options';
+
+  @override
+  String overviewViewLimitReached(int count) {
+    return 'You can save up to $count views';
+  }
+
+  @override
+  String get overviewViewSearchHint => 'Search saved views';
+
+  @override
+  String get overviewViewNoMatches => 'No saved view matches your search';
 
   @override
   String get overviewEmptyPeriod => 'Nothing in this period';
