@@ -421,10 +421,14 @@ abstract final class EventAgenda {
   /// The years a surface paging year by year can find something in: from the
   /// earliest year any passing event starts in to the latest year one can
   /// still fire in, always including [todayYear]. An open-ended series
-  /// reaches [latestYear]; a retroactive one reaches back to [earliestYear],
-  /// because before its start is exactly where it was asked to fire. Empty
-  /// stores get today's year alone, so a chevron never leads into a year
-  /// that cannot hold anything.
+  /// reaches [latestYear] — or [openEndedLastYear] when given, for a surface
+  /// that lays every year out at once and would otherwise scroll through
+  /// decades of a daily habit's future (the overview's year scroll, D28); a
+  /// bounded series or a pinned date past it still extends the end. A
+  /// retroactive one reaches back to [earliestYear], because before its
+  /// start is exactly where it was asked to fire. Empty stores get today's
+  /// year alone, so a chevron never leads into a year that cannot hold
+  /// anything.
   static AgendaYearBounds yearBoundsOf(
     Iterable<CalendarEvent> events, {
     Set<String> hiddenCategoryIds = const {},
@@ -434,9 +438,41 @@ abstract final class EventAgenda {
     required int todayYear,
     required int earliestYear,
     required int latestYear,
+    int? openEndedLastYear,
+  }) {
+    final spans = yearSpansOf(
+      events,
+      hiddenCategoryIds: hiddenCategoryIds,
+      priorities: priorities,
+      eventType: eventType,
+      categoryIds: categoryIds,
+      todayYear: todayYear,
+      earliestYear: earliestYear,
+      latestYear: latestYear,
+      openEndedLastYear: openEndedLastYear ?? latestYear,
+    );
+    return openEndedLastYear == null ? spans.full : spans.ceiled;
+  }
+
+  /// [yearBoundsOf] with and without the open-ended ceiling, from one pass
+  /// over the events: the overview's year scroll lays out the [ceiled] span
+  /// (D28) while its list, its month pages and its range picker still reach
+  /// every year an event can fire in ([full]). The two differ only in where
+  /// an open-ended series ends.
+  static ({AgendaYearBounds full, AgendaYearBounds ceiled}) yearSpansOf(
+    Iterable<CalendarEvent> events, {
+    Set<String> hiddenCategoryIds = const {},
+    Set<int> priorities = const {},
+    AgendaEventType eventType = AgendaEventType.all,
+    Set<String> categoryIds = const {},
+    required int todayYear,
+    required int earliestYear,
+    required int latestYear,
+    required int openEndedLastYear,
   }) {
     var first = todayYear;
     var last = todayYear;
+    var ceiledLast = todayYear;
     for (final event in events) {
       if (!passesEventFilters(
         event,
@@ -451,10 +487,11 @@ abstract final class EventAgenda {
       final startYear = event.startDateUtc.year;
       final int eventFirst;
       final int eventLast;
+      final int ceiledEventLast;
       switch (rule) {
         case OneTimeRecurrence():
           eventFirst = startYear;
-          eventLast = startYear;
+          eventLast = ceiledEventLast = startYear;
         case SpecificDatesRecurrence(:final dates):
           var lo = startYear;
           var hi = startYear;
@@ -463,18 +500,30 @@ abstract final class EventAgenda {
             if (date.year > hi) hi = date.year;
           }
           eventFirst = lo;
-          eventLast = hi;
+          eventLast = ceiledEventLast = hi;
         default:
           eventFirst = event.retroactive ? earliestYear : startYear;
           final end = event.endDateUtc;
-          eventLast = end == null ? latestYear : end.year;
+          eventLast = end?.year ?? latestYear;
+          // An open-ended series that starts past the ceiling still holds
+          // its first occurrence.
+          ceiledEventLast = end != null
+              ? end.year
+              : startYear > openEndedLastYear
+              ? startYear
+              : openEndedLastYear;
       }
       if (eventFirst < first) first = eventFirst;
       if (eventLast > last) last = eventLast;
+      if (ceiledEventLast > ceiledLast) ceiledLast = ceiledEventLast;
     }
+    final lowest = first < earliestYear ? earliestYear : first;
     return (
-      first: first < earliestYear ? earliestYear : first,
-      last: last > latestYear ? latestYear : last,
+      full: (first: lowest, last: last > latestYear ? latestYear : last),
+      ceiled: (
+        first: lowest,
+        last: ceiledLast > latestYear ? latestYear : ceiledLast,
+      ),
     );
   }
 

@@ -7178,3 +7178,61 @@ starts at 206 too, List mode's pinned label at 226. Ids:
 keep `overview-period-*`), `overview-categories` on the sheet's row; flows
 05, 23 and 24 walk the menu from the title. The review, the device pass
 and the gate: the record's status line and §9.
+
+## Addendum (2026-10-15): the overview's Year mode as one scroll of years
+
+**The ask.** "Multiple years in the year [mode]… months separated by years
+in a continuous scroll… really performant and clean." The record is
+`docs/calendar-overview-list-roadmap.md` §2.6 (D26–D30, every recommended
+option taken on the owner's "choose for me"), §3.14 the spec, §9 the
+ledger; the mock is "Overview years mock"
+(https://claude.ai/artifact/HW9tTTqBo1xanRoRr29PUb).
+
+**What shipped (uncommitted).**
+
+- **Years are sections, not pages.** `AgendaYearScroll`
+  (`lib/widgets/agenda_year_scroll.dart`) replaces `AgendaYearPager` on the
+  overview page only: a `CustomScrollView` whose `SliverFixedExtentList`
+  holds one section per year of the span, oldest first, each a flat header
+  (`_YearHeader`: the year at `OverviewListMetrics.yearHeaderFontSize`
+  22 / 500, the year's `agendaDayListCountLabel` at the right,
+  `yearHeaderHeight` 48 measured once per text scale, blank while
+  unresolved) over the twelve tiles in rows (`YearMonthTile.columnsFor`,
+  the grid delegate's own rule; tiles `Expanded` to the delegate's width
+  and 116 tall) and a `yearSectionGap` of 16. The extent is one number per
+  width and text scale, so any year is an O(1) jump, the scrubber's
+  mapping is arithmetic and the first frame opens on today's year through
+  `initialScrollOffset`. The day list sheet keeps the pager, its flash and
+  its picker; both surfaces build tiles through one `AgendaYearTileBuilder`.
+- **The nav is live.** The title is the year whose header has crossed half
+  its height past the top (`AgendaYearScrollController.yearAtOffset`), still
+  the Period menu; ◄ ► and Today `animateToYear` (260 ms, ease-out cubic);
+  This year jumps through `_setPeriod` as before; a landing reports the top
+  year in the same turn.
+- **Marks resolve per visible year, one per frame.** The section builder
+  reads the page's `AgendaYearTileSource` only; a viewport-driven queue
+  (`_wantedYears`: the top year, the visible years, the two neighbours)
+  resolves one year per post-frame run under `_resolveGeneration`
+  (`_yearFrameOwed` keeps a frame that drew a scan free of another), the
+  opening year and a landing's target synchronously before their frame,
+  nothing while a landing animates or a page covers the overview; a year
+  scrolled past never resolves. A section listens to the source and
+  rebuilds alone when its year's version moves; the keyboard rebuilds no
+  tile (the tail filler is a `SliverLayoutBuilder`, the delegate one
+  instance).
+- **The span.** `EventAgenda.yearSpansOf` returns the full bounds and the
+  ceiled ones in one pass: the scroll runs from the first event year to
+  next year, an open-ended series contributing the later of that ceiling
+  and its start year, a bounded series its end, a pinned date its last
+  year (D28); List mode, Month mode and the range picker keep the full
+  bounds.
+- **The scrubber** (D29): the list's lane in Year mode when the span holds
+  two or more years, the year in its bubble, a step through `_goToYear`;
+  `overviewYearScrubberLabel` "Scroll by year".
+- **Ids:** `overview-years`, `overview-year-<yyyy>`; flows 05, 23 and 24
+  wait on them and expect the lane.
+- **Budgets** (`overview_years_benchmark_test.dart`, untagged counts): a
+  hundred-year span opens with at most three sections built and three
+  years resolved; a far jump builds at most three; a twenty-year fling
+  resolves at most one year per frame; a keyboard animation builds
+  nothing; a keystroke scans nothing.

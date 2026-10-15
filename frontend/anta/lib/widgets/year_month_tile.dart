@@ -1,16 +1,29 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// One month of a year overview: a label, a count and a dot matrix on a
 /// rounded tile. Shared by the agenda drill-down's year mode and the date
 /// picker's year view so the two cannot drift apart.
 class YearMonthTile extends StatelessWidget {
-  static const SliverGridDelegate gridDelegate =
+  static const SliverGridDelegateWithMaxCrossAxisExtent gridDelegate =
       SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 132,
         mainAxisExtent: 116,
         mainAxisSpacing: 8,
         crossAxisSpacing: 8,
       );
+
+  /// How many tiles [gridDelegate] lays side by side across
+  /// [crossAxisExtent] — its own `getLayout` rule, so a surface that lays the
+  /// tiles out in rows of its own (the overview's year scroll) cuts them
+  /// exactly where the grid would.
+  static int columnsFor(double crossAxisExtent) => math.max(
+    1,
+    (crossAxisExtent /
+            (gridDelegate.maxCrossAxisExtent + gridDelegate.crossAxisSpacing))
+        .ceil(),
+  );
 
   final String label;
   final String count;

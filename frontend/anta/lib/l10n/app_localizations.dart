@@ -8200,6 +8200,12 @@ abstract class AppLocalizations {
   /// **'Scroll by month'**
   String get overviewScrubberLabel;
 
+  /// Accessibility label of the overview's year scrubber along the right edge of the years scroll
+  ///
+  /// In en, this message translates to:
+  /// **'Scroll by year'**
+  String get overviewYearScrubberLabel;
+
   /// Confirm button of the date picker when it picks a span of days
   ///
   /// In en, this message translates to:

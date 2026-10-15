@@ -6012,6 +6012,10 @@
   "@overviewScrubberLabel": {
     "description": "Accessibility label of the overview list's month scrubber along its right edge"
   },
+  "overviewYearScrubberLabel": "Scroll by year",
+  "@overviewYearScrubberLabel": {
+    "description": "Accessibility label of the overview's year scrubber along the right edge of the years scroll"
+  },
   "datePickerApply": "Apply",
   "@datePickerApply": {
     "description": "Confirm button of the date picker when it picks a span of days"

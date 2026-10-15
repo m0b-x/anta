@@ -5,14 +5,27 @@ import 'row_metrics.dart';
 /// Budgets and timings of the calendar overview — the List mode's resolution
 /// and the page's motion (`docs/calendar-overview-list-roadmap.md` §3.1, §3.8).
 abstract final class OverviewListMetrics {
-  /// Year mode's pager padding: the tiles sit on the rows' group inset, and
-  /// the same inset below keeps the last row of tiles off the screen's edge.
-  static const EdgeInsets yearPagerPadding = EdgeInsets.fromLTRB(
+  /// Year mode's scroll insets: the tiles sit on the rows' group inset. No
+  /// bottom inset — the last section's [yearSectionGap] keeps its tiles off
+  /// the screen's edge.
+  static const EdgeInsets yearScrollPadding = EdgeInsets.fromLTRB(
     RowMetrics.groupInset,
     0,
     RowMetrics.groupInset,
-    RowMetrics.groupInset,
+    0,
   );
+
+  /// A year section's header at the default text scale (D27): a touch
+  /// target's height, so a larger scale grows it only once the year line
+  /// itself needs more.
+  static const double yearHeaderHeight = 48;
+
+  /// The year a section's header names — larger than a tile's label, so the
+  /// eye finds the year boundaries in a fast scroll.
+  static const double yearHeaderFontSize = 22;
+
+  /// The air under a year's last row of tiles, before the next year's header.
+  static const double yearSectionGap = RowMetrics.groupInset;
 
   /// Months resolved before the list's first frame: two years land at once,
   /// which covers every year period and the rolling presets.
@@ -47,11 +60,7 @@ abstract final class OverviewListMetrics {
   /// switch never reads as a page transition.
   static const Duration modeSwitchDuration = Duration(milliseconds: 150);
 
-  /// A chevron's animated year page: long enough to read as the same paging
-  /// a swipe does, short enough that repeated taps never queue up.
+  /// A chevron's animated scroll to a year: long enough to read as a move
+  /// through the years, short enough that repeated taps never queue up.
   static const Duration pageDuration = Duration(milliseconds: 260);
-
-  /// Delay before the neighbouring years are resolved, so the prewarm never
-  /// competes with the frame that shows the year just landed on.
-  static const Duration prewarmDelay = Duration(milliseconds: 250);
 }

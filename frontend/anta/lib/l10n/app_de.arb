@@ -2643,6 +2643,7 @@
     }
   },
   "overviewScrubberLabel": "Nach Monat scrollen",
+  "overviewYearScrubberLabel": "Nach Jahr scrollen",
   "datePickerApply": "Übernehmen",
   "datePickerRangeNone": "Starttag wählen",
   "dayListJumpToToday": "Dieser Monat",

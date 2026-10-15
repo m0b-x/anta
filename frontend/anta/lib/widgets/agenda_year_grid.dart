@@ -133,17 +133,13 @@ class AgendaYearGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-    final missed = color.withValues(alpha: CalendarColors.missedEventAlpha);
-    final unmarked = colorScheme.outline.withValues(
-      alpha: MonthDotMatrix.unmarkedAlpha,
+    final tileBuilder = AgendaYearTileBuilder.of(
+      context,
+      color: color,
+      appearance: appearance,
+      today: today,
+      onOpenMonth: onOpenMonth,
     );
-    final outside = colorScheme.outline.withValues(
-      alpha: MonthDotMatrix.outsideAlpha,
-    );
-    final tileBackground = colorScheme.surfaceContainerHigh;
-    final accent = appearance.accentOr(colorScheme.primary);
     return GridView.builder(
       padding: padding,
       gridDelegate: YearMonthTile.gridDelegate,
@@ -151,47 +147,143 @@ class AgendaYearGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final tile = tiles[index];
         final month = tile.month;
-        final label = tileLabel(l10n.localeName, month);
         final highlight = highlightMonth;
         final highlighted =
             highlight != null &&
             highlight.year == month.year &&
             highlight.month == month.month;
-        final tileWidget = YearMonthTile(
-          label: label,
-          count: '${tile.count}',
-          countColor: tile.count > 0 ? color : colorScheme.onSurfaceVariant,
-          semanticsLabel:
-              '$label, '
-              '${agendaDayListCountLabel(l10n, tile.count, tile.missedCount)}',
-          background: tileBackground,
-          onTap: () => onOpenMonth(month),
-          matrix: MonthDotMatrix(
-            daysInMonth: tile.daysInMonth,
-            firstWeekdayColumn: weekdayColumnOf(month, appearance.weekStart),
-            markedMask: tile.markedMask,
-            missedMask: tile.missedMask,
-            windowMask: tile.windowMask,
-            todayIndex: today.year == month.year && today.month == month.month
-                ? today.day - 1
-                : null,
-            markedColor: color,
-            missedColor: missed,
-            unmarkedColor: unmarked,
-            outsideColor: outside,
-            todayColor: accent,
-            backgroundColor: tileBackground,
-            outlineColor: colorScheme.outline,
-            dayColors: tile.dayColors,
-          ),
-        );
+        final tileWidget = tileBuilder.build(tile);
         if (!highlighted) return tileWidget;
         return _TileFlash(
           key: ValueKey(highlightToken),
-          accent: accent,
+          accent: tileBuilder.accent,
           child: tileWidget,
         );
       },
+    );
+  }
+}
+
+/// The one way a year overview's tile is drawn — the day list's year pages
+/// and the overview's year scroll alike — so the two surfaces cannot drift
+/// apart. The colours a tile derives from the theme and the appearance are
+/// worked out once per build of the surface, never per tile.
+class AgendaYearTileBuilder {
+  /// The month labels' locale and the count's words.
+  final AppLocalizations l10n;
+
+  /// The theme's roles the tile reads beyond the derived colours below: a
+  /// zero count's and the outline's.
+  final ColorScheme colorScheme;
+
+  /// The marked days and a non-zero count — the surface's own colour, which
+  /// follows the calendar's palette rather than the theme.
+  final Color color;
+
+  /// The week's first day and the accent, passed down by the surface as
+  /// every calendar surface takes them.
+  final CalendarAppearance appearance;
+
+  /// The day ringed: the surface's own, so a tile agrees with the nav above
+  /// it across midnight.
+  final DateTime today;
+
+  /// A tile's tap; the surface decides what opening a month means.
+  final ValueChanged<DateTime> onOpenMonth;
+
+  /// [color] faded for a missed day, as the grid's missed bars fade.
+  final Color missed;
+
+  /// An unmarked day's dot, and every dot of a placeholder.
+  final Color unmarked;
+
+  /// The dots outside the window a tile counts.
+  final Color outside;
+
+  /// The tile's ground, which the matrix also paints under its dots.
+  final Color background;
+
+  /// Today's ring, and the flash a jump lands with.
+  final Color accent;
+
+  const AgendaYearTileBuilder._({
+    required this.l10n,
+    required this.colorScheme,
+    required this.color,
+    required this.appearance,
+    required this.today,
+    required this.onOpenMonth,
+    required this.missed,
+    required this.unmarked,
+    required this.outside,
+    required this.background,
+    required this.accent,
+  });
+
+  /// Works out every colour from [context]'s theme once, so a surface makes
+  /// one builder per build — or, for the year scroll, per change of an input
+  /// its sections draw — and never derives a colour per tile.
+  factory AgendaYearTileBuilder.of(
+    BuildContext context, {
+    required Color color,
+    required CalendarAppearance appearance,
+    required DateTime today,
+    required ValueChanged<DateTime> onOpenMonth,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return AgendaYearTileBuilder._(
+      l10n: AppLocalizations.of(context)!,
+      colorScheme: colorScheme,
+      color: color,
+      appearance: appearance,
+      today: today,
+      onOpenMonth: onOpenMonth,
+      missed: color.withValues(alpha: CalendarColors.missedEventAlpha),
+      unmarked: colorScheme.outline.withValues(
+        alpha: MonthDotMatrix.unmarkedAlpha,
+      ),
+      outside: colorScheme.outline.withValues(
+        alpha: MonthDotMatrix.outsideAlpha,
+      ),
+      background: colorScheme.surfaceContainerHigh,
+      accent: appearance.accentOr(colorScheme.primary),
+    );
+  }
+
+  /// [tile]'s [YearMonthTile]. A [placeholder] stands in for a month not
+  /// resolved yet: its count is blank in a box of the same height, and a
+  /// screen reader hears the month alone rather than a count it cannot know.
+  Widget build(AgendaYearTile tile, {bool placeholder = false}) {
+    final month = tile.month;
+    final label = AgendaYearGrid.tileLabel(l10n.localeName, month);
+    return YearMonthTile(
+      label: label,
+      count: placeholder ? '' : '${tile.count}',
+      countColor: tile.count > 0 ? color : colorScheme.onSurfaceVariant,
+      semanticsLabel: placeholder
+          ? label
+          : '$label, '
+                '${agendaDayListCountLabel(l10n, tile.count, tile.missedCount)}',
+      background: background,
+      onTap: () => onOpenMonth(month),
+      matrix: MonthDotMatrix(
+        daysInMonth: tile.daysInMonth,
+        firstWeekdayColumn: weekdayColumnOf(month, appearance.weekStart),
+        markedMask: tile.markedMask,
+        missedMask: tile.missedMask,
+        windowMask: tile.windowMask,
+        todayIndex: today.year == month.year && today.month == month.month
+            ? today.day - 1
+            : null,
+        markedColor: color,
+        missedColor: missed,
+        unmarkedColor: unmarked,
+        outsideColor: outside,
+        todayColor: accent,
+        backgroundColor: background,
+        outlineColor: colorScheme.outline,
+        dayColors: tile.dayColors,
+      ),
     );
   }
 }

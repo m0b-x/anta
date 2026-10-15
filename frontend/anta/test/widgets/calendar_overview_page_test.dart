@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
     show RenderAbstractViewport, RenderParagraph;
 import 'package:flutter/semantics.dart' show SemanticsAction, SemanticsNode;
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart' show MethodChannel, SystemChannels;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/constants/calendar_bounds.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_colors.dart';
 import 'package:anta/constants/event_presence.dart';
@@ -40,6 +41,7 @@ import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/alert_keep_notice.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
@@ -47,16 +49,17 @@ import 'package:anta/services/navigation_history_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/agenda_month_store.dart';
 import 'package:anta/utils/date_span_label.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
-import 'package:anta/widgets/agenda_year_pager.dart';
+import 'package:anta/widgets/agenda_year_scroll.dart';
+import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
-import 'package:anta/widgets/month_dot_matrix.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
 import 'package:anta/widgets/year_month_tile.dart';
 
@@ -234,7 +237,10 @@ void main() {
   ) async {
     await pumpPage(tester);
 
-    expect(find.byType(YearMonthTile), findsNWidgets(12));
+    // Slice 11: one section of the year scroll, its header at the top.
+    final robot = OverviewRobot(tester);
+    expect(robot.yearTiles(year), findsNWidgets(12));
+    expect(robot.yearHeaderTop(year), 0);
     expect(navText('$year'), findsOneWidget);
 
     final handle = tester.ensureSemantics();
@@ -246,52 +252,117 @@ void main() {
     expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
   });
 
-  testWidgets('the year chevrons page and the this-year button returns', (
-    tester,
-  ) async {
+  testWidgets('the year chevrons scroll to the year, the title follows, and '
+      'the this-year button returns', (tester) async {
     await pumpPage(tester);
+    final robot = OverviewRobot(tester);
 
     await tester.tap(
       find.widgetWithIcon(IconButton, Icons.chevron_left_rounded),
     );
+    // The scroll animates there: under way the title still names this year.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(robot.yearHeaderTop(year)!, greaterThan(0));
+    expect(robot.yearHeaderTop(year)!, lessThan(robot.yearSectionExtent));
     await tester.pumpAndSettle();
     expect(navText('${year - 1}'), findsOneWidget);
+    expect(robot.yearHeaderTop(year - 1), 0);
     expect(navButton(tester, Icons.today_rounded).onPressed, isNotNull);
 
     await tester.tap(find.widgetWithIcon(IconButton, Icons.today_rounded));
     await tester.pumpAndSettle();
     expect(navText('$year'), findsOneWidget);
+    expect(robot.yearHeaderTop(year), 0);
   });
 
-  testWidgets('the years stop where the events do', (tester) async {
+  testWidgets('the years span the events: an open-ended series ends next '
+      'year, a bounded end or a pinned date past it extends it (D28)', (
+    tester,
+  ) async {
     await pumpPage(tester);
+    final robot = OverviewRobot(tester);
 
     // The oldest event is two years back; the daily one is open-ended, so
-    // the future stays reachable.
-    expect(navButton(tester, Icons.chevron_right_rounded).onPressed, isNotNull);
-    await tester.tap(
-      find.widgetWithIcon(IconButton, Icons.chevron_left_rounded),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithIcon(IconButton, Icons.chevron_left_rounded),
-    );
-    await tester.pumpAndSettle();
+    // the span ends next year rather than at the calendar's ceiling.
+    expect(robot.yearSpan, (first: year - 2, last: year + 1));
+    await robot.next();
+    expect(navText('${year + 1}'), findsOneWidget);
+    expect(navButton(tester, Icons.chevron_right_rounded).onPressed, isNull);
+    await robot.today();
+    await robot.previous();
+    await robot.previous();
     expect(navText('${year - 2}'), findsOneWidget);
     expect(navButton(tester, Icons.chevron_left_rounded).onPressed, isNull);
 
-    // A fling past the first page goes nowhere.
-    await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
+    // A fling past the first year goes nowhere.
+    await tester.fling(
+      find.byType(AgendaYearScroll),
+      const Offset(0, 600),
+      3000,
+    );
     await tester.pumpAndSettle();
     expect(navText('${year - 2}'), findsOneWidget);
+    expect(robot.yearsOffset, 0);
+
+    final bounded = gymDaily.copyWith(
+      id: 'b2',
+      endDate: DateTime.utc(year + 3, 6, 30),
+    );
+    // ignore: invalid_use_of_visible_for_testing_member
+    bloc.emit(
+      CalendarPageLoaded(
+        allEvents: [gymDaily, bounded],
+        focusedDay: today,
+        selectedDay: today,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(robot.yearSpan, (first: year, last: year + 3));
+
+    final pinned = CalendarEvent(
+      id: 'pin',
+      title: 'Pinned',
+      categoryId: 'other',
+      startDate: january,
+      rule: SpecificDatesRecurrence(dates: {DateTime.utc(year + 5, 2, 2)}),
+    );
+    // ignore: invalid_use_of_visible_for_testing_member
+    bloc.emit(
+      CalendarPageLoaded(
+        allEvents: [gymDaily, pinned],
+        focusedDay: today,
+        selectedDay: today,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(robot.yearSpan, (first: year, last: year + 5));
   });
 
-  testWidgets('a swipe pages the years', (tester) async {
+  testWidgets('a drag into the neighbour flips the title at the half-header '
+      'threshold', (tester) async {
     await pumpPage(tester);
+    final robot = OverviewRobot(tester);
+    // Where the next year's header is half a header below the top.
+    final threshold =
+        robot.yearsOffset +
+        robot.yearSectionExtent -
+        robot.yearHeaderHeight / 2;
+    final gesture = await robot.holdYears();
 
-    await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
+    await gesture.moveBy(Offset(0, -(threshold - robot.yearsOffset - 1)));
+    await tester.pump();
+    expect(navText('$year'), findsOneWidget);
+
+    await gesture.moveBy(const Offset(0, -2));
+    await tester.pump();
+    expect(navText('${year + 1}'), findsOneWidget);
+
+    await gesture.moveBy(const Offset(0, 2));
+    await tester.pump();
+    expect(navText('$year'), findsOneWidget, reason: 'and back');
+    await gesture.up();
     await tester.pumpAndSettle();
-    expect(navText('${year - 1}'), findsOneWidget);
   });
 
   testWidgets('the year title opens the Period menu, never the jump picker '
@@ -350,9 +421,7 @@ void main() {
     );
     handle.dispose();
     // One category selected: the tiles wear its colour.
-    final matrix = tester.widget<MonthDotMatrix>(
-      find.byType(MonthDotMatrix).at(2),
-    );
+    final matrix = OverviewRobot(tester).yearMatrices(year)[2];
     expect(matrix.markedColor, const Color(0xFFEC407A));
   });
 
@@ -361,9 +430,7 @@ void main() {
   ) async {
     await pumpPage(tester);
 
-    final march = tester.widget<MonthDotMatrix>(
-      find.byType(MonthDotMatrix).at(2),
-    );
+    final march = OverviewRobot(tester).yearMatrices(year)[2];
     // Day 9 carries the gym event and the mobility class; the gym one leads
     // by title, so the square wears gym blue like every other day.
     expect(march.dayColors, isNotNull);
@@ -640,7 +707,7 @@ void main() {
       await pumpPage(tester);
       final page = tester.element(find.byType(CalendarOverviewPage));
       Color pagerColor() =>
-          tester.widget<AgendaYearPager>(find.byType(AgendaYearPager)).color;
+          tester.widget<AgendaYearScroll>(find.byType(AgendaYearScroll)).color;
       expect(pagerColor(), Theme.of(page).colorScheme.primary);
 
       unawaited(
@@ -1125,6 +1192,54 @@ void main() {
           (present.eventId, present.day, present.status),
           ('p1', january, PresenceStatus.present),
         );
+      });
+
+      testWidgets('a mark\'s forget re-resolves its month alone, and the year '
+          'scroll then shows it on the tile and the header', (tester) async {
+        // The bloc writes the mark through the presence service on the
+        // suite's database, which publishes the facade and bumps the
+        // revision as on the phone.
+        await tester.runAsync(() => EventPresenceService.forTesting(db));
+        final (robot, events) = await openMarking(tester);
+        CalendarEvent.debugOccursOnCalls = 0;
+        final before = loaded().presenceRevision;
+        await robot.tapRow('Rowing');
+        // The write is real database work, which the fake clock never
+        // advances: wait for its bump in real time, then draw it.
+        for (var wait = 0; wait < 100; wait++) {
+          if (loaded().presenceRevision != before) break;
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(loaded().presenceRevision, before + 1);
+        expect(events.whereType<SetOccurrencePresence>(), hasLength(1));
+        expect(EventPresence.isMissed(rowing, january), isTrue);
+        final rescanned = CalendarEvent.debugOccursOnCalls;
+        expect(rescanned, inInclusiveRange(1, 31), reason: 'January alone');
+
+        await robot.selectMode(AgendaDayListMode.year);
+
+        expect(CalendarEvent.debugOccursOnCalls, rescanned);
+        final handle = tester.ensureSemantics();
+        expect(
+          find.bySemanticsLabel(
+            '${tileLabel(january)}, ${count(2, missed: 1)}',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .getSemantics(
+                find.bySemanticsIdentifier(
+                  SemanticsIds.overviewYearHeader(year),
+                ),
+              )
+              .label,
+          '$year, ${count(3, missed: 1)}',
+        );
+        handle.dispose();
       });
 
       testWidgets('a row whose event keeps no attendance opens its sheet and '
@@ -1663,10 +1778,13 @@ void main() {
 
           await robot.selectMode(AgendaDayListMode.year);
           final yearNav = robot.navSize.height;
-          final pagerTop = tester.getTopLeft(find.byType(AgendaYearPager)).dy;
+          final scrollTop = tester.getTopLeft(find.byType(AgendaYearScroll)).dy;
           await robot.previous();
           expect(robot.navSize.height, yearNav, reason: robot.navTitle);
-          expect(tester.getTopLeft(find.byType(AgendaYearPager)).dy, pagerTop);
+          expect(
+            tester.getTopLeft(find.byType(AgendaYearScroll)).dy,
+            scrollTop,
+          );
 
           await robot.selectMode(AgendaDayListMode.month);
           final monthNav = robot.navSize.height;
@@ -1695,7 +1813,7 @@ void main() {
         testWidgets('the twelve months fit a ${surface.width.round()} × '
             '${surface.height.round()} phone in Year mode: the chip row, a '
             '52 dp nav and a 26 dp totals line between the bar and the '
-            'pager, December above the fold (D19–D25)', (tester) async {
+            'scroll, December above the fold (D19–D25)', (tester) async {
           final robot = OverviewRobot(tester);
           await robot.open(
             bloc: bloc,
@@ -1705,7 +1823,7 @@ void main() {
           );
 
           final barBottom = tester.getBottomLeft(find.byType(AppBar)).dy;
-          final pagerTop = tester.getTopLeft(find.byType(AgendaYearPager)).dy;
+          final pagerTop = tester.getTopLeft(find.byType(AgendaYearScroll)).dy;
           final chipRow = robot.modeChipRowExtent;
           expect(robot.navSize.height, 52);
           expect(robot.totalsHeight, 26);
@@ -1717,11 +1835,16 @@ void main() {
             expect(chipRow, 56);
             expect(pagerTop - barBottom, 134);
           }
-          final tiles = find.byType(YearMonthTile);
+          // Slice 11: this year's section opens at the top, under its header.
+          final tiles = robot.yearTiles(year);
           expect(tiles, findsNWidgets(12));
-          // The screen less the 24 dp status bar the test does not draw.
+          expect(robot.yearHeaderTop(year), 0);
+          // The screen less the 24 dp status bar the test does not draw, and
+          // at 360 less the test font's second run of chips (above), which
+          // pushes December past the fold here and not on a phone.
+          final secondRun = surface.width > 400 ? 0.0 : chipRow - 56;
           expect(
-            tester.getBottomLeft(tiles.last).dy,
+            tester.getBottomLeft(tiles.last).dy - secondRun,
             lessThanOrEqualTo(surface.height - 24),
           );
         });
@@ -2475,19 +2598,262 @@ void main() {
 
       setUp(() => emitEvents([everyDay]));
 
-      testWidgets('opening scans the year once, and nothing prewarms (R7)', (
-        tester,
-      ) async {
+      testWidgets('opening the list scans the year once, and no year run '
+          'follows (R7)', (tester) async {
         CalendarEvent.debugOccursOnCalls = 0;
         await openList(OverviewRobot(tester));
         expect(CalendarEvent.debugOccursOnCalls, daysIn(year));
 
-        // R7: the list has no year to page to, so no neighbour is warmed.
+        // R7: the list has no years to scroll through, so none is resolved.
         await tester.pump(const Duration(milliseconds: 250));
         expect(CalendarEvent.debugOccursOnCalls, daysIn(year));
       });
 
-      testWidgets('a keystroke pause scans nothing, and nothing prewarms '
+      testWidgets('opening Year draws its first frame on the top year alone, '
+          'scanned once, with at most three sections built; the two '
+          'neighbours follow one per frame (R7, D30, slice 12)', (
+        tester,
+      ) async {
+        emitEvents(const []);
+        AgendaMonthStore? store;
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: const Size(412, 915),
+          onStore: (resolved) => store = resolved,
+        );
+        await robot.finishResolving();
+        int resolvedYears() => [
+          for (var shown = year - 3; shown <= year + 3; shown++)
+            if (store!.cachedTally(DateTime.utc(shown, 6, 1)) != null) shown,
+        ].length;
+
+        CalendarEvent.debugOccursOnCalls = 0;
+        emitEvents([everyDay]);
+        // Registered before the page's own: reads what the frame was drawn
+        // from, before any run that follows it.
+        final atFirstFrame = <int>[];
+        tester.binding.addPostFrameCallback(
+          (_) => atFirstFrame.add(CalendarEvent.debugOccursOnCalls),
+        );
+        await tester.pump();
+
+        expect(atFirstFrame, [daysIn(year)]);
+        expect(robot.builtYears, hasLength(lessThanOrEqualTo(3)));
+        expect(robot.yearHeaderTop(year), 0);
+        expect(robot.navCount, count(daysIn(year)));
+
+        // Frame by frame from there: at most one year more per frame, the
+        // two neighbours in two frames, then nothing — and none in the
+        // frame that drew the top year's scan (R7): the first neighbour
+        // waits for the frame after it.
+        final perFrame = [resolvedYears()];
+        for (var frame = 0; frame < 4; frame++) {
+          await robot.pumpYearRun();
+          perFrame.add(resolvedYears());
+        }
+        for (var frame = 1; frame < perFrame.length; frame++) {
+          expect(
+            perFrame[frame] - perFrame[frame - 1],
+            lessThanOrEqualTo(1),
+            reason: 'frame $frame: $perFrame',
+          );
+        }
+        expect(perFrame.take(3), [1, 2, 3], reason: '$perFrame');
+        expect(perFrame.last, 3);
+        expect(
+          CalendarEvent.debugOccursOnCalls,
+          daysIn(year - 1) + daysIn(year) + daysIn(year + 1),
+        );
+      });
+
+      testWidgets('the keyboard folding the chip row frame by frame in Year '
+          'mode rebuilds no tile and scans nothing (slice 12)', (tester) async {
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: const Size(412, 915),
+        );
+        await robot.finishResolving();
+        await robot.focusSearch();
+        await tester.pumpAndSettle();
+        await robot.finishResolving();
+        final full = robot.modeChipRowExtent;
+        expect(full, greaterThan(0));
+
+        CalendarEvent.debugOccursOnCalls = 0;
+        var tileBuilds = 0;
+        debugOnRebuildDirtyWidget = (element, _) {
+          if (element.widget is YearMonthTile) tileBuilds++;
+        };
+        addTearDown(tester.view.resetViewInsets);
+        try {
+          for (var frame = 1; frame <= 12; frame++) {
+            tester.view.viewInsets = FakeViewPadding(bottom: 30.0 * frame);
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+        } finally {
+          debugOnRebuildDirtyWidget = null;
+        }
+
+        expect(robot.modeChips, isEmpty, reason: 'the chips folded');
+        expect(CalendarEvent.debugOccursOnCalls, 0);
+        expect(tileBuilds, 0);
+        expect(robot.yearHeaderTop(year), 0);
+      });
+
+      testWidgets('Today from 26 years back resolves only its target on the '
+          'way, then the target\'s neighbours once it lands (slice 12)', (
+        tester,
+      ) async {
+        AgendaMonthStore? store;
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: const Size(412, 915),
+          onStore: (resolved) => store = resolved,
+        );
+        await robot.finishResolving();
+        await robot.jumpYearsTo(
+          robot.yearsOffset - 26 * robot.yearSectionExtent,
+        );
+        await robot.finishResolving();
+        expect(robot.navTitle, '${year - 26}');
+        // A new store with the scroll back there: only what is shown there
+        // is resolved. (An equal state would not be emitted at all.)
+        emitEvents([everyDay.copyWith(title: 'Leg day, renamed')]);
+        await tester.pumpAndSettle();
+        await robot.finishResolving();
+        bool resolvedYear(int shown) =>
+            store!.cachedTally(DateTime.utc(shown, 6, 1)) != null;
+        expect(resolvedYear(year), isFalse);
+
+        CalendarEvent.debugOccursOnCalls = 0;
+        await robot.today(settle: false);
+        expect(CalendarEvent.debugOccursOnCalls, daysIn(year));
+        final titles = <String>{};
+        final frames = OverviewListMetrics.pageDuration.inMilliseconds ~/ 16;
+        for (var frame = 1; frame < frames; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          titles.add(robot.navTitle);
+          expect(
+            CalendarEvent.debugOccursOnCalls,
+            daysIn(year),
+            reason: 'frame $frame, at ${robot.navTitle}',
+          );
+        }
+        expect(titles.length, greaterThan(2), reason: 'the title followed');
+        for (var passed = year - 24; passed < year - 1; passed++) {
+          expect(resolvedYear(passed), isFalse, reason: '$passed');
+        }
+
+        await tester.pumpAndSettle();
+        await robot.finishResolving();
+        expect(robot.navTitle, '$year');
+        expect(resolvedYear(year - 1), isTrue);
+        expect(resolvedYear(year + 1), isTrue);
+        expect(
+          CalendarEvent.debugOccursOnCalls,
+          daysIn(year - 1) + daysIn(year) + daysIn(year + 1),
+        );
+      });
+
+      testWidgets('a keystroke under a live query in Year mode scans nothing, '
+          'and its one frame turns every shown count, none blank (slice 12)', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: const Size(412, 915),
+        );
+        await robot.finishResolving();
+        await robot.typeQuery('leg');
+        await robot.finishResolving();
+        String header(int shown) => tester
+            .getSemantics(
+              find.bySemanticsIdentifier(
+                SemanticsIds.overviewYearHeader(shown),
+              ),
+            )
+            .label;
+        final built = robot.builtYears;
+        expect(built, contains(year));
+        for (final shown in built) {
+          expect(header(shown), '$shown, ${count(daysIn(shown))}');
+        }
+
+        CalendarEvent.debugOccursOnCalls = 0;
+        await robot.typeQuery('legs', wait: false);
+        // The debounce, then the one frame it asks for.
+        await tester.pump(OverviewListMetrics.searchDebounce);
+
+        expect(CalendarEvent.debugOccursOnCalls, 0);
+        expect(robot.builtYears, built);
+        for (final shown in built) {
+          expect(header(shown), '$shown, ${count(0)}');
+        }
+        expect(robot.navCount, count(0));
+        semantics.dispose();
+      });
+
+      testWidgets('a fling across unresolved years resolves only what the '
+          'viewport shows when each run fires', (tester) async {
+        AgendaMonthStore? store;
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: const Size(412, 915),
+          onStore: (resolved) => store = resolved,
+        );
+        await robot.finishResolving();
+        await tester.pumpAndSettle();
+        final extent = robot.yearSectionExtent;
+        final base = robot.yearsOffset;
+        double offsetOf(int target) => base + (target - year) * extent;
+        bool resolvedYear(int target) =>
+            store!.cachedTally(DateTime.utc(target, 6, 1)) != null;
+
+        // A fast fling's frames, ten years apart: each frame's run, at its
+        // end, resolves the year that frame put at the top and nothing it
+        // only showed beside it; the years between frames are never seen.
+        CalendarEvent.debugOccursOnCalls = 0;
+        await robot.jumpYearsTo(offsetOf(year - 10), settle: false);
+        expect(
+          CalendarEvent.debugOccursOnCalls,
+          daysIn(year - 10),
+          reason: 'one year at the end of the frame, none inside it',
+        );
+        await robot.jumpYearsTo(offsetOf(year - 20), settle: false);
+        await robot.jumpYearsTo(offsetOf(year - 30), settle: false);
+        expect(robot.navTitle, '${year - 30}');
+
+        await robot.finishResolving();
+
+        for (final passed in [year - 11, year - 9, year - 21, year - 19]) {
+          expect(resolvedYear(passed), isFalse, reason: '$passed');
+        }
+        // The two frames' tops, then what the viewport shows once the runs
+        // catch up, with the top year's neighbours.
+        final shownOnTheWay = [year - 20, year - 10];
+        final landed = [year - 31, year - 30, year - 29];
+        for (final shown in [...shownOnTheWay, ...landed]) {
+          expect(resolvedYear(shown), isTrue, reason: '$shown');
+        }
+        expect(
+          CalendarEvent.debugOccursOnCalls,
+          [...shownOnTheWay, ...landed].map(daysIn).reduce((a, b) => a + b),
+        );
+        expect(robot.navCount, count(daysIn(year - 30)));
+      });
+
+      testWidgets('a keystroke pause scans nothing, and no run follows '
           '(T3, R7)', (tester) async {
         final robot = OverviewRobot(tester);
         await openList(robot);
@@ -2527,22 +2893,27 @@ void main() {
         await robot.open(bloc: bloc, importExport: importExport);
         await tester.pump(const Duration(milliseconds: 300));
 
-        // The tiles were folded from marks; a search needs the rows.
+        // The tiles were folded from marks; a search needs the rows — the
+        // shown year's with the frame, the two neighbours' in the runs —
+        // the first of them a frame after the one that drew the shown
+        // year's scan (R7).
         CalendarEvent.debugOccursOnCalls = 0;
         await robot.typeQuery('leg');
-        expect(CalendarEvent.debugOccursOnCalls, daysIn(year));
+        await robot.finishResolving();
+        expect(
+          CalendarEvent.debugOccursOnCalls,
+          daysIn(year - 1) + daysIn(year) + daysIn(year + 1),
+        );
 
         CalendarEvent.debugOccursOnCalls = 0;
-        // Each pause lands inside the last one's 250 ms prewarm, which it
-        // cancels: what is counted is the queries alone.
         await robot.typeQuery('le');
         await robot.typeQuery('zzz');
         expect(CalendarEvent.debugOccursOnCalls, 0);
         expect(robot.navCount, count(0));
       });
 
-      testWidgets('a preset scans only the months it adds, and nothing '
-          'prewarms (R7)', (tester) async {
+      testWidgets('a preset scans only the months it adds, and no run '
+          'follows (R7)', (tester) async {
         final robot = OverviewRobot(tester);
         await openList(robot);
         await tester.pump(const Duration(milliseconds: 300));
@@ -2566,21 +2937,69 @@ void main() {
         expect(CalendarEvent.debugOccursOnCalls, added);
       });
 
-      testWidgets('a period that is not a year never prewarms, not even under '
-          'the year tiles (R7)', (tester) async {
+      testWidgets('a rolling period resolves no year in the list; the switch '
+          'to the year tiles costs exactly the top year and its two '
+          'neighbours, then nothing more (R7)', (tester) async {
+        AgendaMonthStore? store;
         final robot = OverviewRobot(tester);
-        await openList(
-          robot,
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.list,
           period: const OverviewRollingPeriod(OverviewRollingPreset.last90Days),
+          onStore: (resolved) => store = resolved,
         );
         CalendarEvent.debugOccursOnCalls = 0;
         await tester.pump(const Duration(milliseconds: 250));
         expect(CalendarEvent.debugOccursOnCalls, 0);
+        // The months the list resolved are counted from their rows.
+        final listed = {
+          for (
+            var month = AgendaMonthStore.monthOf(
+              today.subtract(const Duration(days: 89)),
+            );
+            !month.isAfter(today);
+            month = DateTime.utc(month.year, month.month + 1, 1)
+          )
+            AgendaMonthStore.keyOf(month),
+        };
 
+        CalendarEvent.debugOccursOnCalls = 0;
         await robot.selectMode(AgendaDayListMode.year);
+        await robot.finishResolving();
+        final shown = today.subtract(const Duration(days: 89)).year;
+        expect(robot.navTitle, '$shown');
+        var expected = 0;
+        for (final resolved in [shown - 1, shown, shown + 1]) {
+          for (final month in AgendaMonthStore.monthsOfYear(resolved)) {
+            if (listed.contains(AgendaMonthStore.keyOf(month))) continue;
+            expected += DateTime.utc(resolved, month.month + 1, 0).day;
+          }
+          expect(
+            store!.cachedTally(DateTime.utc(resolved, 6, 1)),
+            isNotNull,
+            reason: '$resolved',
+          );
+        }
+        expect(CalendarEvent.debugOccursOnCalls, expected);
         CalendarEvent.debugOccursOnCalls = 0;
         await tester.pump(const Duration(milliseconds: 250));
         expect(CalendarEvent.debugOccursOnCalls, 0);
+      });
+
+      testWidgets('the first frame after a switch into Year shows the year\'s '
+          'header at the top, and no jump follows (slice 12)', (tester) async {
+        final robot = OverviewRobot(tester);
+        await openList(robot, surface: const Size(412, 915));
+        await robot.finishResolving();
+
+        await robot.selectMode(AgendaDayListMode.year, settle: false);
+        expect(robot.yearHeaderTop(year), 0);
+        final offset = robot.yearsOffset;
+        await tester.pumpAndSettle();
+        await robot.finishResolving();
+        expect(robot.yearsOffset, offset);
+        expect(robot.yearHeaderTop(year), 0);
       });
 
       testWidgets('Year → List → Year scans the year\'s entries once', (
@@ -4420,7 +4839,50 @@ void main() {
         await robot.clearQuery();
         expect(robot.hasScrubber, isTrue);
 
-        await robot.selectMode(AgendaDayListMode.year);
+        await robot.selectMode(AgendaDayListMode.month);
+        expect(robot.hasScrubber, isFalse);
+        semantics.dispose();
+      });
+
+      testWidgets('Year mode wears the year lane over a span of years, outside '
+          'the scroll\'s node, and none over one year (D29)', (tester) async {
+        final semantics = tester.ensureSemantics();
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: phone,
+        );
+        await robot.finishResolving();
+        expect(robot.yearSpan, (first: year - 2, last: year + 1));
+        expect(robot.hasScrubber, isTrue);
+
+        final lane = tester.getSemantics(robot.scrubberNode);
+        expect(lane.label, en.overviewYearScrubberLabel);
+        var inScroll = false;
+        bool visit(SemanticsNode node) {
+          if (identical(node, lane)) inScroll = true;
+          node.visitChildren(visit);
+          return true;
+        }
+
+        tester
+            .getSemantics(
+              find.bySemanticsIdentifier(SemanticsIds.overviewYears),
+            )
+            .visitChildren(visit);
+        expect(inScroll, isFalse);
+
+        final gesture = await robot.scrub(to: 0);
+        expect(robot.scrubberBubble, '${year - 2}');
+        expect(robot.navTitle, '${year - 2}');
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        // One year: the span of a store with a single one-time event.
+        emitEvents([mobilityOnce]);
+        await tester.pumpAndSettle();
+        expect(robot.yearSpan, (first: year, last: year));
         expect(robot.hasScrubber, isFalse);
         semantics.dispose();
       });
@@ -4517,6 +4979,298 @@ void main() {
         expect(robot.pinnedLabel?.$1, label('mobility'));
         await gesture.up();
         await tester.pumpAndSettle();
+      });
+    });
+
+    group('the years scroll after review (slice 12 fix pass)', () {
+      const phone = Size(412, 915);
+
+      /// One retroactive daily series, as in the scan budgets: every year
+      /// scanned costs its days in `occursOn` calls, and the series is
+      /// open-ended, so the scroll ends next year while the calendar's
+      /// ceiling stays reachable everywhere else (D28).
+      final everyDay = CalendarEvent(
+        id: 'r1',
+        title: 'Leg day',
+        categoryId: 'gym',
+        startDate: january,
+        rule: const DailyRecurrence(),
+        retroactive: true,
+      );
+
+      String headerLabel(WidgetTester tester, int shown) => tester
+          .getSemantics(
+            find.bySemanticsIdentifier(SemanticsIds.overviewYearHeader(shown)),
+          )
+          .label;
+
+      /// Every selection click the page asks the platform for.
+      List<Object?> recordClicks(WidgetTester tester) {
+        final clicks = <Object?>[];
+        final messenger = tester.binding.defaultBinaryMessenger;
+        const channel = SystemChannels.platform;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            clicks.add(call.arguments);
+          }
+          return null;
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+        return clicks;
+      }
+
+      testWidgets('R1: Custom range… from the list reaches the calendar\'s '
+          'ceiling with an open-ended series, and the list nav steps past '
+          'next year', (tester) async {
+        final robot = OverviewRobot(tester);
+        await openList(robot);
+
+        await robot.next();
+        expect(robot.navTitle, contains('${year + 1}'));
+        expect(robot.canGoNext, isTrue);
+        await robot.next();
+        expect(robot.navTitle, contains('${year + 2}'));
+
+        await robot.pickPeriod(OverviewPeriodChoice.custom);
+        final sheet = tester.widget<CalendarDatePickerSheet>(
+          find.byType(CalendarDatePickerSheet),
+        );
+        expect(
+          sheet.lastDate,
+          DateTime.utc(CalendarBounds.latest.year, 12, 31),
+        );
+        await robot.cancelRange();
+      });
+
+      testWidgets('R1: Month mode paged into the year after next keeps its '
+          'year; Year mode then lands at the scroll\'s end, where its ► '
+          'stops', (tester) async {
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.month,
+        );
+        await robot.pageMonthTo(DateTime.utc(year + 2, 1, 1));
+
+        // The list opens on the year the month pages reached.
+        await robot.selectMode(AgendaDayListMode.list);
+        expect(robot.navTitle, contains('${year + 2}'));
+
+        await robot.selectMode(AgendaDayListMode.year);
+        await robot.finishResolving();
+        expect(robot.yearSpan.last, year + 1);
+        expect(robot.navTitle, '${year + 1}');
+        expect(robot.yearHeaderTop(year + 1), 0);
+        expect(robot.canGoNext, isFalse);
+      });
+
+      testWidgets('R1: a custom span past the ceiling, kept from the list, '
+          'opens Year mode clamped to the scroll\'s last year', (tester) async {
+        // A saved view's span: the range sheet extends from the span shown,
+        // so a span that starts past the ceiling comes from a view.
+        final service = await OverviewViewService.getInstance();
+        final view = await service.create(
+          name: 'Later',
+          period: OverviewCustomPeriod(
+            DateTime.utc(year + 3, 3, 1),
+            DateTime.utc(year + 4, 2, 28),
+          ),
+          options: OverviewListOptions.defaults,
+          categoryIds: const {},
+        );
+        final robot = OverviewRobot(tester);
+        await openList(robot);
+        await robot.applyView(view!.id);
+        await tester.pumpAndSettle();
+        expect(robot.navTitle, contains('${year + 3}'));
+
+        await robot.selectMode(AgendaDayListMode.year);
+        await robot.finishResolving();
+        expect(robot.yearSpan.last, year + 1);
+        expect(robot.navTitle, '${year + 1}');
+        expect(robot.yearHeaderTop(year + 1), 0);
+
+        // The span is still the list's.
+        await robot.selectMode(AgendaDayListMode.list);
+        expect(robot.navTitle, contains('${year + 3}'));
+      });
+
+      testWidgets('R3: a scrubber step resolves its target before the '
+          'animation and clicks once; a step during a landing goes on from '
+          'its target', (tester) async {
+        emitEvents([everyDay]);
+        final semantics = tester.ensureSemantics();
+        final clicks = recordClicks(tester);
+        AgendaMonthStore? store;
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: phone,
+          onStore: (resolved) => store = resolved,
+        );
+        await robot.finishResolving();
+        bool resolvedYear(int shown) =>
+            store!.cachedTally(DateTime.utc(shown, 6, 1)) != null;
+        void decrease() {
+          final node = tester.getSemantics(robot.scrubberNode);
+          node.owner!.performAction(node.id, SemanticsAction.decrease);
+        }
+
+        clicks.clear();
+        decrease();
+        expect(clicks, hasLength(1));
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(resolvedYear(year - 2), isFalse);
+
+        decrease();
+        expect(clicks, hasLength(2));
+        expect(resolvedYear(year - 2), isTrue, reason: 'before any frame');
+        await tester.pumpAndSettle();
+        await robot.finishResolving();
+        expect(robot.navTitle, '${year - 2}');
+        expect(robot.yearHeaderTop(year - 2), 0);
+        semantics.dispose();
+      });
+
+      testWidgets('R4: a rebuild mid-landing scans the landing\'s target, not '
+          'the year passing the top', (tester) async {
+        emitEvents([everyDay]);
+        AgendaMonthStore? store;
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: phone,
+          onStore: (resolved) => store = resolved,
+        );
+        await robot.finishResolving();
+        await robot.jumpYearsTo(
+          robot.yearsOffset - 26 * robot.yearSectionExtent,
+        );
+        await robot.finishResolving();
+
+        await robot.today(settle: false);
+        await tester.pump(const Duration(milliseconds: 60));
+        final passing = int.parse(robot.navTitle);
+        expect(passing, inExclusiveRange(year - 26, year));
+
+        CalendarEvent.debugOccursOnCalls = 0;
+        emitEvents([everyDay.copyWith(title: 'Leg day, renamed')]);
+        await tester.pump();
+        expect(CalendarEvent.debugOccursOnCalls, daysIn(year));
+        expect(store!.cachedTally(DateTime.utc(year, 6, 1)), isNotNull);
+        expect(store!.cachedTally(DateTime.utc(passing, 6, 1)), isNull);
+
+        await tester.pumpAndSettle();
+        await robot.finishResolving();
+        expect(robot.navTitle, '$year');
+        expect(robot.yearHeaderTop(year), 0);
+      });
+
+      testWidgets('R5: a locale change while a page covers the overview scans '
+          'nothing until the pop', (tester) async {
+        emitEvents([everyDay]);
+        final robot = OverviewRobot(tester);
+        await robot.open(bloc: bloc, importExport: importExport);
+        await robot.finishResolving();
+        await robot.cover();
+
+        CalendarEvent.debugOccursOnCalls = 0;
+        await robot.switchLocale(
+          const Locale('de'),
+          bloc: bloc,
+          importExport: importExport,
+        );
+        await robot.finishResolving();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(CalendarEvent.debugOccursOnCalls, 0);
+
+        await robot.uncover();
+        await robot.finishResolving();
+        expect(CalendarEvent.debugOccursOnCalls, greaterThan(0));
+        expect(robot.yearTiles(year), findsNWidgets(12));
+        expect(robot.navCount, isNotEmpty);
+      });
+
+      testWidgets('R6: a far year folded under one query shows the '
+          'placeholder under the next, then its counts after one frame — '
+          'never the old counts', (tester) async {
+        emitEvents([everyDay]);
+        final semantics = tester.ensureSemantics();
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: phone,
+        );
+        await robot.finishResolving();
+        final extent = robot.yearSectionExtent;
+        final base = robot.yearsOffset;
+        double offsetOf(int target) => base + (target - year) * extent;
+        final far = year - 10;
+
+        // Under no query, the far year is folded from marks.
+        await robot.jumpYearsTo(offsetOf(far));
+        await robot.finishResolving();
+        expect(headerLabel(tester, far), '$far, ${count(daysIn(far))}');
+        await robot.jumpYearsTo(offsetOf(year));
+        await robot.finishResolving();
+
+        await robot.typeQuery('zzz');
+        await robot.finishResolving();
+
+        await robot.jumpYearsTo(offsetOf(far), settle: false);
+        expect(headerLabel(tester, far), '$far');
+        expect(
+          tester.widget<YearMonthTile>(robot.yearTiles(far).first).count,
+          '',
+        );
+        await tester.pump();
+        expect(headerLabel(tester, far), '$far, ${count(0)}');
+        semantics.dispose();
+      });
+
+      testWidgets('R8: a run resolving one year builds exactly its twelve '
+          'tiles and its one header', (tester) async {
+        emitEvents([everyDay]);
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          surface: phone,
+        );
+        await robot.finishResolving();
+        final far = year - 10;
+        // The frame the jump draws builds the far sections as placeholders;
+        // the run at its end resolves the top one.
+        await robot.jumpYearsTo(
+          robot.yearsOffset - 10 * robot.yearSectionExtent,
+          settle: false,
+        );
+        expect(robot.builtYears, hasLength(greaterThan(1)));
+
+        var tileBuilds = 0;
+        var headerBuilds = 0;
+        final tileYears = <String>{};
+        debugOnRebuildDirtyWidget = (element, _) {
+          final widget = element.widget;
+          if (widget is YearMonthTile) {
+            tileBuilds++;
+            tileYears.add(widget.label.substring(widget.label.length - 4));
+          }
+          if (widget.runtimeType.toString() == '_YearHeader') headerBuilds++;
+        };
+        try {
+          await tester.pump();
+        } finally {
+          debugOnRebuildDirtyWidget = null;
+        }
+        expect(tileBuilds, 12);
+        expect(headerBuilds, 1);
+        expect(tileYears, {'$far'});
+        expect(robot.navCount, count(daysIn(far)));
       });
     });
   });

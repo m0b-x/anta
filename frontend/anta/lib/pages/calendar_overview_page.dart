@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart'
     show precisionErrorTolerance, setEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart' show SchedulerPhase;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -47,7 +48,7 @@ import '../widgets/agenda_list_view.dart';
 import '../widgets/agenda_month_grid.dart';
 import '../widgets/agenda_period_nav.dart';
 import '../widgets/agenda_year_grid.dart';
-import '../widgets/agenda_year_pager.dart';
+import '../widgets/agenda_year_scroll.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/calendar_date_picker_sheet.dart';
 import '../widgets/calendar_header_menus.dart';
@@ -62,10 +63,11 @@ import '../widgets/overview_view_sheet.dart';
 /// drill-down's presentations, standalone.
 ///
 /// Independent of the calendar page on purpose: it has no window, no anchor
-/// and no selected day, so a year is always a whole year. Years are pages —
-/// swiped, paged with chevrons, or jumped to through the period title's
-/// picker — and only the years the chosen events can be in are pages at all,
-/// so nobody scrolls through empty decades. The list shows a period instead —
+/// and no selected day, so a year is always a whole year. Years are sections
+/// of one continuous scroll — dragged through, or scrolled to with the
+/// chevrons and the Period menu — and only the years the chosen events can
+/// be in are sections at all, an open-ended series reaching next year, so
+/// nobody scrolls through empty decades. The list shows a period instead —
 /// a year, a span ending today, or one picked in the Dates sheet. It owns no
 /// data either. Events come from the app-wide `CalendarBloc`, whose loaded
 /// state is also what guarantees the category and presence facades the rows
@@ -168,12 +170,51 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// Null until it answers, and the button is disabled until then.
   OverviewViewService? _viewService;
 
-  /// The years the chosen events can be in — the pager's pages and the
-  /// chevrons' stops. Always holds today's year.
+  /// The years the chosen events can be in — what the list's periods, the
+  /// month pages and the range picker reach. Always holds today's year.
   AgendaYearBounds _years = (first: 0, last: 0);
-  PageController? _yearPager;
-  final Map<int, List<AgendaYearTile>> _tilesByYear = {};
-  Timer? _prewarm;
+
+  /// The year scroll's span: [_years] with an open-ended series ending it
+  /// next year (D28) — the scroll's sections, its chevrons' stops and where
+  /// a landing in year mode is clamped. Only the scroll lays every year out
+  /// at once; nothing else is narrowed by the ceiling.
+  AgendaYearBounds _scrollYears = (first: 0, last: 0);
+
+  /// Year mode's scroll, kept across mode switches: it holds the year to
+  /// open on while no scroll is laid out.
+  late final AgendaYearScrollController _yearScroll =
+      AgendaYearScrollController(
+        initialYear: _year,
+        onTopYearChanged: _onYearScrolled,
+        // An animated landing resolves nothing on its way; where it stopped
+        // is queued once it ends.
+        onLanded: _scheduleYearRun,
+      );
+
+  /// Each year's tiles once all its months are resolved (D30): all the year
+  /// scroll's sections read, so a section that scrolls in folds nothing,
+  /// and a year written rebuilds its own section alone.
+  final AgendaYearTileSource _yearTiles = AgendaYearTileSource();
+
+  /// The years of [_yearTiles] folded before the query or a month under
+  /// them last changed — only those in and next to the viewport, the rest
+  /// are dropped then ([_rebuild]). They stay on screen — a keystroke never
+  /// blanks a section — and are folded again: from what the store holds in
+  /// [_recompute], otherwise by a run.
+  final Set<int> _staleTileYears = {};
+
+  /// The generation the pending year run was scheduled under; null while
+  /// none is pending ([_scheduleYearRun]).
+  int? _yearRunGeneration;
+
+  /// Set by a year's scan until the frame that draws its result is over: a
+  /// run that comes due meanwhile waits for the frame after it, so a frame
+  /// that drew a scan's result runs no other scan.
+  bool _yearFrameOwed = false;
+
+  /// Whether the top year's tiles are resolved, so the band's count and
+  /// totals are its own rather than blank.
+  bool _yearTallied = false;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -343,7 +384,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     WidgetsBinding.instance.addObserver(this);
     _today = EventAgenda.dateOnly(DateTime.now());
     _year = _today.year;
-    _years = (first: _year, last: _year);
+    _years = _scrollYears = (first: _year, last: _year);
     _month = AgendaMonthStore.monthOf(_today);
     _period = _home = OverviewPeriod.thisYear(today: _today);
     _listScroll.addListener(_updatePinned);
@@ -373,11 +414,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final l10n = AppLocalizations.of(context)!;
     final localeChanged = _l10n?.localeName != l10n.localeName;
     _l10n = l10n;
-    if (_events == null) _adopt(context.read<CalendarBloc>().state);
+    var rebuild = false;
+    if (_events == null) {
+      _take(context.read<CalendarBloc>().state);
+      rebuild = true;
+    }
     if (localeChanged || _refreshCategoryLabels()) {
       _storeStale = true;
-      _rebuild();
+      rebuild = true;
     }
+    if (rebuild) _rebuild(duringBuild: true);
   }
 
   @override
@@ -386,14 +432,14 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     AlertKeepNotice.instance.removeListener(_serveKeepNotice);
     WidgetsBinding.instance.removeObserver(this);
     if (_route != null) AppNavigator.routeObserver.unsubscribe(this);
-    _prewarm?.cancel();
     _searchDebounce?.cancel();
     _searchController.dispose();
     _searchFocus.dispose();
     _monthScroll.dispose();
     _listScroll.dispose();
     _pinned.dispose();
-    _yearPager?.dispose();
+    _yearScroll.dispose();
+    _yearTiles.dispose();
     super.dispose();
   }
 
@@ -424,13 +470,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   /// Nothing resolved underneath is seen until the return, which resolves
-  /// anew anyway: the prewarm and a typed query's debounce are dropped here,
-  /// and the query is applied on the way back; the list's runs pause until
+  /// anew anyway: a typed query's debounce is dropped here, and the query is
+  /// applied on the way back; the list's runs and the year runs pause until
   /// then.
   @override
   void didPushNext() {
     _covered = true;
-    _prewarm?.cancel();
     _searchDebounce?.cancel();
   }
 
@@ -438,12 +483,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void didPopNext() {
     _covered = false;
     if (_mode == AgendaDayListMode.list && _listResolving) _scheduleListRun();
+    _scheduleYearRun();
     unawaited(_resumeUncovered());
   }
 
   /// Whether the wall clock has moved [_today] to another day. Across New
   /// Year, This year moves on with it — the period and the year it opens
-  /// year mode on — except in year mode, whose pager holds the year shown.
+  /// year mode on — except in year mode, whose scroll holds the year shown.
   bool _refreshToday() {
     final today = EventAgenda.dateOnly(DateTime.now());
     if (today == _today) return false;
@@ -530,7 +576,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (changed || raw != null) {
       _rebuild();
     } else {
-      _schedulePrewarm();
+      _scheduleYearRun();
     }
     if (raw != null) _land();
   }
@@ -681,16 +727,21 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// resolvers set [_storeStale] first, and only then is every resolved
   /// month dropped and the year bounds re-derived; a query alone keeps the
   /// store and refilters what it holds (T3).
-  void _rebuild() {
+  ///
+  /// [duringBuild] is a call from [didChangeDependencies]: the rebuild is
+  /// still immediate, but year mode's shown year is resolved after the frame
+  /// — its section shows the placeholder for that one frame — so no scan
+  /// runs inside the build phase.
+  void _rebuild({bool duringBuild = false}) {
     final events = _events;
     final l10n = _l10n;
-    _tilesByYear.clear();
     _filteredMonths.clear();
     _filteredBars.clear();
     if (events == null || !_settingsLoaded || l10n == null) {
       _resolveGeneration++;
       _store = null;
       _markedKept.clear();
+      _clearTiles();
       _storeStale = true;
       _rows = const [];
       _monthBucket = null;
@@ -709,31 +760,76 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (_storeStale || _store == null) {
       _storeStale = false;
       _eventsById = {for (final event in events) event.id: event};
-      final years = EventAgenda.yearBoundsOf(
+      // The year scroll lays every year out at once, so there an open-ended
+      // series ends the span next year rather than at the calendar's
+      // ceiling (D28); the list, the month pages and the range picker keep
+      // every year an event can fire in.
+      final spans = EventAgenda.yearSpansOf(
         events,
         categoryIds: _categoryIds,
         todayYear: _today.year,
         earliestYear: CalendarBounds.earliest.year,
         latestYear: CalendarBounds.latest.year,
+        openEndedLastYear: _today.year + 1,
       );
-      _years = years;
+      _years = spans.full;
+      _scrollYears = spans.ceiled;
       if (_yearFromPeriod) {
         _yearFromPeriod = false;
         _year = _firstYearOf(_period);
       } else {
-        _year = _year.clamp(years.first, years.last);
+        _year = _year.clamp(_years.first, _years.last);
       }
-      _syncPager();
+      if (_mode == AgendaDayListMode.year) _clampYearToScroll();
+      // A laid-out scroll keeps its own top year through a span change.
+      if (!_yearScroll.isAttached) _yearScroll.jumpToYear(_year);
       _markedKept.clear();
+      _clearTiles();
       final store = _store = AgendaMonthStore(
         resolve: _resolve,
         resolveMarks: _resolveMarks,
         maxBars: AgendaMonthGrid.maxBarsFor(_appearance),
       );
       widget._onStore?.call(store);
+    } else {
+      // The same store under a new query, or with a month forgotten. The
+      // years in and next to the viewport keep their tiles on screen until
+      // their refold replaces them — in [_recompute] when the store holds
+      // them, otherwise by the runs, which take them first — so a keystroke
+      // never blanks a section. Every other year is dropped: a far year
+      // scrolled in later draws the placeholder until its run, never the
+      // tiles of the query before as if they were current.
+      final near = _nearYears();
+      _yearTiles
+        ..removeWhere((year) => !near.contains(year))
+        ..notify();
+      _staleTileYears
+        ..clear()
+        ..addAll(_yearTiles.years);
     }
-    if (mounted) setState(_recompute);
-    _schedulePrewarm();
+    if (mounted) {
+      final inYear = _mode == AgendaDayListMode.year;
+      setState(() {
+        // The year shown is resolved before its frame, so neither the first
+        // frame nor a rebuild under it draws it blank — mid-landing the
+        // year it is bound for, which the passing years only lead to.
+        if (inYear && !duringBuild) _resolveYear(_shownYearTarget);
+        _recompute();
+      });
+      if (inYear && duringBuild) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Covered, nothing is resolved: the return queues the shown year
+          // with the rest ([didPopNext]).
+          if (!mounted || _covered || _mode != AgendaDayListMode.year) return;
+          final target = _shownYearTarget;
+          if (_tilesCurrent(target)) return;
+          setState(() {
+            _resolveYear(target);
+            _tallyYear(_year);
+          });
+        });
+      }
+    }
     final landing = _landOnOpen;
     _landOnOpen = false;
     if (landing && _mode == AgendaDayListMode.list) {
@@ -741,18 +837,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     } else if (anchor != null) {
       _aimList(anchor);
     }
-  }
-
-  /// A pager whose first page is the current bounds' first year and whose
-  /// starting page is the shown year. Recreated only while no page view holds
-  /// it — an attached controller pages by itself.
-  void _syncPager() {
-    final pager = _yearPager;
-    if (pager != null && pager.hasClients) return;
-    pager?.dispose();
-    _yearPager = PageController(
-      initialPage: AgendaYearPager.indexOf(_year, _years.first),
-    );
   }
 
   /// The allowlist narrows the expansion itself and changes rarely, so it
@@ -798,7 +882,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   /// Resolves what the presentation shows and rebuilds its rows or tiles, so a
-  /// frame folds nothing. Called inside `setState` on navigation only.
+  /// frame folds nothing. Called inside `setState` on navigation only. In
+  /// year mode it folds the years in and next to the viewport from what the
+  /// store holds and queues a run for the rest, so no recompute leaves a
+  /// visible placeholder unqueued.
   void _recompute() {
     _resolveGeneration++;
     _rowsBase = null;
@@ -808,7 +895,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       case AgendaDayListMode.year:
         _rows = const [];
         _monthBucket = null;
+        for (final year in _nearYears()) {
+          if (!_tilesCurrent(year) && _yearHeld(year)) _resolveYear(year);
+        }
         _tallyYear(_year);
+        _scheduleYearRun();
       case AgendaDayListMode.list:
         _monthBucket = null;
         final span = _period.resolve(today: _today, yearBounds: _years);
@@ -1098,45 +1189,120 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     ];
   }
 
-  /// The year's tiles, folded from marks and kept for the pager: a page that
-  /// slides in under a finger reads them without folding anything. Each day
-  /// wears its top entry's colour, so several categories on one tile stay
-  /// tellable apart. While a query is live they are folded from the narrowed
-  /// months instead, which costs the year's rows once and then nothing per
-  /// keystroke; [_rebuild] drops them with every query.
-  List<AgendaYearTile> _tilesFor(int year) {
-    final cached = _tilesByYear[year];
-    if (cached != null) return cached;
+  /// Drops every year's tiles: the store they were folded from is gone.
+  void _clearTiles() {
+    _yearTiles
+      ..clear()
+      ..notify();
+    _staleTileYears.clear();
+  }
+
+  /// Whether [year]'s tiles are folded from the store and query as they are
+  /// now — not stale, not missing.
+  bool _tilesCurrent(int year) =>
+      _yearTiles.holds(year) && !_staleTileYears.contains(year);
+
+  /// The year the scroll shows next: the one a landing under way is bound
+  /// for, else the top year — inside the scroll's span, which a bloc emit
+  /// may just have narrowed under the landing.
+  int get _shownYearTarget => (_yearScroll.landingYear ?? _year).clamp(
+    _scrollYears.first,
+    _scrollYears.last,
+  );
+
+  /// Whether the store holds every month of [year] in the shape its tiles
+  /// fold from — a tally or its rows, only its rows while a query is live —
+  /// so resolving the year scans nothing.
+  bool _yearHeld(int year) {
     final store = _store!;
+    for (final month in AgendaMonthStore.monthsOfYear(year)) {
+      if (store.isResolved(month)) continue;
+      if (_matcher == null && store.cachedTally(month) != null) continue;
+      return false;
+    }
+    return true;
+  }
+
+  /// Resolves [year]'s twelve months — one marks call, or the rows while a
+  /// query is live, nothing for what the store holds — and folds its tiles
+  /// from marks, each day in its top entry's colour so several categories on
+  /// one tile stay tellable apart; under a query from the narrowed months,
+  /// which costs the year's rows once and then nothing per keystroke. On
+  /// navigation only: the opening year and a landing's target before their
+  /// frame, the years in and next to the viewport in [_recompute] when held,
+  /// every other year in a run ([_scheduleYearRun]). The sections read
+  /// [_yearTiles] and fold nothing; only [year]'s section rebuilds.
+  void _resolveYear(int year) {
+    if (_tilesCurrent(year)) return;
+    final store = _store;
+    if (store == null) return;
+    // A held year costs no scan, so only a scan holds the next run back.
+    if (!_yearHeld(year)) _oweYearFrame();
     final months = AgendaMonthStore.monthsOfYear(year);
     if (_matcher != null) {
       store.ensure(months);
-      return _tilesByYear[year] = [
+      _yearTiles.put(year, [
         for (final month in months)
           AgendaYearTile.ofTally(
             AgendaMonthTally.ofBucket(_bucketOf(month)),
             perDayColors: true,
           ),
-      ];
+      ]);
+    } else {
+      store.ensureTallies(months);
+      _yearTiles.put(year, [
+        for (final month in months)
+          AgendaYearTile.ofTally(store.cachedTally(month)!, perDayColors: true),
+      ]);
     }
-    store.ensureTallies(months);
-    return _tilesByYear[year] = [
-      for (final month in months)
-        AgendaYearTile.ofTally(store.tallyFor(month), perDayColors: true),
-    ];
+    _staleTileYears.remove(year);
+    _yearTiles.notify();
   }
 
+  /// Holds year runs back until the frame that draws a scan's result is
+  /// over. A run's scan comes at a frame's end and is drawn by the next
+  /// one, whose end is where the flag drops and the next run fires: one
+  /// year per frame. A scan anywhere else — a tap, a landing, a bloc emit —
+  /// is drawn by the coming frame, and a run registered after it would fire
+  /// at that same frame's end: the flag drops a frame later instead, so the
+  /// frame that drew the scan's result runs no other scan.
+  void _oweYearFrame() {
+    if (_yearFrameOwed) return;
+    _yearFrameOwed = true;
+    final binding = WidgetsBinding.instance;
+    void release(Duration _) => _yearFrameOwed = false;
+    if (binding.schedulerPhase == SchedulerPhase.postFrameCallbacks) {
+      binding.addPostFrameCallback(release);
+    } else {
+      binding.addPostFrameCallback(
+        (_) => binding.addPostFrameCallback(release),
+      );
+    }
+    binding.ensureVisualUpdate();
+  }
+
+  /// The band's count and totals for [year], read from its resolved tiles;
+  /// blank while it is unresolved — the text changes, never the band's
+  /// height — until the run that resolves it repaints.
   void _tallyYear(int year) {
+    final tiles = _tilesCurrent(year) ? _yearTiles.tilesFor(year) : null;
+    _yearTallied = tiles != null;
+    if (tiles == null) {
+      _yearKept = 0;
+      _yearMissed = 0;
+      _totals = {};
+      return;
+    }
     var kept = 0;
     var missed = 0;
-    for (final tile in _tilesFor(year)) {
+    for (final tile in tiles) {
       kept += tile.count;
       missed += tile.missedCount;
     }
     _yearKept = kept;
     _yearMissed = missed;
-    // The tiles above resolved every month of the year: as rows while a
-    // query is live, otherwise as marks (folded into [_markedKept]) or as
+    // The tiles above are folded from every month of the year: as rows while
+    // a query is live, otherwise as marks (folded into [_markedKept]) or as
     // the rows a list or month look resolved before.
     final store = _store!;
     final totals = <String, int>{};
@@ -1157,22 +1323,93 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _totals = totals;
   }
 
-  /// Warms the neighbouring years once the page has settled, so the next
-  /// swipe or chevron finds its tiles ready. Cache-only work: nothing to
-  /// repaint. Year mode on a year only: the list and the month grid have no
-  /// year to page to, and their scans would warm tiles nobody is about to
-  /// see.
-  void _schedulePrewarm() {
-    _prewarm?.cancel();
-    _prewarm = Timer(OverviewListMetrics.prewarmDelay, () {
-      if (!mounted || _store == null) return;
-      if (_mode != AgendaDayListMode.year) return;
-      if (_period is! OverviewYearPeriod) return;
-      for (final year in [_year - 1, _year + 1]) {
-        if (year < _years.first || year > _years.last) continue;
-        _tilesFor(year);
+  /// The years in and next to the viewport, most wanted first: the top year,
+  /// then those whose sections show in the viewport in reading order, then
+  /// the top year's two neighbours — inside the span. Read from the scroll
+  /// as it is when asked, so a year scrolled past is never among them.
+  List<int> _nearYears() {
+    if (_store == null || _mode != AgendaDayListMode.year) return const [];
+    final visible = _yearScroll.visibleYears;
+    final near = <int>[];
+    void add(int year) {
+      if (year < _scrollYears.first || year > _scrollYears.last) return;
+      if (!near.contains(year)) near.add(year);
+    }
+
+    add(_year);
+    if (visible != null) {
+      for (var year = visible.first; year <= visible.last; year++) {
+        add(year);
       }
+    }
+    add(_year - 1);
+    add(_year + 1);
+    return near;
+  }
+
+  /// What a year run should resolve: [_nearYears] whose tiles are not
+  /// current.
+  List<int> _wantedYears() => [
+    for (final year in _nearYears())
+      if (!_tilesCurrent(year)) year,
+  ];
+
+  /// The next year run when a year is wanted and no run is pending: at the
+  /// end of the next frame, once it is drawn (a post-frame callback, a frame
+  /// asked for if none is coming). A run resolves exactly one year, the most
+  /// wanted when it fires, and one that finds a scan's frame still owed
+  /// ([_yearFrameOwed]) waits for the frame after it: so at most one year
+  /// resolves per frame, always after the frame the last one's repaint asked
+  /// for, and a fling across a decade costs one marks call per frame at
+  /// most. Never a timer — a turn-later run would land before the next frame
+  /// as well as after it, and a chain cut short would leave it pending.
+  /// Nothing is queued while an animated landing is under way — the years it
+  /// passes are not stopped on — and [AgendaYearScrollController.onLanded]
+  /// queues where it ends. Under [_resolveGeneration], like the list's runs;
+  /// nothing runs while a page covers this one, and [didPopNext] schedules
+  /// again.
+  void _scheduleYearRun() {
+    if (_covered || !mounted || _yearScroll.isLanding) return;
+    final generation = _resolveGeneration;
+    if (_yearRunGeneration == generation) return;
+    if (_wantedYears().isEmpty) return;
+    _yearRunGeneration = generation;
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) => _runYear(generation))
+      ..ensureVisualUpdate();
+  }
+
+  /// One year run (see [_scheduleYearRun]).
+  void _runYear(int generation) {
+    if (_yearRunGeneration == generation) _yearRunGeneration = null;
+    if (!mounted ||
+        generation != _resolveGeneration ||
+        _covered ||
+        _yearScroll.isLanding) {
+      return;
+    }
+    if (_yearFrameOwed) {
+      _scheduleYearRun();
+      return;
+    }
+    final wanted = _wantedYears();
+    if (wanted.isEmpty) return;
+    setState(() {
+      _resolveYear(wanted.first);
+      _tallyYear(_year);
     });
+    _scheduleYearRun();
+  }
+
+  /// Every scroll notification asks for the years it brought into view, and
+  /// so does a metrics change — a width or text-scale change can bring a
+  /// section into view without a scroll.
+  bool _onYearScrollNotification(Notification notification) {
+    if (notification is ScrollNotification ||
+        notification is ScrollMetricsNotification) {
+      _scheduleYearRun();
+    }
+    return false;
   }
 
   void _click() {
@@ -1187,12 +1424,14 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       if (mode == AgendaDayListMode.year && _period is! OverviewYearPeriod) {
         _year = _firstYearOf(_period);
       }
+      if (mode == AgendaDayListMode.year) _clampYearToScroll();
       if (mode == AgendaDayListMode.month) {
         _month = _month.year == _year
             ? _month
             : DateTime.utc(_year, _today.year == _year ? _today.month : 1, 1);
       }
-      if (mode == AgendaDayListMode.year) _syncPager();
+      // A switch into Year lands on the year, resolved before its frame.
+      if (mode == AgendaDayListMode.year) _resolveYear(_year);
       // Month mode marks under either Rows; the list under One per event has
       // no day to mark, so marking ends rather than staying on, inert.
       if (mode == AgendaDayListMode.list &&
@@ -1204,7 +1443,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     });
     // A switch into the list opens it, so it lands as an open does.
     if (mode == AgendaDayListMode.list) _land();
-    _schedulePrewarm();
+    if (mode == AgendaDayListMode.year) _yearScroll.jumpToYear(_year);
     unawaited(_persistMode(mode));
   }
 
@@ -1219,32 +1458,47 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     return span.start.year.clamp(_years.first, _years.last);
   }
 
-  /// A year the pager settled on — a swipe, or the end of an animated jump.
-  void _onYearPaged(int year) {
+  /// Puts [_year] inside the scroll's span as year mode opens: a year paged
+  /// to in month mode, or the first year of a span kept from the list, may
+  /// lie past D28's ceiling, which only the scroll has. A year period
+  /// follows the year, as the scroll would have set it; a span stays the
+  /// list's.
+  void _clampYearToScroll() {
+    final year = _year.clamp(_scrollYears.first, _scrollYears.last);
     if (year == _year) return;
+    _year = year;
+    if (_period is OverviewYearPeriod) _period = OverviewYearPeriod(year);
+  }
+
+  /// A new year at the top of the year scroll — a drag, a fling, the years
+  /// an animated landing passes, or the landing itself. The title follows
+  /// each; the recompute queues runs for none passed by a landing.
+  void _onYearScrolled(int year) {
+    // A scroll still fading out under another mode reports nothing to it.
+    if (!mounted || _mode != AgendaDayListMode.year || year == _year) return;
     setState(() {
       _year = year;
       _period = OverviewYearPeriod(year);
       _recompute();
     });
-    _schedulePrewarm();
   }
 
-  /// Animates the pager to [year] while it is on screen; otherwise the year
-  /// simply changes and the pager starts there when it next appears.
+  /// Scrolls [year]'s header to the top while the scroll is laid out, its
+  /// tiles resolved before the first frame of the way and its neighbours
+  /// once it lands; otherwise the year simply changes and the scroll opens
+  /// there when it next appears. The chevrons, the Today slot and the
+  /// scrubber lane's steps all land here.
   void _goToYear(int year) {
-    final target = year.clamp(_years.first, _years.last);
-    if (target == _year) return;
+    final target = year.clamp(_scrollYears.first, _scrollYears.last);
+    // Mid-landing the scroll is already bound somewhere: where it goes, not
+    // the year passing the top, is what a repeat would duplicate.
+    if (target == (_yearScroll.landingYear ?? _year)) return;
     _click();
-    final pager = _yearPager;
-    if (_mode == AgendaDayListMode.year && pager != null && pager.hasClients) {
-      pager.animateToPage(
-        AgendaYearPager.indexOf(target, _years.first),
-        duration: OverviewListMetrics.pageDuration,
-        curve: Curves.easeOutCubic,
-      );
+    if (_mode == AgendaDayListMode.year && _yearScroll.isAttached) {
+      setState(() => _resolveYear(target));
+      unawaited(_yearScroll.animateToYear(target));
     } else {
-      _onYearPaged(target);
+      _onYearScrolled(target);
     }
   }
 
@@ -1625,7 +1879,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _recompute();
     });
     _land();
-    _schedulePrewarm();
   }
 
   /// The list nav's Today slot (D15b): back to the period as picked.
@@ -1651,18 +1904,18 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _recompute();
     });
     _land();
-    _schedulePrewarm();
     unawaited(_persistMode(AgendaDayListMode.list));
     unawaited(_persistPeriod(period));
   }
 
   /// Lists [period], landing per D7, and persists it — a preset is kept for
   /// the next visit, a custom span clears what was kept. Year mode jumps to the
-  /// period's first year; the jump lands on the year already set, so the
-  /// pager's report of it leaves the period alone. A pick of the period
-  /// already shown is still persisted: year paging changes the period
-  /// without writing it, so "This year" picked after paging back to this
-  /// year is a choice the next visit must see (review 1).
+  /// period's first year, resolved before the frame; the jump lands on the
+  /// year already set, so the scroll's report of it leaves the period alone.
+  /// A pick of the period already shown is still persisted: scrolling the
+  /// years changes the period without writing it, so "This year" picked
+  /// after scrolling back to this year is a choice the next visit must see
+  /// (review 1).
   void _setPeriod(OverviewPeriod period) {
     _home = period;
     if (period == _period) {
@@ -1671,17 +1924,15 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       unawaited(_persistPeriod(period));
       return;
     }
+    final inYear = _mode == AgendaDayListMode.year;
     setState(() {
       _period = period;
       _year = _firstYearOf(period);
+      if (inYear) _resolveYear(_year);
       _recompute();
     });
-    final pager = _yearPager;
-    if (_mode == AgendaDayListMode.year && pager != null && pager.hasClients) {
-      pager.jumpToPage(AgendaYearPager.indexOf(_year, _years.first));
-    }
+    if (inYear) _yearScroll.jumpToYear(_year);
     _land();
-    _schedulePrewarm();
     unawaited(_persistPeriod(period));
   }
 
@@ -1811,7 +2062,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     // as a category pick does; the landing below then wins over its anchor.
     if (categoriesChanged) _rebuild();
     _land();
-    _schedulePrewarm();
     unawaited(_persistMode(AgendaDayListMode.list));
     unawaited(_persistPeriod(period));
     unawaited(_persistOptions(options));
@@ -2384,20 +2634,31 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     }
     switch (_mode) {
       case AgendaDayListMode.year:
-        return AgendaYearPager(
-          controller: _yearPager!,
-          firstYear: _years.first,
-          lastYear: _years.last,
-          tilesFor: _tilesFor,
-          color: _tileColor(colorScheme),
-          appearance: _appearance,
-          today: _today,
-          onOpenMonth: _openMonth,
-          onYearChanged: _onYearPaged,
-          // The scaffold already resizes for the keyboard, so the pager
-          // carries no inset of its own — and no inset frame rebuilds a
-          // year of tiles.
-          padding: OverviewListMetrics.yearPagerPadding,
+        return NotificationListener<Notification>(
+          onNotification: _onYearScrollNotification,
+          child: AgendaYearScroll(
+            controller: _yearScroll,
+            firstYear: _scrollYears.first,
+            lastYear: _scrollYears.last,
+            // Cache-only: what the runs and the recomputes folded.
+            tiles: _yearTiles,
+            color: _tileColor(colorScheme),
+            appearance: _appearance,
+            today: _today,
+            onOpenMonth: _openMonth,
+            // The scaffold already resizes for the keyboard, so the scroll
+            // carries no inset of its own, and the sections hang on the
+            // width and their own year's tiles alone — no inset frame
+            // rebuilds a year of tiles.
+            padding: OverviewListMetrics.yearScrollPadding,
+            // One lane per page: the list's lane never shows with this one.
+            scrubber: AgendaYearScrubber(
+              semanticsLabel: l10n.overviewYearScrubberLabel,
+              identifier: SemanticsIds.overviewScrubber,
+              onLabelChanged: _click,
+              onStep: _goToYear,
+            ),
+          ),
         );
       case AgendaDayListMode.list:
         return _buildListBody(l10n);
@@ -2725,7 +2986,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   Widget _buildYearNav(AppLocalizations l10n) {
     return AgendaPeriodNav(
       title: '$_year',
-      subtitle: agendaDayListCountLabel(l10n, _yearKept, _yearMissed),
+      // Blank, in the same box, while the top year is still resolving.
+      subtitle: _yearTallied
+          ? agendaDayListCountLabel(l10n, _yearKept, _yearMissed)
+          : '',
       previousTooltip: l10n.datePickerPreviousYear,
       nextTooltip: l10n.datePickerNextYear,
       todayTooltip: l10n.dayListScopeThisYear,
@@ -2735,8 +2999,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       todayIdentifier: SemanticsIds.overviewNavToday,
       titleIdentifier: SemanticsIds.overviewNavTitle,
       onTitleTap: _openPeriodMenu,
-      onPrevious: _year > _years.first ? () => _goToYear(_year - 1) : null,
-      onNext: _year < _years.last ? () => _goToYear(_year + 1) : null,
+      onPrevious: _year > _scrollYears.first
+          ? () => _goToYear(_year - 1)
+          : null,
+      onNext: _year < _scrollYears.last ? () => _goToYear(_year + 1) : null,
       onToday: _year == _today.year ? null : () => _goToYear(_today.year),
     );
   }

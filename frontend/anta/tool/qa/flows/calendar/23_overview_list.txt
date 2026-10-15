@@ -177,7 +177,8 @@ tap id:overview-period-this-year
 wait id:overview-period-this-year --gone
 wait id:overview-view-year
 tap id:overview-view-year
-wait id:overview-nav-title
+wait id:overview-years
+expect id:overview-scrubber
 tap id:calendar-view-menu
 wait id:calendar-view-calendar
 tap id:calendar-view-calendar

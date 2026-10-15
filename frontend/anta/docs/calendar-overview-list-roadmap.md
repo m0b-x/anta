@@ -1,6 +1,6 @@
 # Calendar overview — the List mode rework (2026-10-11)
 
-**Status: IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c3a7447` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c3a7447` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11.
+**Status: IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c3a7447` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c3a7447` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11. 2026-10-15 — §2.6 D26–D30 decided (the years scroll, §3.14); slices 11–12 and the 12b fix pass IMPLEMENTED 2026-10-15, uncommitted; device pass 2026-10-15 green for the rework (24/25 flows, 19 red as before; Year mode by hand green; 360-wide not run), owner commit owed.
 Written on a clean tree at `ae98d62` from a read of the overview page, the
 store, the index, the rows, the Tier 3 day list and the scan, plus one
 independent read-only review of the list mode's performance and behaviour
@@ -265,6 +265,41 @@ status bar, the bar, the chip row, a 52 dp one-line nav, a 26 dp totals
 line) and the twelve months fit a 780 dp screen with 70 dp to spare; Month
 mode's grid starts at 206 too (404 today); List mode's pinned label at 226
 (its nav keeps two lines for a span).
+
+### 2.6 Asked of the owner on 2026-10-15 — answered "Perfect, choose for me and make it really performant so we can have it as a flagship feature": the recommended option (A) stands for D26–D30
+
+The owner's words: with the recent changes "the overview mode looks
+amazing"; they want "an extreme functionality": "to see multiple years in
+the year [mode]", "months separated by years in a continuous scroll or
+something that is really performant and clean", and asked for the
+recommended mock, the performance and the design "in the best way". What
+the tree says: Year mode is `AgendaYearPager`, a `PageView.builder` over
+`EventAgenda.yearBoundsOf` (one year per page, swiped or stepped by the
+chevrons, 260 ms), whose builder resolves a year's tallies synchronously
+(`_tilesFor` → `AgendaMonthStore.ensureTallies`, the one documented
+"never in build" exception) and prewarms the two neighbouring years 250 ms
+after a page settles; the twelve tiles need 488 dp (four rows of
+`YearMonthTile.gridDelegate`'s 116 with three 8 dp gaps) under a 206 dp
+chrome. The mock: **"Overview years mock"** —
+https://claude.ai/artifact/HW9tTTqBo1xanRoRr29PUb — four frames: light and
+dark at rest opened on this year, light mid-scrub the frame after landing
+on 2024 with 2025 not yet resolved, dark at text scale 2.0; under the
+board the decisions, the performance plan, the must-not-change list and
+the numbers. The lead chose on the owner's word; every A below is the
+decision.
+
+| D | Question | Options |
+| --- | --- | --- |
+| D26 | The years' order | **A** chronological downward — earlier years above, later below — and the scroll opens with today's year's header at the top; the twelve tiles already read January → December downward, so December sits right above the next January and the whole scroll is one timeline, in the direction of the list's default Order (oldest first) · B newest at the top, scrolling down walks into history; months still run downward inside a year, so the direction flips at every header |
+| D27 | The year header | **A** a flat row that scrolls with its tiles: the year at `OverviewListMetrics.yearHeaderFontSize` 22 / 500 `onSurface` on the tiles' left edge, the year's count (`agendaDayListCountLabel`) at the right in the caption role 13 / 400 `onSurfaceVariant`, shrinking to one line and never wrapping, blank while the year is unresolved; `yearHeaderHeight` 48 at 1.0, measured once per text scale as the nav measures its title; no hairline, no box; the nav's title is the live year, so nothing pins · B a pinned header per year (`SliverPersistentHeader`) — it repeats what the nav's title shows and costs a persistent header per year |
+| D28 | Which years the scroll holds | **A** from the first event year to next year: `yearBoundsOf`'s span with the open-ended ceiling replaced by today's year + 1 — a bounded series or a pinned date past that still extends the end, today is always inside; an open-ended weekly series reaches 2100 today, which would hand most of a scrubber lane to empty decades, and the overview is the log, the future is the agenda's (All time's own words, §2); the day list sheet's pager keeps the full bounds · B keep `yearBoundsOf` exactly as the pager has it — free to scroll thanks to fixed extents, but every year that matters sits in the lane's top tenth |
+| D29 | The scrubber | **A** the list's `ListScrubber` over the scroll, the year in its bubble, ±1 year on a step, shown when the scroll holds two or more years; a one-year scroll has nothing to scrub and keeps its right tile column clear · B always shown · C never — chevrons only, a decade is ten taps |
+| D30 | A year not yet resolved | **A** its section renders at once — month names, blank counts, every day at the unmarked alpha — and fills when its run completes, a frame or two later; same geometry, no spinner, no shimmer, nothing moves · B a shimmer placeholder — motion for a state that lasts one frame |
+
+With every A a 360 × 780 phone shows today's year whole and the next
+year's header at the bottom edge (552 dp per year: 48 + 488 + 16); a
+century of years is one fixed-extent sliver whose far sections cost
+nothing until they are seen.
 
 ## 3. The spec
 
@@ -1060,6 +1095,158 @@ the totals 26); the twelve tiles 504; 70 dp to spare. Month mode's grid
 starts at 206 (404 today); List mode's pinned label at 226 (its nav keeps
 two lines for a span).
 
+### 3.14 The years scroll (D26–D30, 2026-10-15)
+
+**The widget.** `AgendaYearScroll` (`lib/widgets/agenda_year_scroll.dart`)
+replaces `AgendaYearPager` on the overview page only; the pager stays for
+the day list sheet's year scope, with its flash and its picker. Under a
+`LayoutBuilder`, a `CustomScrollView` with one `SliverFixedExtentList`
+whose items are the span's years, oldest first (D26). `itemExtent` =
+`yearHeaderHeight` (measured once per text scale) + rows ×
+`YearMonthTile.gridDelegate.mainAxisExtent` + (rows − 1) × its
+`mainAxisSpacing` + `yearSectionGap`, computed once per width and text
+scale; the column count comes from one rule shared with the grid delegate
+(`YearMonthTile.columnsFor(width)`, the delegate's own
+`(crossAxisExtent / (maxCrossAxisExtent + crossAxisSpacing)).ceil()`,
+at least 1), rows = `(12 / columns).ceil()`. A section is a
+`RepaintBoundary` over a `Column`: the header row, then rows of tiles with
+the delegate's spacing, each tile `Expanded` so its width equals the
+grid's `usableCrossAxisExtent / crossAxisCount`, its height the delegate's
+116. Both the grid (the pager's page) and the section build their tiles
+through one shared builder lifted out of `AgendaYearGrid.itemBuilder`
+(label, count, colours, matrix, semantics), so the two surfaces cannot
+drift; the section takes no highlight. Horizontal insets
+`yearScrollPadding` (`groupInset` left and right; the pager's bottom inset
+becomes the last section's gap), the metric renamed from
+`yearPagerPadding`, which has no other user.
+
+**The header (D27).** `yearHeaderHeight` 48 and `yearHeaderFontSize` 22 in
+`OverviewListMetrics`; the year in 22 / 500 `onSurface`, tabular figures,
+bottom-aligned with 8 dp of air to the tiles; the count
+`agendaDayListCountLabel(l10n, kept, missed)` at 13 / 400
+`onSurfaceVariant` in a `FittedBox(scaleDown)` one-line box, an empty slot
+of the same height while the year is unresolved; `yearSectionGap` =
+`groupInset` (16) below the tiles. One `Semantics` node (`header: true`,
+label `"<year>, <count label>"`), identifier
+`SemanticsIds.overviewYearHeader(year)` = `overview-year-<yyyy>`; the
+scroll view carries `SemanticsIds.overviewYears` = `overview-years`, the
+list's `overview-list` twin.
+
+**The controller.** `AgendaYearScrollController` (same file) is what the
+page holds instead of `_yearPager`: `firstYear`, `lastYear`, the extent
+once the first layout fixed it, `offsetOfYear(year)`,
+`yearAtOffset(offset)` = `firstYear + ((offset + headerHeight / 2) /
+extent).floor()` clamped to the span, `jumpToYear(year)`,
+`animateToYear(year)` (`OverviewListMetrics.pageDuration`,
+`Curves.easeOutCubic`). The inner `ScrollController` is created inside
+the `LayoutBuilder` the first time the extent is known, with
+`initialScrollOffset: offsetOfYear(initialYear)`, so the first frame
+opens on the year with no jump after it; a year requested before that is
+remembered and becomes that offset. When the extent changes (a width or
+text-scale change) the controller keeps the top year — the offset is
+corrected in the same layout pass — the top year never changes because
+the extent did.
+
+**The top year.** The widget's scroll listener reports
+`onTopYearChanged(year)` once per change of `yearAtOffset(pixels)`, never
+per pixel; the page's `_onYearScrolled` is today's `_onYearPaged`
+(`_year`, `_period = OverviewYearPeriod(year)`, `_recompute`). A landing
+(`jumpToYear`, `animateToYear`'s end, `_setPeriod`) reports the same way
+in the same turn, so the title never lags a jump.
+
+**Resolution (D30, "resolve on navigation, never in build").** The
+section builder reads the store's cached tally only
+(the page's `AgendaYearTileSource`, `tilesFor(year)` null when unresolved → the D30 placeholder; since the fix pass each section listens to the source and rebuilds alone when its year's version moves). A
+viewport-driven queue replaces the pager's synchronous `tilesFor` and its
+250 ms prewarm: on every scroll notification, landing, mode switch into
+Year and `forget`, `_scheduleYearRun()` derives `wanted` = the years whose
+sections intersect the viewport, then the top year's two neighbours,
+inside the span, minus the resolved — ordered top year first, then the
+visible in reading order, then the neighbours — and, if any remain and no
+run is pending, schedules one run in a post-frame callback (`_runYear`, with `ensureVisualUpdate`; `_yearFrameOwed` holds the next run one more frame after any scan, so a frame that drew a scan's result runs no other scan) under `_resolveGeneration`. A run
+re-derives the queue from the viewport as it is then (a year scrolled past
+is never resolved), resolves exactly one year (`ensureTallies` over
+`monthsOfYear`, one marks call; the row path under a live query, as
+today), `setState`s, and schedules the next run while years remain. One
+year per run, one run per frame: a fling across a decade costs
+ten marks calls spread over frames and never two in one. The opening year
+and a landing's target resolve synchronously before their frame (one
+call, as "opening scans the year once" already holds), so neither the
+first frame nor a jump ever shows a blank year; a drag does, for at most
+a frame. `_schedulePrewarm` and `_prewarmTimer` retire with the pager;
+List mode's runs are untouched. `_tilesByYear` is the `AgendaYearTileSource`; `forget(month)` from a presence mark drops its year's entry and the
+year re-queues if visible.
+
+**The band.** `_tallyYear(_year)` reads the cache: a blank count and a
+blank totals line while the top year is unresolved (text, never
+geometry), filled by the run's `setState`.
+
+**The nav.** `_buildYearNav` keeps its shape and ids: ◄ `animateToYear(_year
+− 1)` while `_year > span.first`, ► symmetric, Today
+`animateToYear(_today.year)` while `_year != _today.year`; the Period
+menu unchanged (This year → `_setPeriod` → `jumpToYear(_today.year)`, the jump today's `jumpToPage` made, the year resolved before its frame, and stays in Year
+mode; every other pick lists; Custom seeds from the shown period; a cancel
+changes nothing); `_setPeriod` lands with `jumpToYear(_firstYearOf(period))`.
+
+**The span (D28).** `EventAgenda.yearBoundsOf` gains an optional
+open-ended ceiling year; the overview passes `today.year + 1`, so an
+open-ended series ends the span next year while a bounded series or a
+pinned date past that still extends it and today is always inside; the
+day list sheet passes nothing and keeps the full bounds. `_years` stays an
+`AgendaYearBounds`.
+
+**The scrubber (D29, slice 12).** In Year mode `ListScrubber` wraps the
+scroll when the span holds two or more years: `labelAt` →
+`'${controller.yearAtOffset(offset)}'`, `onStep` → ±1 year,
+`identifier: SemanticsIds.overviewScrubber` (one lane per page, never two
+modes at once), the recognizer's `MediaQuery.maybeGestureSettingsOf` kept.
+
+**Tests.** `test/widgets/agenda_year_scroll_test.dart` (new): the extent
+and the column rule against a real `SliverGridDelegateWithMaxCrossAxisExtent.getLayout`
+at 328 and 580 of cross axis (same columns, same tile width); the
+`offsetOfYear` / `yearAtOffset` round trip and the half-header threshold;
+a hundred-year span builds only the viewport's sections (count the
+headers); `initialYear`'s header is at the top on the first frame; a width
+change keeps the top year; the header's semantics and ids; de at 2.0 and
+360 × 780 / 412 × 915 without overflow; dark. `calendar_overview_page_test.dart`'s
+Year block re-targeted to the scroll (the chevrons scroll and the title
+follows; a drag into the neighbour flips the title at the threshold; the
+span ends next year for an open-ended series and at a bounded end past
+it; opening scans the year once and builds at most two sections, the
+neighbours resolve in runs after the first frame; a run never resolves a
+year the viewport passed; a presence `forget` re-resolves its month; the
+Period menu's five rules; the nav ids) through `OverviewRobot`, which
+grows the helpers it needs. `agenda_day_list_sheet_test.dart` and
+`agenda_month_store_test.dart` untouched and green. Slice 12 adds the budgets (`overview_years_benchmark_test.dart`): a hundred-year span opens with at most three sections built (Flutter's default cache extent) and exactly three years resolved, one per frame; a far jump builds at most three and none in between; a fling over twenty years resolves at most one year per frame and no more than the years seen plus two; a keyboard animation builds no tile; a keystroke under a query scans nothing — the counts run untagged in the default suite (`budgets year mode over a hundred years`), the millisecond prints under the `benchmark` tag.
+
+**After the reviews (2026-10-15, slices 12 and 12b).** The span is two
+bounds from one pass — `EventAgenda.yearSpansOf` returns `full` and
+`ceiled`, `yearBoundsOf` delegating to it — because the D28 ceiling had
+leaked into List mode's ►, Month mode's year clamp and the range picker's
+last date through the shared `_years`; `_scrollYears` (ceiled) is the Year
+scroll's alone (its span, its nav's ◄ ►, `_goToYear`'s clamp, the queue's
+bounds), `_years` (full) everything else's, and `_clampYearToScroll` brings
+`_year` into the scroll's span on a switch into Year and in `_rebuild`. An
+open-ended series contributes the later of the ceiling and its start year,
+so a series starting past next year still extends the span. The scrubber
+lives inside `AgendaYearScroll` (`AgendaYearScrubber`: the semantics label
+`overviewYearScrubberLabel` — "Scroll by year" — the identifier,
+`onLabelChanged`, `onStep` with the target year), shown only when the span
+holds two or more years, a `GlobalKey` keeping the position when the lane
+comes or goes; a step reaches `_goToYear`, so it resolves its target
+synchronously and clicks like the chevrons. The controller remembers
+`landingYear`: a pixel correction mid-landing re-issues the animation to
+the target (`pageDuration` from wherever the scroll is), and `_rebuild`
+resolves the target rather than the year passing the top. The keyboard
+rebuilds nothing: the tail filler is a `SliverLayoutBuilder` (the box
+`LayoutBuilder` reads only the width) and the sections' delegate is one
+instance across runs. A query change keeps the near years' tiles (the top
+year, the visible years, the two neighbours) until the same `setState`
+refolds them, and drops every other cached year, so nothing stale is ever
+drawn as current. `_rebuild` from `didChangeDependencies` defers its
+resolve to a post-frame callback that also refuses while `_covered`. The
+cache extent is Flutter's default.
+
 ## 4. Behaviour
 
 ### 4.1 Must not change
@@ -1155,6 +1342,21 @@ two lines for a span).
   the query's and the options' persistence rules (the query and
   `_searchOpen` session-only); `YearMonthTile.gridDelegate`.
 
+- **The years scroll (2026-10-15, §3.14):** tiles come from marks, never
+  rows (`AgendaYearTile.ofTally(…, perDayColors: true)`; the row bucket
+  path only under a live query); the totals under the nav from the tiles'
+  marks; `OverviewYearPeriod(_year)` session-only; the Period menu's five
+  rules; saved views never hold the mode; a tile tap opens Month mode on
+  that month; the chip row folds with the keyboard; the nav's ids, its
+  52 dp one-line title box and the one-line totals slot keep their
+  geometry; `AgendaYearPager` as it is for the day list sheet;
+  `YearMonthTile.gridDelegate` the one tile geometry, shared with the date
+  picker's year view; `AgendaMonthStore`'s contract (resolve on
+  navigation, never in build; twelve-month chunks; `forget(month)` the one
+  re-resolve); the scrubber's gesture settings; flows `05_overview` and
+  `23_overview_list` green, their Year steps changed in the slice that
+  changes the screen.
+
 ### 4.2 Deliberately changes
 
 - The list's unit is a period (§3.4), set from the Period row's menu and the
@@ -1221,6 +1423,13 @@ two lines for a span).
   List's keeps the span templates; the totals slot is one line;
   `SemanticsIds.overviewPeriod` is retired, `overview-search-open` added;
   flows 05, 23 and 24 walk the menu from the title.
+
+- **The years scroll (2026-10-15, §3.14):** Year mode's span ends at next
+  year unless a bounded series, a pinned date or an open-ended series'
+  start reaches further (D28), and its chevrons stop there; List mode,
+  Month mode and the range picker keep the full bounds. ◄ ► and Today
+  scroll instead of paging; the scrubber lane appears in Year mode when
+  the span holds two or more years.
 
 ## 5. Facts from the tree (`ae98d62`, re-grep before editing)
 
@@ -1570,6 +1779,29 @@ the feature doc's addendum, `references/subsystems.md` § Overview (the
 chrome paragraph), the `calendar-ui` catalogue (the ids, the
 `AgendaPeriodNav` line, the flows), the master's row, this status line.
 
+### Slice 11 — The years scroll (implementer, Opus 5.5, high)
+
+§3.14 whole but the scrubber and the benchmark: `AgendaYearScroll` and its
+controller, the shared tile builder lifted out of `AgendaYearGrid`,
+`YearMonthTile.columnsFor`, the `OverviewListMetrics` numbers
+(`yearHeaderHeight`, `yearHeaderFontSize`, `yearSectionGap`,
+`yearScrollPadding`), `yearBoundsOf`'s ceiling, the page's Year case on
+the scroll with the viewport queue and the synchronous open and landing,
+the two `SemanticsIds`, the new suite and the re-targeted Year block, the
+two flows' Year steps edited (not run). Gate: `dart analyze lib`, the
+whole `flutter test`, no ARB expected (`gen-l10n` if one is touched).
+Reviewer after it: the §4.1 bullet, the D26–D30 letters, the "never in
+build" rule, one marks call per run, the first frame on the right year.
+
+### Slice 12 — The scrubber, the benchmark, the device pass, the docs (implementer; qa-runner; docs-writer)
+
+The Year-mode `ListScrubber` (D29) with its tests; `overview_years_benchmark_test.dart`;
+`qa relaunch --fresh --seed tool/qa/fixtures/calendar.json` then `qa flows
+calendar`, the matrix (dark, `de`, 2.0, both sizes), `qa errors`; then the
+feature doc's addendum, `references/subsystems.md` § Overview, the
+`calendar-events` rule lines, the `calendar-ui` file table and device
+pass, this record's status line and ledger.
+
 ## 7. Definition of done
 
 1. The data the page writes equals what it wrote before for the same input:
@@ -1718,6 +1950,49 @@ chrome paragraph), the `calendar-ui` catalogue (the ids, the
   and built as D16 and D17 (slices 9a and 9c, §3.12).
 - **The jump picker's day wheel** and the **two-line sheet header at 200 %**
   (Tier 3 §8) stay open.
+- **Four Mark presence tests log `Presence write error:
+  MissingPluginException(…path_provider)`** (`calendar_overview_page_test.dart`):
+  they emit the presence bump by hand, so routing their write through
+  `EventPresenceService.forTesting(db)` (as the years scroll's forget test
+  does) would double-bump; a shared fake write for the four is the fix.
+- **List mode's `_listMore` still runs `store.ensure` during the build
+  phase** on the `didChangeDependencies` path (a locale change or a
+  category-label refresh); the years scroll's `_rebuild(duringBuild: true)`
+  defers its resolve to a post-frame callback and the list's first batch
+  should do the same.
+- **Formatter drift.** The installed `dart format` (Dart 3.10's) rewrites
+  about 145 files the tree was not formatted with; whether to format the
+  tree in one commit is the owner's decision — until then nobody formats
+  beyond their own lines.
+- **New files on LF** (`agenda_year_scroll.dart`, `agenda_year_scroll_test.dart`,
+  `overview_years_benchmark_test.dart`, and `overview_list_metrics.dart`
+  rewritten): `core.autocrlf=true` normalizes them on commit and they
+  come back CRLF on the next checkout; nothing to do unless a tool checks
+  the working copy's endings.
+- **Back with an empty summoned Search pops the page** (device pass
+  2026-10-15, every mode): `key back` with the Search row open and no
+  query leaves the overview instead of closing the row first; a
+  `PopScope` that closes the row when it is open is the fix, with the
+  flow step that pins it.
+- **The year tiles' month labels at 2.0 in de** ellipsize to "Jan. …" /
+  "März…" / "Sept.…" (device pass 2026-10-15, the pager had the same): the
+  tile's one-line `labelLarge` label shares its row with the count; a
+  shorter de label form at large text, or the count under the label past
+  a scale, is a `YearMonthTile` decision for the tile's three surfaces at
+  once.
+- **Flow `19_fasting_schedule` is stale**: red before and after the
+  rework at step 17 (`expect id:fasting-extra-days`, the dump has
+  `fasting-days-off` only), and its open dialog poisons every later flow
+  of a one-shot run; the flow (or the id) needs the fasting sheet's owner
+  to look.
+- **The 360-wide device check** of Year mode was not run (the emulator
+  was up as the 412 profile and `qa boot --phone` refuses beside an
+  attached device); the arithmetic says the fourth tile row fits a
+  780 dp screen with 38 dp to spare (§2.6), the widget suite pins
+  360 × 780, a phone pass still owes the look.
+- **The scrubber lane lands between years** (it maps the drag
+  proportionally, as the list's does); a snap to the nearest header on
+  release is a possible refinement, not asked for.
 
 ## 9. Ledger
 
@@ -2370,3 +2645,62 @@ chrome paragraph), the `calendar-ui` catalogue (the ids, the
   addendum, `references/subsystems.md` § Overview, the `calendar-events`
   rule lines, the `calendar-ui` file table, nav bullet, ids and device
   pass, the master's row, this status line.
+
+- **2026-10-15 — §2.6 decided, slices 11–12 opened.** The owner asked for
+  several years in Year mode ("months separated by years in a continuous
+  scroll"); one mock ("Overview years mock",
+  https://claude.ai/artifact/HW9tTTqBo1xanRoRr29PUb); the owner answered
+  "choose for me and make it really performant so we can have it as a
+  flagship feature", so the lead took every recommended option as
+  D26–D30 and wrote §3.14. Slice 11 to one `implementer` (Opus 5.5),
+  one `reviewer` after it; slice 12 the scrubber, the benchmark, the
+  device pass and the docs.
+- **2026-10-15 — slice 11 IMPLEMENTED and reviewed** (one `implementer`,
+  Opus 5.5, high; one `reviewer`): `AgendaYearScroll` and its controller,
+  `AgendaYearTileBuilder` lifted out of `AgendaYearGrid`,
+  `YearMonthTile.columnsFor` (the delegate's own rule, pinned against
+  `getLayout` at 328 and 580), the four `OverviewListMetrics` numbers,
+  `yearBoundsOf`'s ceiling, the page's queue, two ids, fifteen scroll
+  tests, the Year block re-targeted, flows 05 and 23 edited. Gate
+  `+7676 ~9 -1` (the Windows-only host test). The review's eleven
+  findings: an open-ended series starting past the ceiling cut out of the
+  span (CONFIRMED), every keyboard frame rebuilding the sections through
+  the height-reading `LayoutBuilder` (PLAUSIBLE on SDK source), runs not
+  tied to frames, an animated landing resolving the years it passes, a
+  dropped run in `_setOptions`, a resolve inside `didChangeDependencies`'s
+  build, fold work in the builder under a query, five test gaps,
+  `cacheExtent: 0` as a literal on a weak trade-off. The implementer's
+  `dart format lib test` reformatted ~145 unrelated files, restored with
+  `git checkout --`.
+- **2026-10-15 — slices 12 and 12b IMPLEMENTED, uncommitted** (one
+  `implementer` each, one `reviewer` between): the eleven fixes, the
+  Year-mode scrubber (`overviewYearScrubberLabel` ×3), the budgets and the
+  timed benchmark, flow 24; gate `+7689 ~10 -1`. The second review: the
+  D28 ceiling leaking into List, Month and the range picker through
+  `_years` (CONFIRMED → `yearSpansOf`, `_scrollYears`), the budgets
+  skipped by the `benchmark` tag (CONFIRMED → untagged counts, tagged
+  timings), the scrubber's step bypassing the page, a mid-landing pixel
+  correction not retargeting the animation, a covered `duringBuild` scan,
+  stale query tiles for far years, two scans in the first Year frame,
+  every run rebuilding every section (→ `AgendaYearTileSource`, a section
+  rebuilds alone), missing `///`. Gate after 12b `+7700 ~10 -1`. The
+  device pass is the next entry.
+- **2026-10-15 — device pass** (`qa-runner`, Sonnet 5.5, Pixel_9_Pro,
+  `ANTA_QA_VIA=agent`): the first installed build was stale (flow 05 red
+  on `wait id:overview-years` against the old pager), so a plain `qa run`
+  preceded the results; flows 00–18 green in the batch, 19 red as before
+  (its dialog poisoning 20–24 in the one-shot run), 20–24 green one by one
+  from a fresh seed (22 red once on a scroll position, green on the
+  re-run); Year mode by hand: the resting frame (this year's header at the
+  top, twelve tiles, next year's header at the bottom edge; `overview-years`,
+  `overview-year-2026` / `-2027` as heading nodes and `overview-scrubber`
+  "Scroll by year" in the dump), native swipes showing two years on one
+  screen, a swipe in the lane, ◄ ► and Today landing with the header at the
+  top and the chevrons disabled at the span's ends, the Period menu's This
+  year; the matrix dark · de · 2.0 (the headers "2026, 119 Einträge · 63
+  verpasst", the lane "Nach Jahr scrollen"; the tiles' month labels and the
+  totals line ellipsized as before, §8); the keyboard fold not raisable by
+  the harness (the widget suite pins it); `qa errors` clean. Docs in the
+  same slice: this record, the feature doc's addendum, `subsystems.md`
+  § Overview, the `calendar-events` rule lines, the `calendar-ui` file
+  table, ids and device pass.

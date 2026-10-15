@@ -158,6 +158,7 @@ void main() {
       List<CalendarEvent> events, {
       Set<String> categoryIds = const {},
       AgendaEventType eventType = AgendaEventType.all,
+      int? openEndedLastYear,
     }) => EventAgenda.yearBoundsOf(
       events,
       categoryIds: categoryIds,
@@ -165,6 +166,7 @@ void main() {
       todayYear: 2026,
       earliestYear: 1900,
       latestYear: 2100,
+      openEndedLastYear: openEndedLastYear,
     );
 
     test('an empty store is today\'s year alone', () {
@@ -178,11 +180,14 @@ void main() {
       expect(bounds([future]), (first: 2026, last: 2029));
     });
 
-    test('an open-ended series reaches the latest year, a bounded one its end', () {
-      expect(bounds([daily]), (first: 2026, last: 2100));
-      final ended = daily.copyWith(endDate: DateTime.utc(2027, 6, 30));
-      expect(bounds([ended]), (first: 2026, last: 2027));
-    });
+    test(
+      'an open-ended series reaches the latest year, a bounded one its end',
+      () {
+        expect(bounds([daily]), (first: 2026, last: 2100));
+        final ended = daily.copyWith(endDate: DateTime.utc(2027, 6, 30));
+        expect(bounds([ended]), (first: 2026, last: 2027));
+      },
+    );
 
     test('a retroactive series reaches back to the earliest year', () {
       final retro = daily.copyWith(
@@ -200,6 +205,76 @@ void main() {
         ),
       );
       expect(bounds([pinned]), (first: 2019, last: 2031));
+    });
+
+    group('with an open-ended ceiling (D28)', () {
+      test('an open-ended series ends at the ceiling', () {
+        expect(bounds([daily], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2027,
+        ));
+      });
+
+      test('a bounded series or a pinned date past it still extends the '
+          'end', () {
+        final ended = daily.copyWith(endDate: DateTime.utc(2031, 6, 30));
+        expect(bounds([daily, ended], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2031,
+        ));
+        final pinned = specific.copyWith(
+          rule: SpecificDatesRecurrence(dates: {DateTime.utc(2034, 5, 5)}),
+        );
+        expect(bounds([daily, pinned], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2034,
+        ));
+        final future = oneTime.copyWith(startDate: DateTime.utc(2029, 3, 1));
+        expect(bounds([future], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2029,
+        ));
+      });
+
+      test('an open-ended series starting past it still reaches its start '
+          'year', () {
+        final later = daily.copyWith(
+          rule: const WeeklyRecurrence(weekdays: {DateTime.sunday}),
+          startDate: DateTime.utc(2030, 3, 1),
+        );
+        expect(bounds([later], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2030,
+        ));
+        expect(bounds([daily, later], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2030,
+        ));
+      });
+
+      test('today stays inside, and the calendar\'s bounds still clamp', () {
+        final past = daily.copyWith(endDate: DateTime.utc(2020, 6, 30));
+        expect(bounds([past], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2026,
+        ));
+        expect(bounds(const [], openEndedLastYear: 2027), (
+          first: 2026,
+          last: 2026,
+        ));
+        expect(bounds([daily], openEndedLastYear: 2200), (
+          first: 2026,
+          last: 2100,
+        ));
+      });
+
+      test('a retroactive series still reaches back to the earliest year', () {
+        final retro = daily.copyWith(retroactive: true);
+        expect(bounds([retro], openEndedLastYear: 2027), (
+          first: 1900,
+          last: 2027,
+        ));
+      });
     });
 
     test('the filters narrow which events count', () {

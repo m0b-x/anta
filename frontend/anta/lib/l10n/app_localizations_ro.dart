@@ -4867,6 +4867,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get overviewScrubberLabel => 'Derulează pe luni';
 
   @override
+  String get overviewYearScrubberLabel => 'Derulează pe ani';
+
+  @override
   String get datePickerApply => 'Aplică';
 
   @override

@@ -4818,6 +4818,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get overviewScrubberLabel => 'Nach Monat scrollen';
 
   @override
+  String get overviewYearScrubberLabel => 'Nach Jahr scrollen';
+
+  @override
   String get datePickerApply => 'Übernehmen';
 
   @override

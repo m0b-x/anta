@@ -21,11 +21,13 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/agenda_month_store.dart';
 import 'package:anta/widgets/agenda_day_list_rows.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
+import 'package:anta/widgets/agenda_year_scroll.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/list_scrubber.dart';
+import 'package:anta/widgets/month_dot_matrix.dart';
 import 'package:anta/widgets/year_month_tile.dart';
 
 import 'overview_options_robot.dart';
@@ -71,6 +73,11 @@ import 'overview_view_robot.dart';
 /// [periodChoice]); the Search row is summoned by the button ending the chip
 /// row ([openSearch], [closeSearch]); the categories are the options sheet's
 /// first row ([pickCategories], [categoriesValue]); the jump picker is gone.
+///
+/// Slice 11's year scroll (D26–D30): Year mode is one continuous scroll of
+/// year sections ([yearHeader], [yearTiles], [builtYears], [jumpYearsTo],
+/// [dragYears], [holdYears]); the chevrons scroll it and the nav's title
+/// follows the year at its top.
 class OverviewRobot {
   const OverviewRobot(this.tester);
 
@@ -210,6 +217,23 @@ class OverviewRobot {
     await _pumpUntilLoaded();
   }
 
+  /// Pumps the app [open] built anew under [locale], as a language picked on
+  /// the settings page does: the page keeps its state, and any route pushed
+  /// over it stays. Draws the one frame the change takes.
+  Future<void> switchLocale(
+    Locale locale, {
+    required CalendarBloc bloc,
+    required ImportExportBloc importExport,
+    ValueChanged<AgendaMonthStore>? onStore,
+  }) => tester.pumpWidget(
+    _app(
+      bloc: bloc,
+      importExport: importExport,
+      locale: locale,
+      home: CalendarOverviewPage.forTesting(onStore: onStore),
+    ),
+  );
+
   /// Draws what a bloc emit just changed without letting the clock move: the
   /// listener runs and its frame is laid out, but no timer fires — so the
   /// list's later runs, one per event-loop turn, are still to come.
@@ -219,11 +243,22 @@ class OverviewRobot {
   }
 
   /// Lets every pending event-loop turn run — the list's runs, each
-  /// scheduling the next — then draws the frame they asked for.
+  /// scheduling the next — and draws enough frames for the year runs, one
+  /// at the end of each frame (slice 12), then the frame they asked for.
   Future<void> finishResolving() async {
-    await tester.pump(Duration.zero);
+    for (var frame = 0; frame < _yearRunFrames; frame++) {
+      await tester.pump(Duration.zero);
+    }
     await tester.pump();
   }
+
+  /// More frames than the year runs ever queue: the viewport's years and
+  /// the top year's two neighbours.
+  static const _yearRunFrames = 8;
+
+  /// Draws one frame after the turns already due: at most one year run lands
+  /// at its end.
+  Future<void> pumpYearRun() => tester.pump(Duration.zero);
 
   /// Opens the real page — no test seam — over a calendar route stamped the
   /// way the view menu leaves one beneath it: a stand-in, or [calendar], the
@@ -445,6 +480,131 @@ class OverviewRobot {
       if (shown == target) return;
       shown < target ? await next() : await previous();
     }
+  }
+
+  // --- Year mode's scroll (slice 11, D26–D30) --------------------------------
+
+  Finder get _yearScroll =>
+      find.descendant(of: _page, matching: find.byType(AgendaYearScroll));
+
+  Finder get _yearScrollable =>
+      find.descendant(of: _yearScroll, matching: find.byType(Scrollable)).first;
+
+  ScrollPosition get _yearPosition =>
+      tester.state<ScrollableState>(_yearScrollable).position;
+
+  /// The span the year scroll lays out.
+  ({int first, int last}) get yearSpan {
+    final scroll = tester.widget<AgendaYearScroll>(_yearScroll);
+    return (first: scroll.firstYear, last: scroll.lastYear);
+  }
+
+  /// [year]'s section header — the node that names it and its count.
+  Finder yearHeader(int year) =>
+      _carrier(SemanticsIds.overviewYearHeader(year));
+
+  /// The years whose sections are built, oldest first.
+  List<int> get builtYears => [
+    for (final widget in tester.widgetList<Semantics>(
+      find.descendant(of: _yearScroll, matching: find.byType(Semantics)),
+    ))
+      if (widget.properties.identifier case final id?
+          when id.startsWith('overview-year-'))
+        int.parse(id.substring('overview-year-'.length)),
+  ];
+
+  /// [year]'s twelve tiles while its section is built — a tile's label
+  /// names its year.
+  Finder yearTiles(int year) => find.descendant(
+    of: _yearScroll,
+    matching: find.byWidgetPredicate(
+      (w) => w is YearMonthTile && w.label.endsWith('$year'),
+    ),
+  );
+
+  /// [year]'s tiles' dot matrices, January first.
+  List<MonthDotMatrix> yearMatrices(int year) => [
+    for (final tile in tester.widgetList<YearMonthTile>(yearTiles(year)))
+      tile.matrix as MonthDotMatrix,
+  ];
+
+  /// How far below the scroll's top edge [year]'s header starts; null while
+  /// its section is not built.
+  double? yearHeaderTop(int year) {
+    final header = yearHeader(year);
+    if (header.evaluate().isEmpty) return null;
+    return tester.getTopLeft(header).dy - tester.getTopLeft(_yearScroll).dy;
+  }
+
+  double get yearsOffset => _yearPosition.pixels;
+
+  /// The year scroll's position, for a benchmark that drives it frame by
+  /// frame.
+  ScrollPosition get yearsPosition => _yearPosition;
+
+  /// The year scroll's viewport height.
+  double get yearsViewportExtent => _yearPosition.viewportDimension;
+
+  /// The years whose sections show any part in the viewport at [offset]
+  /// (the scroll's own offset by default), oldest first.
+  List<int> visibleYearsAt([double? offset]) {
+    final extent = yearSectionExtent;
+    final top = offset ?? yearsOffset;
+    final span = yearSpan;
+    final first = span.first + (top / extent).floor();
+    final last =
+        span.first + ((top + yearsViewportExtent - 0.5) / extent).floor();
+    return [
+      for (var year = first; year <= last; year++)
+        if (year >= span.first && year <= span.last) year,
+    ];
+  }
+
+  /// A section's height: the distance between two headers.
+  double get yearSectionExtent {
+    final years = builtYears;
+    if (years.length > 1) {
+      return tester.getTopLeft(yearHeader(years[1])).dy -
+          tester.getTopLeft(yearHeader(years[0])).dy;
+    }
+    return tester.getSize(_yearScroll).height;
+  }
+
+  /// A section header's height.
+  double get yearHeaderHeight =>
+      tester.getSize(yearHeader(builtYears.first)).height;
+
+  /// Jumps the year scroll to [offset]. [settle] false draws one frame
+  /// without moving the clock, so a year run scheduled meanwhile stays
+  /// pending.
+  Future<void> jumpYearsTo(double offset, {bool settle = true}) async {
+    _yearPosition.jumpTo(offset);
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+    }
+  }
+
+  /// Drags the year scroll by [sections] sections with a finger — positive
+  /// toward later years — and lets it settle.
+  Future<void> dragYears(double sections) async {
+    await tester.drag(
+      _yearScrollable,
+      Offset(0, -sections * yearSectionExtent),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  /// A finger on the year scroll, already past the touch slop, for a case
+  /// that moves it pixel by pixel; [TestGesture.up] lifts it.
+  Future<TestGesture> holdYears() async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(_yearScrollable),
+    );
+    await gesture.moveBy(const Offset(0, -(kDragSlopDefault + 1)));
+    await tester.pump();
+    return gesture;
   }
 
   // --- The Period menu: the nav's title (slice 10a, D19) ---------------------

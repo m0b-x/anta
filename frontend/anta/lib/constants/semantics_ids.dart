@@ -450,6 +450,12 @@ abstract final class SemanticsIds {
       'overview-row-$eventId-${_isoDate(day)}';
   static String overviewEventRow(String eventId) => 'overview-event-$eventId';
 
+  /// Year mode's continuous scroll (§3.14): the scroll view, and one header
+  /// per year section, the node that names the year and its count, so a
+  /// flow can wait on a year having scrolled into view.
+  static const String overviewYears = 'overview-years';
+  static String overviewYearHeader(int year) => 'overview-year-$year';
+
   /// The overview's saved views (§3.12, D17): the bar button, the sheet's
   /// chrome and one row per view with its handle and its ⋮ menu. A view's id
   /// is a UUID, so `overview-view-<id>` never meets the mode chips' names.

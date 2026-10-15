@@ -4782,6 +4782,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get overviewScrubberLabel => 'Scroll by month';
 
   @override
+  String get overviewYearScrubberLabel => 'Scroll by year';
+
+  @override
   String get datePickerApply => 'Apply';
 
   @override
