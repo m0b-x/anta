@@ -6813,7 +6813,7 @@ is no taller. Not verifiable on the simulator: anything Android-only (the
 navigation bar's colour, Gboard's inset).
 
 **Review.** A fresh read-only reviewer read the working tree against
-`daf361a` and confirmed no defect: every line of the record's
+`a13c8ff` and confirmed no defect: every line of the record's
 must-not-change list held against the old and the new code, every new
 primitive parameter is optional (existing callers build the same tree),
 every id is present, unique and on its control, no retired key has a
@@ -6887,7 +6887,7 @@ truncated in release, that every keystroke dropped every cache and
 re-expanded the year's recurrences, and that the rows had no extents (a
 far `jumpTo` laid out 6 346 rows in 13 s at 10 000 events).
 
-**What shipped** (seven slices on `ae98d62`, uncommitted on the day):
+**What shipped** (seven slices on `a4f783a`, uncommitted on the day):
 
 - **The chrome in the language.** The title's view menu carries a second
   radio group Year · Month · List (`CalendarViewMenu(presentation:,
@@ -6985,7 +6985,7 @@ collapsible months; per-category totals; more presets; saved views.
 
 ## Addendum 2026-10-13 — the overview after the first phone use: the mode chips, the Period row in every mode, the detail sheet over the list
 
-**Why.** The owner committed the List-mode rework (`c3a7447`) and opened it
+**Why.** The owner committed the List-mode rework (`c4f5697`) and opened it
 on the phone: the twelve-month tiles seemed gone, the Period row was
 disabled, and back after a row tap landed on a calendar. Three delegated
 decisions had each traded a visible thing for a tidier one. D8 · A had put
@@ -7086,7 +7086,9 @@ delegated to the lead; the recommended option stands for each.
    pins its number), Order, Rows, Missed only and the categories allowlist
    — not the query, not the mode; applying one switches to List mode and
    persists each part as a pick would.
-4. **Mark presence.** A session-only switch in the options sheet; while
+4. **Mark presence** *(retired 2026-10-17 — the addendum of that date: the
+   day panel's button on the row)*. A session-only switch in the options
+   sheet; while
    on, a tap on an entry row in List mode (every-occurrence rows) or Month
    mode toggles the day's presence through `SetOccurrencePresence` —
    explicit statuses, the day panel's words as the row's hint, the row's
@@ -7262,3 +7264,34 @@ Record: `docs/category-alerts-and-digests-roadmap.md` (D1–D23, the S1–S5 led
 **Strings.** `alertsDigestChannel(+Desc)`, `digestAllCategories`, `digestCategoriesCount`, `digestCountPeriod`, the `digestPeriod*` phrases, `digestMoreCount`, `digestOnDayOfMonth` (an ICU `select` on the day digits; the ordinal lives in the English ARB), the sheet's rows, `categoryAlertsHint`, `categoryAlertTimedCaption`, `categoryHasAlerts`, `eventAlertFromCategory`, `eventCategoryAlerts(+Desc)` — never a key whose wording an existing key already carries (`eventAlerts`, `eventAlertAdd`, `alertsDefaultTimed`, `alertsDefaultAllDay`, `calendarCategories`, `filterPresetName`, `panelModeDay`, `calendarFormatWeek`, `calendarFormatMonth` are reused).
 
 **Not in this change.** A background re-plan job (the horizon's gap is unchanged; its own record if wanted), per-occurrence alert overrides, alarm-tier digests, digests over holidays and fasting, iOS (the alerts roadmap's Sessions 8–9 bind `scheduleDigest` with the rest).
+
+## Addendum (2026-10-17): the overview's day rows carry the day panel's presence button
+
+**The ask.** The owner found the overview's "Mark presence" switch
+"always disabled, never on" — it was live only in Month mode or in List
+mode with every-occurrence rows, and the overview lands in Year mode —
+and asked to mark presence from Month view the way the calendar's day
+panel does: tap the day, and the event's card carries a presence toggle
+when the event tracks presence. The record is
+`docs/calendar-overview-list-roadmap.md` §2.7 (D31 · A) and §3.15.
+
+**What changed.** Every day row of the overview — Month mode's, and the
+list's under Every occurrence — whose event tracks presence
+(`EventPresence.appliesTo`) ends in the day panel's button: `event_busy`
+while the day is present ("Mark as missed"), `event_available` while it is
+missed ("Mark as present"); a press writes the opposite explicit status
+through `EventSheetsFlow.setOccurrencePresence`, the row fades or un-fades
+and the day's counts follow once the bloc's `presenceRevision` comes back,
+and the mark re-resolves its month alone, as before. The row's tap opens
+the detail sheet, always. The switch, the tap-to-mark mode, the long press
+and the row's hint are gone: `OverviewListOptions` holds Order, Rows and
+Missed only, and the sheet's last row is Missed only. The button is not
+offered where no row is a day (Year mode, One per event) nor while the
+calendar's missed display is hidden — a mark would take its row away with
+nothing on the overview left to undo it, the rule the switch already kept.
+The entry model carries `presenceTracked` from the one conversion site
+(`AgendaListView.eventDayEntries`); `AgendaDayListRowBuilder` draws the
+button from it, the pencil outranking it in the slot (the day list sheet's
+rows are unchanged); `FormPickerRow` lost the long press and the hint D18
+had added for the switch; the button's id is
+`overview-row-presence-<eventId>-<yyyy-MM-dd>`, and flow 23 presses it.

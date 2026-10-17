@@ -756,14 +756,7 @@ class OverviewRobot {
     await options.close();
   }
 
-  Future<void> setMarkPresence(bool value) async {
-    await openOptions();
-    if (options.markPresence != value) await options.toggleMarkPresence();
-    await options.close();
-  }
-
-  /// Whether the tune button reads selected — a restriction or Mark
-  /// presence (D18).
+  /// Whether the tune button reads selected — a restriction only.
   bool get optionsSelected => tester
       .widget<IconButton>(
         find.descendant(of: _optionsButton, matching: find.byType(IconButton)),
@@ -1140,19 +1133,25 @@ class OverviewRobot {
     await _tap(row.first, settle: settle);
   }
 
-  /// A long press on the first built entry titled [title] — the way to its
-  /// detail sheet while Mark presence has the tap (D18).
-  Future<void> longPressRow(String title) async {
-    final row = find.descendant(of: _list, matching: find.text(title));
-    await tester.ensureVisible(row.first);
-    await tester.pumpAndSettle();
-    await tester.longPress(row.first);
-    await tester.pumpAndSettle();
-  }
+  /// The presence button carrying [id] (`SemanticsIds.overviewRowPresence`)
+  /// on a built row; empty where the row offers none.
+  Finder presenceButton(String id) => _byId(id);
 
-  /// The hint on the entry row carrying [id], as a screen reader hears it.
-  String rowHint(String id) =>
-      tester.getSemantics(_byId(id)).getSemanticsData().hint;
+  /// The tooltip of the presence button carrying [id] — the day panel's
+  /// words for what a press writes.
+  String? presenceTooltip(String id) => tester
+      .widget<IconButton>(
+        find.descendant(of: _byId(id), matching: find.byType(IconButton)),
+      )
+      .tooltip;
+
+  /// Brings the presence button carrying [id] into view and presses it.
+  /// [settle] false pumps one frame after the press.
+  Future<void> pressPresence(String id, {bool settle = true}) async {
+    await tester.ensureVisible(_byId(id));
+    await tester.pumpAndSettle();
+    await _tap(_byId(id), settle: settle);
+  }
 
   // --- The detail sheet (slice 8b) -------------------------------------------
 

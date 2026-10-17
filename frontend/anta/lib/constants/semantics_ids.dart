@@ -475,7 +475,6 @@ abstract final class SemanticsIds {
   static const String overviewRowsEvery = 'overview-rows-every';
   static const String overviewRowsPerEvent = 'overview-rows-per-event';
   static const String overviewMissedOnly = 'overview-missed-only';
-  static const String overviewMarkPresence = 'overview-mark-presence';
   static const String overviewSearch = 'overview-search';
   static const String overviewCategories = 'overview-categories';
   static const String overviewPeriodThisYear = 'overview-period-this-year';
@@ -493,6 +492,12 @@ abstract final class SemanticsIds {
   static const String overviewScrubber = 'overview-scrubber';
   static String overviewRow(String eventId, DateTime day) =>
       'overview-row-$eventId-${_isoDate(day)}';
+
+  /// A day row's presence button (2026-10-17), the [overviewRow] twin: a
+  /// node beside the row's, whose tooltip changes with the state.
+  static String overviewRowPresence(String eventId, DateTime day) =>
+      'overview-row-presence-$eventId-${_isoDate(day)}';
+
   static String overviewEventRow(String eventId) => 'overview-event-$eventId';
 
   /// Year mode's continuous scroll (§3.14): the scroll view, and one header

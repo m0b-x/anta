@@ -135,7 +135,7 @@ class OverviewViewService {
         id: id,
         name: name.trim(),
         period: period,
-        options: options.copyWith(markPresence: false),
+        options: options,
         categoryIds: categoryIds,
         sortOrder: await _dao.nextSortOrder(),
       );

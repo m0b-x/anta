@@ -4709,9 +4709,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get overviewMissedOnly => 'Missed only';
 
   @override
-  String get overviewMarkPresence => 'Mark presence';
-
-  @override
   String get overviewViewsTitle => 'Saved views';
 
   @override

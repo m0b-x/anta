@@ -10,9 +10,8 @@ import '../database/support/db_test_support.dart';
 
 /// Runs the real DAO and the real codec against `NativeDatabase.memory()`,
 /// the preset service's suite cloned: the list survives the payload round
-/// trip, `matching` answers on value and ignores Mark presence, the cap
-/// refuses, a delete is a tombstone, and a backup keeps what a newer build
-/// wrote.
+/// trip, `matching` answers on value, the cap refuses, a delete is a
+/// tombstone, and a backup keeps what a newer build wrote.
 void main() {
   late AppDatabase db;
   late OverviewViewService service;
@@ -76,13 +75,6 @@ void main() {
     expect(service.views.map((v) => v.name), ['First', 'Second']);
   });
 
-  test('Mark presence is never stored', () async {
-    await save('Marking', options: perEvent.copyWith(markPresence: true));
-
-    await service.reload();
-    expect(service.views.single.options.markPresence, isFalse);
-  });
-
   group('matching', () {
     test('answers on the list, not the id', () async {
       await save('Q1 gym');
@@ -92,15 +84,6 @@ void main() {
         DateTime.utc(2026, 3, 31),
       );
       expect(service.matching(sameSpan, perEvent, {'gym'})?.name, 'Q1 gym');
-    });
-
-    test('ignores Mark presence', () async {
-      await save('Q1 gym');
-
-      expect(
-        service.matching(q1, perEvent.copyWith(markPresence: true), {'gym'}),
-        isNotNull,
-      );
     });
 
     test('each part decides', () async {

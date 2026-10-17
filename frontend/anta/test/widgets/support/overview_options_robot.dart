@@ -17,7 +17,7 @@ import 'package:anta/widgets/overview_options_sheet.dart';
 ///
 /// The finders are the sheet's ids: the ✕, the Categories row and the
 /// picker it opens, the Order and Rows menu rows and their items, the Missed
-/// only and Mark presence switches.
+/// only switch.
 class OverviewOptionsRobot {
   const OverviewOptionsRobot(this.tester);
 
@@ -63,7 +63,6 @@ class OverviewOptionsRobot {
   Future<void> show({
     OverviewListOptions initial = OverviewListOptions.defaults,
     AgendaDayListMode mode = AgendaDayListMode.list,
-    bool missedHidden = false,
     required ValueChanged<OverviewListOptions> onChanged,
     Set<String> categoryIds = const {},
     ValueChanged<Set<String>>? onCategoriesChanged,
@@ -94,7 +93,6 @@ class OverviewOptionsRobot {
                 context,
                 initial: initial,
                 mode: mode,
-                missedHidden: missedHidden,
                 onChanged: onChanged,
                 categoryIds: categoryIds,
                 onCategoriesChanged: onCategoriesChanged ?? (_) {},
@@ -137,9 +135,6 @@ class OverviewOptionsRobot {
 
   Future<void> toggleMissedOnly() =>
       _tap(_byId(SemanticsIds.overviewMissedOnly));
-
-  Future<void> toggleMarkPresence() =>
-      _tap(_byId(SemanticsIds.overviewMarkPresence));
 
   /// Taps a row that may be disabled; a disabled one opens nothing.
   Future<void> tapRow(String id) async {
@@ -214,8 +209,6 @@ class OverviewOptionsRobot {
   }
 
   bool get missedOnly => _switchRow(SemanticsIds.overviewMissedOnly).value;
-
-  bool get markPresence => _switchRow(SemanticsIds.overviewMarkPresence).value;
 
   /// Whether the control carrying [id] is enabled, as a screen reader hears
   /// it: a picker row marks only its disabled state, a switch both.

@@ -290,7 +290,7 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
     await _service?.update(
       view.copyWith(
         period: current.period,
-        options: current.options.copyWith(markPresence: false),
+        options: current.options,
         categoryIds: current.categoryIds,
       ),
     );

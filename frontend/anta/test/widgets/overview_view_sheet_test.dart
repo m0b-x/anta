@@ -143,8 +143,7 @@ void main() {
     );
     final robot = OverviewViewRobot(tester);
     await robot.show(
-      // Mark presence is a session tool, never part of the match.
-      current: current.copyWith(options: perEvent.copyWith(markPresence: true)),
+      current: current.copyWith(options: perEvent),
       applied: applied,
     );
 

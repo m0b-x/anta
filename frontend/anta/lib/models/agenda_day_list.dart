@@ -43,6 +43,12 @@ class AgendaDayListEntry {
   /// rather than editing it. Null for holiday and fasting rows.
   final String? eventId;
 
+  /// Whether the entry's event takes presence marks — `EventPresence.appliesTo`,
+  /// resolved beside [missed] for the same reason: a surface that offers the
+  /// day panel's presence button learns which rows carry it without reading
+  /// the facade itself.
+  final bool presenceTracked;
+
   const AgendaDayListEntry({
     required this.day,
     required this.icon,
@@ -52,6 +58,7 @@ class AgendaDayListEntry {
     this.onEdit,
     this.missed = false,
     this.eventId,
+    this.presenceTracked = false,
   });
 }
 

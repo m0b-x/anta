@@ -15,8 +15,8 @@ import 'category_picker_sheet.dart';
 import 'form_rows.dart';
 
 /// The overview list's options behind the bar's tune button: the categories,
-/// the order, the rows, Missed only and Mark presence — a live-apply
-/// sub-sheet of the UI language.
+/// the order, the rows and Missed only — a live-apply sub-sheet of the UI
+/// language.
 ///
 /// Every control writes at once through [onChanged] (the categories through
 /// [onCategoriesChanged]), and the page persists
@@ -24,17 +24,9 @@ import 'form_rows.dart';
 /// what was set: there is no draft to confirm. Order and Rows shape the list
 /// alone, so they stay in place but inert while the page shows another
 /// presentation; Missed only narrows month mode's rows too and stays live.
-/// Mark presence acts on a row per day, so it is live where those rows are —
-/// the list's every-occurrence rows and month mode's — while missed entries
-/// show.
 class OverviewOptionsSheet extends StatefulWidget {
   final OverviewListOptions initial;
   final AgendaDayListMode mode;
-
-  /// Whether the calendar's appearance hides missed entries. A mark would
-  /// then take its row away with nothing on the overview left to undo it,
-  /// so Mark presence stays disabled.
-  final bool missedHidden;
   final ValueChanged<OverviewListOptions> onChanged;
 
   /// The page's categories allowlist; empty means every category (D22 · A).
@@ -48,7 +40,6 @@ class OverviewOptionsSheet extends StatefulWidget {
     super.key,
     required this.initial,
     required this.mode,
-    this.missedHidden = false,
     required this.onChanged,
     required this.categoryIds,
     required this.onCategoriesChanged,
@@ -58,7 +49,6 @@ class OverviewOptionsSheet extends StatefulWidget {
     BuildContext context, {
     required OverviewListOptions initial,
     required AgendaDayListMode mode,
-    bool missedHidden = false,
     required ValueChanged<OverviewListOptions> onChanged,
     required Set<String> categoryIds,
     required ValueChanged<Set<String>> onCategoriesChanged,
@@ -83,7 +73,6 @@ class OverviewOptionsSheet extends StatefulWidget {
         child: OverviewOptionsSheet(
           initial: initial,
           mode: mode,
-          missedHidden: missedHidden,
           onChanged: onChanged,
           categoryIds: categoryIds,
           onCategoriesChanged: onCategoriesChanged,
@@ -172,10 +161,6 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final listMode = widget.mode == AgendaDayListMode.list;
-    final canMark =
-        !widget.missedHidden &&
-        ((listMode && _options.rows == OverviewRows.everyOccurrence) ||
-            widget.mode == AgendaDayListMode.month);
     // The larger of the keyboard inset and the system's bottom inset pads the
     // scroll view, never the whole body (`sheet_bottom_clearance_test.dart`).
     final clearance = math.max(
@@ -261,18 +246,8 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
                       identifier: SemanticsIds.overviewRowsPerEvent,
                     ),
                   ],
-                  // One per event has no row per day to mark, so leaving
-                  // every occurrence turns marking off with it rather than
-                  // keeping a switch on that nothing obeys.
                   onSelected: listMode
-                      ? (rows) => _apply(
-                          _options.copyWith(
-                            rows: rows,
-                            markPresence:
-                                rows == OverviewRows.everyOccurrence &&
-                                _options.markPresence,
-                          ),
-                        )
+                      ? (rows) => _apply(_options.copyWith(rows: rows))
                       : null,
                 ),
                 FormSwitchRow(
@@ -282,16 +257,6 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
                   identifier: SemanticsIds.overviewMissedOnly,
                   onChanged: (value) =>
                       _apply(_options.copyWith(missedOnly: value)),
-                ),
-                FormSwitchRow(
-                  glyph: Icons.how_to_reg_outlined,
-                  label: l10n.overviewMarkPresence,
-                  value: _options.markPresence,
-                  identifier: SemanticsIds.overviewMarkPresence,
-                  onChanged: canMark
-                      ? (value) =>
-                            _apply(_options.copyWith(markPresence: value))
-                      : null,
                 ),
               ],
             ),

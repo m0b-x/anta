@@ -21,9 +21,7 @@ class OverviewView extends Equatable {
 
   final OverviewPeriod period;
 
-  /// Order, Rows and Missed only. [OverviewListOptions.markPresence] is
-  /// never stored: a view applied later must not silently arm a mode that
-  /// writes on the first tap.
+  /// Order, Rows and Missed only.
   final OverviewListOptions options;
 
   /// The overview's allowlist: empty means every category.
@@ -61,8 +59,7 @@ class OverviewView extends Equatable {
   }
 
   /// Whether the overview showing [period], [options] and [categoryIds] is
-  /// this view's list. Mark presence is a session tool, not part of what is
-  /// listed, so it never decides a match.
+  /// this view's list.
   bool matches(
     OverviewPeriod period,
     OverviewListOptions options,

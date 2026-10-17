@@ -316,6 +316,11 @@ String agendaDayListCountLabel(AppLocalizations l10n, int kept, int missed) {
 /// list and month bodies (T1), so the two never drift apart. Built per frame
 /// over the caller's [rows]; it holds nothing but the choices below.
 ///
+/// A row's tap always opens or selects its entry; marking presence is the
+/// day panel's button in the row's trailing slot ([onEntryPresence]), never
+/// a mode that changes what the tap does — the overview's tap-to-mark switch
+/// read as dead where it could not act and was retired on 2026-10-17.
+///
 /// The hairline and the corners are the shells'; the gap between groups
 /// rides the last row of each, as `FormRowGroup` carries it, and the list's
 /// last row carries none — the body's own bottom padding follows it.
@@ -327,13 +332,15 @@ class AgendaDayListRowBuilder {
 
   final ValueChanged<AgendaDayListEntry> onEntryTap;
 
-  /// An entry row's long press, for a surface whose tap does something
-  /// quicker than opening the entry; null offers none.
-  final ValueChanged<AgendaDayListEntry>? onEntryLongPress;
+  /// The day panel's presence button on every row whose entry tracks
+  /// presence ([AgendaDayListEntry.presenceTracked]), handed the status to
+  /// write — the explicit opposite of the row's, never a clear. Null offers
+  /// no button on any row.
+  final void Function(AgendaDayListEntry entry, bool missed)? onEntryPresence;
 
-  /// The hint an entry row's node carries — what a tap does when it is not
-  /// what the row reads as; null, or a null result, puts none on the row.
-  final String? Function(AgendaDayListEntry entry)? entryHint;
+  /// A `SemanticsIds` value for an entry's presence button — the
+  /// [rowIdentifier] twin, since the button is a node beside the row's.
+  final String? Function(AgendaDayListEntry entry)? presenceIdentifier;
 
   /// Offered on rows whose entry carries an edit action; null hides the
   /// trailing button on every row.
@@ -372,8 +379,8 @@ class AgendaDayListRowBuilder {
     required this.rows,
     required this.today,
     required this.onEntryTap,
-    this.onEntryLongPress,
-    this.entryHint,
+    this.onEntryPresence,
+    this.presenceIdentifier,
     this.onEntryEdit,
     this.onEventTap,
     this.captionMaxLines,
@@ -513,12 +520,35 @@ class AgendaDayListRowBuilder {
   }
 
   /// An entry: the event's look, its title over the agenda row's own
-  /// subtitle, the pencil as the second target where the entry carries an
-  /// edit. No chevron in either case — a tap selects or opens the entry's
-  /// day, never a form.
+  /// subtitle, and one second target — the pencil where the entry carries an
+  /// edit, else the day panel's presence button where the surface offers it
+  /// and the event tracks presence (the overview's day rows, 2026-10-17: the
+  /// control the user already knows, visible on the row, rather than a mode
+  /// that changes what a tap does). No chevron in any case — a tap selects or
+  /// opens the entry's day, never a form. The button fades with a missed row,
+  /// as the day panel's does.
   Widget _entryRow(AppLocalizations l10n, AgendaDayListEntry entry) {
     final onEdit = onEntryEdit;
-    final onLongPress = onEntryLongPress;
+    final onPresence = onEntryPresence;
+    final FormTrailingButton? trailing;
+    if (onEdit != null && entry.onEdit != null) {
+      trailing = FormTrailingButton(
+        icon: Icons.edit_outlined,
+        tooltip: l10n.upcomingEditEvent,
+        onPressed: () => onEdit(entry),
+      );
+    } else if (onPresence != null && entry.presenceTracked) {
+      trailing = FormTrailingButton(
+        icon: entry.missed
+            ? Icons.event_available_rounded
+            : Icons.event_busy_rounded,
+        tooltip: entry.missed ? l10n.eventMarkPresent : l10n.eventMarkMissed,
+        onPressed: () => onPresence(entry, !entry.missed),
+        identifier: presenceIdentifier?.call(entry),
+      );
+    } else {
+      trailing = null;
+    }
     return _faded(
       entry.missed,
       FormPickerRow(
@@ -529,16 +559,8 @@ class AgendaDayListRowBuilder {
         singleLine: singleLineTitles,
         identifier: rowIdentifier?.call(entry),
         onTap: () => onEntryTap(entry),
-        onLongPress: onLongPress == null ? null : () => onLongPress(entry),
-        hint: entryHint?.call(entry),
         showChevron: false,
-        trailingButton: onEdit == null || entry.onEdit == null
-            ? null
-            : FormTrailingButton(
-                icon: Icons.edit_outlined,
-                tooltip: l10n.upcomingEditEvent,
-                onPressed: () => onEdit(entry),
-              ),
+        trailingButton: trailing,
       ),
     );
   }

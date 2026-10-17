@@ -1175,13 +1175,11 @@ void main() {
       ),
     );
 
-    // Mark presence is the last row of a sheet as tall as its rows.
+    // Missed only is the last row of a sheet as tall as its rows.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
     expect(
       tester
-          .getRect(
-            find.bySemanticsIdentifier(SemanticsIds.overviewMarkPresence),
-          )
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.overviewMissedOnly))
           .bottom,
       lessThanOrEqualTo(surface.height - navBar),
       reason: 'the last row ran under the gesture bar',

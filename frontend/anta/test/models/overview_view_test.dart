@@ -64,20 +64,6 @@ void main() {
       });
     });
 
-    test('Mark presence is never written', () {
-      const view = OverviewView(
-        id: 'd',
-        name: 'Marking',
-        period: OverviewYearPeriod(2026),
-        options: OverviewListOptions(markPresence: true),
-      );
-      expect(
-        jsonEncode(view.toJson(today: today)),
-        isNot(contains('markPresence')),
-      );
-      expect(roundTrip(view).options.markPresence, isFalse);
-    });
-
     test('a view saved on this year applies as this year in a later one '
         '(review 4)', () {
       const view = OverviewView(
@@ -186,14 +172,11 @@ void main() {
       categoryIds: {'gym'},
     );
 
-    test('the same list matches, Mark presence or not', () {
+    test('the same list matches', () {
       expect(
         view.matches(
           const OverviewYearPeriod(2026),
-          const OverviewListOptions(
-            rows: OverviewRows.perEvent,
-            markPresence: true,
-          ),
+          const OverviewListOptions(rows: OverviewRows.perEvent),
           {'gym'},
         ),
         isTrue,

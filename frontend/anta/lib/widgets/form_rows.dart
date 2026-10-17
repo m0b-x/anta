@@ -836,16 +836,6 @@ class FormPickerRow extends FormDividedRow {
   final Color? labelColor;
   final Color? valueColor;
   final VoidCallback? onTap;
-
-  /// A second gesture on the same target, for a row whose tap has been given
-  /// a quicker job — the overview's rows while they mark presence, where a
-  /// long press still opens what the tap used to. Null offers none.
-  final VoidCallback? onLongPress;
-
-  /// What a tap does when the label alone does not say so, as the row's one
-  /// node's hint. Never drawn.
-  final String? hint;
-
   final FormTrailingButton? trailingButton;
   final bool showChevron;
   final String? semanticsLabel;
@@ -903,8 +893,6 @@ class FormPickerRow extends FormDividedRow {
     this.labelColor,
     this.valueColor,
     required this.onTap,
-    this.onLongPress,
-    this.hint,
     this.trailingButton,
     this.showChevron = true,
     this.semanticsLabel,
@@ -933,7 +921,6 @@ class FormPickerRow extends FormDividedRow {
     final avatar = leading;
     final captionText = caption;
     final tap = enabled ? onTap : null;
-    final longPress = enabled ? onLongPress : null;
     final pair = FormLabelValue(
       label: label,
       value: value,
@@ -1033,25 +1020,19 @@ class FormPickerRow extends FormDividedRow {
               ),
             ],
           );
-    Widget well = InkWell(onTap: tap, onLongPress: longPress, child: body);
+    Widget well = InkWell(onTap: tap, child: body);
     if (semanticsLabel != null) {
       well = Semantics(
         label: semanticsLabel,
-        hint: hint,
         button: true,
         enabled: tap != null,
         onTap: tap,
-        onLongPress: longPress,
         child: ExcludeSemantics(child: well),
       );
-    } else if (!enabled || hint != null) {
-      // Inside the merge below, so the flag and the hint land on the row's
-      // one node beside its id and its label.
-      well = Semantics(
-        enabled: enabled ? null : false,
-        hint: hint,
-        child: well,
-      );
+    } else if (!enabled) {
+      // Inside the merge below, so the flag lands on the row's one node
+      // beside its id and its label.
+      well = Semantics(enabled: false, child: well);
     }
     if (!enabled) {
       well = Opacity(opacity: FormMetrics.disabledOpacity, child: well);

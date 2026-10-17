@@ -150,111 +150,18 @@ void main() {
       SemanticsIds.overviewOrder,
       SemanticsIds.overviewRows,
       SemanticsIds.overviewMissedOnly,
-      SemanticsIds.overviewMarkPresence,
     ]) {
       expect(robot.controlLabelWhole(id), isTrue, reason: id);
     }
   });
 
-  group('Mark presence (D18)', () {
-    for (final (mode, rows) in [
-      (AgendaDayListMode.list, OverviewRows.everyOccurrence),
-      (AgendaDayListMode.month, OverviewRows.everyOccurrence),
-      (AgendaDayListMode.month, OverviewRows.perEvent),
-    ]) {
-      testWidgets('live in ${mode.name} mode with ${rows.name} rows', (
-        tester,
-      ) async {
-        final robot = OverviewOptionsRobot(tester);
-        await robot.show(
-          mode: mode,
-          initial: OverviewListOptions(rows: rows),
-          onChanged: writes.add,
-        );
+  testWidgets('a Rows change writes rows alone', (tester) async {
+    final robot = OverviewOptionsRobot(tester);
+    await robot.show(onChanged: writes.add);
 
-        expect(robot.enabled(SemanticsIds.overviewMarkPresence), isTrue);
-        await robot.toggleMarkPresence();
+    await robot.pickRows(OverviewRows.perEvent);
 
-        expect(writes, [OverviewListOptions(rows: rows, markPresence: true)]);
-        expect(robot.markPresence, isTrue);
-        expect(robot.isOpen, isTrue);
-      });
-    }
-
-    for (final (mode, rows) in [
-      (AgendaDayListMode.year, OverviewRows.everyOccurrence),
-      (AgendaDayListMode.list, OverviewRows.perEvent),
-    ]) {
-      testWidgets('disabled, never hidden, in ${mode.name} mode with '
-          '${rows.name} rows', (tester) async {
-        final robot = OverviewOptionsRobot(tester);
-        await robot.show(
-          mode: mode,
-          initial: OverviewListOptions(rows: rows),
-          onChanged: writes.add,
-        );
-
-        expect(
-          find.bySemanticsIdentifier(SemanticsIds.overviewMarkPresence),
-          findsOneWidget,
-        );
-        expect(robot.enabled(SemanticsIds.overviewMarkPresence), isFalse);
-        await robot.tapRow(SemanticsIds.overviewMarkPresence);
-
-        expect(writes, isEmpty);
-        expect(robot.markPresence, isFalse);
-      });
-    }
-
-    for (final mode in [AgendaDayListMode.list, AgendaDayListMode.month]) {
-      testWidgets('disabled, never hidden, in ${mode.name} mode while missed '
-          'entries are hidden (review 2)', (tester) async {
-        final robot = OverviewOptionsRobot(tester);
-        await robot.show(mode: mode, missedHidden: true, onChanged: writes.add);
-
-        expect(
-          find.bySemanticsIdentifier(SemanticsIds.overviewMarkPresence),
-          findsOneWidget,
-        );
-        expect(robot.enabled(SemanticsIds.overviewMarkPresence), isFalse);
-        expect(robot.enabled(SemanticsIds.overviewMissedOnly), isTrue);
-        await robot.tapRow(SemanticsIds.overviewMarkPresence);
-
-        expect(writes, isEmpty);
-        expect(robot.markPresence, isFalse);
-      });
-    }
-
-    testWidgets('Rows → One per event turns it off in the same write and '
-        'disables it; back to every occurrence leaves it off', (tester) async {
-      final robot = OverviewOptionsRobot(tester);
-      await robot.show(
-        initial: const OverviewListOptions(markPresence: true),
-        onChanged: writes.add,
-      );
-      expect(robot.markPresence, isTrue);
-
-      await robot.pickRows(OverviewRows.perEvent);
-      expect(writes, [const OverviewListOptions(rows: OverviewRows.perEvent)]);
-      expect(robot.markPresence, isFalse);
-      expect(robot.enabled(SemanticsIds.overviewMarkPresence), isFalse);
-
-      await robot.pickRows(OverviewRows.everyOccurrence);
-      expect(writes.last, OverviewListOptions.defaults);
-      expect(robot.markPresence, isFalse);
-      expect(robot.enabled(SemanticsIds.overviewMarkPresence), isTrue);
-    });
-
-    testWidgets('a Rows change while it is off writes rows alone', (
-      tester,
-    ) async {
-      final robot = OverviewOptionsRobot(tester);
-      await robot.show(onChanged: writes.add);
-
-      await robot.pickRows(OverviewRows.perEvent);
-
-      expect(writes, [const OverviewListOptions(rows: OverviewRows.perEvent)]);
-    });
+    expect(writes, [const OverviewListOptions(rows: OverviewRows.perEvent)]);
   });
 
   group('Categories (D22)', () {

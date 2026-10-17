@@ -1139,12 +1139,22 @@ void main() {
       });
     });
 
-    group('Mark presence: a tap marks the day (D18 · A)', () {
-      final rowingJanuary = SemanticsIds.overviewRow('p1', january);
+    group('The presence button on a day row (D18 revisited, 2026-10-17)', () {
+      final rowingJanuary = SemanticsIds.overviewRowPresence('p1', january);
 
-      /// The list on Rowing's three January days, Mark presence switched on
-      /// through the options sheet, the bloc's events recorded from there.
-      Future<(OverviewRobot, List<Object?>)> openMarking(
+      /// The presence buttons built on the page, whoever's.
+      final anyPresenceButton = find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            (widget.properties.identifier?.startsWith(
+                  'overview-row-presence-',
+                ) ??
+                false),
+      );
+
+      /// The list on Rowing's three January days, the bloc's events recorded
+      /// from there.
+      Future<(OverviewRobot, List<Object?>)> openRowing(
         WidgetTester tester,
       ) async {
         addTearDown(EventPresence.resetCache);
@@ -1152,16 +1162,16 @@ void main() {
         final robot = OverviewRobot(tester);
         await openList(robot);
         await robot.scrollListTo(0);
-        await robot.setMarkPresence(true);
         return (robot, recordBlocEvents().events);
       }
 
-      testWidgets('a kept row marks missed and dims once the bloc says so; '
-          'tapped again it marks present', (tester) async {
-        final (robot, events) = await openMarking(tester);
-        expect(robot.rowHint(rowingJanuary), en.eventMarkMissed);
+      testWidgets('a kept row\'s button marks it missed with the day panel\'s '
+          'words, the row dims once the bloc says so, and pressed again it '
+          'marks present', (tester) async {
+        final (robot, events) = await openRowing(tester);
+        expect(robot.presenceTooltip(rowingJanuary), en.eventMarkMissed);
 
-        await robot.tapRow('Rowing');
+        await robot.pressPresence(rowingJanuary);
 
         expect(robot.detailSheet, isNull);
         final missed = events.whereType<SetOccurrencePresence>().single;
@@ -1181,10 +1191,10 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(robot.entryOpacity('Rowing'), CalendarColors.missedEventAlpha);
-        expect(robot.rowHint(rowingJanuary), en.eventMarkPresent);
+        expect(robot.presenceTooltip(rowingJanuary), en.eventMarkPresent);
 
         events.clear();
-        await robot.tapRow('Rowing');
+        await robot.pressPresence(rowingJanuary);
 
         expect(robot.detailSheet, isNull);
         final present = events.whereType<SetOccurrencePresence>().single;
@@ -1194,16 +1204,181 @@ void main() {
         );
       });
 
+      testWidgets('the button is its own node beside the row\'s: the id a '
+          'device script hits, the day panel\'s words as its tooltip, a tap '
+          'action of its own', (tester) async {
+        final handle = tester.ensureSemantics();
+        await openRowing(tester);
+
+        final button = tester
+            .getSemantics(find.bySemanticsIdentifier(rowingJanuary))
+            .getSemanticsData();
+        expect(button.identifier, rowingJanuary);
+        expect(button.tooltip, en.eventMarkMissed);
+        expect(button.hasAction(SemanticsAction.tap), isTrue);
+        final row = tester
+            .getSemantics(
+              find.bySemanticsIdentifier(
+                SemanticsIds.overviewRow('p1', january),
+              ),
+            )
+            .getSemanticsData();
+        expect(row.identifier, SemanticsIds.overviewRow('p1', january));
+        expect(row.tooltip, isEmpty);
+        expect(row.hasAction(SemanticsAction.tap), isTrue);
+        handle.dispose();
+      });
+
+      testWidgets('under Missed only a press marks the day present and, once '
+          'the bloc says so, takes its row and its day out of the list', (
+        tester,
+      ) async {
+        addTearDown(EventPresence.resetCache);
+        markSecondRowingMissed();
+        emitEvents([rowing, mobilityOnce]);
+        final robot = OverviewRobot(tester);
+        await openList(robot, surface: const Size(412, 915));
+        await robot.setMissedOnly(true);
+        final second = DateTime.utc(year, 1, 2);
+        final secondRow = SemanticsIds.overviewRow('p1', second);
+        final secondPresence = SemanticsIds.overviewRowPresence('p1', second);
+        expect(robot.countOf('Rowing'), 1);
+        expect(find.bySemanticsIdentifier(secondRow), findsOneWidget);
+        expect(robot.shows(dayLabel(second)), isTrue);
+        expect(robot.navCount, count(0, missed: 1));
+        expect(robot.presenceTooltip(secondPresence), en.eventMarkPresent);
+        final events = recordBlocEvents().events;
+
+        await robot.pressPresence(secondPresence);
+
+        final present = events.whereType<SetOccurrencePresence>().single;
+        expect(
+          (present.eventId, present.day, present.status),
+          ('p1', second, PresenceStatus.present),
+        );
+        // What the bloc's write lands as: the facade and a revision bump.
+        EventPresence.updateCache(
+          byEvent: {
+            'p1': {second: PresenceStatus.present},
+          },
+        );
+        emit(
+          loaded().copyWith(presenceRevision: loaded().presenceRevision + 1),
+        );
+        await tester.pumpAndSettle();
+
+        expect(robot.countOf('Rowing'), 0);
+        expect(find.bySemanticsIdentifier(secondRow), findsNothing);
+        expect(robot.presenceButton(secondPresence), findsNothing);
+        expect(robot.shows(dayLabel(second)), isFalse);
+        expect(robot.navCount, count(0));
+      });
+
+      testWidgets('a row tap still opens the detail sheet and marks nothing; '
+          'a row whose event keeps no attendance has no button', (
+        tester,
+      ) async {
+        final (robot, events) = await openRowing(tester);
+        expect(robot.presenceButton(rowingJanuary), findsOneWidget);
+
+        await robot.tapRow('Rowing');
+
+        expect(robot.detailSheet!.day, january);
+        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
+        await robot.back();
+
+        await robot.tapRow('Stretch class');
+        expect(robot.detailSheet!.event.title, 'Stretch class');
+        await robot.back();
+        expect(robot.shows('Stretch class'), isTrue);
+        expect(
+          robot.presenceButton(
+            SemanticsIds.overviewRowPresence('e2', DateTime.utc(year, 3, 9)),
+          ),
+          findsNothing,
+        );
+        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
+      });
+
+      testWidgets('month mode\'s rows carry it too', (tester) async {
+        addTearDown(EventPresence.resetCache);
+        emitEvents([rowing, mobilityOnce]);
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.month,
+          surface: const Size(412, 915),
+        );
+        await robot.pageMonthTo(january);
+        final events = recordBlocEvents().events;
+        expect(robot.presenceTooltip(rowingJanuary), en.eventMarkMissed);
+
+        await robot.pressPresence(rowingJanuary);
+
+        expect(robot.detailSheet, isNull);
+        final missed = events.whereType<SetOccurrencePresence>().single;
+        expect(
+          (missed.eventId, missed.day, missed.status),
+          ('p1', january, PresenceStatus.missed),
+        );
+      });
+
+      testWidgets('One per event\'s rows are no day and carry none; back to '
+          'every occurrence they do again', (tester) async {
+        final (robot, _) = await openRowing(tester);
+        expect(anyPresenceButton, findsWidgets);
+
+        await robot.setRows(OverviewRows.perEvent);
+
+        expect(robot.shows('Rowing'), isTrue);
+        expect(anyPresenceButton, findsNothing);
+        await robot.setRows(OverviewRows.everyOccurrence);
+        await robot.scrollListTo(0);
+        expect(robot.presenceButton(rowingJanuary), findsOneWidget);
+      });
+
+      testWidgets('missed entries hidden take the buttons away: a mark would '
+          'remove its own row (review 2)', (tester) async {
+        final (robot, events) = await openRowing(tester);
+        expect(robot.presenceButton(rowingJanuary), findsOneWidget);
+        await robot.cover();
+        final settings = await SettingsService.getInstance();
+        await settings.setCalendarMissedDisplay(CalendarMissedDisplay.hidden);
+
+        await robot.uncover();
+        await robot.scrollListTo(0);
+
+        expect(robot.shows('Rowing'), isTrue);
+        expect(anyPresenceButton, findsNothing);
+        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
+      });
+
+      testWidgets('the tune button reads selected for restrictions alone', (
+        tester,
+      ) async {
+        final (robot, _) = await openRowing(tester);
+        expect(robot.presenceButton(rowingJanuary), findsOneWidget);
+        expect(robot.optionsSelected, isFalse);
+        await robot.selectMode(AgendaDayListMode.month);
+        expect(robot.optionsSelected, isFalse);
+        await robot.selectMode(AgendaDayListMode.list);
+
+        await robot.setMissedOnly(true);
+
+        expect(robot.optionsSelected, isTrue);
+      });
+
       testWidgets('a mark\'s forget re-resolves its month alone, and the year '
           'scroll then shows it on the tile and the header', (tester) async {
         // The bloc writes the mark through the presence service on the
         // suite's database, which publishes the facade and bumps the
         // revision as on the phone.
         await tester.runAsync(() => EventPresenceService.forTesting(db));
-        final (robot, events) = await openMarking(tester);
+        final (robot, events) = await openRowing(tester);
         CalendarEvent.debugOccursOnCalls = 0;
         final before = loaded().presenceRevision;
-        await robot.tapRow('Rowing');
+        await robot.pressPresence(rowingJanuary);
         // The write is real database work, which the fake clock never
         // advances: wait for its bump in real time, then draw it.
         for (var wait = 0; wait < 100; wait++) {
@@ -1242,105 +1417,6 @@ void main() {
         handle.dispose();
       });
 
-      testWidgets('a row whose event keeps no attendance opens its sheet and '
-          'carries no hint', (tester) async {
-        final (robot, events) = await openMarking(tester);
-
-        await robot.tapRow('Stretch class');
-
-        expect(robot.detailSheet!.event.title, 'Stretch class');
-        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
-        await robot.back();
-        expect(
-          robot.rowHint(
-            SemanticsIds.overviewRow('e2', DateTime.utc(year, 3, 9)),
-          ),
-          isEmpty,
-        );
-      });
-
-      testWidgets('a long press opens the sheet and marks nothing', (
-        tester,
-      ) async {
-        final (robot, events) = await openMarking(tester);
-
-        await robot.longPressRow('Rowing');
-
-        expect(robot.detailSheet!.day, january);
-        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
-      });
-
-      testWidgets('the tune button reads selected with no badge; switched off '
-          'a tap opens the sheet again', (tester) async {
-        final (robot, events) = await openMarking(tester);
-        expect(robot.optionsSelected, isTrue);
-        expect(robot.optionsBadge, isNull);
-        // Year mode has no rows to mark: the switch stays on, inert there.
-        await robot.selectMode(AgendaDayListMode.year);
-        expect(robot.optionsSelected, isFalse);
-        await robot.selectMode(AgendaDayListMode.list);
-        expect(robot.optionsSelected, isTrue);
-        await robot.scrollListTo(0);
-
-        await robot.setMarkPresence(false);
-        expect(robot.optionsSelected, isFalse);
-        expect(robot.rowHint(rowingJanuary), isEmpty);
-        await robot.tapRow('Rowing');
-
-        expect(robot.detailSheet!.day, january);
-        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
-      });
-
-      testWidgets('missed entries hidden while marking turn marking off, and '
-          'the switch stays disabled while they are (review 2)', (
-        tester,
-      ) async {
-        final (robot, events) = await openMarking(tester);
-        expect(robot.optionsSelected, isTrue);
-        await robot.cover();
-        final settings = await SettingsService.getInstance();
-        await settings.setCalendarMissedDisplay(CalendarMissedDisplay.hidden);
-
-        await robot.uncover();
-
-        expect(robot.optionsSelected, isFalse);
-        expect(robot.rowHint(rowingJanuary), isEmpty);
-        await robot.openOptions();
-        expect(robot.options.markPresence, isFalse);
-        expect(
-          robot.options.enabled(SemanticsIds.overviewMarkPresence),
-          isFalse,
-        );
-        await robot.options.close();
-        await robot.scrollListTo(0);
-        await robot.tapRow('Rowing');
-        expect(robot.detailSheet!.day, january);
-        expect(events.whereType<SetOccurrencePresence>(), isEmpty);
-      });
-
-      testWidgets('Month → List with One per event kept turns marking off; '
-          'the tune button never reads on where no day is a row '
-          '(review 3)', (tester) async {
-        final robot = OverviewRobot(tester);
-        await robot.open(
-          bloc: bloc,
-          importExport: importExport,
-          mode: AgendaDayListMode.month,
-          options: const OverviewListOptions(rows: OverviewRows.perEvent),
-        );
-        await robot.setMarkPresence(true);
-        expect(robot.optionsSelected, isTrue, reason: 'month rows are days');
-
-        await robot.selectMode(AgendaDayListMode.list);
-
-        expect(robot.optionsSelected, isFalse);
-        await robot.openOptions();
-        expect(robot.options.markPresence, isFalse);
-        await robot.options.close();
-        await robot.selectMode(AgendaDayListMode.month);
-        expect(robot.optionsSelected, isFalse, reason: 'it stays off');
-      });
-
       testWidgets('a mark far down a long period re-resolves its month alone: '
           'the store stays and the list holds still on every frame '
           '(review 1)', (tester) async {
@@ -1370,11 +1446,11 @@ void main() {
           await robot.finishResolving();
         }
         await tester.pumpAndSettle();
-        await robot.setMarkPresence(true);
         await robot.scrollListTo(robot.listMaxOffset - 2000);
         final events = recordBlocEvents().events;
+        final button = tester.widget<Semantics>(anyPresenceButton.first);
 
-        await robot.tapRow('Rowing');
+        await robot.pressPresence(button.properties.identifier!);
 
         final mark = events.whereType<SetOccurrencePresence>().single;
         final offset = robot.listOffset;
@@ -2706,8 +2782,7 @@ void main() {
         expect(stored.categoryIds, {'gym'});
       });
 
-      testWidgets('applying a preset persists it, and Mark presence stays as '
-          'it was', (tester) async {
+      testWidgets('applying a preset persists it', (tester) async {
         final settings = await SettingsService.getInstance();
         final id = await seedView(period: last90Days);
         final robot = OverviewRobot(tester);
@@ -2726,34 +2801,6 @@ void main() {
         final stored = await settings.getCalendarOverviewSettings();
         expect(stored.mode, AgendaDayListMode.list);
         expect(stored.period, last90Days);
-
-        await robot.setMarkPresence(true);
-        await robot.applyView(id);
-        await tester.pumpAndSettle();
-
-        expect(robot.optionsSelected, isTrue, reason: 'still marking');
-        expect(robot.viewsSelected, isTrue);
-      });
-
-      testWidgets('applying a One per event view while marking turns marking '
-          'off (review 3)', (tester) async {
-        final id = await seedView(
-          period: last90Days,
-          options: const OverviewListOptions(rows: OverviewRows.perEvent),
-        );
-        final robot = OverviewRobot(tester);
-        await openList(robot);
-        await robot.setMarkPresence(true);
-        expect(robot.optionsSelected, isTrue);
-
-        await robot.applyView(id);
-        await tester.pumpAndSettle();
-
-        expect(robot.optionsSelected, isFalse);
-        expect(robot.viewsSelected, isTrue);
-        await robot.openOptions();
-        expect(robot.options.markPresence, isFalse);
-        await robot.options.close();
       });
     });
 

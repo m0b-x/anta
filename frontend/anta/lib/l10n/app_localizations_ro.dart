@@ -4792,9 +4792,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get overviewMissedOnly => 'Doar ratate';
 
   @override
-  String get overviewMarkPresence => 'Marchează prezența';
-
-  @override
   String get overviewViewsTitle => 'Vizualizări salvate';
 
   @override

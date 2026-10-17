@@ -291,14 +291,13 @@ void main() {
       ValueChanged<AgendaDayListEventRow>? onEventTap,
       bool monthCounts = false,
       String? Function(AgendaDayListEntry entry)? rowIdentifier,
-      ValueChanged<AgendaDayListEntry>? onEntryLongPress,
-      String? Function(AgendaDayListEntry entry)? entryHint,
+      void Function(AgendaDayListEntry entry, bool missed)? onEntryPresence,
     }) => AgendaDayListRowBuilder(
       rows: rows,
       today: today,
       onEntryTap: onEntryTap ?? (_) {},
-      onEntryLongPress: onEntryLongPress,
-      entryHint: entryHint,
+      onEntryPresence: onEntryPresence,
+      presenceIdentifier: (entry) => 'presence-${entry.title}',
       onEntryEdit: onEntryEdit,
       onEventTap: onEventTap,
       monthCounts: monthCounts,
@@ -425,47 +424,103 @@ void main() {
       expect(find.bySemanticsIdentifier('row-Stretch'), findsOneWidget);
     });
 
-    testWidgets('an entry row\'s long press hands back its entry and its hint '
-        'is the caller\'s per entry; without them there are neither', (
-      tester,
-    ) async {
+    testWidgets('the presence button sits on a tracking entry\'s row when the '
+        'caller offers it, hands back the opposite status with the day '
+        'panel\'s words, and fades with a missed row', (tester) async {
+      final en = lookupAppLocalizations(const Locale('en'));
       final tapped = <AgendaDayListEntry>[];
-      final pressed = <AgendaDayListEntry>[];
-      final rows = build([jan5]);
-      String? hintOf(String title) => tester
-          .getSemantics(find.bySemanticsIdentifier('row-$title'))
-          .getSemanticsData()
-          .hint;
+      final pressed = <(String, bool)>[];
+      AgendaDayListEntry tracked(String title, {bool missed = false}) =>
+          AgendaDayListEntry(
+            day: jan5,
+            icon: Icons.fitness_center,
+            color: const Color(0xFF1E88E5),
+            title: title,
+            missed: missed,
+            eventId: title,
+            presenceTracked: true,
+          );
+      final rows = [
+        AgendaDayListEntryRow(entry: tracked('Squat')),
+        AgendaDayListEntryRow(entry: tracked('Row', missed: true)),
+        AgendaDayListEntryRow(entry: _entry(jan5, 'Stretch')),
+      ];
+      IconButton button(String title) => tester.widget(
+        find.descendant(
+          of: find.bySemanticsIdentifier('presence-$title'),
+          matching: find.byType(IconButton),
+        ),
+      );
 
       await pumpBuilder(
         tester,
         (r) => plain(
           r,
           onEntryTap: tapped.add,
-          rowIdentifier: (entry) => 'row-${entry.title}',
-          onEntryLongPress: pressed.add,
-          entryHint: (entry) => entry.missed ? 'present' : 'missed',
+          onEntryPresence: (entry, missed) =>
+              pressed.add((entry.title, missed)),
         ),
         rows,
       );
-      expect(hintOf('Squat'), 'missed');
-      expect(hintOf('Row'), 'present');
-      await tester.longPress(find.text('Row'));
-      expect(pressed.single.title, 'Row');
+      expect(button('Squat').tooltip, en.eventMarkMissed);
+      expect(find.byIcon(Icons.event_busy_rounded), findsOneWidget);
+      expect(button('Row').tooltip, en.eventMarkPresent);
+      expect(find.byIcon(Icons.event_available_rounded), findsOneWidget);
+      expect(find.bySemanticsIdentifier('presence-Stretch'), findsNothing);
+      expect(
+        tester
+            .widget<Opacity>(
+              find.ancestor(
+                of: find.bySemanticsIdentifier('presence-Row'),
+                matching: find.byType(Opacity),
+              ),
+            )
+            .opacity,
+        CalendarColors.missedEventAlpha,
+      );
+
+      await tester.tap(find.bySemanticsIdentifier('presence-Squat'));
+      await tester.tap(find.bySemanticsIdentifier('presence-Row'));
+      expect(pressed, [('Squat', true), ('Row', false)]);
       expect(tapped, isEmpty);
+      await tester.tap(find.text('Squat'));
+      expect(tapped.single.title, 'Squat');
+
+      await pumpBuilder(tester, (r) => plain(r), rows);
+      expect(find.bySemanticsIdentifier('presence-Squat'), findsNothing);
+      expect(find.byIcon(Icons.event_busy_rounded), findsNothing);
+      expect(find.byIcon(Icons.event_available_rounded), findsNothing);
+    });
+
+    testWidgets('the pencil keeps the slot where an entry offers both an edit '
+        'and presence', (tester) async {
+      final edited = <AgendaDayListEntry>[];
+      final rows = [
+        AgendaDayListEntryRow(
+          entry: AgendaDayListEntry(
+            day: mar9,
+            icon: Icons.fitness_center,
+            color: const Color(0xFF1E88E5),
+            title: 'Stretch',
+            eventId: 'Stretch',
+            onEdit: () {},
+            presenceTracked: true,
+          ),
+        ),
+      ];
 
       await pumpBuilder(
         tester,
         (r) => plain(
           r,
-          onEntryTap: tapped.add,
-          rowIdentifier: (entry) => 'row-${entry.title}',
+          onEntryEdit: edited.add,
+          onEntryPresence: (_, _) => fail('no presence button'),
         ),
         rows,
       );
-      expect(hintOf('Squat'), isEmpty);
-      await tester.longPress(find.text('Squat'));
-      expect(pressed, hasLength(1));
+      expect(find.bySemanticsIdentifier('presence-Stretch'), findsNothing);
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      expect(edited.single.title, 'Stretch');
     });
 
     testWidgets('an event row reads its count, its span and its missed ones, '

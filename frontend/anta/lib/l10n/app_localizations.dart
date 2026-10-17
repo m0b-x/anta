@@ -8098,12 +8098,6 @@ abstract class AppLocalizations {
   /// **'Missed only'**
   String get overviewMissedOnly;
 
-  /// Switch in the overview list options: while on, a tap on an entry row toggles that day between present and missed instead of opening the event
-  ///
-  /// In en, this message translates to:
-  /// **'Mark presence'**
-  String get overviewMarkPresence;
-
   /// Title of the overview's saved views sheet and tooltip of its app-bar button; a view is a saved period, list options and categories
   ///
   /// In en, this message translates to:

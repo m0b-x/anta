@@ -256,7 +256,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// [_rebuild] resolves a new store. A query change leaves it alone.
   bool _storeStale = true;
 
-  /// The marks a Mark presence tap dispatched whose presence bump has not
+  /// The marks a row's presence button dispatched whose presence bump has not
   /// come back yet, oldest first. A bump they account for re-resolves only
   /// their months ([_forgetMarked]): a new store would list a long period in
   /// runs again, shrinking the list under the finger before its next tap.
@@ -568,10 +568,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       if (loaded.appearance != _appearance) {
         _appearance = loaded.appearance;
         _storeStale = true;
-        // A mark would now take its row away with nothing here to undo it.
-        if (_missedHidden && _options.markPresence) {
-          _options = _options.copyWith(markPresence: false);
-        }
       }
     }
     // A page pushed from inside a row's trip returns to the trip: what was
@@ -1444,13 +1440,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       }
       // A switch into Year lands on the year, resolved before its frame.
       if (mode == AgendaDayListMode.year) _resolveYear(_year);
-      // Month mode marks under either Rows; the list under One per event has
-      // no day to mark, so marking ends rather than staying on, inert.
-      if (mode == AgendaDayListMode.list &&
-          _options.markPresence &&
-          !_dayRowsShown) {
-        _options = _options.copyWith(markPresence: false);
-      }
       _recompute();
     });
     // A switch into the list opens it, so it lands as an open does.
@@ -1969,7 +1958,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         context,
         initial: _options,
         mode: _mode,
-        missedHidden: _missedHidden,
         onChanged: _setOptions,
         categoryIds: _categoryIds,
         onCategoriesChanged: _onCategoriesChanged,
@@ -1979,16 +1967,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   /// The options sheet's live writes. Order and Rows re-present the list and
   /// land it anew (D7); Missed only narrows the rows shown and keeps the list
-  /// on its row. Order and Rows are kept for the next visit; Missed only and
-  /// Mark presence are not. Mark presence changes what a tap does, never
-  /// which rows show, so alone it only repaints.
+  /// on its row. Order and Rows are kept for the next visit; Missed only is
+  /// not.
   void _setOptions(OverviewListOptions next) {
     if (!mounted) return;
     final previous = _options;
-    if (next == previous.copyWith(markPresence: next.markPresence)) {
-      setState(() => _options = next);
-      return;
-    }
     final represented =
         next.order != previous.order || next.rows != previous.rows;
     final anchor = represented ? null : _anchorOfList();
@@ -2043,19 +2026,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// Applies [view] as the picks it holds would (D17c · A): the list on its
   /// period — which becomes the nav's home — with its options and its
   /// allowlist, each persisted as its own pick persists, a custom span
-  /// clearing the period key per D4. Mark presence stays as it was — it is a
-  /// session tool, not part of a view — unless the view's rows are One per
-  /// event, which have no day to mark. The query stays as typed.
+  /// clearing the period key per D4. The query stays as typed.
   void _applyView(OverviewView view) {
     if (!mounted) return;
     _listLook(
       period: view.period,
       categoryIds: view.categoryIds,
-      options: view.options.copyWith(
-        markPresence:
-            _options.markPresence &&
-            view.options.rows == OverviewRows.everyOccurrence,
-      ),
+      options: view.options,
     );
   }
 
@@ -2084,7 +2061,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   /// Turns the page to the list on [period] over [categoryIds] in one
   /// rebuild and one landing — the shared body of a saved view and a digest's
-  /// look. Mark presence ends where the rows have no day to mark.
+  /// look.
   ///
   /// With [options] it is a view, applied as its picks would be: the options
   /// taken, and the period persisted too, a custom span clearing its key per
@@ -2097,14 +2074,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     OverviewListOptions? options,
   }) {
     final isView = options != null;
-    final next =
-        options ??
-        _options.copyWith(
-          missedOnly: false,
-          markPresence:
-              _options.markPresence &&
-              _options.rows == OverviewRows.everyOccurrence,
-        );
+    final next = options ?? _options.copyWith(missedOnly: false);
     final queryDropped =
         !isView && (_query.isNotEmpty || _searchController.text.isNotEmpty);
     if (queryDropped) {
@@ -2149,43 +2119,36 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _openOccurrence(AgendaDayListEntry entry) =>
       _openOn(entry.day, entry.eventId);
 
-  /// Whether the appearance hides missed entries, under which Mark presence
-  /// is unavailable (review 2): a mark would remove its own row.
+  /// Whether the appearance hides missed entries. A mark would then take its
+  /// row away with nothing on the overview left to undo it (review 2), so no
+  /// row offers the presence button.
   bool get _missedHidden =>
       _appearance.missedDisplay == CalendarMissedDisplay.hidden;
 
-  /// Whether the mode shows a row per occurrence, the rows Mark presence
-  /// acts on: month mode's, and the list's under Every occurrence.
+  /// Whether the mode shows a row per occurrence — month mode's, and the
+  /// list's under Every occurrence — the rows that are a day to mark.
   bool get _dayRowsShown =>
       _mode == AgendaDayListMode.month ||
       (_mode == AgendaDayListMode.list &&
           _options.rows == OverviewRows.everyOccurrence);
 
-  /// Whether a tap on [entry] marks its day (D18 · A): Mark presence is on
-  /// and the entry's event keeps attendance. Any other row keeps opening
-  /// its sheet, so the switch never leaves a row that does nothing.
-  bool _marks(AgendaDayListEntry entry) {
-    if (!_options.markPresence) return false;
-    final event = _eventsById[entry.eventId];
-    return event != null && EventPresence.appliesTo(event);
-  }
+  /// Where the day panel's presence button is offered on the rows: where a
+  /// row is a day, while missed entries show.
+  bool get _presenceOffered => _dayRowsShown && !_missedHidden;
 
-  /// The day panel's quick toggle from the row itself: one tap flips the
-  /// day between present and missed through the bloc, and the row's dimming
-  /// and its day's counts are the feedback once the state comes back.
-  void _onEntryTap(AgendaDayListEntry entry) {
+  /// The day panel's presence toggle from the row's button (2026-10-17): the
+  /// explicit status through the bloc, and the row's dimming and its day's
+  /// counts are the feedback once the state comes back.
+  void _onEntryPresence(AgendaDayListEntry entry, bool missed) {
     final eventId = entry.eventId;
-    if (eventId == null || !_marks(entry)) {
-      _openOccurrence(entry);
-      return;
-    }
+    if (eventId == null) return;
     _click();
     _pendingMarks.add((eventId, entry.day));
     EventSheetsFlow.setOccurrencePresence(
       context.read<CalendarBloc>(),
       eventId,
       entry.day,
-      !entry.missed,
+      missed,
     );
   }
 
@@ -2224,28 +2187,25 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   /// The rows of the list and of month mode, one geometry per kind (T4, T8):
   /// titles on one line, a caption clamped to one, no pencil — a row opens
-  /// its occurrence's detail sheet, where it is edited, or marks its day
-  /// while Mark presence is on, a long press then opening it. The list's
-  /// headers take [headers], its slots' layout; month mode's sliver sizes
-  /// each row itself, so its headers wrap as their text needs.
+  /// its occurrence's detail sheet, where it is edited, and a day row of an
+  /// event that keeps attendance carries the day panel's presence button
+  /// ([_presenceOffered]). The list's headers take [headers], its slots'
+  /// layout; month mode's sliver sizes each row itself, so its headers wrap
+  /// as their text needs.
   AgendaDayListRowBuilder _rowBuilder(
     List<AgendaDayListRow> rows, {
     AgendaHeaderSlots? headers,
     bool? dayHeaderWithYear,
   }) {
-    final l10n = AppLocalizations.of(context)!;
     return AgendaDayListRowBuilder(
       rows: rows,
       today: _today,
-      onEntryTap: _onEntryTap,
-      onEntryLongPress: _options.markPresence ? _openOccurrence : null,
-      entryHint: _options.markPresence
-          ? (entry) => !_marks(entry)
-                ? null
-                : entry.missed
-                ? l10n.eventMarkPresent
-                : l10n.eventMarkMissed
-          : null,
+      onEntryTap: _openOccurrence,
+      onEntryPresence: _presenceOffered ? _onEntryPresence : null,
+      presenceIdentifier: (entry) => switch (entry.eventId) {
+        final id? => SemanticsIds.overviewRowPresence(id, entry.day),
+        null => null,
+      },
       onEventTap: _openEventRow,
       captionMaxLines: 1,
       dayHeaderWithYear:
@@ -2390,9 +2350,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// Badged by the restrictions alone — Missed only and the categories
   /// allowlist — as the calendar's filter button is: Order and Rows
   /// re-present the same entries, and a badge means something is hidden.
-  /// Mark presence hides nothing, so it selects the button without a count:
-  /// selected means "a tap on a row does something other than open it,
-  /// here" — never where no row is a day to mark (review 3).
   Widget _buildOptionsButton(AppLocalizations l10n) {
     // Missed only narrows the list and month mode's rows; year mode's tiles
     // ignore it, so there it hides nothing (review 10). The allowlist
@@ -2407,8 +2364,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         identifier: SemanticsIds.overviewOptionsOpen,
         child: IconButton(
           tooltip: l10n.overviewListOptions,
-          isSelected:
-              restrictions > 0 || (_options.markPresence && _dayRowsShown),
+          isSelected: restrictions > 0,
           icon: const Icon(Icons.tune_rounded),
           onPressed: _openOptions,
         ),
@@ -3776,6 +3732,9 @@ class _RowExtentProbeState extends State<_RowExtentProbe> {
         color: color,
         title: today.toIso8601String(),
         subtitle: caption,
+        // Measured with the presence button wherever the page offers it, so
+        // the probe lays out the real row.
+        presenceTracked: true,
       ),
     );
     final day = AgendaDayListDayRow(day: today, count: 1, missed: 1);

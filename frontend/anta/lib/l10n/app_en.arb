@@ -5910,10 +5910,6 @@
   "@overviewMissedOnly": {
     "description": "Switch in the overview list options keeping only the occurrences marked missed"
   },
-  "overviewMarkPresence": "Mark presence",
-  "@overviewMarkPresence": {
-    "description": "Switch in the overview list options: while on, a tap on an entry row toggles that day between present and missed instead of opening the event"
-  },
   "overviewViewsTitle": "Saved views",
   "@overviewViewsTitle": {
     "description": "Title of the overview's saved views sheet and tooltip of its app-bar button; a view is a saved period, list options and categories"

@@ -4744,9 +4744,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get overviewMissedOnly => 'Nur verpasste';
 
   @override
-  String get overviewMarkPresence => 'Anwesenheit markieren';
-
-  @override
   String get overviewViewsTitle => 'Gespeicherte Ansichten';
 
   @override

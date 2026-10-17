@@ -38,14 +38,14 @@
 #   lane is the rightmost 48 dp, x ≈ 1208 on the Pixel_9_Pro emulator
 #   (1280 × 2856 @ 3.0); another screen needs its own x. `drag` cannot
 #   scroll a list, so it is not used here.
-# - Mark presence (slice 9b, D18): switched on, a tap on today's Lifting row
-#   marks it missed instead of opening its sheet. The day header's count
-#   cannot be expected as text: the Standup (workdays, assumed absent) makes
-#   it differ by weekday, and a step cannot type the newline between "Today"
-#   and its count. So Missed only shows the mark — the row is listed — and a
-#   second tap marks the day present, which takes the row out of that list.
-#   Both switches go off again; today's Lifting is left marked present, which
-#   reads as the seed's unmarked day.
+# - The presence button on a day row (D18 revisited, 2026-10-17): the day
+#   panel's button in today's Lifting row marks it missed — the row stays,
+#   faded. The day header's count cannot be expected as text: the Standup
+#   (workdays, assumed absent) makes it differ by weekday, and a step cannot
+#   type the newline between "Today" and its count. So Missed only shows the
+#   mark — the row is listed — and a second press marks the day present,
+#   which takes the row out of that list. Missed only goes off again; today's
+#   Lifting is left marked present, which reads as the seed's unmarked day.
 # - The mode chips and the search button yield while the keyboard is up
 #   (slice 8a); the harness raises none, so the button that closes the
 #   search is in reach after the typing.
@@ -141,13 +141,7 @@ key back
 wait id:event-detail-close --gone
 wait id:overview-nav-title
 expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
-tap id:overview-options-open
-wait id:overview-options-close
-tap id:overview-mark-presence
-shot 23_overview_options_mark_presence
-tap id:overview-options-close
-wait id:overview-options-close --gone
-tap id:overview-row-qa-cal-lift-{{day}}
+tap id:overview-row-presence-qa-cal-lift-{{day}}
 expect id:overview-row-qa-cal-lift-{{day}} --absent id:event-detail-close
 shot 23_overview_list_marked
 tap id:overview-options-open
@@ -156,12 +150,11 @@ tap id:overview-missed-only
 tap id:overview-options-close
 wait id:overview-options-close --gone
 expect id:overview-list id:overview-row-qa-cal-lift-{{day}}
-tap id:overview-row-qa-cal-lift-{{day}}
+tap id:overview-row-presence-qa-cal-lift-{{day}}
 expect id:overview-list --absent id:overview-row-qa-cal-lift-{{day}} --absent id:event-detail-close
 tap id:overview-options-open
 wait id:overview-options-close
 tap id:overview-missed-only
-tap id:overview-mark-presence
 tap id:overview-options-close
 wait id:overview-options-close --gone
 tap id:overview-search-open
