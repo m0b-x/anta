@@ -12,7 +12,7 @@ resolution are recorded in that addendum. The owner chose option A of the canvas
 — https://claude.ai/artifact/9XMircZAa27BqnkfuTQekh — ("Implement A",
 2026-09-29); decisions 2 and 3 were not answered separately, so their
 recommended options stand as delegated. Line numbers in §5 are as of
-`7e0423b` (a clean tree on 2026-09-29); re-grep before editing.
+`d50da18` (a clean tree on 2026-09-29); re-grep before editing.
 
 ## 0. How to run this
 
@@ -249,7 +249,7 @@ static const String filterPresetMoveToTop = 'filter-preset-move-top';
 | `sort_order` written only by `create` and import | Also by `reorder`, dense, no reads (D6) |
 | Three unused ARB keys | Retired (D8) |
 
-## 5. Facts from the tree (as of `7e0423b`; re-grep before editing)
+## 5. Facts from the tree (as of `d50da18`; re-grep before editing)
 
 - `lib/widgets/filter_preset_sheet.dart` (614 lines): `show` :47–71,
   `_presets` :81, `_query` :87, `_bodyScroll` / `_headerScrolled` :92–93,

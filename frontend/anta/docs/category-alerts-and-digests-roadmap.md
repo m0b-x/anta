@@ -1,6 +1,6 @@
 # Category alerts and digests — design record (2026-10-15)
 
-**Status: IMPLEMENTED, REVIEWED and DEVICE-PASSED 2026-10-15 on `285d379`,
+**Status: IMPLEMENTED, REVIEWED and DEVICE-PASSED 2026-10-15 on `e54d752`,
 uncommitted — the owner commits.** Five slices in one day: four code slices
 each built by one implementer and reviewed by one reviewer with a fix pass
 (the reviews' 69 findings and what became of each are in §9's ledger; the

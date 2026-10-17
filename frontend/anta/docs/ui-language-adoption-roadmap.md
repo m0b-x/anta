@@ -1,14 +1,14 @@
 # UI Language Adoption — the app-wide master record (2026-10-02)
 
-**Status: PLAN.** Inventory taken 2026-10-02 at `d501f42` by two read-only
+**Status: PLAN.** Inventory taken 2026-10-02 at `a162aac` by two read-only
 audits; no tier outside the calendar has started and the tier order in §6 is
 a proposal the owner has not decided. The calendar runs from its own master,
-`docs/calendar-language-adoption-roadmap.md` (Tier 1 committed `7e0423b`,
-Tier 2 committed `daf361a`, Tier 3 committed `b801ee0`). One detour outside
+`docs/calendar-language-adoption-roadmap.md` (Tier 1 committed `d50da18`,
+Tier 2 committed `a13c8ff`, Tier 3 committed `90d1df2`). One detour outside
 both masters' tiers, the alert surfaces
 (`docs/alert-surfaces-redesign-roadmap.md`), settled decision 7 of §3; it is
-COMMITTED `3cb8d49` on the branch `alert-surfaces-redesign`, with its close
-COMMITTED `fbb7a45` on 2026-10-10 and the branch merged into `main` by
+COMMITTED `0e1a56a` on the branch `alert-surfaces-redesign`, with its close
+COMMITTED `4da5823` on 2026-10-10 and the branch merged into `main` by
 fast-forward the same day (§7 and its own status line).
 Written because the owner said on
 2026-10-02 that the whole UI is to be reworked, slowly, the way the calendar
@@ -82,7 +82,7 @@ Tokens and rules, never widgets:
    `pages/markdown_settings_page.dart:1572, 1956, 1995`.
 5. **The bottom-clearance rule.** `bar_switcher_sheet.dart` and
    `pairing_sheet.dart` gained it and a clearance-test case on 2026-10-01
-   (`d501f42`); their chrome is still hand-rolled.
+   (`a162aac`); their chrome is still hand-rolled.
 6. **The colour picker.** `color_picker_sheet.dart` (calendar Tier 3) is
    shared with `pages/markdown_colors_page.dart:76, 83`, so migrating it
    moves a notes surface too.
@@ -101,10 +101,10 @@ Each is the owner's, asked as lettered options when the first tier needs it.
 | 4 | **One metrics home for bars, menus and the search sheet.** `AppBarMetrics` equals `FormMetrics` (48 / 22 / 17-500) without aliasing it; `AppTheme.menu*` duplicates `FormMetrics.menuRowHeight` / `menuIconSize` / `menuPadding` / `menuRadius` with a different floor (236 vs 220 wide); `NoteSearchMetrics` is a parallel sheet spec (radius 16 vs 28, height 0.6 vs 0.92, header 56 vs 48) | bars, four menus, the editor's match-list sheet | open |
 | 5 | **The drawer.** A stock `Drawer` of `ListTile`s with tinted icon chips, a gradient header with a light-only shadow, labels at 11 / 700 / 0.9 (`app_drawer.dart:88–101, 298–368, 524–552`). Round 2 marked it out of scope ("unstyled in the mock") | 664 lines, one suite | open |
 | 6 | **The light surface ramp.** The owner chose a lavender ramp on 2026-09-07 (`surface` `#F9F4FE`, `surfaceContainer` `#E9E1F1`, `surfaceContainerHigh` `#E3DAEC`, `outlineVariant` `#C6BED3`); it exists only in the stash `theme test`, and the tree is on the mock tokens (`#FEF7FF` / `#F3EDF7`) | every light surface; `label_contrast_test` re-measures against `rowGroup` | open — the stash cannot be applied whole (§9) |
-| 7 | **The full-screen alarm** (`pages/alarm_page.dart`) — a ring screen is not a form | 677 lines since its rework (298 when the inventory was taken, 333 at `a0a82ba`) | **settled 2026-10-04, delegated.** The owner asked for the alert surfaces to be redesigned without being shown options, so the decision is the lead's and is recorded as D1 of `docs/alert-surfaces-redesign-roadmap.md`: the ring screen is the language's **fourth idiom, a takeover page** — read rows of the kit on `pageGround`, bottom-anchored over a pinned pair of buttons, its own numbers in `AlarmMetrics`. The rule is in `ui-language` ("Which idiom a surface takes"); nothing is left for calendar Tier 4 to raise |
+| 7 | **The full-screen alarm** (`pages/alarm_page.dart`) — a ring screen is not a form | 677 lines since its rework (298 when the inventory was taken, 333 at `cffc5c0`) | **settled 2026-10-04, delegated.** The owner asked for the alert surfaces to be redesigned without being shown options, so the decision is the lead's and is recorded as D1 of `docs/alert-surfaces-redesign-roadmap.md`: the ring screen is the language's **fourth idiom, a takeover page** — read rows of the kit on `pageGround`, bottom-anchored over a pinned pair of buttons, its own numbers in `AlarmMetrics`. The rule is in `ui-language` ("Which idiom a surface takes"); nothing is left for calendar Tier 4 to raise |
 | 8 | **Where `FormSheetSemanticsRefresh` lives.** Flutter 3.44 keeps a node's old semantics geometry when a sheet re-lays out while the dialog or menu above it is still animating out (its barrier still blocks semantics; `_RenderObjectSemantics._updateGeometry` rebuilds only on a size or visibility change) — TalkBack and the QA harness then aim at where the ✕ was. Found 2026-10-13 by the overview's saved views flow (`docs/calendar-overview-list-roadmap.md` §9, the stale-semantics entry); the wrapper in `form_sheet_frame.dart` re-marks the sheet's subtree once the route above has left | every content-tall sub-sheet that resizes on a dialog's answer, every `FormSheetFrame` sheet that adds rows after a picker; today only `OverviewViewSheet.show` and `FilterPresetSheet.show` carry it | open — A put it inside `FormSheetFrame` and the sub-sheet chrome so every sheet has it (one walk per leaving route, cheap) · B keep it per sheet, added when a resize is found; either way the bug deserves an upstream report with the minimal sheet the investigation wrote |
 
-## 4. Inventory outside the calendar (2026-10-02, `d501f42`)
+## 4. Inventory outside the calendar (2026-10-02, `a162aac`)
 
 Chrome today: **TOK** on the token layer with no `Form*` widget · **MAT** raw
 Material · **HR** hand-rolled chrome · **KIT** the settings kit · **DLG** the
@@ -266,8 +266,8 @@ waits on decision 1 and is the largest.
 
 | Tier | Status |
 | --- | --- |
-| Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `7e0423b`; Tier 2 COMMITTED `daf361a` (2026-10-03); Tier 3 COMMITTED `b801ee0` (2026-10-03); Tier 4 not started |
-| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): COMMITTED `3cb8d49`; its close COMMITTED `fbb7a45` (2026-10-10) — the rest of its review's batch B, the three items its review had left to the owner (fork Patches 8 and 9, the German and Romanian channel names), a four-lens final review whose fifteen findings all stood and were fixed (C32–C42), and the final device pass — and the branch merged into `main` by fast-forward the same day; its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
+| Calendar | its own master, `docs/calendar-language-adoption-roadmap.md` §9: Tier 1 COMMITTED `d50da18`; Tier 2 COMMITTED `a13c8ff` (2026-10-03); Tier 3 COMMITTED `90d1df2` (2026-10-03); Tier 4 not started |
+| Alert surfaces — a detour outside the tiers: the full-screen alarm page, the lock-screen cover's ground and every notification an alert posts | `docs/alert-surfaces-redesign-roadmap.md` (D1–D20; settles decision 7): COMMITTED `0e1a56a`; its close COMMITTED `4da5823` (2026-10-10) — the rest of its review's batch B, the three items its review had left to the owner (fork Patches 8 and 9, the German and Romanian channel names), a four-lens final review whose fifteen findings all stood and were fixed (C32–C42), and the final device pass — and the branch merged into `main` by fast-forward the same day; its own status line is the answer. Out of its scope: the Alerts hub, the settings pages and the two Undo snackbars |
 | A – G | PLAN — the order is not decided |
 
 ## 8. Defects the audit found, outside any tier

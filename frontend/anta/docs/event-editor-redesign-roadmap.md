@@ -1,12 +1,12 @@
 # Event Editor Redesign — Roadmap & Slice Prompts (2026-09-25)
 
-**Status: SHIPPED 2026-09-25** (uncommitted on top of `f189e0d`; the owner
+**Status: SHIPPED 2026-09-25** (uncommitted on top of `6144519`; the owner
 reviews and commits). Slices 1–4 are done: the grouped-row sheet, the Repeat
 and Icon & color sheets, the menus, the discard guard with the sheet-owned
 drag, the tests, the device pass (iOS simulator, light + dark, en + de), the
 independent review with its fixes, and the docs (`calendar-events-feature.md`
 §6.3 + the 2026-09-25 addendum, `COPILOT_CONTEXT.md`, the `calendar-events`
-skill). Line numbers below are as of `f189e0d` and have drifted.
+skill). Line numbers below are as of `6144519` and have drifted.
 
 **Deviations from this document, and why:**
 - **The title counter has its own key**, `eventTitleCount` ("{count}/{limit}"),

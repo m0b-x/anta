@@ -1,12 +1,12 @@
 # Event Detail Sheet Redesign — Roadmap & Slice Prompts (2026-09-26)
 
-**Status: SHIPPED 2026-09-26** (uncommitted on top of `88b043e`; the owner
+**Status: SHIPPED 2026-09-26** (uncommitted on top of `d2610ce`; the owner
 reviews and commits). Slices 1–4 are done: the shared primitives and numbers,
 the sheet, the retired keys, the tests, the device pass on the iOS simulator
 and the Android emulator, the independent review, and the docs
 (`calendar-events-feature.md` §6.2 + the 2026-09-26 addendum,
 `COPILOT_CONTEXT.md`, the `calendar-events` and `calendar-ui` skills). Line
-numbers in §5 are as of `88b043e`.
+numbers in §5 are as of `d2610ce`.
 
 **Deviations from this document, and why** (the full account is the feature
 doc's addendum):

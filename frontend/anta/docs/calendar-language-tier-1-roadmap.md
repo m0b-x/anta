@@ -26,7 +26,7 @@ board and this record disagree, **this record wins** (the places: the
 Active board draws Fasting enabled because the QA seed configures a
 tradition; the German strings on the stress board are the record's §7.4
 wording, harsher than the ARB's). Line numbers in
-§5 are from a read of the tree on 2026-09-27 (`534d6ae` plus the uncommitted
+§5 are from a read of the tree on 2026-09-27 (`18c1f97` plus the uncommitted
 roadmap doc); re-grep every one before editing.
 
 ## 0. How to run this

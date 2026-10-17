@@ -1,13 +1,13 @@
 # Calendar Header — Roadmap & Slice Prompts (2026-09-26)
 
-**Status: SHIPPED 2026-09-26** (uncommitted on top of `4ffac29`; the owner
+**Status: SHIPPED 2026-09-26** (uncommitted on top of `a213c92`; the owner
 reviews and commits). Slices 1–4 are done: the menus, the navigator switch
 and the export controller; the two pages and the filter sheet; the deleted
 widget and key; the flows, the device pass on the Android emulator, the
 independent reviews and the docs (`calendar-events-feature.md`'s header
 addendum, `COPILOT_CONTEXT.md`, the `calendar-events`, `calendar-ui` and
 `qa-emulator` skills, `docs/qa-harness.md`). Line numbers in §5 are as of
-`4ffac29`.
+`a213c92`.
 
 **Deviations from this document, and why:**
 - `_CalendarMenuAction` went in slice 2, not 3: once the ⋮ was rebuilt it

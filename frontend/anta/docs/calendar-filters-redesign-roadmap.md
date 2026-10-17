@@ -12,7 +12,7 @@ The owner chose direction C of the canvas
 **"Calendar Filters Mocks"** — https://claude.ai/artifact/YJwZnZns6WrFxg5HkGQuLP
 — with the recommended option on every one of its seven decisions
 ("implement it, max effort", 2026-09-27, delegated). Line numbers in §5 are as
-of `cf517cb` (a clean tree on 2026-09-27); re-grep before editing. Where a
+of `0076ba9` (a clean tree on 2026-09-27); re-grep before editing. Where a
 board and this record disagree, **this record wins** — the places are listed
 in §2 (D13, D14, D21) and §8.
 
@@ -577,7 +577,7 @@ Every item is current code; each one has a test or a past bug behind it.
 | `_decodePriorities` accepts only the comma string | …and a JSON array (D17) — tolerant, never stricter |
 | No ids on the filter surfaces or the two app-bar buttons | §3.9 (D18) |
 
-## 5. Facts from the tree (as of `cf517cb`; re-grep before editing)
+## 5. Facts from the tree (as of `0076ba9`; re-grep before editing)
 
 - `lib/widgets/calendar_filter_sheet.dart` (641 lines): class :32,
   `categoryChipsKey` :39 (**delete**, tests only), `show` :41–50
