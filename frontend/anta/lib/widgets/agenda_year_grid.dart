@@ -106,6 +106,9 @@ class AgendaYearGrid extends StatelessWidget {
   final ValueChanged<DateTime> onOpenMonth;
   final EdgeInsets padding;
 
+  /// [AgendaYearTileBuilder.background].
+  final Color tileBackground;
+
   /// The month a jump just landed on: its tile is brought into view and
   /// flashes once. [highlightToken] changes on every jump, so landing on the
   /// same month twice flashes twice.
@@ -120,6 +123,7 @@ class AgendaYearGrid extends StatelessWidget {
     required this.today,
     required this.onOpenMonth,
     required this.padding,
+    required this.tileBackground,
     this.highlightMonth,
     this.highlightToken = 0,
   });
@@ -139,6 +143,7 @@ class AgendaYearGrid extends StatelessWidget {
       appearance: appearance,
       today: today,
       onOpenMonth: onOpenMonth,
+      background: tileBackground,
     );
     return GridView.builder(
       padding: padding,
@@ -200,7 +205,9 @@ class AgendaYearTileBuilder {
   /// The dots outside the window a tile counts.
   final Color outside;
 
-  /// The tile's ground, which the matrix also paints under its dots.
+  /// The tile's ground, which the matrix also paints under its dots — the
+  /// surface's choice, one tone off its own ground in both themes, as
+  /// Month's and List's cards are on the page.
   final Color background;
 
   /// Today's ring, and the flash a jump lands with.
@@ -229,6 +236,7 @@ class AgendaYearTileBuilder {
     required CalendarAppearance appearance,
     required DateTime today,
     required ValueChanged<DateTime> onOpenMonth,
+    required Color background,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return AgendaYearTileBuilder._(
@@ -245,7 +253,7 @@ class AgendaYearTileBuilder {
       outside: colorScheme.outline.withValues(
         alpha: MonthDotMatrix.outsideAlpha,
       ),
-      background: colorScheme.surfaceContainerHigh,
+      background: background,
       accent: appearance.accentOr(colorScheme.primary),
     );
   }

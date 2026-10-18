@@ -14,6 +14,9 @@
 # - Applying closes the sheet; the nav's title then reads "Last 90 days" again
 #   and the bar button is selected (not readable as text: the sheet's ✓ on
 #   the row is what a reopen shows).
+# - The save's message, Saved as "Ninety days", can still be up when the
+#   sheet reopens, and a tap on "Ninety days" then matches it as well as the
+#   row: the flow waits for "Saved as" to go first.
 # - The delete confirmation's button is "Delete"; the menu that also says
 #   "Delete" has closed by then.
 tap id:calendar-view-menu
@@ -47,6 +50,7 @@ wait id:overview-period-this-year --gone
 expect id:overview-list --absent "Last 90 days"
 tap id:overview-views-open
 wait id:overview-views-close
+wait "Saved as" --gone
 tap "Ninety days"
 wait id:overview-views-close --gone
 expect "Last 90 days"

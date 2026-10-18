@@ -1,0 +1,101 @@
+# The picked day under the hidden missed display
+# (docs/calendar-overview-list-roadmap.md §3.16, D32): today's Lifting
+# marked missed from Month mode's picked day under Faded, the appearance
+# page's Missed days switched to Hidden, the overview's Month mode again —
+# today's cell picked, its Lifting row listed faded with the button, a press
+# marking it present — then the whole month with the row back, Year as the
+# seed has it, and Faded restored.
+# - The seed's one assumed-absent event, the Standup, runs on workdays only
+#   and from today − 10, so its tomorrow may be a weekend or the next month:
+#   no step can target it on every run. Today is always a Lifting day in
+#   this seed, so the mark is made there first, as 23 does.
+# - Month mode opens on today's month, and the chip persists it, so the
+#   second visit opens in Month mode; a mini-grid day is tapped by its
+#   label, {{longdate}}, as 17 does on the day list's grid.
+# - The whole month's rows under Hidden carry no button (D32 keeps D31's
+#   rule there); today's row may sit below the fold of the whole month, so
+#   that check is an absence only.
+# - The first press marks today's Lifting missed (the seed leaves it kept),
+#   the second marks it present — which reads as the seed's unmarked day —
+#   so the seed is left as found once Faded is back.
+# - "Appearance" is both a section header and the appearance page's row on
+#   Calendar settings, so the row is named by its own second line (as 22
+#   does); the appearance page has a "Search settings" field of its own, so
+#   it is waited for by its Today highlight group. The Missed days segments
+#   sit under a two-line description and the pinned preview shortens the
+#   page, so each segment is scrolled to itself before its tap.
+# - On a workday the Standup row sits above Lifting under the nav, the
+#   totals and the grid, so every check of the Lifting row scrolls to its
+#   button first, and the picked day's ✕ is scrolled back to before its tap.
+tap id:calendar-view-menu
+wait id:calendar-overview-open
+tap id:calendar-overview-open
+wait id:overview-nav-title
+tap id:overview-view-month
+wait id:overview-years --gone
+wait "{{longdate}}"
+tap "{{longdate}}"
+wait id:overview-whole-month
+scroll-to id:overview-row-presence-qa-cal-lift-{{day}}
+expect id:overview-row-qa-cal-lift-{{day}} id:overview-row-presence-qa-cal-lift-{{day}}
+tap id:overview-row-presence-qa-cal-lift-{{day}}
+scroll-to id:overview-row-presence-qa-cal-lift-{{day}}
+expect id:overview-row-qa-cal-lift-{{day}} --absent id:event-detail-close
+shot 25_overview_presence_faded_marked
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "Preview and tune how the grid looks"
+tap "Preview and tune how the grid looks"
+wait "Today highlight"
+scroll-to "Hidden"
+tap "Hidden"
+shot 25_overview_presence_hidden_setting
+key back
+wait "Search settings"
+key back
+wait id:calendar-add-event
+tap id:calendar-view-menu
+wait id:calendar-overview-open
+tap id:calendar-overview-open
+wait id:overview-nav-title
+wait "{{longdate}}"
+tap "{{longdate}}"
+wait id:overview-whole-month
+scroll-to id:overview-row-presence-qa-cal-lift-{{day}}
+expect id:overview-row-qa-cal-lift-{{day}} id:overview-row-presence-qa-cal-lift-{{day}} "Lifting session"
+shot 25_overview_presence_hidden_picked
+tap id:overview-row-presence-qa-cal-lift-{{day}}
+scroll-to id:overview-row-presence-qa-cal-lift-{{day}}
+expect id:overview-row-qa-cal-lift-{{day}} id:overview-row-presence-qa-cal-lift-{{day}} --absent id:event-detail-close
+shot 25_overview_presence_hidden_present
+scroll-to id:overview-whole-month --up
+tap id:overview-whole-month
+wait id:overview-whole-month --gone
+expect id:overview-nav-title --absent id:overview-row-presence-qa-cal-lift-{{day}}
+shot 25_overview_presence_hidden_whole_month
+tap id:overview-view-year
+wait id:overview-years
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to "Preview and tune how the grid looks"
+tap "Preview and tune how the grid looks"
+wait "Today highlight"
+scroll-to "Faded"
+tap "Faded"
+key back
+wait "Search settings"
+key back
+wait id:calendar-add-event
+errors

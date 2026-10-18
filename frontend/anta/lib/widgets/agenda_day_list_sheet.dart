@@ -759,6 +759,9 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
       RowMetrics.groupInset,
       FormMetrics.bodyBottom + bottomClearance,
     );
+    // The sheet's ground is `pageGround`; the tiles sit one tone off it as
+    // the overview's do.
+    final tileBackground = Theme.of(context).colorScheme.rowGroup;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -783,6 +786,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
               today: widget.today,
               onOpenMonth: _openMonthFromYear,
               padding: padding,
+              tileBackground: tileBackground,
             ),
           )
         else ...[
@@ -818,6 +822,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
               onOpenMonth: _openMonthFromYear,
               onYearChanged: _onYearPaged,
               padding: padding,
+              tileBackground: tileBackground,
               highlightMonth: _highlightMonth,
               highlightToken: _highlightToken,
             ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_spacing.dart';
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/utils/custom_snackbar.dart';
 
 /// A floating [SnackBar] is positioned by the [Scaffold], and the Scaffold only
@@ -45,9 +46,11 @@ void main() {
     required bool resizeToAvoidBottomInset,
     required void Function(BuildContext context) onShow,
     bool fromPageContext = false,
+    ThemeData? theme,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: theme,
         home: _Host(
           resizeToAvoidBottomInset: resizeToAvoidBottomInset,
           onShow: onShow,
@@ -188,6 +191,47 @@ void main() {
 
     expect(find.text('OPEN'), findsOneWidget);
     expect(barRect(tester).bottom, lessThanOrEqualTo(screenHeight - keyboard));
+
+    await disposeHost(tester);
+  });
+
+  // The bar inherits `snackBarTheme`, the popup menu's surface; it used to be
+  // Material's `inverseSurface`, a near-white card in the dark theme, with the
+  // action in `inversePrimary`.
+  testWidgets('draws an action bar on the menu surface in the dark theme', (
+    tester,
+  ) async {
+    final scheme = AppTheme.dark().colorScheme;
+    sizeSurface(tester);
+    await pumpHost(
+      tester,
+      resizeToAvoidBottomInset: true,
+      theme: AppTheme.dark(),
+      onShow: (context) => CustomSnackbar.showWithAction(
+        context,
+        message: message,
+        actionLabel: 'Open',
+        onAction: () {},
+      ),
+    );
+    await showBar(tester);
+
+    final pill = tester.widget<Material>(
+      find
+          .descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(pill.color, scheme.surfaceContainerHigh);
+    final action = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'OPEN'),
+    );
+    expect(
+      action.style?.foregroundColor?.resolve(const <WidgetState>{}),
+      scheme.primary,
+    );
 
     await disposeHost(tester);
   });

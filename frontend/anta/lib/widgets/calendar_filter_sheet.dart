@@ -8,6 +8,7 @@ import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/row_metrics.dart';
+import '../constants/saved_list_name.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
@@ -17,6 +18,7 @@ import '../models/upcoming_agenda_filters.dart';
 import '../services/filter_preset_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
+import 'app_dialogs.dart';
 import 'category_picker_sheet.dart';
 import 'filter_check_list_sheet.dart';
 import 'filter_preset_sheet.dart';
@@ -197,17 +199,23 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
       return;
     }
     await _guarded(() async {
-      final name = await FilterPresetNameDialog.show(
+      // Both save paths warn on a duplicate name, or the warning would be a
+      // property of which sheet you happened to save from.
+      final existing = {
+        for (final preset in service.presets) normalizeForSearch(preset.name),
+      };
+      final name = (await AppDialogs.textInput(
         context,
         title: l10n.filterPresetSave,
-        initialName: CalendarFilterSummary.suggestName(_draft, l10n),
-        // Both save paths warn on a duplicate name, or the warning would be a
-        // property of which sheet you happened to save from.
-        existingNames: {
-          for (final preset in service.presets)
-            normalizeForSearch(preset.name),
-        },
-      );
+        labelText: l10n.filterPresetName,
+        initialValue: CalendarFilterSummary.suggestName(_draft, l10n),
+        maxLength: kSavedListNameMaxLength,
+        selectAll: true,
+        allowEmpty: false,
+        warningFor: (text) => savedListNameWarning(text, existing, l10n),
+        fieldIdentifier: SemanticsIds.filterPresetName,
+        confirmIdentifier: SemanticsIds.filterPresetNameSave,
+      ))?.trim();
       if (name == null || !mounted) return;
       final saved = await service.create(name: name, filters: _draft);
       if (!mounted) return;

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
@@ -38,7 +39,7 @@ typedef _YearTitlesKey = ({
 class AgendaPeriodNav extends StatelessWidget {
   /// Side of the square slots the buttons sit in — a full Material touch
   /// target, matching the chevrons.
-  static const double slot = 48;
+  static const double slot = FormMetrics.trailingButtonSize;
 
   /// How many entries [_yearTitleHeights] keeps: one per year shown at one
   /// locale, width, text scale and theme. A few dozen hold every year a
@@ -127,6 +128,12 @@ class AgendaPeriodNav extends StatelessWidget {
     this.todayIdentifier,
     this.titleIdentifier,
   });
+
+  /// Android 9 and later speak a tooltip beside a label only on a long
+  /// press, so there the title's words ride in its hint too — the header
+  /// menus' gate (`CalendarViewMenu`); iOS folds the tooltip into the label.
+  static String? _hintFor(String? tooltip) =>
+      defaultTargetPlatform == TargetPlatform.android ? tooltip : null;
 
   static Widget _identified(String? identifier, Widget child) =>
       identifier == null
@@ -229,10 +236,16 @@ class AgendaPeriodNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    // The sheet header's title role and the caption role: the nav heads its
+    // surface the way a header does, and the count reads as a row's caption.
     final titleStyle = theme.textTheme.titleMedium?.copyWith(
-      fontWeight: FontWeight.w600,
+      fontSize: FormMetrics.headerTitleSize,
+      fontWeight: FontWeight.w500,
     );
-    final subtitleStyle = theme.textTheme.labelSmall?.copyWith(
+    final subtitleStyle = theme.textTheme.bodyMedium?.copyWith(
+      fontSize: FormMetrics.captionSize,
+      height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
+      fontWeight: FontWeight.w400,
       color: colorScheme.onSurfaceVariant,
     );
     // The builder's constraints are exactly the text's — inside the jump
@@ -258,21 +271,25 @@ class AgendaPeriodNav extends StatelessWidget {
       final label = heading;
       heading = Tooltip(
         message: titleTooltip ?? '',
-        child: Builder(
-          builder: (titleContext) => InkWell(
-            onTap: () => onTap(titleContext),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 2, 2, 2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(child: label),
-                  Icon(
-                    Icons.arrow_drop_down_rounded,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ],
+        child: Semantics(
+          button: true,
+          hint: _hintFor(titleTooltip),
+          child: Builder(
+            builder: (titleContext) => InkWell(
+              onTap: () => onTap(titleContext),
+              borderRadius: BorderRadius.circular(FormMetrics.chipRadius),
+              child: Padding(
+                padding: FormMetrics.periodNavTitlePadding,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(child: label),
+                    Icon(
+                      Icons.arrow_drop_down_rounded,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -281,13 +298,14 @@ class AgendaPeriodNav extends StatelessWidget {
     }
     heading = _identified(titleIdentifier, heading);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+      padding: FormMetrics.periodNavPadding,
       child: Row(
         children: [
           _identified(
             previousIdentifier,
             IconButton(
               tooltip: previousTooltip,
+              iconSize: FormMetrics.periodNavGlyphSize,
               icon: const Icon(Icons.chevron_left_rounded),
               onPressed: onPrevious,
             ),
@@ -333,6 +351,7 @@ class AgendaPeriodNav extends StatelessWidget {
               todayIdentifier,
               IconButton(
                 tooltip: todayTooltip,
+                iconSize: FormMetrics.periodNavGlyphSize,
                 icon: const Icon(Icons.today_rounded),
                 onPressed: onToday,
               ),
@@ -342,6 +361,7 @@ class AgendaPeriodNav extends StatelessWidget {
             nextIdentifier,
             IconButton(
               tooltip: nextTooltip,
+              iconSize: FormMetrics.periodNavGlyphSize,
               icon: const Icon(Icons.chevron_right_rounded),
               onPressed: onNext,
             ),

@@ -23,6 +23,8 @@ void main() {
     Locale locale = const Locale('en'),
     double textScale = 1.0,
     Size? size,
+    bool Function(DateTime day)? hasEntry,
+    ValueChanged<DateTime>? onDaySelected,
   }) async {
     if (size != null) {
       addTearDown(tester.view.reset);
@@ -51,9 +53,9 @@ void main() {
                   today: DateTime.utc(2026, 10, 3),
                   selectedDay: null,
                   appearance: appearance,
-                  hasEntry: (_) => true,
+                  hasEntry: hasEntry ?? (_) => true,
                   barsFor: (_) => null,
-                  onDaySelected: (_) {},
+                  onDaySelected: onDaySelected ?? (_) {},
                   onPageChanged: (_) {},
                 ),
               ],
@@ -67,6 +69,10 @@ void main() {
 
   Finder weekdayLabel(DateTime day) =>
       find.text(DateFormat.E('de').format(day));
+
+  Finder cellOf(int day) => find.byWidgetPredicate(
+    (widget) => widget is CalendarDayCell && widget.day.day == day,
+  );
 
   testWidgets('at 200 % German on a narrow phone a two-digit day number '
       'stays on one line inside its chip, and nothing overflows', (
@@ -123,6 +129,28 @@ void main() {
     expect(rect.height, moreOrLessEquals(style.fontSize!, epsilon: 0.01));
     expect(rect.center.dx, moreOrLessEquals(chip.center.dx, epsilon: 0.01));
     expect(rect.center.dy, moreOrLessEquals(chip.center.dy, epsilon: 0.01));
+  });
+
+  testWidgets('a day the predicate answers for is a day to pick: enabled and '
+      'full-strength; any other is inert and drawn faded (D32)', (
+    tester,
+  ) async {
+    final picked = <DateTime>[];
+    await pumpGrid(
+      tester,
+      hasEntry: (day) => day.day == 20,
+      onDaySelected: picked.add,
+    );
+
+    expect(tester.widget<CalendarDayCell>(cellOf(20)).isOutside, isFalse);
+    expect(tester.widget<CalendarDayCell>(cellOf(21)).isOutside, isTrue);
+
+    await tester.tap(find.text('21'));
+    await tester.pumpAndSettle();
+    expect(picked, isEmpty);
+    await tester.tap(find.text('20'));
+    await tester.pumpAndSettle();
+    expect(picked, [DateTime.utc(2026, 10, 20)]);
   });
 
   testWidgets("the weekday row is the page's: 24 dp, labelMedium at 600, "

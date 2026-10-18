@@ -6,13 +6,14 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_theme.dart';
 import '../constants/row_metrics.dart';
+import '../constants/saved_list_name.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/overview_view.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../services/overview_view_service.dart';
 import 'app_dialogs.dart';
-import 'filter_preset_sheet.dart' show FilterPresetNameDialog;
+import 'filter_preset_sheet.dart' show savedListNameWarning;
 import 'form_menu_item.dart';
 import 'form_rows.dart';
 import 'overlay_snackbar.dart';
@@ -92,30 +93,25 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
   /// Folded once per keystroke rather than once per row.
   String _query = '';
 
-  /// Feeds the header's hairline through a notifier, so a scroll frame
-  /// rebuilds a 1 px line and not the sheet.
   final ScrollController _bodyScroll = ScrollController();
-  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
+  /// Follows the body's metrics as well as its scroll: a delete that
+  /// shortens the list corrects the offset without a controller's listener
+  /// hearing it, and the hairline stayed on over a list at its top.
+  final FormHeaderHairline _hairline = FormHeaderHairline();
 
   @override
   void initState() {
     super.initState();
-    _bodyScroll.addListener(_onBodyScroll);
     _load();
   }
 
   @override
   void dispose() {
-    _bodyScroll.removeListener(_onBodyScroll);
     _bodyScroll.dispose();
-    _headerScrolled.dispose();
+    _hairline.dispose();
     _search.dispose();
     super.dispose();
-  }
-
-  void _onBodyScroll() {
-    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
-    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
   Future<void> _load() async {
@@ -234,8 +230,7 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
       return;
     }
     final current = widget.current;
-    final name = await FilterPresetNameDialog.show(
-      context,
+    final name = await _askName(
       title: l10n.overviewViewSaveCurrent,
       initialName: _caption(current, l10n),
       existingNames: _otherNames(),
@@ -260,8 +255,7 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
 
   Future<void> _rename(OverviewView view) async {
     final l10n = AppLocalizations.of(context)!;
-    final name = await FilterPresetNameDialog.show(
-      context,
+    final name = await _askName(
       title: l10n.filterPresetRename,
       initialName: view.name,
       existingNames: _otherNames(excluding: view.id),
@@ -270,6 +264,29 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
     await _service?.update(view.copyWith(name: name));
     if (!mounted) return;
     setState(() => _views = _service?.views ?? const []);
+  }
+
+  /// The saved filters' name dialog, word for word: the trimmed name, or
+  /// null on cancel; Save disabled on an empty field.
+  Future<String?> _askName({
+    required String title,
+    required String initialName,
+    required Set<String> existingNames,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final name = await AppDialogs.textInput(
+      context,
+      title: title,
+      labelText: l10n.filterPresetName,
+      initialValue: initialName,
+      maxLength: kSavedListNameMaxLength,
+      selectAll: true,
+      allowEmpty: false,
+      warningFor: (text) => savedListNameWarning(text, existingNames, l10n),
+      fieldIdentifier: SemanticsIds.filterPresetName,
+      confirmIdentifier: SemanticsIds.filterPresetNameSave,
+    );
+    return name?.trim();
   }
 
   /// In the overlay, not the page's `Scaffold`: a bar raised there is drawn
@@ -431,44 +448,47 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
         const FormSheetHandle(),
         FormSheetHeader(
           leadingIcon: Icons.close_rounded,
-          leadingTooltip: l10n.cancel,
+          // Every act applies at once, so the ✕ only closes.
+          leadingTooltip: l10n.close,
           leadingIdentifier: SemanticsIds.overviewViewsClose,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.overviewViewsTitle,
-          scrolled: _headerScrolled,
+          scrolled: _hairline.scrolled,
           trailingInset: FormMetrics.headerActionInset,
           // A pick-on-tap list confirms nothing.
           trailing: const SizedBox.shrink(),
         ),
         Flexible(
-          child: ReorderableListView.builder(
-            scrollController: _bodyScroll,
-            shrinkWrap: true,
-            buildDefaultDragHandles: false,
-            padding: EdgeInsets.fromLTRB(
-              RowMetrics.groupInset,
-              FormMetrics.bodyTop,
-              RowMetrics.groupInset,
-              FormMetrics.bodyBottom + clearance,
+          child: _hairline.watch(
+            child: ReorderableListView.builder(
+              scrollController: _bodyScroll,
+              shrinkWrap: true,
+              buildDefaultDragHandles: false,
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              footer: visible.isEmpty && _query.isNotEmpty
+                  ? FormCaption(
+                      text: l10n.overviewViewNoMatches,
+                      padding: FormMetrics.groupCaptionPadding,
+                    )
+                  : null,
+              itemCount: items.length,
+              itemBuilder: (context, index) => _buildItem(
+                items,
+                index,
+                l10n,
+                canReorder: canReorder,
+                canSave: canSave,
+              ),
+              onReorderStart: (_) =>
+                  FocusManager.instance.primaryFocus?.unfocus(),
+              onReorderItem: _onReorder,
+              proxyDecorator: _liftedRow,
             ),
-            footer: visible.isEmpty && _query.isNotEmpty
-                ? FormCaption(
-                    text: l10n.overviewViewNoMatches,
-                    padding: FormMetrics.groupCaptionPadding,
-                  )
-                : null,
-            itemCount: items.length,
-            itemBuilder: (context, index) => _buildItem(
-              items,
-              index,
-              l10n,
-              canReorder: canReorder,
-              canSave: canSave,
-            ),
-            onReorderStart: (_) =>
-                FocusManager.instance.primaryFocus?.unfocus(),
-            onReorderItem: _onReorder,
-            proxyDecorator: _liftedRow,
           ),
         ),
       ],
@@ -611,7 +631,7 @@ class _ViewRow extends FormDividedRow {
       identifier: SemanticsIds.overviewViewRow(view.id),
       onChanged: (_) => onPick(),
       trailingButton: FormTrailingButton(
-        icon: Icons.more_vert_rounded,
+        icon: Icons.more_vert,
         tooltip: actionsTooltip,
         identifier: SemanticsIds.overviewViewOptions(view.id),
         onPressed: () => onActions(context, inUse),

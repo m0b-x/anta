@@ -12,6 +12,7 @@ import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
 import '../controllers/calendar_export_controller.dart';
 import '../controllers/event_sheets_flow.dart';
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
@@ -867,6 +868,19 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         // what stops it; the zero elevation only drops the shadow.
         backgroundColor: Theme.of(context).colorScheme.surface,
         scrolledUnderElevation: 0,
+        // The overview's bar geometry, so switching pages through the title
+        // menu moves nothing: the leading glyph and the actions take their
+        // size and colour from here, `onSurface` as the browser's bars draw
+        // them.
+        toolbarHeight: AppBarMetrics.toolbarHeight,
+        iconTheme: IconThemeData(
+          size: AppBarMetrics.glyphSize,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+        actionsIconTheme: IconThemeData(
+          size: AppBarMetrics.glyphSize,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
         actions: [
           // Saved filters sit **left of** the filter button, in reading order:
           // you reach for a filter you already have before you build a new
@@ -881,6 +895,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                 identifier: SemanticsIds.calendarSavedFiltersOpen,
                 child: IconButton(
                   tooltip: l10n.filterPresetsTitle,
+                  iconSize: AppBarMetrics.glyphSize,
                   icon: const Icon(Icons.bookmarks_outlined),
                   onPressed: !_isLoaded(state)
                       ? null
@@ -911,6 +926,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                   child: IconButton(
                     tooltip: l10n.filterCalendar,
                     isSelected: active > 0,
+                    iconSize: AppBarMetrics.glyphSize,
                     icon: Icon(
                       active > 0
                           ? Icons.filter_alt_rounded

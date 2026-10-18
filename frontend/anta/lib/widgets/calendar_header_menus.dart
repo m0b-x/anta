@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart' show CalendarFormat;
 
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_theme.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
@@ -251,6 +252,7 @@ class CalendarOverflowMenu extends StatelessWidget {
       identifier: SemanticsIds.calendarMore,
       child: PopupMenuButton<_OverflowAction>(
         icon: const Icon(Icons.more_vert),
+        iconSize: AppBarMetrics.glyphSize,
         constraints: _menuConstraints,
         onOpened: _dropFocus,
         onSelected: _select,

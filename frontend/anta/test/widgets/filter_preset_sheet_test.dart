@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_constants.dart';
+import 'package:anta/constants/saved_list_name.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -242,6 +243,59 @@ void main() {
 
     expect(find.byType(FilterPresetSheet), findsNothing);
     expect(popped, [null]);
+  });
+
+  testWidgets('the ✕ says close: tapping a preset applies at once (D33)', (
+    tester,
+  ) async {
+    await pumpSheet(tester);
+
+    expect(
+      tester
+          .getSemantics(id(SemanticsIds.filterPresetClose))
+          .getSemanticsData()
+          .tooltip,
+      'Close',
+    );
+  });
+
+  testWidgets('the header hairline goes off when deletes shorten the body to '
+      'fit (D33)', (tester) async {
+    for (var i = 0; i < 8; i++) {
+      await service.create(
+        name: 'Filter $i',
+        filters: CalendarGridFilters(priorities: {i % 5 + 1}),
+      );
+    }
+    await pumpSheet(tester, height: 600);
+    final position = tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(FilterPresetSheet),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+    bool hairline() => tester
+        .widget<FormSheetHeader>(find.byType(FormSheetHeader))
+        .scrolled!
+        .value;
+    expect(position.maxScrollExtent, greaterThan(0));
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(hairline(), isTrue);
+
+    for (final preset in service.presets.reversed.toList()) {
+      if (position.maxScrollExtent == 0) break;
+      await tap(tester, id(SemanticsIds.filterPresetOptions(preset.id)));
+      await tap(tester, id(SemanticsIds.filterPresetDelete));
+      await tap(tester, find.widgetWithText(FilledButton, 'Delete'));
+    }
+
+    expect(position.maxScrollExtent, 0);
+    expect(hairline(), isFalse);
   });
 
   /// Value equality on the filters, not the id: what makes a preset "the one
@@ -859,6 +913,57 @@ void main() {
 
     await tap(tester, find.text('Save'));
 
+    expect(service.presets.map((p) => p.name), ['Training', 'Training']);
+  });
+
+  testWidgets('the name dialog is AppDialogs\' text input: the suggestion '
+      'selected whole, the ids in place, Save off while empty, the duplicate '
+      'line in the error colour (D33)', (tester) async {
+    await service.create(name: 'Training', filters: missed);
+
+    await pumpSheet(tester, current: tracked);
+    await tap(tester, find.text('Save the current filter'));
+
+    expect(id(SemanticsIds.sheetCancel), findsOneWidget);
+    final field = find.descendant(
+      of: id(SemanticsIds.filterPresetName),
+      matching: find.byType(TextField),
+    );
+    expect(field, findsOneWidget);
+    final controller = tester.widget<TextField>(field).controller!;
+    expect(controller.text, isNotEmpty);
+    expect(
+      controller.selection,
+      TextSelection(baseOffset: 0, extentOffset: controller.text.length),
+    );
+    expect(tester.widget<TextField>(field).maxLength, kSavedListNameMaxLength);
+    FilledButton save() => tester.widget<FilledButton>(
+      find.descendant(
+        of: id(SemanticsIds.filterPresetNameSave),
+        matching: find.byType(FilledButton),
+      ),
+    );
+
+    await tester.enterText(field, '  ');
+    await tester.pump();
+    expect(save().onPressed, isNull);
+
+    await tester.enterText(field, 'Training');
+    await tester.pump();
+    final warning = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.text('"Training" already exists'),
+    );
+    expect(warning, findsOneWidget);
+    expect(
+      DefaultTextStyle.of(
+        tester.element(warning),
+      ).style.merge(tester.widget<Text>(warning).style).color,
+      Theme.of(tester.element(warning)).colorScheme.error,
+    );
+    expect(save().onPressed, isNotNull);
+
+    await tap(tester, id(SemanticsIds.filterPresetNameSave));
     expect(service.presets.map((p) => p.name), ['Training', 'Training']);
   });
 }

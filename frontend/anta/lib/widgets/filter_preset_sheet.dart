@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_theme.dart';
 import '../constants/row_metrics.dart';
+import '../constants/saved_list_name.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_filter_preset.dart';
@@ -14,7 +15,6 @@ import '../services/filter_preset_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
 import 'app_dialogs.dart';
-import 'automation_id.dart';
 import 'form_menu_item.dart';
 import 'form_rows.dart';
 import 'overlay_snackbar.dart';
@@ -102,31 +102,25 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
   /// query for every row it tests.
   String _query = '';
 
-  /// The body's scroll position feeds the header's hairline (a form sheet's
-  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
-  /// line and not the sheet.
   final ScrollController _bodyScroll = ScrollController();
-  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
+  /// Follows the body's metrics as well as its scroll: a delete that
+  /// shortens the list corrects the offset without a controller's listener
+  /// hearing it, and the hairline stayed on over a list at its top.
+  final FormHeaderHairline _hairline = FormHeaderHairline();
 
   @override
   void initState() {
     super.initState();
-    _bodyScroll.addListener(_onBodyScroll);
     _load();
   }
 
   @override
   void dispose() {
-    _bodyScroll.removeListener(_onBodyScroll);
     _bodyScroll.dispose();
-    _headerScrolled.dispose();
+    _hairline.dispose();
     _search.dispose();
     super.dispose();
-  }
-
-  void _onBodyScroll() {
-    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
-    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
   Future<void> _load() async {
@@ -262,8 +256,7 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
       _report(l10n.filterPresetLimitReached(FilterPresetService.maxPresets));
       return;
     }
-    final name = await FilterPresetNameDialog.show(
-      context,
+    final name = await _askName(
       title: l10n.filterPresetSave,
       initialName: CalendarFilterSummary.suggestName(widget.current, l10n),
       existingNames: _otherNames(),
@@ -282,8 +275,7 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
 
   Future<void> _rename(CalendarFilterPreset preset) async {
     final l10n = AppLocalizations.of(context)!;
-    final name = await FilterPresetNameDialog.show(
-      context,
+    final name = await _askName(
       title: l10n.filterPresetRename,
       initialName: preset.name,
       existingNames: _otherNames(excluding: preset.id),
@@ -292,6 +284,30 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     await _service?.update(preset.copyWith(name: name));
     if (!mounted) return;
     setState(() => _presets = _service?.presets ?? const []);
+  }
+
+  /// The trimmed name, or null on cancel. Save is disabled on an empty
+  /// field: a nameless preset is unfindable in a list whose whole point is
+  /// being searched.
+  Future<String?> _askName({
+    required String title,
+    required String initialName,
+    required Set<String> existingNames,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final name = await AppDialogs.textInput(
+      context,
+      title: title,
+      labelText: l10n.filterPresetName,
+      initialValue: initialName,
+      maxLength: kSavedListNameMaxLength,
+      selectAll: true,
+      allowEmpty: false,
+      warningFor: (text) => savedListNameWarning(text, existingNames, l10n),
+      fieldIdentifier: SemanticsIds.filterPresetName,
+      confirmIdentifier: SemanticsIds.filterPresetNameSave,
+    );
+    return name?.trim();
   }
 
   /// In the overlay, not the page's `Scaffold`: this sheet is a route above
@@ -466,70 +482,75 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
         const FormSheetHandle(),
         FormSheetHeader(
           leadingIcon: Icons.close_rounded,
-          leadingTooltip: l10n.cancel,
+          // Every act applies at once, so the ✕ only closes.
+          leadingTooltip: l10n.close,
           leadingIdentifier: SemanticsIds.filterPresetClose,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.filterPresetsTitle,
-          scrolled: _headerScrolled,
+          scrolled: _hairline.scrolled,
           trailingInset: FormMetrics.headerActionInset,
           // A pick-on-tap list confirms nothing.
           trailing: const SizedBox.shrink(),
         ),
         Flexible(
-          child: ReorderableListView.builder(
-            scrollController: _bodyScroll,
-            // Content-tall under the sheet's clamp, and still the one
-            // Scrollable — which is what lets a drag past the fold scroll it.
-            shrinkWrap: true,
-            buildDefaultDragHandles: false,
-            padding: EdgeInsets.fromLTRB(
-              RowMetrics.groupInset,
-              FormMetrics.bodyTop,
-              RowMetrics.groupInset,
-              FormMetrics.bodyBottom + clearance,
+          child: _hairline.watch(
+            child: ReorderableListView.builder(
+              scrollController: _bodyScroll,
+              // Content-tall under the sheet's clamp, and still the one
+              // Scrollable — which is what lets a drag past the fold scroll
+              // it.
+              shrinkWrap: true,
+              buildDefaultDragHandles: false,
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              // The most common answer to "which lens am I using" is *none*,
+              // and this row is what lets the sheet give it: it is the one
+              // row that is never a saved filter, so it stands in its own
+              // group above the list.
+              //
+              // `cleared()`, never `CalendarGridFilters.none`:
+              // `panelShowsAll` is a preference about the day panel, not
+              // something being hidden, and the filter sheet's Reset keeps it
+              // for the same reason.
+              header: FormRowGroup(
+                children: [
+                  FormCheckRow(
+                    exclusive: true,
+                    label: l10n.filterPresetNone,
+                    checked: current.isEmpty,
+                    identifier: SemanticsIds.filterPresetNone,
+                    onChanged: (_) =>
+                        Navigator.of(context).pop(current.cleared()),
+                  ),
+                ],
+              ),
+              footer: visible.isEmpty && _query.isNotEmpty
+                  ? FormCaption(
+                      text: l10n.filterPresetNoMatches,
+                      padding: FormMetrics.groupCaptionPadding,
+                    )
+                  : null,
+              itemCount: items.length,
+              itemBuilder: (context, index) => _buildItem(
+                items,
+                index,
+                l10n,
+                current: current,
+                canReorder: canReorder,
+                canSave: canSave,
+              ),
+              // An open keyboard halves the sheet, which halves the drag
+              // region; a query cannot be live during a drag, but focus with
+              // an empty field can.
+              onReorderStart: (_) =>
+                  FocusManager.instance.primaryFocus?.unfocus(),
+              onReorderItem: _onReorder,
+              proxyDecorator: _liftedRow,
             ),
-            // The most common answer to "which lens am I using" is *none*,
-            // and this row is what lets the sheet give it: it is the one row
-            // that is never a saved filter, so it stands in its own group
-            // above the list.
-            //
-            // `cleared()`, never `CalendarGridFilters.none`: `panelShowsAll`
-            // is a preference about the day panel, not something being
-            // hidden, and the filter sheet's Reset keeps it for the same
-            // reason.
-            header: FormRowGroup(
-              children: [
-                FormCheckRow(
-                  exclusive: true,
-                  label: l10n.filterPresetNone,
-                  checked: current.isEmpty,
-                  identifier: SemanticsIds.filterPresetNone,
-                  onChanged: (_) =>
-                      Navigator.of(context).pop(current.cleared()),
-                ),
-              ],
-            ),
-            footer: visible.isEmpty && _query.isNotEmpty
-                ? FormCaption(
-                    text: l10n.filterPresetNoMatches,
-                    padding: FormMetrics.groupCaptionPadding,
-                  )
-                : null,
-            itemCount: items.length,
-            itemBuilder: (context, index) => _buildItem(
-              items,
-              index,
-              l10n,
-              current: current,
-              canReorder: canReorder,
-              canSave: canSave,
-            ),
-            // An open keyboard halves the sheet, which halves the drag
-            // region; a query cannot be live during a drag, but focus with
-            // an empty field can.
-            onReorderStart: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-            onReorderItem: _onReorder,
-            proxyDecorator: _liftedRow,
           ),
         ),
       ],
@@ -690,7 +711,7 @@ class _PresetRow extends FormDividedRow {
       identifier: SemanticsIds.filterPresetRow(preset.id),
       onChanged: (_) => onPick(),
       trailingButton: FormTrailingButton(
-        icon: Icons.more_vert_rounded,
+        icon: Icons.more_vert,
         tooltip: actionsTooltip,
         identifier: SemanticsIds.filterPresetOptions(preset.id),
         onPressed: () => onActions(context, inUse),
@@ -699,137 +720,21 @@ class _PresetRow extends FormDividedRow {
   }
 }
 
-/// Names a preset — used when saving a new one and when renaming an existing
-/// one, so the two can never disagree about what a legal name is.
-///
-/// Returns the trimmed name, or `null` on cancel. Save is disabled on an empty
-/// field: a nameless preset is unfindable in a list whose whole point is being
-/// searched.
-abstract final class FilterPresetNameDialog {
-  static Future<String?> show(
-    BuildContext context, {
-    required String title,
-    required String initialName,
-    Set<String> existingNames = const {},
-  }) {
-    return showDialog<String>(
-      context: context,
-      builder: (context) => _NameDialog(
-        title: title,
-        initialName: initialName,
-        existingNames: existingNames,
-      ),
-    );
-  }
-}
-
-class _NameDialog extends StatefulWidget {
-  final String title;
-  final String initialName;
-
-  /// Folded names already in use, for the soft duplicate warning. Never a
-  /// constraint — see [_NameDialogState.build].
-  final Set<String> existingNames;
-
-  const _NameDialog({
-    required this.title,
-    required this.initialName,
-    required this.existingNames,
-  });
-
-  @override
-  State<_NameDialog> createState() => _NameDialogState();
-}
-
-class _NameDialogState extends State<_NameDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initialName,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    // Opens with the suggestion selected, so typing replaces it and Save
-    // keeps it — the suggestion is a starting point, never something to
-    // delete first.
-    _controller.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _controller.text.length,
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final name = _controller.text.trim();
-    if (name.isEmpty) return;
-    Navigator.of(context).pop(name);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return AlertDialog(
-      title: Text(widget.title),
-      // Rebuilt on every keystroke so both the warning and Save's enabled
-      // state follow the field. Cheap: one set probe over at most 50 folded
-      // names.
-      content: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) {
-          final trimmed = _controller.text.trim();
-          // **Soft, and never blocks Save** — the category editor's rule,
-          // shared deliberately: presets are keyed by id, so a duplicate name
-          // is confusing rather than corrupting, and blocking would break
-          // "rename A, then reuse A's old name".
-          final duplicate =
-              trimmed.isNotEmpty &&
-              widget.existingNames.contains(normalizeForSearch(trimmed));
-          final field = TextField(
-            controller: _controller,
-            autofocus: true,
-            textInputAction: TextInputAction.done,
-            maxLength: 60,
-            decoration: InputDecoration(
-              labelText: l10n.filterPresetName,
-              border: const OutlineInputBorder(),
-              errorText: duplicate ? l10n.categoryNameExists(trimmed) : null,
-              // An `errorText` that does not block submission would otherwise
-              // paint the field red; this keeps it a remark.
-              errorStyle: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              errorBorder: const OutlineInputBorder(),
-              focusedErrorBorder: const OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => _submit(),
-          );
-          return AutomationId(
-            identifier: SemanticsIds.filterPresetName,
-            child: field,
-          );
-        },
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.cancel),
-        ),
-        ListenableBuilder(
-          listenable: _controller,
-          builder: (context, _) => AutomationId(
-            identifier: SemanticsIds.filterPresetNameSave,
-            child: FilledButton(
-              onPressed: _controller.text.trim().isEmpty ? null : _submit,
-              child: Text(l10n.save),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+/// The name dialog's duplicate line for [text] against [existingNames]
+/// (folded with `normalizeForSearch`), null when the name is free — one
+/// rule for every place a saved filter or a saved view is named, so they
+/// can never disagree. **Soft**: the category editor's rule, shared
+/// deliberately — saved lists are keyed by id, so a duplicate name is
+/// confusing rather than corrupting. Cheap per keystroke: one set probe
+/// over at most 50 folded names.
+String? savedListNameWarning(
+  String text,
+  Set<String> existingNames,
+  AppLocalizations l10n,
+) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return null;
+  return existingNames.contains(normalizeForSearch(trimmed))
+      ? l10n.categoryNameExists(trimmed)
+      : null;
 }

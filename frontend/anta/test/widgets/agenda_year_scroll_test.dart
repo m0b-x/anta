@@ -61,6 +61,7 @@ void main() {
     ThemeData? theme,
     VoidCallback? onTilesFor,
     AgendaYearScrubber? scrubber,
+    Color tileBackground = Colors.white,
   }) {
     return MaterialApp(
       theme: theme ?? AppTheme.light(),
@@ -84,6 +85,7 @@ void main() {
           today: today,
           onOpenMonth: (_) {},
           padding: OverviewListMetrics.yearScrollPadding,
+          tileBackground: tileBackground,
           scrubber: scrubber,
         ),
       ),
@@ -186,6 +188,25 @@ void main() {
     test('a crossAxis narrower than one tile still lays one column', () {
       expect(YearMonthTile.columnsFor(0), 1);
       expect(YearMonthTile.columnsFor(100), 1);
+    });
+
+    testWidgets('every tile, placeholder or resolved, paints the host\'s '
+        'background (D33)', (tester) async {
+      setSurface(tester, const Size(360, 780));
+      const ground = Color(0xFF123456);
+      final controller = AgendaYearScrollController(initialYear: 2026);
+      await tester.pumpWidget(
+        scroll(controller, resolvedYears: const {2026}, tileBackground: ground),
+      );
+      final tiles = find.byType(YearMonthTile);
+      expect(tiles, findsWidgets);
+      for (final tile in tester.widgetList<YearMonthTile>(tiles)) {
+        expect(tile.background, ground);
+      }
+      final painted = tester.widget<Material>(
+        find.descendant(of: tiles.first, matching: find.byType(Material)),
+      );
+      expect(painted.color, ground);
     });
   });
 

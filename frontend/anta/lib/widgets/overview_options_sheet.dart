@@ -23,7 +23,8 @@ import 'form_rows.dart';
 /// what it keeps, so dismissing the sheet by ✕, the barrier or a drag keeps
 /// what was set: there is no draft to confirm. Order and Rows shape the list
 /// alone, so they stay in place but inert while the page shows another
-/// presentation; Missed only narrows month mode's rows too and stays live.
+/// presentation; Missed only narrows month mode's rows too and stays live
+/// there, inert in Year mode, whose tiles it does not change.
 class OverviewOptionsSheet extends StatefulWidget {
   final OverviewListOptions initial;
   final AgendaDayListMode mode;
@@ -65,17 +66,22 @@ class OverviewOptionsSheet extends StatefulWidget {
           top: Radius.circular(FormMetrics.sheetRadius),
         ),
       ),
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
-        ),
-        child: OverviewOptionsSheet(
-          initial: initial,
-          mode: mode,
-          onChanged: onChanged,
-          categoryIds: categoryIds,
-          onCategoriesChanged: onCategoriesChanged,
+      // The Categories value may take a second line on the picker's answer,
+      // which resizes the sheet while the picker's route is still leaving.
+      builder: (context) => FormSheetSemanticsRefresh(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                FormMetrics.sheetHeightFactor,
+          ),
+          child: OverviewOptionsSheet(
+            initial: initial,
+            mode: mode,
+            onChanged: onChanged,
+            categoryIds: categoryIds,
+            onCategoriesChanged: onCategoriesChanged,
+          ),
         ),
       ),
     );
@@ -89,12 +95,19 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   late OverviewListOptions _options;
   late Set<String> _categoryIds;
   bool _pickerOpen = false;
+  final FormHeaderHairline _hairline = FormHeaderHairline();
 
   @override
   void initState() {
     super.initState();
     _options = widget.initial;
     _categoryIds = widget.categoryIds;
+  }
+
+  @override
+  void dispose() {
+    _hairline.dispose();
+    super.dispose();
   }
 
   void _apply(OverviewListOptions next) {
@@ -104,9 +117,7 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   }
 
   /// "All" for the empty allowlist, else the chosen categories read back in
-  /// catalog order — two names, then "+N more". The Categories row is
-  /// single-line and ellipsizes past its width, so the sheet never re-lays
-  /// out on the picker's answer.
+  /// catalog order — two names, then "+N more", on the value's two lines.
   String _categoriesValue(AppLocalizations l10n) {
     if (_categoryIds.isEmpty) return l10n.calendarFilterCategoriesAll;
     return CalendarFilterSummary.namesReadBack([
@@ -178,87 +189,88 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
           leadingIdentifier: SemanticsIds.overviewOptionsClose,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.overviewListOptions,
+          scrolled: _hairline.scrolled,
           trailingInset: FormMetrics.headerActionInset,
           // Nothing to confirm: every control has already written.
           trailing: const SizedBox.shrink(),
         ),
         Flexible(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              RowMetrics.groupInset,
-              FormMetrics.bodyTop,
-              RowMetrics.groupInset,
-              FormMetrics.bodyBottom + clearance,
-            ),
-            child: FormRowGroup(
-              trailingGap: false,
-              children: [
-                // One line beside its label, so the sheet never re-lays out
-                // on the picker's answer while that route is still leaving
-                // (Flutter's stale-semantics bug).
-                FormPickerRow(
-                  glyph: Icons.category_rounded,
-                  label: l10n.overviewCategories,
-                  value: _categoriesValue(l10n),
-                  singleLine: true,
-                  identifier: SemanticsIds.overviewCategories,
-                  onTap: _pickCategories,
-                ),
-                FormMenuRow<OverviewOrder>(
-                  glyph: Icons.swap_vert_rounded,
-                  label: l10n.overviewOrder,
-                  value: _orderLabel(l10n, _options.order),
-                  selected: _options.order,
-                  menuWidth: FormMetrics.menuWidth,
-                  identifier: SemanticsIds.overviewOrder,
-                  items: [
-                    FormMenuItem(
-                      value: OverviewOrder.oldestFirst,
-                      label: _orderLabel(l10n, OverviewOrder.oldestFirst),
-                      identifier: SemanticsIds.overviewOrderOldest,
-                    ),
-                    FormMenuItem(
-                      value: OverviewOrder.newestFirst,
-                      label: _orderLabel(l10n, OverviewOrder.newestFirst),
-                      identifier: SemanticsIds.overviewOrderNewest,
-                    ),
-                  ],
-                  onSelected: listMode
-                      ? (order) => _apply(_options.copyWith(order: order))
-                      : null,
-                ),
-                FormMenuRow<OverviewRows>(
-                  glyph: Icons.view_list_rounded,
-                  label: l10n.overviewRows,
-                  value: _rowsLabel(l10n, _options.rows),
-                  selected: _options.rows,
-                  menuWidth: FormMetrics.menuWidth,
-                  identifier: SemanticsIds.overviewRows,
-                  items: [
-                    FormMenuItem(
-                      value: OverviewRows.everyOccurrence,
-                      label: _rowsLabel(l10n, OverviewRows.everyOccurrence),
-                      identifier: SemanticsIds.overviewRowsEvery,
-                    ),
-                    FormMenuItem(
-                      value: OverviewRows.perEvent,
-                      label: _rowsLabel(l10n, OverviewRows.perEvent),
-                      identifier: SemanticsIds.overviewRowsPerEvent,
-                    ),
-                  ],
-                  onSelected: listMode
-                      ? (rows) => _apply(_options.copyWith(rows: rows))
-                      : null,
-                ),
-                FormSwitchRow(
-                  glyph: Icons.do_not_disturb_on_outlined,
-                  label: l10n.overviewMissedOnly,
-                  value: _options.missedOnly,
-                  identifier: SemanticsIds.overviewMissedOnly,
-                  onChanged: (value) =>
-                      _apply(_options.copyWith(missedOnly: value)),
-                ),
-              ],
+          child: _hairline.watch(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              child: FormRowGroup(
+                trailingGap: false,
+                children: [
+                  FormPickerRow(
+                    glyph: Icons.category_rounded,
+                    label: l10n.overviewCategories,
+                    value: _categoriesValue(l10n),
+                    identifier: SemanticsIds.overviewCategories,
+                    onTap: _pickCategories,
+                  ),
+                  FormMenuRow<OverviewOrder>(
+                    glyph: Icons.swap_vert_rounded,
+                    label: l10n.overviewOrder,
+                    value: _orderLabel(l10n, _options.order),
+                    selected: _options.order,
+                    menuWidth: FormMetrics.menuWidth,
+                    identifier: SemanticsIds.overviewOrder,
+                    items: [
+                      FormMenuItem(
+                        value: OverviewOrder.oldestFirst,
+                        label: _orderLabel(l10n, OverviewOrder.oldestFirst),
+                        identifier: SemanticsIds.overviewOrderOldest,
+                      ),
+                      FormMenuItem(
+                        value: OverviewOrder.newestFirst,
+                        label: _orderLabel(l10n, OverviewOrder.newestFirst),
+                        identifier: SemanticsIds.overviewOrderNewest,
+                      ),
+                    ],
+                    onSelected: listMode
+                        ? (order) => _apply(_options.copyWith(order: order))
+                        : null,
+                  ),
+                  FormMenuRow<OverviewRows>(
+                    glyph: Icons.view_list_rounded,
+                    label: l10n.overviewRows,
+                    value: _rowsLabel(l10n, _options.rows),
+                    selected: _options.rows,
+                    menuWidth: FormMetrics.menuWidth,
+                    identifier: SemanticsIds.overviewRows,
+                    items: [
+                      FormMenuItem(
+                        value: OverviewRows.everyOccurrence,
+                        label: _rowsLabel(l10n, OverviewRows.everyOccurrence),
+                        identifier: SemanticsIds.overviewRowsEvery,
+                      ),
+                      FormMenuItem(
+                        value: OverviewRows.perEvent,
+                        label: _rowsLabel(l10n, OverviewRows.perEvent),
+                        identifier: SemanticsIds.overviewRowsPerEvent,
+                      ),
+                    ],
+                    onSelected: listMode
+                        ? (rows) => _apply(_options.copyWith(rows: rows))
+                        : null,
+                  ),
+                  FormSwitchRow(
+                    glyph: Icons.do_not_disturb_on_outlined,
+                    label: l10n.overviewMissedOnly,
+                    value: _options.missedOnly,
+                    identifier: SemanticsIds.overviewMissedOnly,
+                    onChanged: widget.mode == AgendaDayListMode.year
+                        ? null
+                        : (value) =>
+                              _apply(_options.copyWith(missedOnly: value)),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

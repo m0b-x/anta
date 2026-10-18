@@ -12,6 +12,7 @@ import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_event.dart';
 import 'package:anta/bloc/import_export/import_export_state.dart';
+import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -302,6 +303,32 @@ void main() {
     await tester.pump();
     expect(find.text('1 event exported'), findsOneWidget);
     expect(importExportBloc.recorded.whereType<ImportExportReset>(), hasLength(1));
+  });
+
+  testWidgets('the bar has the overview\'s geometry: 48 dp, 22 px glyphs on '
+      'the back arrow and every action (D33)', (tester) async {
+    await pumpCalendar(tester, size: const Size(412, 915), pushed: true);
+
+    // The test draws no status bar: the bar is its toolbar.
+    expect(
+      tester.getSize(find.byType(AppBar)).height,
+      AppBarMetrics.toolbarHeight,
+    );
+    final back = inBar(
+      find.descendant(of: find.byType(BackButton), matching: find.byType(Icon)),
+    );
+    expect(tester.getSize(back), const Size.square(AppBarMetrics.glyphSize));
+    for (final icon in const [
+      Icons.bookmarks_outlined,
+      Icons.filter_alt_outlined,
+      Icons.more_vert,
+    ]) {
+      expect(
+        tester.getSize(inBar(find.byIcon(icon))),
+        const Size.square(AppBarMetrics.glyphSize),
+        reason: '$icon',
+      );
+    }
   });
 
   // The test font is wider than the device's, so whether "Kalender" reads in

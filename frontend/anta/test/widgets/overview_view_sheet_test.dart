@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/saved_list_name.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -266,6 +267,82 @@ void main() {
     expect(service.views, isEmpty);
     expect(robot.hasRow(id), isFalse);
     expect(robot.isOpen, isTrue);
+  });
+
+  testWidgets('the ✕ says close: every act applies at once (D33)', (
+    tester,
+  ) async {
+    final robot = OverviewViewRobot(tester);
+    await robot.show(current: current, applied: applied);
+
+    expect(robot.closeTooltip, robot.l10n.close);
+  });
+
+  testWidgets('the header hairline goes off when deletes shorten the body to '
+      'fit (D33)', (tester) async {
+    final ids = [
+      for (var i = 0; i < 8; i++)
+        await seed('View $i', period: OverviewYearPeriod(2000 + i)),
+    ];
+    final robot = OverviewViewRobot(tester);
+    await robot.show(
+      current: current,
+      applied: applied,
+      surface: const Size(412, 600),
+    );
+    expect(robot.bodyScrolls, isTrue);
+    await robot.scrollBodyToEnd();
+    expect(robot.headerScrolled, isTrue);
+
+    for (final id in ids.reversed) {
+      if (!robot.bodyScrolls) break;
+      await robot.delete(id);
+    }
+
+    expect(robot.bodyScrolls, isFalse);
+    expect(robot.headerScrolled, isFalse);
+  });
+
+  testWidgets('the name dialog is AppDialogs\' text input: the suggestion '
+      'selected whole, the ids in place, Save off while empty, a duplicate '
+      'warned in the error colour and still saved (D33)', (tester) async {
+    await seed('Gym lately');
+    final robot = OverviewViewRobot(tester);
+    await robot.show(current: current, applied: applied);
+
+    await robot.openSaveDialog();
+    expect(robot.dialogOpen, isTrue);
+    // AppDialogs' own cancel, beside the name dialog's two ids.
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.sheetCancel),
+      findsOneWidget,
+    );
+    final suggestion = robot.nameValue;
+    expect(suggestion.text, isNotEmpty);
+    expect(
+      suggestion.selection,
+      TextSelection(baseOffset: 0, extentOffset: suggestion.text.length),
+    );
+    expect(robot.nameMaxLength, kSavedListNameMaxLength);
+    expect(robot.nameWarning, isNull);
+
+    await robot.typeName('   ');
+    expect(robot.nameSaveEnabled, isFalse);
+
+    await robot.typeName('Gym lately');
+    final warning = robot.nameWarning!;
+    expect(warning.text, robot.l10n.categoryNameExists('Gym lately'));
+    expect(
+      warning.color,
+      Theme.of(tester.element(find.byType(AlertDialog))).colorScheme.error,
+    );
+    expect(robot.nameSaveEnabled, isTrue);
+
+    await robot.confirmName();
+    expect(service.views.map((view) => view.name), [
+      'Gym lately',
+      'Gym lately',
+    ]);
   });
 
   testWidgets('at the limit saving refuses with the message and asks no name', (

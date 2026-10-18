@@ -899,7 +899,9 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
         counts[day.month]++;
       }
     }
-    final tileBackground = colorScheme.surfaceContainerHigh;
+    // The sheet's ground is `pageGround`: the tiles take the groups' role
+    // one tone off it, as the overview's and the day list's do.
+    final tileBackground = colorScheme.rowGroup;
     final unmarked = colorScheme.outline.withValues(
       alpha: MonthDotMatrix.unmarkedAlpha,
     );

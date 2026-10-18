@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
+import '../constants/row_metrics.dart';
 
 class FormMenuItem<T> {
   final T value;
@@ -67,12 +69,27 @@ class _FormMenuChoiceItemState<T>
 double formMenuHeight(int itemCount) =>
     itemCount * FormMetrics.menuRowHeight + FormMetrics.menuPadding.vertical;
 
+/// How a menu sits against its anchor horizontally.
+///
+/// A row's menu hangs from the row's right edge ([end]). A centred anchor —
+/// the overview's period title — cannot use that rule: the popup layout
+/// right-aligns a menu to an anchor right of the screen's centre, and a
+/// title whose right edge leaves no room for the menu's width was pushed to
+/// the screen's left edge, far from the title it opened from. [center] puts
+/// the menu's centre under the anchor's, kept inside the screen's margins.
+enum FormMenuAlignment { end, center }
+
 /// Where a menu opened from [anchor] goes, for `showMenu`'s `positionBuilder`:
-/// its right edge on the anchor's, under the anchor while [menuHeight] fits
-/// above the screen's bottom inset, else above it — what `MenuAnchor`'s
-/// `bottomEnd` did. The anchor rect is zero-width at the anchor's right edge,
-/// which is the closeness rule the popup layout right-aligns a menu of any
-/// width to; the route still clamps the result to the screen.
+/// under the anchor while [menuHeight] fits above the screen's bottom inset,
+/// else above it — what `MenuAnchor`'s `bottomEnd` did.
+///
+/// With [FormMenuAlignment.end] the menu's right edge is on the anchor's: the
+/// anchor rect is zero-width at the anchor's right edge, which is the
+/// closeness rule the popup layout right-aligns a menu of any width to. With
+/// [FormMenuAlignment.center] the rect is [menuWidth] wide, centred on the
+/// anchor and clamped to `RowMetrics.groupInset` from the overlay's edges,
+/// so the layout places a menu of that width exactly on it. The route still
+/// clamps the result to the screen.
 ///
 /// [anchor] is the row or the button the menu belongs to: in a form group
 /// every row is stretched to the group's width, so a row's right edge is the
@@ -81,6 +98,8 @@ RelativeRect formMenuPosition(
   BuildContext anchor,
   BoxConstraints overlay, {
   required double menuHeight,
+  FormMenuAlignment alignment = FormMenuAlignment.end,
+  double menuWidth = FormMetrics.menuWidth,
 }) {
   final overlaySize = overlay.biggest;
   final fallback = RelativeRect.fromSize(Rect.zero, overlaySize);
@@ -97,10 +116,17 @@ RelativeRect formMenuPosition(
   final bottomInset = MediaQuery.viewPaddingOf(anchor).bottom;
   final fitsBelow = rect.bottom + menuHeight <= overlaySize.height - bottomInset;
   final top = fitsBelow ? rect.bottom : rect.top - menuHeight;
-  return RelativeRect.fromRect(
-    Rect.fromLTWH(rect.right, top, 0, 0),
-    Offset.zero & overlaySize,
-  );
+  final Rect menuRect;
+  switch (alignment) {
+    case FormMenuAlignment.end:
+      menuRect = Rect.fromLTWH(rect.right, top, 0, 0);
+    case FormMenuAlignment.center:
+      const margin = RowMetrics.groupInset;
+      final maxLeft = math.max(margin, overlaySize.width - menuWidth - margin);
+      final left = (rect.center.dx - menuWidth / 2).clamp(margin, maxLeft);
+      menuRect = Rect.fromLTWH(left, top, menuWidth, 0);
+  }
+  return RelativeRect.fromRect(menuRect, Offset.zero & overlaySize);
 }
 
 /// Opens the language's choice menu of [items] at [anchor] and completes
@@ -109,12 +135,15 @@ RelativeRect formMenuPosition(
 ///
 /// [menuWidth] is the floor; a label that needs more widens the menu up to
 /// `FormMetrics.menuMaxWidth` rather than breaking mid-word, which it did at
-/// 200 % in German. The right edge stays on the anchor's whatever the width.
+/// 200 % in German. With [FormMenuAlignment.end] the right edge stays on the
+/// anchor's whatever the width; [FormMenuAlignment.center] centres the floor
+/// under the anchor.
 Future<T?> showFormMenu<T>(
   BuildContext anchor, {
   required List<FormMenuItem<T>> items,
   required T? selected,
   required double menuWidth,
+  FormMenuAlignment alignment = FormMenuAlignment.end,
 }) {
   final colorScheme = Theme.of(anchor).colorScheme;
   return showMenu<T>(
@@ -123,6 +152,8 @@ Future<T?> showFormMenu<T>(
       anchor,
       constraints,
       menuHeight: formMenuHeight(items.length),
+      alignment: alignment,
+      menuWidth: menuWidth,
     ),
     color: colorScheme.menuSurface,
     shape: RoundedRectangleBorder(

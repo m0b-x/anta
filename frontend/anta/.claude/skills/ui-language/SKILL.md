@@ -83,11 +83,12 @@ Both:
 - Every picker, menu and sub-sheet a form opens **drops focus first** (`_blur()`), or the modal's return re-raises the keyboard and scrolls the sheet back to the top.
 - **A sheet that resizes on a dialog's or menu's answer wraps its box in `FormSheetSemanticsRefresh`** (`form_sheet_frame.dart`, 2026-10-13): Flutter 3.44 keeps a node's old semantics geometry when the sheet re-lays out while the route above is still leaving (its barrier still blocks semantics), so TalkBack and the QA harness aim at where the ✕ was; the saved filters and the saved views sheets carry it, the rest is an open app-wide decision (`references/sheet-chrome.md`).
 - **A message from inside a sheet goes through `OverlaySnackbar`**, never `CustomSnackbar`. Its box takes taps only on its text and its ✕ — a short sub-sheet's header sits under it (the overview's views sheet, 2026-10-13); never give the box a hit-testing surface again.
+- **A snackbar wears the popup menu's surface** (master record decision 9, 2026-10-17 — the owner saw "white snackbars" in the dark theme: both bars painted `inverseSurface`): `ThemeData.snackBarTheme` in `AppTheme._themeFor` is the one definition — `menuSurface` under `onSurface` text at the menu label's size, `FormMetrics.menuRadius` with an `outlineVariant` hairline, the menu's elevation, the action in `primary`, the ✕ in `onSurfaceVariant`, the same in both themes. `CustomSnackbar` inherits it and `OverlaySnackbar` reads it; never `inverseSurface` / `inversePrimary` on a message, never a colour or radius of its own in either widget.
 - Each shape's flags and anatomy, and these rules in full: `references/sheet-chrome.md`.
 
 ## Dialogs
 
-`AppDialogs` is the one dialog layer. Its two confirm styles disagree and the choice is open: a migrated surface keeps its old dialog and adds no third (`references/sheet-chrome.md`).
+`AppDialogs` is the one dialog layer. Its two confirm styles disagree and the choice is open: a migrated surface keeps its old dialog and adds no third (`references/sheet-chrome.md`). A name prompt is `AppDialogs.textInput` — since D33 of the overview record (2026-10-17) it takes `selectAll` (the initial value selected whole on open), `allowEmpty: false` (Save and Enter held while the trimmed text is empty), `warningFor(text)` (a soft line in the caption's error style on the counter's row, recomputed per keystroke, never blocking Save) and `fieldIdentifier` / `confirmIdentifier` (the ids a flow taps); the saved filters' and saved views' name dialog goes through it (`FilterPresetNameDialog` is gone; the 60 limit is `kSavedListNameMaxLength`), never a hand-built `AlertDialog` + `TextField` again.
 
 ## Semantics and automation
 

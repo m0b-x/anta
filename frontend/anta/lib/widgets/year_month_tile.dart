@@ -2,16 +2,18 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../constants/overview_list_metrics.dart';
+
 /// One month of a year overview: a label, a count and a dot matrix on a
 /// rounded tile. Shared by the agenda drill-down's year mode and the date
 /// picker's year view so the two cannot drift apart.
 class YearMonthTile extends StatelessWidget {
   static const SliverGridDelegateWithMaxCrossAxisExtent gridDelegate =
       SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 132,
-        mainAxisExtent: 116,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
+        maxCrossAxisExtent: OverviewListMetrics.yearTileMaxWidth,
+        mainAxisExtent: OverviewListMetrics.yearTileHeight,
+        mainAxisSpacing: OverviewListMetrics.yearTileSpacing,
+        crossAxisSpacing: OverviewListMetrics.yearTileSpacing,
       );
 
   /// How many tiles [gridDelegate] lays side by side across
@@ -53,13 +55,15 @@ class YearMonthTile extends StatelessWidget {
       label: semanticsLabel,
       child: Material(
         color: background,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(OverviewListMetrics.yearTileRadius),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: ExcludeSemantics(
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(
+                OverviewListMetrics.yearTilePadding,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -68,7 +72,9 @@ class YearMonthTile extends StatelessWidget {
                       Expanded(
                         child: Text(
                           label,
-                          style: theme.textTheme.labelLarge,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontSize: OverviewListMetrics.yearTileLabelSize,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -76,13 +82,14 @@ class YearMonthTile extends StatelessWidget {
                       Text(
                         count,
                         style: theme.textTheme.titleMedium?.copyWith(
+                          fontSize: OverviewListMetrics.yearTileCountSize,
                           fontWeight: FontWeight.w700,
                           color: countColor,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: OverviewListMetrics.yearTileMatrixGap),
                   Expanded(
                     child: Align(
                       alignment: AlignmentDirectional.topStart,

@@ -20,9 +20,11 @@ import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/agenda_month_store.dart';
 import 'package:anta/widgets/agenda_day_list_rows.dart';
+import 'package:anta/widgets/agenda_month_grid.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
 import 'package:anta/widgets/agenda_year_scroll.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
+import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
@@ -480,6 +482,54 @@ class OverviewRobot {
       if (shown == target) return;
       shown < target ? await next() : await previous();
     }
+  }
+
+  // --- Month mode's grid and picked day (D32) --------------------------------
+
+  AgendaMonthGrid get _grid => tester.widget(find.byType(AgendaMonthGrid));
+
+  Finder _gridCell(DateTime day) => find.descendant(
+    of: find.byType(AgendaMonthGrid),
+    matching: find.byWidgetPredicate(
+      (widget) =>
+          widget is CalendarDayCell &&
+          widget.day.year == day.year &&
+          widget.day.month == day.month &&
+          widget.day.day == day.day,
+    ),
+  );
+
+  /// Taps [day]'s cell in month mode's grid, as a finger would — a day the
+  /// grid holds inert takes the tap and does nothing.
+  Future<void> tapGridDay(DateTime day) => _tap(
+    find.descendant(of: _gridCell(day), matching: find.text('${day.day}')),
+  );
+
+  /// Whether the grid offers [day] to pick and draws its number at full
+  /// strength rather than through the faded inert path.
+  bool gridDayPickable(DateTime day) =>
+      _grid.hasEntry(day) &&
+      !tester.widget<CalendarDayCell>(_gridCell(day)).isOutside;
+
+  /// Whether the grid draws a bar under [day].
+  bool gridDayHasBars(DateTime day) => _grid.barsFor(day)?.isNotEmpty ?? false;
+
+  /// Whether a day is picked: its read row's "Whole month" ✕ shows.
+  bool get dayPicked =>
+      _byId(SemanticsIds.overviewWholeMonth).evaluate().isNotEmpty;
+
+  /// Lets the picked day go through its read row's "Whole month" ✕.
+  Future<void> releaseDay() => _tap(_byId(SemanticsIds.overviewWholeMonth));
+
+  /// How far the [index]th entry titled [title] in month mode's rows is
+  /// faded, or null at full strength — [entryOpacity]'s month mode twin.
+  double? monthEntryOpacity(String title, {int index = 0}) {
+    final faded = find.ancestor(
+      of: find.descendant(of: _page, matching: find.text(title)).at(index),
+      matching: find.byType(Opacity),
+    );
+    if (faded.evaluate().isEmpty) return null;
+    return tester.widget<Opacity>(faded.first).opacity;
   }
 
   // --- Year mode's scroll (slice 11, D26–D30) --------------------------------

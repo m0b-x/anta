@@ -168,6 +168,15 @@ class OverviewOptionsRobot {
       )
       .value!;
 
+  /// The Categories value as drawn: its line limit and whether it was cut.
+  RenderParagraph get categoriesValueParagraph =>
+      tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: _byId(SemanticsIds.overviewCategories),
+          matching: find.text(categoriesValue),
+        ),
+      );
+
   Finder get _picker => find.byType(CategoryPickerSheet);
 
   /// Whether the category picker is up over the sheet.

@@ -1,6 +1,6 @@
 # Calendar overview — the List mode rework (2026-10-11)
 
-**Status: IMPLEMENTED 2026-10-17, uncommitted — D31 (§2.7, §3.15): the day panel's presence button on the overview's day rows, the Mark presence switch retired; gate `dart analyze lib test tool test_driver` clean, `flutter test` `+8036 ~10`, `untranslated.txt` `{}`; the review clean on the code; the device pass green by hand and on flow 05, flows 23 and 24 red on two pre-existing harness items and green past them (§8, §9); the owner reviews and commits.** On top of: **IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c4f5697` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c4f5697` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11. 2026-10-15 — §2.6 D26–D30 decided (the years scroll, §3.14); slices 11–12 and the 12b fix pass IMPLEMENTED 2026-10-15, uncommitted; device pass 2026-10-15 green for the rework (24/25 flows, 19 red as before; Year mode by hand green; 360-wide not run), owner commit owed.
+**Status: IMPLEMENTED 2026-10-17, uncommitted — D33 (§2.9, §3.17), the conformity pass, together with the snackbar surface (decision 9 of `docs/ui-language-adoption-roadmap.md` §3), on top of D32: gate on the final tree `dart analyze lib test tool test_driver` clean, `flutter test` `+8074 ~10 -1` (the one failure the known Windows-only `host_devices_test` case), no ARB touched; one review over both slices (eleven findings, none above low: nine fixed in one pass, two of them record wording); the device pass on the Pixel_9_Pro with the two-theme screenshot set retaken (`ovw2_*`, `ovw3_*`): flows 05, 17, 23 and 25 green, 24 red on its own pre-existing step (a label tap while the "Saved as …" message is still up) and green on the re-run after the fix pass taught it to wait (05 and 23 green again beside it); `qa errors` clean three times; 51 uncommitted files across D32, decision 9 and D33; the owner reviews and commits.** Before it: **IMPLEMENTED 2026-10-17, uncommitted — D32 (§2.8, §3.16): under the hidden missed display the picked day in Month mode lists its missed occurrences faded with the presence button, and every day with an occurrence is a day to pick; gate on the final tree `dart analyze lib test tool test_driver` clean, `flutter test` `+8044 ~10 -1` (the one failure the known Windows-only `host_devices_test` case), no ARB touched; the review's seven low findings fixed or accepted (§9 ledger); the device pass on the Pixel_9_Pro green — flow 25 72/72 on the agent transport, flows 23 and 05 green from a fresh seed, the owner's scenario by hand on 22 Oct and 10 Nov under Hidden, the de · dark · 2.0 matrix, `qa errors` clean; 12 uncommitted files; the owner reviews and commits.** Before it: **COMMITTED `ca3a5e3` (2026-10-17) — D31 (§2.7, §3.15): the day panel's presence button on the overview's day rows, the Mark presence switch retired; gate `dart analyze lib test tool test_driver` clean, `flutter test` `+8036 ~10`, `untranslated.txt` `{}`; the review clean on the code; the device pass green by hand and on flow 05, flows 23 and 24 red on two pre-existing harness items and green past them (§8, §9).** On top of: **IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c4f5697` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c4f5697` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11. 2026-10-15 — §2.6 D26–D30 decided (the years scroll, §3.14); slices 11–12 and the 12b fix pass IMPLEMENTED 2026-10-15, uncommitted; device pass 2026-10-15 green for the rework (24/25 flows, 19 red as before; Year mode by hand green; 360-wide not run), owner commit owed.
 Written on a clean tree at `a4f783a` from a read of the overview page, the
 store, the index, the rows, the Tier 3 day list and the scan, plus one
 independent read-only review of the list mode's performance and behaviour
@@ -320,6 +320,77 @@ in a sheet, disabled where the page opens.
 | # | Question | Options · **decision** |
 | --- | --- | --- |
 | D31 | Presence from the overview's rows, revisited | **A** (the owner's ask) the day panel's control on the row — a `FormTrailingButton` in the trailing slot of every day row whose event tracks presence (`EventPresence.appliesTo`): `event_busy` while present, `event_available` while missed, the day panel's tooltips, a press writing the opposite explicit status through `EventSheetsFlow.setOccurrencePresence`; the row's tap keeps opening the detail sheet; the Mark presence switch, the tap-to-mark mode, the long press and the row hint retired; offered in Month mode and in List mode's every-occurrence rows (a per-event row has no day), and not while the missed display is hidden (the review-2 rule: a mark would take its row away with nothing on the overview left to undo it) · B keep the switch and draw the button only while it is on (two controls for one act, and the switch stays dead where the page lands) · C the button under the hidden display too (the first mark would read as a delete — the day panel's own reason for sparing missed rows) |
+
+### 2.8 The owner's screenshot later on 2026-10-17 — the picked day under the hidden missed display: D32
+
+The owner's words (translated): "for example in Month view I have a gym
+event, but I can't mark it present for tomorrow. Also, the dedicated
+presence button doesn't appear for me." The screenshot: October 2026 in
+Month mode on the phone, one daily "Gym Presence 2026" event, "14 entries"
+and "Gym 14" — exactly the days with a bar; days 1, 5 and 10 and every
+day after today (the 17th) without one; the 16th picked, its one row
+without a button. What the tree said: the phone runs the missed display
+on `hidden`. Under it `AgendaListView.eventDayEntries` drops every missed
+or assumed-absent occurrence before it becomes a row, so a future day of
+a daily assume-absent event has no entry at all; the grid's
+`enabledDayPredicate` (`hasEntry`) leaves such a day inert, so tomorrow
+cannot even be picked; and D31's `_presenceOffered` (`!_missedHidden`)
+withholds the button from the rows that do exist. D31's rule protected
+the whole-month rows — a mark missed would take a row away with nothing
+on the overview left to undo it — and for the owner's setting it leaves
+the overview unable to mark anything. The calendar page already answers
+this case: `DaySummaryPanel` lists missed occurrences dimmed but always,
+even under `hidden`, because the panel is where they are marked and
+un-marked.
+
+| # | Question | Options · **decision** |
+| --- | --- | --- |
+| D32 | The picked day under the hidden missed display | **A** (the owner's yes) the picked day in Month mode is the day panel's twin: its rows come from a one-day scan over the loaded events converted with `faded`, never from the month's bucket, so a hidden missed or assumed-absent occurrence is listed faded with "Mark as present"; the presence button is offered on the picked day's rows under every display; a mark missed fades the row in place instead of removing it; the grid makes every day with any occurrence in the allowlist tappable and full-strength (a per-month occurrence mask the page folds from the scan), a day with none stays inert and faded; the whole-month rows, the bars, the nav's count, the totals, Year mode and List mode are untouched (`hidden` keeps dropping missed occurrences there, and their rows keep no button) · B switch the setting to `faded` — zero code, and every future day of a daily assume-absent event fades across the whole app, which is why `hidden` is the owner's setting · C the button under `hidden` on every overview row (D31's option C) — on the whole-month rows the first mark missed still reads as a delete |
+
+### 2.9 The owner's third ask on 2026-10-17 — "white snackbars and many things not in conformity with the design": the conformity pass, D33
+
+The owner's words (translated): "also, about the overview mode: I noticed
+there are sometimes white snackbars and many things that are not in
+conformity with the design — please correct them." What the tree said:
+(1) both of the app's snackbars paint `inverseSurface`, `#E6E0E9` in the
+dark theme — a near-white card over a dark page; that is app-wide and is
+settled as decision 9 of `docs/ui-language-adoption-roadmap.md` §3 (one
+`snackBarTheme` on the popup menu's surface, read by both bars). (2) A
+read-only audit of the overview and the surfaces it opens against the
+`ui-language` rulebook (one reviewer, 2026-10-17) found twenty deviations,
+and a screenshot set of every overview surface in both themes confirmed
+the visible ones: in the light theme the bar is white over a grey page and
+the year tiles are darker than their ground; the Period menu opens at the
+screen's left edge instead of under the title; the nav's count line is
+11 px; the name dialog is hand-built beside the app's one dialog layer
+(whose own outlined field is the master record's inventory item next to
+its decision 2 — not this pass's). The dispositions are the lead's, on the
+owner's "correct them".
+
+| # | Question | Options · **decision** |
+| --- | --- | --- |
+| D33 | What the conformity pass corrects | **A** every rule breach the audit found and the screenshots confirmed (the list below, "fixed"), nothing that a record decided or that is a judgement call (the list below, "left", for the owner) · B everything the audit named, judgement calls included (the lane narrowed, the totals centred, the action menus rebuilt on a new primitive) — widens the owner's ask into design changes nobody asked for · C the snackbar alone — leaves what the owner called "many things" |
+
+**Fixed (D33 · A).**
+
+1. The bar paints `surface` over a `pageGround` page (`calendar_overview_page.dart`, the `AppBar` vs the `Scaffold`): in the light theme a white bar and status strip over a grey page → `pageGround` with `surfaceTintColor` transparent (`app_colors.dart`: `pageGround` is "what its bars sit on").
+2. The bar is 56 dp with 24 px glyphs, not `AppBarMetrics` (48 / 22): no `toolbarHeight`, default icon sizes → `toolbarHeight: AppBarMetrics.toolbarHeight`, the leading glyph and the three actions at `AppBarMetrics.glyphSize`; the calendar page's bar takes the same two lines so switching pages through the title menu moves nothing (§2.5's 206 dp sum above the first tile becomes 198).
+3. `AgendaPeriodNav`: the count line is `labelSmall` 11 / 500 → the caption role, 13 / 400 `onSurfaceVariant` (`FormMetrics.captionSize`); the title is `titleMedium` at w600, a weight no role has → 17 / 500 (`FormMetrics.headerTitleSize`); the title box and the subtitle height re-measure through the templates, so nothing shifts between modes. The day list sheet's navs follow — one widget.
+4. The nav title, a menu control, has a `Tooltip` and no Android hint → `Semantics(button: true, hint:)` as `CalendarViewMenu._hintFor` does; TalkBack then says it opens the period choice.
+5. The nav's literals — the 48 slot, the title ink's radius 8, two paddings, the 24 px chevrons and Today glyph → named in `FormMetrics` (`trailingButtonSize`, `chipRadius`, `periodNav*`); values unchanged.
+6. The Period menu opens at the screen's left edge: `formMenuPosition` pins the menu's right edge to the anchor's right — a row's rule — and a centred title's right edge leaves no room for a 220 dp menu, so it is clamped to the left → `showFormMenu` takes an alignment (`FormMenuAlignment.end` for rows, the default; `center` for a centred anchor), the menu centred under the title and kept inside the screen's margins.
+7. Year tiles paint the token `surfaceContainerHigh` (`agenda_year_grid.dart`), not a role: in the light theme a darker tile on the grey ground, inverting "the page ground is one tone under the row groups" that Month's and List's cards follow → `rowGroup`; every host of `YearMonthTile` (the overview, the day list sheet, the Dates sheet's year view) is checked to pass a background one tone off its own ground.
+8. `YearMonthTile` literals — radius 12, padding 10, gap 8, the delegate's 132 / 116 / 8 → named in `OverviewListMetrics` / `FormMetrics`; its two text styles stay (the tile is a calendar idiom, Tier 3) but their sizes are named.
+9. The views sheet's ✕ carries `cancel` on a live-apply sheet → `close`; the saved filters sheet, its twin, the same.
+10. The views sheet's and the saved filters sheet's header hairline from a raw scroll-controller listener → `FormHeaderHairline` (a delete that shortens the body left the hairline on).
+11. The name dialog (`FilterPresetNameDialog`: `showDialog` + a hand-built `AlertDialog`, an outlined `TextField`, a literal 60, a grey `errorText`) → `AppDialogs.textInput`, extended with `selectAll`, `allowEmpty: false` and a soft `warningFor` line on the counter's row in the counter's own metrics and the error colour (so the dialog does not grow when it appears); the limit from the one named constant the views and presets share (`kSavedListNameMaxLength`). The dialog layer's own outlined field stays what it is (below, "left"). The filters record's 2026-09-27 "kept unchanged" was a scope choice, not a design one.
+12. The views sheet's ⋮ glyph `more_vert_rounded` → `more_vert` (header record D14: on every platform).
+13. The options sheet: Missed only stays live in Year mode where it changes nothing → disabled as Order and Rows are; the Categories value `singleLine` (an ellipsis §3.2 item 2 forbids) → the two-line clamp, the sheet wrapped in `FormSheetSemanticsRefresh` for the resize the ellipsis was avoiding; the header gets its `scrolled:` hairline.
+14. The chip row's search button is a default `IconButton` (24 px glyph) → the trailing control's 48 × 48 box and 20 px glyph (`FormTrailingButton`'s sizing), `isSelected` kept.
+15. `AgendaMonthGrid` literals (the 4 dp side padding, the marker's 4 dp) → named.
+16. `OverlaySnackbar`'s ✕ had no label → the close tooltip (the snackbar slice).
+
+**Left for the owner** (a recorded decision or a judgement call): the scrubber lane over the rows' presence button since D31 (TalkBack finds the lane first over 32 of the button's 48 dp, and a vertical drag that starts on the button scrubs — record §8's lane item; the choices are a lane narrowed to the gutter and the thumb, or the presence slot inset in List mode); the totals caption left-aligned under a centred nav (D23 set the slot, not its alignment); the views sheet's row menu and the bar's overflow on `showMenu` + `PopupMenuItem` (the language has no action-menu primitive; header D7); the Period menu's 220 floor beside the 236 header menus; the Dates sheet's Month | Year `SegmentedButton` (Tier 1 D11 kept it unchanged — the one stock control left on the overview's path); "Nothing in this period" under a live search, the search button's tooltip while it is open, and the overlay bar covering a one-row sheet (master record §8); the dialog layer's own field — `AppDialogs.textInput` draws an outlined `TextField` under a floating label, so the name dialog now looks like every other text prompt in the app, and the layer's look is the master record's inventory item beside its decision 2; inside an `AppBar` a bar button's `isSelected` has no visible effect (the ambient `IconTheme` colour overrides the selected state — pre-existing, the views and tune buttons included; the tune badge is what shows). Seen on the emulator only: a light system navigation bar in the dark theme (the owner's phone draws it dark; app-wide, not the overview's).
 
 ## 3. The spec
 
@@ -1318,6 +1389,119 @@ script hits (its tooltip changes with the state and the locale).
 Lifting row's button marks it missed (the row stays, faded), Missed only
 lists it, a second press marks it present and takes it out of that list,
 Missed only off.
+
+### 3.16 The picked day under the hidden display (D32, 2026-10-17)
+
+**The occurrence mask.** The page keeps `_occurrenceMask: Map<int, int>`
+— `AgendaMonthStore.keyOf(month)` → bit `day - 1` set for every day with
+any occurrence in the allowlist, hidden or not — folded in `_resolve`
+from the scan's occurrences before `eventDayEntries` converts them (the
+`_markedKept` precedent in `_resolveMarks`): rewritten whenever a month
+is resolved again (after `forget`), cleared where `_markedKept` is
+cleared (a new store). `_hasOccurrence(day)` is `_hasEntry(day) ||
+(_missedHidden && the bit is set)`; under a live query it is
+`_hasEntry` alone (an occurrence dropped before conversion was never
+matched against the query, and the picked day's rows below are filtered
+by it). The grid takes `_hasOccurrence` as its `hasEntry` (the parameter
+is "a day to pick": enabled and full-strength); `_toggleSelectedDay`
+guards on it in place of `countForDay`. Under `faded` the mask adds
+nothing (`hasEntry` already holds every day with an occurrence), so the
+grid is unchanged for everyone else.
+
+**The picked day's rows.** `_pickedDayEntries(day)`:
+`AgendaListView.eventDayEntries(_scan(day, day), l10n, null,
+showRecurrenceLabels: _appearance.showRecurrenceLabels, missedDisplay:
+CalendarMissedDisplay.faded)`, then `_matches` under a live query, then
+`_listed` (Missed only). `_recompute`'s month branch builds `_rows` for a
+picked day from it (`buildAgendaDayListRows([selected], (_) => entries,
+groupByDay: false, withMonths: false, keptCountOf: …)`); the whole-month
+path (`bucket.days`, `bucket.entriesOn`) is untouched. Under `faded` the
+scan yields exactly `bucket.entriesOn(day)` (same conversion, same
+inputs), so one path serves both settings and costs one day's
+`occursOnUtcDay` per loaded event. `_buildPickedDayRow` takes its counts
+from the same entries — the day's total and its kept count, `kept` 0
+under Missed only as before — so the read row says what the rows show
+(the label for a hidden future day is `faded`'s existing label for a day
+whose only entry was missed).
+
+**The button.** `_presenceOffered` becomes `_dayRowsShown &&
+(!_missedHidden || _pickedDayShown)`, `_pickedDayShown` = `_mode ==
+AgendaDayListMode.month && _selectedDay != null`. A press is D31's
+`_onEntryPresence` unchanged; the bump re-resolves the month
+(`_forgetMarked` → `forget` → `_resolve` rewrites the bucket and the
+mask), `_recompute` rebuilds the picked day's rows from the scan, so the
+row un-fades or fades in place, the day's bar appears or goes and the
+nav's count follows. The whole-month rows under `hidden` stay without the
+button (D31's reason holds there: a row that vanishes on its mark). The
+flow for the owner: the overview (Month persisted), tap tomorrow, press
+the button — three taps.
+
+**Tests.** The page suite: under `hidden` in Month mode a future day of
+an assume-absent daily event is tappable (full-strength cell, the day's
+read row), its row listed faded with "Mark as present", a press emitting
+`SetOccurrencePresence(missed: false)` and, after the `presenceRevision`
+bump, the row un-faded and the day's bar drawn; a day with no occurrence
+stays inert; the whole-month rows under `hidden` still carry no button;
+a mark missed on the picked day fades its row and keeps it; under a live
+query the picked day lists only matching entries; D31's review-2 test
+("missed entries hidden take the buttons away") is narrowed to the
+surfaces it still describes. `agenda_month_grid_test.dart`: a day the
+predicate answers for is enabled and drawn full-strength, if not already
+covered. A flow `25_overview_presence_hidden.txt`: from the calendar
+seed, Calendar settings → the appearance page → the Hidden segment, the
+overview in Month mode, the target day's cell tapped, the row's
+`overview-row-presence-<id>-<date>` pressed, the row read back, then the
+mark undone and the setting restored to Faded so the seed is left as
+found; the target is an assume-absent tracked event's future day if the
+fixture has one, else today's Lifting row marked missed first (as flow 23
+does) so that under `hidden` its day empties and the picked day restores
+it.
+
+### 3.17 The conformity pass (D33, 2026-10-17)
+
+**Geometry that changes.** The overview's bar is `AppBarMetrics` (48 dp
+toolbar; 22 px glyphs on the leading arrow and the three actions through
+`iconTheme` / `actionsIconTheme`, which also set the actions' colour to
+`onSurface` as the browser bars do; the 22 / 28 title of the header record
+untouched) on `pageGround` with no tint; the calendar page's bar takes the
+same height and glyph sizes and keeps `surface`, its own page's ground —
+the chrome above the first tile is 198 dp. The
+nav's title is 17 / 500 (`FormMetrics.headerTitleSize`) and its count line
+13 / 400 `onSurfaceVariant` (`FormMetrics.captionSize`); both measured as
+before (`titleTemplates`, `_subtitleHeight`), so every mode's box is still
+one height for the labels it may show. The year tiles sit on `rowGroup`;
+`AgendaYearTileBuilder` / `agenda_year_grid.dart` take the host's
+background and every host passes one tone off its own ground. The Period
+menu is centred under the nav title: `showFormMenu(alignment:
+FormMenuAlignment.center)` (rows keep `end`), `formMenuPosition` placing the
+menu's centre on the anchor's and clamping to the overlay's 16 dp margins.
+The chip row's search button is a 48 × 48 target with a 20 px glyph. The
+name dialog is `AppDialogs.textInput(selectAll: true, warning: …)`: the
+field selected whole on open as before, Save held while the trimmed text
+is empty, the duplicate-name line a soft warning on the counter's row in
+the counter's metrics and the error colour (no growth when it appears),
+the limit from the named constant; `FilterPresetNameDialog` goes. The options sheet's
+Categories row clamps at two lines under `FormSheetSemanticsRefresh`.
+
+**Named, not changed.** `FormMetrics.periodNav*` (the title ink's padding
+and radius, the row's padding, the glyph size), the year tile's radius,
+padding, gap and delegate numbers, the mini grid's two 4 dp values.
+
+**Tests.** The page suite: the bar 48 dp on `pageGround`, the search
+button's box and glyph, the Period menu's left edge inside the screen and
+its centre on the title's; `agenda_period_nav_test`: the count's and the
+title's styles, the Android hint; the page suite and
+`agenda_year_scroll_test`: `rowGroup` on every tile; `overview_view_sheet_test`
+and `filter_preset_sheet_test`: the `close` tooltip, the hairline through
+`FormHeaderHairline` after a delete, the name dialog's warning;
+`overview_options_sheet_test`: Missed only disabled in Year mode, the
+two-line Categories value; `app_dialogs_test` (new) for `textInput`'s
+`selectAll`, `allowEmpty`, `warningFor` and the identifiers;
+`calendar_header_test`: the calendar bar's height and glyphs;
+`overlay_snackbar_test` (new) and `app_theme_test` for the snackbar
+surface. Flows: ids unchanged; flow 24 waits for the "Saved as …" message
+to go before it taps a view by label; the screenshot set in both themes is
+retaken for the device pass, with flows 05, 17, 23, 24 and 25.
 
 ## 4. Behaviour
 
@@ -2825,3 +3009,125 @@ pass, this record's status line and ledger.
   verified: TalkBack's reading order on a device. Docs: this record, the
   feature doc's addendum, `subsystems.md` § Overview, the `calendar-events`
   and `calendar-ui` rule lines, `row-primitives.md`, the context log.
+- **2026-10-17 (later) — D32, the picked day under the hidden display
+  (the owner's second screenshot).** The owner's phone runs the missed
+  display on `hidden`: their Month-mode screenshot showed a daily Gym
+  event with a bar on exactly its kept days, tomorrow not pickable and no
+  button on the picked day's row ("I can't mark it present for tomorrow;
+  the dedicated presence button doesn't appear"). §2.8 D32 · A on their
+  yes: the picked day in Month mode is the day panel's twin (§3.16) — a
+  one-day scan converted with `faded` behind the picked day's rows and
+  counts, an occurrence mask behind the grid's pickable days, the button
+  offered on the picked day's rows under every display; the whole-month
+  rows, the bars, the counts, Year and List untouched. One implementer
+  (Opus 5.5), one reviewer (Opus 5.5), one fix pass by the same
+  implementer, one device pass (Sonnet 5.5). Gate on the final tree:
+  `dart analyze lib test tool test_driver` clean, `flutter test` `+8044
+  ~10 -1` (8041 after the slice, three tests after the review; the one
+  failure the known Windows-only `host_devices_test` case), no ARB
+  touched. The review: seven findings, none above low; both declared
+  deviations accepted (`_toggleSelectedDay` always lets the picked day go,
+  so the ✕ works once a query has emptied it; the flow targets today's
+  Lifting, since the seed's one assume-absent event runs on workdays only
+  and a flow has no conditionals). Fixed: flow 25 scrolls to the "Hidden"
+  / "Faded" segments themselves (`scroll-to` stops at the row's title,
+  50–70 dp above the segment under its two-line description) and to the
+  Lifting row's button before each check; `_hasOccurrence` answers true
+  for the picked day while its rows are non-empty, so under a live query
+  the picked cell agrees with the rows it lists (`faded` + `_matches`)
+  instead of drawing disabled; the picked day's kept and missed counts are
+  folded in `_recompute` (`_takePicked`), never in build, and reset in
+  every other branch; three tests added (the picked cell under a matching
+  query, the ✕ after a query has emptied the picked day, Missed only on a
+  hidden picked day). Accepted as they are: under a live query every other
+  hidden-only day stays inert (§3.16's rule); a future month under
+  `hidden` draws its pickable days over the whole-month rows or the "No
+  entries" caption (a caption inviting a pick would be three strings —
+  the owner's call); the one-day scan also runs on the
+  `didChangeDependencies` → `_rebuild(duringBuild: true)` path, the month
+  branch's pre-existing shape. The device pass on the Pixel_9_Pro
+  (Windows; `ANDROID_HOME` set by hand from `android/local.properties`,
+  the cold boot's WHPX false refusal as known): flow 25 green 72/72 on the
+  agent transport (`ANTA_QA_VIA=agent`) — on adb it stops at `wait
+  "Search settings"` after the appearance page, because the adb matcher
+  does not read a field's hint, a transport effect flow 22 shares; 23 green
+  from a fresh seed (the swipe step included), 05 green; by hand under
+  Hidden — days with only missed or assumed-absent occurrences
+  full-strength and tappable, 22 Oct picked reading "1 entry · 1 missed"
+  with the faded Standup row's `overview-row-presence-qa-cal-standup-
+  2026-10-22` "Mark as present", the press making it "2 entries", the nav
+  30 → 31, the day's bar drawn, the tooltip "Mark as missed", the second
+  press restoring it, Whole month with no presence node, November's
+  workdays pickable with 10 Nov behaving the same; the de · dark · 2.0
+  matrix ("Als anwesend markieren", the header "1 Eintrag · 1 verpasst",
+  everything in place, the row subtitle ellipsized); a plain `scroll-to`
+  in Month mode moves the month body; `qa errors` clean three times, the
+  month-pager assertion absent this run. Seen, not this slice's: at 2.0 the
+  scrolled month body slides the totals strip under the chip row without a
+  fade (an ordinary scroll-under). Not verified: TalkBack's reading order.
+  Docs: this record (§2.8, §3.16, the status line), the feature doc's
+  addendum, `subsystems.md` § Overview, the `calendar-events` and
+  `calendar-ui` rule lines, the context log.
+- **2026-10-17 (later still) — D33, the conformity pass, with the snackbar
+  surface (decision 9 of the master record).** The owner: "sometimes white
+  snackbars and many things not in conformity with the design — correct
+  them." The snackbars: both bars painted `inverseSurface` (near-white in
+  the dark theme); settled app-wide as decision 9 of
+  `docs/ui-language-adoption-roadmap.md` §3 — one `snackBarTheme` on
+  `menuSurface`, read by `CustomSnackbar` and `OverlaySnackbar` — built by
+  one implementer (Opus 5.5). The overview: one read-only audit (reviewer,
+  Opus 5.5, no tests — a device pass held the build) against the
+  `ui-language` rulebook plus a two-theme screenshot set of every overview
+  surface (qa-runner, Sonnet 5.5, 45 shots `ovw_*`) gave twenty
+  deviations; §2.9 D33 · A fixed the sixteen rule breaches and listed the
+  rest for the owner; one implementer (Opus 5.5), one review over both
+  slices (Opus 5.5 — it hit its turn limit and delivered on request: eleven
+  findings, none above low), one fix pass by the same implementer, two
+  device-pass rounds (Sonnet 5.5). Gate on the final tree: `dart analyze
+  lib test tool test_driver` clean, `flutter test` `+8074 ~10 -1` (8052
+  after the snackbar slice, 8074 after D33 and its fix pass; the one
+  failure the known Windows-only `host_devices_test` case), no ARB touched.
+  The review's findings, fixed: the two bars drew different text
+  (`SnackBar` replaces the inherited style, the overlay merged into
+  `bodyMedium`) — the overlay now wraps its message in `DefaultTextStyle`;
+  `AppBar(iconTheme:)` also recolours the actions to `onSurface` (as the
+  browser bars do) — now explicit through `actionsIconTheme` and said in
+  the comments; the dialog no-growth test measured the route-filling
+  `Align`, not the card — it measures the `Material`; the warning line in
+  `FormCaption`'s 18 px grew the dialog by ~2 dp beside the 16 px counter —
+  it takes the counter's own metrics in the error colour; `FormCaption` and
+  four rows read `FormMetrics.captionLineHeight` instead of their literal
+  18; the `yearTile*` names stay in `OverviewListMetrics` with the why; the
+  overlay ✕'s tooltip is `l10n.close`; the saved filters sheet's ⋮ is
+  `more_vert` too (header D14); flow 24 waits for the "Saved as …" message
+  to go before it taps a view by label. Record wording corrected: the
+  calendar page's bar keeps `surface` (its own ground); the name dialog's
+  outlined field is the dialog layer's own look, the master record's
+  inventory item, listed under "left"; the suites named where the pins
+  are. The review's declared-deviation verdicts: the menu centred on its
+  floor width, `captionLineHeight`, `allowEmpty` (default true keeps every
+  one of the twenty `textInput` callers) and `savedListNameWarning` +
+  `_askName` — all accepted. Line endings: the index is LF throughout with
+  `autocrlf=true`, so the Write tool's LF working copies change nothing
+  committed. The device pass on the Pixel_9_Pro (3×, 48 dp = 144 px):
+  round one — 05, 17, 23, 25 green, 24 red at step 32 (`tap "Ninety
+  days"` ambiguous: the view row and the "Saved as" message's text, the
+  pre-existing race the D31 pass had met on another AVD); the `ovw2_*` set
+  in both themes with the dumps: the bar's buttons 144 px (48 dp) on both
+  pages, `overview-search-open` 144 × 144, the Period menu `[238,558]
+  [898,1254]` centred on the title's centre x 568, Missed only
+  `disabled` in Year mode, the Categories value two lines at 162 px, the
+  views ✕ "Close", the name dialog's Save `disabled` while empty and the
+  duplicate warning shown with Save enabled, the "Saved as" bar a
+  dark-grey card with light text in dark and light-grey with dark text in
+  light, the page bar ("Occurrence skipped · UNDO") the same; round two
+  after the fix pass — 05, 23, 24 green, the dialog's card `[220,1068]
+  [1060,1800]` before and after the duplicate warning (no growth), the
+  overlay ✕ "Close", the three bar actions one colour with the back arrow;
+  `qa errors` clean after every round. Not verified: TalkBack's reading of
+  the nav title's new hint; 2.0 text scale in German on a device for the
+  13 px count line. Docs: this record (§2.9, §3.17, the status line), the
+  master record (decision 9, §4.8), `ui-language` § Sheet chrome and §
+  Dialogs, `sheet-chrome.md`, `row-primitives.md`, `calendar-ui` (the nav,
+  the tiles), `calendar-events` (the rule line, `subsystems.md` § Overview,
+  the context log).

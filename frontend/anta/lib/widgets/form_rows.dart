@@ -1478,7 +1478,9 @@ class FormReadTitleRow extends FormDividedRow {
                         captionText,
                         style: TextStyle(
                           fontSize: FormMetrics.captionSize,
-                          height: 18 / FormMetrics.captionSize,
+                          height:
+                              FormMetrics.captionLineHeight /
+                              FormMetrics.captionSize,
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
@@ -1594,7 +1596,9 @@ class FormHeroRow extends FormDividedRow {
                     caption,
                     style: TextStyle(
                       fontSize: FormMetrics.captionSize,
-                      height: 18 / FormMetrics.captionSize,
+                      height:
+                          FormMetrics.captionLineHeight /
+                          FormMetrics.captionSize,
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),
@@ -1670,7 +1674,8 @@ class FormSwitchRow extends FormDividedRow {
                 subtitle!,
                 style: TextStyle(
                   fontSize: FormMetrics.captionSize,
-                  height: 18 / FormMetrics.captionSize,
+                  height:
+                      FormMetrics.captionLineHeight / FormMetrics.captionSize,
                   color: colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -2127,7 +2132,8 @@ class FormCheckRow extends FormDividedRow {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: FormMetrics.captionSize,
-                    height: 18 / FormMetrics.captionSize,
+                    height:
+                        FormMetrics.captionLineHeight / FormMetrics.captionSize,
                     color: colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -2543,7 +2549,7 @@ class FormCaption extends StatelessWidget {
         overflow: maxLines == null ? null : TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: FormMetrics.captionSize,
-          height: 18 / FormMetrics.captionSize,
+          height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
           color: error ? colorScheme.error : colorScheme.onSurfaceVariant,
         ),
       ),

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'app_colors.dart';
+import 'form_metrics.dart';
+
 /// The app's palette, declared token by token rather than derived from a seed.
 ///
 /// These are the Material 3 **baseline** roles — the ones the approved
@@ -123,6 +126,10 @@ abstract final class AppTheme {
   static const double menuDividerHeight = 13.0;
   static const double menuVerticalPadding = 6.0;
 
+  /// Material's popup menu default, named so the snackbar can float at the
+  /// same height as the menu whose surface it wears.
+  static const double menuElevation = 3.0;
+
   /// The widest a menu that sizes to its labels may grow — Material's own
   /// ceiling. The calendar's menus take [menuWidth] as their floor and this
   /// as their cap, because a German label such as "Ereignisse exportieren
@@ -169,7 +176,10 @@ abstract final class AppTheme {
       useMaterial3: true,
       popupMenuTheme: PopupMenuThemeData(
         color: scheme.surfaceContainerHigh,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: menuElevation,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+        ),
         menuPadding: const EdgeInsets.symmetric(vertical: menuVerticalPadding),
         // Material 3 reads `labelTextStyle`; `textStyle` is the Material 2
         // slot and is never consulted under `useMaterial3`.
@@ -180,6 +190,23 @@ abstract final class AppTheme {
             color: scheme.onSurface,
           ),
         ),
+      ),
+      // The popup menu's twin: a message floats on the same surface, so it
+      // never paints `inverseSurface`, a near-white card in the dark theme.
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: scheme.menuSurface,
+        contentTextStyle: TextStyle(
+          fontSize: menuLabelSize,
+          color: scheme.onSurface,
+        ),
+        actionTextColor: scheme.primary,
+        closeIconColor: scheme.onSurfaceVariant,
+        elevation: menuElevation,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

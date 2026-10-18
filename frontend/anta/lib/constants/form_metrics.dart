@@ -96,6 +96,12 @@ abstract final class FormMetrics {
     vertical: (rowMinHeight - labelLineHeight) / 2,
   );
   static const double captionSize = RowMetrics.secondLineFontSize;
+
+  /// The line every caption sits on (`FormCaption` and the rows' own caption
+  /// lines in `form_rows.dart`): tighter than the body's, so a title and its
+  /// caption line fit one 48 dp target together — the period nav's title over
+  /// its count.
+  static const double captionLineHeight = 18;
   static const double counterSize = 12;
 
   /// The colour dot before a row's value — what Icon & color reads back —
@@ -172,6 +178,34 @@ abstract final class FormMetrics {
   /// "September 2026" over its grid, which drops the year when ellipsized at
   /// one line at 200 %. Two, so the row stays a row and never a paragraph.
   static const int periodTitleMaxLines = 2;
+
+  /// The period nav's tappable title: its ink reaches past the text by a
+  /// chip's air on the left and hugs the drop-down glyph on the right, so
+  /// the glyph sits against the today slot rather than floating.
+  static const EdgeInsets periodNavTitlePadding = EdgeInsets.fromLTRB(
+    8,
+    2,
+    2,
+    2,
+  );
+
+  /// Around the nav's row: the chevrons' own 48 dp targets carry the air at
+  /// the sides and above, so only a sliver separates the row from what it
+  /// heads.
+  static const EdgeInsets periodNavPadding = EdgeInsets.fromLTRB(4, 0, 4, 4);
+
+  /// The nav's chevrons and Today glyph: Material's button glyph, larger than
+  /// a row's trailing 20 because they are the row's only controls.
+  static const double periodNavGlyphSize = 24;
+
+  /// Either side of a mini month grid (`AgendaMonthGrid`, the overview's and
+  /// the day list's Month mode): a sliver, so the seven columns keep nearly
+  /// the whole width (Tier 3 D6).
+  static const double miniGridSidePadding = 4;
+
+  /// Under a mini grid's marker bars, lifting them off the cell's bottom
+  /// edge.
+  static const double miniGridMarkerGap = 4;
 
   /// A caption under a whole group rather than inside a row — the no-match
   /// line of a searchable list — set in like a section label above one.

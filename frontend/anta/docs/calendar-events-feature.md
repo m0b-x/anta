@@ -7295,3 +7295,38 @@ button from it, the pencil outranking it in the slot (the day list sheet's
 rows are unchanged); `FormPickerRow` lost the long press and the hint D18
 had added for the switch; the button's id is
 `overview-row-presence-<eventId>-<yyyy-MM-dd>`, and flow 23 presses it.
+
+## Addendum (2026-10-17, later): the picked day under the hidden missed display
+
+**The ask.** The owner's phone runs the calendar's missed display on
+`hidden`. Their screenshot of the overview's Month mode showed a daily
+"Gym Presence" event with a bar on exactly its kept days — none on its
+missed days, none on any day after today — tomorrow not pickable, and no
+button on the picked day's one row: "I can't mark it present for
+tomorrow; the dedicated presence button doesn't appear." Under `hidden`
+`AgendaListView.eventDayEntries` drops a missed or assumed-absent
+occurrence before it becomes a row, so such a day had no entry, the mini
+grid's `hasEntry` left it inert, and the D31 rule above withheld the
+button from the rows that did exist. The record is
+`docs/calendar-overview-list-roadmap.md` §2.8 (D32 · A) and §3.16.
+
+**What changed.** The picked day in Month mode is the calendar day
+panel's twin — `DaySummaryPanel` lists missed occurrences dimmed but
+always, even under `hidden`, because the panel is where they are marked
+and un-marked. The picked day's rows come from a one-day scan over the
+loaded events converted with `faded` (`_pickedDayEntries`: the allowlist
+in the scan, the live query and Missed only applied after), never from
+the month's bucket, so a hidden missed or assumed-absent occurrence is
+listed faded with "Mark as present"; the read row's counts come from the
+same entries. A per-month occurrence mask, folded from the scan before
+conversion and rewritten whenever a month is resolved again, makes every
+day with any occurrence a day to pick — enabled and full-strength in the
+grid, bars or not — while a day with none stays inert and faded; under a
+live query only days with a matching entry are pickable. The button is
+offered on the picked day's rows under every display; a mark missed
+fades the row in place instead of removing it, and the bloc's bump
+re-resolves the month so the day's bar and the nav's count follow. The
+whole-month rows (still no button under `hidden`), the bars, the counts,
+Year mode, List mode and `eventDayEntries` itself are untouched. Flow
+`25_overview_presence_hidden` walks it from the seed and leaves the
+appearance on Faded.

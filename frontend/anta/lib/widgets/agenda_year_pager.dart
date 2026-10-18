@@ -23,6 +23,7 @@ class AgendaYearPager extends StatelessWidget {
   final ValueChanged<DateTime> onOpenMonth;
   final ValueChanged<int> onYearChanged;
   final EdgeInsets padding;
+  final Color tileBackground;
   final DateTime? highlightMonth;
   final int highlightToken;
 
@@ -38,6 +39,7 @@ class AgendaYearPager extends StatelessWidget {
     required this.onOpenMonth,
     required this.onYearChanged,
     required this.padding,
+    required this.tileBackground,
     this.highlightMonth,
     this.highlightToken = 0,
   });
@@ -60,6 +62,7 @@ class AgendaYearPager extends StatelessWidget {
           today: today,
           onOpenMonth: onOpenMonth,
           padding: padding,
+          tileBackground: tileBackground,
           highlightMonth: highlight != null && highlight.year == year
               ? highlight
               : null,

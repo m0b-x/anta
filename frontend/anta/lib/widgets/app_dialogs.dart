@@ -131,6 +131,23 @@ class AppDialogs {
   /// `null` if the user cancels.
   ///
   /// Pressing Enter (onSubmitted) also confirms.
+  ///
+  /// [selectAll] opens with [initialValue] selected whole, so a suggested
+  /// name is replaced by typing and kept by Save — a starting point, never
+  /// something to delete first. Without [allowEmpty] confirm is disabled, and
+  /// Enter does nothing, while the trimmed text is empty.
+  ///
+  /// [warningFor] is asked on every keystroke for a line under the field in
+  /// the error colour, as `FormTitleRow.warning` warns: a remark that never
+  /// blocks confirm — a saved list's duplicate name is confusing, not
+  /// corrupting, and blocking it would break "rename A, then reuse A's old
+  /// name". It is drawn in the counter's own style, so beside a counter it
+  /// shares the counter's line and the dialog does not move under the finger
+  /// as it appears; the caption's 13 px on an 18 px line grew the row.
+  ///
+  /// [fieldIdentifier] and [confirmIdentifier] are `SemanticsIds` for a
+  /// device script; the confirm button's falls back to the generic
+  /// `sheet-confirm`.
   static Future<String?> textInput(
     BuildContext context, {
     required String title,
@@ -142,26 +159,56 @@ class AppDialogs {
     int? maxLength,
     List<TextInputFormatter>? inputFormatters,
     TextInputType? keyboardType,
+    bool selectAll = false,
+    bool allowEmpty = true,
+    String? Function(String text)? warningFor,
+    String? fieldIdentifier,
+    String? confirmIdentifier,
   }) async {
     final l10n = AppLocalizations.of(context)!;
     final controller = TextEditingController(text: initialValue);
+    if (selectAll) {
+      controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: initialValue.length,
+      );
+    }
+    bool canConfirm() => allowEmpty || controller.text.trim().isNotEmpty;
+    void confirm(BuildContext ctx) {
+      if (canConfirm()) AppNavigator.pop(ctx, controller.text);
+    }
 
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: maxLength,
-          keyboardType: keyboardType,
-          inputFormatters: inputFormatters,
-          decoration: InputDecoration(
-            hintText: hintText,
-            labelText: labelText,
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (val) => AppNavigator.pop(ctx, val),
+        content: ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) {
+            final warning = warningFor?.call(controller.text);
+            final field = TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: maxLength,
+              keyboardType: keyboardType,
+              inputFormatters: inputFormatters,
+              decoration: InputDecoration(
+                hintText: hintText,
+                labelText: labelText,
+                border: const OutlineInputBorder(),
+                // The helper line's default is the counter's `bodySmall`;
+                // only the colour changes.
+                helperText: warning,
+                helperStyle: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+              onSubmitted: (_) => confirm(ctx),
+            );
+            return fieldIdentifier == null
+                ? field
+                : AutomationId(identifier: fieldIdentifier, child: field);
+          },
         ),
         actions: [
           AutomationId(
@@ -172,10 +219,13 @@ class AppDialogs {
             ),
           ),
           AutomationId(
-            identifier: SemanticsIds.sheetConfirm,
-            child: FilledButton(
-              onPressed: () => AppNavigator.pop(ctx, controller.text),
-              child: Text(confirmText ?? l10n.save),
+            identifier: confirmIdentifier ?? SemanticsIds.sheetConfirm,
+            child: ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) => FilledButton(
+                onPressed: canConfirm() ? () => confirm(ctx) : null,
+                child: Text(confirmText ?? l10n.save),
+              ),
             ),
           ),
         ],

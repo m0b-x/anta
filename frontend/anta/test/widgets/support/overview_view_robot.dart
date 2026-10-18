@@ -118,6 +118,86 @@ class OverviewViewRobot {
 
   bool get dialogOpen => find.byType(AlertDialog).evaluate().isNotEmpty;
 
+  /// What the ✕ says to a screen reader.
+  String get closeTooltip => tester
+      .getSemantics(_byId(SemanticsIds.overviewViewsClose))
+      .getSemanticsData()
+      .tooltip;
+
+  /// Whether the header draws its hairline: the body has scrolled under it.
+  bool get headerScrolled => tester
+      .widget<FormSheetHeader>(
+        find.descendant(of: _sheet, matching: find.byType(FormSheetHeader)),
+      )
+      .scrolled!
+      .value;
+
+  /// Whether the body can scroll at all.
+  bool get bodyScrolls => _bodyPosition.maxScrollExtent > 0;
+
+  ScrollPosition get _bodyPosition => tester
+      .state<ScrollableState>(
+        find.descendant(of: _sheet, matching: find.byType(Scrollable)).first,
+      )
+      .position;
+
+  /// Scrolls the body to its end, under the header.
+  Future<void> scrollBodyToEnd() async {
+    _bodyPosition.jumpTo(_bodyPosition.maxScrollExtent);
+    await tester.pumpAndSettle();
+  }
+
+  // --- The name dialog ---------------------------------------------------
+
+  Finder get _nameField => find.descendant(
+    of: _byId(SemanticsIds.filterPresetName),
+    matching: find.byType(TextField),
+  );
+
+  /// The name field's text and selection, while the dialog is up.
+  TextEditingValue get nameValue =>
+      tester.widget<TextField>(_nameField).controller!.value;
+
+  int? get nameMaxLength => tester.widget<TextField>(_nameField).maxLength;
+
+  /// The field's helper line — where the warning is drawn — as text and
+  /// resolved colour; null while there is none.
+  ({String text, Color? color})? get nameWarning {
+    final helper = tester.widget<TextField>(_nameField).decoration?.helperText;
+    if (helper == null) return null;
+    final line = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.text(helper),
+    );
+    final style = DefaultTextStyle.of(
+      tester.element(line),
+    ).style.merge(tester.widget<Text>(line).style);
+    return (text: helper, color: style.color);
+  }
+
+  bool get nameSaveEnabled =>
+      tester
+          .widget<FilledButton>(
+            find.descendant(
+              of: _byId(SemanticsIds.filterPresetNameSave),
+              matching: find.byType(FilledButton),
+            ),
+          )
+          .onPressed !=
+      null;
+
+  /// Taps the save row and leaves the name dialog up.
+  Future<void> openSaveDialog() => _tap(_byId(SemanticsIds.overviewViewsSave));
+
+  /// Types [name] into the open dialog's field without saving.
+  Future<void> typeName(String name) async {
+    await tester.enterText(_nameField, name);
+    await tester.pump();
+  }
+
+  /// Saves the open dialog through its id.
+  Future<void> confirmName() => _tap(_byId(SemanticsIds.filterPresetNameSave));
+
   /// Where the ✕ is painted and where its semantics node says it is, in
   /// logical pixels — the pair the QA harness's tap by id depends on.
   (Rect painted, Rect reported) get closeRects {

@@ -189,11 +189,10 @@ class _ActionContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // SnackBar uses inverse surface colors by default — match the action
-    // text to the inverse primary so it reads as a tappable accent on
-    // the dark snackbar background.
+    // The bar wears the popup menu's surface, so the action is the accent a
+    // menu would use on it: `primary` reads on `menuSurface` in both themes.
     final actionColor =
-        theme.snackBarTheme.actionTextColor ?? theme.colorScheme.inversePrimary;
+        theme.snackBarTheme.actionTextColor ?? theme.colorScheme.primary;
 
     return Row(
       children: [

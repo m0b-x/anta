@@ -27,6 +27,33 @@ abstract final class OverviewListMetrics {
   /// The air under a year's last row of tiles, before the next year's header.
   static const double yearSectionGap = RowMetrics.groupInset;
 
+  /// The year tile's numbers (`YearMonthTile`) live here though the day list
+  /// and the Dates sheet's year view draw the same tile: the overview's Year
+  /// mode is where they were set, and eight numbers do not earn a file of
+  /// their own.
+  ///
+  /// A year tile's widest and its height (`YearMonthTile.gridDelegate`):
+  /// three across a phone on the group inset, tall enough for the label line
+  /// and a six-week matrix.
+  static const double yearTileMaxWidth = 132;
+  static const double yearTileHeight = 116;
+
+  /// Between tiles, both ways — half the group inset, so a year reads as one
+  /// block under its header.
+  static const double yearTileSpacing = 8;
+
+  /// The tile's corner, its inner padding and the gap between its label line
+  /// and its matrix: a calendar idiom kept as drawn (Tier 3), named here.
+  static const double yearTileRadius = 12;
+  static const double yearTilePadding = 10;
+  static const double yearTileMatrixGap = 8;
+
+  /// The tile's month label (the theme's `labelLarge`) and its count (the
+  /// theme's `titleMedium` at w700): the sizes those styles draw at, named so
+  /// the tile keeps its look whatever the theme's scale does.
+  static const double yearTileLabelSize = 14;
+  static const double yearTileCountSize = 16;
+
   /// Months resolved before the list's first frame: two years land at once,
   /// which covers every year period and the rolling presets.
   static const int syncMonths = 24;

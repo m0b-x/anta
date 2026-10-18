@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -124,6 +125,54 @@ void main() {
     }
     expect((previous, next, today, jumps), (1, 1, 1, 1));
   });
+
+  testWidgets('the title is the header\'s 17 / 500 and the count the caption '
+      'role, 13 / 400 in onSurfaceVariant (D33)', (tester) async {
+    await pumpNav(
+      tester,
+      title: 'October 2026',
+      month: DateTime.utc(2026, 10, 1),
+      subtitle: '12 entries',
+      onTitleTap: (_) {},
+    );
+    final title = tester.widget<Text>(find.text('October 2026')).style!;
+    expect(title.fontSize, FormMetrics.headerTitleSize);
+    expect(title.fontWeight, FontWeight.w500);
+    final count = tester.widget<Text>(find.text('12 entries')).style!;
+    final colorScheme = Theme.of(
+      tester.element(find.text('12 entries')),
+    ).colorScheme;
+    expect(count.fontSize, FormMetrics.captionSize);
+    expect(count.fontWeight, FontWeight.w400);
+    expect(count.color, colorScheme.onSurfaceVariant);
+    // The two lines still fit the 48 dp slot: the row stays one height.
+    expect(rowHeight(tester), AgendaPeriodNav.slot + 4);
+  });
+
+  for (final platform in const [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('on ${platform.name} the title control '
+        '${platform == TargetPlatform.android ? 'speaks its tooltip as a hint' : 'carries no hint'}'
+        ' (D33)', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        await pumpNav(
+          tester,
+          title: 'October 2026',
+          month: DateTime.utc(2026, 10, 1),
+          onTitleTap: (_) {},
+          withIds: true,
+        );
+        final title = dataOf(tester, titleId);
+        expect(title.flagsCollection.isButton, isTrue);
+        expect(
+          title.hint,
+          platform == TargetPlatform.android ? 'Jump to a month' : isEmpty,
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 
   testWidgets('a title tap hands over the title\'s own context, so a menu '
       'can anchor to it', (tester) async {

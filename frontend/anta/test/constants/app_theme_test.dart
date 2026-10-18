@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/form_metrics.dart';
 
 /// The palette is the one thing in the app that is *declared* rather than
 /// derived, and the reason is that deriving it does not work: every
@@ -127,18 +128,55 @@ void main() {
       expect(AppTheme.dark().brightness, Brightness.dark);
     });
 
-    test('put menus on surfaceContainerHigh at radius 12', () {
+    test('put menus on surfaceContainerHigh at the menu radius', () {
       for (final (theme, scheme) in [
         (AppTheme.light(), AppTheme.lightScheme),
         (AppTheme.dark(), AppTheme.darkScheme),
       ]) {
         expect(theme.popupMenuTheme.color, scheme.surfaceContainerHigh);
+        expect(theme.popupMenuTheme.elevation, AppTheme.menuElevation);
         final shape = theme.popupMenuTheme.shape;
         expect(shape, isA<RoundedRectangleBorder>());
         expect(
           (shape! as RoundedRectangleBorder).borderRadius,
-          BorderRadius.circular(12),
+          BorderRadius.circular(FormMetrics.menuRadius),
         );
+      }
+    });
+
+    // Both bars painted `inverseSurface` until 2026-10-17 — `#E6E0E9`, a
+    // near-white card, in the dark theme. A message wears the menu's surface.
+    test('put snackbars on the popup menu surface', () {
+      for (final (theme, scheme) in [
+        (AppTheme.light(), AppTheme.lightScheme),
+        (AppTheme.dark(), AppTheme.darkScheme),
+      ]) {
+        final bar = theme.snackBarTheme;
+        final reason = '${scheme.brightness}';
+        expect(
+          bar.backgroundColor,
+          scheme.surfaceContainerHigh,
+          reason: reason,
+        );
+        expect(bar.contentTextStyle?.color, scheme.onSurface, reason: reason);
+        expect(
+          bar.contentTextStyle?.fontSize,
+          AppTheme.menuLabelSize,
+          reason: reason,
+        );
+        expect(bar.actionTextColor, scheme.primary, reason: reason);
+        expect(bar.closeIconColor, scheme.onSurfaceVariant, reason: reason);
+        expect(bar.elevation, AppTheme.menuElevation, reason: reason);
+        expect(bar.behavior, SnackBarBehavior.floating, reason: reason);
+        final shape = bar.shape;
+        expect(shape, isA<RoundedRectangleBorder>(), reason: reason);
+        final rounded = shape! as RoundedRectangleBorder;
+        expect(
+          rounded.borderRadius,
+          BorderRadius.circular(FormMetrics.menuRadius),
+          reason: reason,
+        );
+        expect(rounded.side.color, scheme.outlineVariant, reason: reason);
       }
     });
 

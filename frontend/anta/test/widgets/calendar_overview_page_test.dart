@@ -15,6 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/constants/app_bar_metrics.dart';
+import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/calendar_bounds.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_colors.dart';
@@ -584,6 +586,72 @@ void main() {
         findsNWidgets(2),
       );
       expect(find.byType(PopupMenuDivider), findsNothing);
+    });
+
+    testWidgets('the bar is AppBarMetrics on the page ground: 48 dp, 22 px '
+        'glyphs, no tint (D33)', (tester) async {
+      await pumpPage(tester);
+      final bar = find.byType(AppBar);
+      final colorScheme = Theme.of(tester.element(bar)).colorScheme;
+      final appBar = tester.widget<AppBar>(bar);
+      expect(appBar.backgroundColor, colorScheme.pageGround);
+      expect(appBar.surfaceTintColor, Colors.transparent);
+      // The test draws no status bar: the bar is its toolbar.
+      expect(tester.getSize(bar).height, AppBarMetrics.toolbarHeight);
+      expect(appBar.iconTheme?.size, AppBarMetrics.glyphSize);
+      for (final icon in const [
+        Icons.tune_rounded,
+        Icons.bookmarks_outlined,
+        Icons.more_vert,
+      ]) {
+        expect(
+          tester.getSize(find.descendant(of: bar, matching: find.byIcon(icon))),
+          const Size.square(AppBarMetrics.glyphSize),
+          reason: '$icon',
+        );
+      }
+    });
+
+    testWidgets('the chip row\'s search button is a 48 dp target with a '
+        '20 px glyph, selected under a query (D33)', (tester) async {
+      await pumpPage(tester);
+      final robot = OverviewRobot(tester);
+      final button = find.descendant(
+        of: id(SemanticsIds.overviewSearchOpen),
+        matching: find.byType(IconButton),
+      );
+      expect(
+        tester.getSize(button),
+        const Size.square(FormMetrics.trailingButtonSize),
+      );
+      expect(
+        tester.getSize(
+          find.descendant(
+            of: button,
+            matching: find.byIcon(Icons.search_rounded),
+          ),
+        ),
+        const Size.square(FormMetrics.trailingIconSize),
+      );
+      expect(tester.widget<IconButton>(button).isSelected, isFalse);
+      await robot.typeQuery('leg');
+      expect(tester.widget<IconButton>(button).isSelected, isTrue);
+      expect(
+        tester.getSize(button),
+        const Size.square(FormMetrics.trailingButtonSize),
+      );
+    });
+
+    testWidgets('the year tiles sit on the page\'s group role (D33)', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final robot = OverviewRobot(tester);
+      final tiles = robot.yearTiles(year);
+      final colorScheme = Theme.of(tester.element(tiles.first)).colorScheme;
+      for (final tile in tester.widgetList<YearMonthTile>(tiles)) {
+        expect(tile.background, colorScheme.rowGroup);
+      }
     });
 
     testWidgets('the mode chips are on the page in every mode, Year · Month · '
@@ -1338,8 +1406,10 @@ void main() {
         expect(robot.presenceButton(rowingJanuary), findsOneWidget);
       });
 
-      testWidgets('missed entries hidden take the buttons away: a mark would '
-          'remove its own row (review 2)', (tester) async {
+      testWidgets('missed entries hidden take the buttons away from the '
+          'list\'s rows: a mark would remove its own row (review 2)', (
+        tester,
+      ) async {
         final (robot, events) = await openRowing(tester);
         expect(robot.presenceButton(rowingJanuary), findsOneWidget);
         await robot.cover();
@@ -1352,6 +1422,257 @@ void main() {
         expect(robot.shows('Rowing'), isTrue);
         expect(anyPresenceButton, findsNothing);
         expect(events.whereType<SetOccurrencePresence>(), isEmpty);
+      });
+
+      /// D32 · A: under the hidden display month mode's picked day is the
+      /// day panel's twin — its missed and assumed-absent occurrences listed
+      /// faded, with the button — while the whole month keeps dropping them.
+      group('the picked day under the hidden display (D32)', () {
+        final first = january;
+        final third = DateTime.utc(year, 1, 3);
+        final tenth = DateTime.utc(year, 1, 10);
+
+        /// A daily attendance series assumed absent, Jan 1–5, Jan 1 marked
+        /// present — the owner's gym event: under `hidden` only the kept
+        /// day has an entry, the rest are dropped before they are rows.
+        final gym = CalendarEvent(
+          id: 'a1',
+          title: 'Workout',
+          categoryId: 'gym',
+          startDate: january,
+          endDate: DateTime.utc(year, 1, 5),
+          rule: const DailyRecurrence(),
+          tracksPresence: true,
+          assumeAbsent: true,
+        );
+
+        /// Beside the kept day, so a query has something to leave out.
+        final stretchFirst = CalendarEvent(
+          id: 'a2',
+          title: 'Stretch',
+          categoryId: 'mobility',
+          startDate: january,
+          rule: const OneTimeRecurrence(),
+        );
+
+        void markGym(Map<DateTime, PresenceStatus> marks) =>
+            EventPresence.updateCache(byEvent: {'a1': marks});
+
+        void bumpPresence() => emit(
+          loaded().copyWith(presenceRevision: loaded().presenceRevision + 1),
+        );
+
+        /// Month mode on January under `hidden`, the bloc's events recorded
+        /// from there.
+        Future<(OverviewRobot, List<Object?>)> openHiddenJanuary(
+          WidgetTester tester, {
+          List<CalendarEvent>? events,
+          Map<DateTime, PresenceStatus>? marks,
+        }) async {
+          addTearDown(EventPresence.resetCache);
+          markGym(marks ?? {first: PresenceStatus.present});
+          emitEvents(events ?? [gym]);
+          final settings = await SettingsService.getInstance();
+          await settings.setCalendarMissedDisplay(CalendarMissedDisplay.hidden);
+          final robot = OverviewRobot(tester);
+          await robot.open(
+            bloc: bloc,
+            importExport: importExport,
+            mode: AgendaDayListMode.month,
+            surface: const Size(412, 915),
+          );
+          await robot.pageMonthTo(january);
+          return (robot, recordBlocEvents().events);
+        }
+
+        testWidgets('a hidden assumed-absent day is a day to pick: its read '
+            'row, its row faded with "Mark as present"; a press marks it '
+            'present and, once the bloc says so, the row is at full strength '
+            'and the day has its bar', (tester) async {
+          final (robot, events) = await openHiddenJanuary(tester);
+          final presence = SemanticsIds.overviewRowPresence('a1', third);
+          expect(robot.gridDayHasBars(third), isFalse);
+          expect(robot.gridDayPickable(third), isTrue);
+
+          await robot.tapGridDay(third);
+
+          expect(robot.dayPicked, isTrue);
+          expect(find.text(dayLabel(third)), findsOneWidget);
+          expect(find.text(count(0, missed: 1)), findsOneWidget);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(
+            robot.monthEntryOpacity('Workout'),
+            CalendarColors.missedEventAlpha,
+          );
+          expect(robot.presenceTooltip(presence), en.eventMarkPresent);
+
+          await robot.pressPresence(presence);
+
+          expect(robot.detailSheet, isNull);
+          final present = events.whereType<SetOccurrencePresence>().single;
+          expect(
+            (present.eventId, present.day, present.status),
+            ('a1', third, PresenceStatus.present),
+          );
+          markGym({
+            first: PresenceStatus.present,
+            third: PresenceStatus.present,
+          });
+          bumpPresence();
+          await tester.pumpAndSettle();
+
+          expect(robot.dayPicked, isTrue);
+          expect(robot.monthEntryOpacity('Workout'), isNull);
+          expect(find.text(count(1)), findsOneWidget);
+          expect(robot.presenceTooltip(presence), en.eventMarkMissed);
+          expect(robot.gridDayHasBars(third), isTrue);
+          expect(robot.navCount, count(2));
+        });
+
+        testWidgets('a day with no occurrence stays inert: drawn faded, a tap '
+            'picks nothing', (tester) async {
+          final (robot, _) = await openHiddenJanuary(tester);
+          expect(robot.gridDayPickable(tenth), isFalse);
+
+          await robot.tapGridDay(tenth);
+
+          expect(robot.dayPicked, isFalse);
+          expect(find.text(dayLabel(tenth)), findsNothing);
+        });
+
+        testWidgets('the whole month\'s rows keep no button and list no '
+            'hidden day', (tester) async {
+          final (robot, _) = await openHiddenJanuary(tester);
+
+          expect(robot.dayPicked, isFalse);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(find.text(dayLabel(third)), findsNothing);
+          expect(anyPresenceButton, findsNothing);
+          expect(robot.navCount, count(1));
+        });
+
+        testWidgets('a mark missed on the picked day fades its row and keeps '
+            'it; the day stays a day to pick, its bar gone', (tester) async {
+          final (robot, events) = await openHiddenJanuary(tester);
+          final presence = SemanticsIds.overviewRowPresence('a1', first);
+          await robot.tapGridDay(first);
+          expect(robot.monthEntryOpacity('Workout'), isNull);
+          expect(robot.presenceTooltip(presence), en.eventMarkMissed);
+
+          await robot.pressPresence(presence);
+
+          final missed = events.whereType<SetOccurrencePresence>().single;
+          expect(
+            (missed.eventId, missed.day, missed.status),
+            ('a1', first, PresenceStatus.missed),
+          );
+          markGym({first: PresenceStatus.missed});
+          bumpPresence();
+          await tester.pumpAndSettle();
+
+          expect(robot.dayPicked, isTrue);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(
+            robot.monthEntryOpacity('Workout'),
+            CalendarColors.missedEventAlpha,
+          );
+          expect(find.text(count(0, missed: 1)), findsOneWidget);
+          expect(robot.presenceTooltip(presence), en.eventMarkPresent);
+          expect(robot.gridDayHasBars(first), isFalse);
+          expect(robot.gridDayPickable(first), isTrue);
+          expect(robot.navCount, count(0));
+        });
+
+        testWidgets('under a live query the picked day lists only what '
+            'matches, and a day only hidden occurrences fill stays inert', (
+          tester,
+        ) async {
+          final (robot, _) = await openHiddenJanuary(
+            tester,
+            events: [gym, stretchFirst],
+          );
+          await robot.tapGridDay(first);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(find.text('Stretch'), findsOneWidget);
+
+          // Lower case, so the field's own text is not the row's title.
+          await robot.typeQuery('workout');
+          await tester.pumpAndSettle();
+
+          expect(robot.dayPicked, isTrue);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(find.text('Stretch'), findsNothing);
+          expect(robot.gridDayPickable(third), isFalse);
+        });
+
+        testWidgets('a hidden-only picked day under a query that matches it '
+            'keeps its cell pickable, as its rows list the match', (
+          tester,
+        ) async {
+          final (robot, _) = await openHiddenJanuary(
+            tester,
+            events: [gym, stretchFirst],
+          );
+          await robot.tapGridDay(third);
+
+          await robot.typeQuery('workout');
+          await tester.pumpAndSettle();
+
+          expect(robot.dayPicked, isTrue);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(
+            robot.monthEntryOpacity('Workout'),
+            CalendarColors.missedEventAlpha,
+          );
+          expect(robot.gridDayPickable(third), isTrue);
+        });
+
+        testWidgets('a picked day a query has emptied still lets go through '
+            'its ✕, back to the whole month', (tester) async {
+          final (robot, _) = await openHiddenJanuary(
+            tester,
+            events: [gym, stretchFirst],
+          );
+          await robot.tapGridDay(third);
+          expect(find.text('Workout'), findsOneWidget);
+
+          await robot.typeQuery('stretch');
+          await tester.pumpAndSettle();
+          expect(robot.dayPicked, isTrue);
+          expect(find.text('Workout'), findsNothing);
+          expect(find.text('Stretch'), findsNothing);
+
+          await robot.releaseDay();
+
+          expect(robot.dayPicked, isFalse);
+          expect(find.text(dayLabel(first)), findsOneWidget);
+          expect(find.text('Stretch'), findsOneWidget);
+        });
+
+        testWidgets('under Missed only a hidden picked day lists its missed '
+            'entries alone, its read row counting none kept', (tester) async {
+          // Jan 1 unmarked: Workout assumed absent beside the kept Stretch.
+          final (robot, _) = await openHiddenJanuary(
+            tester,
+            events: [gym, stretchFirst],
+            marks: const {},
+          );
+          await robot.tapGridDay(first);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(find.text('Stretch'), findsOneWidget);
+          expect(find.text(count(1, missed: 1)), findsOneWidget);
+
+          await robot.setMissedOnly(true);
+
+          expect(robot.dayPicked, isTrue);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(find.text('Stretch'), findsNothing);
+          expect(
+            robot.monthEntryOpacity('Workout'),
+            CalendarColors.missedEventAlpha,
+          );
+          expect(find.text(count(0, missed: 1)), findsOneWidget);
+        });
       });
 
       testWidgets('the tune button reads selected for restrictions alone', (
@@ -1959,17 +2280,44 @@ void main() {
                 .ancestor(of: items.first, matching: find.byType(Material))
                 .first,
           );
-          // Right-aligned with the title; a short title ("2026") leaves the
-          // test font's widened menu no room on its left, and the route
-          // clamps it to its 8 dp screen padding instead.
-          final clamped = menu.width + 8;
+          // Centred under the title (D33), never pushed to the screen's left
+          // edge by a row's right-alignment rule. The menu's floor is what is
+          // centred: a phone's font fits the presets in it, while the test
+          // font's square glyphs widen the menu past it, and the extra width
+          // grows from the centred floor's left edge.
+          expect(menu.left, greaterThanOrEqualTo(RowMetrics.groupInset));
           expect(
-            menu.right,
-            closeTo(title.right > clamped ? title.right : clamped, 1),
-            reason: 'formMenuPosition right-aligns the menu with its anchor',
+            menu.left,
+            closeTo(title.center.dx - FormMetrics.menuWidth / 2, 2),
+            reason: 'FormMenuAlignment.center centres the floor on its anchor',
+          );
+          expect(
+            menu.center.dx,
+            closeTo(
+              title.center.dx,
+              (menu.width - FormMetrics.menuWidth) / 2 + 2,
+            ),
           );
         });
       }
+
+      testWidgets('on a 360 dp phone the Period menu stays inside the '
+          'screen\'s margins (D33)', (tester) async {
+        final robot = OverviewRobot(tester);
+        await robot.open(
+          bloc: bloc,
+          importExport: importExport,
+          mode: AgendaDayListMode.list,
+          surface: const Size(360, 780),
+        );
+        await robot.openPeriodMenu();
+        final items = find.byType(FormMenuItemRow);
+        final menu = tester.getRect(
+          find.ancestor(of: items.first, matching: find.byType(Material)).first,
+        );
+        expect(menu.left, greaterThanOrEqualTo(RowMetrics.groupInset));
+        expect(menu.right, lessThanOrEqualTo(360 - RowMetrics.groupInset));
+      });
 
       testWidgets(
         'a preset picked from the title in Year mode leaves the nav\'s '
@@ -3472,8 +3820,9 @@ void main() {
         expect(robot.optionsSelected, isTrue, reason: mode.name);
       }
 
-      await robot.setMissedOnly(true);
+      // Missed only is inert in Year mode (D33), so it is set from the list.
       await robot.selectMode(AgendaDayListMode.list);
+      await robot.setMissedOnly(true);
       expect(robot.optionsBadge, '2');
     });
 
@@ -3639,6 +3988,14 @@ void main() {
       await robot.openOptions();
       expect(robot.options.enabled(SemanticsIds.overviewOrder), isFalse);
       expect(robot.options.enabled(SemanticsIds.overviewRows), isFalse);
+      // The page opens in Year mode, whose tiles Missed only does not
+      // change (D33); Month mode keeps it live.
+      expect(robot.options.enabled(SemanticsIds.overviewMissedOnly), isFalse);
+      await robot.options.close();
+
+      await robot.selectMode(AgendaDayListMode.month);
+      await robot.openOptions();
+      expect(robot.options.enabled(SemanticsIds.overviewOrder), isFalse);
       expect(robot.options.enabled(SemanticsIds.overviewMissedOnly), isTrue);
       await robot.options.close();
 

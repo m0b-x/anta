@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../constants/calendar_weekend.dart';
+import '../constants/form_metrics.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/day_bar.dart';
@@ -26,6 +27,11 @@ class AgendaMonthGrid extends StatelessWidget {
 
   final DateTime? selectedDay;
   final CalendarAppearance appearance;
+
+  /// Whether [day] is a day to pick: enabled and drawn full-strength. Not
+  /// always a day with a bar — the overview's month mode also answers for a
+  /// day whose occurrences the hidden missed display dropped, since its
+  /// picked day lists them to be marked.
   final bool Function(DateTime day) hasEntry;
   final List<DayBar>? Function(DateTime day) barsFor;
 
@@ -68,7 +74,9 @@ class AgendaMonthGrid extends StatelessWidget {
     final theme = Theme.of(context);
     final accent = appearance.accentOr(theme.colorScheme.primary);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: FormMetrics.miniGridSidePadding,
+      ),
       child: TableCalendar<void>(
         firstDay: firstDay,
         lastDay: lastDay,
@@ -135,7 +143,7 @@ class AgendaMonthGrid extends StatelessWidget {
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.only(bottom: FormMetrics.miniGridMarkerGap),
         child: CalendarDayBars(
           bars: bars,
           maxBars: maxBarsFor(appearance),

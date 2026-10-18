@@ -2,6 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/app_theme.dart';
+import '../constants/form_metrics.dart';
+import '../l10n/app_localizations.dart';
+
 /// A message raised in the navigator's overlay rather than in a `Scaffold`:
 /// the one way a confirmation shows above a modal sheet.
 ///
@@ -16,6 +21,9 @@ import 'package:flutter/material.dart';
 /// up when the tree goes away leaves no timer behind — a widget test that
 /// ends on a fresh confirmation would otherwise fail on it — and a message
 /// raised over an earlier one cannot be cut short by the earlier one's timer.
+///
+/// Its look is `ThemeData.snackBarTheme`, the one the Scaffold's bars inherit,
+/// so a message reads the same whichever road it took.
 class OverlaySnackbar {
   static _ShownMessage? _current;
 
@@ -100,7 +108,23 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final barTheme = theme.snackBarTheme;
+    final shape = barTheme.shape;
+    final borderRadius =
+        shape is RoundedRectangleBorder && shape.borderRadius is BorderRadius
+        ? shape.borderRadius as BorderRadius
+        : BorderRadius.circular(FormMetrics.menuRadius);
+    final side = shape is RoundedRectangleBorder
+        ? shape.side
+        : BorderSide(color: colorScheme.outlineVariant);
+    final textStyle =
+        barTheme.contentTextStyle ??
+        TextStyle(
+          color: colorScheme.onSurface,
+          fontSize: AppTheme.menuLabelSize,
+        );
     return Positioned(
       bottom: MediaQuery.viewInsetsOf(context).bottom + widget.bottomOffset,
       left: 16,
@@ -116,12 +140,17 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
         // under its top edge on the device pass, dead for as long as it
         // showed. Hence a transparency over a [PhysicalModel]: a coloured
         // [Material] absorbs every hit inside its box.
+        //
+        // The hairline is the transparency's shape: it paints on a foreground
+        // layer that takes no hit, where a `DecoratedBox` would hit-test its
+        // whole box and absorb the strip again.
         child: Material(
           type: MaterialType.transparency,
+          shape: RoundedRectangleBorder(borderRadius: borderRadius, side: side),
           child: PhysicalModel(
-            elevation: 6,
-            borderRadius: BorderRadius.circular(4),
-            color: colorScheme.inverseSurface,
+            elevation: barTheme.elevation ?? AppTheme.menuElevation,
+            borderRadius: borderRadius,
+            color: barTheme.backgroundColor ?? colorScheme.menuSurface,
             child: Padding(
               padding: const EdgeInsets.only(
                 left: 16,
@@ -131,13 +160,12 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
               ),
               child: Row(
                 children: [
+                  // A replace, as `SnackBar` does with its content: a merge
+                  // into the Material's bodyMedium drew a taller line.
                   Expanded(
-                    child: Text(
-                      widget.message,
-                      style: TextStyle(
-                        color: colorScheme.onInverseSurface,
-                        fontSize: 14,
-                      ),
+                    child: DefaultTextStyle(
+                      style: textStyle,
+                      child: Text(widget.message),
                     ),
                   ),
                   // Its own ink layer, painted above the model's colour.
@@ -146,9 +174,12 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
                     child: IconButton(
                       icon: Icon(
                         Icons.close,
-                        color: colorScheme.onInverseSurface,
+                        color:
+                            barTheme.closeIconColor ??
+                            colorScheme.onSurfaceVariant,
                         size: 20,
                       ),
+                      tooltip: AppLocalizations.of(context)!.close,
                       onPressed: widget.onDismiss,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(

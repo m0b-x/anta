@@ -328,6 +328,9 @@ class AgendaYearScroll extends StatefulWidget {
   /// extent.
   final EdgeInsets padding;
 
+  /// The tiles' ground, one tone off the page's (`AgendaYearTileBuilder`).
+  final Color tileBackground;
+
   /// The scrubber lane along the right edge (D29), shown while the span
   /// holds two or more years; null shows none. The scroll owns the lane
   /// because the lane drives its own scroll controller.
@@ -344,6 +347,7 @@ class AgendaYearScroll extends StatefulWidget {
     required this.today,
     required this.onOpenMonth,
     required this.padding,
+    required this.tileBackground,
     this.scrubber,
   });
 
@@ -683,6 +687,7 @@ class _AgendaYearScrollState extends State<AgendaYearScroll> {
       l10n.localeName,
       colorScheme,
       widget.tiles,
+      widget.tileBackground,
     );
     final cached = _sections;
     if (cached != null && inputs == _sectionsInputs) return cached;
@@ -694,6 +699,7 @@ class _AgendaYearScrollState extends State<AgendaYearScroll> {
       appearance: widget.appearance,
       today: widget.today,
       onOpenMonth: (month) => widget.onOpenMonth(month),
+      background: widget.tileBackground,
     );
     // The delegate's own repaint boundary is the section's, and a section
     // listens for its own year: a year resolved rebuilds and repaints its

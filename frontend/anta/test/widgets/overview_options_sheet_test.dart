@@ -6,6 +6,7 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 import 'support/layout_errors.dart';
 import 'support/overview_options_robot.dart';
@@ -127,6 +128,21 @@ void main() {
 
     await robot.toggleMissedOnly();
     expect(writes, [const OverviewListOptions(missedOnly: true)]);
+  });
+
+  testWidgets('in Year mode Missed only is disabled too, never hidden: the '
+      'tiles do not change with it (D33)', (tester) async {
+    final robot = OverviewOptionsRobot(tester);
+    await robot.show(mode: AgendaDayListMode.year, onChanged: writes.add);
+
+    expect(robot.enabled(SemanticsIds.overviewOrder), isFalse);
+    expect(robot.enabled(SemanticsIds.overviewRows), isFalse);
+    expect(robot.enabled(SemanticsIds.overviewMissedOnly), isFalse);
+    expect(robot.enabled(SemanticsIds.overviewCategories), isTrue);
+
+    await robot.tapRow(SemanticsIds.overviewMissedOnly);
+    expect(robot.missedOnly, isFalse);
+    expect(writes, isEmpty);
   });
 
   testWidgets('German at 200 % on a 360 × 780 phone: no overflow, every label '
@@ -261,11 +277,13 @@ void main() {
       expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
     });
 
-    testWidgets('the sheet keeps its height when a pick turns All into two '
-        'names and "+N more": the row is single-line', (tester) async {
+    testWidgets('a pick that turns All into two names and "+N more" takes '
+        'the value\'s second line, never an ellipsis, under the semantics '
+        'refresh (D33)', (tester) async {
       final robot = OverviewOptionsRobot(tester);
       await robot.show(onChanged: writes.add, surface: const Size(360, 780));
       expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+      expect(find.byType(FormSheetSemanticsRefresh), findsOneWidget);
       final before = robot.sheetRect.height;
 
       await robot.pickCategories({'c0', 'c1', 'c3'});
@@ -274,7 +292,14 @@ void main() {
         robot.categoriesValue,
         'Cat0, Cat1 ${robot.l10n.categoriesMore(1)}',
       );
-      expect(robot.sheetRect.height, before);
+      final value = robot.categoriesValueParagraph;
+      expect(value.maxLines, FormMetrics.valueMaxLines);
+      expect(value.didExceedMaxLines, isFalse);
+      expect(
+        robot.sheetRect.height,
+        greaterThan(before),
+        reason: 'the read-back wraps to its second line at 360 dp',
+      );
     });
 
     testWidgets('an archived category in the allowlist is still read back', (

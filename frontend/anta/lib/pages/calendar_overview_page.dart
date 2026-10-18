@@ -13,6 +13,7 @@ import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
 import '../controllers/calendar_export_controller.dart';
 import '../controllers/event_sheets_flow.dart';
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
@@ -314,6 +315,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// them all again.
   List<AgendaDayListEntry> _listedEntries = [];
   AgendaDayListMonth? _monthBucket;
+
+  /// The picked day's entries before Missed only narrows them
+  /// ([_pickedDayEntries]), and its read row's counts folded from them —
+  /// kept 0 under Missed only — so the frame counts nothing.
+  List<AgendaDayListEntry> _pickedEntries = const [];
+  int _pickedKept = 0;
+  int _pickedMissed = 0;
   int _yearKept = 0;
   int _yearMissed = 0;
 
@@ -331,6 +339,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// marks only). Lives as long as [_store]; a month absent here was
   /// resolved as a bucket and is counted from its entries.
   final Map<int, Map<String, int>> _markedKept = {};
+
+  /// Every day with an occurrence in the allowlist per month key, a bit per
+  /// day, hidden missed ones included (D32): under the hidden display such a
+  /// day lists nothing in the bucket, yet it is still a day to pick and
+  /// mark. Folded as [_resolve] scans, so it lives as long as [_store].
+  final Map<int, int> _occurrenceMask = {};
 
   /// The navs' title templates and the locale and year they were built for
   /// ([_titleTemplates]).
@@ -749,6 +763,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _resolveGeneration++;
       _store = null;
       _markedKept.clear();
+      _occurrenceMask.clear();
       _clearTiles();
       _storeStale = true;
       _rows = const [];
@@ -792,6 +807,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       // A laid-out scroll keeps its own top year through a span change.
       if (!_yearScroll.isAttached) _yearScroll.jumpToYear(_year);
       _markedKept.clear();
+      _occurrenceMask.clear();
       _clearTiles();
       final store = _store = AgendaMonthStore(
         resolve: _resolve,
@@ -859,8 +875,17 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   List<AgendaDayListEntry> _resolve(DateTime start, DateTime end) {
+    final occurrences = _scan(start, end);
+    for (final month in _monthsOf((start: start, end: end))) {
+      _occurrenceMask[AgendaMonthStore.keyOf(month)] = 0;
+    }
+    for (final occurrence in occurrences) {
+      final key = AgendaMonthStore.keyOf(occurrence.day);
+      _occurrenceMask[key] =
+          _occurrenceMask[key]! | (1 << (occurrence.day.day - 1));
+    }
     return AgendaListView.eventDayEntries(
-      _scan(start, end),
+      occurrences,
       _l10n!,
       null,
       showRecurrenceLabels: _appearance.showRecurrenceLabels,
@@ -903,6 +928,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       case AgendaDayListMode.year:
         _rows = const [];
         _monthBucket = null;
+        _takePicked(const []);
         for (final year in _nearYears()) {
           if (!_tilesCurrent(year) && _yearHeld(year)) _resolveYear(year);
         }
@@ -910,6 +936,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         _scheduleYearRun();
       case AgendaDayListMode.list:
         _monthBucket = null;
+        _takePicked(const []);
         final span = _period.resolve(today: _today, yearBounds: _years);
         final months = _monthsOf(span);
         _listSpan = span;
@@ -929,14 +956,63 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         _totals = {};
         _tally(_totals, bucket.entries);
         final selected = _selectedDay;
-        _rows = buildAgendaDayListRows(
-          selected != null ? [selected] : bucket.days,
-          (day) => _listed(bucket.entriesOn(day)),
-          groupByDay: selected == null,
-          withMonths: false,
-          keptCountOf: _options.missedOnly ? (_) => 0 : bucket.keptCountForDay,
-        );
+        if (selected == null) {
+          _takePicked(const []);
+          _rows = buildAgendaDayListRows(
+            bucket.days,
+            (day) => _listed(bucket.entriesOn(day)),
+            groupByDay: true,
+            withMonths: false,
+            keptCountOf: _options.missedOnly
+                ? (_) => 0
+                : bucket.keptCountForDay,
+          );
+        } else {
+          _takePicked(_pickedDayEntries(selected));
+          final listed = _listed(_pickedEntries);
+          final kept = _pickedKept;
+          _rows = buildAgendaDayListRows(
+            [selected],
+            (_) => listed,
+            groupByDay: false,
+            withMonths: false,
+            keptCountOf: (_) => kept,
+          );
+        }
     }
+  }
+
+  /// Holds [entries] as the picked day's and folds its read row's counts.
+  void _takePicked(List<AgendaDayListEntry> entries) {
+    _pickedEntries = entries;
+    var missed = 0;
+    for (final entry in entries) {
+      if (entry.missed) missed++;
+    }
+    _pickedMissed = missed;
+    _pickedKept = _options.missedOnly ? 0 : entries.length - missed;
+  }
+
+  /// The picked day as the day panel lists it (D32): scanned on its own and
+  /// converted under `faded`, so under the hidden display its missed and
+  /// assumed-absent occurrences still show — dimmed, with the button that
+  /// marks them — where the month's bucket has dropped them. Under `faded`
+  /// this is exactly the bucket's day. The query narrows it as it narrows
+  /// the bucket; Missed only is left to the rows, the read row counts all.
+  List<AgendaDayListEntry> _pickedDayEntries(DateTime day) {
+    final entries = AgendaListView.eventDayEntries(
+      _scan(day, day),
+      _l10n!,
+      null,
+      showRecurrenceLabels: _appearance.showRecurrenceLabels,
+      missedDisplay: CalendarMissedDisplay.faded,
+    );
+    final matcher = _matcher;
+    if (matcher == null) return entries;
+    return [
+      for (final entry in entries)
+        if (_matches(matcher, entry)) entry,
+    ];
   }
 
   /// Whether months of the list are still to come: neither all listed nor
@@ -1176,6 +1252,20 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   bool _hasEntry(DateTime day) {
     if (_matcher == null) return _store?.hasEntry(day) ?? false;
     final mask = _filteredMonths[AgendaMonthStore.keyOf(day)]?.markedMask ?? 0;
+    return mask & (1 << (day.day - 1)) != 0;
+  }
+
+  /// Whether [day] is one to pick in month mode (D32): one with an entry,
+  /// or under the hidden display one whose occurrences were all dropped as
+  /// missed — the picked day lists them ([_pickedDayEntries]). A live query
+  /// keeps every other day to [_hasEntry]: a dropped occurrence was never
+  /// matched against it. Cache-only, for the grid's builder.
+  bool _hasOccurrence(DateTime day) {
+    if (_hasEntry(day)) return true;
+    // The picked cell agrees with its rows, which a query matches faded.
+    if (day == _selectedDay && _pickedEntries.isNotEmpty) return true;
+    if (_matcher != null || !_missedHidden) return false;
+    final mask = _occurrenceMask[AgendaMonthStore.keyOf(day)] ?? 0;
     return mask & (1 << (day.day - 1)) != 0;
   }
 
@@ -1532,7 +1622,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   void _toggleSelectedDay(DateTime day) {
-    if ((_monthBucket?.countForDay(day) ?? 0) == 0) return;
+    // The picked day always lets go: a query may have emptied it since.
+    if (day != _selectedDay && !_hasOccurrence(day)) return;
     setState(() {
       _selectedDay = _selectedDay == day ? null : day;
       _recompute();
@@ -1853,6 +1944,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       ],
       selected: _shownPeriod.menuChoice(today: _today),
       menuWidth: FormMetrics.menuWidth,
+      alignment: FormMenuAlignment.center,
     );
     if (choice == null || !mounted) return;
     await _selectPeriod(choice);
@@ -2119,9 +2211,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _openOccurrence(AgendaDayListEntry entry) =>
       _openOn(entry.day, entry.eventId);
 
-  /// Whether the appearance hides missed entries. A mark would then take its
-  /// row away with nothing on the overview left to undo it (review 2), so no
-  /// row offers the presence button.
+  /// Whether the appearance hides missed entries. A mark on a row the month
+  /// or the list draws from its bucket would then take the row away with
+  /// nothing there left to undo it (review 2); the picked day is exempt, as
+  /// the day panel is (D32).
   bool get _missedHidden =>
       _appearance.missedDisplay == CalendarMissedDisplay.hidden;
 
@@ -2132,9 +2225,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       (_mode == AgendaDayListMode.list &&
           _options.rows == OverviewRows.everyOccurrence);
 
+  /// Whether month mode shows one picked day, whose rows list its missed
+  /// occurrences under every display ([_pickedDayEntries]).
+  bool get _pickedDayShown =>
+      _mode == AgendaDayListMode.month && _selectedDay != null;
+
   /// Where the day panel's presence button is offered on the rows: where a
-  /// row is a day, while missed entries show.
-  bool get _presenceOffered => _dayRowsShown && !_missedHidden;
+  /// row is a day and a mark keeps its row — missed entries show, or the
+  /// rows are the picked day's.
+  bool get _presenceOffered =>
+      _dayRowsShown && (!_missedHidden || _pickedDayShown);
 
   /// The day panel's presence toggle from the row's button (2026-10-17): the
   /// explicit status through the bloc, and the row's dimming and its day's
@@ -2244,7 +2344,21 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         page: CalendarViewPage.overview,
         onPageSelected: (_) => AppNavigator.switchToCalendar(context),
       ),
-      backgroundColor: colorScheme.surface,
+      toolbarHeight: AppBarMetrics.toolbarHeight,
+      // The leading glyph and the actions take their size and colour from
+      // here, `onSurface` as the browser's bars draw them.
+      iconTheme: IconThemeData(
+        size: AppBarMetrics.glyphSize,
+        color: colorScheme.onSurface,
+      ),
+      actionsIconTheme: IconThemeData(
+        size: AppBarMetrics.glyphSize,
+        color: colorScheme.onSurface,
+      ),
+      // The page's ground, as the browser's bars: a `surface` bar over it is
+      // a white band in the light theme.
+      backgroundColor: colorScheme.pageGround,
+      surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
       actions: [
         _buildOptionsButton(l10n),
@@ -2365,6 +2479,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         child: IconButton(
           tooltip: l10n.overviewListOptions,
           isSelected: restrictions > 0,
+          iconSize: AppBarMetrics.glyphSize,
           icon: const Icon(Icons.tune_rounded),
           onPressed: _openOptions,
         ),
@@ -2383,6 +2498,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       child: IconButton(
         tooltip: l10n.overviewViewsTitle,
         isSelected: active != null,
+        iconSize: AppBarMetrics.glyphSize,
         icon: const Icon(Icons.bookmarks_outlined),
         onPressed: service == null ? null : _openViews,
       ),
@@ -2413,13 +2529,20 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
               ],
             ),
           ),
+          // The trailing control's box and glyph (`FormTrailingButton`'s
+          // sizing, which has no selected state): a row's control, not a
+          // bar's, and no taller than the chips' tap target.
           AutomationId(
             identifier: SemanticsIds.overviewSearchOpen,
-            child: IconButton(
-              tooltip: l10n.search,
-              isSelected: _query.isNotEmpty,
-              icon: const Icon(Icons.search_rounded),
-              onPressed: _toggleSearch,
+            child: SizedBox.square(
+              dimension: FormMetrics.trailingButtonSize,
+              child: IconButton(
+                tooltip: l10n.search,
+                isSelected: _query.isNotEmpty,
+                iconSize: FormMetrics.trailingIconSize,
+                icon: const Icon(Icons.search_rounded),
+                onPressed: _toggleSearch,
+              ),
             ),
           ),
         ],
@@ -2680,6 +2803,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
             // width and their own year's tiles alone — no inset frame
             // rebuilds a year of tiles.
             padding: OverviewListMetrics.yearScrollPadding,
+            // The page's groups' role, as Month's and List's cards.
+            tileBackground: colorScheme.rowGroup,
             // One lane per page: the list's lane never shows with this one.
             scrubber: AgendaYearScrubber(
               semanticsLabel: l10n.overviewYearScrubberLabel,
@@ -2904,14 +3029,15 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   /// Month mode below its nav and grid: the day list's rows (§3.2 item 7) —
   /// read rows over their entries for the whole month, or, with a day
-  /// picked, that day's read row carrying "Whole month" over its entries.
+  /// picked, that day's read row carrying "Whole month" over its entries,
+  /// which list its missed occurrences under every display (D32).
   Widget _buildMonthBody(AppLocalizations l10n) {
     final bucket = _monthBucket!;
     final rows = _rowBuilder(_rows);
     final selected = _selectedDay;
     // With a day picked the rows are its entries alone (`_recompute` groups
     // by day only for the whole month), so its read row is built in front
-    // of them here, from the bucket's counts.
+    // of them here, from the same entries' counts.
     final leadingRows = selected == null ? 0 : 1;
     final empty = _rows.isEmpty && selected == null;
     return Builder(
@@ -2931,7 +3057,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
                 today: _today,
                 selectedDay: selected,
                 appearance: _appearance,
-                hasEntry: _hasEntry,
+                hasEntry: _hasOccurrence,
                 barsFor: _barsFor,
                 onDaySelected: _toggleSelectedDay,
                 onPageChanged: _goToMonth,
@@ -2957,13 +3083,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
                   : SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) => selected != null && index == 0
-                            ? _buildPickedDayRow(
-                                context,
-                                l10n,
-                                rows,
-                                bucket,
-                                selected,
-                              )
+                            ? _buildPickedDayRow(context, l10n, rows, selected)
                             : rows.build(context, index - leadingRows),
                         childCount: _rows.length + leadingRows,
                       ),
@@ -2988,20 +3108,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     BuildContext context,
     AppLocalizations l10n,
     AgendaDayListRowBuilder rows,
-    AgendaDayListMonth bucket,
     DateTime day,
   ) {
-    final count = bucket.countForDay(day);
-    final kept = _options.missedOnly ? 0 : bucket.keptCountForDay(day);
-    final missed = count - bucket.keptCountForDay(day);
     return FormRowShell(
       first: true,
       last: _rows.isEmpty,
       child: rows.readRow(
         context,
         day: day,
-        kept: kept,
-        missed: missed,
+        kept: _pickedKept,
+        missed: _pickedMissed,
         trailingButton: FormTrailingButton(
           icon: Icons.close_rounded,
           tooltip: l10n.dayListWholeMonth,
