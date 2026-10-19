@@ -156,7 +156,8 @@ class ShortcutApplier {
   /// A header shortcut whose `beforeText` is itself a heading marker
   /// (the H menu's `### `) sets exactly that level; the bar's own
   /// `default_header` button carries `# ` as well, but it keeps cycling.
-  /// [isFenceLine] keeps line-marker toggles off code-fence lines.
+  /// [isFenceLine] keeps line-marker toggles and headings off code-fence
+  /// lines, where a `#` run is code text.
   static void applyRewrite(
     CodeLineEditingController controller,
     CustomMarkdownShortcut shortcut, {
@@ -164,6 +165,7 @@ class ShortcutApplier {
   }) {
     assert(rewrites(shortcut), '${shortcut.id} inserts, it does not rewrite');
     if (shortcut.insertType == 'header') {
+      if (isFenceLine?.call(controller.selection.startIndex) ?? false) return;
       final level = shortcut.id == _cyclingHeaderId
           ? null
           : MarkdownLineShape.headingAt(shortcut.beforeText)?.level;
@@ -346,8 +348,9 @@ class ShortcutApplier {
   /// Rewrites the caret line's `#` run to the level [levelFor] picks from
   /// the current one (`null` on a plain line); `0` drops the heading.
   ///
-  /// Only the run changes, so the caret and any selection on the line keep
-  /// their place in the text instead of jumping to the line end.
+  /// Only the run changes (and, on a drop, the closing run), so the caret
+  /// and any selection on the line keep their place in the text instead
+  /// of jumping to the line end.
   static void _setHeading(
     CodeLineEditingController controller,
     int Function(int? current) levelFor,
@@ -359,10 +362,15 @@ class ShortcutApplier {
     // A plain line gains its run after the indentation, where
     // [MarkdownLineShape.headingAt] finds it again, not in front of it.
     final plainStart = _LineMarker._indentOf(line.text);
+    // Dropping the heading drops its closing run too (`## Week 3 ##`
+    // becomes `Week 3`): without its opening run it would read as text.
+    final closed =
+        level == 0 && heading != null && heading.contentEnd < line.text.length;
     final splice = _Splice(
       heading?.hashStart ?? plainStart,
       heading?.contentStart ?? plainStart,
       level == 0 ? '' : '${'#' * level} ',
+      closed ? heading.contentEnd : null,
     );
     _commit(
       controller,
@@ -599,19 +607,28 @@ class ShortcutApplier {
 
 /// One line's rewrite: the columns `[start, end)` replaced by [insert].
 final class _Splice {
-  const _Splice(this.start, this.end, this.insert);
+  const _Splice(this.start, this.end, this.insert, [this.dropFrom]);
 
   final int start;
   final int end;
   final String insert;
 
-  String applyTo(String text) => text.replaceRange(start, end, insert);
+  /// Where the line's tail is cut off (a removed heading's closing run),
+  /// or `null` to keep it; at or past [end].
+  final int? dropFrom;
+
+  String applyTo(String text) => text
+      .substring(0, dropFrom ?? text.length)
+      .replaceRange(start, end, insert);
 
   /// Where a caret at [offset] lands. Text after the old marker shifts
   /// with it; a caret inside a replaced marker lands after the new one; a
   /// caret on the edge of a removed or swapped marker stays put, while an
-  /// insertion at the caret pushes it past what was inserted.
+  /// insertion at the caret pushes it past what was inserted. A caret in
+  /// a dropped tail lands where the kept text ends.
   int map(int offset) {
+    final cut = dropFrom;
+    if (cut != null && offset > cut) offset = cut;
     if (offset < start || (offset == start && end > start)) return offset;
     if (offset >= end) return offset + insert.length - (end - start);
     return start + insert.length;

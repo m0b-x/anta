@@ -787,15 +787,19 @@ class MarkdownEditorSpanBuilder {
     }
   }
 
-  /// Horizontal rule: every `-` / `*` / `_` is substituted 1:1 with `─`
-  /// (one code unit each) and dimmed, so contiguous glyphs read as a
-  /// line. Base font size is kept — like H5/H6, a sub-base line height
-  /// buys nothing in the editor. On reveal the raw markers show dimmed.
+  /// Horizontal rule: every `-` / `*` / `_` and every blank between them
+  /// is substituted 1:1 with `─` (one code unit each) and dimmed, so the
+  /// glyphs read as one solid line. Base font size is kept — like H5/H6,
+  /// a sub-base line height buys nothing in the editor. On reveal the
+  /// raw markers show dimmed.
   TextSpan _buildRule({
     required String text,
     required EditorRenderContext ctx,
     required bool reveal,
   }) {
+    // The scans below stop only on a marker, which the rule test
+    // guarantees; without it a blank line would run them off the text.
+    assert(MarkdownLineShape.isHorizontalRule(text), 'not a rule: $text');
     final style = ctx.style;
     if (reveal) {
       return TextSpan(
@@ -808,9 +812,19 @@ class MarkdownEditorSpanBuilder {
         ],
       );
     }
+    // The blanks between markers are substituted too, so a spaced
+    // `- - -` reads as one solid line like the preview's; the indent
+    // and any trailing blanks stay as typed.
+    var first = 0;
+    while (EditorSpanEmitter.isSpace(text.codeUnitAt(first))) {
+      first++;
+    }
+    var last = text.length - 1;
+    while (EditorSpanEmitter.isSpace(text.codeUnitAt(last))) {
+      last--;
+    }
     final units = List<int>.generate(text.length, (i) {
-      final c = text.codeUnitAt(i);
-      return EditorSpanEmitter.isSpace(c) ? c : 0x2500;
+      return i >= first && i <= last ? 0x2500 : text.codeUnitAt(i);
     });
     return TextSpan(
       style: style,
@@ -842,21 +856,23 @@ class MarkdownEditorSpanBuilder {
   /// without the editor ever laying out a real table (which would need
   /// the neighbouring lines, and change the line's height).
   ///
-  /// Nothing is concealed or substituted — the row is the same code
-  /// units in both reveal states — so the rendering stays purely
-  /// textual and memoizes by line text. Cells still carry inline runs
-  /// (`**bold**`, tags, ghosts) through the shared emitter. A delimiter
+  /// The pipes are tinted, never concealed or substituted. Cells carry
+  /// inline runs (`**bold**`, tags, links, ghosts) through the shared
+  /// emitter, whose markers conceal on an unrevealed line as they do
+  /// anywhere else, so an unrevealed row memoizes by line text like any
+  /// inline line and a revealed one bypasses the memo. A delimiter
   /// row (`| --- | :-: |`) is structure rather than content and renders
   /// dimmed as a whole, like a horizontal rule.
   ///
-  /// Ghosts win over the cell split, as they do everywhere else: a `|`
-  /// inside a `{{ … }}` run is that ghost's content, not a separator, so
-  /// `| {{a|b}} |` is one cell. The pipe walk carries a cursor over the
-  /// (sorted, non-overlapping) [ghosts] instead of searching per pipe, so
-  /// a row with no ghost pays nothing. Splitting a cell mid-ghost would
-  /// hand the emitter a straddling range — the inline grammar's own
-  /// assert catches it in debug, and in release the ghost's markers would
-  /// render twice.
+  /// The cells come from [MarkdownLineShape.nextTableCellPipe], the
+  /// preview's and the plain text's splitter too. Ghosts win over the
+  /// cell split, as they do everywhere else: a `|` inside a `{{ … }}`
+  /// run is that ghost's content, so `| {{a|b}} |` is one cell —
+  /// splitting it would hand the emitter a straddling range, which the
+  /// inline grammar asserts against in debug and renders the ghost's
+  /// markers twice in release. An escaped `\|` stays in its cell, where
+  /// the emitter conceals the `\` like any escape, and the alias pipe of
+  /// `[[Title|alias]]` stays in the link, which renders its alias.
   TextSpan _buildTableRow({
     required String text,
     required EditorRenderContext ctx,
@@ -885,13 +901,11 @@ class MarkdownEditorSpanBuilder {
     );
     var from = 0;
     var seenPipe = false;
-    var gi = 0;
-    for (var i = 0; i < text.length; i++) {
-      if (text.codeUnitAt(i) != 0x7C) continue;
-      while (gi < ghosts.length && ghosts[gi].end <= i) {
-        gi++;
-      }
-      if (gi < ghosts.length && ghosts[gi].start <= i) continue;
+    for (
+      var i = MarkdownLineShape.nextTableCellPipe(text, 0, ghosts);
+      i >= 0;
+      i = MarkdownLineShape.nextTableCellPipe(text, i + 1, ghosts)
+    ) {
       if (i > from) {
         if (seenPipe) {
           _emitTableCell(

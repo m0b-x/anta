@@ -289,6 +289,55 @@ void main() {
     });
   });
 
+  group('a line-led lead through the breaker', () {
+    const heading = '## a heading long enough to need several width lines';
+
+    test('an indented heading stays whole', () {
+      final result = newCalculator().breakLinesSmartly(['  $heading'], width);
+
+      expect(result.linesModified, 0);
+      expect(result.lines, ['  $heading']);
+    });
+
+    test('a no-break-space-led heading is prose and reflows', () {
+      // Neither surface renders it as a heading, so keeping it whole
+      // would leave one over-wide prose line.
+      final result = newCalculator().breakLinesSmartly([
+        '\u00a0$heading',
+      ], width);
+
+      expect(result.linesModified, 1);
+    });
+
+    test('a tab-indented heading stays whole', () {
+      final result = newCalculator().breakLinesSmartly(['\t$heading'], width);
+
+      expect(result.linesModified, 0);
+    });
+
+    test('a no-break-space-led dash run stays whole', () {
+      // Prose on screen, but every cut tail would be a bare rule.
+      final run = '\u00a0${'-' * 80}';
+      expect(MarkdownLineShape.isLineLedConstruct(run), isFalse);
+
+      final result = newCalculator().breakLinesSmartly([run], width);
+
+      expect(result.linesModified, 0);
+      expect(result.lines, [run]);
+    });
+
+    test('a no-break-space-led backtick line opens no fence', () {
+      // No surface reads it as a fence, so the prose under it reflows.
+      final result = newCalculator().breakLinesSmartly([
+        '\u00a0```',
+        longLine,
+      ], width);
+
+      expect(result.linesModified, 1);
+      expect(result.lines.first, '\u00a0```');
+    });
+  });
+
   group('protected ranges through the breaker', () {
     test('an aliased wiki link is never split at its blanks', () {
       const alias = '[[Squat Progression|my squat log]]';

@@ -31,9 +31,6 @@ class MarkdownPlainText {
   /// walk stops unwrapping and emits the rest inline.
   static const int _maxBlockDepth = 6;
 
-  /// `|`, the table cell separator.
-  static const int _pipe = 0x7C;
-
   /// The plain text of [content], collapsed onto one line and capped at
   /// [maxLength] with a trailing ellipsis.
   ///
@@ -179,7 +176,9 @@ class MarkdownPlainText {
 
   /// Cells of a `| a | b |` row joined with a middot. The row shape is
   /// [MarkdownLineShape.isTableRow]'s, so the outer pipes always exist
-  /// and only the inner ones split.
+  /// and only the inner ones split — at the boundaries of
+  /// [MarkdownLineShape.nextTableCellPipe], the editor's and the
+  /// preview's splitter, so `\|`, a wiki alias and a ghost stay whole.
   static void _tableRow(
     String line,
     StringBuffer out,
@@ -191,8 +190,11 @@ class MarkdownPlainText {
     final last = start + trimmed.length - 1;
     var from = start + 1;
     var first = true;
-    for (var i = from; i <= last; i++) {
-      if (i != last && line.codeUnitAt(i) != _pipe) continue;
+    while (from <= last) {
+      // An escaped closing pipe (`| a \|`) leaves no boundary at the end:
+      // the last cell then runs to the line end and keeps its `|`.
+      var i = MarkdownLineShape.nextTableCellPipe(line, from, ghosts);
+      if (i < 0) i = last + 1;
       final cell = StringBuffer();
       _inline(line, from, i, cell, palette, ghosts, 0);
       final text = cell.toString().trim();

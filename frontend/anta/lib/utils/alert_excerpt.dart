@@ -58,7 +58,8 @@ String _plainLine(String line) {
   }
   final item = MarkdownListSyntax.parse(text);
   if (item != null) text = item.content;
-  return _collapseSpaces(_plainInline(text.trim()));
+  // A heading keeps a trailing `\` as text, as every surface does.
+  return _collapseSpaces(_plainInline(text.trim(), hardBreak: heading == null));
 }
 
 /// A ledger line reads as its amount, signed for an add or a subtract, and
@@ -79,12 +80,20 @@ String _plainMoney(String line, MoneyLineMatch money) {
   return parts.where((part) => part.isNotEmpty).join(' ');
 }
 
-String _plainInline(String text) {
+/// [hardBreak] drops a line-ending hard-break `\`, as MarkdownPlainText
+/// does at the end of a source line; nested ranges, a heading and a
+/// callout title keep it.
+String _plainInline(String text, {bool hardBreak = false}) {
   final tokens = MarkdownInlineGrammar.tokenize(
     text,
     palette: MarkdownColorPalette.presets,
   );
-  if (tokens.isEmpty) return text;
+  final end =
+      hardBreak &&
+          MarkdownInlineGrammar.endsWithHardBreak(text, 0, text.length, tokens)
+      ? text.length - 1
+      : text.length;
+  if (tokens.isEmpty) return text.substring(0, end);
   final buffer = StringBuffer();
   var cursor = 0;
   for (final token in tokens) {
@@ -93,7 +102,7 @@ String _plainInline(String text) {
     buffer.write(_plainToken(text, token));
     cursor = token.end;
   }
-  buffer.write(text.substring(cursor));
+  if (cursor < end) buffer.write(text.substring(cursor, end));
   return buffer.toString();
 }
 

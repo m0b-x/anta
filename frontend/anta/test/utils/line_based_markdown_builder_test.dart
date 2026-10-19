@@ -565,6 +565,66 @@ void main() {
     test('a separator row draws the rule', () {
       expect(render('|---|'), '─' * 30);
     });
+
+    test('an escaped pipe is a literal pipe inside its cell', () {
+      expect(render(r'| a \| b | c |'), 'a | b │ c');
+    });
+
+    test('a wiki alias pipe stays in its cell, which shows the alias', () {
+      expect(render('| [[Session 1|legs]] | x |'), 'legs │ x');
+    });
+
+    test('a ghost pipe stays in its cell', () {
+      expect(render('| {{a|b}} | c |'), contains(' │ c'));
+      expect(render('| {{a|b}} | c |').split(' │ ').length, 2);
+    });
+
+    test('an escaped closing pipe is the last cell\'s content', () {
+      expect(render(r'| a | b \|'), 'a │ b |');
+    });
+
+    test('a refused wiki link leaves its pipe a cell boundary', () {
+      expect(render('| [[Bench|`PR`]] | x |'), '[[Bench │ PR]] │ x');
+      expect(render('| `[[x` | y]] |'), '[[x │ y]]');
+    });
+
+    test("Obsidian's escaped alias is one raw cell, never a link", () {
+      expect(render(r'| [[Squat\|legs]] | 3x5 |'), '[[Squat|legs]] │ 3x5');
+    });
+
+    // The editor and the plain text read the shape off the untrimmed
+    // line, where an NBSP indent is prose; `trimLeft` would strip it.
+    test('an NBSP-indented row is prose, as in the editor', () {
+      expect(render(' | a | b |'), isNot(contains('│')));
+    });
+
+    String paintedFor(String document, int index, TextRange highlight) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        searchHighlights: <TextRange>[highlight],
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(document);
+      return _leaves(builder.buildLine(document.split('\n')[index], index))
+          .where((leaf) => leaf.style?.backgroundColor == _style.highlightColor)
+          .map((leaf) => leaf.text)
+          .join();
+    }
+
+    // The row is built from the trimmed line, so its offsets must start
+    // past the indent: `b` in `x\n  | a | b |` sits at 10.
+    test('an indented row keeps its search offsets', () {
+      const document = 'x\n  | a | b |';
+      expect(paintedFor(document, 1, const TextRange(start: 10, end: 11)), 'b');
+      expect(paintedFor(document, 1, const TextRange(start: 6, end: 7)), 'a');
+    });
+
+    test('an indented image line keeps its search offsets', () {
+      // `alt` in `x\n  ![alt](u)` is [6, 9).
+      const document = 'x\n  ![alt](u)';
+      expect(paintedFor(document, 1, const TextRange(start: 6, end: 9)), 'alt');
+    });
   });
 
   // Rules are tested before the list grammar, and a heading's closing
@@ -588,20 +648,62 @@ void main() {
       expect(render('&nope; `&amp;`'), '&nope; &amp;');
     });
 
-    test('an entity keeps the offset of its ampersand', () {
-      const line = 'x &amp; y';
+    String paintedFor(String line, TextRange highlight) {
       final builder = LineBasedMarkdownBuilder(
         style: _style,
         colorPalette: MarkdownColorPalette.presets,
-        searchHighlights: const <TextRange>[TextRange(start: 2, end: 3)],
+        searchHighlights: <TextRange>[highlight],
       );
       addTearDown(builder.dispose);
       builder.prepare(line);
-      final painted = _leaves(builder.buildLine(line, 0))
+      return _leaves(builder.buildLine(line, 0))
           .where((leaf) => leaf.style?.backgroundColor == _style.highlightColor)
           .map((leaf) => leaf.text)
           .join();
-      expect(painted, '&');
+    }
+
+    test('an entity keeps the offset of its ampersand', () {
+      expect(paintedFor('x &copy; y', const TextRange(start: 2, end: 3)), '©');
+      expect(paintedFor('x &copy; y', const TextRange(start: 0, end: 1)), 'x');
+    });
+
+    test('a match on the concealed name paints the decoded glyph', () {
+      // `copy` in `x &copy; y` is [3,7), wholly behind the glyph.
+      expect(paintedFor('x &copy; y', const TextRange(start: 3, end: 7)), '©');
+      expect(paintedFor('x &copy; y', const TextRange(start: 7, end: 9)), '© ');
+    });
+
+    test('a single-line construct keeps its trailing backslash', () {
+      expect(render(r'# Heading\'), r'Heading\');
+      expect(render(r'> [!TIP] title\'), endsWith(r'title\'));
+      String money(String line) {
+        final builder = LineBasedMarkdownBuilder(
+          style: _style,
+          colorPalette: MarkdownColorPalette.presets,
+          moneyConfig: const MoneyDisplayConfig(enabled: true),
+        );
+        addTearDown(builder.dispose);
+        builder.prepare(line);
+        return _text(builder.buildLine(line, 0));
+      }
+
+      expect(money(r'$+ 5 coffee\'), contains(r'coffee\'));
+      expect(money(r'$$ Sum: $ \'), contains(r'\'));
+    });
+
+    test('a list item and a task drop the hard-break backslash', () {
+      String content(String line) {
+        final builder = LineBasedMarkdownBuilder(
+          style: _style,
+          colorPalette: MarkdownColorPalette.presets,
+        );
+        addTearDown(builder.dispose);
+        builder.prepare(line);
+        return _text(_listRowContent(builder.buildLine(line, 0)));
+      }
+
+      expect(content(r'- item\'), 'item');
+      expect(content(r'- [ ] task\'), 'task');
     });
 
     test('a trailing backslash is dropped on every line it ends', () {

@@ -59,6 +59,22 @@ void main() {
     );
   });
 
+  test('entities decode, as the plain text reads them', () {
+    expect(
+      alertExcerptFor('Tom &amp; Jerry &copy; &nope;'),
+      'Tom & Jerry © &nope;',
+    );
+  });
+
+  test('a hard-break backslash goes, an escaped or heading one stays', () {
+    expect(alertExcerptFor('Bring water\\\nand the bag'), 'Bring water');
+    expect(alertExcerptFor('- call Bob\\'), 'call Bob');
+    expect(alertExcerptFor(r'a\\'), r'a\');
+    expect(alertExcerptFor(r'# Heading\'), r'Heading\');
+    expect(alertExcerptFor(r'> [!TIP] title\'), r'title\');
+    expect(alertExcerptFor('see https://a.com/x\\'), 'see https://a.com/x\\');
+  });
+
   test('a horizontal rule is no excerpt at all', () {
     expect(alertExcerptFor('---\nreal text'), 'real text');
   });

@@ -200,6 +200,15 @@ ANTA-only, no verdict: money rows, `{{ghost}}`, `{name:text}` colours and
 
 ## 4. Declined, deferred, catalogued elsewhere
 
+- **F22 tables without outer pipes** — deferred 2026-10-20: positional
+  recognition does not fit the forward-only line index (see §5); reopen
+  only with a one-line lookahead role designed into the index's seam model.
+- **Obsidian's escaped alias in tables, `[[Note\|alias]]`** — renders raw
+  on every surface; a link would need `matchWikiLinkAt` to read `\|` as the
+  alias pipe everywhere.
+- **A linked image `[![alt](img)](url)`** — needs a bracket stack in the
+  link grammar; the inner image renders, the outer link does not.
+
 - `docs/markdown-feature-ideas.md` already carries: images and embeds,
   equations, collapsible sections, front matter (#8), footnotes (#11),
   reference links (#14), ordered renumbering (#4), wiki aliases/embeds/
@@ -213,6 +222,79 @@ ANTA-only, no verdict: money rows, `{{ghost}}`, `{name:text}` colours and
 
 ## 5. Ledger
 
+- **2026-10-19/20, phase one BUILT — slices A, B1, B2, C and S (F2, F3, F4
+  option B, F5, F6, F7, F8, F11, F12, F13, F19, F20, F21, F23, F24 plus the
+  sweep), every slice gated green (`flutter test test/utils` and the slice
+  suites, `dart analyze` clean, `untranslated.txt` `{}`).** Run as one
+  workflow on the owner's "solve all of them, be very careful": per slice one
+  implementer (Opus 5.5), three read-only reviewers (correctness, Obsidian
+  parity, tests), three independent verifiers per finding (majority keeps a
+  finding), one fix pass, one gate agent computing the next baseline tree
+  (A `4bf3f00c`, B1 `ce02c46a`, B2 `15800553`, C `7de21135`, S `99b8af15`).
+  Findings: A 33 raised / 27 kept / 19 fixed; B1 32 / 31 / 23; B2 31 / 28 /
+  30; C 23 / 21 / 18; S 25 / 22 / 19. The run was interrupted by a power
+  loss during B2's fix pass and resumed from the journal with every finished
+  agent served from cache. **As built, where it departs from §2/§3:**
+  - F2/F3: a destination that fails the CommonMark reading still closes at
+    the first `)`; a bare URL's mid-run `)` that closes nothing ends it, and
+    an unclosed `(` ends it before that `(` (GFM trims only trailing parens
+    — accepted as the slice's rule); titles in `"…"`, `'…'`, `(…)` with
+    backslash escapes; `[t](u 'Bob's guide')` cannot parse a title and
+    opens no title.
+  - F4: the raw title is looked up first (a note named with `#` or `^`
+    still resolves), then the split; `[[Note#A#B]]` lands on the last
+    segment as Obsidian does; `[[Note^id]]` opens the note with no
+    heading; a heading with closing hashes (`## X ##`) now matches `[[#X]]`
+    after S2's `contentEnd`; on another note the caret moves to the heading
+    line (replacing the restored position), on the same note only the view
+    scrolls; the event flow resolves but never scrolls, and `[[#h]]` from an
+    event description says "not found" (no current note there).
+  - F12: an escape or ghost atom inside `<…>` refuses the autolink
+    (pinned); `<b>` stays literal.
+  - F13: `[[a|b|c]]` stays literal (pinned in seven suites); `[[a|]]` shows
+    the title; Obsidian's table spelling `[[Note\|alias]]` renders raw
+    (the `\|` is an escape atom, so no link is built — deferred, §4).
+  - F20: the glyph is `▣` U+25A3 for the `!` of `![alt](dest)` and
+    `![[file]]`; the wiki part of an embed keeps its tap zone (as before
+    the slice); `alert_excerpt` prints the alt since S5.
+  - F6: `#1e90ff` and `#2nd` are tags (digit-led with a letter), `#123` is
+    not; a letterless non-numeric body stays prose (Obsidian would tag it —
+    accepted).
+  - F7: the rule indent stays unbounded (the baseline `\t---` pin); the
+    editor draws spaced rules solid since S1 (every unit of the rule line,
+    whitespace included, is `─`); a rule wider than the viewport still wraps
+    off-caret (unmeasured, left).
+  - F11: `## Week 3 ##` picked at H2 again gives `Week 3` since S2.
+  - F8/F24: `3**10 and 5**2` is still bold (runs of two unchanged); a `_`
+    run followed by non-ASCII whitespace still opens emphasis (left).
+  - F19: 32 named entities plus numeric forms; uppercase HTML5 names
+    (`&AMP;`) stay literal; typographic quotes and arrows are not in the
+    table (left); an entity inside a link destination, autolink, wiki link
+    or ghost is not decoded; derived preview/FTS columns pick the decoded
+    text up on the note's next save, nothing backfills them.
+  - F21: the hard break is text-only in phase one — `- D:\Backups\` and a
+    paragraph's last line lose the visible `\` — and headings, callout
+    titles and money rows never take one; phase two makes it positional
+    (slice D): a `\` is a break only when a non-blank line follows.
+  - F5: `MarkdownLineShape.nextTableCellPipe` skips `\|`, the alias pipe of
+    a wiki link and pipes inside ghosts on all three surfaces; a table
+    context in the emitters (P4) is an accepted gap.
+  - F22: **left out, deferred (§4).** The line index is forward-only with
+    seam proofs; a pipeless header's role depends on the next line, which
+    would back-patch a line in the proven prefix; the plain text and the tap
+    policy would each need a positional pass. No partial version shipped.
+  - F23: done.
+  - S: spaced rules solid (S1); heading removal drops the closing run
+    (S2); the tokenizer's tag clamp agrees with `MarkdownTagSyntax` (S3);
+    `isLineLedConstruct` and the width calculator read the raw line, the
+    calculator's fence toggle is `MarkdownChunker.isFenceDelimiter` (S4);
+    the alert excerpt prints image alts and drops hard-break backslashes
+    (S5); the list-aware paste and the width breaker no longer turn a
+    continuation line that is a rule into a bullet, and the header rewrite
+    skips fenced lines. The grammar's NBSP quote lead and unlimited indent
+    stay (tier-3 notes).
+  - The corpus fixture gained lines for every construct and a permanent
+    validity test (`test/qa/markdown_corpus_fixture_test.dart`).
 - **2026-10-19** — written by the lead (Fable 5.1). The reviewer ran the six
   grammar suites green (651 tests). The lead's probe: a throwaway test that
   tokenized every corpus line (deleted after the run); the device series by

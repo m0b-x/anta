@@ -1,4 +1,5 @@
 import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/utils/ghost_text.dart';
 import 'package:anta/utils/markdown_line_height_calculator.dart';
 import 'package:anta/utils/markdown_line_shape.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -184,8 +185,8 @@ void main() {
     });
 
     test('only spaces and tabs are blanks; other whitespace is not', () {
-      expect(MarkdownLineShape.isHorizontalRule(' - - -'), isFalse);
-      expect(MarkdownLineShape.isHorizontalRule('- - -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('\u00a0- - -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('- -\u00a0-'), isFalse);
       expect(MarkdownLineShape.isHorizontalRule('   '), isFalse);
       expect(MarkdownLineShape.isHorizontalRule('+++'), isFalse);
     });
@@ -246,6 +247,114 @@ void main() {
       expect(MarkdownLineShape.isTableSeparator('---'), isFalse);
       expect(MarkdownLineShape.isTableSeparator(''), isFalse);
     });
+
+    test('an escaped pipe in a cell leaves the delimiter rule alone', () {
+      expect(MarkdownLineShape.isTableSeparator('| --- | --- |'), isTrue);
+      expect(MarkdownLineShape.isTableSeparator(r'| --- \| --- |'), isFalse);
+      expect(MarkdownLineShape.isTableSeparator(r'| a \| b | c |'), isFalse);
+    });
+  });
+
+  group('nextTableCellPipe', () {
+    List<int> boundaries(String line, [List<GhostMatch>? ghosts]) {
+      final out = <int>[];
+      final g = ghosts ?? GhostText.findGhosts(line);
+      for (
+        var i = MarkdownLineShape.nextTableCellPipe(line, 0, g);
+        i >= 0;
+        i = MarkdownLineShape.nextTableCellPipe(line, i + 1, g)
+      ) {
+        out.add(i);
+      }
+      return out;
+    }
+
+    test('every bare pipe is a boundary', () {
+      expect(boundaries('| a | b |'), [0, 4, 8]);
+      expect(boundaries('||'), [0, 1]);
+      expect(boundaries('no pipes'), isEmpty);
+    });
+
+    test('an escaped pipe is cell content, so the row has two cells', () {
+      const line = r'| a \| b | c |';
+      expect(boundaries(line), [0, 9, 13]);
+    });
+
+    test('an escaped backslash leaves the pipe after it a boundary', () {
+      expect(boundaries(r'| a \\| b |'), [0, 6, 10]);
+    });
+
+    test('a backslash before a letter escapes nothing', () {
+      expect(boundaries(r'| \a | b |'), [0, 5, 9]);
+    });
+
+    test('a wiki alias pipe belongs to the link, so the row has two cells', () {
+      const line = '| [[Session 1|legs]] | x |';
+      expect(boundaries(line), [0, 21, 25]);
+    });
+
+    test('a bracket run that is no wiki link leaves its pipe a boundary', () {
+      expect(boundaries('| [[a | b |'), [0, 6, 10]);
+      expect(boundaries(r'| \[[a|b]] |'), [0, 6, 11]);
+    });
+
+    test('a pipe inside a ghost is the ghost\'s content', () {
+      expect(boundaries('| {{a|b}} | c |'), [0, 10, 14]);
+    });
+
+    test('a backslash before a ghost escapes nothing', () {
+      // `\{{` is no escape — the ghost wins, as it does in the tokenizer —
+      // and the ghost's own pipe stays inside it.
+      expect(boundaries(r'| \{{a|b}} |'), [0, 11]);
+    });
+
+    test('a wiki link overlapping a ghost is not one', () {
+      // The tokenizer never builds a link that cuts into a ghost, so the
+      // `|` before the ghost is a boundary again.
+      expect(boundaries('| [[a|{{g]]}} |'), [0, 5, 14]);
+    });
+
+    test('a scan resumes from any boundary it returned', () {
+      const line = '| [[a|b]] | c |';
+      expect(MarkdownLineShape.nextTableCellPipe(line, 1), 10);
+      expect(MarkdownLineShape.nextTableCellPipe(line, 11), 14);
+      expect(MarkdownLineShape.nextTableCellPipe(line, 15), -1);
+    });
+
+    test('a resumed scan finds the ghosts after its start', () {
+      const line = '| {{a|b}} | {{c|d}} | e |';
+      final ghosts = GhostText.findGhosts(line);
+      expect(MarkdownLineShape.nextTableCellPipe(line, 11, ghosts), 20);
+      expect(boundaries(line), [0, 10, 20, 24]);
+    });
+
+    test(
+      'a wiki link holding an escape is refused, as tokenize refuses it',
+      () {
+        expect(boundaries(r'| [[a|b\_c]] | x |'), [0, 5, 13, 17]);
+        // Obsidian's in-table alias spelling: no link, and no split either.
+        expect(boundaries(r'| [[Squat\|legs]] | 3x5 |'), [0, 18, 24]);
+      },
+    );
+
+    test('a wiki link holding a closed code span is refused', () {
+      expect(boundaries('| [[Bench|`PR`]] | x |'), [0, 9, 17, 21]);
+    });
+
+    test('a lone backtick inside a wiki link leaves the link whole', () {
+      expect(boundaries('| [[a`b|c]] | x |'), [0, 12, 16]);
+    });
+
+    test('a [[ inside a code span opens no wiki link', () {
+      expect(boundaries('| `[[x` | y]] |'), [0, 8, 14]);
+      expect(boundaries('| `[[a`|b]] | c |'), [0, 7, 12, 16]);
+    });
+
+    test('a code span never reaches across a bare pipe', () {
+      expect(boundaries('| `a | b` |'), [0, 5, 10]);
+      expect(boundaries(r'| `a\|b` | c |'), [0, 9, 13]);
+      expect(boundaries(r'| `a\\|b` | c |'), [0, 6, 10, 14]);
+    });
   });
 
   group('isLineLedConstruct', () {
@@ -279,6 +388,33 @@ void main() {
       expect(MarkdownLineShape.isLineLedConstruct('a | b'), isFalse);
       expect(MarkdownLineShape.isLineLedConstruct('```'), isTrue);
       expect(MarkdownLineShape.isLineLedConstruct('```dart'), isTrue);
+    });
+
+    test('a lead reads as the dispatchers read it, not as trim does', () {
+      // A no-break space leads no heading, rule or table row on either
+      // surface, while the quote grammar skips it; space and tab lead all.
+      expect(MarkdownLineShape.isLineLedConstruct('\u00a0## x'), isFalse);
+      expect(MarkdownLineShape.isLineLedConstruct('\u00a0---'), isFalse);
+      expect(MarkdownLineShape.isLineLedConstruct('\u00a0| a |'), isFalse);
+      expect(MarkdownLineShape.isLineLedConstruct('\u00a0> quote'), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct(' \t## x'), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct('\u00a0'), isFalse);
+    });
+
+    test('a no-break-space lead leads no money row and no fence', () {
+      const shapes = <String>['\$- 12.50 coffee', '- \$+ 12.50', '```'];
+      for (final shape in shapes) {
+        expect(
+          MarkdownLineShape.isLineLedConstruct('\u00a0$shape'),
+          isFalse,
+          reason: 'no-break space before "$shape"',
+        );
+        expect(
+          MarkdownLineShape.isLineLedConstruct('  $shape'),
+          isTrue,
+          reason: 'spaces before "$shape"',
+        );
+      }
     });
 
     test('plain prose and empty lines are free to reflow', () {

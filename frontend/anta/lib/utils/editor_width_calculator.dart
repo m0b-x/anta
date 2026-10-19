@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../constants/markdown_constants.dart';
+import 'markdown_chunker.dart';
 import 'markdown_line_shape.dart';
 import 'markdown_link_patterns.dart';
 import 'markdown_list_syntax.dart';
@@ -87,7 +88,6 @@ class EditorWidthCalculator {
   static final _inlineCodePattern = RegExp(r'`[^`]+`');
   static final _boldPattern = RegExp(r'\*\*[^*]+\*\*|__[^_]+__');
   static final _italicPattern = RegExp(r'\*[^*]+\*|_[^_]+_');
-  static final _codeBlockFencePattern = RegExp(r'^```');
 
   /// Bare URL pattern shared with [LineBasedMarkdownBuilder] so the paste
   /// reformatter never splits a URL the preview would render as a link.
@@ -268,10 +268,10 @@ class EditorWidthCalculator {
       final line = lines[index];
       final bool isLast = index == lines.length - 1;
       if (isLast) lastLineSourceOffsets = const <int>[0];
-      final trimmed = line.trim();
 
-      // Toggle code block state
-      if (_codeBlockFencePattern.hasMatch(trimmed)) {
+      // Toggle code block state on the fence grammar both surfaces read,
+      // so a lead only `trim` strips (a no-break space) toggles nothing.
+      if (MarkdownChunker.isFenceDelimiter(line)) {
         inFence = !inFence;
         result.add(line);
         continue;
@@ -295,8 +295,11 @@ class EditorWidthCalculator {
       // it. List items neither: a tail would fall out of the item as
       // plain text, while the editor already wraps an item's content
       // under a hanging indent. Checked only for lines that would actually
-      // break, so fitting lines never pay the shape probes.
-      if (MarkdownLineShape.isLineLedConstruct(trimmed) ||
+      // break, so fitting lines never pay the shape probes. A run that is
+      // a rule past a lead only `trim` strips stays whole too: it is prose
+      // on screen, but every cut tail would be a bare rule.
+      if (MarkdownLineShape.isLineLedConstruct(line) ||
+          MarkdownLineShape.isHorizontalRule(line.trimLeft()) ||
           MarkdownListSyntax.scanListShape(line) >= 0) {
         result.add(line);
         continue;

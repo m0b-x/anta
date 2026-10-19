@@ -7,6 +7,7 @@ import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
 import 'package:anta/utils/markdown_editor_span_cache.dart';
 import 'package:anta/utils/markdown_inline_grammar.dart';
+import 'package:anta/utils/markdown_line_shape.dart';
 import 'package:anta/utils/markdown_link_patterns.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/foundation.dart';
@@ -256,8 +257,15 @@ void main() {
     });
 
     test('a spaced rule renders as a rule, never as a bullet', () {
-      expect(_renderOffCaret('- - -').visibleText, '─ ─ ─');
-      expect(_renderOffCaret('* * *').visibleText, '─ ─ ─');
+      expect(_renderOffCaret('- - -').visibleText, '─────');
+      expect(_renderOffCaret('* * *').visibleText, '─────');
+      expect(_renderOffCaret('_ _ _').visibleText, '─────');
+    });
+
+    test('a spaced rule reads solid, its indent and tail as typed', () {
+      expect(_renderOffCaret('-\t- -').visibleText, '─────');
+      expect(_renderOffCaret('   - -  -  ').visibleText, '   ──────  ');
+      expect(_renderBothStates('- - -').on.visibleText, '- - -');
     });
 
     test('an emphasis-wrapped diff row conceals its count', () {
@@ -475,6 +483,86 @@ void main() {
         inner.style?.color,
         _renderContext.baseColor.withValues(alpha: 0.45),
         reason: 'the inner pipe is dimmed ghost content',
+      );
+    });
+
+    test('an escaped pipe is cell content with its backslash concealed', () {
+      const line = r'| a \| b | c |';
+      final render = _renderOffCaret(line);
+      expect(
+        render.span.toPlainText(includePlaceholders: true).length,
+        line.length,
+      );
+      expect(render.visibleText, '| a | b | c |');
+      expect(_concealedRuns(render.span), <String>[r'\']);
+      final tint = _renderContext.primary.withValues(alpha: _tablePipeAlpha);
+      expect(
+        render.leaves.where((leaf) => leaf.style?.color == tint).length,
+        3,
+        reason: 'the row has two cells; the escaped pipe is no separator',
+      );
+      for (final leaf in render.leaves) {
+        expect(leaf.style?.fontFamily, 'monospace');
+      }
+    });
+
+    test('a wiki alias pipe stays in its cell, which shows the alias', () {
+      const line = '| [[Session 1|legs]] | x |';
+      final render = _renderOffCaret(line);
+      expect(
+        render.span.toPlainText(includePlaceholders: true).length,
+        line.length,
+      );
+      expect(render.visibleText, '| legs | x |');
+      expect(_concealedRuns(render.span), <String>['[[Session 1|', ']]']);
+      final tint = _renderContext.primary.withValues(alpha: _tablePipeAlpha);
+      expect(
+        render.leaves.where((leaf) => leaf.style?.color == tint).length,
+        3,
+      );
+      final alias = render.leaves.singleWhere((leaf) => leaf.text == 'legs');
+      expect(alias.style?.color, _renderContext.primary);
+      expect(alias.style?.fontFamily, 'monospace');
+    });
+
+    int tintedPipes(_Render render) {
+      final tint = _renderContext.primary.withValues(alpha: _tablePipeAlpha);
+      return render.leaves.where((leaf) => leaf.style?.color == tint).length;
+    }
+
+    test('a revealed escaped pipe shows its backslash and splits nothing', () {
+      final pair = _renderBothStates(r'| a \| b | c |', money: false);
+      expect(pair.on.visibleText, r'| a \| b | c |');
+      expect(_concealedRuns(pair.on.span), isEmpty);
+      expect(tintedPipes(pair.on), 3);
+      expect(tintedPipes(pair.off), 3);
+    });
+
+    test('an escaped closing pipe is the last cell\'s content', () {
+      final render = _renderOffCaret(r'| a | b \|');
+      expect(render.visibleText, '| a | b |');
+      expect(_concealedRuns(render.span), <String>[r'\']);
+      expect(tintedPipes(render), 2);
+    });
+
+    test('a refused wiki link leaves its pipe a cell boundary', () {
+      // A closed code span inside the brackets, and a `[[` inside a code
+      // span, build no link in the cell's tokenize, so the pipe splits.
+      expect(tintedPipes(_renderOffCaret('| [[Bench|`PR`]] | x |')), 4);
+      expect(tintedPipes(_renderOffCaret('| `[[x` | y]] |')), 3);
+    });
+
+    test("Obsidian's escaped alias is one raw cell, never a link", () {
+      final render = _renderOffCaret(r'| [[Squat\|legs]] | 3x5 |');
+      expect(render.visibleText, '| [[Squat|legs]] | 3x5 |');
+      expect(_concealedRuns(render.span), <String>[r'\']);
+      expect(tintedPipes(render), 3);
+      expect(
+        render.leaves.where(
+          (leaf) => leaf.style?.color == _renderContext.primary,
+        ),
+        isEmpty,
+        reason: 'no link colour, so no tap that would open "Squat\\"',
       );
     });
 
@@ -729,6 +817,14 @@ void main() {
       final pair = _renderBothStates('a &amp; b', money: false);
       expect(pair.on.visibleText, 'a &amp; b');
       expect(_concealedRuns(pair.on.span), isEmpty);
+      final dim = _renderContext.baseColor.withValues(alpha: _dimAlpha);
+      final source = pair.on.leaves.where(
+        (leaf) => leaf.text == '&' || leaf.text == 'amp;',
+      );
+      expect(source.map((leaf) => leaf.text).join(), '&amp;');
+      for (final leaf in source) {
+        expect(leaf.style?.color, dim, reason: leaf.text);
+      }
     });
 
     test('an unknown entity stays plain source', () {
@@ -741,6 +837,25 @@ void main() {
       expect(_concealedRuns(pair.off.span), <String>[r'\']);
       expect(pair.on.visibleText, r'next line\');
       expect(_concealedRuns(pair.on.span), isEmpty);
+      final slash = pair.on.leaves.singleWhere((leaf) => leaf.text == r'\');
+      expect(
+        slash.style?.color,
+        _renderContext.baseColor.withValues(alpha: _dimAlpha),
+      );
+    });
+
+    test('a url, a heading, a callout title and a money row keep it', () {
+      for (final line in const <String>[
+        r'see https://a.com/x\',
+        r'# a\',
+        r'> [!NOTE] Title\',
+      ]) {
+        final render = _renderOffCaret(line);
+        expect(render.visibleText, endsWith(r'\'), reason: line);
+        expect(_concealedRuns(render.span), isNot(contains(r'\')));
+      }
+      final money = _renderBothStates(r'$+ 5 coffee\', money: true);
+      expect(money.off.visibleText, endsWith(r'\'));
     });
 
     test('an escaped trailing backslash keeps its escaped half', () {
@@ -1339,7 +1454,7 @@ const Map<int, String> _substitutions = <int, String>{
   0x25E6: '-*+•', // ◦ — the same bullet one nesting level deeper
   0x25AA: '-*+•', // ▪ — and two levels deeper (the cycle wraps at three)
   0x2503: '>', // ┃ — blockquote bar
-  0x2500: '-*_', // ─ — horizontal rule
+  0x2500: '-*_ \t', // ─ — horizontal rule, the blanks between markers too
   0x03A3: r'$', // Σ — `$$` total marker with a value slot
   0x25CE: '!', // ◎ — `$!` marker, and the `$!` target op glyph
   0x0394: '?^~', // Δ — `$?` / `$^` / `$~` markers with a value slot
@@ -1573,6 +1688,18 @@ void _expectCodeUnits(String source, InlineSpan span, String where) {
           '  source: ${_visible(source)}\n'
           '  render: ${_visible(plain)}',
     );
+    // The rule row lists the blanks for spaced rules only: a blank drawn
+    // as `─` on any other line is a stray substitution.
+    if (got == 0x2500 && (want == 0x20 || want == 0x09)) {
+      expect(
+        MarkdownLineShape.isHorizontalRule(source),
+        isTrue,
+        reason:
+            'a blank drawn as a rule glyph off a rule at offset $i: $where\n'
+            '  source: ${_visible(source)}\n'
+            '  render: ${_visible(plain)}',
+      );
+    }
   }
 }
 
@@ -1841,6 +1968,12 @@ final List<_Case> _corpus = <_Case>[
   const _Case('escaped trailing backslash', r'a\\'),
   const _Case('hard break in a list item', r'- item\'),
   const _Case('hard break in a quote', r'> quoted\'),
+  const _Case('url ending in a backslash', r'see https://a.com/x\'),
+  const _Case('heading ending in a backslash', r'# a\'),
+  const _Case('callout title ending in a backslash', r'> [!NOTE] Title\'),
+  const _Case('money label ending in a backslash', r'$+ 5 coffee\'),
+  const _Case('slot then a backslash', r'$$ Sum: $ \'),
+  const _Case('invisible numeric references', '&#x2028; &#x202E; &#150;'),
   const _Case('romanian quotes around underscores', '„_foarte greu_“'),
   const _Case('digit-flanked stars', 'Squat 3*10, Bench 3*8'),
 
@@ -1873,6 +2006,15 @@ final List<_Case> _corpus = <_Case>[
   const _Case('table row with trailing space', '| a |  '),
   const _Case('table row with inline runs', '| **a** | `code` | #tag |'),
   const _Case('table row with a piped ghost', '| {{a|b}} |'),
+  const _Case('table row with an escaped pipe', r'| a \| b | c |'),
+  const _Case(
+    'table row with an aliased wiki link',
+    '| [[Session 1|legs]] | x |',
+  ),
+  const _Case('table row with an escaped closing pipe', r'| a | b \|'),
+  const _Case('table row with a refused wiki link', '| [[Bench|`PR`]] | x |'),
+  const _Case('table row with an escaped wiki alias', r'| [[Squat\|legs]] |'),
+  const _Case('table row with brackets in a code span', '| `[[x` | y]] |'),
   _Case('table row inside a fence', '| a | b |', above: const <String>['```']),
 
   // Money: every row kind.

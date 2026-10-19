@@ -332,6 +332,26 @@ void main() {
     await teardownEditor(tester);
   });
 
+  testWidgets('an aliased link in a table cell shows the alias and opens', (
+    tester,
+  ) async {
+    // `| [[a|bb]] | x |`: the alias pipe is no cell boundary, so the cell
+    // renders the link — `[[a|` 2-5 concealed, `bb` (6-7) painting at
+    // columns 2-3 — and the tap opens what the cell shows.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\nspacer line\n| [[a|bb]] | x |',
+    );
+    await park(tester, e.controller, 0);
+
+    await tester.tapAt(positionOf(tester, 2, 3));
+    await tester.pump();
+
+    expect(e.wikis, ['a']);
+    expect(e.controller.selection.baseIndex, 0);
+    await teardownEditor(tester);
+  });
+
   testWidgets('a doubly piped [[a|b|c]] is literal and passes through', (
     tester,
   ) async {

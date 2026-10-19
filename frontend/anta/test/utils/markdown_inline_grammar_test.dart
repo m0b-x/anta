@@ -2,6 +2,7 @@ import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/ghost_text.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_inline_grammar.dart';
+import 'package:anta/utils/markdown_tag_syntax.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const MarkdownColorPalette palette = MarkdownColorPalette.presets;
@@ -346,6 +347,20 @@ void main() {
     test('digit-led and glued hashes are not tags', () {
       expect(show('set #1'), '');
       expect(show('no#42'), '');
+    });
+
+    test('a range bound keeps the letter rule on a clamped body', () {
+      expect(show('#5x5', end: 2), '');
+      expect(show('#5x5', end: 3), 'tag[0,3)');
+      expect(show('#a5x', end: 2), 'tag[0,2)');
+    });
+
+    test('a range bound keeps the slash rule on a clamped body', () {
+      // MarkdownTagSyntax keeps a `/` only with a tag char after it.
+      expect(show('#a/b', end: 3), 'tag[0,2)');
+      expect(MarkdownTagSyntax.tryParseTagAt('#a/', 0), 2);
+      expect(show('#5/a', end: 3), '');
+      expect(show('#a/b', end: 4), 'tag[0,4)');
     });
 
     test('a heading hash is not a tag but a later one is', () {
@@ -1499,6 +1514,29 @@ void main() {
       // starting there reads it.
       expect(show('𝐀_x_', start: 1), 'italic[2,5) inner[3,4)');
     });
+
+    test('a letter after the closer keeps it literal', () {
+      expect(show('_x_ü'), '');
+      expect(show('_x_𝐀'), '');
+    });
+
+    test('an emoji after the closer is punctuation', () {
+      expect(show('_x_😀'), 'italic[0,3) inner[1,2)');
+    });
+
+    test('a range end splits no surrogate pair after the closer', () {
+      // The high half alone is no word character either.
+      expect(show('_x_𝐀', end: 4), 'italic[0,3) inner[1,2)');
+    });
+
+    test('code points read whole only inside the range', () {
+      const String line = 'a𝐀b';
+      expect(MarkdownInlineGrammar.codePointBefore(line, 3, 0), 0x1D400);
+      expect(MarkdownInlineGrammar.codePointBefore(line, 3, 2), 0xDC00);
+      expect(MarkdownInlineGrammar.codePointAt(line, 1, 4), 0x1D400);
+      expect(MarkdownInlineGrammar.codePointAt(line, 1, 2), 0xD835);
+      expect(MarkdownInlineGrammar.codePointAt(line, 0, 4), 0x61);
+    });
   });
 
   group('a star between digits', () {
@@ -1517,6 +1555,9 @@ void main() {
 
     test('a double star between digits is still bold', () {
       expect(show('2**3**4'), 'bold[1,6) inner[3,4)');
+      // Only a single star is blocked, so a double run pairs across
+      // words, as CommonMark and Obsidian pair it.
+      expect(show('3**10 and 5**2'), 'bold[1,13) inner[3,11)');
     });
 
     test('underscores between digits keep their own rule', () {
@@ -1549,8 +1590,30 @@ void main() {
       });
     });
 
-    // A `#` after the `&` may still read as a tag (`&` is a word
-    // boundary); what matters here is that no entity is decoded.
+    test('table names decode to the glyphs HTML gives them', () {
+      // Spelled out here rather than read back from the table, so a
+      // wrong code point in it fails.
+      const Map<String, String> glyphs = <String, String>{
+        'frac34': '¾',
+        'trade': '™',
+        'bull': '•',
+        'hellip': '…',
+        'ndash': '–',
+        'micro': 'µ',
+        'nbsp': ' ',
+        'times': '×',
+      };
+      glyphs.forEach((String name, String glyph) {
+        expect(
+          (tok('&$name;').single as InlineEntity).decoded,
+          glyph,
+          reason: name,
+        );
+      });
+    });
+
+    // A `#` after the `&` could read as a tag (`&` is a word boundary);
+    // these pin only that no entity is decoded.
     void expectNoEntity(String line) =>
         expect(tok(line).whereType<InlineEntity>(), isEmpty, reason: line);
 
@@ -1580,15 +1643,61 @@ void main() {
         '&#xDFFF;',
         '&#x1F600;',
         '&#65536;',
+        // Controls, separators, format and bidi controls, combining
+        // marks and noncharacters would break, reorder or fuse the line
+        // in the `&`'s slot.
+        '&#127;',
+        '&#133;',
+        '&#150;',
+        '&#x9F;',
+        '&#x2028;',
+        '&#x2029;',
+        '&#x200B;',
+        '&#x202E;',
+        '&#x2066;',
+        '&#xFEFF;',
+        '&#x301;',
+        '&#xFDD0;',
+        '&#xFFFE;',
+        '&#xFFFF;',
       ]) {
         expectNoEntity(line);
       }
       expect(show('&#32;'), 'entity[0,5)  ');
+      expect(show('&#126;'), 'entity[0,6) ~');
+      expect(show('&#xA0;'), 'entity[0,6)  ');
+    });
+
+    test('a numeric reference holds at most seven decimal digits', () {
+      expect(show('&#0000169;'), 'entity[0,10) ©');
+      expectNoEntity('&#00000169;');
+    });
+
+    test('a reference that does not decode forms no tag either', () {
+      expect(show('&#x1F600;'), '');
+      expect(show('&#xD800; and &#x1F;'), '');
+      // A `#` that is not a whole reference still tags.
+      expect(show('&#xyz'), 'tag[1,5)');
     });
 
     test('an entity inside a code span or a url stays literal', () {
       expect(show('`&amp;`'), 'code[0,7) inner[1,6)');
       expect(show('https://a.com/?a=1&amp;b=2'), 'url[0,26)');
+    });
+
+    test('an entity in a destination, autolink, wiki link or ghost is not '
+        'decoded', () {
+      for (final String line in const <String>[
+        '[x](u?a&amp;b)',
+        '<https://a.com?a&amp;b>',
+        '[[A &amp; B]]',
+        '{{&amp;}}',
+      ]) {
+        final List<InlineToken> tokens = tok(line);
+        expect(tokens, hasLength(1), reason: line);
+        expect(tokens.single, isNot(isA<InlineEntity>()), reason: line);
+        expect(tokens.single.end, line.length, reason: line);
+      }
     });
 
     test('an entity nests in emphasis and link text', () {
@@ -1626,7 +1735,10 @@ void main() {
     });
 
     test('a backslash a token covers is not', () {
-      expect(breaks(r'`a\`'), isFalse);
+      // A bare URL takes the `\` into itself, the one token besides an
+      // escape that can end on one.
+      expect(tok(r'see https://a.com/x\').single.end, 20);
+      expect(breaks(r'see https://a.com/x\'), isFalse);
       expect(breaks('a'), isFalse);
     });
   });

@@ -332,7 +332,14 @@ final List<_Case> _corpus = <_Case>[
   const _Case('hard break after bold', r'**a**\'),
   const _Case('escaped trailing backslash', r'a\\'),
   const _Case('a lone backslash stays', r'\'),
-  const _Case('hard break in a heading', r'# a\'),
+  const _Case('a url keeps its trailing backslash', r'see https://a.com/x\'),
+  const _Case('hard break in a quote', r'> quoted\'),
+  const _Case('a heading keeps its trailing backslash', r'# a\'),
+  const _Case(
+    'a callout title keeps its trailing backslash',
+    r'> [!NOTE] Title\',
+  ),
+  const _Case('entity in a wiki link stays literal', '[[A &amp; B]]'),
 
   // Links, images, bare URLs.
   const _Case('inline link', '[a](b)'),
@@ -664,6 +671,13 @@ const List<_OffsetCase> _offsetCorpus = <_OffsetCase>[
   _OffsetCase('> [!TIP] Rest', painted: 'Rest'),
   _OffsetCase('> keep it', above: <String>['> [!TIP] x'], painted: 'keep it'),
   _OffsetCase('| a | b |', painted: 'ab'),
+  _OffsetCase('  | a | b |', painted: 'ab'),
+  _OffsetCase(r'| a \| b | c |', painted: 'a | bc'),
+  _OffsetCase('| [[Session 1|legs]] | x |', painted: 'legsx'),
+  _OffsetCase(r'| a | b \|', painted: 'ab |'),
+  _OffsetCase('| [[Bench|`PR`]] | x |', painted: '[[BenchPR]]x'),
+  _OffsetCase(r'| [[Squat\|legs]] | 3x5 |', painted: '[[Squat|legs]]3x5'),
+  _OffsetCase('  ![alt](u)', painted: 'alt'),
 ];
 
 // ---------------------------------------------------------------------------

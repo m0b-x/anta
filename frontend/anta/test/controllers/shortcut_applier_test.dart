@@ -294,6 +294,28 @@ void main() {
       expect(controller.selectedText, 'case');
     });
 
+    test('underscores inside Romanian quotes are a wrap', () {
+      final controller = controllerWith('„_x_“');
+      controller.selection = range(0, 2, 3);
+
+      ShortcutApplier.toggleWrap(controller, '_');
+
+      expect(controller.text, '„x“');
+      expect(controller.selectedText, 'x');
+    });
+
+    test('a surrogate-pair letter keeps the underscores literal', () {
+      // The tokenizer reads U+1D400 whole, a letter, so `𝐀_x_` renders
+      // literal; the toggle must not unwrap what never rendered.
+      final controller = controllerWith('𝐀_x_');
+      controller.selection = range(0, 3, 4);
+
+      ShortcutApplier.toggleWrap(controller, '_');
+
+      expect(controller.text, '𝐀__x__');
+      expect(controller.selectedText, 'x');
+    });
+
     test('a star between digits is not a wrap around the selection', () {
       final controller = controllerWith('2*3*4');
       controller.selection = range(0, 2, 3);
@@ -606,6 +628,12 @@ void main() {
       expectCycle('###### squat', 'squat');
     });
 
+    test('dropping past level six drops the closing run too', () {
+      expectCycle('###### Week 3 ##', 'Week 3');
+      expectCycle('  ###### Week 3 #  ', '  Week 3');
+      expectCycle('## Week 3 ##', '### Week 3 ##');
+    });
+
     test('a bare hash run is an empty heading, so it cycles up', () {
       // `###` with no trailing space is a level-3 heading with empty
       // content per `MarkdownLineShape.headingAt` — the same call both
@@ -680,6 +708,29 @@ void main() {
       expect(pick('###', 3), '');
     });
 
+    test('removing a closed heading keeps only its content', () {
+      expect(pick('## Week 3 ##', 2), 'Week 3');
+      expect(pick('## ##', 2), '');
+      expect(pick('## Week 3 ##', 4), '#### Week 3 ##');
+    });
+
+    test('removing a closed heading maps the caret into the content', () {
+      CodeLineSelection after(int offset) {
+        final controller = controllerWith('## Week 3 ##');
+        controller.selection = CodeLineSelection.collapsed(
+          index: 0,
+          offset: offset,
+        );
+        ShortcutApplier.applyHeaderLevel(controller, 2);
+        expect(controller.text, 'Week 3');
+        return controller.selection;
+      }
+
+      expect(after(5), const CodeLineSelection.collapsed(index: 0, offset: 2));
+      expect(after(9), const CodeLineSelection.collapsed(index: 0, offset: 6));
+      expect(after(12), const CodeLineSelection.collapsed(index: 0, offset: 6));
+    });
+
     test('the caret keeps its column in the text', () {
       final controller = controllerWith('squat');
       controller.selection = const CodeLineSelection.collapsed(
@@ -713,6 +764,59 @@ void main() {
         shortcut(insertType: 'header', id: 'default_header', beforeText: '# '),
       );
       expect(button.text, '## squat');
+    });
+
+    test('a selection into the cut tail clamps to the content', () {
+      CodeLineSelection after(CodeLineSelection selection) {
+        final controller = controllerWith('## Week 3 ##');
+        controller.selection = selection;
+        ShortcutApplier.applyHeaderLevel(controller, 2);
+        expect(controller.text, 'Week 3');
+        return controller.selection;
+      }
+
+      expect(after(range(0, 3, 12)), range(0, 0, 6));
+      expect(after(range(0, 4, 11)), range(0, 1, 6));
+    });
+
+    test('one undo restores a dropped closed heading', () {
+      final controller = controllerWith('## Week 3 ##');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 5,
+      );
+
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      controller.undo();
+
+      expect(controller.text, '## Week 3 ##');
+    });
+
+    test('the menu drops a closed heading through applyRewrite', () {
+      final controller = controllerWith('## Week 3 ##');
+      ShortcutApplier.applyRewrite(
+        controller,
+        shortcut(insertType: 'header', id: 'header_level_2', beforeText: '## '),
+      );
+      expect(controller.text, 'Week 3');
+    });
+
+    test('a tail that reads as a closing run goes with the heading', () {
+      // `## Week ##` is a closed heading, so the second pick drops the
+      // ` ##` the plain line carried as text; one undo brings it back.
+      expect(pick(pick('Week ##', 2), 2), 'Week');
+    });
+
+    test('a heading shortcut leaves a fence line alone', () {
+      for (final id in const <String>['header_level_2', 'default_header']) {
+        final controller = controllerWith('```\n## build ##\n```', line: 1);
+        ShortcutApplier.applyRewrite(
+          controller,
+          shortcut(insertType: 'header', id: id, beforeText: '## '),
+          isFenceLine: (index) => index <= 2,
+        );
+        expect(controller.text, '```\n## build ##\n```', reason: id);
+      }
     });
   });
 }

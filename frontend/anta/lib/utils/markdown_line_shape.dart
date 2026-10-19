@@ -1,4 +1,7 @@
+import '../constants/markdown_constants.dart';
+import 'ghost_text.dart';
 import 'markdown_chunker.dart';
+import 'markdown_link_patterns.dart';
 import 'markdown_money_syntax.dart';
 
 /// Shape probe for line-led markdown constructs whose meaning lives on
@@ -48,6 +51,179 @@ class MarkdownLineShape {
   /// structure rather than content on both surfaces.
   static bool isTableSeparator(String line) =>
       isTableRow(line) && _tableSeparatorPattern.hasMatch(line.trim());
+
+  /// The index of the first cell boundary of the table row [line] at or
+  /// after [from], or `-1` when none is left. The single cell splitter
+  /// for the editor, the preview and the plain text, so a row has the
+  /// same cells on every surface; chain it from `0` and from one past
+  /// each boundary it returns.
+  ///
+  /// A boundary is a `|` that the inline grammar would leave as plain
+  /// text: an escaped `\|` is a literal pipe, as GFM spells one inside a
+  /// cell; the alias pipe of a `[[Title|alias]]` wiki link
+  /// ([MarkdownLinkPatterns.matchWikiLinkAt]) belongs to the link; and a
+  /// `|` inside one of the line's (sorted, non-overlapping) [ghosts] is
+  /// that placeholder's content. The rules mirror the tokenizer's atoms
+  /// (escapes, ghosts, code spans) in both directions, so a cell never
+  /// cuts a token the cell's own tokenize would build, and never keeps a
+  /// `|` that tokenize leaves as plain text: an escape needs escapable
+  /// punctuation and never reaches into a ghost; a `[` inside a closed
+  /// code span opens no wiki link; and a wiki link that overlaps a ghost
+  /// or holds an atom is refused, as `_tryWikiLink` refuses it.
+  ///
+  /// An unescaped `|` inside a code span is still a boundary, as in GFM,
+  /// so a code span never reaches across one. Two corners stay apart from
+  /// GFM, accepted as rare: an escaped `\|` inside a code span shows its
+  /// `\` (code content is literal, where GFM unescapes the row first),
+  /// and a `[[a|b]]` spelled inside code keeps its pipe, since the code
+  /// span cannot close across the alias pipe. Obsidian splits a cell at
+  /// an unescaped alias pipe, also in `![[photo.png|100]]`, and spells the
+  /// alias `[[Note\|alias]]`; here the alias pipe stays in the link, and
+  /// that escaped spelling holds an atom, so it renders as raw text and
+  /// never opens a note named `Note\`.
+  static int nextTableCellPipe(
+    String line,
+    int from, [
+    List<GhostMatch> ghosts = const <GhostMatch>[],
+  ]) {
+    final n = line.length;
+    var gi = _firstGhostEndingAfter(ghosts, from);
+    var i = from;
+    while (i < n) {
+      while (gi < ghosts.length && ghosts[gi].end <= i) {
+        gi++;
+      }
+      final nextGhost = gi < ghosts.length ? ghosts[gi].start : n;
+      if (nextGhost <= i) {
+        i = ghosts[gi].end;
+        continue;
+      }
+      final c = line.codeUnitAt(i);
+      if (c == 0x7C) return i;
+      if (c == 0x5C &&
+          i + 1 < nextGhost &&
+          MarkdownConstants.isEscapablePunctuation(line.codeUnitAt(i + 1))) {
+        i += 2;
+        continue;
+      }
+      if (c == 0x60) {
+        final close = _codeSpanEnd(line, i, i, ghosts, gi);
+        i = close >= 0 ? close : _runEnd(line, i);
+        continue;
+      }
+      if (c == 0x5B) {
+        final wiki = MarkdownLinkPatterns.matchWikiLinkAt(line, i);
+        if (wiki != null &&
+            wiki.end <= nextGhost &&
+            !_atomOpensWithin(line, i + 1, wiki.end, ghosts, gi)) {
+          i = wiki.end;
+          continue;
+        }
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  /// The first of the sorted, non-overlapping [ghosts] that ends after
+  /// [from] — a binary search, so a scan resumed at every boundary of a
+  /// placeholder-heavy row does not rewalk the ghosts behind it.
+  static int _firstGhostEndingAfter(List<GhostMatch> ghosts, int from) {
+    var lo = 0;
+    var hi = ghosts.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (ghosts[mid].end <= from) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
+  /// End of the backtick run that starts at [i].
+  static int _runEnd(String line, int i) {
+    var r = i + 1;
+    while (r < line.length && line.codeUnitAt(r) == 0x60) {
+      r++;
+    }
+    return r;
+  }
+
+  /// End of the code span whose opening backtick run starts at [open], or
+  /// `-1` when no run of the same length closes it before a cell
+  /// boundary `|` at or after [pipesFrom]. Content is literal, as in the
+  /// tokenizer's fence search, except that escape pairs are stepped over
+  /// the way the cell scan steps over them (so `\\|` still stops it) and
+  /// ghosts are skipped whole; [gi] is the scan's ghost cursor.
+  static int _codeSpanEnd(
+    String line,
+    int open,
+    int pipesFrom,
+    List<GhostMatch> ghosts,
+    int gi,
+  ) {
+    final n = line.length;
+    final opened = _runEnd(line, open);
+    final fence = opened - open;
+    var j = opened;
+    while (j < n) {
+      while (gi < ghosts.length && ghosts[gi].end <= j) {
+        gi++;
+      }
+      if (gi < ghosts.length && ghosts[gi].start <= j) {
+        j = ghosts[gi].end;
+        continue;
+      }
+      final c = line.codeUnitAt(j);
+      if (c == 0x7C && j >= pipesFrom) return -1;
+      if (c == 0x5C &&
+          j + 1 < n &&
+          line.codeUnitAt(j + 1) != 0x60 &&
+          MarkdownConstants.isEscapablePunctuation(line.codeUnitAt(j + 1))) {
+        j += 2;
+        continue;
+      }
+      if (c == 0x60) {
+        final r = _runEnd(line, j);
+        if (r - j == fence) return r;
+        j = r;
+        continue;
+      }
+      j++;
+    }
+    return -1;
+  }
+
+  /// Whether a tokenizer atom — an escape or a closed code span — opens
+  /// in `[lo, hi)`, the inside of a wiki link that ends at [hi] and
+  /// overlaps no ghost. A code span there may close past [hi], before
+  /// the next boundary, as the cell's own tokenize would let it.
+  static bool _atomOpensWithin(
+    String line,
+    int lo,
+    int hi,
+    List<GhostMatch> ghosts,
+    int gi,
+  ) {
+    var j = lo;
+    while (j < hi) {
+      final c = line.codeUnitAt(j);
+      if (c == 0x5C &&
+          j + 1 < line.length &&
+          MarkdownConstants.isEscapablePunctuation(line.codeUnitAt(j + 1))) {
+        return true;
+      }
+      if (c == 0x60) {
+        if (_codeSpanEnd(line, j, hi, ghosts, gi) >= 0) return true;
+        j = _runEnd(line, j);
+        continue;
+      }
+      j++;
+    }
+    return false;
+  }
 
   /// `---` / `***` / `___` (three or more of one marker), spaces or tabs
   /// allowed between the markers (`- - -`), indent and trailing blanks
@@ -147,31 +323,34 @@ class MarkdownLineShape {
   /// blockquote / callout, a table row, a fence delimiter, a heading, or
   /// a money row (bare, heading-prefixed or list-prefixed).
   static bool isLineLedConstruct(String line) {
-    final trimmed = line.trim();
-    if (trimmed.isEmpty) return false;
+    // Each predicate reads the raw line, as both dispatchers call it, so
+    // a lead only `trim` strips (a no-break space) cannot make a line
+    // line-led here and prose on screen; the lead char only routes.
+    final lead = line.length - line.trimLeft().length;
+    if (lead >= line.length) return false;
     // A rule is a run of one marker with no word boundary in it, so the
     // width breaker would happily cut `-` * 60 into six lines and the
     // list-aware paste would prefix it into `- ---`. Tested before the
     // switch because a rule's lead char is also a bullet marker.
-    if (isHorizontalRule(trimmed)) return true;
-    switch (trimmed.codeUnitAt(0)) {
+    if (isHorizontalRule(line)) return true;
+    switch (line.codeUnitAt(lead)) {
       case 0x3E: // > — blockquote / callout
         return true;
       case 0x7C: // | — table row
-        return isTableRow(trimmed);
+        return isTableRow(line);
       case 0x60: // ` — fence delimiter
-        return MarkdownChunker.isFenceDelimiter(trimmed);
+        return MarkdownChunker.isFenceDelimiter(line);
       case 0x24: // $ — money row (full shape parse, not just the probe)
-        return MarkdownMoneySyntax.parse(trimmed) != null;
+        return MarkdownMoneySyntax.parse(line) != null;
       case 0x23: // # — heading, or a space-less money heading (`##$$`)
-        return headingAt(trimmed) != null ||
-            (MarkdownMoneySyntax.leadsWithMoney(trimmed) &&
-                MarkdownMoneySyntax.parse(trimmed) != null);
+        return headingAt(line) != null ||
+            (MarkdownMoneySyntax.leadsWithMoney(line) &&
+                MarkdownMoneySyntax.parse(line) != null);
     }
     // List-prefixed money rows (`- $+ 12.50`, `1. $$`): the probe is
     // cheap and rejects ordinary list prose before the full parse runs.
-    return MarkdownMoneySyntax.leadsWithMoney(trimmed) &&
-        MarkdownMoneySyntax.parse(trimmed) != null;
+    return MarkdownMoneySyntax.leadsWithMoney(line) &&
+        MarkdownMoneySyntax.parse(line) != null;
   }
 }
 

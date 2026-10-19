@@ -670,18 +670,23 @@ class LineBasedMarkdownBuilder {
     final image = trimmed.startsWith('!')
         ? MarkdownLinkPatterns.matchImageAt(trimmed, 1)
         : null;
+    // Both builders below are handed the trimmed line, so its offsets
+    // start past the indent; the bare `lineStart` put an indented row's
+    // search highlights that many code units early.
+    final trimmedStart = lineStart + line.length - trimmed.length;
     if (image != null && image.end == trimmed.length) {
       return _buildImage(
         trimmed.substring(image.textStart, image.textEnd),
         image.urlOf(trimmed),
-        lineStart,
+        trimmedStart,
         lineEnd,
       );
     }
 
-    // Table row detection
-    if (MarkdownLineShape.isTableRow(trimmed)) {
-      return _buildTableRow(trimmed, lineStart, lineEnd);
+    // Table row detection on the untrimmed line, as the editor and the
+    // plain text read it: an NBSP indent is prose there, not a table.
+    if (MarkdownLineShape.isTableRow(line)) {
+      return _buildTableRow(trimmed, trimmedStart, lineEnd);
     }
 
     // ATX heading: 1–6 leading '#' followed by a space or the line end.
@@ -1731,11 +1736,18 @@ class LineBasedMarkdownBuilder {
     final children = <InlineSpan>[];
     bool isFirst = true;
 
-    // Split by | but track positions
+    // Split at the shared cell boundaries but track positions: an
+    // escaped `\|`, a wiki alias pipe and a ghost's pipe stay in a cell.
+    final ghosts = GhostText.mightContain(line)
+        ? GhostText.findGhosts(line)
+        : const <GhostMatch>[];
     int searchStart = 0;
     while (searchStart < line.length) {
-      // Find next |
-      int pipePos = line.indexOf('|', searchStart);
+      int pipePos = MarkdownLineShape.nextTableCellPipe(
+        line,
+        searchStart,
+        ghosts,
+      );
       if (pipePos == -1) {
         // No more pipes, handle remaining content
         if (searchStart < line.length) {

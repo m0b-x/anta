@@ -161,8 +161,12 @@ class ListAwarePaste {
     for (var i = 1; i < lines.length; i++) {
       final line = lines[i];
       if (line.trim().isEmpty) break;
+      // A rule past a lead only `trim` strips (a no-break space) is prose
+      // on screen, but prefixed with its lead stripped it would become
+      // `- ---`, a rule.
       if (MarkdownListSyntax.isListLine(line) ||
-          MarkdownLineShape.isLineLedConstruct(line)) {
+          MarkdownLineShape.isLineLedConstruct(line) ||
+          MarkdownLineShape.isHorizontalRule(line.trimLeft())) {
         return normalized;
       }
       hasContinuation = true;

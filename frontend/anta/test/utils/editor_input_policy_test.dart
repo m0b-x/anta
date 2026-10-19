@@ -641,14 +641,32 @@ void main() {
       expected: const EditorOpenWikiLinkAction('a'),
     ),
     tapRow(
-      'an alias across a table cell pipe is raw text, not a zone',
+      'an alias pipe in a table cell is no boundary, so the title opens',
       text: '| [[Squat|legs]] | 3x5 |',
       offset: 5,
+      expected: const EditorOpenWikiLinkAction('Squat'),
     ),
     tapRow(
-      'nor is the half of it after the cell pipe',
+      'and so does the alias the cell shows',
       text: '| [[Squat|legs]] | 3x5 |',
       offset: 12,
+      expected: const EditorOpenWikiLinkAction('Squat'),
+    ),
+    tapRow(
+      'an escaped pipe in a cell link label keeps the link a zone',
+      text: r'| [Day \| 2](https://x.dev) | y |',
+      offset: 4,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'a link across a cell boundary is raw text, not a zone',
+      text: '| [a | b](https://x.dev) |',
+      offset: 3,
+    ),
+    tapRow(
+      "Obsidian's escaped alias in a cell is no link, so no zone",
+      text: r'| [[Squat\|legs]] | 3x5 |',
+      offset: 5,
     ),
     tapRow(
       'a wiki link inside one table cell still opens',

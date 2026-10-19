@@ -517,15 +517,13 @@ class EditorInputPolicy {
     return result;
   }
 
-  /// Records `[start, end)` as a candidate, clipped to [length] — the
-  /// checkbox zone's `bracketStart + 4` reaches past a line that ends at
-  /// the box, and every other producer already ends inside the line.
-  /// [inline] without the tokens that span a cell pipe of a table row.
-  /// The editor splits a row at every `|` outside a ghost and renders
-  /// each cell on its own, so a construct the whole-line descent reads
-  /// across that pipe — `| [[Squat|legs]] |` — shows raw on screen, and
-  /// a zone over it would open a note where the reader meant to place
-  /// the caret.
+  /// [inline] without the tokens that span a cell boundary of a table
+  /// row. The editor renders each cell on its own, split by
+  /// [MarkdownLineShape.nextTableCellPipe], so a construct the whole-line
+  /// descent reads across a boundary shows raw on screen and a zone over
+  /// it would open a note where the reader meant to place the caret;
+  /// a link whose own pipe is no boundary — `| [[Squat|legs]] |`, an
+  /// escaped `\|` in a label — renders as a link and keeps its zone.
   static List<InlineToken> _withinTableCells(
     String lineText,
     List<InlineToken> inline,
@@ -534,19 +532,23 @@ class EditorInputPolicy {
     if (inline.isEmpty || !MarkdownLineShape.isTableRow(lineText)) {
       return inline;
     }
-    bool spansPipe(InlineToken token) {
-      for (int i = token.start; i < token.end; i++) {
-        if (lineText.codeUnitAt(i) != 0x7C) continue;
-        if (!ghosts.any((ghost) => ghost.start <= i && i < ghost.end)) {
-          return true;
-        }
-      }
-      return false;
+    final List<int> boundaries = <int>[];
+    for (
+      int pipe = MarkdownLineShape.nextTableCellPipe(lineText, 0, ghosts);
+      pipe >= 0;
+      pipe = MarkdownLineShape.nextTableCellPipe(lineText, pipe + 1, ghosts)
+    ) {
+      boundaries.add(pipe);
     }
+    bool spansBoundary(InlineToken token) =>
+        boundaries.any((pipe) => token.start < pipe && pipe < token.end);
 
-    return inline.where((token) => !spansPipe(token)).toList();
+    return inline.where((token) => !spansBoundary(token)).toList();
   }
 
+  /// Records `[start, end)` as a candidate, clipped to [length] — the
+  /// checkbox zone's `bracketStart + 4` reaches past a line that ends at
+  /// the box, and every other producer already ends inside the line.
   static void _addCandidate(
     List<_ZoneCandidate> candidates,
     int start,

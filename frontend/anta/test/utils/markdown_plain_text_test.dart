@@ -48,8 +48,27 @@ void main() {
 
     test('skips blank lines, horizontal rules and table separators', () {
       expect(MarkdownPlainText.strip('a\n\n---\n\nb'), 'a b');
-      expect(MarkdownPlainText.strip('| a | b |\n|---|---|\n| 1 | 2 |'),
-          'a · b 1 · 2');
+      expect(
+        MarkdownPlainText.strip('| a | b |\n|---|---|\n| 1 | 2 |'),
+        'a · b 1 · 2',
+      );
+    });
+
+    test('splits a table row only at its cell boundaries', () {
+      expect(MarkdownPlainText.strip(r'| a \| b | c |'), 'a | b · c');
+      expect(MarkdownPlainText.strip('| [[Session 1|legs]] | x |'), 'legs · x');
+      expect(MarkdownPlainText.strip(r'| a | b \|'), 'a · b |');
+      // A ghost is dropped whole, its pipe with it; cut at that pipe, the
+      // halves would be no ghost and leak into the text.
+      expect(MarkdownPlainText.strip('| {{a|b}} | c |'), 'c');
+      expect(
+        MarkdownPlainText.strip('| [[Bench|`PR`]] | x |'),
+        '[[Bench · PR]] · x',
+      );
+      expect(
+        MarkdownPlainText.strip(r'| [[Squat\|legs]] | 3x5 |'),
+        '[[Squat|legs]] · 3x5',
+      );
     });
 
     test('skips fence delimiters and everything inside a fence', () {
@@ -64,17 +83,17 @@ void main() {
     });
 
     test('names the callout type and keeps its title', () {
-      expect(MarkdownPlainText.strip('> [!tip] Careful now'), 'Tip Careful now');
+      expect(
+        MarkdownPlainText.strip('> [!tip] Careful now'),
+        'Tip Careful now',
+      );
       expect(MarkdownPlainText.strip('> [!warning]'), 'Warning');
     });
   });
 
   group('MarkdownPlainText.strip inline grammar', () {
     test('emits the inner text of emphasis, code and highlight', () {
-      expect(
-        MarkdownPlainText.strip('**b** *i* ~~s~~ ==h== `c`'),
-        'b i s h c',
-      );
+      expect(MarkdownPlainText.strip('**b** *i* ~~s~~ ==h== `c`'), 'b i s h c');
       expect(MarkdownPlainText.strip('==red: tinted=='), 'tinted');
     });
 
@@ -87,8 +106,10 @@ void main() {
       expect(MarkdownPlainText.strip('a ![](https://a.com/x.png) b'), 'a b');
       expect(MarkdownPlainText.strip('a [](u) b'), 'a [](u) b');
       expect(MarkdownPlainText.strip('see [[Leg Day]]'), 'see Leg Day');
-      expect(MarkdownPlainText.strip('go https://b.com now'),
-          'go https://b.com now');
+      expect(
+        MarkdownPlainText.strip('go https://b.com now'),
+        'go https://b.com now',
+      );
       expect(MarkdownPlainText.strip('a #tag b'), 'a #tag b');
     });
 
@@ -139,6 +160,24 @@ void main() {
       expect(MarkdownPlainText.strip(r'- item\'), 'item');
       expect(MarkdownPlainText.strip(r'a\\'), r'a\');
       expect(MarkdownPlainText.strip(r'\'), r'\');
+    });
+
+    test('single-line constructs and a url keep a trailing backslash', () {
+      expect(MarkdownPlainText.strip(r'# Heading\'), r'Heading\');
+      expect(MarkdownPlainText.strip(r'> [!TIP] title\'), r'Tip title\');
+      expect(MarkdownPlainText.strip(r'$- 12.50 coffee\'), endsWith(r'\'));
+      expect(MarkdownPlainText.strip(r'$$ Sum: $ \'), endsWith(r'\'));
+      expect(
+        MarkdownPlainText.strip(r'see https://a.com/x\'),
+        r'see https://a.com/x\',
+      );
+    });
+
+    test('a numeric reference that does not decode stays as typed', () {
+      expect(
+        MarkdownPlainText.strip('a &#x2028; b &#150; &#x1F600;'),
+        'a &#x2028; b &#150; &#x1F600;',
+      );
     });
 
     test('follows the flanking rules past ASCII and between digits', () {
@@ -251,7 +290,10 @@ void main() {
       expect(preview.length, 203);
       expect(preview.endsWith('...'), isTrue);
       expect(preview.substring(0, 200), 'a' * 200);
-      expect(MarkdownPlainText.strip('# ${'a' * 20}', maxLength: 5), 'aaaaa...');
+      expect(
+        MarkdownPlainText.strip('# ${'a' * 20}', maxLength: 5),
+        'aaaaa...',
+      );
     });
 
     test('joins every line so quick search keeps its reach', () {
@@ -269,7 +311,10 @@ void main() {
         NoteMetadata.generatePreview(content),
         MarkdownPlainText.strip(content),
       );
-      expect(NoteMetadata.generatePreview(content), 'Wednesday heavy 5 x 3 @ 140kg');
+      expect(
+        NoteMetadata.generatePreview(content),
+        'Wednesday heavy 5 x 3 @ 140kg',
+      );
     });
 
     test('empty content stays empty', () {

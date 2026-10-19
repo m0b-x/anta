@@ -105,6 +105,20 @@ void main() {
       }
     });
 
+    test('a rule behind a no-break space is not prefixed into a rule', () {
+      // Prose on screen, but `- ` + its trimmed text would draw a rule.
+      expect(pasteInto('- item', 'foo\n\u00a0---'), 'foo\n\u00a0---');
+      expect(pasteInto('* item', 'foo\n\u00a0***'), 'foo\n\u00a0***');
+    });
+
+    test('a heading behind a no-break space is prose, as on screen', () {
+      expect(
+        pasteInto('- item', 'item\n\u00a0## heading'),
+        'item\n- ## heading',
+      );
+      expect(pasteInto('- item', 'item\n  ## heading'), 'item\n  ## heading');
+    });
+
     test('a spaced rule caret line lends no bullet to a paste', () {
       for (final rule in const <String>['- - -', '* * *']) {
         expect(

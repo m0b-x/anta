@@ -20,6 +20,8 @@ void main() {
     final content = corpus['content'] as String;
     expect(content, startsWith('# Markdown corpus\n'));
     expect(content, contains('\n## Foo # ##\n'));
-    expect(content, contains('\n - - -\n'));
+    expect(content, contains('\n\u00a0- - -\n'));
+    expect(content, contains('\n\u00a0## No-break-space lead stays prose\n'));
+    expect(content, contains('\n# not a heading\n## build ##\n```\n'));
   });
 }

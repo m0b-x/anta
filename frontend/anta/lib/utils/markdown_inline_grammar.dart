@@ -190,8 +190,16 @@ class MarkdownInlineGrammar {
         if (p == start || MarkdownTagSyntax.isWordBoundaryBefore(text, p)) {
           final int? raw = MarkdownTagSyntax.tryParseTagAt(text, p);
           if (raw != null) {
-            final int tagEnd = raw < hi ? raw : hi;
-            if (tagEnd > p + 1) {
+            int tagEnd = raw < hi ? raw : hi;
+            // A body cut short by the range bound keeps a `/` only with a
+            // tag char after it, as MarkdownTagSyntax does, so `#a/` of
+            // `#a/b` ends before the slash.
+            if (raw > hi && text.codeUnitAt(tagEnd - 1) == 0x2F) tagEnd--;
+            // It must still hold the letter MarkdownTagSyntax requires,
+            // or `#5` of `#5x` would be a tag here and prose everywhere
+            // else.
+            if (tagEnd > p + 1 &&
+                (raw <= hi || _holdsTagLetter(text, p + 1, tagEnd))) {
               (constructs ??= <InlineToken>[]).add(
                 InlineTag(start: p, end: tagEnd),
               );
@@ -470,6 +478,13 @@ class MarkdownInlineGrammar {
   );
 
   static bool _isAsciiDigit(int c) => c >= 0x30 && c <= 0x39;
+
+  static bool _holdsTagLetter(String text, int from, int to) {
+    for (int q = from; q < to; q++) {
+      if (MarkdownTagSyntax.isLetter(text.codeUnitAt(q))) return true;
+    }
+    return false;
+  }
 
   /// The code point ending just before [p], read whole when it is a
   /// surrogate pair that lies inside the range starting at [start] — the
