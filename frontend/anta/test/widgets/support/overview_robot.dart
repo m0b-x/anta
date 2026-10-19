@@ -813,9 +813,11 @@ class OverviewRobot {
       )
       .isSelected!;
 
-  Badge get _optionsBadge => tester.widget(
-    find.ancestor(of: _optionsButton, matching: find.byType(Badge)).first,
-  );
+  /// The badge rides the glyph inside the button, so it is a descendant.
+  Finder get _optionsBadgeFinder =>
+      find.descendant(of: _optionsButton, matching: find.byType(Badge));
+
+  Badge get _optionsBadge => tester.widget(_optionsBadgeFinder);
 
   /// The number on the tune button, or null while it wears none.
   String? get optionsBadge {
@@ -823,6 +825,26 @@ class OverviewRobot {
     if (!badge.isLabelVisible) return null;
     return (badge.label! as Text).data;
   }
+
+  /// The painted pill's box on screen — the stadium around the count, which
+  /// stands 4 dp proud of the count's text — for the rule that it stays
+  /// inside the bar's toolbar clip.
+  Rect get optionsBadgeRect {
+    if (optionsBadge == null) {
+      throw StateError('the tune button wears no badge');
+    }
+    return tester.getRect(
+      find
+          .descendant(of: _optionsBadgeFinder, matching: find.byType(Container))
+          .first,
+    );
+  }
+
+  /// The label of the tune button's merged semantics node — empty while the
+  /// tooltip alone names it, which is what keeps Android 9+ announcing the
+  /// name rather than the badge's number. Needs `tester.ensureSemantics()`.
+  String get optionsSemanticsLabel =>
+      tester.getSemantics(_optionsButton).label;
 
   // --- The saved views (slice 9c) --------------------------------------------
 

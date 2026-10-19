@@ -3826,6 +3826,43 @@ void main() {
       expect(robot.optionsBadge, '2');
     });
 
+    /// The badge rides the glyph, not the button: around the button Material
+    /// puts it 4 dp above, which the 48 dp bar's toolbar clip cuts off. The
+    /// painted pill is measured, not its text, at the scale where the slack
+    /// is 9 dp and at 2.0 where it is about 1 dp; and the count stays out of
+    /// the button's spoken name (Android 9+ would announce it instead of the
+    /// tooltip).
+    Future<void> badgeInsideBar(WidgetTester tester, double textScale) async {
+      final semantics = tester.ensureSemantics();
+      final robot = OverviewRobot(tester);
+      await openList(
+        robot,
+        textScale: textScale,
+        surface: const Size(412, 915),
+      );
+      await robot.openOptions();
+      await robot.options.pickCategories({'mobility'});
+      await robot.options.close();
+      expect(robot.optionsBadge, '1');
+
+      final pill = robot.optionsBadgeRect;
+      final bar = tester.getRect(find.byType(AppBar));
+      expect(pill.top, greaterThanOrEqualTo(bar.top));
+      expect(pill.bottom, lessThanOrEqualTo(bar.bottom));
+      expect(robot.optionsSemanticsLabel, isNot('1'));
+      semantics.dispose();
+    }
+
+    testWidgets('the tune badge stays inside the 48 dp bar', (tester) async {
+      await badgeInsideBar(tester, 1.0);
+    });
+
+    testWidgets('the tune badge stays inside the 48 dp bar at text scale 2.0', (
+      tester,
+    ) async {
+      await badgeInsideBar(tester, 2.0);
+    });
+
     testWidgets('a preset period persists; a custom span clears it', (
       tester,
     ) async {

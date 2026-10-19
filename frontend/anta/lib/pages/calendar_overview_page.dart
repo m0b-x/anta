@@ -2471,18 +2471,26 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final restrictions =
         (_options.missedOnly && _mode != AgendaDayListMode.year ? 1 : 0) +
         (_categoryIds.isNotEmpty ? 1 : 0);
-    return Badge.count(
-      count: restrictions,
-      isLabelVisible: restrictions > 0,
-      child: AutomationId(
-        identifier: SemanticsIds.overviewOptionsOpen,
-        child: IconButton(
-          tooltip: l10n.overviewListOptions,
-          isSelected: restrictions > 0,
-          iconSize: AppBarMetrics.glyphSize,
-          icon: const Icon(Icons.tune_rounded),
-          onPressed: _openOptions,
+    return AutomationId(
+      identifier: SemanticsIds.overviewOptionsOpen,
+      child: IconButton(
+        tooltip: l10n.overviewListOptions,
+        isSelected: restrictions > 0,
+        iconSize: AppBarMetrics.glyphSize,
+        // The badge rides the glyph, inside the button's 48 dp box: around
+        // the button Material puts a labelled badge 4 dp above its child,
+        // which a 48 dp bar's toolbar clip cuts off. Its count stays out of
+        // the button's merged node: a label there would replace the tooltip
+        // as what Android 9+ announces, and the button would be read as a
+        // bare number (a spoken count needs words of its own).
+        icon: ExcludeSemantics(
+          child: Badge.count(
+            count: restrictions,
+            isLabelVisible: restrictions > 0,
+            child: const Icon(Icons.tune_rounded),
+          ),
         ),
+        onPressed: _openOptions,
       ),
     );
   }

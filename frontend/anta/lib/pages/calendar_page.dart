@@ -918,34 +918,44 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
             builder: (context, state) {
               final isLoaded = _isLoaded(state);
               final active = _activeFilterCount(state);
-              return Badge.count(
-                count: active,
-                isLabelVisible: active > 0,
-                child: AutomationId(
-                  identifier: SemanticsIds.calendarFilterOpen,
-                  child: IconButton(
-                    tooltip: l10n.filterCalendar,
-                    isSelected: active > 0,
-                    iconSize: AppBarMetrics.glyphSize,
-                    icon: Icon(
-                      active > 0
-                          ? Icons.filter_alt_rounded
-                          : Icons.filter_alt_outlined,
+              return AutomationId(
+                identifier: SemanticsIds.calendarFilterOpen,
+                child: IconButton(
+                  tooltip: l10n.filterCalendar,
+                  isSelected: active > 0,
+                  iconSize: AppBarMetrics.glyphSize,
+                  // The badge rides the glyph, inside the button's 48 dp
+                  // box: around the button Material puts a labelled badge
+                  // 4 dp above its child, which a 48 dp bar's toolbar clip
+                  // cuts off (the overview's tune button is built alike).
+                  // Its count stays out of the button's merged node: a
+                  // label there would replace the tooltip as what Android
+                  // 9+ announces, and the button would be read as a bare
+                  // number (a spoken count needs words of its own).
+                  icon: ExcludeSemantics(
+                    child: Badge.count(
+                      count: active,
+                      isLabelVisible: active > 0,
+                      child: Icon(
+                        active > 0
+                            ? Icons.filter_alt_rounded
+                            : Icons.filter_alt_outlined,
+                      ),
                     ),
-                    onPressed: !isLoaded
-                        ? null
-                        : () {
-                            // Read at press time, not from the builder's
-                            // state: this buildWhen tracks only the count, so
-                            // a set swapped for another of the same size
-                            // would reach the sheet stale.
-                            final current = context
-                                .read<CalendarBloc>()
-                                .state;
-                            if (current is! CalendarPageLoaded) return;
-                            _openFilterSheet(context, current);
-                          },
                   ),
+                  onPressed: !isLoaded
+                      ? null
+                      : () {
+                          // Read at press time, not from the builder's
+                          // state: this buildWhen tracks only the count, so
+                          // a set swapped for another of the same size
+                          // would reach the sheet stale.
+                          final current = context
+                              .read<CalendarBloc>()
+                              .state;
+                          if (current is! CalendarPageLoaded) return;
+                          _openFilterSheet(context, current);
+                        },
                 ),
               );
             },

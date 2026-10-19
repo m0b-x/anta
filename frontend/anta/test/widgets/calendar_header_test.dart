@@ -18,6 +18,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/calendar_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -329,6 +330,35 @@ void main() {
         reason: '$icon',
       );
     }
+  });
+
+  testWidgets('the filter badge rides the glyph inside the 48 dp bar, as the '
+      'overview\'s tune badge does, and stays out of the button\'s spoken '
+      'name (§2.9 item 17)', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await pumpCalendar(tester, size: const Size(412, 915), pushed: true);
+    await deliver(tester);
+    bloc.add(
+      const ChangeCalendarFilters(
+        filters: CalendarGridFilters(hiddenCategoryIds: {'other'}),
+      ),
+    );
+    await deliver(tester);
+
+    final badge = inBar(find.byType(Badge));
+    expect(badge, findsOneWidget);
+    // The painted pill, not the count's text: the stadium stands proud of it.
+    final pill = tester.getRect(
+      find.descendant(of: badge, matching: find.byType(Container)).first,
+    );
+    final bar = tester.getRect(find.byType(AppBar));
+    expect(pill.top, greaterThanOrEqualTo(bar.top));
+    expect(pill.bottom, lessThanOrEqualTo(bar.bottom));
+    expect(
+      tester.getSemantics(id(SemanticsIds.calendarFilterOpen)).label,
+      isNot('1'),
+    );
+    semantics.dispose();
   });
 
   // The test font is wider than the device's, so whether "Kalender" reads in
