@@ -7,6 +7,7 @@ import 'ghost_text.dart';
 import 'markdown_color_syntax.dart';
 import 'markdown_editor_emitter.dart';
 import 'markdown_inline_grammar.dart';
+import 'markdown_link_patterns.dart';
 
 /// The live editor's inline layer: an emitter over
 /// [MarkdownInlineGrammar] tokens, and the styles those tokens apply.
@@ -29,8 +30,10 @@ class EditorInlineEmitter {
   /// Appends spans covering [start]..[end], styling every inline
   /// construct [MarkdownInlineGrammar] finds there — emphasis, strike,
   /// highlight, inline code, `[text](url)` links and images, `[[note]]`
-  /// wiki links, bare URLs, `#tag` tokens, `{name:text}` colours, ghost
-  /// runs and backslash escapes — against [contextStyle]. The grammar is
+  /// wiki links, `<…>` autolinks, bare URLs, `#tag` tokens,
+  /// `{name:text}` colours, HTML entities, ghost runs, backslash escapes
+  /// and a line-ending hard-break `\` — against
+  /// [contextStyle]. The grammar is
   /// shared with the preview: this method never scans for a construct of
   /// its own, it only decides how each token is emitted (conceal vs drop
   /// is the one difference between the two surfaces), and it recurses
@@ -47,6 +50,10 @@ class EditorInlineEmitter {
   /// it the tokenizer returns nothing, so the inner range emits plain
   /// through the gap path on both surfaces alike. Returns whether any
   /// non-ghost token was found.
+  ///
+  /// [hardBreaks] is false on a heading, a callout title and a money
+  /// row, the single-line constructs that keep a trailing `\` as text
+  /// on every surface.
   static bool append({
     required String text,
     required int start,
@@ -58,6 +65,7 @@ class EditorInlineEmitter {
     required List<GhostMatch> ghosts,
     required List<InlineSpan> out,
     required int depth,
+    bool hardBreaks = true,
   }) {
     final baseColor = context.baseColor;
     final primary = context.primary;
@@ -69,7 +77,15 @@ class EditorInlineEmitter {
       palette: palette,
       depth: depth,
     );
-    if (tokens.isEmpty) {
+    // A trailing `\` is a hard break only at the end of the source line,
+    // the one place the preview and the plain text drop it too.
+    final hardBreak =
+        hardBreaks &&
+        depth == 0 &&
+        end == text.length &&
+        MarkdownInlineGrammar.endsWithHardBreak(text, start, end, tokens);
+    final contentEnd = hardBreak ? end - 1 : end;
+    if (tokens.isEmpty && !hardBreak) {
       EditorSpanEmitter.emit(
         text: text,
         start: start,
@@ -126,6 +142,24 @@ class EditorInlineEmitter {
             ),
           );
           styled = true;
+        case InlineEntity():
+          // The decoded character stands in for the `&` 1:1 off-caret
+          // and the rest of the entity is concealed; on reveal the whole
+          // source reads dimmed, like any other construct's chrome.
+          // Entities hold no ghost or atom, so no split is needed.
+          out.add(
+            reveal
+                ? TextSpan(text: '&', style: markerStyle)
+                : TextSpan(text: token.decoded, style: contextStyle),
+          );
+          EditorSpanEmitter.emitChrome(
+            text,
+            token.start + 1,
+            token.end,
+            markerStyle,
+            out,
+          );
+          styled = true;
         case InlineCode():
           // Code spans are literal all the way down: no recursion, and
           // the chip is painted at the emit site (CodeDecoratedTextSpan)
@@ -156,16 +190,18 @@ class EditorInlineEmitter {
           );
           styled = true;
         case InlineLink():
-          // `![image](url)` stays raw in the editor — the preview owns
-          // image rendering — so its chrome is emitted plain and the alt
-          // text keeps the surrounding style. A real link tints and
-          // underlines its text with `[` and `](url)` concealed.
+          // A link tints and underlines its text with `[` and `](url)`
+          // concealed. An image is never loaded inline (owner decision),
+          // so its `!` becomes the picture glyph 1:1 off-caret, the same
+          // chrome is concealed, and the alt text reads dimmed as the
+          // image's caption.
           final isImage = token.isImage;
+          if (isImage) _emitImageBang(reveal, contextStyle, context, out);
           EditorSpanEmitter.emit(
             text: text,
-            start: token.start,
+            start: isImage ? token.bracketStart : token.start,
             end: token.textStart,
-            style: isImage ? contextStyle : markerStyle,
+            style: markerStyle,
             baseColor: baseColor,
             ghosts: ghosts,
             out: out,
@@ -175,7 +211,7 @@ class EditorInlineEmitter {
             start: token.textStart,
             end: token.textEnd,
             contextStyle: isImage
-                ? contextStyle
+                ? EditorSpanEmitter.dimStyle(contextStyle, baseColor)
                 : _linkStyle(contextStyle, primary),
             context: context,
             palette: palette,
@@ -188,7 +224,7 @@ class EditorInlineEmitter {
             text: text,
             start: token.textEnd,
             end: token.end,
-            style: isImage ? contextStyle : markerStyle,
+            style: markerStyle,
             baseColor: baseColor,
             ghosts: ghosts,
             out: out,
@@ -210,17 +246,25 @@ class EditorInlineEmitter {
           // a `#tag` or `*run*` in a note name is part of the name — and
           // takes the link *text* style so the two link forms read the
           // same on the line.
+          //
+          // An alias is shown in the title's place: the title and the
+          // `|` join the concealed chrome, so the line reads the alias
+          // while a tap still opens the title. An embed's `!` is the
+          // image's picture glyph.
+          if (token.isEmbed) {
+            _emitImageBang(reveal, contextStyle, context, out);
+          }
           EditorSpanEmitter.emitChrome(
             text,
-            token.start,
-            token.titleStart,
+            token.bracketStart,
+            token.displayStart,
             markerStyle,
             out,
           );
           EditorSpanEmitter.emit(
             text: text,
-            start: token.titleStart,
-            end: token.titleEnd,
+            start: token.displayStart,
+            end: token.displayEnd,
             style: _linkStyle(contextStyle, primary),
             baseColor: baseColor,
             ghosts: ghosts,
@@ -228,7 +272,36 @@ class EditorInlineEmitter {
           );
           EditorSpanEmitter.emitChrome(
             text,
-            token.titleEnd,
+            token.displayEnd,
+            token.end,
+            markerStyle,
+            out,
+          );
+          styled = true;
+        case InlineAutolink():
+          // `<` and `>` are concealed like a link's brackets and the
+          // inside reads in the link style. Chrome via
+          // [EditorSpanEmitter.emitChrome] for the wiki link's reason:
+          // no atom may open inside the construct.
+          EditorSpanEmitter.emitChrome(
+            text,
+            token.start,
+            token.innerStart,
+            markerStyle,
+            out,
+          );
+          EditorSpanEmitter.emit(
+            text: text,
+            start: token.innerStart,
+            end: token.innerEnd,
+            style: _linkStyle(contextStyle, primary),
+            baseColor: baseColor,
+            ghosts: ghosts,
+            out: out,
+          );
+          EditorSpanEmitter.emitChrome(
+            text,
+            token.innerEnd,
             token.end,
             markerStyle,
             out,
@@ -341,18 +414,41 @@ class EditorInlineEmitter {
           styled = true;
       }
     }
-    if (plainFrom < end) {
+    if (plainFrom < contentEnd) {
       EditorSpanEmitter.emit(
         text: text,
         start: plainFrom,
-        end: end,
+        end: contentEnd,
         style: contextStyle,
         baseColor: baseColor,
         ghosts: ghosts,
         out: out,
       );
     }
+    if (hardBreak) {
+      // The `\` of a hard break is chrome like an escape's: concealed
+      // off-caret, dimmed on reveal.
+      out.add(TextSpan(text: r'\', style: markerStyle));
+      styled = true;
+    }
     return styled;
+  }
+
+  /// The `!` leading an image or an embed: the picture glyph off-caret,
+  /// the raw `!` dimmed on reveal — one code unit either way. The
+  /// grammar never starts a token inside a ghost, so no split is needed.
+  static void _emitImageBang(
+    bool reveal,
+    TextStyle contextStyle,
+    EditorRenderContext context,
+    List<InlineSpan> out,
+  ) {
+    out.add(
+      TextSpan(
+        text: reveal ? '!' : MarkdownLinkPatterns.imageGlyph,
+        style: EditorSpanEmitter.dimStyle(contextStyle, context.baseColor),
+      ),
+    );
   }
 
   static TextStyle _linkStyle(TextStyle context, Color primary) =>

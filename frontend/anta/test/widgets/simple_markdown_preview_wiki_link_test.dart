@@ -98,6 +98,30 @@ void main() {
     expect(leafReading(tester, 'a').recognizer, isNull);
   });
 
+  testWidgets('an alias renders in place and the tap hands over the title', (
+    tester,
+  ) async {
+    final tapped = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SimpleMarkdownPreview(
+            data: 'see [[Leg Day|legs]] now',
+            onTapWikiLink: tapped.add,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      previewText(tester).text.toPlainText(includePlaceholders: false),
+      'see legs now',
+    );
+    final recognizer = leafReading(tester, 'legs').recognizer;
+    (recognizer! as TapGestureRecognizer).onTap!();
+    expect(tapped, ['Leg Day']);
+  });
+
   testWidgets('the brackets are dropped and the title renders as a link', (
     tester,
   ) async {

@@ -89,6 +89,16 @@ class UtilityButtonDefinition {
       labelResolver: (l) => l.settings,
       isLocked: true,
     ),
+    UtilityButtonDefinition(
+      id: UtilityButtonId.indent,
+      icon: Icons.format_indent_increase,
+      labelResolver: (l) => l.indentLine,
+    ),
+    UtilityButtonDefinition(
+      id: UtilityButtonId.outdent,
+      icon: Icons.format_indent_decrease,
+      labelResolver: (l) => l.outdentLine,
+    ),
   ];
 
   static final Map<String, UtilityButtonDefinition> _byId = {

@@ -255,14 +255,11 @@ final List<_Case> _corpus = <_Case>[
   // A ghost sitting in concealed chrome: the preview drops the whole
   // url, the editor conceals it, so nothing of the ghost may paint.
   const _Case('ghost inside a link url', '[docs]({{ url }})'),
-  _Case(
-    'image mid line',
-    'a ![x](y) b',
-    expectedDivergence:
-        'the preview renders `!` + a link on the alt text; the editor keeps '
-        'the image source raw',
-    expectedDiff: 'visible text: editor "a ![x](y) b" vs preview "a !x b"',
-  ),
+  const _Case('image mid line', 'a ![x](y) b'),
+  const _Case('image with a title and styled alt', 'a ![**x** y](u "t") b'),
+  const _Case('image with an empty alt', 'a ![](https://x.y/a.png) b'),
+  const _Case('link title the reading cannot close', "[G](u 'Bob's g') b"),
+  const _Case('escaped quote in a link title', r'[t](u "a \" b") c'),
   const _Case('italic inside bold', '**a *b* c**'),
   const _Case('intraword underscores', '_a_b_'),
   const _Case('snake case is not emphasis', 'snake_case_word'),
@@ -281,6 +278,10 @@ final List<_Case> _corpus = <_Case>[
   const _Case('trailing asterisk', 'a*'),
   const _Case('leading asterisk', '*a'),
   const _Case('non ascii word char before underscore', 'ș_a_'),
+  const _Case('romanian quotes around underscores', '„_foarte greu_“'),
+  const _Case('dash and guillemets around underscores', '—_x_ and «_y_»'),
+  const _Case('digit-flanked stars stay plain', 'Squat 3*10, Bench 3*8'),
+  const _Case('star products stay plain', '2*3*4'),
   const _Case('interleaved emphasis', '*a _b* c_'),
 
   // Strikethrough and highlight (two-at-a-time runs).
@@ -317,6 +318,22 @@ final List<_Case> _corpus = <_Case>[
   const _Case('escaped hash', r'\#not a tag'),
   const _Case('escaped backslash alone', r'a \\ b'),
 
+  // Entities and the hard-break backslash.
+  const _Case('named entities', 'a &amp; b &copy; c'),
+  const _Case('numeric entities', '&#169; and &#x2014;'),
+  const _Case('unknown entity stays literal', '&nope; and AT&T'),
+  const _Case('entities inside bold', '**&lt;b&gt;**'),
+  const _Case('entity inside code stays literal', 'a `&amp;` b'),
+  const _Case(
+    'entity inside a url stays literal',
+    'see https://a.com/?a&amp;b',
+  ),
+  const _Case('trailing backslash hard break', r'next line\'),
+  const _Case('hard break after bold', r'**a**\'),
+  const _Case('escaped trailing backslash', r'a\\'),
+  const _Case('a lone backslash stays', r'\'),
+  const _Case('hard break in a heading', r'# a\'),
+
   // Links, images, bare URLs.
   const _Case('inline link', '[a](b)'),
   const _Case(
@@ -329,13 +346,30 @@ final List<_Case> _corpus = <_Case>[
   const _Case('bare https url', 'see https://example.com/a now'),
   const _Case('bare www url', 'see www.example.com/a now'),
   const _Case('bare url then ghost', 'www.a.com{{x}}'),
+  const _Case('link with a title', 'see [t](https://x.com/s "Guide") now'),
+  const _Case(
+    'link with balanced parens',
+    '[w](https://en.wikipedia.org/wiki/Foo_(bar)) x',
+  ),
+  const _Case('link with an angle destination', '[t](<a b>)'),
+  const _Case(
+    'bare url with balanced parens',
+    'see https://en.wikipedia.org/wiki/Squat_(exercise).',
+  ),
+  const _Case('bare url in parentheses', '(https://x.y).'),
+  const _Case('angle autolink', 'see <https://x.y> now'),
+  const _Case('angle mailto autolink', '<mailto:a@b.c>'),
+  const _Case('angle email autolink', 'mail <me@example.com>'),
+  const _Case('angle autolink in bold', '**<https://x.y>**'),
+  const _Case('angle brackets around prose', 'a <b> c'),
   _Case(
     'whole-line image',
     '![a](b)',
     expectedDivergence:
-        'the preview renders a whole line image as a 🖼 glyph plus the alt '
-        'text; the editor leaves `![a](b)` raw so the source stays editable',
-    expectedDiff: 'visible text: editor "![a](b)" vs preview "🖼 a"',
+        'the preview renders a whole line image as its 🖼 placeholder plus '
+        'the alt text; the editor shows the picture glyph and the alt in '
+        'the line',
+    expectedDiff: 'visible text: editor "▣a" vs preview "🖼 a"',
   ),
 
   // Wiki links: the editor conceals `[[` and `]]`, the preview drops
@@ -354,8 +388,11 @@ final List<_Case> _corpus = <_Case>[
   const _Case('wiki link tight against a ghost', '[[a]]{{g}}'),
   const _Case('wiki link beside a link and a tag', '[[a]] and [b](c) and #t'),
   const _Case('wiki link followed by parens', '[[a]](b)'),
-  const _Case('image bang before a wiki link', '![[a]]'),
-  const _Case('an aliased title is literal', '[[a|b]]'),
+  const _Case('embed before a wiki link', '![[a]]'),
+  const _Case('aliased wiki link', 'see [[Squat Day|legs]] now'),
+  const _Case('aliased embed in a heading', '## ![[a|b]]'),
+  const _Case('wiki link with a blank alias', '[[a| ]]'),
+  const _Case('a second pipe is literal', '[[a|b|c]]'),
   const _Case('a ghost in the title is literal', '[[a {{g}} b]]'),
   const _Case('escaped wiki open is literal', r'\[[a]]'),
   const _Case('wiki link inside a code span is literal', '`[[a]]`'),
@@ -395,6 +432,10 @@ final List<_Case> _corpus = <_Case>[
   // Tags.
   const _Case('tag in prose', 'see #project now'),
   const _Case('tag with slash', 'lifting #gym/legs today'),
+  const _Case('nested tag with a digit-led part', 'run #program/5x5 today'),
+  const _Case('tag trailing slash is text', 'see #gym/ now'),
+  const _Case('digit-led tags', 'did #5x5 and #1rm, then #531a'),
+  const _Case('all-digit hash is not a tag', 'set #123 done'),
   const _Case('tag inside italic', '*#tag*'),
   const _Case('tag inside link text', '[#tag](url)'),
   const _Case('digit after hash is not a tag', 'set #1'),
@@ -444,6 +485,9 @@ final List<_Case> _corpus = <_Case>[
         'visible text: editor "Trailing heading  " vs preview "Trailing heading"',
   ),
   const _Case('heading with inline runs', '# **Bold** and `code` #tag'),
+  const _Case('closing hashes are chrome', '## Week 3 ##'),
+  const _Case('glued closing hashes are content', '## Title##'),
+  const _Case('an escaped hash opens no closing run', r'## foo \##'),
   const _Case('heading with nested emphasis', '## *a **b** c*'),
 
   // Deep nesting: both surfaces must flatten at the same depth.
@@ -591,6 +635,8 @@ class _OffsetCase {
 const List<_OffsetCase> _offsetCorpus = <_OffsetCase>[
   _OffsetCase('*a **b** c*'),
   _OffsetCase('***a**'),
+  _OffsetCase(r'a **b** c\'),
+  _OffsetCase(r'a\\'),
   _OffsetCase(r'a \*not italic\* b'),
   _OffsetCase(r'\\*a*'),
   _OffsetCase(r'\{{x}}'),

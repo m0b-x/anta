@@ -330,6 +330,95 @@ void main() {
     });
   });
 
+  group('bindFocus', () {
+    testWidgets('the caret line reveals only while the bound node has focus', (
+      tester,
+    ) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Focus(focusNode: focus, child: const SizedBox.shrink()),
+        ),
+      );
+      final controller = CodeLineEditingController.fromText(
+        ['pad', '## Heading', 'pad'].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 0,
+      );
+      final render = EditorRenderController()..bind(controller);
+      String visible() => _visibleText(
+        render.spanBuilder.build(
+          context: _renderContext,
+          index: 1,
+          codeLine: controller.codeLines[1],
+        )!,
+      );
+
+      expect(
+        visible(),
+        '## Heading',
+        reason: 'with no node bound the editor counts as focused',
+      );
+
+      render.bindFocus(focus);
+      expect(
+        visible(),
+        'Heading',
+        reason: 'an unfocused editor conceals the caret line',
+      );
+
+      focus.requestFocus();
+      await tester.pump();
+      expect(focus.hasFocus, isTrue);
+      expect(visible(), '## Heading', reason: 'focus reveals it again');
+
+      focus.unfocus();
+      await tester.pump();
+      render.bindFocus(null);
+      expect(
+        visible(),
+        '## Heading',
+        reason: 'unbinding restores the unbound default',
+      );
+    });
+
+    test('an active find session reveals the selection without focus', () {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      final findActive = ValueNotifier<bool>(false);
+      addTearDown(findActive.dispose);
+      final controller = CodeLineEditingController.fromText(
+        ['pad', '## Heading', 'pad'].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 3,
+      );
+      final render = EditorRenderController()
+        ..bind(controller)
+        ..bindFocus(focus)
+        ..bindRevealWhenUnfocused(findActive);
+      String visible() => _visibleText(
+        render.spanBuilder.build(
+          context: _renderContext,
+          index: 1,
+          codeLine: controller.codeLines[1],
+        )!,
+      );
+
+      expect(visible(), 'Heading', reason: 'unfocused, no find: concealed');
+      findActive.value = true;
+      expect(visible(), '## Heading', reason: 'find reveals the match line');
+      render.bindRevealWhenUnfocused(null);
+      expect(visible(), 'Heading', reason: 'unbinding drops the input');
+    });
+  });
+
   group('buildSpan routing', () {
     testWidgets('live rendering styles the line', (tester) async {
       final fixture = await _pumpBuildContext(tester, '## Heading');

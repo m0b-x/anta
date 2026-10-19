@@ -188,6 +188,10 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   /// re_editor's controller-delegate handoff.
   bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
 
+  /// The app-wide haptics setting, resolved with [_liveMarkdownRendering],
+  /// so a box toggled here clicks exactly when one in a note does.
+  bool _hapticsEnabled = SettingsKeys.defaultHapticFeedback;
+
   /// What the guard compares against: the text as the controller holds it
   /// after seeding, not [EventDescriptionSheet.initialText] itself, so a
   /// line-ending the load normalised cannot make an untouched sheet ask.
@@ -224,6 +228,9 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     // repaint for.
     _spanBuilder.configureColors(widget.colorPalette);
     _focus = FocusNode();
+    // The wrapper's taps read real focus, so the rendering must too: an
+    // unfocused description shows its caret line rendered, box and all.
+    _spanBuilder.bindFocus(_focus);
     _scroll = CodeScrollController();
     _search = ReEditorSearchController()..initialize(_controller);
     // Subscribed after the seeding write, so opening costs no spurious bump.
@@ -250,6 +257,7 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     _controller.removeListener(_relayChange);
     _controller.dispose();
     _revision.dispose();
+    _spanBuilder.bindFocus(null);
     _focus.dispose();
     _scroll.dispose();
     _search.dispose();
@@ -259,9 +267,15 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
     final liveRendering = await settings.getLiveMarkdownRendering();
-    if (!mounted || liveRendering == _liveMarkdownRendering) return;
-    setState(() => _liveMarkdownRendering = liveRendering);
-    _controller.forceRepaint();
+    final haptics = await settings.getHapticFeedback();
+    if (!mounted) return;
+    final rerender = liveRendering != _liveMarkdownRendering;
+    if (!rerender && haptics == _hapticsEnabled) return;
+    setState(() {
+      _liveMarkdownRendering = liveRendering;
+      _hapticsEnabled = haptics;
+    });
+    if (rerender) _controller.forceRepaint();
   }
 
   /// Republishes a controller notification on [_revision], moving it out of
@@ -411,6 +425,7 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
             onIncreaseFontSize: () {},
             onSettings: () {},
             onShortcutPressed: _handleShortcut,
+            hapticsEnabled: _hapticsEnabled,
           ),
         );
       },
@@ -574,6 +589,7 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
               editorFontSize: FontConstants.defaultFontSize,
               onTextChanged: _tracker.onTextChanged,
               checkboxTapToggle: _liveMarkdownRendering,
+              hapticsEnabled: _hapticsEnabled,
               // The note editor's rail, shown only once the text runs past
               // the sheet: a description is usually a paragraph, and the
               // rail turning up is what says the rest is below.

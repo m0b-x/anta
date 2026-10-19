@@ -894,6 +894,27 @@
   "@header6": {
     "description": "Header 6 Menüelement"
   },
+  "indentLine": "Einzug vergrößern",
+  "outdentLine": "Einzug verringern",
+  "shortcutHighlight": "Hervorheben",
+  "shortcutCallout": "Hinweisblock",
+  "shortcutCheckedCheckbox": "Abgehakt",
+  "shortcutTable": "Tabelle",
+  "shortcutHorizontalRule": "Trennlinie",
+  "shortcutImage": "Bild",
+  "shortcutGhostText": "Platzhalter",
+  "shortcutColorText": "Farbiger Text",
+  "shortcutColorHighlight": "Farbige Markierung",
+  "shortcutMoneyAdd": "Geld +",
+  "shortcutMoneySubtract": "Geld -",
+  "shortcutMoneyMultiply": "Geld ×",
+  "shortcutMoneyDivide": "Geld ÷",
+  "shortcutMoneyStart": "Geld Start",
+  "shortcutMoneyTotal": "Geld Summe",
+  "shortcutMoneyChange": "Geld Änderung",
+  "shortcutMoneyTarget": "Geld Ziel",
+  "shortcutMoneyDiff": "Geld Differenz",
+  "shortcutMoneySpan": "Geld Zeitraum",
   "undo": "Rückgängig",
   "@undo": {
     "description": "Rückgängig-Schaltfläche Tooltip"

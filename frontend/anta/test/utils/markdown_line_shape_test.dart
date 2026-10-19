@@ -102,6 +102,52 @@ void main() {
     });
   });
 
+  group('headingAt contentEnd', () {
+    String content(String line) {
+      final h = MarkdownLineShape.headingAt(line)!;
+      return line.substring(h.contentStart, h.contentEnd);
+    }
+
+    test('without a closing run the content runs to the line end', () {
+      expect(MarkdownLineShape.headingAt('## Title')!.contentEnd, 8);
+      expect(content('## Title  '), 'Title  ');
+      expect(MarkdownLineShape.headingAt('###')!.contentEnd, 3);
+    });
+
+    test('a closing run after a blank is not content, nor the blanks', () {
+      expect(content('## Week 3 ##'), 'Week 3');
+      expect(content('# Title #'), 'Title');
+      expect(content('### Title   ###'), 'Title');
+      expect(content('## Title\t##'), 'Title');
+    });
+
+    test('blanks after the closing run belong to it', () {
+      expect(content('## Week 3 ##  '), 'Week 3');
+    });
+
+    test('a closing run of any length counts', () {
+      expect(content('# Title ######'), 'Title');
+    });
+
+    test('hashes glued to the content stay content', () {
+      expect(content('## Title##'), 'Title##');
+      expect(content('## C#'), 'C#');
+      expect(content(r'## foo \##'), r'foo \##');
+    });
+
+    test('a heading of only closing hashes is empty', () {
+      final h = MarkdownLineShape.headingAt('## ##')!;
+      expect(h.contentStart, 3);
+      expect(h.contentEnd, 3);
+      expect(content('#   #'), '');
+    });
+
+    test('a tag or prose hash before the end is untouched', () {
+      expect(content('# Log #gym'), 'Log #gym');
+      expect(content('# Week #3 done'), 'Week #3 done');
+    });
+  });
+
   group('isHorizontalRule', () {
     test('three or more of one marker', () {
       expect(MarkdownLineShape.isHorizontalRule('---'), isTrue);
@@ -117,15 +163,39 @@ void main() {
       expect(MarkdownLineShape.isHorizontalRule(''), isFalse);
     });
 
-    test('the markers must be adjacent — spaced runs are prose', () {
-      expect(MarkdownLineShape.isHorizontalRule('- - -'), isFalse);
-      expect(MarkdownLineShape.isHorizontalRule('* * *'), isFalse);
-      expect(MarkdownLineShape.isHorizontalRule('_ _ _'), isFalse);
+    test('spaces or tabs between the markers still make a rule', () {
+      expect(MarkdownLineShape.isHorizontalRule('- - -'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('* * *'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('_ _ _'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('-  --\t-'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('   * * * *  '), isTrue);
+    });
+
+    test('spaced runs still need three of one marker and nothing else', () {
+      expect(MarkdownLineShape.isHorizontalRule('- -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('- * -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('- - - x'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('- - x -'), isFalse);
     });
 
     test('tabs count as indent and as trailing blanks', () {
       expect(MarkdownLineShape.isHorizontalRule('---\t'), isTrue);
       expect(MarkdownLineShape.isHorizontalRule('\t---'), isTrue);
+    });
+
+    test('only spaces and tabs are blanks; other whitespace is not', () {
+      expect(MarkdownLineShape.isHorizontalRule(' - - -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('- - -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('   '), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('+++'), isFalse);
+    });
+
+    // CommonMark: a rule beats a list item, so opening bold on a `* `
+    // bullet reads as a rule until the first letter is typed.
+    test('a bold opener on an asterisk bullet is a rule until a letter', () {
+      expect(MarkdownLineShape.isHorizontalRule('* **'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('* ****'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('* **b'), isFalse);
     });
   });
 
@@ -234,6 +304,9 @@ void main() {
     test('rules and empty lines are half height', () {
       expect(scale('---'), MarkdownConstants.horizontalRuleScale);
       expect(scale('***'), MarkdownConstants.horizontalRuleScale);
+      expect(scale('- - -'), MarkdownConstants.horizontalRuleScale);
+      expect(scale('* * *'), MarkdownConstants.horizontalRuleScale);
+      expect(scale('- - x'), MarkdownConstants.normalLineScale);
       expect(scale(''), MarkdownConstants.emptyLineScale);
       expect(scale('   '), MarkdownConstants.emptyLineScale);
     });

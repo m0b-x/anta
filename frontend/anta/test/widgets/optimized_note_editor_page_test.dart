@@ -15,6 +15,7 @@ import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
 import 'package:anta/constants/app_spacing.dart';
+import 'package:anta/widgets/overlay_snackbar.dart';
 import 'package:anta/constants/font_constants.dart';
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -41,6 +42,7 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_position_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
@@ -202,6 +204,7 @@ void main() {
     await positions.deletePosition(noteId);
     await settings.setShowLineNumbers(false);
     await settings.setLiveMarkdownRendering(true);
+    await settings.setHapticFeedback(true);
     // Font sizes are per-database rows, and one case below writes the
     // editor's; clear both so the next test starts at the default.
     await db.userSettingsDao.deleteValue(SettingsKeys.editorFontSize);
@@ -807,8 +810,7 @@ void main() {
     );
 
     /// A plain symmetric wrapper: with an empty selection the applier
-    /// resolves it to [text] alone, so it is the simplest non-header
-    /// shortcut there is.
+    /// toggles the pair in with the caret between.
     CustomMarkdownShortcut wrapper(String text) => CustomMarkdownShortcut(
       id: 'test-wrap',
       label: 'test',
@@ -816,6 +818,28 @@ void main() {
       iconFontFamily: 'MaterialIcons',
       beforeText: text,
       afterText: text,
+    );
+
+    /// A one-sided insert: the applier resolves it to [text] alone, so it
+    /// is the simplest shortcut that goes through the resolved insert.
+    CustomMarkdownShortcut insert(String text) => CustomMarkdownShortcut(
+      id: 'test-insert',
+      label: 'test',
+      iconCodePoint: 0xe000,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: text,
+      afterText: '',
+    );
+
+    /// One of the H menu's items: the level is spelled by its marker.
+    CustomMarkdownShortcut headerLevel(int level) => CustomMarkdownShortcut(
+      id: 'header_level_$level',
+      label: 'H$level',
+      iconCodePoint: 0xe000,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '${'#' * level} ',
+      afterText: '',
+      insertType: 'header',
     );
 
     /// Fires the toolbar's own callback, the way B5 drives the font
@@ -850,7 +874,15 @@ void main() {
 
       press(tester, wrapper('**'));
       await settle(tester, rounds: 3);
-      expect(controller.codeLines[0].text, 'first line typed**');
+      expect(controller.codeLines[0].text, 'first line typed****');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 'first line typed**'.length,
+        ),
+        reason: 'the caret lands between the pair',
+      );
 
       controller.undo();
       await tester.pump();
@@ -880,7 +912,7 @@ void main() {
       );
       await tester.pump();
 
-      press(tester, wrapper('\n'));
+      press(tester, insert('\n'));
       await settle(tester, rounds: 3);
 
       expect(controller.codeLines.length, 4);
@@ -903,22 +935,107 @@ void main() {
       );
       await tester.pump();
 
-      press(
-        tester,
-        const CustomMarkdownShortcut(
-          id: 'test-header',
-          label: 'header',
-          iconCodePoint: 0xe000,
-          iconFontFamily: 'MaterialIcons',
-          beforeText: '# ',
-          afterText: '',
-          insertType: 'header',
-        ),
+      // The bar's own button: it carries `# ` like the H1 menu item, but
+      // it is the cycling one.
+      const button = CustomMarkdownShortcut(
+        id: 'default_header',
+        label: 'header',
+        iconCodePoint: 0xe000,
+        iconFontFamily: 'MaterialIcons',
+        beforeText: '# ',
+        afterText: '',
+        insertType: 'header',
       );
+      press(tester, button);
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[0].text, '# first line');
+
+      press(tester, button);
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[0].text, '## first line');
+      expect(controller.codeLines[1].text, '- squat 5x5');
+      await teardownPage(tester);
+    });
+
+    testWidgets('H3 picked on plain text gives a level-3 heading', (
+      tester,
+    ) async {
+      final controller = await loadListNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 5,
+      );
+      await tester.pump();
+
+      press(tester, headerLevel(3));
       await settle(tester, rounds: 3);
 
-      expect(controller.codeLines[0].text, '# first line');
-      expect(controller.codeLines[1].text, '- squat 5x5');
+      expect(controller.codeLines[0].text, '### first line');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 0, offset: 9),
+        reason: 'the caret keeps its place in the text',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('H3 picked on an H3 line removes the heading', (tester) async {
+      final controller = await loadListNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      await tester.pump();
+
+      press(tester, headerLevel(3));
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[0].text, '### first line');
+
+      press(tester, headerLevel(3));
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[0].text, 'first line');
+      await teardownPage(tester);
+    });
+
+    testWidgets('a list shortcut toggles the line marker as one undo step', (
+      tester,
+    ) async {
+      final controller = await loadListNote(tester);
+
+      // Mid-line on the bullet item: the checkbox swaps the marker at the
+      // line start instead of landing at the caret.
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: '- squat'.length,
+      );
+      await tester.pump();
+
+      const checkbox = CustomMarkdownShortcut(
+        id: 'default_checkbox',
+        label: 'Checkbox',
+        iconCodePoint: 0xe000,
+        iconFontFamily: 'MaterialIcons',
+        beforeText: '- [ ] ',
+        afterText: '',
+        isDefault: true,
+      );
+      press(tester, checkbox);
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[1].text, '- [ ] squat 5x5');
+
+      press(tester, checkbox);
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[1].text, 'squat 5x5');
+
+      controller.undo();
+      await tester.pump();
+      expect(
+        controller.codeLines[1].text,
+        '- [ ] squat 5x5',
+        reason: 'one undo reverts one toggle',
+      );
       await teardownPage(tester);
     });
   });
@@ -1443,6 +1560,339 @@ void main() {
 
       final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
       expect(pushed.noteId, target.id);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('an aliased link shows the alias and opens the title', (
+      tester,
+    ) async {
+      await loadAndPark(tester, 'see [[Squat Progression|squats]] now\nx');
+
+      // `see ` plus the six glyphs of the alias — the title is concealed
+      // chrome: column 7 is the alias's middle.
+      await tester.tapAt(visiblePoint(tester, 0, 7));
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, target.id);
+      expect(pushed.targetHeading, isNull);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a heading suffix opens the note and hands the heading on', (
+      tester,
+    ) async {
+      await loadAndPark(tester, 'x\ny');
+
+      editorOf(tester).onOpenWikiLink!(' Squat Progression # Warm-up ');
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, target.id);
+      expect(pushed.targetHeading, 'Warm-up');
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a trailing .md resolves the note it names', (tester) async {
+      await loadAndPark(tester, 'x\ny');
+
+      editorOf(tester).onOpenWikiLink!('Squat Progression.md');
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, target.id);
+      expect(pushed.targetHeading, isNull);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a bare heading centres it in this note without moving the '
+        'caret', (tester) async {
+      final text = <String>[
+        'see [[#Cool-down]] now',
+        for (var i = 0; i < 120; i++) 'line $i',
+        '## Cool-down',
+        'end',
+      ].join('\n');
+      final controller = await loadAndPark(tester, text);
+      final scroller = editorOf(tester).scrollController.verticalScroller;
+      expect(scroller.position.pixels, 0.0);
+
+      editorOf(tester).onOpenWikiLink!('#cool-down');
+      await settle(tester);
+
+      expect(scroller.position.pixels, greaterThan(0.0));
+      final render = CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      );
+      expect(render.displayedLineIndices, contains(121));
+      expect(controller.selection.baseIndex, 1);
+      expect(pages(), findsOneWidget);
+      expect(find.byType(SnackBar, skipOffstage: false), findsNothing);
+      await teardownPage(tester);
+    });
+
+    /// Mounts the page over this file's note with [heading] as its target,
+    /// the way a `[[Note#heading]]` tap pushes it.
+    Future<void> pumpPageWithHeading(WidgetTester tester, String heading) {
+      return tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: OptimizedNoteEditorPage(
+              folderId: folderId,
+              noteId: noteId,
+              targetHeading: heading,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final headedContent = <String>[
+      'top',
+      for (var i = 0; i < 200; i++) 'line $i',
+      '```',
+      '## Cool-down',
+      '```',
+      for (var i = 0; i < 100; i++) 'more $i',
+      '##   cool-DOWN  ',
+      'end',
+    ].join('\n');
+
+    testWidgets('a target heading replaces the restored position in the '
+        "editor's first frame", (tester) async {
+      await savePosition(tester, 2, 1);
+      await pumpPageWithHeading(tester, 'Cool-down');
+      noteBloc.emitContentLoaded(metadata, headedContent);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      // The fenced `## Cool-down` is code, not a heading; the real one
+      // matches trimmed and case-insensitively.
+      const headingLine = 1 + 200 + 3 + 100;
+      final render = CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      );
+      expect(render.displayedLineIndices, contains(headingLine));
+      expect(editorOf(tester).controller.selection.baseIndex, headingLine);
+
+      // Later gate callers (a settings reload) never drag it back.
+      editorOf(tester).controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      await settle(tester);
+      expect(editorOf(tester).controller.selection.baseIndex, 0);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a heading the note does not hold keeps the restored '
+        'position', (tester) async {
+      await savePosition(tester, 2, 1);
+      await pumpPageWithHeading(tester, 'Nowhere');
+      noteBloc.emitContentLoaded(metadata, headedContent);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settleUntil(tester, () => caretLine(tester) == 2);
+
+      expect(editorOf(tester).controller.selection.baseOffset, 1);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a heading that holds a hash is found by the whole fragment '
+        'before its last segment', (tester) async {
+      await pumpPageWithHeading(tester, 'Week #3');
+      noteBloc.emitContentLoaded(
+        metadata,
+        <String>[
+          'top',
+          '## 3',
+          for (var i = 0; i < 150; i++) 'line $i',
+          '## Week #3',
+          'end',
+        ].join('\n'),
+      );
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      expect(editorOf(tester).controller.selection.baseIndex, 152);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a heading matches by the text it shows: markup and a '
+        'closing hash run dropped', (tester) async {
+      await pumpPageWithHeading(tester, 'squat DAY');
+      noteBloc.emitContentLoaded(
+        metadata,
+        <String>[
+          'top',
+          for (var i = 0; i < 150; i++) 'line $i',
+          '## **Squat** {red:day} ##',
+          'end',
+        ].join('\n'),
+      );
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      expect(editorOf(tester).controller.selection.baseIndex, 151);
+      await teardownPage(tester);
+    });
+
+    // One closing run comes off, never two: `## Foo # ##` shows `Foo #`.
+    testWidgets('a heading whose content ends in a lone hash is not the '
+        'target of its stem', (tester) async {
+      await pumpPageWithHeading(tester, 'Foo');
+      noteBloc.emitContentLoaded(
+        metadata,
+        <String>[
+          'top',
+          for (var i = 0; i < 150; i++) 'line $i',
+          '## Foo # ##',
+          '## Foo',
+          'end',
+        ].join('\n'),
+      );
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      expect(editorOf(tester).controller.selection.baseIndex, 152);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a later gate call never drags the caret back to the target '
+        'heading', (tester) async {
+      await pumpPageWithHeading(tester, 'Cool-down');
+      noteBloc.emitContentLoaded(metadata, headedContent);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      const headingLine = 1 + 200 + 3 + 100;
+      expect(editorOf(tester).controller.selection.baseIndex, headingLine);
+
+      editorOf(tester).controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      // A settings change re-runs the page's ready gate; the latch is all
+      // that keeps the heading from landing a second time. Up and back
+      // down, so the stored size is the default again for later cases.
+      final bar = tester.widget<MarkdownBar>(
+        find.byType(MarkdownBar, skipOffstage: false),
+      );
+      bar.onIncreaseFontSize();
+      await tester.pump();
+      bar.onDecreaseFontSize();
+      await tester.pump(
+        SettingsService.defaultWriteDebounce + const Duration(milliseconds: 50),
+      );
+      await settle(tester);
+
+      expect(editorOf(tester).controller.selection.baseIndex, 0);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a suffixed link to the open note centres the heading in '
+        'place', (tester) async {
+      await tester.runAsync(() async {
+        await db.noteDao.insertNote(
+          NotesCompanion.insert(
+            id: noteId,
+            folderId: wikiFolder.id,
+            title: 'Training log',
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: DateTime(2026, 9, 1),
+            updatedAt: DateTime(2026, 9, 1),
+          ),
+        );
+        // Indexed as the self-link case explains: hard-deleting a row
+        // `notes_fts` never saw reads as a malformed database image.
+        await db.customStatement(
+          'INSERT OR REPLACE INTO notes_fts(rowid, title, preview) '
+          'SELECT rowid, ?, ? FROM notes WHERE id = ?',
+          ['Training log', '', noteId],
+        );
+      });
+      final text = <String>[
+        'see [[Training log#Cool-down]] now',
+        for (var i = 0; i < 120; i++) 'line $i',
+        '## Cool-down',
+        'end',
+      ].join('\n');
+      final controller = await loadAndPark(tester, text);
+      final scroller = editorOf(tester).scrollController.verticalScroller;
+      expect(scroller.position.pixels, 0.0);
+
+      editorOf(tester).onOpenWikiLink!('Training log#Cool-down');
+      await tester.pump();
+      await settleUntil(tester, () => scroller.position.pixels > 0.0);
+
+      final render = CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      );
+      expect(render.displayedLineIndices, contains(121));
+      expect(controller.selection.baseIndex, 1);
+      expect(pages(), findsOneWidget);
+      expect(find.byType(SnackBar, skipOffstage: false), findsNothing);
+
+      await teardownPage(tester);
+      await tester.runAsync(() => db.noteDao.hardDeleteNote(noteId));
+    });
+
+    testWidgets('a note whose own name holds a hash wins over its note part', (
+      tester,
+    ) async {
+      final hashed = (await tester.runAsync(
+        () => storageService.createNote(
+          folderId: wikiFolder.id,
+          title: 'Squat Progression#Warm-up',
+          content: 'hashed',
+        ),
+      ))!;
+      await loadAndPark(tester, 'x\ny');
+
+      editorOf(tester).onOpenWikiLink!('Squat Progression#Warm-up');
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, hashed.id);
+      expect(pushed.targetHeading, isNull);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+      await tester.runAsync(() => db.noteDao.hardDeleteNote(hashed.id));
+    });
+
+    testWidgets('a block reference opens the note with no heading', (
+      tester,
+    ) async {
+      await loadAndPark(tester, 'x\ny');
+
+      editorOf(tester).onOpenWikiLink!('Squat Progression^abc');
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, target.id);
+      expect(pushed.targetHeading, isNull);
 
       await popPushed(tester);
       await teardownPage(tester);
@@ -2076,7 +2526,9 @@ void main() {
       );
 
       expect(find.byType(LabelSwatchStrip), findsNothing);
-      expect(find.byType(SnackBar), findsOneWidget);
+      // The editor lays itself out around the keyboard, so its notices ride
+      // the overlay road, never a Scaffold's SnackBar.
+      expect(find.byType(OverlaySnackbarBody), findsOneWidget);
       expect(noteBloc.dispatched.whereType<SetOptimizedNoteLabel>(), isEmpty);
 
       await teardownPage(tester);
@@ -2234,6 +2686,367 @@ void main() {
   /// The ids an accessibility-tree driver targets. The editor's own nodes —
   /// one per visible line plus the text field — must survive the annotation,
   /// which is why it is an explicit-children container rather than a merge.
+  group('editor quality of life (R2a)', () {
+    const taskContent = '- [ ] squat 5x5\nplain line';
+    const listContent = 'first line\n- squat 5x5\nthird line';
+    final tallContent = List.generate(60, (i) => 'line $i').join('\n');
+
+    Future<CodeLineEditingController> loadText(
+      WidgetTester tester,
+      String text,
+    ) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadataFor(text), text);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      return editorOf(tester).controller;
+    }
+
+    MarkdownBar bar(WidgetTester tester) => tester.widget<MarkdownBar>(
+      find.byType(MarkdownBar, skipOffstage: false),
+    );
+
+    FocusNode focusOf(WidgetTester tester) => editorOf(tester).focusNode;
+
+    /// Lets the debounced font-size write out (fake clock), then lets its
+    /// statement complete (real clock), so no timer outlives the test.
+    Future<void> flushFontSizeWrite(WidgetTester tester) async {
+      await tester.pump(
+        SettingsService.defaultWriteDebounce + const Duration(milliseconds: 50),
+      );
+      await settle(tester);
+    }
+
+    double scrollOffset(WidgetTester tester) =>
+        editorOf(tester).scrollController.verticalScroller.offset;
+
+    /// A focus change applies in a microtask after the first pump's frame,
+    /// so whatever it rebuilds lands one frame later.
+    Future<void> focusEditor(WidgetTester tester) async {
+      focusOf(tester).requestFocus();
+      await tester.pump();
+      await tester.pump();
+    }
+
+    /// Asks the page's own span builder for line [index] as it would render
+    /// now. The reveal predicate is read at call time, so this is what the
+    /// editor lays out on its next pass.
+    bool paintsBox(WidgetTester tester, int index) {
+      final controller = editorOf(tester).controller;
+      final span = controller.buildTextSpan(
+        context: tester.element(find.byType(CodeEditor, skipOffstage: false)),
+        index: index,
+        textSpan: TextSpan(text: controller.codeLines[index].text),
+        style: const TextStyle(fontSize: FontConstants.defaultFontSize),
+      );
+      var found = false;
+      span.visitChildren((child) {
+        if (child is EditorCheckboxSpan) found = true;
+        return !found;
+      });
+      return found;
+    }
+
+    testWidgets('E5: an unfocused editor conceals the caret line and its box '
+        'toggles without raising focus', (tester) async {
+      final controller = await loadText(tester, taskContent);
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 0, offset: 0),
+        reason: 'a note with no saved position opens at the top',
+      );
+      expect(focusOf(tester).hasFocus, isFalse);
+      expect(paintsBox(tester, 0), isTrue, reason: 'nothing reveals line 0');
+
+      final lineBox = CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      ).lineHeight;
+      await tester.tapAt(
+        tester.getTopLeft(find.byType(CodeEditor)) +
+            Offset(AppSpacing.xl + 2, AppSpacing.lg + lineBox / 2),
+      );
+      await tester.pump();
+
+      expect(controller.codeLines[0].text, '- [x] squat 5x5');
+      expect(
+        focusOf(tester).hasFocus,
+        isFalse,
+        reason: 'a toggle never focuses',
+      );
+
+      await focusEditor(tester);
+      expect(
+        paintsBox(tester, 0),
+        isFalse,
+        reason: 'with focus the caret line reveals its raw marker',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('E4: the bar\'s Paste focuses the editor and inserts at the '
+        'caret', (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, Object?>{'text': 'pasted '}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final controller = await loadText(tester, content);
+      expect(focusOf(tester).hasFocus, isFalse);
+
+      bar(tester).onPaste!();
+      await tester.pump();
+      await tester.pump();
+
+      expect(focusOf(tester).hasFocus, isTrue);
+      expect(controller.codeLines[0].text, 'pasted first line');
+      await teardownPage(tester);
+    });
+
+    testWidgets('E9: the bar indents and outdents a list line, caret kept', (
+      tester,
+    ) async {
+      final controller = await loadText(tester, listContent);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 11,
+      );
+      await tester.pump();
+
+      bar(tester).onIndent!();
+      await tester.pump();
+      expect(controller.codeLines[1].text, '  - squat 5x5');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 1, offset: 13),
+      );
+
+      bar(tester).onOutdent!();
+      await tester.pump();
+      expect(controller.codeLines[1].text, '- squat 5x5');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 1, offset: 11),
+      );
+      expect(controller.text, listContent, reason: 'nothing else moved');
+      await teardownPage(tester);
+    });
+
+    testWidgets('E16: a keyboard rising over a focused caret reveals it', (
+      tester,
+    ) async {
+      addTearDown(tester.view.resetViewInsets);
+      final controller = await loadText(tester, tallContent);
+      await focusEditor(tester);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 15,
+        offset: 0,
+      );
+      await tester.pump();
+      expect(
+        scrollOffset(tester),
+        0,
+        reason: 'line 15 fits without a keyboard',
+      );
+
+      tester.view.viewInsets = FakeViewPadding(
+        bottom: 250 * tester.view.devicePixelRatio,
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        scrollOffset(tester),
+        greaterThan(0),
+        reason: 'the shrunken body would leave line 15 behind the keyboard',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('E19: a new note opens focused', (tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: const OptimizedNoteEditorPage(folderId: folderId),
+          ),
+        ),
+      );
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+
+      expect(focusOf(tester).hasFocus, isTrue);
+      await teardownPage(tester);
+    });
+
+    testWidgets('E19: an existing note opens unfocused', (tester) async {
+      await loadNote(tester);
+
+      expect(focusOf(tester).hasFocus, isFalse);
+      await teardownPage(tester);
+    });
+
+    testWidgets('E20: the haptics setting reaches the wrapper and the bar', (
+      tester,
+    ) async {
+      await tester.runAsync(() => settings.setHapticFeedback(false));
+      await loadNote(tester);
+
+      expect(editorOf(tester).hapticsEnabled, isFalse);
+      expect(bar(tester).hapticsEnabled, isFalse);
+      await teardownPage(tester);
+    });
+
+    testWidgets('E25: a font-size step keeps a focused caret in view', (
+      tester,
+    ) async {
+      final controller = await loadText(tester, tallContent);
+      await focusEditor(tester);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 15,
+        offset: 0,
+      );
+      await tester.pump();
+      expect(scrollOffset(tester), 0);
+
+      for (var i = 0; i < 4; i++) {
+        bar(tester).onIncreaseFontSize();
+        await tester.pump();
+        await tester.pump();
+      }
+
+      expect(scrollOffset(tester), greaterThan(0));
+      await flushFontSizeWrite(tester);
+      await teardownPage(tester);
+    });
+
+    /// Line [index] as it would render now, concealed leaves left out.
+    String visibleText(WidgetTester tester, int index) {
+      final controller = editorOf(tester).controller;
+      final span = controller.buildTextSpan(
+        context: tester.element(find.byType(CodeEditor, skipOffstage: false)),
+        index: index,
+        textSpan: TextSpan(text: controller.codeLines[index].text),
+        style: const TextStyle(fontSize: FontConstants.defaultFontSize),
+      );
+      final out = StringBuffer();
+      span.visitChildren((child) {
+        if (child is TextSpan &&
+            child.text != null &&
+            (child.style?.color?.a ?? 1) > 0) {
+          out.write(child.text);
+        }
+        return true;
+      });
+      return out.toString();
+    }
+
+    testWidgets('Y1: a find match inside a concealed url reveals its line '
+        'while the search field holds focus', (tester) async {
+      const link = '[video](https://youtube.com/x)';
+      final controller = await loadText(tester, '$link\nplain line');
+      expect(visibleText(tester, 0), isNot(contains('youtube')));
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(NoteSearchBar),
+          matching: find.byType(TextField),
+        ),
+        'youtube',
+      );
+      await settle(tester);
+
+      expect(focusOf(tester).hasFocus, isFalse);
+      expect(controller.selection.startIndex, 0);
+      expect(
+        controller.selection.startOffset,
+        link.indexOf('youtube'),
+        reason: 'find selects its match',
+      );
+      expect(visibleText(tester, 0), contains('youtube'));
+      expect(editorOf(tester).revealWhenUnfocused?.value, isTrue);
+
+      await tester.tap(find.byIcon(Icons.search_off));
+      await tester.pumpAndSettle();
+      expect(editorOf(tester).revealWhenUnfocused?.value, isFalse);
+      await teardownPage(tester);
+    });
+
+    testWidgets('Y13: Ctrl+B runs under the page\'s guard as one undo step', (
+      tester,
+    ) async {
+      final controller = await loadText(tester, 'do squat now');
+      expect(editorOf(tester).onFormatShortcut, isNotNull);
+      await focusEditor(tester);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'do squat now'.length,
+      );
+      controller.replaceSelection(' typed');
+      await tester.pump();
+      controller.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 3,
+        extentIndex: 0,
+        extentOffset: 8,
+      );
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester, rounds: 3);
+
+      expect(controller.codeLines[0].text, 'do **squat** now typed');
+      expect(controller.selectedText, 'squat');
+
+      controller.undo();
+      await tester.pump();
+      expect(
+        controller.codeLines[0].text,
+        'do squat now typed',
+        reason: 'one undo reverts the toggle, not the typing before it',
+      );
+      await teardownPage(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+    testWidgets('E25: an unfocused editor is not scrolled by a font-size '
+        'step', (tester) async {
+      final controller = await loadText(tester, tallContent);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 15,
+        offset: 0,
+      );
+      await tester.pump();
+
+      for (var i = 0; i < 4; i++) {
+        bar(tester).onIncreaseFontSize();
+        await tester.pump();
+        await tester.pump();
+      }
+
+      expect(scrollOffset(tester), 0);
+      await flushFontSizeWrite(tester);
+      await teardownPage(tester);
+    });
+  });
+
   group('automation identifiers', () {
     testWidgets('the loaded editor carries body, toolbar and overflow', (
       tester,

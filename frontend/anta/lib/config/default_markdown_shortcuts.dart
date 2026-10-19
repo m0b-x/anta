@@ -2,7 +2,56 @@ import 'package:flutter/material.dart';
 import '../models/custom_markdown_shortcut.dart';
 
 class DefaultMarkdownShortcuts {
+  /// The built-in shortcuts that toggle a line marker. Profiles saved
+  /// before [CustomMarkdownShortcut.linePrefixType] existed hold these ids
+  /// as plain `wrap` inserts, and a stored profile is never rewritten, so
+  /// the applier recognises them by id to give existing installs the
+  /// toggle too.
+  static const Set<String> linePrefixIds = {
+    'default_checkbox',
+    'default_checked_checkbox',
+    'default_bullet_list',
+    'default_point_list',
+    'default_numbered_list',
+    'default_quote',
+  };
+
+  /// The shipped bar for a new profile. A phone-width bar shows only the
+  /// first handful beside the utility buttons, so the list markers and the
+  /// two emphases lead; only one bullet button shows by default
+  /// (`default_point_list` stays in the list, hidden, for anyone who
+  /// prefers the `•` glyph). Stored profiles keep their own order.
   static List<CustomMarkdownShortcut> get shortcuts => [
+    CustomMarkdownShortcut(
+      id: 'default_checkbox',
+      label: 'Checkbox',
+      iconCodePoint: Icons.check_box_outline_blank.codePoint,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '- [ ] ',
+      afterText: '',
+      isDefault: true,
+      insertType: CustomMarkdownShortcut.linePrefixType,
+    ),
+    CustomMarkdownShortcut(
+      id: 'default_bullet_list',
+      label: 'Bullet List',
+      iconCodePoint: Icons.format_list_bulleted.codePoint,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '- ',
+      afterText: '',
+      isDefault: true,
+      insertType: CustomMarkdownShortcut.linePrefixType,
+    ),
+    CustomMarkdownShortcut(
+      id: 'default_numbered_list',
+      label: 'Numbered List',
+      iconCodePoint: Icons.format_list_numbered.codePoint,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '1. ',
+      afterText: '',
+      isDefault: true,
+      insertType: CustomMarkdownShortcut.linePrefixType,
+    ),
     CustomMarkdownShortcut(
       id: 'default_bold',
       label: 'Bold',
@@ -39,6 +88,8 @@ class DefaultMarkdownShortcuts {
       beforeText: '• ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
+      insertType: CustomMarkdownShortcut.linePrefixType,
     ),
     CustomMarkdownShortcut(
       id: 'default_strikethrough',
@@ -59,33 +110,6 @@ class DefaultMarkdownShortcuts {
       isDefault: true,
     ),
     CustomMarkdownShortcut(
-      id: 'default_bullet_list',
-      label: 'Bullet List',
-      iconCodePoint: Icons.format_list_bulleted.codePoint,
-      iconFontFamily: 'MaterialIcons',
-      beforeText: '- ',
-      afterText: '',
-      isDefault: true,
-    ),
-    CustomMarkdownShortcut(
-      id: 'default_numbered_list',
-      label: 'Numbered List',
-      iconCodePoint: Icons.format_list_numbered.codePoint,
-      iconFontFamily: 'MaterialIcons',
-      beforeText: '1. ',
-      afterText: '',
-      isDefault: true,
-    ),
-    CustomMarkdownShortcut(
-      id: 'default_checkbox',
-      label: 'Checkbox',
-      iconCodePoint: Icons.check_box_outline_blank.codePoint,
-      iconFontFamily: 'MaterialIcons',
-      beforeText: '- [ ] ',
-      afterText: '',
-      isDefault: true,
-    ),
-    CustomMarkdownShortcut(
       id: 'default_quote',
       label: 'Quote',
       iconCodePoint: Icons.format_quote.codePoint,
@@ -93,6 +117,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '> ',
       afterText: '',
       isDefault: true,
+      insertType: CustomMarkdownShortcut.linePrefixType,
     ),
     CustomMarkdownShortcut(
       id: 'default_callout',
@@ -141,6 +166,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '- [x] ',
       afterText: '',
       isDefault: true,
+      insertType: CustomMarkdownShortcut.linePrefixType,
     ),
     CustomMarkdownShortcut(
       id: 'default_table',

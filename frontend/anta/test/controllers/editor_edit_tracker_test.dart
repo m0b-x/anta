@@ -299,6 +299,139 @@ void main() {
       h.dispose();
     });
 
+    test('a quote line continues the quote', () {
+      final h = _Harness('> a\nplain');
+
+      h.pressEnter(0, '> a'.length);
+
+      expect(h.lines, ['> a', '> ', 'plain']);
+      expect(h.editor.selection.baseIndex, 1);
+      expect(h.editor.selection.baseOffset, 2);
+      expect(h.tracker.previousTextLength, h.editor.textLength);
+
+      h.dispose();
+    });
+
+    test('a nested quote continues at its own depth', () {
+      final h = _Harness('> > a\nplain');
+
+      h.pressEnter(0, '> > a'.length);
+
+      expect(h.lines, ['> > a', '> > ', 'plain']);
+      expect(h.editor.selection.baseOffset, '> > '.length);
+
+      h.dispose();
+    });
+
+    test('a callout lead continues into its body', () {
+      final h = _Harness('> [!TIP] title\nplain');
+
+      h.pressEnter(0, '> [!TIP] title'.length);
+
+      expect(h.lines, ['> [!TIP] title', '> ', 'plain']);
+      expect(h.editor.selection.baseOffset, 2);
+
+      h.dispose();
+    });
+
+    test('a bare callout lead is not an empty quote line', () {
+      // `[!NOTE]` is the lead's content: Enter opens the body instead of
+      // ending a callout that has not started yet.
+      final h = _Harness('> [!NOTE]\nplain');
+
+      h.pressEnter(0, '> [!NOTE]'.length);
+
+      expect(h.lines, ['> [!NOTE]', '> ', 'plain']);
+
+      h.dispose();
+    });
+
+    test('a list inside a quote continues both', () {
+      final h = _Harness('> - a\n> 3. b\n> - [x] c\nplain');
+
+      h.pressEnter(0, '> - a'.length);
+      expect(h.lines[1], '> - ');
+      expect(h.editor.selection.baseOffset, '> - '.length);
+
+      h.pressEnter(2, '> 3. b'.length);
+      expect(h.lines[3], '> 4. ');
+
+      h.pressEnter(4, '> - [x] c'.length);
+      expect(h.lines[5], '> - [ ] ');
+
+      h.dispose();
+    });
+
+    test('Enter on an empty nested quote line drops one level at a time', () {
+      final h = _Harness('> > a\n> > \nplain');
+
+      h.pressEnter(1, '> > '.length);
+      expect(h.lines, ['> > a', '> ', 'plain']);
+      expect(h.editor.selection.baseIndex, 1);
+      expect(h.editor.selection.baseOffset, '> '.length);
+      expect(h.tracker.previousTextLength, h.editor.textLength);
+
+      h.pressEnter(1, '> '.length);
+      expect(h.lines, ['> > a', '', 'plain']);
+      expect(h.editor.selection.baseOffset, 0);
+
+      h.dispose();
+    });
+
+    test('Enter on an empty quote line drops the quote', () {
+      for (final empty in const ['> ', '>']) {
+        final h = _Harness('> a\n$empty\nplain');
+
+        h.pressEnter(1, empty.length);
+
+        expect(h.lines, ['> a', '', 'plain'], reason: '"$empty"');
+        expect(h.editor.selection.baseIndex, 1);
+        expect(h.editor.selection.baseOffset, 0);
+        expect(h.tracker.previousTextLength, h.editor.textLength);
+
+        h.dispose();
+      }
+    });
+
+    test('dropping the empty quote line is one undo step', () {
+      final h = _Harness('> a\n> \nplain');
+
+      h.pressEnter(1, 2);
+      expect(h.lines, ['> a', '', 'plain']);
+
+      h.editor.undo();
+
+      expect(h.lines, ['> a', '> ', 'plain']);
+
+      h.dispose();
+    });
+
+    test('an empty item inside a quote ends the list, not the quote', () {
+      final h = _Harness('> - \nplain');
+
+      h.pressEnter(0, '> - '.length);
+      expect(h.lines, ['> ', 'plain']);
+      expect(h.editor.selection.baseOffset, 2);
+
+      // The next Enter on what is left ends the quote too.
+      h.pressEnter(0, 2);
+      expect(h.lines, ['', 'plain']);
+
+      h.dispose();
+    });
+
+    test('a split just right of the quote marker keeps both halves '
+        'quoted', () {
+      final h = _Harness('> item\nplain');
+
+      h.pressEnter(0, 2);
+
+      expect(h.lines, ['> ', '> item', 'plain']);
+      expect(h.editor.selection.baseOffset, 2);
+
+      h.dispose();
+    });
+
     test('Enter on the very first line is left to the editor', () {
       final h = _Harness('- squat 5x5');
 
@@ -378,30 +511,71 @@ void main() {
       h.dispose();
     });
 
-    test('Enter on a nested empty item drops it back to column 0', () {
-      final h = _Harness('  - \nplain');
+    test('Enter on a nested empty item outdents it one level', () {
+      final h = _Harness('- a\n  - \nplain');
 
-      h.pressEnter(0, '  - '.length);
+      h.pressEnter(1, '  - '.length);
 
-      // The copied indentation goes with the marker line, so ending a
-      // nested list looks exactly like ending a top-level one.
-      expect(h.lines, ['', 'plain']);
-      expect(h.editor.selection.baseIndex, 0);
-      expect(h.editor.selection.baseOffset, 0);
+      // The line Enter created goes, and the item moves up a level with
+      // the caret right after its marker, ready for the outer item's text.
+      expect(h.lines, ['- a', '- ', 'plain']);
+      expect(h.editor.selection.baseIndex, 1);
+      expect(h.editor.selection.baseOffset, 2);
       expect(h.tracker.previousTextLength, h.editor.textLength);
 
       h.dispose();
     });
 
-    test('dropping the nested empty item is one undo step', () {
-      final h = _Harness('  - \nplain');
+    test('outdenting the nested empty item is one undo step', () {
+      final h = _Harness('- a\n  - \nplain');
 
-      h.pressEnter(0, '  - '.length);
-      expect(h.lines, ['', 'plain']);
+      h.pressEnter(1, '  - '.length);
+      expect(h.lines, ['- a', '- ', 'plain']);
 
       h.editor.undo();
 
-      expect(h.lines, ['  - ', 'plain']);
+      expect(h.lines, ['- a', '  - ', 'plain']);
+
+      h.dispose();
+    });
+
+    test('repeated Enter walks a nested empty item out one level at a '
+        'time', () {
+      final h = _Harness('    - [ ] \nplain');
+
+      h.pressEnter(0, '    - [ ] '.length);
+      expect(h.lines, ['  - [ ] ', 'plain']);
+      expect(h.editor.selection.baseOffset, '  - [ ] '.length);
+
+      h.pressEnter(0, '  - [ ] '.length);
+      expect(h.lines, ['- [ ] ', 'plain']);
+      expect(h.editor.selection.baseOffset, '- [ ] '.length);
+
+      h.pressEnter(0, '- [ ] '.length);
+      expect(h.lines, ['', 'plain']);
+      expect(h.editor.selection.baseOffset, 0);
+
+      h.dispose();
+    });
+
+    test('a tab-indented empty item outdents by its tab', () {
+      final h = _Harness('\t- \nplain');
+
+      h.pressEnter(0, '\t- '.length);
+
+      expect(h.lines, ['- ', 'plain']);
+      expect(h.editor.selection.baseOffset, 2);
+
+      h.dispose();
+    });
+
+    test('a nested empty item inside a quote outdents inside the quote', () {
+      final h = _Harness('>   - \nplain');
+
+      h.pressEnter(0, '>   - '.length);
+
+      expect(h.lines, ['> - ', 'plain']);
+      expect(h.editor.selection.baseOffset, '> - '.length);
 
       h.dispose();
     });

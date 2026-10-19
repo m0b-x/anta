@@ -353,11 +353,15 @@ abstract final class AppNavigator {
     );
   }
 
+  /// [targetHeading] is a `[[Note#heading]]` link's heading — see
+  /// [OptimizedNoteEditorPage.targetHeading]. The restore stack keeps only
+  /// the note, so a relaunch reopens it where the reader last was.
   static Future<void> toNoteEditor(
     BuildContext context, {
     required String folderId,
     String? noteId,
     NoteMetadata? metadata,
+    String? targetHeading,
   }) {
     return push(
       context,
@@ -365,6 +369,7 @@ abstract final class AppNavigator {
         folderId: folderId,
         noteId: noteId,
         metadata: metadata,
+        targetHeading: targetHeading,
       ),
       destination: noteId == null
           ? null

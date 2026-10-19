@@ -66,6 +66,17 @@ lines bypass the memo.
 
 ## Done
 
+- [x] Quality-of-life pass (2026-10-19, record `docs/editor-qol-review-2026-10-19.md`,
+      E1–E33): Backspace after a marker removes it in one keystroke on both
+      keyboard paths, long-press on an empty line places the caret, IME
+      multi-line paste over a multi-line selection no longer duplicates text,
+      reveal requires focus (or a find session) and the caret line keeps its
+      tappable box, Enter continues quotes and callouts and leaves nested
+      lists one level at a time, line-prefix and wrap toggles, the heading
+      menu honours its level, indent/outdent on the bar, typing-grouped undo,
+      quote auto-pair tamed, selection-toolbar and desktop-shortcut fixes;
+      the skill references carry the rules (`references/live-editor-rendering.md`,
+      `references/fork-and-hot-path.md`, dated paragraphs)
 - [x] Headers `#`–`######` at preview scale factors (H1 2.0 / H2 1.5 / H3 1.25 /
       H4 1.125; H5–H6 clamped to 1.0, bold only) with real per-line heights
 - [x] Bullets (`-*+•` → `•` / `◦` / `▪` cycling by nesting depth since
@@ -372,7 +383,7 @@ lines bypass the memo.
   the page's existing `_handleTagTap` (position saved, then global search
   with the `#` preserved).
 - A lone `#` (empty-header edge) stays raw — not a header (no space), not a
-  tag (no letter-led body).
+  tag (no body holding a letter).
 - `![image](url)` stays raw in the editor — a `[` preceded by `!` never opens
   a link (styling `!alt` as a link would misread; preview owns images).
 - Bare URLs conceal nothing, so like tags they stay tinted on reveal lines.

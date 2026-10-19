@@ -55,6 +55,7 @@ void main() {
       List<int> money,
       List<String> wikis,
       CodeLineEditingController controller,
+      FocusNode focusNode,
       Widget Function(Locale locale) app,
     })
   >
@@ -108,8 +109,16 @@ void main() {
       money: money,
       wikis: wikis,
       controller: controller,
+      focusNode: focusNode,
       app: app,
     );
+  }
+
+  /// Focuses the editor: only a focused editor reveals its caret line.
+  Future<void> focusEditor(WidgetTester tester, FocusNode focusNode) async {
+    focusNode.requestFocus();
+    await tester.pump();
+    expect(focusNode.hasFocus, isTrue);
   }
 
   Future<void> teardownEditor(WidgetTester tester) async {
@@ -274,11 +283,52 @@ void main() {
   testWidgets('the caret line contributes no zone node', (tester) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester);
+    await focusEditor(tester, e.focusNode);
     await parkCaret(tester, e.controller, 1);
 
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsOne);
     expect(find.semantics.byLabel(l10n.editorZoneOpenLink), findsOne);
     expect(find.semantics.byLabel(l10n.editorZoneSearchTag), findsOne);
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an unfocused editor reveals no caret line — its box keeps '
+      'its node', (tester) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester);
+    await parkCaret(tester, e.controller, 1);
+    expect(e.focusNode.hasFocus, isFalse);
+
+    expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a caret past the marker keeps the caret line\'s toggle node, '
+      'and activating it leaves the caret alone', (tester) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester);
+    await focusEditor(tester, e.focusNode);
+    e.controller.selection = CodeLineSelection.collapsed(
+      index: 1,
+      offset: e.controller.codeLines[1].length,
+    );
+    await tester.pump();
+    await tester.pump();
+    final selection = e.controller.selection;
+
+    expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
+
+    tester.semantics.tap(
+      find.semantics.byLabel(l10n.editorZoneToggleTask).first,
+    );
+    await tester.pump();
+
+    expect(e.controller.codeLines[1].text, '- [x] task');
+    expect(e.controller.selection, selection);
 
     handle.dispose();
     await teardownEditor(tester);
@@ -310,15 +360,18 @@ void main() {
   });
 
   testWidgets('a repeat semantics flush over an unchanged document '
-      'enumerates nothing', (tester) async {
+      'enumerates only the caret line', (tester) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester);
+    await focusEditor(tester, e.focusNode);
     await parkCaret(tester, e.controller, 0);
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
 
     // A caret round trip, not a single move: the line the caret leaves
     // was never memoized while it was revealed, so 0 -> 1 -> 0 is the
-    // shortest path back to a flush that can enumerate nothing at all.
+    // shortest path back to a flush where every line but the caret's
+    // own hits the memo. The caret line's zones hang on the caret offset,
+    // so it is enumerated on each flush — that one line, never more.
     // The toggle-node counts either side prove the flush really ran.
     await parkCaret(tester, e.controller, 1);
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsOne);
@@ -326,7 +379,7 @@ void main() {
     ModernEditorWrapper.debugZoneResolveCount = 0;
     await parkCaret(tester, e.controller, 0);
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
-    expect(ModernEditorWrapper.debugZoneResolveCount, 0);
+    expect(ModernEditorWrapper.debugZoneResolveCount, 1);
 
     // An edit off the caret line keys a new memo entry, so the counter
     // is not simply stuck at zero.

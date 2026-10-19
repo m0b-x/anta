@@ -49,18 +49,42 @@ class MarkdownLineShape {
   static bool isTableSeparator(String line) =>
       isTableRow(line) && _tableSeparatorPattern.hasMatch(line.trim());
 
-  /// `---` / `***` / `___` (three or more of one marker), indent and
-  /// trailing blanks allowed. The single horizontal-rule predicate for
-  /// the preview, the live editor and the line-height calculator.
-  static final _horizontalRule = RegExp(r'^[ \t]*([-*_])\1{2,}[ \t]*$');
-
-  /// Whether [line] is a horizontal rule.
-  static bool isHorizontalRule(String line) => _horizontalRule.hasMatch(line);
+  /// `---` / `***` / `___` (three or more of one marker), spaces or tabs
+  /// allowed between the markers (`- - -`), indent and trailing blanks
+  /// allowed. The single horizontal-rule predicate for the preview, the
+  /// live editor, the line-height calculator and the list grammar, which
+  /// refuses every line this accepts.
+  ///
+  /// A code-unit loop rather than a regex: the list grammar's
+  /// allocation-free [MarkdownListSyntax.scanListShape] and the editor's
+  /// per-line dispatch ask it of every bullet line.
+  static bool isHorizontalRule(String line) {
+    final n = line.length;
+    var i = 0;
+    while (i < n && _isBlank(line.codeUnitAt(i))) {
+      i++;
+    }
+    if (i >= n) return false;
+    final marker = line.codeUnitAt(i);
+    if (marker != 0x2D && marker != 0x2A && marker != 0x5F) return false;
+    var count = 0;
+    for (; i < n; i++) {
+      final c = line.codeUnitAt(i);
+      if (c == marker) {
+        count++;
+      } else if (!_isBlank(c)) {
+        return false;
+      }
+    }
+    return count >= 3;
+  }
 
   /// The ATX heading [line] is, or `null`: after optional indent, one to
   /// six `#` followed by a space or the line end — so `#tag` and
-  /// `#######` are prose, and a bare `###` is an empty heading. The
-  /// single heading predicate for every surface.
+  /// `#######` are prose, and a bare `###` is an empty heading. A closing
+  /// run of `#` after a space (`## Week 3 ##`) is not content; see
+  /// [MarkdownHeadingMatch.contentEnd]. The single heading predicate for
+  /// every surface.
   static MarkdownHeadingMatch? headingAt(String line) {
     final n = line.length;
     var i = 0;
@@ -80,15 +104,43 @@ class MarkdownLineShape {
         level: level,
         hashStart: hashStart,
         contentStart: n,
+        contentEnd: n,
       );
     }
     if (line.codeUnitAt(i) != 0x20) return null;
+    final contentStart = i + 1;
     return MarkdownHeadingMatch(
       level: level,
       hashStart: hashStart,
-      contentStart: i + 1,
+      contentStart: contentStart,
+      contentEnd: _closingSequenceStart(line, contentStart),
     );
   }
+
+  /// Where a heading's content ends: before an optional closing run of
+  /// `#` (trailing blanks after it allowed) that is preceded by a blank
+  /// or is the whole content, and before the blanks in front of that
+  /// run. Without such a run the content runs to the line end, so
+  /// `## C#` and `## Title##` keep their hashes.
+  static int _closingSequenceStart(String line, int contentStart) {
+    final n = line.length;
+    var e = n;
+    while (e > contentStart && _isBlank(line.codeUnitAt(e - 1))) {
+      e--;
+    }
+    var k = e;
+    while (k > contentStart && line.codeUnitAt(k - 1) == 0x23) {
+      k--;
+    }
+    if (k == e) return n;
+    if (k > contentStart && !_isBlank(line.codeUnitAt(k - 1))) return n;
+    while (k > contentStart && _isBlank(line.codeUnitAt(k - 1))) {
+      k--;
+    }
+    return k;
+  }
+
+  static bool _isBlank(int c) => c == 0x20 || c == 0x09;
 
   /// Whether [line] is a line-led construct that must stay one intact,
   /// unprefixed source line to keep its meaning: a horizontal rule, a
@@ -125,16 +177,23 @@ class MarkdownLineShape {
 
 /// An ATX heading's shape on one line: [level] hashes starting at
 /// [hashStart] (after any indent), content from [contentStart] (past
-/// the single space, or the line end for a bare `###`).
+/// the single space, or the line end for a bare `###`) to [contentEnd].
 class MarkdownHeadingMatch {
   final int level;
   final int hashStart;
   final int contentStart;
 
+  /// One past the last content code unit: the line end, or the start of
+  /// the blanks before a closing `#` run (`## Week 3 ##` ends after `3`),
+  /// so every surface conceals or drops `[contentEnd, line end)` alike.
+  /// Never below [contentStart].
+  final int contentEnd;
+
   const MarkdownHeadingMatch({
     required this.level,
     required this.hashStart,
     required this.contentStart,
+    required this.contentEnd,
   });
 
   /// One past the last hash.

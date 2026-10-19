@@ -9,6 +9,7 @@ import 'markdown_color_syntax.dart';
 import 'markdown_inline_grammar.dart';
 import 'markdown_line_height_calculator.dart';
 import 'markdown_line_shape.dart';
+import 'markdown_link_patterns.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
 import 'money_display_config.dart';
@@ -662,12 +663,17 @@ class LineBasedMarkdownBuilder {
       }
     }
 
-    // Image detection (before links since they have similar syntax)
-    final imageMatch = _MarkdownPatterns.image.firstMatch(trimmed);
-    if (imageMatch != null) {
+    // A line that is one image gets the placeholder. The shared link
+    // grammar decides what an image is and which destination it opens,
+    // so `![a](…/Foo_(b))` and `![a](u "title")` read here exactly as
+    // they do mid-line.
+    final image = trimmed.startsWith('!')
+        ? MarkdownLinkPatterns.matchImageAt(trimmed, 1)
+        : null;
+    if (image != null && image.end == trimmed.length) {
       return _buildImage(
-        imageMatch.group(1) ?? '',
-        imageMatch.group(2) ?? '',
+        trimmed.substring(image.textStart, image.textEnd),
+        image.urlOf(trimmed),
         lineStart,
         lineEnd,
       );
@@ -684,15 +690,22 @@ class LineBasedMarkdownBuilder {
     // `#tag` (no space) and `#######` (7+) are prose while a bare `###`
     // is an empty heading. Offsets are line-relative; only trailing
     // blanks are trimmed, or the content would drift off its source
-    // offset for `#   spaced`.
+    // offset for `#   spaced`. A closing `##` is dropped with them.
     final heading = MarkdownLineShape.headingAt(line);
     if (heading != null) {
       return _buildHeading(
-        line.substring(heading.contentStart).trimRight(),
+        line.substring(heading.contentStart, heading.contentEnd).trimRight(),
         heading.level,
         lineStart + heading.contentStart,
         lineEnd,
       );
+    }
+
+    // Before the list: `- - -` leads with a bullet marker but is a rule.
+    // The untrimmed line, as the editor and the list grammar read it:
+    // `trimLeft` also strips an NBSP indent the rule does not accept.
+    if (MarkdownLineShape.isHorizontalRule(line)) {
+      return _buildHorizontalRule();
     }
 
     // List items (bullet / ordered / task) via the shared syntax so the
@@ -744,11 +757,6 @@ class LineBasedMarkdownBuilder {
       );
     }
 
-    // Horizontal rule
-    if (MarkdownLineShape.isHorizontalRule(trimmed)) {
-      return _buildHorizontalRule();
-    }
-
     // Code block marker (```)
     if (trimmed.startsWith('```')) {
       return TextSpan(
@@ -788,7 +796,12 @@ class LineBasedMarkdownBuilder {
       color: style.textColor,
     );
 
-    return _buildInlineFormatted(text, headingStyle, contentStart, lineEnd);
+    return _buildInlineFormatted(
+      text,
+      headingStyle,
+      contentStart,
+      _noHardBreak,
+    );
   }
 
   TextSpan _buildCheckboxLine(
@@ -1086,7 +1099,7 @@ class LineBasedMarkdownBuilder {
             lead.title,
             accentStyle,
             lineStart + lead.titleStart,
-            lineEnd,
+            _noHardBreak,
           ),
         );
       } else {
@@ -1383,7 +1396,7 @@ class LineBasedMarkdownBuilder {
               line.substring(from, slot),
               labelStyle,
               lineStart + from,
-              lineEnd,
+              _noHardBreak,
             ),
           );
         }
@@ -1395,7 +1408,7 @@ class LineBasedMarkdownBuilder {
               line.substring(slot + 1, to),
               labelStyle,
               lineStart + slot + 1,
-              lineEnd,
+              _noHardBreak,
             ),
           );
         }
@@ -1406,7 +1419,7 @@ class LineBasedMarkdownBuilder {
             line.substring(from, to),
             labelStyle,
             lineStart + from,
-            lineEnd,
+            _noHardBreak,
           ),
         );
       }
@@ -1791,12 +1804,19 @@ class LineBasedMarkdownBuilder {
     return TextSpan(style: baseStyle, children: children);
   }
 
+  /// The `lineEnd` a heading, a callout title or a money row hands
+  /// [_buildInlineFormatted]: no range ends there, so a trailing `\`
+  /// stays text on these single-line constructs, as CommonMark keeps it.
+  static const int _noHardBreak = -1;
+
   /// Build inline formatted text with bold, italic, code, links, and
   /// highlighting. [contentStart] is the source offset where [text]
   /// begins — critical so search highlighting lands on the right
   /// characters. Delegates to the recursive [_parseInline] renderer.
   ///
-  /// [lineEnd] is retained for call-site compatibility and is unused.
+  /// [lineEnd] tells a range that reaches the end of its source line,
+  /// the one place a trailing `\` is a hard break and is dropped; a
+  /// single-line construct passes [_noHardBreak] instead.
   TextSpan _buildInlineFormatted(
     String text,
     TextStyle baseStyle,
@@ -1806,7 +1826,13 @@ class LineBasedMarkdownBuilder {
     if (text.isEmpty) {
       return TextSpan(text: '', style: baseStyle);
     }
-    return _parseInline(text, baseStyle, contentStart);
+    return _parseInline(
+      text,
+      baseStyle,
+      contentStart,
+      0,
+      contentStart + text.length == lineEnd,
+    );
   }
 
   /// Recursively renders inline markdown in [text] whose first character
@@ -1816,12 +1842,14 @@ class LineBasedMarkdownBuilder {
   /// [depth] deeper over its inner range, so both surfaces classify the
   /// same source identically. Every leaf text run is routed through
   /// [_applyHighlighting] with its exact offset, so search highlighting
-  /// stays aligned at any nesting depth.
+  /// stays aligned at any nesting depth. [atLineEnd] is whether [text]
+  /// reaches the end of its source line (see [_buildInlineFormatted]).
   TextSpan _parseInline(
     String text,
     TextStyle baseStyle,
     int contentStart, [
     int depth = 0,
+    bool atLineEnd = false,
   ]) {
     final children = <InlineSpan>[];
     int from = 0;
@@ -1838,11 +1866,12 @@ class LineBasedMarkdownBuilder {
       }
     }
 
-    for (final token in MarkdownInlineGrammar.tokenize(
+    final tokens = MarkdownInlineGrammar.tokenize(
       text,
       palette: colorPalette,
       depth: depth,
-    )) {
+    );
+    for (final token in tokens) {
       flushRun(token.start);
       switch (token) {
         // Backslash escape: only the escaped character renders.
@@ -1852,6 +1881,16 @@ class LineBasedMarkdownBuilder {
               text.substring(token.charStart, token.end),
               baseStyle,
               contentStart + token.charStart,
+            ),
+          );
+        // HTML entity: the decoded character, at the `&`'s offset.
+        case InlineEntity():
+          children.add(
+            _applyHighlighting(
+              token.decoded,
+              baseStyle,
+              contentStart + token.start,
+              token.end - token.start,
             ),
           );
         // Ghost text: dimmed placeholder, `{{` / `}}` markers dropped.
@@ -1901,23 +1940,29 @@ class LineBasedMarkdownBuilder {
             );
           }
         case InlineLink():
-          // Images are not rendered inline mid-line: the `!` stays
-          // literal text and the rest renders as an ordinary link.
+          // Images are not rendered inline mid-line: the `!` becomes the
+          // picture glyph the editor shows, on the `!`'s own offset, and
+          // the alt reads dimmed beside it exactly as in the editor. The
+          // tap the preview always had on an image stays.
+          final TextStyle textStyle;
           if (token.isImage) {
+            textStyle = _imageChromeStyle(baseStyle);
             children.add(
               _applyHighlighting(
-                text.substring(token.start, token.bracketStart),
-                baseStyle,
+                MarkdownLinkPatterns.imageGlyph,
+                textStyle,
                 contentStart + token.start,
               ),
+            );
+          } else {
+            textStyle = baseStyle.copyWith(
+              color: style.primaryColor,
+              decoration: TextDecoration.underline,
             );
           }
           final inner = _parseInline(
             text.substring(token.textStart, token.textEnd),
-            baseStyle.copyWith(
-              color: style.primaryColor,
-              decoration: TextDecoration.underline,
-            ),
+            textStyle,
             contentStart + token.textStart,
             depth + 1,
           );
@@ -1932,19 +1977,51 @@ class LineBasedMarkdownBuilder {
         // the editor, which conceals them to keep the line's code units —
         // and the title renders in the link style, literally. It is never
         // re-parsed: a `#tag` or `*run*` in a note name is part of the
-        // name.
+        // name. An alias renders in the title's place while the tap
+        // still hands over the title; an embed's `!` is the picture
+        // glyph.
         case InlineWikiLink():
-          final title = text.substring(token.titleStart, token.titleEnd);
+          if (token.isEmbed) {
+            children.add(
+              _applyHighlighting(
+                MarkdownLinkPatterns.imageGlyph,
+                _imageChromeStyle(baseStyle),
+                contentStart + token.start,
+              ),
+            );
+          }
           final inner = _applyHighlighting(
-            title,
+            token.displayOf(text),
             baseStyle.copyWith(
               color: style.primaryColor,
               decoration: TextDecoration.underline,
             ),
-            contentStart + token.titleStart,
+            contentStart + token.displayStart,
           );
           children.add(
-            _wrapWikiLinkSpan(inner, title, contentStart + token.start),
+            _wrapWikiLinkSpan(
+              inner,
+              token.titleOf(text),
+              contentStart + token.bracketStart,
+            ),
+          );
+        // `<…>`: the brackets are dropped and the inside renders as a
+        // link, literally.
+        case InlineAutolink():
+          final inner = _applyHighlighting(
+            text.substring(token.innerStart, token.innerEnd),
+            baseStyle.copyWith(
+              color: style.primaryColor,
+              decoration: TextDecoration.underline,
+            ),
+            contentStart + token.innerStart,
+          );
+          children.add(
+            _wrapLinkSpan(
+              inner,
+              token.hrefOf(text),
+              contentStart + token.start,
+            ),
           );
         // Coloured text: `{name:` and `}` are chrome, the content keeps
         // its source offsets and composes with everything else.
@@ -2005,13 +2082,24 @@ class LineBasedMarkdownBuilder {
       from = token.end;
     }
 
-    flushRun(text.length);
+    // A hard break's `\` is dropped, as the editor conceals it.
+    final hardBreak =
+        atLineEnd &&
+        depth == 0 &&
+        MarkdownInlineGrammar.endsWithHardBreak(text, 0, text.length, tokens);
+    flushRun(hardBreak ? text.length - 1 : text.length);
 
     if (children.isEmpty) {
       return _applyHighlighting(text, baseStyle, contentStart);
     }
     return TextSpan(style: baseStyle, children: children);
   }
+
+  /// The dimmed style of an image's picture glyph and alt text — the
+  /// editor's dimmed chrome (base at 0.45, which is what [style]'s ghost
+  /// colour is, at normal weight), so the two surfaces read alike.
+  TextStyle _imageChromeStyle(TextStyle base) =>
+      base.copyWith(color: style.ghostColor, fontWeight: FontWeight.normal);
 
   /// Applies the style delta for an emphasis [kind] on top of [base],
   /// so nested emphasis composes (e.g. strikethrough + bold).
@@ -2150,24 +2238,34 @@ class LineBasedMarkdownBuilder {
   /// [searchHighlights] range touching it paints its intersection with
   /// the run. Overlapping and nested ranges are tolerated — the emitted
   /// leaves always concatenate back to [text] exactly once.
+  ///
+  /// [sourceLength] is set when [text] is a glyph standing in for a
+  /// longer source (an entity's decoded character): a range touching
+  /// any of that source paints the whole glyph, so a match on the
+  /// entity's concealed name still shows.
   TextSpan _applyHighlighting(
     String text,
     TextStyle baseStyle,
-    int sourceOffset,
-  ) {
+    int sourceOffset, [
+    int? sourceLength,
+  ]) {
     if (searchHighlights == null || searchHighlights!.isEmpty || text.isEmpty) {
       return TextSpan(text: text, style: baseStyle);
     }
 
-    final sourceEnd = sourceOffset + text.length;
+    final sourceEnd = sourceOffset + (sourceLength ?? text.length);
 
     // Find overlapping highlights
     final overlapping = <_HighlightRange>[];
     for (int i = 0; i < searchHighlights!.length; i++) {
       final h = searchHighlights![i];
       if (h.start < sourceEnd && h.end > sourceOffset) {
-        final relStart = (h.start - sourceOffset).clamp(0, text.length);
-        final relEnd = (h.end - sourceOffset).clamp(0, text.length);
+        final relStart = sourceLength != null
+            ? 0
+            : (h.start - sourceOffset).clamp(0, text.length);
+        final relEnd = sourceLength != null
+            ? text.length
+            : (h.end - sourceOffset).clamp(0, text.length);
         overlapping.add(
           _HighlightRange(
             start: relStart,
@@ -2240,10 +2338,4 @@ class _HighlightRange {
     required this.end,
     required this.isCurrent,
   });
-}
-
-/// Pre-compiled regex patterns for inline markdown (compiled once, reused)
-class _MarkdownPatterns {
-  /// Image pattern: ![alt text](url)
-  static final image = RegExp(r'^!\[([^\]]*)\]\(([^)]+)\)$');
 }

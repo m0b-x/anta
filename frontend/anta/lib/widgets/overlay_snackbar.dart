@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -8,7 +9,8 @@ import '../constants/form_metrics.dart';
 import '../l10n/app_localizations.dart';
 
 /// A message raised in the navigator's overlay rather than in a `Scaffold`:
-/// the one way a confirmation shows above a modal sheet.
+/// the one way a confirmation shows above a modal sheet, and the one way a
+/// bar keeps clearing the keyboard on a page that lays itself out around it.
 ///
 /// `ScaffoldMessenger` hands a `SnackBar` to the page's `Scaffold`, and a
 /// modal bottom sheet is a route above that page, so a bar raised while a
@@ -16,6 +18,14 @@ import '../l10n/app_localizations.dart';
 /// Save as template, the Tier 2 device pass). An overlay entry inserted now
 /// sits above every route of the moment. The shortcut editor's form errors
 /// take the same road, over its docked toolbar.
+///
+/// The second reason is the keyboard. A `SnackBar` is laid out once, with a
+/// fixed `margin`; a page whose `Scaffold` does not resize for the IME (the
+/// note editor and the calendar page pad their own bodies) gets no lift from
+/// the Scaffold, and a lift baked into the margin at show time stays where it
+/// was when the keyboard goes down — a bar stranded mid-screen, which the
+/// owner saw after "1 long line was formatted". This body reads the insets in
+/// `build`, so it rides the keyboard up and down for as long as it shows.
 ///
 /// The entry's widget owns the timer that takes it down, so a message still
 /// up when the tree goes away leaves no timer behind — a widget test that
@@ -27,21 +37,44 @@ import '../l10n/app_localizations.dart';
 class OverlaySnackbar {
   static _ShownMessage? _current;
 
+  /// The default distance from the cleared bottom edge for a message raised
+  /// over a sheet: above a short sheet's header row.
+  static const double sheetBottomOffset = 80;
+
   static void show(
     BuildContext context,
     String message, {
     Duration duration = const Duration(seconds: 4),
-    double bottomOffset = 80,
+    double bottomOffset = sheetBottomOffset,
+  }) {
+    showContent(
+      context,
+      content: Text(message),
+      duration: duration,
+      bottomOffset: bottomOffset,
+    );
+  }
+
+  /// Raises [content] the way [show] raises a message: [bottomOffset] above
+  /// whichever of the keyboard and the system bars is taller at the moment of
+  /// every build, with the close button unless [showCloseIcon] is false.
+  static void showContent(
+    BuildContext context, {
+    required Widget content,
+    required Duration duration,
+    double bottomOffset = sheetBottomOffset,
+    bool showCloseIcon = true,
   }) {
     hide();
 
     late final _ShownMessage shown;
     shown = _ShownMessage(
       OverlayEntry(
-        builder: (context) => _OverlaySnackbarBody(
-          message: message,
+        builder: (context) => OverlaySnackbarBody(
+          content: content,
           duration: duration,
           bottomOffset: bottomOffset,
+          showCloseIcon: showCloseIcon,
           onDismiss: () => _remove(shown),
         ),
       ),
@@ -74,24 +107,29 @@ class _ShownMessage {
   _ShownMessage(this.entry);
 }
 
-class _OverlaySnackbarBody extends StatefulWidget {
-  final String message;
+/// The bar [OverlaySnackbar] draws. Public so a test can find the bar a
+/// non-resizing page raised by type, as it finds a `SnackBar` elsewhere.
+class OverlaySnackbarBody extends StatefulWidget {
+  final Widget content;
   final Duration duration;
   final double bottomOffset;
+  final bool showCloseIcon;
   final VoidCallback onDismiss;
 
-  const _OverlaySnackbarBody({
-    required this.message,
+  const OverlaySnackbarBody({
+    super.key,
+    required this.content,
     required this.duration,
     required this.bottomOffset,
     required this.onDismiss,
+    this.showCloseIcon = true,
   });
 
   @override
-  State<_OverlaySnackbarBody> createState() => _OverlaySnackbarBodyState();
+  State<OverlaySnackbarBody> createState() => _OverlaySnackbarBodyState();
 }
 
-class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
+class _OverlaySnackbarBodyState extends State<OverlaySnackbarBody> {
   Timer? _timer;
 
   @override
@@ -125,8 +163,14 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
           color: colorScheme.onSurface,
           fontSize: AppTheme.menuLabelSize,
         );
+    // The overlay sits in a full-bleed route that applies no system inset,
+    // so the bar clears the taller of the keyboard and the navigation bar
+    // itself — the clearance rule every overlay of this app follows. Read
+    // here, in build, the insets re-anchor the bar on every keyboard move.
+    final insets = MediaQuery.viewInsetsOf(context).bottom;
+    final padding = MediaQuery.viewPaddingOf(context).bottom;
     return Positioned(
-      bottom: MediaQuery.viewInsetsOf(context).bottom + widget.bottomOffset,
+      bottom: math.max(insets, padding) + widget.bottomOffset,
       left: 16,
       right: 16,
       // A live region, as a `SnackBar` is: a screen reader announces the
@@ -152,11 +196,11 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
             borderRadius: borderRadius,
             color: barTheme.backgroundColor ?? colorScheme.menuSurface,
             child: Padding(
-              padding: const EdgeInsets.only(
+              padding: EdgeInsets.only(
                 left: 16,
                 top: 14,
                 bottom: 14,
-                right: 8,
+                right: widget.showCloseIcon ? 8 : 16,
               ),
               child: Row(
                 children: [
@@ -165,29 +209,35 @@ class _OverlaySnackbarBodyState extends State<_OverlaySnackbarBody> {
                   Expanded(
                     child: DefaultTextStyle(
                       style: textStyle,
-                      child: Text(widget.message),
+                      child: widget.content,
                     ),
                   ),
-                  // Its own ink layer, painted above the model's colour.
-                  Material(
-                    type: MaterialType.transparency,
-                    child: IconButton(
-                      icon: Icon(
-                        Icons.close,
-                        color:
-                            barTheme.closeIconColor ??
-                            colorScheme.onSurfaceVariant,
-                        size: 20,
-                      ),
-                      tooltip: AppLocalizations.of(context)!.close,
-                      onPressed: widget.onDismiss,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
+                  if (widget.showCloseIcon)
+                    // Its own ink layer, painted above the model's colour.
+                    Material(
+                      type: MaterialType.transparency,
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.close,
+                          color:
+                              barTheme.closeIconColor ??
+                              colorScheme.onSurfaceVariant,
+                          size: 20,
+                        ),
+                        // The app always provides its localizations; a bare
+                        // MaterialApp (a host in a widget test) falls back to
+                        // Material's own close tooltip instead of throwing.
+                        tooltip:
+                            AppLocalizations.of(context)?.close ??
+                            MaterialLocalizations.of(context).closeButtonTooltip,
+                        onPressed: widget.onDismiss,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),

@@ -1,6 +1,7 @@
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/line_based_markdown_builder.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
+import 'package:anta/utils/markdown_link_patterns.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,123 @@ void main() {
       _fire(span, '#tag');
       expect(calls.links, <String>['https://x.dev']);
       expect(calls.tags, isEmpty, reason: 'only ghosts outrank a link');
+    });
+  });
+
+  group('link destinations and autolinks', () {
+    String opened(String line, String leaf) {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      builder.prepare(line);
+      _fire(builder.buildLine(line, 0), leaf);
+      return calls.links.single;
+    }
+
+    test('a link title is never opened', () {
+      expect(opened('[t](https://x.com/s "Guide")', 't'), 'https://x.com/s');
+    });
+
+    test('balanced parentheses open whole and leave no stray paren', () {
+      const line = '[w](https://en.wikipedia.org/wiki/Foo_(bar)) x';
+      final calls = _Calls();
+      final builder = _builder(calls);
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+      expect(_text(span), 'w x');
+      _fire(span, 'w');
+      expect(calls.links.single, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+    });
+
+    test('an angle destination opens without its brackets', () {
+      expect(opened('[t](<a b>)', 't'), 'a b');
+    });
+
+    test('a bare url keeps its balanced parentheses', () {
+      const url = 'https://en.wikipedia.org/wiki/Squat_(exercise)';
+      expect(opened('see $url.', url), url);
+      expect(opened('(https://x.y).', 'https://x.y'), 'https://x.y');
+    });
+
+    test('an angle autolink drops its brackets and opens its inside', () {
+      const line = 'see <https://x.y> now';
+      final calls = _Calls();
+      final builder = _builder(calls);
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+      expect(_text(span), 'see https://x.y now');
+      final url = _leaves(span).singleWhere((s) => s.text == 'https://x.y');
+      expect(url.style?.color, _style.primaryColor);
+      _fire(span, 'https://x.y');
+      expect(calls.links, <String>['https://x.y']);
+    });
+
+    test('an address in angle brackets opens as mailto', () {
+      expect(
+        opened('<me@example.com>', 'me@example.com'),
+        'mailto:me@example.com',
+      );
+    });
+  });
+
+  group('images', () {
+    test('a mid-line image shows the glyph and its alt dimmed', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = 'a ![leg day](https://x.y/a.png "T") b';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), 'a ${MarkdownLinkPatterns.imageGlyph}leg day b');
+      final alt = _leaves(span).singleWhere((s) => s.text == 'leg day');
+      expect(alt.style?.color, _style.ghostColor);
+      _fire(span, 'leg day');
+      expect(calls.links, <String>['https://x.y/a.png']);
+    });
+
+    test('a whole-line image keeps its placeholder and opens the dest', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '![plan](https://x.y/a.png "T")';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), '🖼 plan');
+      _fire(span, 'plan');
+      expect(calls.links, <String>['https://x.y/a.png']);
+    });
+
+    test('balanced parens in a whole-line image keep the placeholder', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '![a](https://x/Foo_(b))';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), '🖼 a');
+      _fire(span, 'a');
+      expect(calls.links, <String>['https://x/Foo_(b)']);
+    });
+
+    test('a whole-line image with an empty alt keeps the placeholder', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '![](https://x.y/a.png)';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), '🖼 Image');
+      _fire(span, 'Image');
+      expect(calls.links, <String>['https://x.y/a.png']);
+    });
+
+    test('a mid-line image with an empty alt is the glyph alone', () {
+      final builder = _builder(_Calls());
+      const line = 'a ![](https://x.y/a.png) b';
+      builder.prepare(line);
+      expect(
+        _text(builder.buildLine(line, 0)),
+        'a ${MarkdownLinkPatterns.imageGlyph} b',
+      );
     });
   });
 
@@ -117,6 +235,24 @@ void main() {
       expect(calls.tags, <String>['#t'], reason: 'the tag fired only once');
     });
 
+    test('a nested or digit-led tag taps whole; an all-digit one is prose', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = 'run #program/5x5 then #1rm or #123';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      _fire(span, '#program/5x5');
+      _fire(span, '#1rm');
+      expect(calls.tags, <String>['#program/5x5', '#1rm']);
+      expect(
+        _leaves(span).where(
+          (leaf) => leaf.text!.contains('#123') && leaf.recognizer != null,
+        ),
+        isEmpty,
+      );
+    });
+
     // The two list pins in markdown_inline_agreement_test.dart name this
     // file as the preview half of their coverage: a list row is laid out
     // as a `WidgetSpan`, so that suite can only compare the editor side
@@ -143,6 +279,30 @@ void main() {
       expect(_text(content), 'a');
       _fire(content, 'a');
       expect(calls.wikis, <String>['a']);
+    });
+
+    test('an alias renders in place and the tap hands over the title', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = 'see [[Squat Day|legs]] now';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), 'see legs now');
+      _fire(span, 'legs');
+      expect(calls.wikis, <String>['Squat Day']);
+    });
+
+    test('an embed shows the picture glyph before its link', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = 'a ![[plan.png]] b';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), 'a ${MarkdownLinkPatterns.imageGlyph}plan.png b');
+      _fire(span, 'plan.png');
+      expect(calls.wikis, <String>['plan.png']);
     });
 
     test('no callback means no recognizer is allocated', () {
@@ -404,6 +564,115 @@ void main() {
 
     test('a separator row draws the rule', () {
       expect(render('|---|'), '─' * 30);
+    });
+  });
+
+  // Rules are tested before the list grammar, and a heading's closing
+  // hash run is chrome — both shapes from [MarkdownLineShape].
+  group('entities and hard breaks', () {
+    String render(String document, [int index = 0]) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(document);
+      return _text(builder.buildLine(document.split('\n')[index], index));
+    }
+
+    test('named and numeric entities decode', () {
+      expect(render('a &amp; b &copy; &#x2014; &#169;'), 'a & b © — ©');
+    });
+
+    test('unknown and code-span entities stay literal', () {
+      expect(render('&nope; `&amp;`'), '&nope; &amp;');
+    });
+
+    test('an entity keeps the offset of its ampersand', () {
+      const line = 'x &amp; y';
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        searchHighlights: const <TextRange>[TextRange(start: 2, end: 3)],
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(line);
+      final painted = _leaves(builder.buildLine(line, 0))
+          .where((leaf) => leaf.style?.backgroundColor == _style.highlightColor)
+          .map((leaf) => leaf.text)
+          .join();
+      expect(painted, '&');
+    });
+
+    test('a trailing backslash is dropped on every line it ends', () {
+      expect(render('first\\\nsecond\\', 0), 'first');
+      expect(render('first\\\nsecond\\', 1), 'second');
+      expect(render(r'> quoted\'), contains('quoted'));
+      expect(render(r'> quoted\'), isNot(contains(r'\')));
+    });
+
+    test('an escaped or lone backslash stays', () {
+      expect(render(r'a\\'), r'a\');
+      expect(render(r'\'), r'\');
+    });
+
+    test('a backslash before a table pipe is not a hard break', () {
+      expect(render(r'| a\ | b |'), contains(r'a\'));
+    });
+  });
+
+  group('rules and closing hashes', () {
+    String render(String line) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(line);
+      return _text(builder.buildLine(line, 0));
+    }
+
+    test('a spaced rule draws the rule, not a bullet', () {
+      for (final line in <String>['- - -', '* * *', '_ _ _', ' -  -\t-']) {
+        expect(render(line), '─' * 40, reason: line);
+      }
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare('- - x');
+      expect(_listMarker(builder.buildLine('- - x', 0)), '• ');
+    });
+
+    // The rule is read on the untrimmed line, like the editor and the
+    // list grammar: an NBSP is list indent, never rule indent.
+    test('an NBSP-indented spaced rule is a bullet, as in the editor', () {
+      const line = ' - - -';
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(line);
+      expect(_listMarker(builder.buildLine(line, 0)), '• ');
+    });
+
+    test('a closing hash run is dropped with the leading hashes', () {
+      expect(render('## Week 3 ##'), 'Week 3');
+      expect(render('## Week 3 ##  '), 'Week 3');
+      expect(render('## ##'), '');
+    });
+
+    test('hashes glued to the content stay', () {
+      expect(render('## Title##'), 'Title##');
+      expect(render('## C#'), 'C#');
+      expect(render(r'## foo \##'), 'foo ##', reason: 'an escape is content');
+    });
+
+    test('a heading whose content is one hash run is empty', () {
+      expect(render('## #'), '');
+      expect(render('# #'), '');
     });
   });
 

@@ -2262,6 +2262,90 @@
   "@header6": {
     "description": "Header 6 menu item"
   },
+  "indentLine": "Indent",
+  "@indentLine": {
+    "description": "Markdown bar button tooltip: indent the list line one level"
+  },
+  "outdentLine": "Outdent",
+  "@outdentLine": {
+    "description": "Markdown bar button tooltip: move the list line one level out"
+  },
+  "shortcutHighlight": "Highlight",
+  "@shortcutHighlight": {
+    "description": "Highlight shortcut label"
+  },
+  "shortcutCallout": "Callout",
+  "@shortcutCallout": {
+    "description": "Callout shortcut label (a > [!NOTE] block)"
+  },
+  "shortcutCheckedCheckbox": "Checked Checkbox",
+  "@shortcutCheckedCheckbox": {
+    "description": "Checked checkbox shortcut label"
+  },
+  "shortcutTable": "Table",
+  "@shortcutTable": {
+    "description": "Table shortcut label"
+  },
+  "shortcutHorizontalRule": "Horizontal Rule",
+  "@shortcutHorizontalRule": {
+    "description": "Horizontal rule shortcut label"
+  },
+  "shortcutImage": "Image",
+  "@shortcutImage": {
+    "description": "Image shortcut label"
+  },
+  "shortcutGhostText": "Ghost Text",
+  "@shortcutGhostText": {
+    "description": "Ghost text shortcut label (a {{ placeholder }} the user fills in later)"
+  },
+  "shortcutColorText": "Color Text",
+  "@shortcutColorText": {
+    "description": "Coloured text shortcut label"
+  },
+  "shortcutColorHighlight": "Color Highlight",
+  "@shortcutColorHighlight": {
+    "description": "Coloured highlight shortcut label"
+  },
+  "shortcutMoneyAdd": "Money +",
+  "@shortcutMoneyAdd": {
+    "description": "Money ledger shortcut label: add an amount"
+  },
+  "shortcutMoneySubtract": "Money -",
+  "@shortcutMoneySubtract": {
+    "description": "Money ledger shortcut label: subtract an amount"
+  },
+  "shortcutMoneyMultiply": "Money ×",
+  "@shortcutMoneyMultiply": {
+    "description": "Money ledger shortcut label: multiply the balance"
+  },
+  "shortcutMoneyDivide": "Money ÷",
+  "@shortcutMoneyDivide": {
+    "description": "Money ledger shortcut label: divide the balance"
+  },
+  "shortcutMoneyStart": "Money Start",
+  "@shortcutMoneyStart": {
+    "description": "Money ledger shortcut label: set the starting balance"
+  },
+  "shortcutMoneyTotal": "Money Total",
+  "@shortcutMoneyTotal": {
+    "description": "Money ledger shortcut label: show the running total"
+  },
+  "shortcutMoneyChange": "Money Change",
+  "@shortcutMoneyChange": {
+    "description": "Money ledger shortcut label: show the change since a point"
+  },
+  "shortcutMoneyTarget": "Money Target",
+  "@shortcutMoneyTarget": {
+    "description": "Money ledger shortcut label: a target amount"
+  },
+  "shortcutMoneyDiff": "Money Diff",
+  "@shortcutMoneyDiff": {
+    "description": "Money ledger shortcut label: the difference between two amounts"
+  },
+  "shortcutMoneySpan": "Money Span",
+  "@shortcutMoneySpan": {
+    "description": "Money ledger shortcut label: the total over a span of lines"
+  },
   "undo": "Undo",
   "@undo": {
     "description": "Undo button tooltip"

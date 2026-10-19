@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../constants/markdown_constants.dart';
 import 'markdown_line_shape.dart';
 import 'markdown_link_patterns.dart';
+import 'markdown_list_syntax.dart';
 
 /// Configuration for editor width calculation
 class EditorWidthConfig {
@@ -246,10 +247,17 @@ class EditorWidthCalculator {
   /// inside a fence body carries no opening delimiter of its own. Without
   /// the seed such a slice reads as ordinary prose and its code lines are
   /// hard-wrapped.
+  ///
+  /// [firstLineKeep] is how many leading code units of the first line
+  /// were there before the paste: no break lands inside them, so a paste
+  /// reflows its own text and never the user's. The whitespace that ends
+  /// them is still a word boundary — breaking there costs the kept text
+  /// nothing but the space the break replaces.
   LineBreakResult breakLinesSmartly(
     List<String> lines,
     double maxWidth, {
     bool inCodeBlock = false,
+    int firstLineKeep = 0,
   }) {
     final result = <String>[];
     int linesModified = 0;
@@ -284,9 +292,12 @@ class EditorWidthCalculator {
       // Line-led constructs (horizontal rules, money rows, headings,
       // quotes/callouts, table rows) are never width-broken: the split
       // tail would lose the lead marker and the construct's meaning with
-      // it. Checked only for lines that would actually break, so fitting
-      // lines never pay the shape probe.
-      if (MarkdownLineShape.isLineLedConstruct(trimmed)) {
+      // it. List items neither: a tail would fall out of the item as
+      // plain text, while the editor already wraps an item's content
+      // under a hanging indent. Checked only for lines that would actually
+      // break, so fitting lines never pay the shape probes.
+      if (MarkdownLineShape.isLineLedConstruct(trimmed) ||
+          MarkdownListSyntax.scanListShape(line) >= 0) {
         result.add(line);
         continue;
       }
@@ -299,6 +310,7 @@ class EditorWidthCalculator {
         maxWidth,
         knownExceeds: true,
         pieceOffsets: pieceOffsets,
+        keepPrefix: index == 0 ? _keptPrefixEnd(line, firstLineKeep) : 0,
       );
       if (brokenLines.length > 1) {
         linesModified++;
@@ -331,16 +343,19 @@ class EditorWidthCalculator {
   /// break points *plus* what the break dropped there: the trailing spaces
   /// `trimRight` took off the emitted piece and the leading ones
   /// `trimLeft` took off the remainder.
+  ///
+  /// [keepPrefix] protects `[0, keepPrefix)` like any markdown construct.
   List<String> _breakLineRespectingMarkdown(
     String line,
     double maxWidth, {
     bool knownExceeds = false,
     List<int>? pieceOffsets,
+    int keepPrefix = 0,
   }) {
     if (line.isEmpty) return [line];
 
     // Find all protected ranges (markdown syntax that shouldn't be broken)
-    final protectedRanges = _findProtectedRanges(line);
+    final protectedRanges = _findProtectedRanges(line, keepPrefix: keepPrefix);
 
     final result = <String>[];
     var remaining = line;
@@ -405,9 +420,19 @@ class EditorWidthCalculator {
     return result;
   }
 
+  /// Where the kept prefix of [line] ends once the whitespace closing it
+  /// is let go: [keep] clamped to the line, minus trailing spaces.
+  static int _keptPrefixEnd(String line, int keep) {
+    int end = keep.clamp(0, line.length);
+    while (end > 0 && line.codeUnitAt(end - 1) == 0x20) {
+      end--;
+    }
+    return end;
+  }
+
   /// Find all ranges in the line that shouldn't be broken (markdown syntax)
-  List<_Range> _findProtectedRanges(String line) {
-    final ranges = <_Range>[];
+  List<_Range> _findProtectedRanges(String line, {int keepPrefix = 0}) {
+    final ranges = <_Range>[if (keepPrefix > 0) _Range(0, keepPrefix)];
 
     // Find all patterns and add their ranges.
     // Images must come before links (they share the [text](url) syntax),

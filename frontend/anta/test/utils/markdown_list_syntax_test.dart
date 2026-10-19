@@ -1,3 +1,4 @@
+import 'package:anta/utils/markdown_line_shape.dart';
 import 'package:anta/utils/markdown_list_syntax.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,6 +64,21 @@ void main() {
         );
       });
     }
+  });
+
+  group('a horizontal rule is never a list item', () {
+    for (final line in _spacedRules) {
+      test('"${_visible(line)}"', () {
+        expect(MarkdownLineShape.isHorizontalRule(line), isTrue);
+        expect(MarkdownListSyntax.parse(line), isNull);
+        expect(MarkdownListSyntax.scanListShape(line), -1);
+      });
+    }
+
+    test('a spaced plus run is a bullet: `+` is no rule marker', () {
+      expect(MarkdownLineShape.isHorizontalRule('+ + +'), isFalse);
+      expect(MarkdownListSyntax.parse('+ + +')!.content, '+ +');
+    });
   });
 
   group('bulletGlyph', () {
@@ -187,6 +203,26 @@ const List<String> _corpus = <String>[
   '_ underscore is not a bullet',
   '. leading dot',
   ') leading paren',
+
+  // Spaced rules are rules, not bullets; their near-misses stay bullets.
+  ..._spacedRules,
+  '- -',
+  '- - - x',
+  '- * -',
+  '* * x',
+  '+ + +',
+];
+
+/// Lines [MarkdownLineShape.isHorizontalRule] accepts that also lead with
+/// a bullet marker and whitespace, so only the rule guard keeps them out
+/// of the list grammar.
+const List<String> _spacedRules = <String>[
+  '- - -',
+  '* * *',
+  '-  --\t-',
+  '  - - -',
+  '\t* * * *',
+  '- - -  ',
 ];
 
 /// List items whose level the whole-line indent scan must reproduce:

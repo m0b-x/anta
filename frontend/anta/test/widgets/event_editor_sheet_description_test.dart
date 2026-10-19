@@ -11,7 +11,9 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/markdown_bar_service.dart';
+import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/modern_editor_wrapper.dart';
 
 /// The event editor's description field mounts the same wrapper the note
 /// editor does, so Tab-indent and the checkbox toggle came for free — but
@@ -108,6 +110,55 @@ void main() {
     expect(controller.text, '- a\n');
     expect(controller.selection.baseIndex, 1);
     expect(controller.selection.baseOffset, 0);
+  });
+
+  // Y2: the wrapper's taps read real focus, so the rendering must too — an
+  // unbound builder counted as focused and drew the caret line raw while a
+  // tap on it still toggled the box.
+  testWidgets('the caret line reveals only while the field has focus', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    final controller = descriptionOf(tester);
+    controller.text = '- [ ] a';
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+    await tester.pump();
+    final focus = tester
+        .widget<ModernEditorWrapper>(find.byType(ModernEditorWrapper))
+        .focusNode;
+
+    bool paintsBox() {
+      final span = controller.buildTextSpan(
+        context: tester.element(find.byType(CodeEditor)),
+        index: 0,
+        textSpan: TextSpan(text: controller.codeLines[0].text),
+        style: const TextStyle(fontSize: 16),
+      );
+      var found = false;
+      span.visitChildren((child) {
+        if (child is EditorCheckboxSpan) found = true;
+        return !found;
+      });
+      return found;
+    }
+
+    expect(focus.hasFocus, isFalse);
+    expect(paintsBox(), isTrue, reason: 'unfocused: the box is drawn');
+
+    focus.requestFocus();
+    await tester.pump();
+    await tester.pump();
+    expect(paintsBox(), isFalse, reason: 'focused: the marker shows raw');
+
+    // The focus change armed the sheet's reveal and the fork's cursor
+    // blink; both run out before the tree goes.
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 
   testWidgets('a fenced list line is code, not a list', (tester) async {

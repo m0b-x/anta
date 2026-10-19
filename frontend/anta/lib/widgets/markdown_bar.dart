@@ -4,14 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_theme.dart';
+import '../constants/form_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/utility_button_config.dart';
 import '../models/utility_button_definition.dart';
 import '../utils/icon_utils.dart';
+import 'form_menu_item.dart';
 import 'vocabulary_suggestion_bar.dart';
 
 class MarkdownBar extends StatefulWidget {
@@ -31,6 +35,24 @@ class MarkdownBar extends StatefulWidget {
   final VoidCallback? onScrollToTop;
   final VoidCallback? onScrollToBottom;
   final VoidCallback? onCounter;
+
+  /// The list indent a hardware Tab runs, for a soft keyboard that has no
+  /// Tab key. Null hides the button, like Paste and Counter: a host
+  /// without the edit has no state in which it would ever enable.
+  final VoidCallback? onIndent;
+
+  /// Shift-Tab's outdent, as [onIndent]. Null hides the button.
+  final VoidCallback? onOutdent;
+
+  /// The caret line's heading level (1–6), or null on a plain line, read
+  /// when the heading menu opens so that level shows checked — picking it
+  /// again removes the heading. Null reports no level.
+  final int? Function()? currentHeadingLevel;
+
+  /// The app-wide haptics setting. Off silences the reorder mode's
+  /// vibrations; the bar has no other haptics of its own.
+  final bool hapticsEnabled;
+
   final Function(CustomMarkdownShortcut) onShortcutPressed;
   final Function(List<CustomMarkdownShortcut>)? onReorderComplete;
   final Function(List<UtilityButtonConfig>)? onUtilityReorderComplete;
@@ -74,6 +96,10 @@ class MarkdownBar extends StatefulWidget {
     this.onScrollToTop,
     this.onScrollToBottom,
     this.onCounter,
+    this.onIndent,
+    this.onOutdent,
+    this.currentHeadingLevel,
+    this.hapticsEnabled = true,
     this.onReorderComplete,
     this.onUtilityReorderComplete,
     this.showSettings = true,
@@ -84,6 +110,18 @@ class MarkdownBar extends StatefulWidget {
     this.utilityConfigs,
     this.suggestions,
   });
+
+  /// An icon button's height: a 20 px glyph in its 10 px padding. The
+  /// suggestion pills match it, and the pressed ink is a circle this wide.
+  static const double rowHeight =
+      AppConstants.markdownToolbarIconSize +
+      2 * AppConstants.markdownToolbarButtonPadding;
+
+  /// Times the normal bar's button rows were built. Debug builds only.
+  /// Exists so a test can pin that a vocabulary session's keystrokes
+  /// rebuild the pills alone; nothing in the app reads it.
+  @visibleForTesting
+  static int debugNormalModeBuildCount = 0;
 
   @override
   State<MarkdownBar> createState() => _MarkdownBarState();
@@ -115,7 +153,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
   }
 
   void _enterReorderMode() {
-    HapticFeedback.mediumImpact();
+    if (widget.hapticsEnabled) HapticFeedback.mediumImpact();
     setState(() {
       _isReorderMode = true;
       _reorderableShortcuts = List.from(widget.shortcuts);
@@ -126,7 +164,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
   }
 
   void _exitReorderMode() {
-    HapticFeedback.lightImpact();
+    if (widget.hapticsEnabled) HapticFeedback.lightImpact();
     widget.onReorderComplete?.call(_reorderableShortcuts);
     widget.onUtilityReorderComplete?.call(_reorderableUtilities);
     setState(() {
@@ -135,7 +173,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
   }
 
   void _onReorder(int oldIndex, int newIndex) {
-    HapticFeedback.selectionClick();
+    if (widget.hapticsEnabled) HapticFeedback.selectionClick();
     setState(() {
       if (newIndex > oldIndex) {
         newIndex -= 1;
@@ -166,22 +204,45 @@ class _MarkdownBarState extends State<MarkdownBar> {
 
     return ValueListenableBuilder<VocabularySuggestionSession?>(
       valueListenable: suggestions,
-      builder: (context, session, _) {
+      // Built once per bar build, outside the builder: a session notifies
+      // on every keystroke, and only the pills follow it.
+      child: _buildNormalMode(context),
+      builder: (context, session, normalMode) {
+        // The normal bar stays laid out under a session, hidden, and the
+        // suggestions fill its box: the two rows are one height in every
+        // locale, text scale and shortcut set, which no shared constant
+        // could promise — B, I and H sit on a taller line than the icons.
         return CodeEditorTapRegion(
-          child: session == null
-              ? _buildNormalMode(context)
-              : VocabularySuggestionBar(
-                  session: session,
-                  onAccept: suggestions.accept,
-                  onDismiss: suggestions.dismiss,
-                  showBackground: widget.showBackground,
+          child: Stack(
+            children: [
+              Visibility(
+                visible: session == null,
+                maintainState: true,
+                maintainAnimation: true,
+                maintainSize: true,
+                child: normalMode!,
+              ),
+              if (session != null)
+                Positioned.fill(
+                  child: VocabularySuggestionBar(
+                    session: session,
+                    onAccept: suggestions.accept,
+                    onDismiss: suggestions.dismiss,
+                    showBackground: widget.showBackground,
+                  ),
                 ),
+            ],
+          ),
         );
       },
     );
   }
 
   Widget _buildNormalMode(BuildContext context) {
+    assert(() {
+      MarkdownBar.debugNormalModeBuildCount++;
+      return true;
+    }());
     final visibleShortcuts = widget.shortcuts
         .where((s) => s.isVisible)
         .toList();
@@ -227,16 +288,19 @@ class _MarkdownBarState extends State<MarkdownBar> {
     // Build shortcut buttons
     final shortcutButtons = visibleShortcuts
         .map(
-          (shortcut) => _ShortcutButton(
-            shortcut: shortcut,
-            onTap: () {
-              if (shortcut.id == 'default_header') {
-                _showHeaderMenu(context);
-              } else {
-                widget.onShortcutPressed(shortcut);
-              }
-            },
-          ),
+          (shortcut) => shortcut.id == 'default_header'
+              // The heading menu hangs from its own button, so it needs
+              // that button's context rather than the whole bar's.
+              ? Builder(
+                  builder: (buttonContext) => _ShortcutButton(
+                    shortcut: shortcut,
+                    onTap: () => _showHeaderMenu(buttonContext),
+                  ),
+                )
+              : _ShortcutButton(
+                  shortcut: shortcut,
+                  onTap: () => widget.onShortcutPressed(shortcut),
+                ),
         )
         .toList();
 
@@ -354,6 +418,12 @@ class _MarkdownBarState extends State<MarkdownBar> {
       case UtilityButtonId.counter:
         if (widget.isPreviewMode || widget.onCounter == null) return null;
         onPressed = widget.onCounter;
+      case UtilityButtonId.indent:
+        if (widget.isPreviewMode || widget.onIndent == null) return null;
+        onPressed = widget.onIndent;
+      case UtilityButtonId.outdent:
+        if (widget.isPreviewMode || widget.onOutdent == null) return null;
+        onPressed = widget.onOutdent;
       default:
         return null;
     }
@@ -365,7 +435,20 @@ class _MarkdownBarState extends State<MarkdownBar> {
     );
   }
 
-  void _showHeaderMenu(BuildContext context) {
+  /// The six levels as the language's choice menu, centred on the H button.
+  /// Each item carries the same shortcut the page has always received —
+  /// its level is read from [CustomMarkdownShortcut.beforeText].
+  Future<void> _showHeaderMenu(BuildContext anchor) async {
+    final l10n = AppLocalizations.of(anchor)!;
+    final colorScheme = Theme.of(anchor).colorScheme;
+    final labels = [
+      l10n.header1,
+      l10n.header2,
+      l10n.header3,
+      l10n.header4,
+      l10n.header5,
+      l10n.header6,
+    ];
     final headerShortcuts = List.generate(6, (i) {
       final level = i + 1;
       return CustomMarkdownShortcut(
@@ -379,40 +462,43 @@ class _MarkdownBarState extends State<MarkdownBar> {
       );
     });
 
-    final renderBox = context.findRenderObject() as RenderBox?;
-    final overlay =
-        Navigator.of(context).overlay?.context.findRenderObject() as RenderBox?;
-    if (renderBox == null || overlay == null) return;
-
-    final position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        renderBox.localToGlobal(Offset.zero, ancestor: overlay),
-        renderBox.localToGlobal(
-          renderBox.size.bottomRight(Offset.zero),
-          ancestor: overlay,
-        ),
+    final current = widget.currentHeadingLevel?.call();
+    final selected = await showMenu<CustomMarkdownShortcut>(
+      context: anchor,
+      // The editor keeps focus under the menu: taking it would close the
+      // keyboard and flip the caret line's reveal, then reopen both.
+      requestFocus: false,
+      positionBuilder: (_, constraints) => formMenuPosition(
+        anchor,
+        constraints,
+        menuHeight: formMenuHeight(headerShortcuts.length),
+        alignment: FormMenuAlignment.center,
       ),
-      Offset.zero & overlay.size,
-    );
-
-    showMenu<CustomMarkdownShortcut>(
-      context: context,
-      position: position,
-      items: headerShortcuts.map((s) {
-        final level = s.label.substring(1);
-        return PopupMenuItem<CustomMarkdownShortcut>(
-          value: s,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [Text('Header $level'), Text(s.beforeText.trim())],
+      color: colorScheme.menuSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+      ),
+      menuPadding: FormMetrics.menuPadding,
+      constraints: const BoxConstraints(
+        minWidth: FormMetrics.menuWidth,
+        maxWidth: FormMetrics.menuMaxWidth,
+      ),
+      items: [
+        for (var i = 0; i < headerShortcuts.length; i++)
+          FormMenuChoiceItem<CustomMarkdownShortcut>(
+            value: headerShortcuts[i],
+            checked: current == i + 1,
+            child: _HeadingMenuRow(
+              level: i + 1,
+              label: labels[i],
+              marker: headerShortcuts[i].beforeText.trim(),
+            ),
           ),
-        );
-      }).toList(),
-    ).then((selected) {
-      if (selected != null) {
-        widget.onShortcutPressed(selected);
-      }
-    });
+      ],
+    );
+    if (selected != null && mounted) {
+      widget.onShortcutPressed(selected);
+    }
   }
 
   Widget _buildReorderMode(BuildContext context) {
@@ -475,6 +561,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
                   : _reorderableShortcuts.indexOf(visibleShortcuts[newIndex]);
               _onReorder(oldFullIndex, newFullIndex);
             },
+            hapticsEnabled: widget.hapticsEnabled,
             itemBuilder: (context, index) =>
                 _ReorderableShortcutItem(shortcut: visibleShortcuts[index]),
           ),
@@ -506,6 +593,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
                     : _reorderableUtilities.indexOf(visibleUtilities[newIndex]);
                 _onUtilityReorder(oldFullIndex, newFullIndex);
               },
+              hapticsEnabled: widget.hapticsEnabled,
               itemBuilder: (context, index) =>
                   _ReorderableUtilityItem(config: visibleUtilities[index]),
             ),
@@ -516,7 +604,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
   }
 
   void _onUtilityReorder(int oldIndex, int newIndex) {
-    HapticFeedback.selectionClick();
+    if (widget.hapticsEnabled) HapticFeedback.selectionClick();
     setState(() {
       if (newIndex > oldIndex) {
         newIndex -= 1;
@@ -533,12 +621,16 @@ class HorizontalReorderableList extends StatefulWidget {
   final Widget Function(BuildContext context, int index) itemBuilder;
   final int itemsPerRow;
 
+  /// The app-wide haptics setting, gating the drag's vibrations.
+  final bool hapticsEnabled;
+
   const HorizontalReorderableList({
     super.key,
     required this.itemCount,
     required this.onReorder,
     required this.itemBuilder,
     this.itemsPerRow = 3,
+    this.hapticsEnabled = true,
   });
 
   @override
@@ -612,7 +704,7 @@ class _HorizontalReorderableListState extends State<HorizontalReorderableList> {
     newTargetIndex = newTargetIndex.clamp(0, widget.itemCount);
 
     if (newTargetIndex != _targetIndex && mounted) {
-      HapticFeedback.selectionClick();
+      if (widget.hapticsEnabled) HapticFeedback.selectionClick();
       setState(() => _targetIndex = newTargetIndex);
     }
   }
@@ -783,7 +875,9 @@ class _HorizontalReorderableListState extends State<HorizontalReorderableList> {
                             return LongPressDraggable<int>(
                               data: index,
                               onDragStarted: () {
-                                HapticFeedback.mediumImpact();
+                                if (widget.hapticsEnabled) {
+                                  HapticFeedback.mediumImpact();
+                                }
                                 setState(() => _draggingIndex = index);
                               },
                               onDragUpdate: _onDragUpdate,
@@ -970,10 +1064,9 @@ class _ShortcutButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: shortcut.label,
+      message: _label(AppLocalizations.of(context)!),
       preferBelow: false,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      child: _BarInk(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(
@@ -982,11 +1075,55 @@ class _ShortcutButton extends StatelessWidget {
           margin: const EdgeInsets.symmetric(
             horizontal: AppConstants.markdownToolbarButtonMargin,
           ),
-          child: _buildButtonContent(context),
+          // B, I and H are glyphs like the icons beside them: scaled with
+          // the system text size they outgrow the 40 px row and the bar
+          // grows taller than the suggestion bar that replaces it.
+          child: MediaQuery.withNoTextScaling(
+            child: _buildButtonContent(context),
+          ),
         ),
       ),
     );
   }
+
+  /// A built-in shortcut's name in the app's language. Built-ins cannot be
+  /// renamed, so the stored English label is only ever the seed's; a
+  /// user's own shortcut keeps the label they gave it.
+  String _label(AppLocalizations l10n) => switch (shortcut.id) {
+    'default_bold' => l10n.bold,
+    'default_italic' => l10n.italic,
+    'default_header' => l10n.headers,
+    'default_point_list' => l10n.pointList,
+    'default_strikethrough' => l10n.strikethrough,
+    'default_highlight' => l10n.shortcutHighlight,
+    'default_bullet_list' => l10n.bulletList,
+    'default_numbered_list' => l10n.numberedList,
+    'default_checkbox' => l10n.checkbox,
+    'default_quote' => l10n.quote,
+    'default_callout' => l10n.shortcutCallout,
+    'default_inline_code' => l10n.inlineCode,
+    'default_code_block' => l10n.codeBlock,
+    'default_link' => l10n.link,
+    'default_checked_checkbox' => l10n.shortcutCheckedCheckbox,
+    'default_table' => l10n.shortcutTable,
+    'default_horizontal_rule' => l10n.shortcutHorizontalRule,
+    'default_image' => l10n.shortcutImage,
+    'default_date' => l10n.currentDate,
+    'default_ghost' => l10n.shortcutGhostText,
+    'default_color_text' => l10n.shortcutColorText,
+    'default_color_highlight' => l10n.shortcutColorHighlight,
+    'default_money' => l10n.shortcutMoneyAdd,
+    'default_money_subtract' => l10n.shortcutMoneySubtract,
+    'default_money_multiply' => l10n.shortcutMoneyMultiply,
+    'default_money_divide' => l10n.shortcutMoneyDivide,
+    'default_money_set' => l10n.shortcutMoneyStart,
+    'default_money_total' => l10n.shortcutMoneyTotal,
+    'default_money_delta' => l10n.shortcutMoneyChange,
+    'default_money_target' => l10n.shortcutMoneyTarget,
+    'default_money_diff' => l10n.shortcutMoneyDiff,
+    'default_money_span' => l10n.shortcutMoneySpan,
+    _ => shortcut.label,
+  };
 
   Widget _buildButtonContent(BuildContext context) {
     if (shortcut.id == 'default_bold') {
@@ -1046,8 +1183,7 @@ class _ToolbarButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       preferBelow: false,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      child: _BarInk(
         onTap: onPressed,
         child: Padding(
           padding: const EdgeInsets.symmetric(
@@ -1068,6 +1204,65 @@ class _ToolbarButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The pressed feedback every bar button shows: an icon button's circular
+/// ink, drawn on its own transparent material because the bar's decorated
+/// surface would paint over the page's, and the ink with it. The tap target
+/// stays the child's whole box.
+class _BarInk extends StatelessWidget {
+  final VoidCallback? onTap;
+  final Widget child;
+
+  const _BarInk({required this.onTap, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      child: InkResponse(
+        onTap: onTap,
+        radius: MarkdownBar.rowHeight / 2,
+        child: child,
+      ),
+    );
+  }
+}
+
+/// A heading menu item: the localized level and, at the trailing edge, the
+/// marker it types, so the menu teaches the syntax. The marker is decoration
+/// to a screen reader, which hears the level alone.
+class _HeadingMenuRow extends StatelessWidget {
+  final int level;
+  final String label;
+  final String marker;
+
+  const _HeadingMenuRow({
+    required this.level,
+    required this.label,
+    required this.marker,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      identifier: SemanticsIds.editorHeadingLevel(level),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          const SizedBox(width: FormMetrics.gap),
+          ExcludeSemantics(
+            child: Text(
+              marker,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

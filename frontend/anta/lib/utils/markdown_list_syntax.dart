@@ -11,7 +11,11 @@
 /// Supported (GFM): `-`, `*`, `+`, and `•` bullets; `N.` / `N)` ordered
 /// items; and `- [ ]` / `- [x]` task items (markers `-`, `*`, `+`). All
 /// detection is indentation-aware so nested lists round-trip correctly.
+/// A line [MarkdownLineShape.isHorizontalRule] accepts is never a list
+/// item, so `- - -` stays a rule on every surface.
 library;
+
+import 'markdown_line_shape.dart';
 
 /// The kind of list item recognized by [MarkdownListSyntax.parse].
 enum MarkdownListKind { bullet, ordered, task }
@@ -107,6 +111,12 @@ class MarkdownListSyntax {
     if (b != null) {
       final indent = b.group(1)!;
       final marker = b.group(2)!;
+      // `- - -` / `* * *` is a rule, not a bullet whose content is `- -`:
+      // the rule wins so the tracker, paste and toggles never continue it.
+      if ((marker == '-' || marker == '*') &&
+          MarkdownLineShape.isHorizontalRule(line)) {
+        return null;
+      }
       final contentStart = _skipSpaces(line, indent.length + marker.length);
       return MarkdownListItem(
         kind: MarkdownListKind.bullet,
@@ -208,6 +218,8 @@ class MarkdownListSyntax {
             return level | shapeKindTask | (b == 0x20 ? 0 : 0x4);
           }
         }
+        // Lockstep with [parse]: a spaced rule is not a bullet.
+        if (c != 0x2B && MarkdownLineShape.isHorizontalRule(line)) return -1;
       }
       return level | shapeKindBullet;
     }

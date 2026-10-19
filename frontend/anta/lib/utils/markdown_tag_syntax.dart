@@ -7,10 +7,11 @@
 /// [MarkdownCalloutSyntax], and [GhostText] are each a single source of
 /// truth.
 ///
-/// A tag is `#` at a word boundary followed by a letter-led body
-/// (letters, combining marks, numbers, `_`, `-`), Unicode-aware so
-/// accented / non-Latin tags stay intact. Letter-led means `#3` /
-/// `set #1` are never tags.
+/// A tag is `#` at a word boundary followed by a body of letters,
+/// combining marks, numbers, `_`, `-` and inner `/` (`#program/5x5`),
+/// Unicode-aware so accented / non-Latin tags stay intact. The body
+/// starts with a letter or a digit and holds at least one letter, so
+/// `#5x5` and `#1rm` are tags while `#3` / `set #1` / `#123` never are.
 library;
 
 /// Pure functions describing the `#tag` grammar.
@@ -65,16 +66,40 @@ class MarkdownTagSyntax {
   }
 
   /// Returns the end index (exclusive) of a `#tag` starting at the `#`
-  /// at [i], or `null` when it is not a tag. The first body character
-  /// must be a letter so `#3` / `set #1` are never tags.
+  /// at [i], or `null` when it is not a tag. The body starts with a
+  /// letter or a digit and must hold a letter somewhere, so set numbers
+  /// and counts (`set #1`, `#123`) stay prose while `#5x5` is a tag. A
+  /// `/` belongs to the body only between tag characters, so a sentence
+  /// ending `#a/` or a path-like `#a//b` keeps its slash as text.
   static int? tryParseTagAt(String text, int i) {
+    final n = text.length;
     final firstIdx = i + 1;
-    if (firstIdx >= text.length) return null;
-    if (!isLetter(text.codeUnitAt(firstIdx))) return null;
+    if (firstIdx >= n) return null;
+    final first = text.codeUnitAt(firstIdx);
+    var sawLetter = isLetter(first);
+    if (!sawLetter && !_isDigit(first)) return null;
     int j = firstIdx + 1;
-    while (j < text.length && isTagChar(text.codeUnitAt(j))) {
+    while (j < n) {
+      final c = text.codeUnitAt(j);
+      if (c == 0x2F /* / */ ) {
+        if (j + 1 < n && isTagChar(text.codeUnitAt(j + 1))) {
+          j++;
+          continue;
+        }
+        break;
+      }
+      if (!isTagChar(c)) break;
+      if (!sawLetter) sawLetter = isLetter(c);
       j++;
     }
-    return j;
+    return sawLetter ? j : null;
   }
+
+  /// Matches one non-ASCII Unicode number, so a digit-led body accepts
+  /// the same digits [isTagChar] does inside a tag.
+  static final RegExp _unicodeDigitRe = RegExp(r'\p{N}', unicode: true);
+
+  static bool _isDigit(int c) =>
+      (c >= 0x30 && c <= 0x39) ||
+      (c > 0x7F && _unicodeDigitRe.hasMatch(String.fromCharCode(c)));
 }

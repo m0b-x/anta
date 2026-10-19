@@ -1,5 +1,6 @@
 import 'package:re_editor/re_editor.dart';
 
+import '../utils/editor_input_policy.dart';
 import '../utils/editor_width_calculator.dart';
 import '../utils/markdown_list_utils.dart';
 import '../utils/paste_line_breaker.dart';
@@ -19,7 +20,7 @@ typedef PasteReformatContext = ({
 
 /// Watches the editor's text length and turns each growth into the one
 /// edit it implies: a paste wide enough to need reflowing, or an Enter on
-/// a list line that should continue (or end) the list.
+/// a list or quote line that should continue (or end) it.
 ///
 /// Both of those write [CodeLineEditingController.value] **directly**
 /// rather than through `runRevocableOp`, which overwrites the undo node
@@ -144,8 +145,8 @@ class EditorEditTracker {
   }
 
   /// Whether [textLengthDiff] is the growth of an Enter the tracker owns —
-  /// in which case the list continuation (or termination) has already been
-  /// applied and the paste branch must not run.
+  /// in which case the list or quote continuation (or termination) has
+  /// already been applied and the paste branch must not run.
   bool _handleNewLine(CodeLineSelection selection, int textLengthDiff) {
     // After Enter, the caret sits on the freshly split line just past the
     // whitespace re_editor copied down from the line above — column 0 for
@@ -182,54 +183,65 @@ class EditorEditTracker {
 
     _isProcessing = true;
     try {
-      // The empty-item test reads the split **prefix**, which is only the
-      // whole item when the split left nothing behind: a caret parked just
+      // The empty-line test reads the split **prefix**, which is only the
+      // whole line when the split left nothing behind: a caret parked just
       // right of the marker (`- item` at offset 2) makes that prefix `- `
       // too, and dropping the line there would delete the marker and merge
       // the remainder into the line above. Requiring an empty remainder as
       // well sends that split down the continuation branch instead.
-      if (currentLine.text.length == autoIndent &&
-          MarkdownListUtils.isEmptyListItem(prevLine)) {
-        // Enter on an item with no content ends the list: the marker line
-        // goes, and the copied indentation goes with it, so a nested item
-        // ends the same way a top-level one does — on a bare line with the
-        // caret at column 0.
-        final CodeLines dedented = autoIndent == 0
+      final end = currentLine.text.length == autoIndent
+          ? MarkdownListUtils.emptyLineEnd(prevLine)
+          : null;
+      if (end != null) {
+        // Enter on a marker with no content takes one marker back: the
+        // marker line goes, the line Enter created takes what is left of
+        // it in place of the copied indentation, and the caret lands at
+        // its end. A top-level item ending on a bare line rewrites
+        // nothing but the removal.
+        final String text = switch (end) {
+          MarkdownEndMarker(:final text) => text,
+          MarkdownOutdentItem(:final quote, :final item) =>
+            quote +
+                (EditorInputPolicy.listIndent(
+                      lineText: item,
+                      outdent: true,
+                    )?.text ??
+                    item),
+        };
+        final CodeLines rewritten = text == currentLine.text
             ? _controller.codeLines
             : _controller.codeLines.replaceLine(
                 currentLineIndex,
-                currentLine.copyWith(
-                  text: currentLine.text.substring(autoIndent),
-                ),
+                currentLine.copyWith(text: text),
               );
         _controller.value = CodeLineEditingValue(
-          codeLines: dedented.removeLine(prevLineIndex),
+          codeLines: rewritten.removeLine(prevLineIndex),
           selection: CodeLineSelection.collapsed(
             index: prevLineIndex,
-            offset: 0,
+            offset: text.length,
           ),
         );
         _previousTextLength = _controller.textLength;
         return true;
       }
 
-      final listPrefix = MarkdownListUtils.getListPrefix(prevLine);
-      // Still an Enter, just not on a list line: there is nothing to
-      // continue, and nothing for the paste branch to reflow either.
-      if (listPrefix == null) return true;
+      final prefix = MarkdownListUtils.continuationPrefix(prevLine);
+      // Still an Enter, just not on a list or quote line: there is nothing
+      // to continue, and nothing for the paste branch to reflow either.
+      if (prefix == null) return true;
 
-      // The prefix carries the item's own indentation, so the copy the
+      // The prefix carries the line's own indentation, so the copy the
       // split already made has to come off or a nested item indents twice.
       _controller.value = CodeLineEditingValue(
         codeLines: _controller.codeLines.replaceLine(
           currentLineIndex,
           currentLine.copyWith(
-            text: '$listPrefix${currentLine.text.substring(autoIndent)}',
+            text: '$prefix${currentLine.text.substring(autoIndent)}',
           ),
         ),
         selection: CodeLineSelection.collapsed(
           index: currentLineIndex,
-          offset: listPrefix.length,
+          offset: prefix.length,
         ),
       );
       _previousTextLength = _controller.textLength;

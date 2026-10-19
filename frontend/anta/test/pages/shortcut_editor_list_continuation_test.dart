@@ -149,4 +149,64 @@ void main() {
 
     expect(controller.text, '- squat\n');
   });
+
+  testWidgets('Enter continues a quote', (tester) async {
+    final controller = await pumpPage(tester);
+
+    type(controller, '> squat');
+    type(controller, '> squat\n');
+    await tester.pump();
+
+    expect(controller.text, '> squat\n> ');
+  });
+
+  testWidgets('Enter continues a list inside a quote', (tester) async {
+    final controller = await pumpPage(tester);
+
+    type(controller, '> - squat');
+    type(controller, '> - squat\n');
+    await tester.pump();
+
+    expect(controller.text, '> - squat\n> - ');
+  });
+
+  testWidgets('Enter on an empty quote line ends the quote', (tester) async {
+    final controller = await pumpPage(tester);
+
+    type(controller, '> squat\n> ');
+    type(controller, '> squat\n> \n');
+    await tester.pump();
+
+    expect(controller.text, '> squat\n');
+    expect(controller.selection, const TextSelection.collapsed(offset: 8));
+  });
+
+  testWidgets('Enter on an empty nested item outdents it one level', (
+    tester,
+  ) async {
+    final controller = await pumpPage(tester);
+
+    type(controller, '- squat\n  - ');
+    type(controller, '- squat\n  - \n');
+    await tester.pump();
+
+    expect(controller.text, '- squat\n- ');
+    expect(controller.selection, const TextSelection.collapsed(offset: 10));
+  });
+
+  testWidgets('Enter that splits content off a bare marker continues it', (
+    tester,
+  ) async {
+    final controller = await pumpPage(tester);
+
+    type(controller, '- squat');
+    controller.value = const TextEditingValue(
+      text: '- \nsquat',
+      selection: TextSelection.collapsed(offset: 3),
+    );
+    await tester.pump();
+
+    expect(controller.text, '- \n- squat');
+    expect(controller.selection, const TextSelection.collapsed(offset: 5));
+  });
 }

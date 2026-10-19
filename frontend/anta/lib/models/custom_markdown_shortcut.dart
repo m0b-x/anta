@@ -182,6 +182,12 @@ class RepeatConfig extends Equatable {
 }
 
 class CustomMarkdownShortcut extends Equatable {
+  /// The [insertType] of a shortcut whose [beforeText] is a line marker
+  /// (`- `, `- [ ] `, `1. `, `> `) toggled at the start of every covered
+  /// line rather than inserted at the caret. A build that predates it
+  /// reads the value as a plain insert, so persisting it is additive.
+  static const String linePrefixType = 'linePrefix';
+
   final String id;
   final String label;
   final int iconCodePoint;

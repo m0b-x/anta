@@ -286,7 +286,10 @@ class _CodeEditableState extends State<_CodeEditable>
         child: NotificationListener(
             onNotification: (notification) {
               if (notification is ScrollStartNotification) {
-                widget.selectionOverlayController.hideToolbar();
+                widget.selectionOverlayController.hideToolbarForScroll();
+              } else if (notification is ScrollEndNotification) {
+                widget.selectionOverlayController
+                    .restoreToolbarAfterScroll(context);
               }
               return false;
             },

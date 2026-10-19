@@ -414,6 +414,98 @@ class CodeLineEditingControllerDelegate
   }
 }
 
+/// Reads an IME update as the keystroke or the paste it stands for.
+extension CodeLineEditingBackspaceShape on CodeLineEditingController {
+  /// Whether [newValue] — the input method's view of the caret line — is
+  /// that line with exactly one ASCII code unit removed right before a
+  /// collapsed caret, with no composing region on either side.
+  ///
+  /// That is how a soft keyboard's Backspace arrives: as an [edit] that
+  /// rewrites the line, never as [deleteBackward], so the Backspace rules
+  /// (pair delete, indent-unit delete, a host's own) would never run on a
+  /// phone. Only ASCII qualifies because every such rule is about an ASCII
+  /// character before the caret, and only when that unit is a grapheme of
+  /// its own — the unit [deleteBackward] removes — so treating the edit as
+  /// a Backspace can never delete more than the keyboard asked for.
+  bool isSingleBackspace(TextEditingValue newValue) {
+    final CodeLineSelection current = selection;
+    if (!current.isCollapsed ||
+        isComposing ||
+        newValue.composing.end > newValue.composing.start) {
+      return false;
+    }
+    final int caret = current.extentOffset;
+    final TextSelection next = newValue.selection;
+    if (caret <= 0 || !next.isCollapsed || next.baseOffset != caret - 1) {
+      return false;
+    }
+    final int index = current.extentIndex;
+    if (index < 0 || index >= codeLines.length) {
+      return false;
+    }
+    final String line = codeLines[index].text;
+    final String text = newValue.text;
+    if (caret > line.length ||
+        text.length != line.length - 1 ||
+        line.codeUnitAt(caret - 1) >= 0x80) {
+      return false;
+    }
+    for (int i = 0; i < caret - 1; i++) {
+      if (text.codeUnitAt(i) != line.codeUnitAt(i)) {
+        return false;
+      }
+    }
+    for (int i = caret - 1; i < text.length; i++) {
+      if (text.codeUnitAt(i) != line.codeUnitAt(i + 1)) {
+        return false;
+      }
+    }
+    // An ASCII unit can still close a longer grapheme: after a Prepend
+    // character (U+0600, UAX #29 GB9b) the pair is one cluster, and
+    // [deleteBackward] would take both.
+    return line.substring(0, caret).characters.last.length == 1;
+  }
+
+  /// The part of an input method's multi-line [text] that replaces the
+  /// selection — what an IME paste inserts. Public so a delegate that
+  /// transforms pastes (the app's list-aware paste) cuts the commit exactly
+  /// as [edit] does.
+  ///
+  /// The IME holds the base line only
+  /// (`_CodeInputController._buildTextEditingValue`): over a selection on
+  /// one line its text is that line with the selection replaced, so both
+  /// the text before and the text after the selection are cut; over a
+  /// selection across lines it holds the base line from its start to the
+  /// base when the selection runs forward (`before + pasted`) and from the
+  /// base to its end when it runs backward (`pasted + after`), so only
+  /// that one side is cut — the replacement re-adds both sides, and
+  /// passing the uncut side through doubled it around the paste.
+  String imeReplacement(String text) {
+    final CodeLineSelection current = selection;
+    if (!current.isSameLine) {
+      final CodeLine baseLine = codeLines[current.baseIndex];
+      if (current.baseIndex < current.extentIndex) {
+        final String before = baseLine.substring(0, current.baseOffset);
+        return text.startsWith(before) ? text.substring(before.length) : text;
+      }
+      final String after = baseLine.substring(current.baseOffset);
+      return text.endsWith(after)
+          ? text.substring(0, text.length - after.length)
+          : text;
+    }
+    final CodeLine line = codeLines[current.startIndex];
+    final String beforeText = line.substring(0, current.startOffset);
+    final String endText = line.substring(current.endOffset);
+    if (beforeText.isNotEmpty && !text.startsWith(beforeText)) {
+      return text;
+    }
+    if (endText.isNotEmpty && !text.endsWith(endText)) {
+      return text;
+    }
+    return text.substring(beforeText.length, text.length - endText.length);
+  }
+}
+
 class CodeLine {
   static const CodeLine empty = CodeLine('');
 
@@ -970,7 +1062,8 @@ class CodeLineOptions {
 
   const CodeLineOptions(
       {this.lineBreak = TextLineBreak.lf,
-      this.indentSize = _defaultIndentSize});
+      this.indentSize = _defaultIndentSize,
+      this.expandClosuresOnNewLine = false});
 
   /// Line break symbols, like LF, CRLF.
   ///
@@ -980,18 +1073,31 @@ class CodeLineOptions {
   /// Indent length, default value is 2.
   final int indentSize;
 
+  /// Whether Enter between a bracket pair (`{|}`, `[|]`, `(|)`) opens an
+  /// indented line inside it and pushes the closer one line further down.
+  ///
+  /// Off by default: the fork's consumer is a markdown editor, where an
+  /// auto-paired `[[|]]`, `{{|}}` or `- [|]` is a normal state to press
+  /// Enter in, and three lines from one keystroke there is a bug, not a
+  /// code-block convenience.
+  final bool expandClosuresOnNewLine;
+
   CodeLineOptions copyWith({
     TextLineBreak? lineBreak,
     int? indentSize,
+    bool? expandClosuresOnNewLine,
   }) {
     return CodeLineOptions(
       lineBreak: lineBreak ?? this.lineBreak,
       indentSize: indentSize ?? this.indentSize,
+      expandClosuresOnNewLine:
+          expandClosuresOnNewLine ?? this.expandClosuresOnNewLine,
     );
   }
 
   @override
-  int get hashCode => Object.hash(lineBreak, indentSize);
+  int get hashCode =>
+      Object.hash(lineBreak, indentSize, expandClosuresOnNewLine);
 
   @override
   bool operator ==(Object other) {
@@ -1000,7 +1106,8 @@ class CodeLineOptions {
     }
     return other is CodeLineOptions &&
         other.lineBreak == lineBreak &&
-        other.indentSize == indentSize;
+        other.indentSize == indentSize &&
+        other.expandClosuresOnNewLine == expandClosuresOnNewLine;
   }
 
   String get indent => ' ' * indentSize;

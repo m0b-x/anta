@@ -14,6 +14,8 @@ void main() {
 
   test('headings lose their hashes', () {
     expect(alertExcerptFor('## Leg day'), 'Leg day');
+    expect(alertExcerptFor('## Week 3 ##'), 'Week 3');
+    expect(alertExcerptFor('## Title##'), 'Title##');
     expect(alertExcerptFor('#Not a heading'), '#Not a heading');
   });
 
@@ -29,7 +31,19 @@ void main() {
       alertExcerptFor('See [the plan](https://example.com) and [[Session 1]]'),
       'See the plan and Session 1',
     );
-    expect(alertExcerptFor('![shot](https://x/y.png) after'), 'after');
+    expect(
+      alertExcerptFor('before ![chart](https://x/y.png) after'),
+      'before chart after',
+    );
+    expect(alertExcerptFor('![](https://x/y.png) after'), 'after');
+  });
+
+  test('a wiki alias reads as shown and an autolink loses its brackets', () {
+    expect(alertExcerptFor('Do [[Session 1|legs]] today'), 'Do legs today');
+    expect(
+      alertExcerptFor('Mail <me@example.com> now'),
+      'Mail me@example.com now',
+    );
   });
 
   test('money lines read as amount and label', () {

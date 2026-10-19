@@ -92,10 +92,12 @@ class PasteLineBreaker {
     if (lineCount == 0) return PasteLineBreakerResult.empty;
 
     final int end = pasteEnd.index.clamp(0, lineCount - 1);
-    final int start = _startLine(
+    final String endText = codeLines[end].text;
+    final int caretOffset = pasteEnd.offset.clamp(0, endText.length);
+    final (:start, :startOffset) = _startLine(
       codeLines: codeLines,
       end: end,
-      caretOffset: pasteEnd.offset,
+      caretOffset: caretOffset,
       pastedLength: pastedLength,
       lineBreakLength: controller.options.lineBreak.value.length,
     );
@@ -106,22 +108,36 @@ class PasteLineBreaker {
       'line and drop its children; a paste must never land on one',
     );
 
+    // Only the pasted span is reflowed. The text that already followed the
+    // caret is held back from the breaker and rejoined to the last piece,
+    // so a paste in front of a word never pushes that word onto a line of
+    // its own; the text that already preceded the paste on its first line
+    // is kept whole by `firstLineKeep`. The paste's trailing whitespace is
+    // held back with the suffix: a line over the width only because of it
+    // would break on that space, the piece's `trimRight` would drop it, and
+    // the suffix would be glued to the last pasted word.
     final lines = <String>[];
-    for (int i = start; i <= end; i++) {
+    for (int i = start; i < end; i++) {
       lines.add(codeLines[i].text);
     }
+    final String lastLine = endText.substring(0, caretOffset).trimRight();
+    lines.add(lastLine);
+    final String suffix = endText.substring(lastLine.length);
 
     final result = calculator.breakLinesSmartly(
       lines,
       availableWidth,
       inCodeBlock: lineInFenceBody?.call(start) ?? false,
+      firstLineKeep: startOffset,
     );
     if (result.linesModified == 0) return PasteLineBreakerResult.empty;
 
     final next = codeLines.sublines(0, start);
-    for (final line in result.lines) {
-      next.add(CodeLine(line));
+    final int lastIndex = result.lines.length - 1;
+    for (int i = 0; i < lastIndex; i++) {
+      next.add(CodeLine(result.lines[i]));
     }
+    next.add(CodeLine('${result.lines[lastIndex]}$suffix'));
     if (end + 1 < lineCount) {
       next.addFrom(codeLines, end + 1);
     }
@@ -130,7 +146,8 @@ class PasteLineBreaker {
       codeLines: next,
       selection: _caretAfter(
         start: start,
-        caretOffset: pasteEnd.offset,
+        caretOffset: caretOffset,
+        heldBack: caretOffset - lastLine.length,
         result: result,
       ),
     );
@@ -150,9 +167,13 @@ class PasteLineBreaker {
   /// caret past whatever text already followed the paste on its line, and
   /// — when the last source line was skipped as a line-led construct or a
   /// fence body — at the end of a line the paste never even reached.
+  ///
+  /// [heldBack] is the trailing whitespace the breaker never saw; it sits
+  /// on the last output line ahead of the suffix, and the caret after it.
   static CodeLineSelection _caretAfter({
     required int start,
     required int caretOffset,
+    required int heldBack,
     required LineBreakResult result,
   }) {
     final offsets = result.lastLineSourceOffsets;
@@ -161,14 +182,19 @@ class PasteLineBreaker {
       piece--;
     }
     final int index = result.lines.length - offsets.length + piece;
-    final String text = result.lines[index];
-    final int offset = (caretOffset - offsets[piece]).clamp(0, text.length);
+    final int length =
+        result.lines[index].length +
+        (index == result.lines.length - 1 ? heldBack : 0);
+    final int offset = (caretOffset - offsets[piece]).clamp(0, length);
     return CodeLineSelection.collapsed(index: start + index, offset: offset);
   }
 
-  /// First line the paste touched, walking back from the caret line over
+  /// First line the paste touched, and the offset on it where the paste
+  /// began, walking back from the caret line over
   /// `text.length + lineBreakLength` (the line and the break that follows
-  /// it) until the pasted code units are accounted for.
+  /// it) until the pasted code units are accounted for. Whatever the walk
+  /// over-shot on the first line is the text that line held before the
+  /// paste.
   ///
   /// A single-line paste consumes fewer units than the caret column, so the
   /// loop never runs and the range is the caret line alone.
@@ -176,10 +202,11 @@ class PasteLineBreaker {
   /// [pastedLength] is a **net** growth, so a paste that replaced a
   /// selection reports fewer code units than it inserted and the walk stops
   /// short. That is the safe direction — the range can only ever start at
-  /// or after the true first pasted line, so the reformat under-covers a
-  /// paste rather than rewriting lines it never touched — and a paste that
-  /// shrank the document reports no growth at all and is never reflowed.
-  static int _startLine({
+  /// or after the true first pasted line, and the offset at or after the
+  /// true first pasted unit, so the reformat under-covers a paste rather
+  /// than rewriting text it never touched — and a paste that shrank the
+  /// document reports no growth at all and is never reflowed.
+  static ({int start, int startOffset}) _startLine({
     required CodeLines codeLines,
     required int end,
     required int caretOffset,
@@ -192,7 +219,7 @@ class PasteLineBreaker {
       start--;
       remaining -= lineBreakLength + codeLines[start].text.length;
     }
-    return start;
+    return (start: start, startOffset: remaining < 0 ? -remaining : 0);
   }
 
   /// Whether `[start, end]` is free of collapsed-chunk parents.

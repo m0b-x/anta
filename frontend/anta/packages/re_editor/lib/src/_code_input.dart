@@ -12,6 +12,14 @@ class _CodeInputController extends ChangeNotifier
   TextInputConnection? _textInputConnection;
   TextEditingValue? _remoteEditingValue;
 
+  // Offsets, in the input method's view of the base line, of the closers
+  // auto-pairing inserted that are still in place — the only closers
+  // typing steps over — and the view they were last mapped onto. Any
+  // change that did not come through the deltas (a tap, a toolbar insert,
+  // an undo, another line) replaces that view and drops them.
+  final List<int> _autoClosers = <int>[];
+  TextEditingValue? _autoClosersValue;
+
   final _CodeFloatingCursorController _floatingCursorController;
   Timer? _floatingCursorScrollTimer;
 
@@ -147,6 +155,7 @@ class _CodeInputController extends ChangeNotifier
         newValue = delta.apply(newValue);
       }
       _remoteEditingValue = newValue;
+      _autoClosers.clear();
       _controller.applyNewLine();
       return;
     }
@@ -154,10 +163,13 @@ class _CodeInputController extends ChangeNotifier
     // _Trace.begin('updateEditingValue all');
     TextEditingValue newValue = _remoteEditingValue!;
     bool smartChange = false;
+    if (!identical(_remoteEditingValue, _autoClosersValue)) {
+      _autoClosers.clear();
+    }
     for (final TextEditingDelta delta in textEditingDeltas) {
       if (_autocompleteSymbols) {
         TextEditingDelta newDelta =
-            _SmartTextEditingDelta(delta).apply(selection);
+            _SmartTextEditingDelta(delta, _autoClosers).apply(selection);
         if (newDelta != delta) {
           smartChange = true;
         }
@@ -184,6 +196,13 @@ class _CodeInputController extends ChangeNotifier
     } else {
       _controller.edit(newValue);
     }
+    // The offsets were mapped through the deltas; a controller rule that
+    // edited further (the pair delete, a delegate's marker Backspace)
+    // leaves another text behind, and the offsets would point at nothing.
+    if (_autoClosers.isNotEmpty && _remoteEditingValue?.text != newValue.text) {
+      _autoClosers.clear();
+    }
+    _autoClosersValue = _remoteEditingValue;
     notifyListeners();
     // _Trace.end('updateEditingValue all');
   }
@@ -379,6 +398,17 @@ class _CodeInputController extends ChangeNotifier
     // print('post text ${localValue.text}');
     // print('post selection ${localValue.selection}');
     // print('post composing ${localValue.composing}');
+    // A view rebuilt with only another composing range is still the one
+    // the closers were mapped onto: at column 0 Gboard's composing range
+    // takes in the zero-width prefix, which the controller cannot hold, so
+    // the view handed back differs there alone.
+    final TextEditingValue? remote = _remoteEditingValue;
+    if (remote != null &&
+        identical(remote, _autoClosersValue) &&
+        localValue.text == remote.text &&
+        localValue.selection == remote.selection) {
+      _autoClosersValue = localValue;
+    }
     _remoteEditingValue = localValue;
 
     _textInputConnection!.setEditingState(localValue);
@@ -512,8 +542,16 @@ class _SmartTextEditingDelta {
     _ClosureSymbol('(', ')'),
   ];
 
-  static const List<String> _quoteSymbols = ['\'', '"', '`'];
+  // No `'`: in prose an apostrophe (`don't`) far outnumbers a quoted
+  // phrase, and a pair inserted mid-word is a character to delete.
+  static const List<String> _quoteSymbols = ['"', '`'];
 
+  // The closers the pairing above inserts — the ones typing may step over.
+  static const String _autoClosedSymbols = ')]}"`';
+
+  // Typed over a selection, each of these wraps it. The markdown emphasis
+  // runs (`*`, `_`, `~`, `=`) wrap only: without a selection they are
+  // typed as themselves, never paired.
   static const List<_ClosureSymbol> _wrapSymbols = [
     _ClosureSymbol('{', '}'),
     _ClosureSymbol('[', ']'),
@@ -521,67 +559,124 @@ class _SmartTextEditingDelta {
     _ClosureSymbol('\'', '\''),
     _ClosureSymbol('"', '"'),
     _ClosureSymbol('`', '`'),
+    _ClosureSymbol('*', '*'),
+    _ClosureSymbol('_', '_'),
+    _ClosureSymbol('~', '~'),
+    _ClosureSymbol('=', '='),
   ];
+
+  // Marks too: a decomposed accent (`e` + U+0301) ends the word it sits on.
+  static final RegExp _wordCharacter =
+      RegExp(r'[\p{L}\p{M}\p{N}]', unicode: true);
 
   final TextEditingDelta _delta;
 
-  _SmartTextEditingDelta(this._delta);
+  // The input controller's auto-inserted closer offsets, mapped through
+  // the delta [apply] returns (in place).
+  final List<int> _autoClosers;
+
+  _SmartTextEditingDelta(this._delta, this._autoClosers);
 
   TextEditingDelta apply(CodeLineSelection selection) {
     TextEditingDelta delta = _delta;
     if (delta is TextEditingDeltaInsertion) {
-      delta = _smartInsertion(delta);
-    } else if (delta is TextEditingDeltaReplacement) {
+      return _smartInsertion(delta);
+    }
+    if (delta is TextEditingDeltaReplacement) {
       delta = _smartReplacement(delta, selection);
     }
+    _mapAutoClosers(delta);
     return delta;
   }
 
   TextEditingDelta _smartInsertion(TextEditingDeltaInsertion delta) {
+    final String inserted = delta.textInserted;
+    final int offset = delta.insertionOffset;
+    final String text = delta.oldText;
+    if (inserted.length == 1 &&
+        _autoClosedSymbols.contains(inserted) &&
+        offset < text.length &&
+        text[offset] == inserted &&
+        _autoClosers.remove(offset)) {
+      // Typing the closer the pairing put right after the caret steps
+      // over it; one that was already in the text is typed as usual.
+      return TextEditingDeltaNonTextUpdate(
+          oldText: text,
+          selection: TextSelection.collapsed(offset: offset + 1),
+          composing: delta.composing);
+    }
     for (final _ClosureSymbol symbol in _closureSymbols) {
-      if (delta.textInserted == symbol.left) {
-        if (!_shouldAutoClosed(delta.oldText, delta.insertionOffset, symbol)) {
-          break;
+      if (inserted == symbol.left) {
+        if (_shouldAutoClosed(text, offset, symbol)) {
+          return _pair(delta, symbol.toString());
         }
-        return TextEditingDeltaInsertion(
-          oldText: delta.oldText,
-          textInserted: symbol.toString(),
-          insertionOffset: delta.insertionOffset,
-          selection: delta.selection,
-          composing: delta.composing,
-        );
-      } else if (delta.textInserted == symbol.right) {
-        if (!_shouldSkipClosed(delta.oldText, delta.insertionOffset, symbol)) {
-          break;
-        }
-        return TextEditingDeltaNonTextUpdate(
-            oldText: delta.oldText,
-            selection:
-                TextSelection.collapsed(offset: delta.insertionOffset + 1),
-            composing: delta.composing);
+        break;
       }
     }
     for (final String symbol in _quoteSymbols) {
-      if (delta.textInserted != symbol) {
-        continue;
-      }
-      if (!_shouldAutoQuoted(delta.oldText, symbol, delta.insertionOffset)) {
+      if (inserted == symbol) {
+        if (_shouldAutoQuoted(text, symbol, offset)) {
+          return _pair(delta, symbol * 2);
+        }
         break;
       }
-      return TextEditingDeltaInsertion(
-        oldText: delta.oldText,
-        textInserted: symbol * 2,
-        insertionOffset: delta.insertionOffset,
-        selection: delta.selection,
-        composing: delta.composing,
-      );
     }
+    _mapAutoClosers(delta);
     return delta;
+  }
+
+  TextEditingDelta _pair(TextEditingDeltaInsertion delta, String pair) {
+    final TextEditingDeltaInsertion paired = TextEditingDeltaInsertion(
+      oldText: delta.oldText,
+      textInserted: pair,
+      insertionOffset: delta.insertionOffset,
+      selection: delta.selection,
+      composing: delta.composing,
+    );
+    _mapAutoClosers(paired);
+    _autoClosers.add(delta.insertionOffset + 1);
+    return paired;
+  }
+
+  /// Moves the remembered closers with the text [delta] inserts or
+  /// removes before them, and forgets the ones it removes.
+  void _mapAutoClosers(TextEditingDelta delta) {
+    if (_autoClosers.isEmpty) {
+      return;
+    }
+    final int start;
+    final int end;
+    final int length;
+    if (delta is TextEditingDeltaInsertion) {
+      start = end = delta.insertionOffset;
+      length = delta.textInserted.length;
+    } else if (delta is TextEditingDeltaDeletion) {
+      start = delta.deletedRange.start;
+      end = delta.deletedRange.end;
+      length = 0;
+    } else if (delta is TextEditingDeltaReplacement) {
+      start = delta.replacedRange.start;
+      end = delta.replacedRange.end;
+      length = delta.replacementText.length;
+    } else {
+      return;
+    }
+    final int shift = length - (end - start);
+    for (int i = _autoClosers.length - 1; i >= 0; i--) {
+      final int offset = _autoClosers[i];
+      if (offset >= end) {
+        _autoClosers[i] = offset + shift;
+      } else if (offset >= start) {
+        _autoClosers.removeAt(i);
+      }
+    }
   }
 
   TextEditingDelta _smartReplacement(
       TextEditingDeltaReplacement delta, CodeLineSelection selection) {
-    if (!selection.isSameLine) {
+    // Only a selection is wrapped: a one-character replacement over a
+    // collapsed caret is the input method rewriting its composing text.
+    if (!selection.isSameLine || selection.isCollapsed) {
       return delta;
     }
     if (delta.replacementText.length > 1) {
@@ -593,13 +688,15 @@ class _SmartTextEditingDelta {
       return delta;
     }
     final _ClosureSymbol symbol = _wrapSymbols[index];
+    // In the delta's own coordinates, which carry the zero-width prefix on
+    // Android and iOS; the controller's selection offsets do not.
     return TextEditingDeltaReplacement(
         oldText: delta.oldText,
         replacementText: symbol.left + delta.textReplaced + symbol.right,
         replacedRange: delta.replacedRange,
         selection: TextSelection(
-            baseOffset: selection.startOffset + 1,
-            extentOffset: selection.endOffset + 1),
+            baseOffset: delta.replacedRange.start + 1,
+            extentOffset: delta.replacedRange.end + 1),
         composing: delta.composing);
   }
 
@@ -629,17 +726,13 @@ class _SmartTextEditingDelta {
     return max(0, leftSymbolCount) >= rightSymbolCount;
   }
 
-  bool _shouldSkipClosed(String text, int offset, _ClosureSymbol symbol) {
-    if (text.isEmpty) {
-      return false;
-    }
-    if (offset == text.length) {
-      return false;
-    }
-    return text.substring(offset, offset + 1) == symbol.right;
-  }
-
   bool _shouldAutoQuoted(String text, String symbol, int offset) {
+    // Against a word a quote opens or closes it (`say"`, `"word`), and
+    // the pair would leave a stray closer behind.
+    if (_isWordCharacterBefore(text, offset) ||
+        _isWordCharacterAfter(text, offset)) {
+      return false;
+    }
     final Characters characters = text.characters;
     if (characters.isEmpty) {
       return true;
@@ -669,6 +762,33 @@ class _SmartTextEditingDelta {
     }
     return leftSymbolCount % 2 == rightSymbolCount % 2;
   }
+
+  // A letter or digit in any script, so `ă"` and `ü"` count as a word end;
+  // a surrogate pair is read whole.
+  static bool _isWordCharacterBefore(String text, int offset) {
+    if (offset <= 0 || offset > text.length) {
+      return false;
+    }
+    int start = offset - 1;
+    if (start > 0 && _isLowSurrogate(text.codeUnitAt(start))) {
+      start--;
+    }
+    return _wordCharacter.hasMatch(text.substring(start, offset));
+  }
+
+  static bool _isWordCharacterAfter(String text, int offset) {
+    if (offset < 0 || offset >= text.length) {
+      return false;
+    }
+    int end = offset + 1;
+    if (end < text.length && _isLowSurrogate(text.codeUnitAt(end))) {
+      end++;
+    }
+    return _wordCharacter.hasMatch(text.substring(offset, end));
+  }
+
+  static bool _isLowSurrogate(int codeUnit) =>
+      codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
 }
 
 class _ClosureSymbol {

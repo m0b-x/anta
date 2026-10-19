@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
@@ -78,8 +79,11 @@ import 'money_display_config.dart';
 /// additionally muted) so they read as headings. Ghost `{{ … }}`
 /// runs compose with all of it: their markers stay concealed and the
 /// inner text renders dimmed in whatever style surrounds it. Lines
-/// covered by the selection render their markdown markers raw (dimmed)
-/// so editing never happens on concealed characters.
+/// covered by the selection of a focused editor (or of an in-note find
+/// session, see [bindRevealWhenUnfocused]) render their markdown
+/// markers raw (dimmed) so editing never happens on concealed characters
+/// — except a task's box, which stays painted until the caret enters its
+/// marker.
 ///
 /// Hard invariant (shared with the ghost-text builder): the returned
 /// span always contains exactly the source line's UTF-16 code units —
@@ -139,6 +143,28 @@ class MarkdownEditorSpanBuilder {
 
   void bind(CodeLineEditingController controller) {
     _controller = controller;
+  }
+
+  FocusNode? _focusNode;
+
+  /// Binds the editor's focus node, so the caret line reveals only while
+  /// the user is editing: a note opened at 0:0 must show its first line
+  /// rendered, with a tappable box, not raw. `null` unbinds; an unbound
+  /// builder treats the editor as focused, the behaviour before focus was
+  /// an input.
+  void bindFocus(FocusNode? node) {
+    _focusNode = node;
+  }
+
+  ValueListenable<bool>? _revealWhenUnfocused;
+
+  /// Binds the host's "reveal without focus" signal — the in-note find
+  /// session. Find applies its match as the selection only while the
+  /// editor is unfocused (the search field holds focus), so without this
+  /// a match inside concealed syntax (a link's url) would highlight
+  /// nothing visible. Read at layout like the focus node; `null` unbinds.
+  void bindRevealWhenUnfocused(ValueListenable<bool>? listenable) {
+    _revealWhenUnfocused = listenable;
   }
 
   /// Applies the resolved money display configuration as one
@@ -244,7 +270,15 @@ class MarkdownEditorSpanBuilder {
       return span;
     }
 
-    final reveal = selectionCoversLine(controller.selection, index);
+    final selection = controller.selection;
+    // [revealsLine] in short-circuit order: the focus read walks the
+    // focus tree, so only a covered line — one or two per pass — pays it.
+    final reveal =
+        selectionCoversLine(selection, index) &&
+        revealEnabled(
+          focused: _focusNode?.hasFocus ?? true,
+          findActive: _revealWhenUnfocused?.value ?? false,
+        );
 
     final callout = _lineIndex.calloutAt(controller.codeLines, index);
     if (callout != 0) {
@@ -319,8 +353,8 @@ class MarkdownEditorSpanBuilder {
 
     // Task-parent aggregate state is positional too (it depends on the
     // child lines), so indeterminate parents style through the
-    // positional memo, mirroring fences. Reveal lines show raw markers
-    // and skip the facet entirely.
+    // positional memo, mirroring fences. Reveal lines are never memoized
+    // and resolve the facet on their own path below.
     if (!reveal && _isTaskIndeterminate(controller, index)) {
       final taskKey = (EditorSpanCache.positionalTaskIndeterminate, 0, text);
       final cached = _cache.positional(taskKey);
@@ -342,18 +376,29 @@ class MarkdownEditorSpanBuilder {
       if (cached != null) {
         return identical(cached, EditorSpanCache.unhandled) ? null : cached;
       }
-    }
-    final span = _buildLine(text: text, ctx: context, reveal: reveal);
-    if (!reveal) {
+      final span = _buildLine(text: text, ctx: context, reveal: false);
       _cache.putStyled(text, span);
+      return span;
     }
-    return span;
+    // A collapsed caret past a task's marker keeps the box painted (see
+    // [taskMarkerRevealed]), so that box needs its aggregate state here
+    // too; a full reveal draws no box and skips the facet.
+    final caret = caretOffsetOn(selection, index);
+    return _buildLine(
+      text: text,
+      ctx: context,
+      reveal: true,
+      caretOffset: caret,
+      taskIndeterminate:
+          caret != null && _isTaskIndeterminate(controller, index),
+    );
   }
 
   TextSpan? _buildLine({
     required String text,
     required EditorRenderContext ctx,
     required bool reveal,
+    int? caretOffset,
     bool taskIndeterminate = false,
     MoneyLineMatch? money,
     int moneyBalance = 0,
@@ -401,6 +446,13 @@ class MarkdownEditorSpanBuilder {
       );
     }
 
+    // Before the list gate: `- - -` leads with a bullet marker but is a
+    // rule (the list grammar refuses it too, this keeps the route
+    // obvious).
+    if (MarkdownLineShape.isHorizontalRule(text)) {
+      return _buildRule(text: text, ctx: ctx, reveal: reveal);
+    }
+
     // [MarkdownListSyntax.scanListShape] is the allocation-free
     // companion of [MarkdownListSyntax.parse] and is documented to stay
     // in lockstep with its three regexes, so this gate never hides a
@@ -417,6 +469,7 @@ class MarkdownEditorSpanBuilder {
           item: item,
           ctx: ctx,
           reveal: reveal,
+          caretOffset: caretOffset,
           ghosts: ghosts,
           indeterminate: taskIndeterminate,
         );
@@ -431,10 +484,6 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         callout: callout,
       );
-    }
-
-    if (MarkdownLineShape.isHorizontalRule(text)) {
-      return _buildRule(text: text, ctx: ctx, reveal: reveal);
     }
 
     if (_leadsWithPipe(text) && MarkdownLineShape.isTableRow(text)) {
@@ -510,20 +559,19 @@ class MarkdownEditorSpanBuilder {
     // indent) while the hashes + their space conceal, so an indented
     // header keeps its width and only the chrome disappears.
     final markerEnd = heading.contentStart;
+    final contentEnd = heading.contentEnd;
+    final chromeStyle = reveal
+        ? EditorSpanEmitter.dimStyle(headerStyle, ctx.baseColor)
+        : EditorSpanEmitter.concealStyle(headerStyle);
     final children = <InlineSpan>[
       if (start > 0)
         TextSpan(text: text.substring(0, start), style: headerStyle),
-      TextSpan(
-        text: text.substring(start, markerEnd),
-        style: reveal
-            ? EditorSpanEmitter.dimStyle(headerStyle, ctx.baseColor)
-            : EditorSpanEmitter.concealStyle(headerStyle),
-      ),
+      TextSpan(text: text.substring(start, markerEnd), style: chromeStyle),
     ];
     EditorInlineEmitter.append(
       text: text,
       start: markerEnd,
-      end: text.length,
+      end: contentEnd,
       contextStyle: headerStyle,
       context: ctx,
       palette: _colorPalette,
@@ -531,7 +579,15 @@ class MarkdownEditorSpanBuilder {
       ghosts: ghosts,
       out: children,
       depth: 0,
+      hardBreaks: false,
     );
+    // A closing `##` (and the blanks around it) is chrome like the
+    // leading hashes, so `## Week 3 ##` reads as `Week 3`.
+    if (contentEnd < text.length) {
+      children.add(
+        TextSpan(text: text.substring(contentEnd), style: chromeStyle),
+      );
+    }
     return TextSpan(style: headerStyle, children: children);
   }
 
@@ -699,6 +755,7 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         out: children,
         depth: 0,
+        hardBreaks: role != MarkdownCalloutRole.lead,
       );
     }
     return TextSpan(style: style, children: children);
@@ -922,6 +979,7 @@ class MarkdownEditorSpanBuilder {
     required MarkdownListItem item,
     required EditorRenderContext ctx,
     required bool reveal,
+    required int? caretOffset,
     required List<GhostMatch> ghosts,
     bool indeterminate = false,
   }) {
@@ -974,7 +1032,9 @@ class MarkdownEditorSpanBuilder {
         }
       case MarkdownListKind.task:
         final boxEnd = item.bracketStart + 3;
-        if (reveal) {
+        // Only the marker's own conceal state follows the caret: the
+        // content after it reveals with the line either way.
+        if (reveal && taskMarkerRevealed(item, caretOffset)) {
           children.add(
             TextSpan(
               text: text.substring(item.indent.length, boxEnd),
@@ -1109,6 +1169,49 @@ class MarkdownEditorSpanBuilder {
     final b = selection.extentIndex;
     return a < b ? (index >= a && index <= b) : (index >= b && index <= a);
   }
+
+  /// Whether [index] renders revealed: the selection covers it *and*
+  /// [revealEnabled] holds. An unfocused editor still carries a selection
+  /// (a note opens at 0:0, a restored position lands anywhere), and that
+  /// line must not show raw markers nobody is editing. Shared with the
+  /// wrapper's tap interception for the same reason as
+  /// [selectionCoversLine].
+  static bool revealsLine({
+    required bool focused,
+    bool findActive = false,
+    required CodeLineSelection selection,
+    required int index,
+  }) =>
+      selectionCoversLine(selection, index) &&
+      revealEnabled(focused: focused, findActive: findActive);
+
+  /// Whether a covered line may reveal at all: while the editor holds
+  /// focus, or while an in-note find session is active — find selects its
+  /// match only while the search field holds focus, and a match inside
+  /// concealed syntax must still show.
+  static bool revealEnabled({required bool focused, required bool findActive}) =>
+      focused || findActive;
+
+  /// The collapsed caret's offset when it sits on [index], else `null` —
+  /// a range selection over the line, or a caret on another line. The
+  /// input [taskMarkerRevealed] reads on a revealed line.
+  static int? caretOffsetOn(CodeLineSelection selection, int index) =>
+      selection.isCollapsed && selection.extentIndex == index
+      ? selection.extentOffset
+      : null;
+
+  /// Whether a revealed task line shows its `- [ ]` marker raw. Only while
+  /// the caret is inside the marker — `[indent, contentStart)`, where the
+  /// next keystroke edits it — or a range selection covers the line;
+  /// otherwise the box stays painted and tappable, so the item just typed
+  /// can be ticked without leaving the line. Half-open on purpose: Enter
+  /// leaves the caret at contentStart of a fresh `- [ ] `, and a closed
+  /// range would draw that marker raw until the first letter painted the
+  /// box, sliding the text left under the caret. The one predicate both
+  /// the rendering and `EditorInputPolicy`'s box zone read.
+  static bool taskMarkerRevealed(MarkdownListItem item, int? caretOffset) =>
+      caretOffset == null ||
+      (caretOffset >= item.indent.length && caretOffset < item.contentStart);
 
   /// Whether [index] is inside (or delimiting) a ``` code fence. Public
   /// so the wrapper's tap interception can refuse to treat fence text as

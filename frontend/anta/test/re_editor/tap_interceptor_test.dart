@@ -108,4 +108,24 @@ void main() {
 
     await teardownEditor(tester);
   });
+
+  testWidgets('a tap below the last line goes to the document end', (
+    tester,
+  ) async {
+    // The zone's own line is the last one, so a tap under it at the
+    // zone's x would land on the zone if the finger's x still counted.
+    final e = await pumpZoneEditor(tester, text: 'abcdefghij');
+    final above = zoneCellOf(tester, e.notifier, 0, 1);
+    final lineHeight = displayedParagraphs(e.notifier).single.height;
+
+    await tester.tapAt(above + Offset(0, lineHeight * 3));
+    await tester.pump();
+
+    expect(e.taps, isEmpty);
+    expect(e.controller.selection.baseIndex, 0);
+    expect(e.controller.selection.baseOffset, 10);
+    expect(e.controller.selection.isCollapsed, isTrue);
+
+    await teardownEditor(tester);
+  });
 }

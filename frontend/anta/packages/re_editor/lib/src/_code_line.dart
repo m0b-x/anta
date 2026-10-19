@@ -14,7 +14,10 @@ final CodeLines _kInitialCodeLines = CodeLines(
 
 const int _kUnitCodeWhitespace = 0x20;
 const List<String> _kClosures = ['{}', '[]', '()'];
-const List<String> _kClosureAndQuates = ['{}', '[]', '()', '\'\'', '""', '``'];
+// The pairs a Backspace deletes together: only those the editor still
+// auto-closes. A single quote no longer pairs (it is an apostrophe), so
+// `''` is two characters the user typed and a Backspace takes one.
+const List<String> _kClosureAndQuates = ['{}', '[]', '()', '""', '``'];
 
 class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     implements CodeLineEditingController {
@@ -23,9 +26,15 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   final CodeLineSpanBuilder? spanBuilder;
   late final _CodeLineEditingCache _cache;
   late int _preEditLineIndex;
+  // When the previous typing edit landed and whether it shrank the text:
+  // with the line, the two facts that decide whether the next one extends
+  // its undo step (`_beginTypingEdit`).
+  Duration? _lastTypingAt;
+  bool _lastTypingDeleted = false;
   CodeLineEditingValue? _preValue;
   GlobalKey? _editorKey;
   bool _restoringHistory = false;
+  bool _revealScheduled = false;
 
   _CodeLineEditingControllerImpl({
     required CodeLines codeLines,
@@ -216,23 +225,30 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   @override
   void edit(TextEditingValue newValue) {
     if (newValue.text.isMultiline) {
-      final String replacement;
-      final String beforeText = _codeTextBefore(selection.start);
-      final String endText = _codeTextAfter(selection.end);
-      if (beforeText.isNotEmpty && !newValue.text.startsWith(beforeText)) {
-        replacement = newValue.text;
-      } else if (endText.isNotEmpty && !newValue.text.endsWith(endText)) {
-        replacement = newValue.text;
-      } else {
-        replacement = newValue.text.substring(
-            beforeText.length, newValue.text.length - endText.length);
-      }
-      _replaceRange(replacement);
+      // A multi-line commit is the input method's paste: its own undo
+      // step, never merged into the typing around it.
+      runRevocableOp(() {
+        _replaceRange(imeReplacement(newValue.text));
+      });
+      return;
+    }
+    if (isSingleBackspace(newValue)) {
+      // A soft keyboard's Backspace: run the Backspace rules (pair and
+      // indent-unit delete) the phone would otherwise never reach, under
+      // the typing path's own undo grouping, so a held Backspace still
+      // folds into one node instead of one node per unit.
+      _beginTypingEdit(deleting: true);
+      _deleteBackward();
+      _cache.markNewRecord(false);
       return;
     }
     final CodeLines newCodeLines;
     final TextSelection newSelection;
     final TextRange newComposing;
+    // Over a selection across lines the edit always removes a line break
+    // the input method's one-line text cannot put back, so it shrinks.
+    final bool deleting =
+        !selection.isSameLine || newValue.text.length < startLine.text.length;
     // Upstream flagged this branch as "large list operation is very very
     // slow". Resolved in this fork: CodeLines.from/sublines produce dirty
     // shallow segment clones with cached line/char counts (code_lines.dart),
@@ -275,9 +291,11 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
         newComposing = newValue.composing;
       }
     }
-    if (_preEditLineIndex != selection.extentIndex) {
-      _preEditLineIndex = selection.extentIndex;
-      _cache.markNewRecord(true);
+    // A composing or caret-only update changes no text: it folds into the
+    // current node anyway and must not count as the keystroke a pause or
+    // a direction change is measured from.
+    if (!identical(newCodeLines, codeLines)) {
+      _beginTypingEdit(deleting: deleting);
     }
     value = value.copyWith(
         codeLines: newCodeLines,
@@ -861,6 +879,16 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
 
   @override
   void deleteBackward() {
+    if (selection.isCollapsed && selection.baseOffset > 0) {
+      // A hardware Backspace inside a line (desktop, a phone's key-repeat):
+      // the soft keyboard's typing grouping, so a held key is one undo node
+      // rather than one per unit that can push the history past its cap.
+      // A line merge and a selection delete stay steps of their own.
+      _beginTypingEdit(deleting: true);
+      _deleteBackward();
+      _cache.markNewRecord(false);
+      return;
+    }
     runRevocableOp(_deleteBackward);
   }
 
@@ -916,20 +944,28 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   @override
   void undo() {
     _restoringHistory = true;
+    final bool restored;
     try {
-      _cache.undo();
+      restored = _cache.undo();
     } finally {
       _restoringHistory = false;
+    }
+    if (restored) {
+      _makeCursorCenterIfInvisibleAfterLayout();
     }
   }
 
   @override
   void redo() {
     _restoringHistory = true;
+    final bool restored;
     try {
-      _cache.redo();
+      restored = _cache.redo();
     } finally {
       _restoringHistory = false;
+    }
+    if (restored) {
+      _makeCursorCenterIfInvisibleAfterLayout();
     }
   }
 
@@ -1090,6 +1126,28 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     _render?.makePositionCenterIfInvisible(selection.extent);
   }
 
+  /// The same reveal once the frame this change schedules has laid out.
+  /// The synchronous call reads the previous frame's paragraphs, so a
+  /// caret restored or pasted onto a line that was empty or of another
+  /// length there reads as visible and is never scrolled to; undo, redo
+  /// and range replacements (paste, an IME multi-line commit) add this.
+  /// One request per frame, and none without a mounted editor.
+  void _makeCursorCenterIfInvisibleAfterLayout() {
+    if (_revealScheduled || _render == null) {
+      return;
+    }
+    _revealScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _revealScheduled = false;
+      final _CodeFieldRender? render = _render;
+      if (render == null || !render.attached || !render.hasSize) {
+        return;
+      }
+      render.makePositionCenterIfInvisible(selection.extent);
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
   @override
   void makeCursorVisible() {
     _render?.makePositionVisible(selection.extent);
@@ -1112,9 +1170,31 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
 
   @override
   void runRevocableOp(VoidCallback op) {
+    // Typing after a programmatic op (a toolbar insert, a paste) starts a
+    // step of its own instead of extending the op's.
+    _preEditLineIndex = -1;
     _cache.markNewRecord(true);
     op();
     _cache.markNewRecord(false);
+  }
+
+  /// Opens a new undo step for a typing edit unless it continues the
+  /// previous one: on the same line, in the same direction (inserting or
+  /// [deleting]) and within [_kTypingUndoGroupGap] of it — CodeMirror's
+  /// grouping, so Undo steps back by bursts of typing rather than by
+  /// whole lines, and a run of Backspaces is one step.
+  void _beginTypingEdit({required bool deleting}) {
+    final Duration now = _undoGroupingNow();
+    final Duration? last = _lastTypingAt;
+    if (_preEditLineIndex != selection.extentIndex ||
+        deleting != _lastTypingDeleted ||
+        last == null ||
+        now - last > _kTypingUndoGroupGap) {
+      _preEditLineIndex = selection.extentIndex;
+      _cache.markNewRecord(true);
+    }
+    _lastTypingAt = now;
+    _lastTypingDeleted = deleting;
   }
 
   @override
@@ -1499,7 +1579,9 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     // {|} => {
     //           |
     //        }
-    if (_selectionInClosure) {
+    // Opt-in (CodeLineOptions.expandClosuresOnNewLine): in markdown the
+    // pair is usually a `[[link]]`, a `{{ghost}}` or a task box.
+    if (options.expandClosuresOnNewLine && _selectionInClosure) {
       newCodeLines.add(CodeLine(alignIndent + indent));
       offset = newCodeLines.last.length;
     } else {
@@ -1775,6 +1857,7 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
         selection: CodeLineSelection.collapsed(
             index: index, offset: offset, affinity: range.extentAffinity));
     makeCursorCenterIfInvisible();
+    _makeCursorCenterIfInvisibleAfterLayout();
   }
 
   void _replaceAll(Pattern pattern, String replacement) {
@@ -1976,18 +2059,24 @@ class _CodeLineEditingCache {
 
   bool get canRedo => _node.next != null;
 
-  void undo() {
-    if (_node.pre != null) {
-      _node = _node.pre!;
-      controller.value = _node.value;
+  /// Whether a node was restored: with nothing to undo the caret did not
+  /// move, so the controller does not scroll to it either.
+  bool undo() {
+    if (_node.pre == null) {
+      return false;
     }
+    _node = _node.pre!;
+    controller.value = _node.value;
+    return true;
   }
 
-  void redo() {
-    if (_node.next != null) {
-      _node = _node.next!;
-      controller.value = _node.value;
+  bool redo() {
+    if (_node.next == null) {
+      return false;
     }
+    _node = _node.next!;
+    controller.value = _node.value;
+    return true;
   }
 
   void clear() {

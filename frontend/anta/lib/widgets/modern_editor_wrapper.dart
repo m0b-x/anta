@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
 import '../constants/app_constants.dart';
+import '../controllers/list_indent_action.dart';
+import '../controllers/shortcut_applier.dart';
 import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
 import '../constants/markdown_constants.dart';
@@ -62,6 +65,23 @@ class ModernEditorWrapper extends StatefulWidget {
   /// nested `{name:…}` runs exactly as drawn.
   final MarkdownColorPalette colorPalette;
 
+  /// Whether a claimed tap confirms itself with a haptic. The host passes
+  /// the app-wide haptic setting; with it off, a toggled box or an opened
+  /// link gives no tactile click.
+  final bool hapticsEnabled;
+
+  /// The second reveal input beside focus — the host's in-note find
+  /// session — so a tap on the match line resolves against the raw
+  /// markers the renderer draws there. The host binds the same listenable
+  /// into its span builder; null means focus alone decides.
+  final ValueListenable<bool>? revealWhenUnfocused;
+
+  /// Runs Ctrl/Cmd+B and Ctrl/Cmd+I with the toggled marker through the
+  /// host's own guarded edit path, so a keyboard toggle is tracked,
+  /// counted and revealed like the bar's. Null keeps the direct
+  /// [ShortcutApplier.toggleWrap] for hosts with no such path.
+  final ValueChanged<String>? onFormatShortcut;
+
   final GlobalKey? lineNumbersKey;
   final GlobalKey? scrollIndicatorKey;
 
@@ -109,6 +129,9 @@ class ModernEditorWrapper extends StatefulWidget {
     this.onOpenWikiLink,
     this.isFenceLine,
     this.colorPalette = MarkdownColorPalette.presets,
+    this.hapticsEnabled = true,
+    this.revealWhenUnfocused,
+    this.onFormatShortcut,
     this.lineNumbersKey,
     this.scrollIndicatorKey,
     this.showScrollIndicator = true,
@@ -149,6 +172,7 @@ class _TapClaim {
     required this.offset,
     required this.lineText,
     required this.selection,
+    required this.revealEnabled,
     required this.inFence,
     required this.action,
   });
@@ -157,6 +181,7 @@ class _TapClaim {
   final int offset;
   final String? lineText;
   final CodeLineSelection selection;
+  final bool revealEnabled;
   final bool inFence;
   final VoidCallback action;
 }
@@ -186,7 +211,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// same spot. The claim's action is memoized at tap-down and reused at
   /// tap-up while every input it was resolved from is unchanged, so the
   /// grammars run once per tap instead of twice; any change (a different
-  /// position, the line's text, the selection, the line's fence role)
+  /// position, the line's text, the selection, focus, the line's fence role)
   /// falls back to a fresh resolve, so a text change between down and up
   /// still can never fire the wrong action.
   late final CodeEditorTapInterceptor _tapInterceptor =
@@ -248,6 +273,37 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// so the progress indicator repaints off this instead of waiting for
   /// its periodic metrics check.
   final ValueNotifier<int> _scrollMetricsTick = ValueNotifier<int>(0);
+
+  /// Whether the clipboard holds text, as the platform last answered —
+  /// null before the first answer, which keeps Paste showing rather than
+  /// popping it in a frame later on the common, non-empty clipboard. Each
+  /// toolbar show asks again.
+  final ValueNotifier<bool?> _clipboardHasStrings = ValueNotifier<bool?>(null);
+
+  /// The markers Ctrl+B / Ctrl+I toggle — the shipped `default_bold` and
+  /// `default_italic` shortcuts' own, so a keyboard and the bar write the
+  /// same markdown.
+  static const String _boldMarker = '**';
+  static const String _italicMarker = '_';
+
+  /// Ctrl+B / Ctrl+I (Cmd on macOS), bound on desktop only: a phone has
+  /// no hardware keyboard to speak of, and the bar carries both toggles.
+  late final Map<ShortcutActivator, VoidCallback>? _formatShortcuts =
+      switch (defaultTargetPlatform) {
+        TargetPlatform.windows || TargetPlatform.linux => {
+          const SingleActivator(LogicalKeyboardKey.keyB, control: true): () =>
+              _toggleFormat(_boldMarker),
+          const SingleActivator(LogicalKeyboardKey.keyI, control: true): () =>
+              _toggleFormat(_italicMarker),
+        },
+        TargetPlatform.macOS => {
+          const SingleActivator(LogicalKeyboardKey.keyB, meta: true): () =>
+              _toggleFormat(_boldMarker),
+          const SingleActivator(LogicalKeyboardKey.keyI, meta: true): () =>
+              _toggleFormat(_italicMarker),
+        },
+        _ => null,
+      };
 
   @override
   void initState() {
@@ -326,6 +382,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     widget.searchController.clearFindController();
     widget.controller.removeListener(_onControllerChanged);
     _scrollMetricsTick.dispose();
+    _clipboardHasStrings.dispose();
     super.dispose();
   }
 
@@ -386,16 +443,58 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     required VoidCallback onDismiss,
     required VoidCallback onRefresh,
   }) {
+    // This builder re-runs on every rebuild of the toolbar's overlay
+    // entry, so the clipboard is asked once per show by the host's
+    // initState, and the toolbar below rebuilds on the answer.
+    return _SelectionToolbarShowHook(
+      onShow: _refreshClipboardStatus,
+      child: ValueListenableBuilder<bool?>(
+        valueListenable: _clipboardHasStrings,
+        builder: (context, hasStrings, _) => _selectionToolbar(
+          context: context,
+          anchors: anchors,
+          controller: controller,
+          canPaste: hasStrings ?? true,
+          onDismiss: onDismiss,
+          onRefresh: onRefresh,
+        ),
+      ),
+    );
+  }
+
+  /// Asks the platform whether the clipboard holds text, for the
+  /// selection toolbar's Paste. A failed ask keeps the previous answer.
+  Future<void> _refreshClipboardStatus() async {
+    try {
+      final hasStrings = await Clipboard.hasStrings();
+      if (!mounted) return;
+      _clipboardHasStrings.value = hasStrings;
+    } catch (e, st) {
+      debugPrint('[ModernEditorWrapper] clipboard status: $e\n$st');
+    }
+  }
+
+  Widget _selectionToolbar({
+    required BuildContext context,
+    required TextSelectionToolbarAnchors anchors,
+    required CodeLineEditingController controller,
+    required bool canPaste,
+    required VoidCallback onDismiss,
+    required VoidCallback onRefresh,
+  }) {
     final isCollapsed = controller.selection.isCollapsed;
 
     // Build button items based on selection state
     final buttonItems = <ContextMenuButtonItem>[
       // Cut and Copy only when text is selected
       if (!isCollapsed) ...[
+        // Cut and Copy fill the clipboard themselves, so the next show
+        // offers Paste without waiting on the platform.
         ContextMenuButtonItem(
           label: MaterialLocalizations.of(context).cutButtonLabel,
           onPressed: () {
             controller.cut();
+            _clipboardHasStrings.value = true;
             onDismiss();
           },
         ),
@@ -403,18 +502,19 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
           label: MaterialLocalizations.of(context).copyButtonLabel,
           onPressed: () {
             controller.copy();
+            _clipboardHasStrings.value = true;
             onDismiss();
           },
         ),
       ],
-      // Paste is always available
-      ContextMenuButtonItem(
-        label: MaterialLocalizations.of(context).pasteButtonLabel,
-        onPressed: () {
-          controller.paste();
-          onDismiss();
-        },
-      ),
+      if (canPaste)
+        ContextMenuButtonItem(
+          label: MaterialLocalizations.of(context).pasteButtonLabel,
+          onPressed: () {
+            controller.paste();
+            onDismiss();
+          },
+        ),
       // Select All is always available
       ContextMenuButtonItem(
         label: MaterialLocalizations.of(context).selectAllButtonLabel,
@@ -448,11 +548,19 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
             offset: position.offset,
             lineText: _lineTextAt(position.index),
             selection: widget.controller.selection,
+            revealEnabled: _revealEnabled,
             inFence: widget.isFenceLine?.call(position.index) ?? false,
             action: action,
           );
     return action;
   }
+
+  /// The renderer's reveal gate, from the same two inputs it reads:
+  /// focus, and the host's find session.
+  bool get _revealEnabled => MarkdownEditorSpanBuilder.revealEnabled(
+    focused: widget.focusNode.hasFocus,
+    findActive: widget.revealWhenUnfocused?.value ?? false,
+  );
 
   /// The action for a claimed tap's tap-up. Reuses the memo from
   /// [_claimTapAction] when nothing it was resolved from moved, and
@@ -464,6 +572,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         claim.index == position.index &&
         claim.offset == position.offset &&
         claim.selection == widget.controller.selection &&
+        claim.revealEnabled == _revealEnabled &&
         claim.inFence == (widget.isFenceLine?.call(position.index) ?? false) &&
         claim.lineText == _lineTextAt(position.index)) {
       return claim.action;
@@ -494,8 +603,8 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// The tap zones of [lineIndex] as labelled semantics zones, for the
   /// fork's child nodes under the editor's text field. Empty until the
   /// labels resolve (no [AppLocalizations] in scope), and empty on every
-  /// line [EditorInputPolicy] enumerates nothing for — reveal lines,
-  /// fence lines, over-long lines.
+  /// line [EditorInputPolicy] enumerates nothing for — reveal lines (bar
+  /// a box the caret leaves painted), fence lines, over-long lines.
   ///
   /// Runs once per visible line on every semantics flush, so the three
   /// pass-through rules are answered before any grammar is touched and
@@ -516,26 +625,38 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     }
     final lineText = _lineTextAt(lineIndex);
     if (lineText == null || lineText.isEmpty) return const [];
-    if (MarkdownEditorSpanBuilder.selectionCoversLine(
-      widget.controller.selection,
-      lineIndex,
-    )) {
-      return const [];
+    final selection = widget.controller.selection;
+    final revealed = MarkdownEditorSpanBuilder.revealsLine(
+      focused: widget.focusNode.hasFocus,
+      findActive: widget.revealWhenUnfocused?.value ?? false,
+      selection: selection,
+      index: lineIndex,
+    );
+    int? caretOffset;
+    if (revealed) {
+      caretOffset = MarkdownEditorSpanBuilder.caretOffsetOn(
+        selection,
+        lineIndex,
+      );
+      if (caretOffset == null) return const [];
     }
     if (widget.isFenceLine?.call(lineIndex) ?? false) return const [];
     if (lineText.length > MarkdownEditorSpanBuilder.maxStyledLineLength) {
       return const [];
     }
-    final memoized = _zoneMemo.get(lineText);
+    // The caret line's zones hang on the caret's offset, not the text
+    // alone, so that one line skips the memo.
+    final memoized = revealed ? null : _zoneMemo.get(lineText);
     if (memoized != null) return memoized;
 
     ModernEditorWrapper.debugZoneResolveCount++;
     final zones = EditorInputPolicy.zonesOf(
       lineText: lineText,
       lineIndex: lineIndex,
-      lineRevealed: false,
+      lineRevealed: revealed,
       inFence: false,
       zones: _enabledZones,
+      caretOffset: caretOffset,
     );
     final nodes = zones.isEmpty
         ? const <CodeEditorSemanticsZone>[]
@@ -553,7 +674,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
                 },
               ),
           ];
-    _zoneMemo.put(lineText, nodes);
+    if (!revealed) _zoneMemo.put(lineText, nodes);
     return nodes;
   }
 
@@ -561,8 +682,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// a task checkbox, open a concealed link, open the note a `[[note]]`
   /// names, open a money row's ledger detail, or search a `#tag`.
   /// Returns null when the tap should fall through to normal caret
-  /// placement — on reveal (selection-covered) lines the raw markdown is
-  /// showing and taps mean editing; fence lines render raw; and ghost
+  /// placement — on reveal lines (selection-covered, editor focused) the
+  /// raw markdown is showing and taps mean editing, bar a task box the
+  /// caret has not entered; fence lines render raw; and ghost
   /// runs pass through because ghost engagement rides the selection
   /// change (ghosts win).
   VoidCallback? _resolveTapAction(CodeLinePosition position) {
@@ -572,16 +694,23 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final onOpenWikiLink = widget.onOpenWikiLink;
     final onMoneyTap = widget.onMoneyTap;
     final onOpenTag = widget.onOpenTag;
+    final selection = widget.controller.selection;
+    final revealed = MarkdownEditorSpanBuilder.revealsLine(
+      focused: widget.focusNode.hasFocus,
+      findActive: widget.revealWhenUnfocused?.value ?? false,
+      selection: selection,
+      index: lineIndex,
+    );
     final action = EditorInputPolicy.resolveTap(
       lineText: _lineTextAt(lineIndex),
       lineIndex: lineIndex,
       offset: position.offset,
-      lineRevealed: MarkdownEditorSpanBuilder.selectionCoversLine(
-        widget.controller.selection,
-        lineIndex,
-      ),
+      lineRevealed: revealed,
       inFence: widget.isFenceLine?.call(lineIndex) ?? false,
       zones: _enabledZones,
+      caretOffset: revealed
+          ? MarkdownEditorSpanBuilder.caretOffsetOn(selection, lineIndex)
+          : null,
     );
     // The toggle's haptic rides in [_toggleTaskLine], beside the edit it
     // confirms; the four openers confirm here. Either way the tactile
@@ -593,22 +722,28 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         lineIndex,
       ),
       EditorOpenLinkAction(:final url) => () {
-        HapticFeedback.selectionClick();
+        _openerHaptic();
         onOpenLink?.call(url);
       },
       EditorOpenWikiLinkAction(:final title) => () {
-        HapticFeedback.selectionClick();
+        _openerHaptic();
         onOpenWikiLink?.call(title);
       },
       EditorOpenMoneyAction(:final lineIndex) => () {
-        HapticFeedback.selectionClick();
+        _openerHaptic();
         onMoneyTap?.call(lineIndex);
       },
       EditorOpenTagAction(:final tag) => () {
-        HapticFeedback.selectionClick();
+        _openerHaptic();
         onOpenTag?.call(tag);
       },
     };
+  }
+
+  /// The four openers' confirmation, read when the tap fires so a setting
+  /// changed mid-press is the one honoured.
+  void _openerHaptic() {
+    if (widget.hapticsEnabled) HapticFeedback.selectionClick();
   }
 
   /// Flips the task checkbox on [lineIndex] as one atomic, undoable
@@ -620,7 +755,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     if (lineIndex >= lines.length) return;
     final toggled = EditorInputPolicy.toggledTaskLine(lines[lineIndex].text);
     if (toggled == null) return;
-    HapticFeedback.lightImpact();
+    if (widget.hapticsEnabled) HapticFeedback.lightImpact();
     controller.runRevocableOp(() {
       controller.value = CodeLineEditingValue(
         codeLines: lines.replaceLine(
@@ -652,63 +787,26 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     ),
   };
 
-  void _onListIndent({required bool outdent}) {
-    if (_tryListIndent(outdent: outdent)) return;
-    // Not a list line — preserve re_editor's default behavior.
-    if (outdent) {
-      widget.controller.applyOutdent();
-    } else {
-      widget.controller.applyIndent();
+  void _onListIndent({required bool outdent}) => ListIndentAction.apply(
+    widget.controller,
+    outdent: outdent,
+    isFenceLine: widget.isFenceLine,
+  );
+
+  /// Runs a desktop format shortcut as [ShortcutApplier.toggleWrap], one
+  /// undo entry. Key events reach the bindings only while focus sits in
+  /// the editor, and this wrapper never builds the editor read-only; the
+  /// focus check keeps a binding from editing a document the user has
+  /// already left should either stop holding. A host's
+  /// [ModernEditorWrapper.onFormatShortcut] takes the edit instead.
+  void _toggleFormat(String marker) {
+    if (!widget.focusNode.hasFocus) return;
+    final onFormatShortcut = widget.onFormatShortcut;
+    if (onFormatShortcut != null) {
+      onFormatShortcut(marker);
+      return;
     }
-  }
-
-  /// Indents (or outdents) the current single list line by one [
-  /// MarkdownListUtils.indentUnit]. Returns `true` when it handled the
-  /// keystroke (the caret was on a list item), `false` to fall back.
-  bool _tryListIndent({required bool outdent}) {
-    final controller = widget.controller;
-    final selection = controller.selection;
-    if (!selection.isSameLine) return false;
-    final lineIndex = selection.extentIndex;
-    final lines = controller.codeLines;
-    if (lineIndex < 0 || lineIndex >= lines.length) return false;
-    // A fenced line is inert markdown — the tap path passes it through
-    // for the same reason, so Tab there is the fork's plain indent.
-    if (widget.isFenceLine?.call(lineIndex) ?? false) return false;
-    final indent = EditorInputPolicy.listIndent(
-      lineText: lines[lineIndex].text,
-      outdent: outdent,
-    );
-    if (indent == null) return false;
-    // Already at column 0 — consume the key but do nothing.
-    if (indent.delta == 0) return true;
-
-    final newText = indent.text;
-    // Keep the caret on the same content character.
-    final baseOffset = (selection.baseOffset + indent.delta).clamp(
-      0,
-      newText.length,
-    );
-    final extentOffset = (selection.extentOffset + indent.delta).clamp(
-      0,
-      newText.length,
-    );
-
-    controller.runRevocableOp(() {
-      controller.value = CodeLineEditingValue(
-        codeLines: lines.replaceLine(
-          lineIndex,
-          lines[lineIndex].copyWith(text: newText),
-        ),
-        selection: CodeLineSelection(
-          baseIndex: lineIndex,
-          baseOffset: baseOffset,
-          extentIndex: lineIndex,
-          extentOffset: extentOffset,
-        ),
-      );
-    });
-    return true;
+    ShortcutApplier.toggleWrap(widget.controller, marker);
   }
 
   @override
@@ -731,7 +829,15 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
                 : null,
             child: NotificationListener<ScrollMetricsNotification>(
               onNotification: _onScrollMetrics,
-              child: _buildCodeEditor(context),
+              // The caret line reveals only while focused, and the fork's
+              // editable does not rebuild on a focus change by itself, so
+              // its field would keep the stale reveal state until the next
+              // caret move. Rebuilding the editor hands the field the new
+              // focus, which relays the lines out.
+              child: ListenableBuilder(
+                listenable: widget.focusNode,
+                builder: (context, _) => _buildCodeEditor(context),
+              ),
             ),
           ),
         ),
@@ -781,72 +887,104 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     // Account for bottom system navigation bar (gesture bar on phones)
     final bottomSafeArea = MediaQuery.of(context).viewPadding.bottom;
 
+    final Widget editor = CodeEditor(
+      controller: widget.controller,
+      focusNode: widget.focusNode,
+      scrollController: widget.scrollController,
+      // Enable mobile selection toolbar (copy/paste/cut/select all)
+      toolbarController: _toolbarController,
+      style: CodeEditorStyle(
+        fontSize: widget.editorFontSize,
+        fontFamily: FontConstants.editorFontFamily,
+        fontHeight: widget.editorLineHeight ?? MarkdownConstants.lineHeight,
+        textColor: theme.textTheme.bodyLarge?.color,
+        backgroundColor: Colors.transparent,
+        cursorColor: theme.colorScheme.primary,
+        cursorWidth: 2.5,
+        cursorLineColor: widget.showCursorLine
+            ? theme.colorScheme.surfaceContainerLow
+            : null,
+        selectionColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+        highlightColor: theme.colorScheme.primaryContainer,
+      ),
+      wordWrap: widget.wordWrap,
+      readOnly: false,
+      autofocus: false,
+      tapInterceptor:
+          (widget.checkboxTapToggle ||
+              widget.onOpenLink != null ||
+              widget.onMoneyTap != null ||
+              widget.onOpenTag != null ||
+              widget.onOpenWikiLink != null)
+          ? _tapInterceptor
+          : null,
+      chunkAnalyzer: const NonCodeChunkAnalyzer(),
+      // List-aware Tab / Shift-Tab: indent/outdent the whole list item
+      // when the caret is on one; otherwise re_editor's default applies.
+      shortcutOverrideActions: _shortcutOverrides,
+      // Add small right padding for visible scrollbar (6-12px width)
+      // Add bottom safe area to account for phone navigation bar
+      padding:
+          widget.editorPadding ??
+          EdgeInsets.only(
+            left: AppSpacing.xl,
+            top: AppSpacing.lg,
+            right: AppSpacing.xl + AppConstants.editorScrollbarPadding,
+            bottom: AppSpacing.lg + bottomSafeArea,
+          ),
+      indicatorBuilder: widget.showLineNumbers
+          ? (context, editingController, chunkController, notifier) {
+              return KeyedSubtree(
+                key: widget.lineNumbersKey,
+                child: DefaultCodeLineNumber(
+                  controller: editingController,
+                  notifier: notifier,
+                ),
+              );
+            }
+          : null,
+      scrollbarBuilder: (context, child, details) => child,
+      findBuilder: (context, controller, readOnly) {
+        widget.searchController.setFindController(controller);
+        return const _HiddenFindPanel();
+      },
+    );
+    final formatShortcuts = _formatShortcuts;
+
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-      child: CodeEditor(
-        controller: widget.controller,
-        focusNode: widget.focusNode,
-        scrollController: widget.scrollController,
-        // Enable mobile selection toolbar (copy/paste/cut/select all)
-        toolbarController: _toolbarController,
-        style: CodeEditorStyle(
-          fontSize: widget.editorFontSize,
-          fontFamily: FontConstants.editorFontFamily,
-          fontHeight: widget.editorLineHeight ?? MarkdownConstants.lineHeight,
-          textColor: theme.textTheme.bodyLarge?.color,
-          backgroundColor: Colors.transparent,
-          cursorColor: theme.colorScheme.primary,
-          cursorWidth: 2.5,
-          cursorLineColor: widget.showCursorLine
-              ? theme.colorScheme.surfaceContainerLow
-              : null,
-          selectionColor: theme.colorScheme.primary.withValues(alpha: 0.3),
-          highlightColor: theme.colorScheme.primaryContainer,
-        ),
-        wordWrap: widget.wordWrap,
-        readOnly: false,
-        autofocus: false,
-        tapInterceptor:
-            (widget.checkboxTapToggle ||
-                widget.onOpenLink != null ||
-                widget.onMoneyTap != null ||
-                widget.onOpenTag != null ||
-                widget.onOpenWikiLink != null)
-            ? _tapInterceptor
-            : null,
-        chunkAnalyzer: const NonCodeChunkAnalyzer(),
-        // List-aware Tab / Shift-Tab: indent/outdent the whole list item
-        // when the caret is on one; otherwise re_editor's default applies.
-        shortcutOverrideActions: _shortcutOverrides,
-        // Add small right padding for visible scrollbar (6-12px width)
-        // Add bottom safe area to account for phone navigation bar
-        padding:
-            widget.editorPadding ??
-            EdgeInsets.only(
-              left: AppSpacing.xl,
-              top: AppSpacing.lg,
-              right: AppSpacing.xl + AppConstants.editorScrollbarPadding,
-              bottom: AppSpacing.lg + bottomSafeArea,
-            ),
-        indicatorBuilder: widget.showLineNumbers
-            ? (context, editingController, chunkController, notifier) {
-                return KeyedSubtree(
-                  key: widget.lineNumbersKey,
-                  child: DefaultCodeLineNumber(
-                    controller: editingController,
-                    notifier: notifier,
-                  ),
-                );
-              }
-            : null,
-        scrollbarBuilder: (context, child, details) => child,
-        findBuilder: (context, controller, readOnly) {
-          widget.searchController.setFindController(controller);
-          return const _HiddenFindPanel();
-        },
-      ),
+      // Above the editor, so the fork's own shortcut layer — which binds
+      // neither key — sees the events first and passes them up.
+      child: formatShortcuts == null
+          ? editor
+          : CallbackShortcuts(bindings: formatShortcuts, child: editor),
     );
   }
+}
+
+/// Runs [onShow] once when the selection toolbar mounts. The fork builds
+/// the toolbar inside an overlay entry whose builder re-runs on every
+/// entry rebuild; a state's [State.initState] runs once per show.
+class _SelectionToolbarShowHook extends StatefulWidget {
+  const _SelectionToolbarShowHook({required this.onShow, required this.child});
+
+  final Future<void> Function() onShow;
+  final Widget child;
+
+  @override
+  State<_SelectionToolbarShowHook> createState() =>
+      _SelectionToolbarShowHookState();
+}
+
+class _SelectionToolbarShowHookState extends State<_SelectionToolbarShowHook> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(widget.onShow());
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// A hidden find panel widget that implements PreferredSizeWidget.

@@ -10,10 +10,10 @@ import 'markdown_tag_syntax.dart';
 /// strikethrough, highlight, inline code, backslash escapes — together
 /// with the placement rules for the constructs that already own their
 /// own module (ghosts, `[text](url)` links, `[[title]]` wiki links,
-/// bare URLs, `#tag`s, `{name:text}` colours). The preview drops
-/// markers, the live editor conceals them, the editor's tap zones
-/// resolve against it; none of them may re-scan for any of these
-/// constructs on their own.
+/// `<…>` autolinks, bare URLs, `#tag`s, `{name:text}` colours). The
+/// preview drops markers, the live editor conceals them, the editor's
+/// tap zones resolve against it; none of them may re-scan for any of
+/// these constructs on their own.
 ///
 /// [MarkdownInlineGrammar.tokenize] is a pure function of
 /// `text.substring(start, end)` plus the ghost runs intersecting that
@@ -33,15 +33,18 @@ import 'markdown_tag_syntax.dart';
 ///   skipping runs inside ghosts; an unclosed run is literal). Nothing
 ///   inside an atom is scanned again.
 /// * Then, at each position outside an atom: `[[title]]` wiki links
-///   (probed on a doubled `[` before the link rule, and rejected when
-///   any atom would start inside them), `![text](url)` /
-///   `[text](url)` (structural characters must not sit inside an atom),
+///   (probed on a doubled `[` — `![[` too, an embed — before the link
+///   rule, and rejected when any atom would start inside them),
+///   `![text](url)` / `[text](url)` (structural characters must not sit
+///   inside an atom), `<…>` autolinks (rejected like wiki links),
 ///   `{name:text}` (its closing brace likewise), `#tag` and bare URLs at
-///   a word boundary (a URL stops at the next atom), and delimiter runs
-///   of `*`, `_`, `~~`, `==`.
+///   a word boundary (a URL stops at the next atom), HTML entities that
+///   decode to one unit (a URL or code span keeps its `&` literal), and
+///   delimiter runs of `*`, `_`, `~~`, `==`.
 /// * A run can open when the next character is not whitespace and can
 ///   close when the previous one is not; `_` runs additionally need a
-///   non-word character (or the range edge) on the outside. Openers and
+///   non-word character (or the range edge) on the outside, and a single
+///   `*` between two ASCII digits does neither. Openers and
 ///   closers pair like CommonMark's delimiter stack (nearest opener of
 ///   the same character, the rule of three for `*` and `_`, delimiters
 ///   between a matched pair drop out), an opener spending from the end
@@ -111,6 +114,14 @@ class MarkdownInlineGrammar {
 
       if (c == _kBang) {
         if (p + 1 < hi && text.codeUnitAt(p + 1) == _kOpenBracket) {
+          // `![[file]]` is Obsidian's embed: probed before the image
+          // rule, in the order a doubled `[` is probed below.
+          final wiki = _tryWikiLink(text, p + 1, hi, nextAtom, true);
+          if (wiki != null) {
+            (constructs ??= <InlineToken>[]).add(wiki);
+            p = wiki.end;
+            continue;
+          }
           final link = _tryLink(text, p, p + 1, hi, atomList, ai, true);
           if (link != null) {
             (constructs ??= <InlineToken>[]).add(link);
@@ -124,16 +135,9 @@ class MarkdownInlineGrammar {
 
       if (c == _kOpenBracket) {
         if (p + 1 < hi && text.codeUnitAt(p + 1) == _kOpenBracket) {
-          final wiki = MarkdownLinkPatterns.matchWikiLinkAt(text, p, hi);
-          if (wiki != null && wiki.end <= nextAtom) {
-            (constructs ??= <InlineToken>[]).add(
-              InlineWikiLink(
-                start: p,
-                end: wiki.end,
-                titleStart: wiki.titleStart,
-                titleEnd: wiki.titleEnd,
-              ),
-            );
+          final wiki = _tryWikiLink(text, p, hi, nextAtom, false);
+          if (wiki != null) {
+            (constructs ??= <InlineToken>[]).add(wiki);
             p = wiki.end;
             continue;
           }
@@ -142,6 +146,21 @@ class MarkdownInlineGrammar {
         if (link != null) {
           (constructs ??= <InlineToken>[]).add(link);
           p = link.end;
+          continue;
+        }
+        p++;
+        continue;
+      }
+
+      if (c == _kLessThan) {
+        // Like a wiki link, an autolink's inside is literal, so any atom
+        // opening inside it refuses the whole construct.
+        final auto = MarkdownLinkPatterns.matchAutolinkAt(text, p, hi);
+        if (auto != null && auto.end <= nextAtom) {
+          (constructs ??= <InlineToken>[]).add(
+            InlineAutolink(start: p, end: auto.end, isEmail: auto.isEmail),
+          );
+          p = auto.end;
           continue;
         }
         p++;
@@ -204,6 +223,19 @@ class MarkdownInlineGrammar {
         continue;
       }
 
+      if (c == _kAmpersand) {
+        final InlineEntity? entity = _tryEntity(text, p, nextAtom);
+        if (entity != null) {
+          (constructs ??= <InlineToken>[]).add(entity);
+          p = entity.end;
+          continue;
+        }
+        // A well-formed numeric reference that does not decode stays
+        // literal whole, so the `#x1F600` inside it never reads as a tag.
+        p = _numericReference(text, p, nextAtom)?.end ?? p + 1;
+        continue;
+      }
+
       if (c == _kStar || c == _kUnderscore || c == _kTilde || c == _kEquals) {
         int r = p + 1;
         while (r < nextAtom && text.codeUnitAt(r) == c) {
@@ -214,13 +246,23 @@ class MarkdownInlineGrammar {
           p = r;
           continue;
         }
-        final int prev = p > start ? text.codeUnitAt(p - 1) : -1;
-        final int next = r < hi ? text.codeUnitAt(r) : -1;
+        final int prev = p > start ? codePointBefore(text, p, start) : -1;
+        final int next = r < hi ? codePointAt(text, r, hi) : -1;
         bool canOpen = next != -1 && !isSpace(next);
         bool canClose = prev != -1 && !isSpace(prev);
         if (c == _kUnderscore) {
           if (canOpen && prev != -1 && isWordChar(prev)) canOpen = false;
           if (canClose && next != -1 && isWordChar(next)) canClose = false;
+        } else if (c == _kStar &&
+            runLength == 1 &&
+            _isAsciiDigit(prev) &&
+            _isAsciiDigit(next)) {
+          // A deliberate deviation from CommonMark (and Obsidian): a
+          // single `*` between two digits is a multiplication in a gym
+          // log, so `Squat 3*10, Bench 3*8` must not italicise
+          // "10, Bench 3". Longer runs and `_` keep the standard rules.
+          canOpen = false;
+          canClose = false;
         }
         (delims ??= <_Delim>[]).add(
           _Delim(c, p, r, runLength, canOpen, canClose),
@@ -288,7 +330,7 @@ class MarkdownInlineGrammar {
   /// `start < offset < end`, exactly like [linkAt], so the outer
   /// brackets' boundary offsets belong to caret placement — at any
   /// nesting depth, or `null`. Resolves against exactly what [tokenize]
-  /// would render, so a title that never became a link (`[[a|b]]`, a
+  /// would render, so a title that never became a link (`[[a|b|c]]`, a
   /// title split by a code span) resolves to nothing.
   ///
   /// Pass the line's ghost runs as [ghosts] when you already have them;
@@ -332,8 +374,9 @@ class MarkdownInlineGrammar {
     return null;
   }
 
-  /// Every `[text](url)` link, every `[[title]]` wiki link and every
-  /// `#tag` [tokenize] renders in [text], at any nesting depth — the one
+  /// Every `[text](url)` link, every `[[title]]` wiki link, every `<…>`
+  /// autolink and every `#tag` [tokenize] renders in [text], at any
+  /// nesting depth — the one
   /// descent behind [linkAt], [wikiLinkAt], [tagAt] and every caller
   /// that needs the constructs themselves instead of the one under a
   /// single offset, so no two of them can disagree about what the
@@ -347,9 +390,9 @@ class MarkdownInlineGrammar {
   /// earlier token follows it: an image is not a link but its text is
   /// still descended into, and a link's text is descended into as well,
   /// so a tag inside either is reported after the token that covers it
-  /// and the caller applies its own precedence. A wiki link's title is
-  /// the one exception — it is literal, so nothing is ever reported
-  /// inside one.
+  /// and the caller applies its own precedence. A wiki link and an
+  /// autolink are the exceptions — their insides are literal, so nothing
+  /// is ever reported inside one.
   static List<InlineToken> linksAndTags(
     String text, {
     required MarkdownColorPalette palette,
@@ -367,7 +410,7 @@ class MarkdownInlineGrammar {
   }
 
   /// Whether `[start, end)` holds a code unit that can open any token —
-  /// `* ~ ` _ = # [ \ {` (`[` covers `[[` too, since a wiki link opens
+  /// `* ~ ` _ = # [ \ { < &` (`[` covers `[[` too, since a wiki link opens
   /// on the same unit) or a bare-URL scheme lead (`ht`, `ww`; a lone
   /// `h`/`w` would defeat the check on every prose line). The one-pass
   /// quick reject in front of [tokenize], and the pre-check a renderer
@@ -385,7 +428,9 @@ class MarkdownInlineGrammar {
           c == _kHash ||
           c == _kOpenBracket ||
           c == _kBackslash ||
-          c == _kOpenBrace) {
+          c == _kOpenBrace ||
+          c == _kLessThan ||
+          c == _kAmpersand) {
         return true;
       }
       if ((c == _kLowerH || c == _kLowerW) && i + 1 < hi) {
@@ -404,18 +449,86 @@ class MarkdownInlineGrammar {
       c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D;
 
   /// A word character for the `_` flanking rule: ASCII letters and
-  /// digits, `_` itself, and every non-ASCII code unit — so `snake_case`
-  /// and `ș_a_` alike never open emphasis.
+  /// digits, `_` itself, and above 0x7F the code points Unicode files
+  /// as letters, digits or combining marks — so `snake_case` and `ș_a_`
+  /// never open emphasis while `„_foarte greu_“` and `—_x_` do, the
+  /// quotes and dashes of Romanian and German prose being punctuation.
+  /// [c] is a code point; a lone surrogate unit is no word character.
   static bool isWordChar(int c) =>
       (c >= 0x61 && c <= 0x7A) ||
       (c >= 0x41 && c <= 0x5A) ||
       (c >= 0x30 && c <= 0x39) ||
       c == 0x5F ||
-      c > 0x7F;
+      (c > 0x7F && _unicodeWordChar.hasMatch(String.fromCharCode(c)));
+
+  /// Unicode categories L, N and M. Consulted only for a non-ASCII
+  /// neighbour of a `_` run, so the per-call string is off the common
+  /// path.
+  static final RegExp _unicodeWordChar = RegExp(
+    r'[\p{L}\p{N}\p{M}]',
+    unicode: true,
+  );
+
+  static bool _isAsciiDigit(int c) => c >= 0x30 && c <= 0x39;
+
+  /// The code point ending just before [p], read whole when it is a
+  /// surrogate pair that lies inside the range starting at [start] — the
+  /// read [isWordChar] expects, so a caller outside the tokenizer judges
+  /// a neighbour the way the flanking rule does.
+  static int codePointBefore(String text, int p, int start) {
+    final int low = text.codeUnitAt(p - 1);
+    if (low >= 0xDC00 && low <= 0xDFFF && p - 2 >= start) {
+      final int high = text.codeUnitAt(p - 2);
+      if (high >= 0xD800 && high <= 0xDBFF) {
+        return 0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00);
+      }
+    }
+    return low;
+  }
+
+  /// The code point starting at [p], read whole when it is a surrogate
+  /// pair that ends before [hi]; the counterpart of [codePointBefore].
+  static int codePointAt(String text, int p, int hi) {
+    final int high = text.codeUnitAt(p);
+    if (high >= 0xD800 && high <= 0xDBFF && p + 1 < hi) {
+      final int low = text.codeUnitAt(p + 1);
+      if (low >= 0xDC00 && low <= 0xDFFF) {
+        return 0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00);
+      }
+    }
+    return high;
+  }
+
+  /// Whether `[start, end)` ends in a hard line break: a `\` as its last
+  /// unit that no token in [tokens] (the range's top-level tokens) covers
+  /// — `a\\` ends in an escaped backslash, a code span or URL keeps its
+  /// own — after some non-blank content, so a line that is only `\`
+  /// stays text. Every surface asks it only of a depth-0 range that
+  /// reaches the end of its source line, and never of a heading, a
+  /// callout title or a money row — single-line constructs, where
+  /// CommonMark keeps the `\` as text; the `\` is then chrome.
+  static bool endsWithHardBreak(
+    String text,
+    int start,
+    int end,
+    List<InlineToken> tokens,
+  ) {
+    if (end - start < 2 || text.codeUnitAt(end - 1) != _kBackslash) {
+      return false;
+    }
+    if (tokens.isNotEmpty && tokens.last.end >= end) return false;
+    for (int i = end - 2; i >= start; i--) {
+      if (!isSpace(text.codeUnitAt(i))) return true;
+    }
+    return false;
+  }
 
   static const int _kBang = 0x21; // !
   static const int _kHash = 0x23; // #
+  static const int _kAmpersand = 0x26; // &
+  static const int _kSemicolon = 0x3B; // ;
   static const int _kStar = 0x2A; // *
+  static const int _kLessThan = 0x3C; // <
   static const int _kEquals = 0x3D; // =
   static const int _kOpenBracket = 0x5B; // [
   static const int _kBackslash = 0x5C; // \
@@ -597,11 +710,9 @@ class MarkdownInlineGrammar {
     int firstAtom,
     bool isImage,
   ) {
-    final MarkdownInlineLink? match = MarkdownLinkPatterns.matchInlineLinkAt(
-      text,
-      open,
-      hi,
-    );
+    final MarkdownInlineLink? match = isImage
+        ? MarkdownLinkPatterns.matchImageAt(text, open, hi)
+        : MarkdownLinkPatterns.matchInlineLinkAt(text, open, hi);
     if (match == null) return null;
     if (_inAtom(atoms, firstAtom, match.textEnd) ||
         _inAtom(atoms, firstAtom, match.textEnd + 1) ||
@@ -615,9 +726,134 @@ class MarkdownInlineGrammar {
       textEnd: match.textEnd,
       urlStart: match.urlStart,
       urlEnd: match.urlEnd,
+      destStart: match.destStart,
+      destEnd: match.destEnd,
       isImage: isImage,
     );
   }
+
+  /// A `[[title]]` whose first `[` sits at [open], or `null` — refused
+  /// when it would end past [nextAtom], i.e. when any atom opens inside
+  /// it. An [embed] is reported from the `!` just before [open].
+  static InlineWikiLink? _tryWikiLink(
+    String text,
+    int open,
+    int hi,
+    int nextAtom,
+    bool embed,
+  ) {
+    final MarkdownWikiLink? wiki = MarkdownLinkPatterns.matchWikiLinkAt(
+      text,
+      open,
+      hi,
+    );
+    if (wiki == null || wiki.end > nextAtom) return null;
+    return InlineWikiLink(
+      start: embed ? open - 1 : open,
+      end: wiki.end,
+      titleStart: wiki.titleStart,
+      titleEnd: wiki.titleEnd,
+      aliasStart: wiki.aliasStart,
+      isEmbed: embed,
+    );
+  }
+
+  /// The HTML entity whose `&` sits at [p], ending at or before [limit],
+  /// or `null`: a name from [MarkdownConstants.htmlEntities], or a
+  /// decimal (`&#169;`) or hex (`&#xA9;`) reference to one BMP code unit
+  /// that draws as itself ([_decodesVisibly]) — the editor shows the
+  /// decoded character in the `&`'s one unit, so anything wider stays
+  /// literal.
+  static InlineEntity? _tryEntity(String text, int p, int limit) {
+    final int max = p + 10 < limit ? p + 10 : limit;
+    int q = p + 1;
+    if (q < max && text.codeUnitAt(q) == _kHash) {
+      final ({int end, int value})? ref = _numericReference(text, p, limit);
+      if (ref == null || !_decodesVisibly(ref.value)) return null;
+      return InlineEntity(start: p, end: ref.end, char: ref.value);
+    }
+    final int nameStart = q;
+    while (q < max && _isAsciiAlnum(text.codeUnitAt(q))) {
+      q++;
+    }
+    if (q == nameStart || q >= max || text.codeUnitAt(q) != _kSemicolon) {
+      return null;
+    }
+    final int? char =
+        MarkdownConstants.htmlEntities[text.substring(nameStart, q)];
+    if (char == null) return null;
+    return InlineEntity(start: p, end: q + 1, char: char);
+  }
+
+  /// The well-formed numeric reference — `&#` or `&#x`, digits, `;`,
+  /// ten units at most — whose `&` sits at [p] and that ends at or before
+  /// [limit], with its value, or `null`. Whether it decodes is
+  /// [_decodesVisibly]'s call.
+  static ({int end, int value})? _numericReference(
+    String text,
+    int p,
+    int limit,
+  ) {
+    final int max = p + 10 < limit ? p + 10 : limit;
+    int q = p + 1;
+    if (q >= max || text.codeUnitAt(q) != _kHash) return null;
+    q++;
+    bool hex = false;
+    if (q < max && (text.codeUnitAt(q) | 0x20) == 0x78) {
+      hex = true;
+      q++;
+    }
+    final int digitsStart = q;
+    int value = 0;
+    while (q < max) {
+      final int d = _digitValue(text.codeUnitAt(q), hex);
+      if (d < 0) break;
+      value = value * (hex ? 16 : 10) + d;
+      q++;
+    }
+    if (q == digitsStart || q >= max || text.codeUnitAt(q) != _kSemicolon) {
+      return null;
+    }
+    return (end: q + 1, value: value);
+  }
+
+  /// Whether a numeric reference's [value] decodes: one BMP unit that
+  /// draws as itself. Controls (C0, DEL, C1), surrogates, format and bidi
+  /// controls, the line and paragraph separators, combining marks and the
+  /// noncharacters stay literal — in the `&`'s slot each would break the
+  /// line, reorder it or fuse with a concealed marker, so the line would
+  /// read or wrap differently between reveal states.
+  static bool _decodesVisibly(int value) {
+    if (value <= 0x1F || value > 0xFFFF) return false;
+    if (value >= 0xD800 && value <= 0xDFFF) return false;
+    if ((value >= 0xFDD0 && value <= 0xFDEF) || value >= 0xFFFE) {
+      return false;
+    }
+    return value < 0x7F ||
+        !_invisibleUnit.hasMatch(String.fromCharCode(value));
+  }
+
+  /// Unicode categories Cc, Cf, Zl, Zp and M. Consulted only for a
+  /// numeric reference above 0x7E, so the per-call string is off the
+  /// common path.
+  static final RegExp _invisibleUnit = RegExp(
+    r'[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{M}]',
+    unicode: true,
+  );
+
+  /// The value of digit [c] in base 16 when [hex], else base 10, or -1.
+  static int _digitValue(int c, bool hex) {
+    if (c >= 0x30 && c <= 0x39) return c - 0x30;
+    if (!hex) return -1;
+    final int lower = c | 0x20;
+    if (lower >= 0x61 && lower <= 0x66) return lower - 0x61 + 10;
+    return -1;
+  }
+
+  static bool _isAsciiAlnum(int c) =>
+      (c >= 0x30 && c <= 0x39) ||
+      (c >= 0x41 && c <= 0x5A) ||
+      (c >= 0x61 && c <= 0x7A);
 
   /// Number of `openers_bottom` classes: four delimiter characters times
   /// three closer lengths mod three times the two closer-can-open cases.
@@ -767,9 +1003,10 @@ class MarkdownInlineGrammar {
     }
   }
 
-  /// Depth-first collection of every link, wiki link and tag in
-  /// `[start, end)`. A wiki link's title is literal, so the walk stops
-  /// at the token instead of descending into it.
+  /// Depth-first collection of every link, wiki link, autolink and tag
+  /// in `[start, end)`. A wiki link's title and an autolink's inside are
+  /// literal, so the walk stops at the token instead of descending into
+  /// it.
   static void _collect(
     String text,
     int start,
@@ -802,7 +1039,7 @@ class MarkdownInlineGrammar {
           depth + 1,
           out,
         );
-      } else if (token is InlineWikiLink) {
+      } else if (token is InlineWikiLink || token is InlineAutolink) {
         out.add(token);
       } else if (token is InlineEmphasis) {
         _collect(
@@ -880,6 +1117,23 @@ final class InlineEscape extends InlineToken {
   int get charStart => start + 1;
 }
 
+/// An HTML entity — `&amp;`, `&#169;`, `&#xA9;` — that decodes to one
+/// UTF-16 unit. The decoded character stands in for the `&`; the rest of
+/// the entity is chrome.
+final class InlineEntity extends InlineToken {
+  /// The decoded code unit, always a single BMP unit.
+  final int char;
+
+  const InlineEntity({
+    required super.start,
+    required super.end,
+    required this.char,
+  });
+
+  /// [char] as a string, the text every surface renders.
+  String get decoded => String.fromCharCode(char);
+}
+
 /// A `{{ … }}` ghost run, opaque to every other rule.
 final class InlineGhost extends InlineToken {
   final GhostMatch match;
@@ -909,8 +1163,20 @@ final class InlineCode extends InlineToken {
 final class InlineLink extends InlineToken {
   final int textStart;
   final int textEnd;
+
+  /// Index just past the `(`: `[urlStart, urlEnd)` is the whole inside
+  /// of the parens, destination, blanks and title alike — all chrome.
   final int urlStart;
+
+  /// Index of the `)` closing the url.
   final int urlEnd;
+
+  /// `[destStart, destEnd)` is the destination alone, without the
+  /// angle brackets of `<…>` and without the title.
+  final int destStart;
+
+  /// See [destStart].
+  final int destEnd;
   final bool isImage;
 
   const InlineLink({
@@ -920,18 +1186,54 @@ final class InlineLink extends InlineToken {
     required this.textEnd,
     required this.urlStart,
     required this.urlEnd,
+    required this.destStart,
+    required this.destEnd,
     required this.isImage,
   });
 
   /// Index of the opening `[`.
   int get bracketStart => textStart - 1;
 
-  String urlOf(String text) => text.substring(urlStart, urlEnd);
+  /// What the link opens: the destination of [text], never its title.
+  String urlOf(String text) => text.substring(destStart, destEnd);
+}
+
+/// `<https://…>`, `<mailto:…>`, `<tel:…>` or `<name@host.tld>` — an
+/// angle autolink. The brackets are chrome and the inside
+/// `[innerStart, innerEnd)` is literal, never a nested range.
+final class InlineAutolink extends InlineToken {
+  /// Whether the inside is a bare address, which opens as `mailto:`.
+  final bool isEmail;
+
+  const InlineAutolink({
+    required super.start,
+    required super.end,
+    required this.isEmail,
+  });
+
+  /// Index just past the `<`.
+  int get innerStart => start + 1;
+
+  /// Index of the closing `>`.
+  int get innerEnd => end - 1;
+
+  /// The launch target: the inside of [text], an address gaining its
+  /// `mailto:` scheme.
+  String hrefOf(String text) {
+    final inner = text.substring(innerStart, innerEnd);
+    return isEmail ? 'mailto:$inner' : inner;
+  }
 }
 
 /// `[[title]]` — a wiki link to another note by title. The title
 /// `[titleStart, titleEnd)` is literal (never a nested range): it is the
-/// lookup key, so what renders is exactly what resolves.
+/// lookup key, so what renders is exactly what resolves — unless the
+/// link carries an alias, `[[title|alias]]`, which is then shown in the
+/// title's place ([displayStart], [displayEnd]) and is literal too.
+///
+/// An [isEmbed] link is Obsidian's `![[file]]`: [start] is the `!`,
+/// which renders as a picture glyph, and the rest is the wiki link it
+/// always was — nothing is ever loaded.
 ///
 /// Placement: the construct is refused outright when any atom would open
 /// inside it, and the atoms are exactly three — an escape (`\` before
@@ -950,19 +1252,49 @@ final class InlineWikiLink extends InlineToken {
   /// Index where the title begins, just past the `[[`.
   final int titleStart;
 
-  /// Index of the first `]` of the closing `]]`.
+  /// Index just past the title: the `|` of an alias form, otherwise the
+  /// first `]` of the closing `]]`.
   final int titleEnd;
+
+  /// Index just past the `|` when a non-blank alias follows, or null.
+  final int? aliasStart;
+
+  /// Whether a `!` leads the link — see the class comment.
+  final bool isEmbed;
 
   const InlineWikiLink({
     required super.start,
     required super.end,
     required this.titleStart,
     required this.titleEnd,
+    this.aliasStart,
+    this.isEmbed = false,
   });
+
+  /// Index of the first `[` of the opening `[[`.
+  int get bracketStart => isEmbed ? start + 1 : start;
+
+  /// Index of the first `]` of the closing `]]`.
+  int get closeStart => end - 2;
+
+  /// Where the text the reader sees begins: the alias, else the title.
+  int get displayStart => aliasStart ?? titleStart;
+
+  /// Where that text ends.
+  int get displayEnd => aliasStart == null ? titleEnd : closeStart;
+
+  /// Strictly inside the brackets: the `!` of an embed is the picture
+  /// glyph, not the link, so its boundary is the `[` exactly as it is
+  /// for a plain `[[title]]`.
+  @override
+  bool containsStrict(int offset) => offset > bracketStart && offset < end;
 
   /// The raw title of [text] — the note title this link resolves
   /// against, with no markup of its own.
   String titleOf(String text) => text.substring(titleStart, titleEnd);
+
+  /// The text of [text] the reader sees: the alias, else the title.
+  String displayOf(String text) => text.substring(displayStart, displayEnd);
 }
 
 /// `{name:text}` with a resolved colour. `[innerStart, innerEnd)` is a

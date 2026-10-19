@@ -101,7 +101,7 @@ void main() {
     await settings.setShowCursorLine(true);
     await settings.setAutoBreakLongLines(false);
     await settings.setPreviewWhenKeyboardHidden(true);
-    await settings.setScrollCursorOnKeyboard(true);
+    await settings.setScrollCursorOnKeyboard(false);
     await settings.setPreviewModeEnabled(true);
     await settings.setShowPreviewScrollbar(true);
     await settings.setPreviewLinesPerChunk(25);
@@ -112,6 +112,7 @@ void main() {
     await settings.setVocabularyTriggerChar(';');
     await settings.setEditorFontSize(22);
     await settings.setPreviewFontSize(12);
+    await settings.setHapticFeedback(false);
 
     final bundle = await settings.getEditorSettings();
 
@@ -123,7 +124,7 @@ void main() {
     expect(bundle.showCursorLine, isTrue);
     expect(bundle.autoBreakLongLines, isFalse);
     expect(bundle.previewWhenKeyboardHidden, isTrue);
-    expect(bundle.scrollCursorOnKeyboard, isTrue);
+    expect(bundle.scrollCursorOnKeyboard, isFalse);
     expect(bundle.previewModeEnabled, isTrue);
     expect(bundle.showPreviewScrollbar, isTrue);
     expect(bundle.previewLinesPerChunk, 25);
@@ -134,6 +135,7 @@ void main() {
     expect(bundle.vocabularyTriggerChar, ';');
     expect(bundle.editorFontSize, 22.0);
     expect(bundle.previewFontSize, 12.0);
+    expect(bundle.hapticFeedback, isFalse);
     // Whole-object equality as well: a field left out of `props` would make
     // every field assertion above pass while the page's "did anything change"
     // check silently stopped seeing it.
@@ -148,7 +150,7 @@ void main() {
         showCursorLine: true,
         autoBreakLongLines: false,
         previewWhenKeyboardHidden: true,
-        scrollCursorOnKeyboard: true,
+        scrollCursorOnKeyboard: false,
         previewModeEnabled: true,
         showPreviewScrollbar: true,
         previewLinesPerChunk: 25,
@@ -159,6 +161,7 @@ void main() {
         vocabularyTriggerChar: ';',
         editorFontSize: 22,
         previewFontSize: 12,
+        hapticFeedback: false,
       ),
     );
   });
@@ -220,6 +223,7 @@ void main() {
     );
     expect(bundle.editorFontSize, await settings.getEditorFontSize());
     expect(bundle.previewFontSize, await settings.getPreviewFontSize());
+    expect(bundle.hapticFeedback, await settings.getHapticFeedback());
   });
 
   group('a malformed row falls back per field', () {

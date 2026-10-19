@@ -84,6 +84,7 @@ void main() {
     WidgetTester tester, {
     required String text,
     bool Function(int lineIndex)? isFenceLine,
+    bool hapticsEnabled = true,
   }) async {
     final controller = CodeLineEditingController.fromText(text);
     final searchController = ReEditorSearchController();
@@ -109,6 +110,7 @@ void main() {
             checkboxTapToggle: true,
             showScrollIndicator: false,
             isFenceLine: isFenceLine,
+            hapticsEnabled: hapticsEnabled,
           ),
         ),
       ),
@@ -232,6 +234,99 @@ void main() {
     expect(e.controller.codeLines[taskLine].text, '- [x] squat 5x5');
     expect(e.controller.selection, selectionBefore);
     await teardownEditor(tester);
+  });
+
+  testWidgets('the box on the caret line toggles once the caret is past '
+      'its marker', (tester) async {
+    // Typing `- [ ] squat 5x5` leaves the caret at the line's end: the
+    // box is still painted there, so the item can be ticked in place.
+    final e = await pumpEditor(
+      tester,
+      text: buildDocument(lineAt650: '- [ ] squat 5x5'),
+    );
+    e.focusNode.requestFocus();
+    await tester.pump();
+    e.controller.selection = const CodeLineSelection.collapsed(
+      index: taskLine,
+      offset: 15,
+    );
+    await tester.pump();
+    final selectionBefore = e.controller.selection;
+
+    final scroll = await scrollToLine(tester, e.scroller, taskLine);
+    await tester.tapAt(positionOf(tester, taskLine, 0, scroll: scroll));
+    await tester.pump();
+
+    expect(e.controller.codeLines[taskLine].text, '- [x] squat 5x5');
+    expect(e.controller.selection, selectionBefore);
+    expect(e.focusNode.hasFocus, isTrue);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('the box on the caret line edits like text while the caret '
+      'is inside its marker', (tester) async {
+    final e = await pumpEditor(
+      tester,
+      text: buildDocument(lineAt650: '- [ ] squat 5x5'),
+    );
+    e.focusNode.requestFocus();
+    await tester.pump();
+    e.controller.selection = const CodeLineSelection.collapsed(
+      index: taskLine,
+      offset: 3,
+    );
+    await tester.pump();
+
+    final scroll = await scrollToLine(tester, e.scroller, taskLine);
+    await tester.tapAt(positionOf(tester, taskLine, 0, scroll: scroll));
+    await tester.pump();
+
+    expect(e.controller.codeLines[taskLine].text, '- [ ] squat 5x5');
+    expect(e.controller.selection.baseIndex, taskLine);
+    expect(e.controller.selection.baseOffset, 0);
+    await teardownEditor(tester);
+  });
+
+  group('haptics', () {
+    /// Every `HapticFeedback` call the wrapper asks the platform for.
+    List<Object?> recordHaptics(WidgetTester tester) {
+      final calls = <Object?>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      const channel = SystemChannels.platform;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'HapticFeedback.vibrate') calls.add(call.arguments);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      return calls;
+    }
+
+    Future<void> toggleOnce(WidgetTester tester, bool hapticsEnabled) async {
+      final e = await pumpEditor(
+        tester,
+        text: buildDocument(lineAt650: '- [ ] squat 5x5'),
+        hapticsEnabled: hapticsEnabled,
+      );
+      await tester.tapAt(positionOf(tester, 0, 3));
+      await tester.pump();
+      final scroll = await scrollToLine(tester, e.scroller, taskLine);
+      await tester.tapAt(positionOf(tester, taskLine, 0, scroll: scroll));
+      await tester.pump();
+      expect(e.controller.codeLines[taskLine].text, '- [x] squat 5x5');
+      await teardownEditor(tester);
+    }
+
+    testWidgets('a toggle confirms with a haptic by default', (tester) async {
+      final calls = recordHaptics(tester);
+      await toggleOnce(tester, true);
+      expect(calls, ['HapticFeedbackType.lightImpact']);
+    });
+
+    testWidgets('with haptics off a toggle stays silent', (tester) async {
+      final calls = recordHaptics(tester);
+      await toggleOnce(tester, false);
+      expect(calls, isEmpty);
+    });
   });
 
   testWidgets('Tab indents the caret list line and leaves the other '

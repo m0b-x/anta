@@ -22,6 +22,25 @@ void main() {
       expect(MarkdownPlainText.strip('#tag stays'), '#tag stays');
     });
 
+    test('drops a closing hash run and keeps glued hashes', () {
+      expect(MarkdownPlainText.strip('## Week 3 ##'), 'Week 3');
+      expect(MarkdownPlainText.strip('## Week 3 ##  '), 'Week 3');
+      expect(MarkdownPlainText.strip('## Title##'), 'Title##');
+      expect(MarkdownPlainText.strip('a\n## ##\nb'), 'a b');
+    });
+
+    test('skips spaced horizontal rules instead of reading a bullet', () {
+      expect(MarkdownPlainText.strip('a\n- - -\nb'), 'a b');
+      expect(MarkdownPlainText.strip('a\n* * *\nb'), 'a b');
+    });
+
+    test('keeps nested and digit-led tags whole', () {
+      expect(
+        MarkdownPlainText.strip('run #program/5x5 and #1rm'),
+        'run #program/5x5 and #1rm',
+      );
+    });
+
     test('keeps a checked task marked and an unchecked one bare', () {
       expect(MarkdownPlainText.strip('- [x] done'), '✓ done');
       expect(MarkdownPlainText.strip('- [ ] todo'), 'todo');
@@ -59,13 +78,42 @@ void main() {
       expect(MarkdownPlainText.strip('==red: tinted=='), 'tinted');
     });
 
-    test('emits link text, drops images, keeps wiki titles and urls', () {
+    test('emits link text, image alts, wiki titles and urls', () {
       expect(MarkdownPlainText.strip('[text](https://a.com)'), 'text');
-      expect(MarkdownPlainText.strip('a ![alt](https://a.com/x.png) b'), 'a b');
+      expect(
+        MarkdownPlainText.strip('a ![alt](https://a.com/x.png) b'),
+        'a alt b',
+      );
+      expect(MarkdownPlainText.strip('a ![](https://a.com/x.png) b'), 'a b');
+      expect(MarkdownPlainText.strip('a [](u) b'), 'a [](u) b');
       expect(MarkdownPlainText.strip('see [[Leg Day]]'), 'see Leg Day');
       expect(MarkdownPlainText.strip('go https://b.com now'),
           'go https://b.com now');
       expect(MarkdownPlainText.strip('a #tag b'), 'a #tag b');
+    });
+
+    test('a link title never reaches the text', () {
+      expect(
+        MarkdownPlainText.strip('see [the guide](https://x.com/s "Guide")'),
+        'see the guide',
+      );
+      expect(MarkdownPlainText.strip('[w](https://e.org/Foo_(bar)) x'), 'w x');
+    });
+
+    test('wiki aliases and embeds read as what the editor shows', () {
+      expect(MarkdownPlainText.strip('see [[Leg Day|legs]]'), 'see legs');
+      expect(MarkdownPlainText.strip('[[Leg Day|]]'), 'Leg Day');
+      expect(MarkdownPlainText.strip('[[Leg Day#Warm-up]]'), 'Leg Day#Warm-up');
+      expect(MarkdownPlainText.strip('a ![[plan.png]] b'), 'a plan.png b');
+    });
+
+    test('angle autolinks lose their brackets, prose keeps them', () {
+      expect(
+        MarkdownPlainText.strip('see <https://x.y> now'),
+        'see https://x.y now',
+      );
+      expect(MarkdownPlainText.strip('<me@example.com>'), 'me@example.com');
+      expect(MarkdownPlainText.strip('a <b> c'), 'a <b> c');
     });
 
     test('emits the escaped character and the colour contents', () {
@@ -75,6 +123,31 @@ void main() {
 
     test('drops ghost placeholders entirely', () {
       expect(MarkdownPlainText.strip('reps {{count}} today'), 'reps today');
+    });
+
+    test('decodes entities and keeps unknown or coded ones literal', () {
+      expect(
+        MarkdownPlainText.strip('Tom &amp; Jerry &copy; &#x2014; &#169;'),
+        'Tom & Jerry © — ©',
+      );
+      expect(MarkdownPlainText.strip('&nope; `&amp;`'), '&nope; &amp;');
+      expect(MarkdownPlainText.strip('**&lt;b&gt;**'), '<b>');
+    });
+
+    test('drops a hard-break backslash and keeps an escaped one', () {
+      expect(MarkdownPlainText.strip('first\\\nsecond'), 'first second');
+      expect(MarkdownPlainText.strip(r'- item\'), 'item');
+      expect(MarkdownPlainText.strip(r'a\\'), r'a\');
+      expect(MarkdownPlainText.strip(r'\'), r'\');
+    });
+
+    test('follows the flanking rules past ASCII and between digits', () {
+      expect(MarkdownPlainText.strip('„_foarte greu_“'), '„foarte greu“');
+      expect(MarkdownPlainText.strip('ș_a_'), 'ș_a_');
+      expect(
+        MarkdownPlainText.strip('Squat 3*10, Bench 3*8'),
+        'Squat 3*10, Bench 3*8',
+      );
     });
   });
 

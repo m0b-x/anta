@@ -397,7 +397,9 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       return;
     }
     _hasFocus = value;
-    markNeedsPaint();
+    // Layout, not just paint: the app's span builder reveals the caret
+    // line only while focused, and spans are rebuilt at layout.
+    markNeedsLayout();
     markNeedsSemanticsUpdate();
   }
 
@@ -1518,6 +1520,14 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         _findDisplayRenderParagraph(offset, true);
     if (target == null) {
       return null;
+    }
+    // Below the document's last line the finger's x means nothing: the
+    // position is the document end, a line-end offset every tap
+    // interceptor passes through, instead of whatever sits under that x
+    // on the last line (a task box at the left edge, a tag).
+    if (offset.dy >= target.bottom && target.index == _codes.length - 1) {
+      return CodeLinePosition(
+          index: target.index, offset: _codes[target.index].length);
     }
     return target.getPosition(offset - target.offset);
   }

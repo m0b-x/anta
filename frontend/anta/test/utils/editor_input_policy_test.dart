@@ -53,6 +53,90 @@ void main() {
       offset: 6,
       inFence: true,
     ),
+
+    // --- the box on the caret line -------------------------------------
+    // `- [ ] squat`: marker `[0, 6)` with contentStart 6, `squat` at
+    // `[6, 11)`. The box keeps its zone exactly while it stays painted.
+    tapRow(
+      'a caret past the marker keeps the box toggling',
+      text: '- [ ] squat',
+      offset: 3,
+      revealed: true,
+      caret: 11,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'a caret at contentStart is past the marker — the box keeps toggling',
+      text: '- [ ] squat',
+      offset: 3,
+      revealed: true,
+      caret: 6,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'a caret on the space before contentStart reveals the marker',
+      text: '- [ ] squat',
+      offset: 3,
+      revealed: true,
+      caret: 5,
+    ),
+    tapRow(
+      'a caret inside the brackets reveals the marker',
+      text: '- [ ] squat',
+      offset: 3,
+      revealed: true,
+      caret: 3,
+    ),
+    tapRow(
+      'a caret at the indent edge reveals the marker',
+      text: '  - [ ] squat',
+      offset: 5,
+      revealed: true,
+      caret: 2,
+    ),
+    tapRow(
+      'a caret inside the indent keeps the box painted',
+      text: '  - [ ] squat',
+      offset: 5,
+      revealed: true,
+      caret: 1,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'the indent left of a painted box still places the caret',
+      text: '  - [ ] squat',
+      offset: 1,
+      revealed: true,
+      caret: 13,
+    ),
+    tapRow(
+      'a range selection over a task line keeps the full reveal',
+      text: '- [ ] squat',
+      offset: 3,
+      revealed: true,
+    ),
+    tapRow(
+      'a link beside a painted box still passes through on the caret line',
+      text: '- [ ] $linkLine',
+      offset: 11,
+      revealed: true,
+      caret: 6 + linkLine.length,
+    ),
+    tapRow(
+      'a caret line with the box zone off passes through',
+      text: '- [ ] squat',
+      offset: 3,
+      revealed: true,
+      caret: 11,
+      checkbox: false,
+    ),
+    tapRow(
+      'a caret past an ordinary bullet changes nothing',
+      text: '- squat #tag',
+      offset: 9,
+      revealed: true,
+      caret: 12,
+    ),
     tapRow(
       'a line past maxStyledLineLength passes through',
       text: tagLine.padRight(
@@ -123,9 +207,68 @@ void main() {
       expected: const EditorOpenLinkAction('https://x.dev'),
     ),
     tapRow(
-      'an image never opens — it renders raw',
+      'an image never opens — its alt is a caption, not a link',
       text: 'a ![img](https://x.dev) b',
       offset: 6,
+    ),
+    tapRow(
+      "an image's picture glyph never opens either",
+      text: 'a ![img](https://x.dev) b',
+      offset: 2,
+    ),
+    tapRow(
+      'a link with a title opens the destination alone',
+      text: '[t](https://x.com/s "Guide")',
+      offset: 1,
+      expected: const EditorOpenLinkAction('https://x.com/s'),
+    ),
+    tapRow(
+      'a tap on the concealed title opens the destination too',
+      text: '[t](https://x.com/s "Guide")',
+      offset: 22,
+      expected: const EditorOpenLinkAction('https://x.com/s'),
+    ),
+    tapRow(
+      'balanced parentheses stay in the opened url',
+      text: '[w](https://en.wikipedia.org/wiki/Foo_(bar))',
+      offset: 1,
+      expected: const EditorOpenLinkAction(
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+      ),
+    ),
+    tapRow(
+      'an angle destination opens without its brackets',
+      text: '[t](<a b>)',
+      offset: 1,
+      expected: const EditorOpenLinkAction('a b'),
+    ),
+    tapRow(
+      'an angle autolink opens its inside',
+      text: 'see <https://x.dev> now',
+      offset: 8,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      "an angle autolink's opening bracket passes through",
+      text: 'see <https://x.dev> now',
+      offset: 4,
+    ),
+    tapRow(
+      'an address in angle brackets opens as mailto',
+      text: '<me@example.com>',
+      offset: 3,
+      expected: const EditorOpenLinkAction('mailto:me@example.com'),
+    ),
+    tapRow(
+      'links disabled: an angle autolink passes through',
+      text: '<https://x.dev>',
+      offset: 3,
+      links: false,
+    ),
+    tapRow(
+      'angle brackets around prose are no zone',
+      text: 'a <b> c',
+      offset: 3,
     ),
     tapRow(
       'an escaped opening bracket is not a link',
@@ -437,9 +580,20 @@ void main() {
       offset: 3,
     ),
     tapRow(
-      'an aliased title is literal — the pipe is reserved, not used',
+      'a tap on an alias opens the title, never the alias',
       text: '[[a|b]]',
-      offset: 3,
+      offset: 4,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      'a second pipe leaves the construct literal',
+      text: '[[a|b|c]]',
+      offset: 4,
+    ),
+    tapRow(
+      "an embed's first bracket is its boundary and passes through",
+      text: '![[a]]',
+      offset: 1,
     ),
     tapRow(
       'a ghost in the title makes the whole construct literal',
@@ -485,6 +639,39 @@ void main() {
       text: '![[a]]',
       offset: 3,
       expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      'an alias across a table cell pipe is raw text, not a zone',
+      text: '| [[Squat|legs]] | 3x5 |',
+      offset: 5,
+    ),
+    tapRow(
+      'nor is the half of it after the cell pipe',
+      text: '| [[Squat|legs]] | 3x5 |',
+      offset: 12,
+    ),
+    tapRow(
+      'a wiki link inside one table cell still opens',
+      text: '| [[Squat]] | 3x5 |',
+      offset: 5,
+      expected: const EditorOpenWikiLinkAction('Squat'),
+    ),
+    tapRow(
+      'a pipe inside a ghost splits no cell, so the link stays a zone',
+      text: '| [a{{x|y}}](https://x.dev) | b |',
+      offset: 3,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'an alias outside a table still opens its title',
+      text: 'see [[Squat|legs]] now',
+      offset: 13,
+      expected: const EditorOpenWikiLinkAction('Squat'),
+    ),
+    tapRow(
+      'an image with an empty alt never opens',
+      text: 'a ![](https://x.dev) b',
+      offset: 6,
     ),
 
     // --- precedence: checkbox > link > wiki link > money > tag ----------
@@ -583,6 +770,7 @@ void main() {
               tags: row.tags,
               palette: palette,
             ),
+            caretOffset: row.caret,
           ),
           row.expected,
         );
@@ -593,6 +781,7 @@ void main() {
   List<EditorTapZone> zonesFor(
     String? text, {
     bool revealed = false,
+    int? caret,
     bool inFence = false,
     bool checkbox = true,
     bool links = true,
@@ -612,6 +801,7 @@ void main() {
       tags: tags,
       palette: palette,
     ),
+    caretOffset: caret,
   );
 
   group('zonesOf agrees with resolveTap', () {
@@ -620,6 +810,7 @@ void main() {
         final zoneList = zonesFor(
           row.text,
           revealed: row.revealed,
+          caret: row.caret,
           inFence: row.inFence,
           checkbox: row.checkbox,
           links: row.links,
@@ -657,6 +848,7 @@ void main() {
               tags: row.tags,
               palette: palette,
             ),
+            caretOffset: row.caret,
           );
           final covering = zoneList
               .where((zone) => offset >= zone.start && offset < zone.end)
@@ -685,8 +877,36 @@ void main() {
       expect(zonesFor(''), isEmpty);
     });
 
-    test('a revealed (caret) line enumerates nothing', () {
+    test('a line a range selection reveals enumerates nothing', () {
       expect(zonesFor('- [ ] $linkLine', revealed: true), isEmpty);
+    });
+
+    test('a caret past the marker keeps only the box zone', () {
+      expect(
+        zonesFor('- [ ] $linkLine', revealed: true, caret: 6 + linkLine.length),
+        const [
+          EditorTapZone(
+            start: 0,
+            end: 6,
+            action: EditorToggleTaskAction(lineIndex),
+          ),
+        ],
+      );
+    });
+
+    test('a caret inside the marker enumerates nothing', () {
+      expect(zonesFor('- [ ] $linkLine', revealed: true, caret: 5), isEmpty);
+      expect(zonesFor('- [ ] $linkLine', revealed: true, caret: 0), isEmpty);
+    });
+
+    test('a caret at contentStart keeps the box zone (Y3)', () {
+      expect(zonesFor('- [ ] $linkLine', revealed: true, caret: 6), const [
+        EditorTapZone(
+          start: 0,
+          end: 6,
+          action: EditorToggleTaskAction(lineIndex),
+        ),
+      ]);
     });
 
     test('a fence line enumerates nothing', () {
@@ -1161,6 +1381,7 @@ typedef TapRow = ({
   String? text,
   int offset,
   bool revealed,
+  int? caret,
   bool inFence,
   bool checkbox,
   bool links,
@@ -1171,12 +1392,15 @@ typedef TapRow = ({
 });
 
 /// Builds a row. Every zone is enabled by default, so a row that expects
-/// `null` proves the pass-through rule rather than a missing zone.
+/// `null` proves the pass-through rule rather than a missing zone. [caret]
+/// is the collapsed caret's offset on a revealed line; `null` there is a
+/// range selection.
 TapRow tapRow(
   String name, {
   String? text,
   int offset = 0,
   bool revealed = false,
+  int? caret,
   bool inFence = false,
   bool checkbox = true,
   bool links = true,
@@ -1189,6 +1413,7 @@ TapRow tapRow(
   text: text,
   offset: offset,
   revealed: revealed,
+  caret: caret,
   inFence: inFence,
   checkbox: checkbox,
   links: links,

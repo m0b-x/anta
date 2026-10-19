@@ -1874,6 +1874,69 @@ class AppLocalizationsRo extends AppLocalizations {
   String get header6 => 'Antet 6';
 
   @override
+  String get indentLine => 'Indentează';
+
+  @override
+  String get outdentLine => 'Reduce indentarea';
+
+  @override
+  String get shortcutHighlight => 'Evidențiere';
+
+  @override
+  String get shortcutCallout => 'Casetă de notă';
+
+  @override
+  String get shortcutCheckedCheckbox => 'Casetă Bifată';
+
+  @override
+  String get shortcutTable => 'Tabel';
+
+  @override
+  String get shortcutHorizontalRule => 'Linie Orizontală';
+
+  @override
+  String get shortcutImage => 'Imagine';
+
+  @override
+  String get shortcutGhostText => 'Text Fantomă';
+
+  @override
+  String get shortcutColorText => 'Text Colorat';
+
+  @override
+  String get shortcutColorHighlight => 'Evidențiere Colorată';
+
+  @override
+  String get shortcutMoneyAdd => 'Bani +';
+
+  @override
+  String get shortcutMoneySubtract => 'Bani -';
+
+  @override
+  String get shortcutMoneyMultiply => 'Bani ×';
+
+  @override
+  String get shortcutMoneyDivide => 'Bani ÷';
+
+  @override
+  String get shortcutMoneyStart => 'Bani Start';
+
+  @override
+  String get shortcutMoneyTotal => 'Bani Total';
+
+  @override
+  String get shortcutMoneyChange => 'Bani Variație';
+
+  @override
+  String get shortcutMoneyTarget => 'Bani Țintă';
+
+  @override
+  String get shortcutMoneyDiff => 'Bani Diferență';
+
+  @override
+  String get shortcutMoneySpan => 'Bani Interval';
+
+  @override
   String get undo => 'Anulează';
 
   @override

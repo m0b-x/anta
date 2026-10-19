@@ -12,7 +12,9 @@ rendering.
 ## Shipped baseline (do not redo)
 
 - **Inline parsing** — `#tag` in `LineBasedMarkdownBuilder._tryParseTagAt`:
-  letter-led, word-boundary (`_isWordBoundaryBefore`), body accepts ASCII
+  a body holding at least one letter (digit-led allowed since 2026-10-19,
+  `#5x5`; an inner `/` nests, `#program/5x5`), word-boundary
+  (`_isWordBoundaryBefore`), body accepts ASCII
   alphanumerics, `_`, `-`, and **any Unicode letter / combining mark / number**
   (`_unicodeTagBodyRe`), so `#tracțiune` / `#Übung` / NFD accents / non-ASCII
   digits all parse. Never collides with ATX headings (those need `#` + space).

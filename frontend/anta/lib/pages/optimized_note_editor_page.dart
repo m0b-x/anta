@@ -54,7 +54,10 @@ import '../utils/re_editor_search_controller.dart';
 import '../utils/text_history_observer.dart';
 import '../utils/text_position_utils.dart';
 import '../utils/wiki_link_title.dart';
+import '../utils/markdown_line_shape.dart';
+import '../utils/markdown_link_patterns.dart';
 import '../utils/markdown_money_syntax.dart';
+import '../utils/markdown_plain_text.dart';
 import '../utils/money_display_config.dart';
 import '../widgets/money_detail_sheet.dart';
 import '../utils/list_aware_paste.dart';
@@ -62,6 +65,7 @@ import '../utils/paste_line_breaker.dart';
 import '../controllers/editor_edit_tracker.dart';
 import '../controllers/editor_render_controller.dart';
 import '../controllers/editor_settings_controller.dart';
+import '../controllers/list_indent_action.dart';
 import '../controllers/markdown_shortcut_inserter.dart';
 import '../controllers/note_editor_position_controller.dart';
 import '../controllers/note_editor_stats_tracker.dart';
@@ -80,11 +84,19 @@ class OptimizedNoteEditorPage extends StatefulWidget {
   final String? noteId;
   final NoteMetadata? metadata;
 
+  /// The heading a `[[Note#heading]]` tap asked for — the link's whole
+  /// fragment, read as [MarkdownWikiTarget.headingReadingsOf] reads it:
+  /// once the note has loaded and its stored position has been restored,
+  /// the caret moves to the first heading of that text and the editor
+  /// opens centred on it. Null opens the note where the reader left it.
+  final String? targetHeading;
+
   const OptimizedNoteEditorPage({
     super.key,
     required this.folderId,
     this.noteId,
     this.metadata,
+    this.targetHeading,
   });
 
   @override
@@ -146,6 +158,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// display, colour palette) both surfaces have to agree on.
   final EditorRenderController _render = EditorRenderController();
 
+  /// Whether the in-note find session is open, mirrored from
+  /// [_searchController] in [_onSearchChanged]. The span builder and the
+  /// wrapper both read it as the second reveal input: find selects its
+  /// match while the search field holds focus, and a match inside
+  /// concealed syntax must still show.
+  final ValueNotifier<bool> _findActive = ValueNotifier<bool>(false);
+
   /// Cached reference so we can dispatch [SetNoteContext] during [dispose].
   late final CounterBloc _counterBloc;
 
@@ -180,6 +199,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// built from the answer, and a bar that lands after the mount reflows
   /// under the editor.
   bool _barSettled = false;
+
+  /// Whether [_focusNewNoteOnce] has already asked for focus.
+  bool _newNoteFocusRequested = false;
+
+  /// Whether [_applyTargetHeadingOnce] has run — the gate's callers run
+  /// again on every settings reload, and a second jump would drag the
+  /// caret back after the reader moved it.
+  bool _targetHeadingApplied = false;
 
   /// Latched by the first Back the page handles, and released only when the
   /// pop it led to did not take the page (a drawer's local-history entry
@@ -325,6 +352,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
     _historyObserver = TextHistoryObserver(_contentController);
     _contentFocusNode = FocusNode()..addListener(_onContentFocusChanged);
+    // Rendering and the wrapper's taps must agree on whether the caret
+    // line is revealed, and the wrapper already reads real focus.
+    _render.bindFocus(_contentFocusNode);
+    _render.bindRevealWhenUnfocused(_findActive);
     _editorScrollController = CodeScrollController();
     _searchController = ReEditorSearchController();
     _searchController.initialize(_contentController);
@@ -478,6 +509,78 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   void _markEditorReady() {
     if (_isLoading) return;
     _position.contentReady();
+    _applyTargetHeadingOnce();
+    _focusNewNoteOnce();
+  }
+
+  /// Lands on [OptimizedNoteEditorPage.targetHeading], once. Runs right
+  /// after the restore join, so the stored caret it replaces has already
+  /// been set and its layout-time centring is still unconsumed — this
+  /// request replaces it, and the first frame shows the heading. A
+  /// heading the note does not hold leaves the restored position alone.
+  void _applyTargetHeadingOnce() {
+    final heading = widget.targetHeading;
+    if (heading == null || _targetHeadingApplied) return;
+    _targetHeadingApplied = true;
+    if (_showPreview) return;
+    final line = _headingLine(heading);
+    if (line < 0) return;
+    _contentController.selection = CodeLineSelection.collapsed(
+      index: line,
+      offset: 0,
+    );
+    _editorScrollController.makeCenterIfInvisibleOnLayout(
+      CodeLinePosition(index: line, offset: 0),
+    );
+  }
+
+  /// The first line outside a fence whose heading reads as [fragment], or
+  /// -1. Each of [MarkdownWikiTarget.headingReadingsOf] is tried over the
+  /// whole note in turn, and a heading matches by its source text or by
+  /// the text it shows — markup, `[[…]]` brackets and a closing `#` run
+  /// dropped, as Obsidian compares rendered headings — trimmed and
+  /// case-insensitively. Heading shape and the closing run's end come from
+  /// [MarkdownLineShape.headingAt], as everywhere else, so neither reading
+  /// strips a second run (`## Foo # ##` reads `Foo #`, never `Foo`).
+  int _headingLine(String fragment) {
+    final readings = MarkdownWikiTarget.headingReadingsOf(fragment);
+    if (readings.isEmpty) return -1;
+    final codeLines = _contentController.codeLines;
+    final lines = <int>[];
+    final texts = <(String, String)>[];
+    for (int i = 0; i < codeLines.length; i++) {
+      final text = codeLines[i].text;
+      final match = MarkdownLineShape.headingAt(text);
+      if (match == null || _render.lineInFence(i)) continue;
+      lines.add(i);
+      texts.add((
+        text.substring(match.contentStart, match.contentEnd).trim(),
+        MarkdownPlainText.strip(text, maxLength: 0, money: false),
+      ));
+    }
+    for (final reading in readings) {
+      final wanted = reading.toLowerCase();
+      for (int k = 0; k < lines.length; k++) {
+        if (texts[k].$1.toLowerCase() == wanted ||
+            texts[k].$2.toLowerCase() == wanted) {
+          return lines[k];
+        }
+      }
+    }
+    return -1;
+  }
+
+  /// A new note opens ready to type, keyboard up: there is nothing to read
+  /// in it, so the tap into the body the user would otherwise need is pure
+  /// overhead. Post-frame, because the editor mounts on the frame the gate
+  /// opens; latched, because the gate's callers run again on every settings
+  /// reload. An existing note opens unfocused, as it always has.
+  void _focusNewNoteOnce() {
+    if (widget.noteId != null || _newNoteFocusRequested) return;
+    _newNoteFocusRequested = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _contentFocusNode.requestFocus();
+    });
   }
 
   @override
@@ -559,9 +662,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (_editorSettings.value.scrollCursorOnKeyboard &&
         keyboardHeight > _previousKeyboardHeight &&
         keyboardHeight > 0) {
-      // Keyboard just appeared - scroll to make cursor visible
+      // Every growth step of the rising keyboard, after the body has shrunk
+      // by it. Only for the editor's own keyboard: a stale inset after a
+      // resume or the search field's keyboard must not scroll the note.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_isPreviewMode) {
+        if (mounted && !_showPreview && _contentFocusNode.hasFocus) {
           _contentController.makeCursorVisible();
         }
       });
@@ -615,6 +720,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// to actual search activity (open / close / next / prev / typing
   /// in the search field), not per-character note edits.
   void _onSearchChanged() {
+    _findActive.value = _searchController.isSearching;
     if (_searchController.isSearching) {
       _previewBloc.add(
         PreviewSearchUpdated(
@@ -656,12 +762,25 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// Only that surface's row is written, and the write is debounced by
   /// [SettingsService]; the preview picks the new size up through the
   /// settings listener.
+  ///
+  /// A new editor size reflows every line, so the caret the user was typing
+  /// at can end up off screen; it is centred again once the reflowed frame
+  /// has laid out — only for a focused editor, whose caret is the one the
+  /// user is looking at.
   void _adjustFontSize(int direction) {
     if (_showPreview) {
       _editorSettings.adjustPreviewFontSize(direction);
-    } else {
-      _editorSettings.adjustEditorFontSize(direction);
+      return;
     }
+    final before = _editorSettings.value.editorFontSize;
+    _editorSettings.adjustEditorFontSize(direction);
+    if (!_contentFocusNode.hasFocus ||
+        _editorSettings.value.editorFontSize == before) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _contentController.makeCursorCenterIfInvisible();
+    });
   }
 
   /// Loads the user's vocabularies and hands the suggestion controller its
@@ -1289,10 +1408,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _contentController.removeListener(_onTextChanged);
     _contentController.dispose();
     _contentFocusNode.removeListener(_onContentFocusChanged);
+    _render.bindFocus(null);
     _contentFocusNode.dispose();
     _editorScrollController.dispose();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _render.bindRevealWhenUnfocused(null);
+    _findActive.dispose();
     _editorSettings.removeListener(_onEditorSettingsChanged);
     // Disposing flushes any font size the user tapped moments ago.
     _editorSettings.dispose();
@@ -1361,6 +1483,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       message: l10n.linkOpenPrompt(target),
       actionLabel: l10n.linkOpenAction,
       onAction: () => _launchLink(uri),
+      // Above the toolbar, or the prompt sits on the bar the user's thumb
+      // is already on.
+      withToolbarOffset: true,
     );
   }
 
@@ -1505,19 +1630,33 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// exception from the lookup or the position write would otherwise land
   /// as an unhandled async error with nothing on screen to show for it
   /// (C11).
+  ///
+  /// Obsidian's suffixes are read through [MarkdownWikiTarget]: when the
+  /// title as typed names no note, `Note#heading`, `Note^block` and
+  /// `Note.md` resolve `Note`, and a heading part lands on that heading —
+  /// in place for this note (`[[#heading]]` names it outright), through
+  /// [OptimizedNoteEditorPage.targetHeading] for another.
   Future<void> _handleWikiLinkTap(String rawTitle) async {
-    final title = rawTitle.trim();
+    final target = MarkdownWikiTarget.parse(rawTitle);
+    final title = target.title;
     if (title.isEmpty) return;
 
     try {
+      final storage = GetIt.I<NoteStorageService>();
       // The lookup gets the full trimmed title; only what the snackbar
-      // shows is bounded (C10).
-      final note = await GetIt.I<NoteStorageService>().resolveNoteByTitle(
-        title,
-        preferFolderId: _folderId,
+      // shows is bounded (C10). It runs first, so a note whose own name
+      // holds a `#` keeps resolving as it always has.
+      final (note, byNote) = await target.resolve(
+        (lookup) =>
+            storage.resolveNoteByTitle(lookup, preferFolderId: _folderId),
       );
+      final heading = byNote ? target.wholeHeading : null;
       if (!mounted) return;
       if (!_isCurrentRoute) return;
+      if (note == null && target.hasSuffix && target.note.isEmpty) {
+        _centreHeading(target.wholeHeading);
+        return;
+      }
       if (note == null) {
         CustomSnackbar.show(
           context,
@@ -1527,7 +1666,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         );
         return;
       }
-      if (note.id == (_saves.effectiveNoteId ?? widget.noteId)) return;
+      if (note.id == (_saves.effectiveNoteId ?? widget.noteId)) {
+        _centreHeading(heading);
+        return;
+      }
 
       await _saveCurrentPosition();
       if (!mounted) return;
@@ -1537,6 +1679,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         folderId: note.folderId,
         noteId: note.id,
         metadata: note,
+        targetHeading: heading,
       );
     } catch (e) {
       debugPrint('[NoteEditor] wiki link tap failed: $e');
@@ -1546,6 +1689,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         AppLocalizations.of(context)!.linkOpenFailed,
       );
     }
+  }
+
+  /// Centres the first heading of this note whose text is [heading],
+  /// leaving the caret where it is — the reader followed a link, they did
+  /// not ask to edit there. Null, a heading the note does not hold, or
+  /// the preview on screen leave everything as it was.
+  void _centreHeading(String? heading) {
+    if (heading == null || _showPreview) return;
+    final line = _headingLine(heading);
+    if (line < 0) return;
+    _editorScrollController.makeCenterIfInvisible(
+      CodeLinePosition(index: line, offset: 0),
+    );
   }
 
   /// Opens the ledger detail sheet for a tapped `$$` / `$?` / bare `$!`
@@ -2035,7 +2191,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         utilityConfigs: settings.toolbarUtilityConfig,
         onUndo: () => _historyObserver.undo(),
         onRedo: () => _historyObserver.redo(),
-        onPaste: () => _contentController.paste(),
+        onPaste: _pasteFromBar,
+        onIndent: () => _shiftListIndent(outdent: false),
+        onOutdent: () => _shiftListIndent(outdent: true),
+        currentHeadingLevel: _caretHeadingLevel,
+        hapticsEnabled: settings.hapticFeedback,
         onSwitchBar: _showBarSwitcher,
         onDecreaseFontSize: _decreaseFontSize,
         onIncreaseFontSize: _increaseFontSize,
@@ -2164,7 +2324,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           onMoneyTap: markdownRendering && _render.moneyConfig.enabled
               ? _handleMoneyTap
               : null,
-          isFenceLine: markdownRendering ? _render.lineInFence : null,
+          // Unconditional, like the tracker's and the paste controller's:
+          // fencing is a property of the document, not of the rendering.
+          isFenceLine: _render.lineInFence,
+          hapticsEnabled: settings.hapticFeedback,
+          // The span builder reads the same listenable, so a find match's
+          // line reveals for render and taps alike.
+          revealWhenUnfocused: _findActive,
+          onFormatShortcut: _toggleFormatShortcut,
           colorPalette: _render.palette,
           lineNumbersKey: _lineNumbersKey,
           scrollIndicatorKey: _scrollIndicatorKey,
@@ -2501,6 +2668,53 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     });
   }
 
+  /// The heading level of the line the heading menu would rewrite — the
+  /// selection's start line, as [ShortcutApplier.applyHeaderLevel] reads
+  /// it — so the menu checks the level a second pick removes.
+  int? _caretHeadingLevel() {
+    final lines = _contentController.codeLines;
+    final index = _contentController.selection.startIndex;
+    if (index < 0 || index >= lines.length) return null;
+    return MarkdownLineShape.headingAt(lines[index].text)?.level;
+  }
+
+  /// Ctrl/Cmd+B and Ctrl/Cmd+I, through the bookkeeping the bar's Bold
+  /// and Italic get in [_handleShortcut]: the tracker's guard, the length
+  /// resync, the reflow of a wide wrap and the caret kept in view.
+  void _toggleFormatShortcut(String marker) {
+    final beforeLength = _contentController.textLength;
+    _edits.runGuarded(
+      () => ShortcutApplier.toggleWrap(_contentController, marker),
+    );
+    _onTextChanged();
+    _edits.reformatInserted(beforeLength: beforeLength);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _contentController.makeCursorVisible();
+    });
+  }
+
+  /// The bar's Paste. Focus first: on an unfocused editor the insert would
+  /// land at a stale caret with none painted and the keyboard down, so the
+  /// user could not see where the text went.
+  void _pasteFromBar() {
+    _contentFocusNode.requestFocus();
+    _contentController.paste();
+  }
+
+  /// The bar's indent and outdent — the Tab edit a soft keyboard cannot
+  /// send. Guarded like every other programmatic insert so the tracker
+  /// never reads the indent's growth as typing or a paste.
+  void _shiftListIndent({required bool outdent}) {
+    _edits.runGuarded(
+      () => ListIndentAction.apply(
+        _contentController,
+        outdent: outdent,
+        isFenceLine: _render.lineInFence,
+      ),
+    );
+    _onTextChanged();
+  }
+
   Future<void> _handleShortcut(CustomMarkdownShortcut shortcut) async {
     // Ghost text has bespoke insert behavior (on an empty selection the
     // caret lands inside the placeholder), so it bypasses the generic
@@ -2542,15 +2756,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // against what the shortcut actually left behind.
     //
     // The revocable op inside it makes the whole shortcut one undo entry
-    // whatever the insert does — the header rewrite is a selectLine plus a
-    // replace, and an insert that wrote the value directly would otherwise
-    // merge into the typing burst before it.
+    // whatever the insert does — a wrap toggle is a replace plus a
+    // selection, and an insert that wrote the value directly would
+    // otherwise merge into the typing burst before it.
     _edits.runGuarded(() {
       _contentController.runRevocableOp(() {
-        // A null resolution is the header shortcut: it rewrites the caret
-        // line rather than inserting at the selection.
+        // A null resolution is a rewrite — a heading level, a line marker
+        // or a wrapper toggled — rather than an insert at the selection.
         if (text == null) {
-          ShortcutApplier.applyHeader(_contentController);
+          ShortcutApplier.applyRewrite(
+            _contentController,
+            shortcut,
+            isFenceLine: _render.lineInFence,
+          );
         } else {
           _contentController.replaceSelection(text);
         }

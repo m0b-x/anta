@@ -409,7 +409,11 @@ class SettingsKeys {
   static const bool defaultShowCursorLine = false;
   static const bool defaultAutoBreakLongLines = true;
   static const bool defaultPreviewWhenKeyboardHidden = false;
-  static const bool defaultScrollCursorOnKeyboard = false;
+
+  /// On by default: the body shrinks by the keyboard's height, so without
+  /// the reveal a tap in the lower half of a note leaves the caret behind
+  /// the keyboard it just raised.
+  static const bool defaultScrollCursorOnKeyboard = true;
   static const bool defaultPreviewModeEnabled = false;
 
   // Default values for vocabulary autocomplete

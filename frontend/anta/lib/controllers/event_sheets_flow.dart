@@ -24,6 +24,7 @@ import '../services/settings_service.dart';
 import '../utils/alert_countdown.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/markdown_link_patterns.dart';
 import '../utils/sheet_guard.dart';
 import '../utils/wiki_link_title.dart';
 import '../widgets/calendar_date_picker_sheet.dart';
@@ -655,14 +656,19 @@ class EventSheetsFlow {
   /// No folder preference, unlike the editor's version of this: a calendar
   /// event belongs to no folder, so there is no neighbourhood for the link to
   /// prefer and the most recently updated match wins outright.
+  ///
+  /// Obsidian's suffixes resolve as they do in the editor: when the title as
+  /// typed names no note, `Note#heading`, `Note^block` and `Note.md` open
+  /// `Note`. An event has no note of its own, so `[[#heading]]` names nothing
+  /// here.
   Future<void> _openWikiLink(BuildContext context, String rawTitle) async {
-    final title = rawTitle.trim();
+    final target = MarkdownWikiTarget.parse(rawTitle);
+    final title = target.title;
     if (title.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     try {
-      final note = await GetIt.I<NoteStorageService>().resolveNoteByTitle(
-        title,
-      );
+      final storage = GetIt.I<NoteStorageService>();
+      final (note, _) = await target.resolve(storage.resolveNoteByTitle);
       if (!context.mounted) return;
       if (note == null) {
         CustomSnackbar.show(

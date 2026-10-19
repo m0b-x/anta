@@ -1847,6 +1847,69 @@ class AppLocalizationsEn extends AppLocalizations {
   String get header6 => 'Header 6';
 
   @override
+  String get indentLine => 'Indent';
+
+  @override
+  String get outdentLine => 'Outdent';
+
+  @override
+  String get shortcutHighlight => 'Highlight';
+
+  @override
+  String get shortcutCallout => 'Callout';
+
+  @override
+  String get shortcutCheckedCheckbox => 'Checked Checkbox';
+
+  @override
+  String get shortcutTable => 'Table';
+
+  @override
+  String get shortcutHorizontalRule => 'Horizontal Rule';
+
+  @override
+  String get shortcutImage => 'Image';
+
+  @override
+  String get shortcutGhostText => 'Ghost Text';
+
+  @override
+  String get shortcutColorText => 'Color Text';
+
+  @override
+  String get shortcutColorHighlight => 'Color Highlight';
+
+  @override
+  String get shortcutMoneyAdd => 'Money +';
+
+  @override
+  String get shortcutMoneySubtract => 'Money -';
+
+  @override
+  String get shortcutMoneyMultiply => 'Money ×';
+
+  @override
+  String get shortcutMoneyDivide => 'Money ÷';
+
+  @override
+  String get shortcutMoneyStart => 'Money Start';
+
+  @override
+  String get shortcutMoneyTotal => 'Money Total';
+
+  @override
+  String get shortcutMoneyChange => 'Money Change';
+
+  @override
+  String get shortcutMoneyTarget => 'Money Target';
+
+  @override
+  String get shortcutMoneyDiff => 'Money Diff';
+
+  @override
+  String get shortcutMoneySpan => 'Money Span';
+
+  @override
   String get undo => 'Undo';
 
   @override

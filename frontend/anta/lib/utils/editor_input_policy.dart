@@ -5,6 +5,7 @@ import 'ghost_text.dart';
 import 'markdown_color_syntax.dart';
 import 'markdown_editor_span_builder.dart';
 import 'markdown_inline_grammar.dart';
+import 'markdown_line_shape.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_list_utils.dart';
 import 'markdown_money_syntax.dart';
@@ -165,6 +166,13 @@ class EditorInputPolicy {
   /// Zones resolve in precedence order — checkbox, link, wiki link,
   /// money, tag — so a construct nested in an earlier zone opens that
   /// zone's action.
+  ///
+  /// [caretOffset] is the collapsed caret's offset when it sits on
+  /// [lineIndex] ([MarkdownEditorSpanBuilder.caretOffsetOn]), read only on
+  /// a revealed line: there the box keeps its zone exactly while the
+  /// renderer keeps it painted
+  /// ([MarkdownEditorSpanBuilder.taskMarkerRevealed]), and every other
+  /// zone still passes through.
   static EditorTapAction? resolveTap({
     required String? lineText,
     required int lineIndex,
@@ -172,9 +180,10 @@ class EditorInputPolicy {
     required bool lineRevealed,
     required bool inFence,
     required EditorTapZones zones,
+    int? caretOffset,
   }) {
     if (lineText == null) return null;
-    if (lineRevealed) return null;
+    if (lineRevealed && (caretOffset == null || !zones.checkbox)) return null;
     if (inFence) return null;
     if (lineText.length > MarkdownEditorSpanBuilder.maxStyledLineLength) {
       return null;
@@ -200,10 +209,16 @@ class EditorInputPolicy {
       if (item != null &&
           item.kind == MarkdownListKind.task &&
           offset >= item.indent.length &&
-          offset <= item.bracketStart + 3) {
+          offset <= item.bracketStart + 3 &&
+          !(lineRevealed &&
+              MarkdownEditorSpanBuilder.taskMarkerRevealed(
+                item,
+                caretOffset,
+              ))) {
         return EditorToggleTaskAction(lineIndex);
       }
     }
+    if (lineRevealed) return null;
     // The link, wiki-link and tag zones are three readings of one
     // descent over the shared grammar — the same whole-line walk
     // [zonesOf] takes — so a line with no inline zone enabled pays for
@@ -213,10 +228,14 @@ class EditorInputPolicy {
     // which is what keeps the two forms from ever disagreeing.
     final List<InlineToken> inline =
         (zones.links || zones.wikiLinks || zones.tags)
-        ? MarkdownInlineGrammar.linksAndTags(
+        ? _withinTableCells(
             lineText,
-            palette: zones.palette,
-            ghosts: ghostRuns,
+            MarkdownInlineGrammar.linksAndTags(
+              lineText,
+              palette: zones.palette,
+              ghosts: ghostRuns,
+            ),
+            ghostRuns,
           )
         : const <InlineToken>[];
     if (zones.links) {
@@ -226,9 +245,16 @@ class EditorInputPolicy {
       // escapes, images and ghosts all decide the zone the same way they
       // decide the paint. Outermost boundary offsets are excluded by the
       // grammar, so taps that resolve to the edges still place the caret.
+      //
+      // A `<…>` autolink conceals its brackets the same way and opens
+      // like a link; an image is never in [inline], so its whole run
+      // keeps caret placement.
       for (final InlineToken token in inline) {
         if (token is InlineLink && token.containsStrict(offset)) {
           return EditorOpenLinkAction(token.urlOf(lineText));
+        }
+        if (token is InlineAutolink && token.containsStrict(offset)) {
+          return EditorOpenLinkAction(token.hrefOf(lineText));
         }
       }
     }
@@ -237,7 +263,10 @@ class EditorInputPolicy {
       // `[` and `](url)`, so the tapped offset is a source offset inside
       // the construct — and the outermost `[` is excluded by
       // `containsStrict`, so a tap on the construct's own boundary still
-      // places the caret, exactly as it does on a link.
+      // places the caret, exactly as it does on a link. An alias shows in
+      // the title's place but the action carries the title, and an
+      // embed's `!` glyph is outside the zone (`containsStrict` starts
+      // past the `[`).
       for (final InlineToken token in inline) {
         if (token is InlineWikiLink && token.containsStrict(offset)) {
           return EditorOpenWikiLinkAction(token.titleOf(lineText));
@@ -288,10 +317,10 @@ class EditorInputPolicy {
   /// `[0, lineText.length)`, [resolveTap] answers non-`null` exactly
   /// when some returned range contains that offset, and with that
   /// range's [EditorTapZone.action]. Every pass-through rule holds
-  /// identically — a `null`, revealed, fenced or over-long line
-  /// enumerates nothing, and ghost runs are cut out of every zone, so a
-  /// construct straddling one is reported as the two halves that are
-  /// actually tappable.
+  /// identically — a `null`, fenced or over-long line enumerates nothing,
+  /// a revealed line at most the box [caretOffset] leaves painted, and
+  /// ghost runs are cut out of every zone, so a construct straddling one
+  /// is reported as the two halves that are actually tappable.
   ///
   /// The constructs come from the same grammars [resolveTap] reads;
   /// precedence — checkbox, link, wiki link, money, tag, and outermost
@@ -308,9 +337,12 @@ class EditorInputPolicy {
     required bool lineRevealed,
     required bool inFence,
     required EditorTapZones zones,
+    int? caretOffset,
   }) {
     if (lineText == null) return const [];
-    if (lineRevealed) return const [];
+    if (lineRevealed && (caretOffset == null || !zones.checkbox)) {
+      return const [];
+    }
     if (inFence) return const [];
     final int length = lineText.length;
     if (length == 0) return const [];
@@ -321,7 +353,13 @@ class EditorInputPolicy {
     final List<_ZoneCandidate> candidates = <_ZoneCandidate>[];
     if (zones.checkbox) {
       final item = MarkdownListSyntax.parse(lineText);
-      if (item != null && item.kind == MarkdownListKind.task) {
+      if (item != null &&
+          item.kind == MarkdownListKind.task &&
+          !(lineRevealed &&
+              MarkdownEditorSpanBuilder.taskMarkerRevealed(
+                item,
+                caretOffset,
+              ))) {
         _addCandidate(
           candidates,
           item.indent.length,
@@ -335,14 +373,18 @@ class EditorInputPolicy {
     final bool mightHaveGhosts = GhostText.mightContain(lineText);
     List<GhostMatch>? ghostRuns;
     final List<InlineToken> inline;
-    if (zones.links || zones.wikiLinks || zones.tags) {
+    if (!lineRevealed && (zones.links || zones.wikiLinks || zones.tags)) {
       ghostRuns = mightHaveGhosts
           ? GhostText.findGhosts(lineText)
           : const <GhostMatch>[];
-      inline = MarkdownInlineGrammar.linksAndTags(
+      inline = _withinTableCells(
         lineText,
-        palette: zones.palette,
-        ghosts: ghostRuns,
+        MarkdownInlineGrammar.linksAndTags(
+          lineText,
+          palette: zones.palette,
+          ghosts: ghostRuns,
+        ),
+        ghostRuns,
       );
     } else {
       inline = const <InlineToken>[];
@@ -358,6 +400,14 @@ class EditorInputPolicy {
             EditorOpenLinkAction(token.urlOf(lineText)),
             length,
           );
+        } else if (token is InlineAutolink) {
+          _addCandidate(
+            candidates,
+            token.start + 1,
+            token.end,
+            EditorOpenLinkAction(token.hrefOf(lineText)),
+            length,
+          );
         }
       }
     }
@@ -367,7 +417,7 @@ class EditorInputPolicy {
         if (token is InlineWikiLink) {
           _addCandidate(
             candidates,
-            token.start + 1,
+            token.bracketStart + 1,
             token.end,
             EditorOpenWikiLinkAction(token.titleOf(lineText)),
             length,
@@ -376,7 +426,9 @@ class EditorInputPolicy {
       }
     }
 
-    if (zones.money && MarkdownMoneySyntax.leadsWithMoney(lineText)) {
+    if (!lineRevealed &&
+        zones.money &&
+        MarkdownMoneySyntax.leadsWithMoney(lineText)) {
       final money = MarkdownMoneySyntax.parse(lineText);
       if (money != null && MarkdownMoneySyntax.isDisplayKind(money.kind)) {
         final action = EditorOpenMoneyAction(lineIndex);
@@ -468,6 +520,33 @@ class EditorInputPolicy {
   /// Records `[start, end)` as a candidate, clipped to [length] — the
   /// checkbox zone's `bracketStart + 4` reaches past a line that ends at
   /// the box, and every other producer already ends inside the line.
+  /// [inline] without the tokens that span a cell pipe of a table row.
+  /// The editor splits a row at every `|` outside a ghost and renders
+  /// each cell on its own, so a construct the whole-line descent reads
+  /// across that pipe — `| [[Squat|legs]] |` — shows raw on screen, and
+  /// a zone over it would open a note where the reader meant to place
+  /// the caret.
+  static List<InlineToken> _withinTableCells(
+    String lineText,
+    List<InlineToken> inline,
+    List<GhostMatch> ghosts,
+  ) {
+    if (inline.isEmpty || !MarkdownLineShape.isTableRow(lineText)) {
+      return inline;
+    }
+    bool spansPipe(InlineToken token) {
+      for (int i = token.start; i < token.end; i++) {
+        if (lineText.codeUnitAt(i) != 0x7C) continue;
+        if (!ghosts.any((ghost) => ghost.start <= i && i < ghost.end)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    return inline.where((token) => !spansPipe(token)).toList();
+  }
+
   static void _addCandidate(
     List<_ZoneCandidate> candidates,
     int start,

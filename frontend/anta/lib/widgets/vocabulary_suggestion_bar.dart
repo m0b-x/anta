@@ -5,16 +5,18 @@ import '../constants/app_theme.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/vocabulary_matcher.dart';
+import 'markdown_bar.dart';
 
 /// The suggestion pills, shown in place of the markdown toolbar while a
 /// vocabulary session is open.
 ///
-/// Deliberately the *same* height as [MarkdownBar]'s normal mode — 40 px of
-/// content inside [AppTheme.editorBarVerticalPadding] — so a session opening
-/// never shifts the editor. Capture speed is the whole point of the feature;
-/// a toolbar that jumps would cost more than the autocomplete saves. A
-/// scoped session's leading label rides inside that budget, shorter than
-/// the pills beside it.
+/// Deliberately the *same* height as [MarkdownBar]'s normal mode, so a
+/// session opening never shifts the editor: the bar lays this over its own
+/// hidden normal row, and on its own it is one [MarkdownBar.rowHeight] row
+/// inside [AppTheme.editorBarVerticalPadding]. Capture speed is the whole
+/// point of the feature; a toolbar that jumps would cost more than the
+/// autocomplete saves. A scoped session's leading label rides inside that
+/// budget, shorter than the pills beside it.
 class VocabularySuggestionBar extends StatelessWidget {
   final VocabularySuggestionSession session;
   final ValueChanged<VocabularyCandidate> onAccept;
@@ -29,7 +31,12 @@ class VocabularySuggestionBar extends StatelessWidget {
     this.showBackground = true,
   });
 
-  static const double _pillHeight = 40.0;
+  static const double _pillHeight = MarkdownBar.rowHeight;
+
+  /// The largest text scale whose two pill lines (the term and its list's
+  /// name) still fit the 40 px pill. Past it the pill would clip its text
+  /// or, unpinned, grow the row the markdown bar shares.
+  static const double _maxTextScale = 1.4;
 
   @override
   Widget build(BuildContext context) {
@@ -48,62 +55,68 @@ class VocabularySuggestionBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(
         vertical: AppTheme.editorBarVerticalPadding,
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (session.scopeNames.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Text(
-                        session.scopeNames.join(', '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: _maxTextScale,
+        child: SizedBox(
+          height: _pillHeight,
+          child: Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (session.scopeNames.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text(
+                            session.scopeNames.join(', '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  for (final candidate in session.suggestions)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: _SuggestionPill(
-                        candidate: candidate,
-                        showSource: showSource,
-                        onTap: () => onAccept(candidate),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          Container(
-            width: 1,
-            height: 24,
-            color: theme.colorScheme.outlineVariant,
-          ),
-          Tooltip(
-            message: l10n.vocabularySuggestionsDismiss,
-            preferBelow: false,
-            child: InkWell(
-              onTap: onDismiss,
-              customBorder: const CircleBorder(),
-              child: const SizedBox(
-                width: _pillHeight,
-                height: _pillHeight,
-                child: Icon(
-                  Icons.close,
-                  size: AppConstants.markdownToolbarIconSize,
+                      for (final candidate in session.suggestions)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _SuggestionPill(
+                            candidate: candidate,
+                            showSource: showSource,
+                            onTap: () => onAccept(candidate),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+              Container(
+                width: 1,
+                height: 24,
+                color: theme.colorScheme.outlineVariant,
+              ),
+              Tooltip(
+                message: l10n.vocabularySuggestionsDismiss,
+                preferBelow: false,
+                child: InkWell(
+                  onTap: onDismiss,
+                  customBorder: const CircleBorder(),
+                  child: const SizedBox(
+                    width: _pillHeight,
+                    height: _pillHeight,
+                    child: Icon(
+                      Icons.close,
+                      size: AppConstants.markdownToolbarIconSize,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

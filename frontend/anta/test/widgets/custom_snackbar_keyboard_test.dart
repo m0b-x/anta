@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/utils/custom_snackbar.dart';
+import 'package:anta/widgets/overlay_snackbar.dart';
 
 /// A floating [SnackBar] is positioned by the [Scaffold], and the Scaffold only
 /// subtracts the keyboard inset when it was asked to resize for it
@@ -74,17 +75,30 @@ void main() {
     await tester.pump();
   }
 
-  /// The rect of the bar the user actually sees.
+  /// The rect of the pill the user actually sees, on either road.
   ///
-  /// [SnackBar]'s own box spans the margin too — the margin is a [Padding]
-  /// *inside* it (`material/snack_bar.dart:823`) — so its bottom edge is the
-  /// anchor the Scaffold chose, not the pill. The first [Material] below it is
-  /// the pill itself.
-  Rect barRect(WidgetTester tester) => tester.getRect(
-    find
-        .descendant(of: find.byType(SnackBar), matching: find.byType(Material))
-        .first,
-  );
+  /// A page that does not resize raises an [OverlaySnackbarBody], whose pill
+  /// is its [PhysicalModel]. On the Scaffold road, [SnackBar]'s own box spans
+  /// the margin too — the margin is a [Padding] *inside* it
+  /// (`material/snack_bar.dart:823`) — so its bottom edge is the anchor the
+  /// Scaffold chose, not the pill. The first [Material] below it is the pill
+  /// itself.
+  Rect barRect(WidgetTester tester) {
+    final overlay = find.byType(OverlaySnackbarBody);
+    if (overlay.evaluate().isNotEmpty) {
+      return tester.getRect(
+        find.descendant(of: overlay, matching: find.byType(PhysicalModel)),
+      );
+    }
+    return tester.getRect(
+      find
+          .descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+  }
 
   void show(BuildContext context) => CustomSnackbar.show(context, message);
 
@@ -97,6 +111,13 @@ void main() {
 
       expect(find.text(message), findsOneWidget);
       expect(
+        find.byType(OverlaySnackbarBody),
+        findsOneWidget,
+        reason: 'a page that lays itself out around the IME raises its bars '
+            'in the overlay, the road that can follow the keyboard',
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      expect(
         barRect(tester).bottom,
         lessThanOrEqualTo(screenHeight - keyboard),
         reason: 'the whole bar must clear the IME',
@@ -105,6 +126,80 @@ void main() {
       await disposeHost(tester);
     },
   );
+
+  testWidgets('follows the keyboard down when it closes', (tester) async {
+    sizeSurface(tester, keyboardInset: keyboard);
+    await pumpHost(tester, resizeToAvoidBottomInset: false, onShow: show);
+    await showBar(tester);
+    expect(barRect(tester).bottom, lessThanOrEqualTo(screenHeight - keyboard));
+
+    // The IME goes down while the bar is still up: the bar must come down
+    // with it instead of staying a keyboard-height up mid-screen — the owner's
+    // report after "1 long line was formatted".
+    sizeSurface(tester);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text(message), findsOneWidget);
+    expect(
+      barRect(tester).bottom,
+      closeTo(screenHeight - navBar - AppSpacing.lg, 0.01),
+      reason: 'with the IME gone only the navigation bar and the margin '
+          'separate the pill from the bottom of the screen',
+    );
+
+    await disposeHost(tester);
+  });
+
+  testWidgets('follows the keyboard up when it opens', (tester) async {
+    sizeSurface(tester);
+    await pumpHost(tester, resizeToAvoidBottomInset: false, onShow: show);
+    await showBar(tester);
+    expect(
+      barRect(tester).bottom,
+      closeTo(screenHeight - navBar - AppSpacing.lg, 0.01),
+    );
+
+    sizeSurface(tester, keyboardInset: keyboard);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      barRect(tester).bottom,
+      closeTo(screenHeight - keyboard - AppSpacing.lg, 0.01),
+      reason: 'the bar re-anchors above the IME on the frame it appears',
+    );
+
+    await disposeHost(tester);
+  });
+
+  testWidgets('keeps the toolbar offset while riding the keyboard', (
+    tester,
+  ) async {
+    sizeSurface(tester, keyboardInset: keyboard);
+    await pumpHost(
+      tester,
+      resizeToAvoidBottomInset: false,
+      onShow: (context) =>
+          CustomSnackbar.show(context, message, withToolbarOffset: true),
+    );
+    await showBar(tester);
+    expect(
+      barRect(tester).bottom,
+      closeTo(screenHeight - keyboard - AppSpacing.toolbarOffset, 0.01),
+      reason: 'the editor bar sits on the IME, so the pill clears both',
+    );
+
+    sizeSurface(tester);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(
+      barRect(tester).bottom,
+      closeTo(screenHeight - navBar - AppSpacing.toolbarOffset, 0.01),
+    );
+
+    await disposeHost(tester);
+  });
 
   testWidgets('lifts a bar shown from the page State context', (tester) async {
     sizeSurface(tester, keyboardInset: keyboard);
@@ -159,13 +254,15 @@ void main() {
     final notResizing = barRect(tester);
 
     expect(
-      notResizing,
-      resizing,
+      notResizing.bottom,
+      closeTo(resizing.bottom, 0.01),
       reason:
-          'with no IME both Scaffolds anchor at size.height - viewPadding.bottom '
-          '(scaffold.dart:1238-1241) and the lift is zero, so the branch the fix '
-          'adds must be invisible',
+          'with no IME the Scaffold anchors at size.height - viewPadding.bottom '
+          '(scaffold.dart:1238-1241) and the overlay road clears the same '
+          'navigation bar, so the two roads put the pill at one height',
     );
+    expect(notResizing.left, closeTo(resizing.left, 0.01));
+    expect(notResizing.right, closeTo(resizing.right, 0.01));
     expect(
       notResizing.bottom,
       closeTo(screenHeight - navBar - AppSpacing.lg, 0.01),
@@ -191,6 +288,34 @@ void main() {
 
     expect(find.text('OPEN'), findsOneWidget);
     expect(barRect(tester).bottom, lessThanOrEqualTo(screenHeight - keyboard));
+
+    await disposeHost(tester);
+  });
+
+  testWidgets('the action takes an overlay bar down with it', (tester) async {
+    var opened = 0;
+    sizeSurface(tester, keyboardInset: keyboard);
+    await pumpHost(
+      tester,
+      resizeToAvoidBottomInset: false,
+      onShow: (context) => CustomSnackbar.showWithAction(
+        context,
+        message: message,
+        actionLabel: 'Open',
+        onAction: () => opened++,
+      ),
+    );
+    await showBar(tester);
+
+    await tester.tap(find.text('OPEN'));
+    await tester.pump();
+
+    expect(opened, 1);
+    expect(
+      find.byType(OverlaySnackbarBody),
+      findsNothing,
+      reason: 'the confirming tap must not leave the bar lingering',
+    );
 
     await disposeHost(tester);
   });

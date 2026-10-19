@@ -13,6 +13,7 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/markdown_bar_service.dart';
+import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
@@ -356,6 +357,47 @@ void main() {
 
       await closeDiscarding(tester);
     });
+  });
+
+  // Y2: the wrapper's taps read real focus, so the rendering must too — an
+  // unbound builder counted as focused and drew the caret line raw while a
+  // tap on it still toggled the box.
+  testWidgets('the caret line reveals only while the editor has focus', (
+    tester,
+  ) async {
+    await openSheet(tester, initialText: '- [ ] squat');
+    final controller = controllerOf(tester);
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+    final focus = tester
+        .widget<ModernEditorWrapper>(find.byType(ModernEditorWrapper))
+        .focusNode;
+
+    bool paintsBox() {
+      final span = controller.buildTextSpan(
+        context: tester.element(find.byType(CodeEditor)),
+        index: 0,
+        textSpan: TextSpan(text: controller.codeLines[0].text),
+        style: const TextStyle(fontSize: 16),
+      );
+      var found = false;
+      span.visitChildren((child) {
+        if (child is EditorCheckboxSpan) found = true;
+        return !found;
+      });
+      return found;
+    }
+
+    expect(focus.hasFocus, isTrue, reason: 'the sheet opens ready to type');
+    expect(paintsBox(), isFalse, reason: 'focused: the marker shows raw');
+
+    focus.unfocus();
+    await tester.pump();
+    expect(paintsBox(), isTrue, reason: 'unfocused: the box is drawn');
+
+    await tapClose(tester);
   });
 
   testWidgets('Done is disabled past the limit and comes back under it', (

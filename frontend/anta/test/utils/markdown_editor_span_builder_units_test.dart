@@ -7,7 +7,9 @@ import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
 import 'package:anta/utils/markdown_editor_span_cache.dart';
 import 'package:anta/utils/markdown_inline_grammar.dart';
+import 'package:anta/utils/markdown_link_patterns.dart';
 import 'package:anta/utils/money_display_config.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
@@ -124,6 +126,47 @@ void main() {
           reason: 'root fontFamily must not move between reveal states: $where',
         );
 
+        // A caret at the line's end sits past every list marker, so a
+        // task keeps its painted box on the caret line — a third reveal
+        // state, under the same code-unit and line-height rules.
+        controller.selection = CodeLineSelection.collapsed(
+          index: index,
+          offset: entry.line.length,
+        );
+        final tail = builder.build(
+          context: _renderContext,
+          index: index,
+          codeLine: controller.codeLines[index],
+        );
+        expect(
+          tail == null,
+          off == null,
+          reason: 'handled-ness must not depend on the caret offset: $where',
+        );
+        if (tail != null) {
+          _expectCodeUnits(entry.line, tail, '$where [caret at end]');
+          expect(
+            tail.runtimeType,
+            off.runtimeType,
+            reason: 'root span type must not follow the caret: $where',
+          );
+          expect(
+            tail.style?.fontSize,
+            off?.style?.fontSize,
+            reason: 'root fontSize must not follow the caret: $where',
+          );
+          expect(
+            tail.style?.height,
+            off?.style?.height,
+            reason: 'root height must not follow the caret: $where',
+          );
+          expect(
+            tail.style?.fontFamily,
+            off?.style?.fontFamily,
+            reason: 'root fontFamily must not follow the caret: $where',
+          );
+        }
+
         controller.selection = const CodeLineSelection.collapsed(
           index: 0,
           offset: 0,
@@ -192,6 +235,29 @@ void main() {
         render.span.style?.fontSize,
         _baseStyle.fontSize! * MarkdownConstants.h3Scale,
       );
+    });
+
+    test('a closing hash run conceals with the leading hashes', () {
+      expect(_renderOffCaret('## Week 3 ##').visibleText, 'Week 3');
+      expect(_renderOffCaret('## Week 3 ##  ').visibleText, 'Week 3');
+      expect(_renderOffCaret('## Title##').visibleText, 'Title##');
+    });
+
+    test('a closing hash run dims on reveal like the leading hashes', () {
+      final pair = _renderBothStates('## Week 3 ##', money: false);
+      expect(pair.on.visibleText, '## Week 3 ##');
+      expect(_concealedRuns(pair.on.span), isEmpty);
+      final lead = pair.on.leaves.first.style;
+      final close = pair.on.leaves.last.style;
+      expect(pair.on.leaves.last.text, endsWith('##'));
+      expect(close?.color, lead?.color);
+      expect(close?.fontSize, lead?.fontSize);
+      expect(pair.off.visibleText, 'Week 3');
+    });
+
+    test('a spaced rule renders as a rule, never as a bullet', () {
+      expect(_renderOffCaret('- - -').visibleText, '─ ─ ─');
+      expect(_renderOffCaret('* * *').visibleText, '─ ─ ─');
     });
 
     test('an emphasis-wrapped diff row conceals its count', () {
@@ -503,29 +569,38 @@ void main() {
       );
     });
 
-    // `|` is reserved for an alias form that does not exist yet, so a
-    // title holding one is not a wiki link at all: nothing conceals and
-    // nothing tints, and the line is left to the plain-text fallback.
-    test('an aliased title renders as plain source', () {
+    test('an aliased link shows only the alias, in the link style', () {
+      final render = _renderOffCaret('[[Squat Day|legs]]');
+      expect(render.visibleText, 'legs');
       expect(
-        _buildOffCaret('[[a|b]]'),
+        _concealedRuns(render.span),
+        <String>['[[Squat Day|', ']]'],
+        reason: 'the title and the pipe join the concealed chrome',
+      );
+      final alias = render.leaves.single;
+      expect(alias.style?.color, _renderContext.primary);
+      expect(
+        alias.style?.decoration?.contains(TextDecoration.underline),
+        isTrue,
+      );
+
+      final pair = _renderBothStates('[[Squat Day|legs]]', money: false);
+      expect(pair.on.visibleText, '[[Squat Day|legs]]');
+      expect(_concealedRuns(pair.on.span), isEmpty);
+    });
+
+    test('a blank alias shows the title', () {
+      final render = _renderOffCaret('[[a| ]]');
+      expect(render.visibleText, 'a');
+      expect(_concealedRuns(render.span), <String>['[[', '| ]]']);
+    });
+
+    test('a second pipe leaves the construct plain source', () {
+      expect(
+        _buildOffCaret('[[a|b|c]]'),
         isNull,
         reason: 'a line with no construct on it is declined outright',
       );
-
-      final render = _renderOffCaret('**b** [[a|b]]');
-      expect(render.visibleText, 'b [[a|b]]');
-      expect(_concealedRuns(render.span), <String>['**', '**']);
-      final aliased = render.leaves.singleWhere(
-        (leaf) => leaf.text.contains('|'),
-      );
-      expect(aliased.text, ' [[a|b]]');
-      expect(aliased.style?.color, _renderContext.baseColor);
-      expect(
-        aliased.style?.decoration ?? TextDecoration.none,
-        TextDecoration.none,
-      );
-      expect(aliased.style?.fontWeight, isNot(FontWeight.bold));
     });
 
     test('a ghost in the title keeps the brackets visible', () {
@@ -547,20 +622,75 @@ void main() {
       }
     });
 
-    test('an image bang before a wiki link stays ambient', () {
+    test("an embed's bang becomes the dimmed picture glyph", () {
+      final dim = _renderContext.baseColor.withValues(alpha: _dimAlpha);
       final render = _renderOffCaret('![[a]]');
-      expect(render.visibleText, '!a');
+      expect(render.visibleText, '${MarkdownLinkPatterns.imageGlyph}a');
       expect(_concealedRuns(render.span), <String>['[[', ']]']);
-      final bang = render.leaves.first;
-      expect(bang.text, '!');
-      expect(bang.style?.color, _renderContext.baseColor);
-      expect(
-        bang.style?.decoration ?? TextDecoration.none,
-        TextDecoration.none,
-      );
+      final glyph = render.leaves.first;
+      expect(glyph.text, MarkdownLinkPatterns.imageGlyph);
+      expect(glyph.style?.color, dim);
       final title = render.leaves.last;
       expect(title.text, 'a');
       expect(title.style?.color, _renderContext.primary);
+
+      final pair = _renderBothStates('![[a]]', money: false);
+      expect(pair.on.visibleText, '![[a]]');
+      expect(pair.on.leaves.first.text, '!');
+      expect(pair.on.leaves.first.style?.color, dim);
+    });
+
+    test('an image shows the glyph and its alt dimmed, chrome concealed', () {
+      final dim = _renderContext.baseColor.withValues(alpha: _dimAlpha);
+      final render = _renderOffCaret('a ![leg day](https://x.y/a.png "T") b');
+      expect(
+        render.visibleText,
+        'a ${MarkdownLinkPatterns.imageGlyph}leg day b',
+      );
+      expect(_concealedRuns(render.span), <String>[
+        '[',
+        '](https://x.y/a.png "T")',
+      ]);
+      final alt = render.leaves.singleWhere((leaf) => leaf.text == 'leg day');
+      expect(alt.style?.color, dim);
+      expect(
+        alt.style?.decoration ?? TextDecoration.none,
+        TextDecoration.none,
+        reason: 'an image is not a link: no underline, no zone',
+      );
+
+      final pair = _renderBothStates('![a](u)', money: false);
+      expect(pair.on.visibleText, '![a](u)');
+      expect(_concealedRuns(pair.on.span), isEmpty);
+    });
+
+    test('an image with an empty alt is the glyph alone', () {
+      final render = _renderOffCaret('a ![](https://x.y/a.png) b');
+      expect(render.visibleText, 'a ${MarkdownLinkPatterns.imageGlyph} b');
+      expect(_concealedRuns(render.span), <String>[
+        '[',
+        '](https://x.y/a.png)',
+      ]);
+    });
+
+    test('an angle autolink conceals its brackets and tints the inside', () {
+      final render = _renderOffCaret('see <https://x.y> now');
+      expect(render.visibleText, 'see https://x.y now');
+      expect(_concealedRuns(render.span), <String>['<', '>']);
+      final url = render.leaves.singleWhere(
+        (leaf) => leaf.text == 'https://x.y',
+      );
+      expect(url.style?.color, _renderContext.primary);
+      expect(url.style?.decoration?.contains(TextDecoration.underline), isTrue);
+    });
+
+    test("a link's title is concealed with its destination", () {
+      final render = _renderOffCaret('[t](https://x.com/s "Guide")');
+      expect(render.visibleText, 't');
+      expect(_concealedRuns(render.span), <String>[
+        '[',
+        '](https://x.com/s "Guide")',
+      ]);
     });
 
     test('a wiki link inside bold takes the weight and the link colour', () {
@@ -585,6 +715,41 @@ void main() {
       expect(title.text, '**a**');
       expect(title.style?.color, _renderContext.primary);
       expect(title.style?.fontWeight, isNot(FontWeight.bold));
+    });
+  });
+
+  group('entities and hard breaks', () {
+    test("an entity's ampersand shows the decoded character", () {
+      final render = _renderOffCaret('a &copy; b &#x2014;');
+      expect(render.visibleText, 'a © b —');
+      expect(_concealedRuns(render.span), <String>['copy;', '#x2014;']);
+    });
+
+    test('an entity reads as its dimmed source on reveal', () {
+      final pair = _renderBothStates('a &amp; b', money: false);
+      expect(pair.on.visibleText, 'a &amp; b');
+      expect(_concealedRuns(pair.on.span), isEmpty);
+    });
+
+    test('an unknown entity stays plain source', () {
+      expect(_buildOffCaret('a &nope; b'), isNull);
+    });
+
+    test('a trailing backslash is concealed off-caret and dim on reveal', () {
+      final pair = _renderBothStates(r'next line\', money: false);
+      expect(pair.off.visibleText, 'next line');
+      expect(_concealedRuns(pair.off.span), <String>[r'\']);
+      expect(pair.on.visibleText, r'next line\');
+      expect(_concealedRuns(pair.on.span), isEmpty);
+    });
+
+    test('an escaped trailing backslash keeps its escaped half', () {
+      final render = _renderOffCaret(r'a\\');
+      expect(render.visibleText, r'a\');
+    });
+
+    test('a line that is only a backslash stays plain source', () {
+      expect(_buildOffCaret(r'\'), isNull);
     });
   });
 
@@ -817,6 +982,151 @@ void main() {
     }
   });
 
+  // E6 + E5: on the caret line a task's box stays painted until the caret
+  // enters its marker, and an unfocused editor reveals nothing at all.
+  group('the box on the caret line', () {
+    /// Builds [line] (with [below] after it) under [selectionOn], which
+    /// receives the line's index, on a builder bound to [focus] when one
+    /// is given.
+    _Render renderUnder(
+      String line,
+      CodeLineSelection Function(int index) selectionOn, {
+      List<String> below = const <String>[],
+      FocusNode? focus,
+      ValueListenable<bool>? findActive,
+    }) {
+      final controller = CodeLineEditingController.fromText(
+        <String>[_pad, line, ...below, _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()
+        ..bind(controller)
+        ..bindFocus(focus)
+        ..bindRevealWhenUnfocused(findActive);
+      controller.selection = selectionOn(1);
+      final span = builder.build(
+        context: _renderContext,
+        index: 1,
+        codeLine: controller.codeLines[1],
+      );
+      expect(span, isNotNull, reason: 'expected a styled span for: $line');
+      _expectCodeUnits(line, span!, 'caret line: $line');
+      final leaves = _visibleLeaves(span);
+      return (
+        span: span,
+        leaves: leaves,
+        visibleText: leaves.map((leaf) => leaf.text).join(),
+      );
+    }
+
+    CodeLineSelection caretAt(int offset) =>
+        CodeLineSelection.collapsed(index: 1, offset: offset);
+
+    EditorCheckboxSpan? boxOf(_Render render) => render.leaves
+        .map((leaf) => leaf.span)
+        .whereType<EditorCheckboxSpan>()
+        .firstOrNull;
+
+    const line = '- [ ] squat **5x5**';
+
+    test('a caret past the marker keeps the box and reveals the content', () {
+      final render = renderUnder(line, (_) => caretAt(line.length));
+      expect(boxOf(render), isNotNull, reason: 'the box stays painted');
+      expect(
+        render.visibleText,
+        '￼ squat **5x5**',
+        reason: 'the marker conceals as off-caret, the content stays raw',
+      );
+    });
+
+    test('a caret inside the marker reveals it raw', () {
+      for (final offset in const [0, 3, 5]) {
+        final render = renderUnder(line, (_) => caretAt(offset));
+        expect(boxOf(render), isNull, reason: 'caret at $offset');
+        expect(render.visibleText, line, reason: 'caret at $offset');
+      }
+    });
+
+    // Enter continues `- [ ] ` with the caret at contentStart; a raw
+    // marker there would turn into the box under the first typed letter.
+    test('a caret at contentStart keeps the box painted', () {
+      expect(boxOf(renderUnder(line, (_) => caretAt(6))), isNotNull);
+      expect(boxOf(renderUnder('- [ ] ', (_) => caretAt(6))), isNotNull);
+    });
+
+    test('a caret inside the indent keeps the box', () {
+      const nested = '  - [ ] squat';
+      expect(boxOf(renderUnder(nested, (_) => caretAt(1))), isNotNull);
+      expect(boxOf(renderUnder(nested, (_) => caretAt(2))), isNull);
+    });
+
+    test('a range selection over the line reveals the marker raw', () {
+      final render = renderUnder(
+        line,
+        (index) => CodeLineSelection(
+          baseIndex: index,
+          baseOffset: 8,
+          extentIndex: index,
+          extentOffset: line.length,
+        ),
+      );
+      expect(boxOf(render), isNull);
+      expect(render.visibleText, line);
+    });
+
+    test('an indeterminate parent keeps its visual on the caret line', () {
+      final render = renderUnder(
+        '- [ ] parent',
+        (_) => caretAt('- [ ] parent'.length),
+        below: const <String>['  - [x] a', '  - [ ] b'],
+      );
+      expect(boxOf(render)?.visual, EditorCheckboxVisual.indeterminate);
+    });
+
+    test('an unfocused editor renders the caret line off-caret', () {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      expect(focus.hasFocus, isFalse);
+      final unfocused = renderUnder(line, (_) => caretAt(0), focus: focus);
+      expect(
+        unfocused.visibleText,
+        _renderOffCaret(line).visibleText,
+        reason: 'no focus, no reveal — even with the caret in the marker',
+      );
+      expect(boxOf(unfocused), isNotNull);
+    });
+
+    // Y1: find selects its match while the search field holds focus.
+    test('an active find session reveals the match line unfocused', () {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      const link = '[video](https://youtube.com/x)';
+      final findActive = ValueNotifier<bool>(true);
+      addTearDown(findActive.dispose);
+      CodeLineSelection match(int index) => CodeLineSelection(
+        baseIndex: index,
+        baseOffset: 16,
+        extentIndex: index,
+        extentOffset: 23,
+      );
+      final searching = renderUnder(
+        link,
+        match,
+        focus: focus,
+        findActive: findActive,
+      );
+      expect(searching.visibleText, link, reason: 'the url shows raw');
+      findActive.value = false;
+      final closed = renderUnder(
+        link,
+        match,
+        focus: focus,
+        findActive: findActive,
+      );
+      expect(closed.visibleText, _renderOffCaret(link).visibleText);
+    });
+  });
+
   group('money parse is memoised', () {
     test('parses once per distinct line text', () {
       final controller = CodeLineEditingController.fromText(
@@ -1034,10 +1344,18 @@ const Map<int, String> _substitutions = <int, String>{
   0x25CE: '!', // ◎ — `$!` marker, and the `$!` target op glyph
   0x0394: '?^~', // Δ — `$?` / `$^` / `$~` markers with a value slot
   0x2212: '-', // − — `$-` op glyph
-  0x00D7: '*', // × — `$*` op glyph
+  0x00D7: '*&', // × — `$*` op glyph, and `&times;`
   0x00F7: '/', // ÷ — `$/` op glyph
+  // an HTML entity's `&` shows its decoded character (the corpus's)
+  0x00A9: '&', // © — `&copy;`, `&#169;`
+  0x2014: '&', // — — `&mdash;`, `&#x2014;`
+  0x00A0: '&', // no-break space — `&nbsp;`
+  0x003C: '&', // < — `&lt;`
   0x0021: r'$', // ! — money error row marker
-  0xFFFC: r'[$?^~!:', // placeholder run — checkbox, money chip, op glyph
+  0x25A3: '!', // ▣ — an image's or an embed's `!` (the picture glyph)
+  // placeholder run — checkbox (off-caret, and on the caret line while
+  // the caret is past the marker), money chip, op glyph
+  0xFFFC: r'[$?^~!:',
 };
 
 /// One visible piece of a built line: a text leaf that is not concealed,
@@ -1293,6 +1611,10 @@ final List<_Case> _corpus = <_Case>[
   const _Case('indented heading', '  ## Indented heading'),
   const _Case('heading with inline runs', '## **Bold** and `code` #tag'),
   const _Case('inline code inside a heading', '## a `code` b'),
+  const _Case('closing hashes', '## Week 3 ##'),
+  const _Case('closing hashes with trailing blanks', '### Title   ###  '),
+  const _Case('glued closing hashes', '## Title##'),
+  const _Case('only closing hashes', '## ##'),
 
   // Emphasis / code / strike / highlight.
   const _Case('bold', 'a **bold** b'),
@@ -1320,8 +1642,26 @@ final List<_Case> _corpus = <_Case>[
   const _Case('inline link', 'see [the docs](https://example.com/a) now'),
   const _Case('bare https url', 'see https://example.com/a now'),
   const _Case('bare www url', 'see www.example.com/a now'),
-  const _Case('image stays raw', '![alt](https://example.com/a.png)'),
+  const _Case(
+    'image chrome behind the picture glyph',
+    '![alt](https://example.com/a.png)',
+  ),
+  const _Case('image mid line with a title', 'a ![x](u "t") b'),
+  const _Case('image with an empty alt', 'a ![](https://x.y/a.png) b'),
   const _Case('link inside emphasis', '*see [docs](https://example.com)*'),
+  const _Case('link with a title', '[t](https://x.com/s "Guide")'),
+  const _Case(
+    'link with balanced parens',
+    '[w](https://en.wikipedia.org/wiki/Foo_(bar)) x',
+  ),
+  const _Case('link with an angle destination', '[t](<a b>)'),
+  const _Case(
+    'bare url with balanced parens',
+    'https://en.wikipedia.org/wiki/Squat_(exercise).',
+  ),
+  const _Case('angle autolink', 'see <https://x.y> now'),
+  const _Case('angle email autolink', '<me@example.com>'),
+  const _Case('angle brackets around prose', 'a <b> c'),
 
   // Wiki links: `[[` and `]]` conceal like a link's brackets, the title
   // is literal, and every shape the grammar refuses has to survive as
@@ -1338,8 +1678,11 @@ final List<_Case> _corpus = <_Case>[
   const _Case('wiki link tight against a ghost', '[[a]]{{g}}'),
   const _Case('wiki link beside a link and a tag', '[[a]] and [b](c) and #t'),
   const _Case('wiki link followed by parens', '[[a]](b)'),
-  const _Case('image bang before a wiki link', '![[a]]'),
-  const _Case('an aliased title is literal', '[[a|b]]'),
+  const _Case('embed before a wiki link', '![[a]]'),
+  const _Case('aliased wiki link', '[[a|b]]'),
+  const _Case('aliased embed', 'x ![[a|b]] y'),
+  const _Case('wiki link with a blank alias', '[[a| ]]'),
+  const _Case('a second pipe is literal', '[[a|b|c]]'),
   const _Case('a ghost in the title is literal', '[[a {{g}} b]]'),
   const _Case('escaped wiki open is literal', r'\[[a]]'),
   const _Case('wiki link inside a code span is literal', '`[[a]]`'),
@@ -1372,6 +1715,9 @@ final List<_Case> _corpus = <_Case>[
   // Tags.
   const _Case('tag', 'lifting #legs today'),
   const _Case('nested tag', 'lifting #gym/legs today'),
+  const _Case('nested digit-led tag', 'run #program/5x5 today'),
+  const _Case('digit-led tags', 'did #5x5 and #1rm'),
+  const _Case('all-digit hash is not a tag', 'set #123 done'),
   const _Case('hash mid word is not a tag', 'issue no#42 today'),
 
   // Quotes, callouts, rules.
@@ -1433,6 +1779,10 @@ final List<_Case> _corpus = <_Case>[
   const _Case('rule asterisks', '***'),
   const _Case('rule underscores', '_____'),
   const _Case('rule with trailing space', '---  '),
+  const _Case('spaced rule dashes', '- - -'),
+  const _Case('spaced rule asterisks', '* * *'),
+  const _Case('spaced rule underscores', '_ _ _'),
+  const _Case('mixed-spacing rule', '  -  --\t-'),
 
   // Lists and tasks.
   const _Case('bullet dash', '- squat'),
@@ -1483,6 +1833,16 @@ final List<_Case> _corpus = <_Case>[
   const _Case('escaped hash', r'\#not a tag'),
   const _Case('escaped brace before ghost', r'a \{{ x }} b'),
   const _Case('escaped backslash', r'a \\ b'),
+  const _Case('named entities', 'a &copy; b &nbsp;c &lt;d'),
+  const _Case('numeric entities', '&#169; and &#x2014; and &times;'),
+  const _Case('entity in bold', '**&mdash;**'),
+  const _Case('unknown entity', '&nope; AT&T'),
+  const _Case('trailing backslash', r'next line\'),
+  const _Case('escaped trailing backslash', r'a\\'),
+  const _Case('hard break in a list item', r'- item\'),
+  const _Case('hard break in a quote', r'> quoted\'),
+  const _Case('romanian quotes around underscores', '„_foarte greu_“'),
+  const _Case('digit-flanked stars', 'Squat 3*10, Bench 3*8'),
 
   // Fences.
   const _Case('fence open', '```dart'),

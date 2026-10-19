@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import 'package:anta/widgets/overlay_snackbar.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -236,10 +238,14 @@ void main() {
     );
 
     // No sheet is up, so it takes its turn with the page's other notices —
-    // and wears their close button.
-    final bar = find.ancestor(of: countdown, matching: find.byType(SnackBar));
+    // and wears their close button. The calendar page lays itself out around
+    // the keyboard, so its notices ride the overlay road.
+    final bar = find.ancestor(
+      of: countdown,
+      matching: find.byType(OverlaySnackbarBody),
+    );
     expect(bar, findsOneWidget);
-    expect(tester.widget<SnackBar>(bar).showCloseIcon, isTrue);
+    expect(tester.widget<OverlaySnackbarBody>(bar).showCloseIcon, isTrue);
   });
 
   testWidgets('an alert saved from the detail sheet says when it is next due, '

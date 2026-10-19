@@ -65,7 +65,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showCursorLine = false;
   bool _autoBreakLongLines = true;
   bool _previewWhenKeyboardHidden = false;
-  bool _scrollCursorOnKeyboard = false;
+  bool _scrollCursorOnKeyboard = SettingsKeys.defaultScrollCursorOnKeyboard;
 
   // Deprecated preview settings
   bool _previewModeEnabled = false;

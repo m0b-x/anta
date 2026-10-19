@@ -32,23 +32,25 @@ class MarkdownConstants {
 
   // Heading scale factors
   //
-  // Set against the 16 px body: h1 22, h2 18, h3 17, h4 and below at the
-  // base size. Both surfaces read these, so preview and live editor cannot
-  // size a heading differently.
-  static const double h1Scale = 1.375;
-  static const double h2Scale = 1.125;
-  static const double h3Scale = 1.0625;
-  static const double h4Scale = 1.0;
+  // Set against the 16 px body: h1 24, h2 20.8, h3 18.4, h4 16.8, h5 and
+  // h6 at the base size. The old 22 / 18 / 17 / 16 steps were too close to
+  // the body for a heading to read as structure at a glance. Both surfaces
+  // read these, so preview and live editor cannot size a heading
+  // differently.
+  static const double h1Scale = 1.5;
+  static const double h2Scale = 1.3;
+  static const double h3Scale = 1.15;
+  static const double h4Scale = 1.05;
   static const double h5Scale = 1.0;
   static const double h6Scale = 1.0;
 
-  /// The weight every heading renders at, on both surfaces. Bold at these
-  /// scales reads as a shout; the mock draws medium.
-  static const FontWeight headingWeight = FontWeight.w500;
+  /// The weight every heading renders at, on both surfaces: semibold, so
+  /// the base-size h5 and h6 still stand apart from body text.
+  static const FontWeight headingWeight = FontWeight.w600;
 
   /// Heading scale in the live editor — the same factors the preview
-  /// reads, so the two surfaces size a heading identically. H4 and below
-  /// sit at the base size and distinguish themselves by colour instead
+  /// reads, so the two surfaces size a heading identically. H5 and H6
+  /// sit at the base size and distinguish themselves by colour as well
   /// (see the span builder's header branch).
   static double editorHeaderScale(int level) => switch (level) {
     1 => h1Scale,
@@ -137,6 +139,45 @@ class MarkdownConstants {
       (codeUnit >= 0x3A && codeUnit <= 0x40) ||
       (codeUnit >= 0x5B && codeUnit <= 0x60) ||
       (codeUnit >= 0x7B && codeUnit <= 0x7E);
+
+  /// The named HTML entities the inline grammar decodes, each to one
+  /// BMP code unit. A fixed, short list of what notes actually carry
+  /// (pasted web text, typography, units) rather than HTML's 2,000-odd
+  /// names: an unknown name stays literal on every surface.
+  static const Map<String, int> htmlEntities = <String, int>{
+    'amp': 0x26,
+    'lt': 0x3C,
+    'gt': 0x3E,
+    'quot': 0x22,
+    'apos': 0x27,
+    'nbsp': 0xA0,
+    'copy': 0xA9,
+    'reg': 0xAE,
+    'trade': 0x2122,
+    'deg': 0xB0,
+    'plusmn': 0xB1,
+    'times': 0xD7,
+    'divide': 0xF7,
+    'hellip': 0x2026,
+    'mdash': 0x2014,
+    'ndash': 0x2013,
+    'euro': 0x20AC,
+    'pound': 0xA3,
+    'yen': 0xA5,
+    'cent': 0xA2,
+    'sect': 0xA7,
+    'para': 0xB6,
+    'middot': 0xB7,
+    'laquo': 0xAB,
+    'raquo': 0xBB,
+    'frac12': 0xBD,
+    'frac14': 0xBC,
+    'frac34': 0xBE,
+    'sup2': 0xB2,
+    'sup3': 0xB3,
+    'micro': 0xB5,
+    'bull': 0x2022,
+  };
 
   /// Accent for money-ledger additions (`$+`), in a light/dark variant.
   /// Shared by the preview renderer and the live editor so the two

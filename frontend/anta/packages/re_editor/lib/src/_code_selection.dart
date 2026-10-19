@@ -406,6 +406,13 @@ class _CodeSelectionGestureDetectorState
   void _onMobileLongPressedStart(Offset position) {
     final CodeLineRange? range = render?.selectWord(position: position);
     if (range == null) {
+      // No word under the finger — an empty line always, blank space or
+      // punctuation often. The caret still goes where the press is, or
+      // the toolbar the press ends with pastes at the old caret.
+      _selectPosition(position, _SelectionChangedCause.tapUp);
+      _anchorSelection = widget.controller.selection;
+      widget.selectionOverlayController.hideHandle();
+      widget.selectionOverlayController.hideToolbar();
       return;
     }
     final CodeLineSelection selection = CodeLineSelection.fromRange(
@@ -654,6 +661,14 @@ abstract class _SelectionOverlayController {
 
   void hideToolbar();
 
+  /// Hides the toolbar while the editor scrolls under it, remembering
+  /// whether it was up so [restoreToolbarAfterScroll] can bring it back.
+  void hideToolbarForScroll();
+
+  /// Brings back a toolbar [hideToolbarForScroll] took away, when the
+  /// selection it served is still there to act on.
+  void restoreToolbarAfterScroll(BuildContext context);
+
   void dispose();
 }
 
@@ -697,6 +712,16 @@ class _DesktopSelectionOverlayController
   }
 
   @override
+  void hideToolbarForScroll() {
+    hideToolbar();
+  }
+
+  /// A desktop toolbar is a context menu opened at the pointer; once the
+  /// text scrolled away from that point it stays closed.
+  @override
+  void restoreToolbarAfterScroll(BuildContext context) {}
+
+  @override
   void dispose() {}
 }
 
@@ -712,6 +737,12 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
 
   bool _inited = false;
   bool _handlesVisible = false;
+
+  // Whether the toolbar is up, where it was last asked for, and whether a
+  // scroll is what took it down.
+  bool _toolbarShown = false;
+  Offset? _toolbarPosition;
+  bool _toolbarHiddenByScroll = false;
 
   final ValueNotifier<bool> _effectiveStartHandleVisibility =
       ValueNotifier<bool>(false);
@@ -798,7 +829,45 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
 
   @override
   void hideToolbar() {
+    _toolbarShown = false;
+    _toolbarHiddenByScroll = false;
     onHideToolbar();
+  }
+
+  @override
+  void hideToolbarForScroll() {
+    final bool wasShown = _toolbarShown;
+    hideToolbar();
+    _toolbarHiddenByScroll = wasShown;
+  }
+
+  /// Only for a selection: a caret's toolbar (Paste) was for the spot that
+  /// was tapped, and a selection scrolled wholly out of view has nothing
+  /// on screen to anchor to — the platform text fields behave the same.
+  @override
+  void restoreToolbarAfterScroll(BuildContext context) {
+    if (!_toolbarHiddenByScroll) {
+      return;
+    }
+    _toolbarHiddenByScroll = false;
+    final Offset? position = _toolbarPosition;
+    if (position == null ||
+        controller.selection.isCollapsed ||
+        !(_startInViewport?.value == true || _endInViewport?.value == true)) {
+      return;
+    }
+    showToolbar(context, position);
+  }
+
+  /// Shows the toolbar again with anchors measured from the current
+  /// selection, for a toolbar action that changed it ("Select all")
+  /// without dismissing the toolbar.
+  void refreshToolbar(BuildContext context) {
+    final Offset? position = _toolbarPosition;
+    if (position == null) {
+      return;
+    }
+    showToolbar(context, position);
   }
 
   @override
@@ -807,6 +876,9 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
     if (render == null) {
       return;
     }
+    _toolbarShown = true;
+    _toolbarHiddenByScroll = false;
+    _toolbarPosition = globalPosition;
     globalPosition = _clampPosition(globalPosition);
     final Rect editingRegion = Rect.fromPoints(
       render.localToGlobal(Offset.zero),
@@ -1462,6 +1534,8 @@ class _MobileSelectionToolbarController
     Rect? renderRect,
     required LayerLink layerLink,
     required ValueNotifier<bool> visibility,
+    VoidCallback? onRefresh,
+    VoidCallback? onDismiss,
   }) {
     hide(context);
     final OverlayState? overlay = Overlay.maybeOf(context, rootOverlay: true);
@@ -1477,19 +1551,22 @@ class _MobileSelectionToolbarController
           context: context,
           anchors: anchors,
           controller: controller,
-          onDismiss: () {
-            hide(context);
-          },
-          onRefresh: () {
-            show(
-              context: context,
-              controller: controller,
-              anchors: anchors,
-              renderRect: renderRect,
-              layerLink: layerLink,
-              visibility: visibility,
-            );
-          },
+          onDismiss: onDismiss ??
+              () {
+                hide(context);
+              },
+          onRefresh: onRefresh ??
+              () {
+                show(
+                  context: context,
+                  controller: controller,
+                  anchors: anchors,
+                  renderRect: renderRect,
+                  layerLink: layerLink,
+                  visibility: visibility,
+                  onDismiss: onDismiss,
+                );
+              },
         ),
       ),
     );

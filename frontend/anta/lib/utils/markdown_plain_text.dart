@@ -107,7 +107,16 @@ class MarkdownPlainText {
       out.write(MarkdownCalloutSyntax.labelFor(lead.type));
       if (lead.title.isNotEmpty) {
         out.write(' ');
-        _inline(line, lead.titleStart, line.length, out, palette, ghosts, 0);
+        _inline(
+          line,
+          lead.titleStart,
+          line.length,
+          out,
+          palette,
+          ghosts,
+          0,
+          false,
+        );
       }
       return;
     }
@@ -140,7 +149,16 @@ class MarkdownPlainText {
 
     final heading = MarkdownLineShape.headingAt(line);
     if (heading != null) {
-      _inline(line, heading.contentStart, line.length, out, palette, ghosts, 0);
+      _inline(
+        line,
+        heading.contentStart,
+        heading.contentEnd,
+        out,
+        palette,
+        ghosts,
+        0,
+        false,
+      );
       return;
     }
 
@@ -209,20 +227,39 @@ class MarkdownPlainText {
         : '';
     final labelEnd = match.labelEnd < contentEnd ? match.labelEnd : contentEnd;
 
+    // A row is one line, so a trailing `\` is label text.
     if (match.labelStart < match.amountStart) {
       _spaced(out, () {
-        _inline(line, match.labelStart, labelEnd, out, palette, ghosts, 0);
+        _inline(
+          line,
+          match.labelStart,
+          labelEnd,
+          out,
+          palette,
+          ghosts,
+          0,
+          false,
+        );
       });
       if (amount.isNotEmpty) _spaced(out, () => out.write(amount));
       _spaced(out, () {
-        _inline(line, match.amountEnd, contentEnd, out, palette, ghosts, 0);
+        _inline(
+          line,
+          match.amountEnd,
+          contentEnd,
+          out,
+          palette,
+          ghosts,
+          0,
+          false,
+        );
       });
       return;
     }
 
     if (amount.isNotEmpty) _spaced(out, () => out.write(amount));
     _spaced(out, () {
-      _inline(line, match.labelStart, labelEnd, out, palette, ghosts, 0);
+      _inline(line, match.labelStart, labelEnd, out, palette, ghosts, 0, false);
     });
   }
 
@@ -234,7 +271,8 @@ class MarkdownPlainText {
 
   /// Emits `[start, end)` with every inline marker dropped, walking the
   /// tokens [MarkdownInlineGrammar.tokenize] reports and recursing into
-  /// the ranges it declares nested.
+  /// the ranges it declares nested. [hardBreaks] is false on a heading, a
+  /// callout title and a money row, which keep a trailing `\` as text.
   static void _inline(
     String text,
     int start,
@@ -242,8 +280,9 @@ class MarkdownPlainText {
     StringBuffer out,
     MarkdownColorPalette palette,
     List<GhostMatch> ghosts,
-    int depth,
-  ) {
+    int depth, [
+    bool hardBreaks = true,
+  ]) {
     if (start >= end) return;
     final tokens = MarkdownInlineGrammar.tokenize(
       text,
@@ -253,6 +292,14 @@ class MarkdownPlainText {
       palette: palette,
       depth: depth,
     );
+    // A hard break's `\` is chrome at the end of the source line only,
+    // as on both render surfaces.
+    if (hardBreaks &&
+        depth == 0 &&
+        end == text.length &&
+        MarkdownInlineGrammar.endsWithHardBreak(text, start, end, tokens)) {
+      end--;
+    }
     if (tokens.isEmpty) {
       out.write(text.substring(start, end));
       return;
@@ -269,22 +316,26 @@ class MarkdownPlainText {
           break;
         case InlineEscape():
           out.write(text.substring(token.charStart, token.end));
+        case InlineEntity():
+          out.write(token.decoded);
         case InlineCode():
           out.write(text.substring(token.innerStart, token.innerEnd));
+        // An image reads as its alt text, the caption both render
+        // surfaces show beside the picture glyph.
         case InlineLink():
-          if (!token.isImage) {
-            _inline(
-              text,
-              token.textStart,
-              token.textEnd,
-              out,
-              palette,
-              ghosts,
-              depth + 1,
-            );
-          }
+          _inline(
+            text,
+            token.textStart,
+            token.textEnd,
+            out,
+            palette,
+            ghosts,
+            depth + 1,
+          );
         case InlineWikiLink():
-          out.write(token.titleOf(text));
+          out.write(token.displayOf(text));
+        case InlineAutolink():
+          out.write(text.substring(token.innerStart, token.innerEnd));
         case InlineColor():
           _inline(
             text,

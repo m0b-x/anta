@@ -456,6 +456,17 @@ class _CodeEditorState extends State<CodeEditor> {
                 renderRect: renderRect,
                 layerLink: _toolbarLayerLink,
                 visibility: _effectiveToolbarVisibility,
+                onRefresh: () {
+                  final _SelectionOverlayController overlay =
+                      _selectionOverlayController;
+                  if (overlay is _MobileSelectionOverlayController) {
+                    overlay.refreshToolbar(context);
+                  }
+                },
+                // Through the overlay, which forgets the toolbar was up;
+                // the toolbar controller's own hide would leave the scroll
+                // restore armed.
+                onDismiss: () => _selectionOverlayController.hideToolbar(),
               );
             },
             onHideToolbar: () {
@@ -653,6 +664,28 @@ class _CodeEditorState extends State<CodeEditor> {
             if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
               return KeyEventResult.ignored;
             }
+            // A hardware keyboard's paste and history chords: this branch
+            // builds no `Shortcuts`, so without this Ctrl+V never reached
+            // the controller (or a host's list-aware paste). Editable
+            // intents all three, so a read-only editor resolves none.
+            final Intent? command = _touchCommandIntent(event.logicalKey);
+            if (command != null) {
+              if (readOnly) {
+                return KeyEventResult.ignored;
+              }
+              final Action<Intent>? override =
+                  widget.shortcutOverrideActions?[command.runtimeType];
+              if (override != null && override.isEnabled(command)) {
+                const ActionDispatcher().invokeAction(override, command);
+              } else if (command is CodeShortcutPasteIntent) {
+                _editingController.paste();
+              } else if (command is CodeShortcutUndoIntent) {
+                _editingController.undo();
+              } else {
+                _editingController.redo();
+              }
+              return KeyEventResult.handled;
+            }
             if (event.logicalKey == LogicalKeyboardKey.backspace) {
               if (readOnly) {
                 return KeyEventResult.ignored;
@@ -735,6 +768,29 @@ class _CodeEditorState extends State<CodeEditor> {
 
   void _updateWidget() {
     setState(() {});
+  }
+
+  /// The intent a Ctrl (or Cmd) chord stands for on a touch platform's
+  /// hardware keyboard: V pastes, Z undoes, Shift+Z and Y redo. Alt held
+  /// too is AltGr on many layouts — a character, not a command.
+  Intent? _touchCommandIntent(LogicalKeyboardKey key) {
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    if (!(keyboard.isControlPressed || keyboard.isMetaPressed) ||
+        keyboard.isAltPressed) {
+      return null;
+    }
+    if (key == LogicalKeyboardKey.keyV) {
+      return const CodeShortcutPasteIntent();
+    }
+    if (key == LogicalKeyboardKey.keyZ) {
+      return keyboard.isShiftPressed
+          ? const CodeShortcutRedoIntent()
+          : const CodeShortcutUndoIntent();
+    }
+    if (key == LogicalKeyboardKey.keyY) {
+      return const CodeShortcutRedoIntent();
+    }
+    return null;
   }
 
   void _handleSemanticsTap() {

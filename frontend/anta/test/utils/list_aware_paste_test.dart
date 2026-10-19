@@ -1,4 +1,6 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/utils/list_aware_paste.dart';
 
@@ -103,6 +105,16 @@ void main() {
       }
     });
 
+    test('a spaced rule caret line lends no bullet to a paste', () {
+      for (final rule in const <String>['- - -', '* * *']) {
+        expect(
+          pasteInto(rule, 'a\nb'),
+          'a\nb',
+          reason: 'continued a rule as a list: "$rule"',
+        );
+      }
+    });
+
     test('a paste whose only extra line is blank', () {
       // Nothing to continue onto: the blank line ends the list before the
       // first sibling would be created.
@@ -151,6 +163,119 @@ void main() {
       // A blank line ends a markdown list, so everything past it pastes
       // raw — including lines that look continuable again.
       expect(pasteInto('- item', 'a\nb\n\nc\nd'), 'a\n- b\n\nc\nd');
+    });
+
+    test('one trailing line break is dropped, not left as a bare line', () {
+      // A list copied whole ends with its last line's break; kept, the
+      // caret would land on an unmarked line under the new items.
+      expect(pasteInto('- x', 'a\nb\n'), 'a\n- b');
+      expect(pasteInto('- x', 'a\r\nb\r\n'), 'a\n- b');
+      // Two breaks are a blank line, which ends the list; what follows it
+      // pastes as written, its closing break included.
+      expect(pasteInto('- x', 'a\nb\n\n'), 'a\n- b\n\n');
+    });
+
+    test('a tail past a blank line keeps its closing line break', () {
+      expect(pasteInto('- x', 'a\nb\n\npara\n'), 'a\n- b\n\npara\n');
+      expect(pasteInto('- x', 'a\nb\n\npara'), 'a\n- b\n\npara');
+    });
+  });
+
+  /// The keyboard's own paste key: a multi-line `edit()` holding the input
+  /// method's view of the base line with the clipboard spliced in.
+  group('the keyboard\'s paste key', () {
+    ListAwarePasteController controllerOf(
+      String text, {
+      bool Function(int lineIndex)? isFenceLine,
+    }) {
+      final controller = ListAwarePasteController(
+        delegate: CodeLineEditingController.fromText(text),
+        isFenceLine: isFenceLine,
+      );
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    void commit(ListAwarePasteController controller, String lineText) {
+      controller.edit(
+        TextEditingValue(
+          text: lineText,
+          selection: TextSelection.collapsed(offset: lineText.length),
+        ),
+      );
+    }
+
+    test('continues the caret item, as one undo step', () {
+      final controller = controllerOf('- a');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 3,
+      );
+
+      commit(controller, '- aX\nY');
+
+      expect(controller.text, '- aX\n- Y');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 1, offset: 3),
+      );
+      controller.undo();
+      expect(controller.text, '- a');
+    });
+
+    test('leaves a paste outside a list to the editor', () {
+      final controller = controllerOf('a');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 1,
+      );
+
+      commit(controller, 'aX\nY');
+
+      expect(controller.text, 'aX\nY');
+    });
+
+    test('leaves a fenced list line alone', () {
+      final controller = controllerOf('- a', isFenceLine: (_) => true);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 3,
+      );
+
+      commit(controller, '- aX\nY');
+
+      expect(controller.text, '- aX\nY');
+    });
+
+    test('a paste over a selection across lines keeps both directions '
+        'whole', () {
+      // Over a selection the transform bails, and the editor's own cut of
+      // the commit applies: forward the base line's prefix, backward its
+      // suffix, each held once.
+      final forward = controllerOf('- abc\n- def');
+      forward.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 3,
+        extentIndex: 1,
+        extentOffset: 3,
+      );
+      commit(forward, '- aX\nY');
+      expect(forward.text, '- aX\nYef');
+
+      final backward = controllerOf('- abc\n- def');
+      backward.selection = const CodeLineSelection(
+        baseIndex: 1,
+        baseOffset: 3,
+        extentIndex: 0,
+        extentOffset: 3,
+      );
+      backward.edit(
+        const TextEditingValue(
+          text: 'X\nYef',
+          selection: TextSelection.collapsed(offset: 3),
+        ),
+      );
+      expect(backward.text, '- aX\nYef');
     });
   });
 }

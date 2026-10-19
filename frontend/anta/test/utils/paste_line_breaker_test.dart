@@ -247,6 +247,32 @@ void main() {
         isFalse,
       );
     });
+
+    test('a list item inside the range is never broken', () {
+      // A tail cut off an item would fall out of the list as plain text;
+      // the editor wraps the item under its hanging indent instead.
+      const items = <String>[
+        '- a bullet item long enough to need several width lines',
+        '  2. a nested ordered item that is far too long as well',
+        '- [ ] a task item that would also overflow the width',
+      ];
+      final lines = <String>[...items, longLine];
+      final text = lines.join('\n');
+      final controller = CodeLineEditingController.fromText(text);
+
+      final result = runOn(
+        controller,
+        endIndex: 3,
+        endOffset: longLine.length,
+        pastedLength: text.length,
+      );
+
+      expect(result.linesModified, 1);
+      for (int i = 0; i < items.length; i++) {
+        expect(controller.codeLines[i].text, items[i]);
+      }
+      expect(controller.codeLines[3].text, isNot(longLine));
+    });
   });
 
   group('measuring an over-wide line', () {
@@ -260,6 +286,28 @@ void main() {
 
       expect(result.linesModified, 1);
       expect(EditorWidthCalculator.debugLayoutCount, 26);
+    });
+  });
+
+  group('protected ranges through the breaker', () {
+    test('an aliased wiki link is never split at its blanks', () {
+      const alias = '[[Squat Progression|my squat log]]';
+      final result = newCalculator().breakLinesSmartly([
+        'see $alias for the plan',
+      ], width);
+
+      expect(result.linesModified, 1);
+      expect(result.lines, contains(alias));
+    });
+
+    test('a url with balanced parens stays whole', () {
+      const url = 'https://en.wikipedia.org/wiki/Squat_(exercise)';
+      final result = newCalculator().breakLinesSmartly([
+        'read $url before the squat session',
+      ], width);
+
+      expect(result.linesModified, 1);
+      expect(result.lines, contains(url));
     });
   });
 
@@ -309,10 +357,10 @@ void main() {
 
   group('where the caret lands after a reflow', () {
     test('it follows the pasted text, not the end of the block', () {
-      // `tail` was already on the line; the paste went in before it. The
-      // caret belongs where the pasted text ends, which after the reflow
-      // is the end of its last piece — not past a suffix the user did not
-      // type.
+      // ` tail` was already on the line; the paste went in before it. Only
+      // the pasted text is reflowed, so ` tail` stays joined to its last
+      // piece, space and all, and the caret sits where the pasted text
+      // ends — not past a suffix the user did not type.
       final controller = CodeLineEditingController.fromText(' tail');
       controller.selection = const CodeLineSelection.collapsed(
         index: 0,
@@ -333,10 +381,39 @@ void main() {
       expect(result.reformatted, isTrue);
       expect(
         [for (final line in controller.codeLines.toList()) line.text],
-        ['wwww xxxx', 'yyyy zzzz', 'aaaa bbbb', 'tail'],
+        ['wwww xxxx', 'yyyy zzzz', 'aaaa bbbb tail'],
       );
       expect(controller.selection.baseIndex, 2);
       expect(controller.selection.baseOffset, 'aaaa bbbb'.length);
+    });
+
+    test("a paste's trailing space survives and keeps the suffix apart", () {
+      // `yyyy zzzzz ` is over the width only by its space: broken as is,
+      // the break lands on that space, the piece drops it, and `next` was
+      // glued to `zzzzz`.
+      final controller = CodeLineEditingController.fromText('next');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      const pasted = 'wwww xxxx yyyy zzzzz ';
+      controller.replaceSelection(pasted);
+
+      final result = PasteLineBreaker.run(
+        controller: controller,
+        calculator: newCalculator(),
+        availableWidth: width,
+        pasteEnd: controller.selection.extent,
+        pastedLength: pasted.length,
+      );
+
+      expect(result.reformatted, isTrue);
+      expect(
+        [for (final line in controller.codeLines.toList()) line.text],
+        ['wwww xxxx', 'yyyy zzzzz next'],
+      );
+      expect(controller.selection.baseIndex, 1);
+      expect(controller.selection.baseOffset, 'yyyy zzzzz '.length);
     });
 
     test('a last line the breaker skipped keeps the caret where it was', () {
@@ -389,12 +466,47 @@ void main() {
         pastedLength: pastedLength,
       );
 
-      // The range is [0, 1]: both halves of the split line are over-long,
-      // and the line the paste never reached stays whole.
-      expect(result.linesModified, 2);
-      expect(controller.codeLines.last.text, longLine);
+      // The range is [0, 1], and only its pasted span is reflowed: the
+      // first half's own text stays whole and `ab` breaks off it, while
+      // the second half's old text stays joined to `cd`, over-long or
+      // not. The line the paste never reached stays whole.
+      expect(result.linesModified, 1);
+      expect(
+        [for (final line in controller.codeLines.toList()) line.text],
+        ['alpha bravo', 'ab', 'cd${longLine.substring(12)}', longLine],
+      );
+      expect(controller.selection.baseIndex, 2);
+      expect(controller.selection.baseOffset, 2);
     });
 
+    test('text before the paste on its first line is never broken', () {
+      // The line already overflowed before the paste reached its end; a
+      // reflow of the pasted text must not rewrap the user's own line.
+      final controller = CodeLineEditingController.fromText(longLine);
+      controller.selection = CodeLineSelection.collapsed(
+        index: 0,
+        offset: longLine.length,
+      );
+      const pasted = ' wwww xxxx yyyy zzzz aaaa';
+      final beforeLength = controller.textLength;
+      controller.replaceSelection(pasted);
+
+      final result = PasteLineBreaker.run(
+        controller: controller,
+        calculator: newCalculator(),
+        availableWidth: width,
+        pasteEnd: controller.selection.extent,
+        pastedLength: controller.textLength - beforeLength,
+      );
+
+      expect(result.reformatted, isTrue);
+      expect(
+        [for (final line in controller.codeLines.toList()) line.text],
+        [longLine, 'wwww xxxx', 'yyyy zzzz', 'aaaa'],
+      );
+      expect(controller.selection.baseIndex, 3);
+      expect(controller.selection.baseOffset, 'aaaa'.length);
+    });
     test('a single-line paste covers the caret line only', () {
       final controller = CodeLineEditingController.fromText('hello\n$longLine');
       controller.selection = const CodeLineSelection.collapsed(
@@ -628,11 +740,13 @@ void main() {
     test('the reformatted corpus is byte-identical to the unseeded output', () {
       // Golden captured from the implementation before the entry-measure
       // removal and the `findBreakPoint` seed. Neither may move a single
-      // code unit of the output.
+      // code unit of the output. The task item has been left whole since
+      // list items stopped being width-broken; every other line is
+      // the original capture.
       final calculator = newCalculator();
       final result = calculator.breakLinesSmartly(_corpus, width);
 
-      expect(result.linesModified, 10);
+      expect(result.linesModified, 9);
       expect(result.lines, _corpusGolden);
     });
   });
@@ -710,13 +824,7 @@ const List<String> _corpusGolden = <String>[
   'uvwxy',
   'zabcd',
   'efghi',
-  '- [ ]',
-  'squat 5x5',
-  '@100kg and',
-  'then some',
-  'more text',
-  'to force a',
-  'break',
+  '- [ ] squat 5x5 @100kg and then some more text to force a break',
   '> quoted line long enough to need several width lines of space',
   '| a | b | c | d | e | f | g | h | i | j | k | l | m | n | o |',
   'x',

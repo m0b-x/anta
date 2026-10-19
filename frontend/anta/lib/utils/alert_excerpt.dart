@@ -53,7 +53,9 @@ String _plainLine(String line) {
   final quote = MarkdownCalloutSyntax.quoteMarkers(text);
   if (quote != null) text = text.substring(quote.contentStart);
   final heading = MarkdownLineShape.headingAt(text);
-  if (heading != null) text = text.substring(heading.contentStart);
+  if (heading != null) {
+    text = text.substring(heading.contentStart, heading.contentEnd);
+  }
   final item = MarkdownListSyntax.parse(text);
   if (item != null) text = item.content;
   return _collapseSpaces(_plainInline(text.trim()));
@@ -97,12 +99,13 @@ String _plainInline(String text) {
 
 String _plainToken(String text, InlineToken token) => switch (token) {
   InlineEscape() => text.substring(token.start + 1, token.end),
+  InlineEntity() => token.decoded,
   InlineGhost() => '',
   InlineCode() => text.substring(token.innerStart, token.innerEnd),
-  InlineLink() => token.isImage
-      ? ''
-      : _plainInline(text.substring(token.textStart, token.textEnd)),
-  InlineWikiLink() => text.substring(token.titleStart, token.titleEnd),
+  // An image reads as its alt text, as MarkdownPlainText prints it.
+  InlineLink() => _plainInline(text.substring(token.textStart, token.textEnd)),
+  InlineWikiLink() => token.displayOf(text),
+  InlineAutolink() => text.substring(token.innerStart, token.innerEnd),
   InlineColor() => _plainInline(
     text.substring(token.innerStart, token.innerEnd),
   ),

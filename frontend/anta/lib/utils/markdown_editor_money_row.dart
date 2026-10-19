@@ -372,7 +372,8 @@ class EditorMoneyRowBuilder {
     // marker. Featured as a tinted chip on display rows, dimmed and
     // unfilled on op rows and `$=`/`$!` declarations, mirroring the
     // preview's pill/annotation split. On reveal the slot stays literal
-    // text so the user edits real source.
+    // text so the user edits real source. A row is one line, so a
+    // trailing `\` is label text, never a hard break.
     void emitLabelRegion(int from, int to) {
       if (from >= to) return;
       if (hasSlot && !reveal && slot >= from && slot < to) {
@@ -388,6 +389,7 @@ class EditorMoneyRowBuilder {
             ghosts: ghosts,
             out: children,
             depth: 0,
+            hardBreaks: false,
           );
         }
         children.add(
@@ -418,6 +420,7 @@ class EditorMoneyRowBuilder {
             ghosts: ghosts,
             out: children,
             depth: 0,
+            hardBreaks: false,
           );
         }
       } else {
@@ -432,6 +435,7 @@ class EditorMoneyRowBuilder {
           ghosts: ghosts,
           out: children,
           depth: 0,
+          hardBreaks: false,
         );
       }
     }

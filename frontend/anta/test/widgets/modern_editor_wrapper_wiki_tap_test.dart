@@ -230,6 +230,8 @@ void main() {
     tester,
   ) async {
     final e = await pumpEditor(tester, text: wikiDocument);
+    e.focusNode.requestFocus();
+    await tester.pump();
     await park(tester, e.controller, 2);
 
     await tester.tapAt(positionOf(tester, 2, 8));
@@ -238,6 +240,22 @@ void main() {
     expect(e.wikis, isEmpty);
     expect(e.controller.selection.baseIndex, 2);
     expect(e.controller.selection.baseOffset, 8);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an unfocused editor reveals no caret line — its wiki link '
+      'opens', (tester) async {
+    final e = await pumpEditor(tester, text: wikiDocument);
+    await park(tester, e.controller, 2);
+    expect(e.focusNode.hasFocus, isFalse);
+
+    await tester.tapAt(positionOf(tester, 2, 8));
+    await tester.pump();
+
+    expect(e.wikis, ['Squat']);
+    expect(e.controller.selection.baseIndex, 2);
+    expect(e.controller.selection.baseOffset, 0);
+    expect(e.focusNode.hasFocus, isFalse);
     await teardownEditor(tester);
   });
 
@@ -295,14 +313,33 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a piped [[a|b]] is not a wiki link and passes through', (
+  testWidgets('an aliased [[a|bb]] shows the alias and opens the title', (
     tester,
   ) async {
-    // `see [[a|b]] now`: `[` 4, `[` 5, `a` 6, `|` 7. The grammar rejects
-    // the pipe outright, so the whole construct is literal text.
+    // `see [[a|bb]] now`: `[[a|` 4-7 and `]]` 10-11 are concealed, so the
+    // alias `bb` (8-9) paints at columns 4-5, right after `see `.
     final e = await pumpEditor(
       tester,
-      text: 'caret line\nspacer line\nsee [[a|b]] now',
+      text: 'caret line\nspacer line\nsee [[a|bb]] now',
+    );
+    await park(tester, e.controller, 0);
+
+    await tester.tapAt(positionOf(tester, 2, 5));
+    await tester.pump();
+
+    expect(e.wikis, ['a']);
+    expect(e.controller.selection.baseIndex, 0);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a doubly piped [[a|b|c]] is literal and passes through', (
+    tester,
+  ) async {
+    // `see [[a|b|c]] now`: a second pipe refuses the construct, so the
+    // whole run is literal text and every column is its own.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\nspacer line\nsee [[a|b|c]] now',
     );
     await park(tester, e.controller, 0);
 
@@ -312,6 +349,24 @@ void main() {
     expect(e.wikis, isEmpty);
     expect(e.controller.selection.baseIndex, 2);
     expect(e.controller.selection.baseOffset, 6);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an angle autolink opens its inside like a link', (tester) async {
+    // `see <https://x.y> now`: `<` 4 and `>` 16 are concealed, so the
+    // url paints from column 4.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\nspacer line\nsee <https://x.y> now',
+    );
+    await park(tester, e.controller, 0);
+
+    await tester.tapAt(positionOf(tester, 2, 7));
+    await tester.pump();
+
+    expect(e.links, ['https://x.y']);
+    expect(e.wikis, isEmpty);
+    expect(e.controller.selection.baseIndex, 0);
     await teardownEditor(tester);
   });
 

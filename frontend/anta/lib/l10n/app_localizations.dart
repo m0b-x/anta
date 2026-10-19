@@ -3214,6 +3214,132 @@ abstract class AppLocalizations {
   /// **'Header 6'**
   String get header6;
 
+  /// Markdown bar button tooltip: indent the list line one level
+  ///
+  /// In en, this message translates to:
+  /// **'Indent'**
+  String get indentLine;
+
+  /// Markdown bar button tooltip: move the list line one level out
+  ///
+  /// In en, this message translates to:
+  /// **'Outdent'**
+  String get outdentLine;
+
+  /// Highlight shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight'**
+  String get shortcutHighlight;
+
+  /// Callout shortcut label (a > [!NOTE] block)
+  ///
+  /// In en, this message translates to:
+  /// **'Callout'**
+  String get shortcutCallout;
+
+  /// Checked checkbox shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Checked Checkbox'**
+  String get shortcutCheckedCheckbox;
+
+  /// Table shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Table'**
+  String get shortcutTable;
+
+  /// Horizontal rule shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal Rule'**
+  String get shortcutHorizontalRule;
+
+  /// Image shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Image'**
+  String get shortcutImage;
+
+  /// Ghost text shortcut label (a {{ placeholder }} the user fills in later)
+  ///
+  /// In en, this message translates to:
+  /// **'Ghost Text'**
+  String get shortcutGhostText;
+
+  /// Coloured text shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Color Text'**
+  String get shortcutColorText;
+
+  /// Coloured highlight shortcut label
+  ///
+  /// In en, this message translates to:
+  /// **'Color Highlight'**
+  String get shortcutColorHighlight;
+
+  /// Money ledger shortcut label: add an amount
+  ///
+  /// In en, this message translates to:
+  /// **'Money +'**
+  String get shortcutMoneyAdd;
+
+  /// Money ledger shortcut label: subtract an amount
+  ///
+  /// In en, this message translates to:
+  /// **'Money -'**
+  String get shortcutMoneySubtract;
+
+  /// Money ledger shortcut label: multiply the balance
+  ///
+  /// In en, this message translates to:
+  /// **'Money ×'**
+  String get shortcutMoneyMultiply;
+
+  /// Money ledger shortcut label: divide the balance
+  ///
+  /// In en, this message translates to:
+  /// **'Money ÷'**
+  String get shortcutMoneyDivide;
+
+  /// Money ledger shortcut label: set the starting balance
+  ///
+  /// In en, this message translates to:
+  /// **'Money Start'**
+  String get shortcutMoneyStart;
+
+  /// Money ledger shortcut label: show the running total
+  ///
+  /// In en, this message translates to:
+  /// **'Money Total'**
+  String get shortcutMoneyTotal;
+
+  /// Money ledger shortcut label: show the change since a point
+  ///
+  /// In en, this message translates to:
+  /// **'Money Change'**
+  String get shortcutMoneyChange;
+
+  /// Money ledger shortcut label: a target amount
+  ///
+  /// In en, this message translates to:
+  /// **'Money Target'**
+  String get shortcutMoneyTarget;
+
+  /// Money ledger shortcut label: the difference between two amounts
+  ///
+  /// In en, this message translates to:
+  /// **'Money Diff'**
+  String get shortcutMoneyDiff;
+
+  /// Money ledger shortcut label: the total over a span of lines
+  ///
+  /// In en, this message translates to:
+  /// **'Money Span'**
+  String get shortcutMoneySpan;
+
   /// Undo button tooltip
   ///
   /// In en, this message translates to:

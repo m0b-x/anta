@@ -57,3 +57,12 @@ class CodeFieldRenderForTesting {
       .map((CodeLineRenderParagraph p) => p.index)
       .toList(growable: false);
 }
+
+/// Replaces the monotonic clock the controller's typing undo grouping
+/// reads, so a test can put a pause between two keystrokes without
+/// sleeping; `null` restores the real clock. A test that sets it resets
+/// it in a tear-down, since the clock is shared by every controller.
+@visibleForTesting
+set debugUndoGroupingClock(Duration Function()? clock) {
+  _debugUndoGroupingClock = clock;
+}

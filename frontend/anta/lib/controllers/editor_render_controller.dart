@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
@@ -65,6 +66,25 @@ class EditorRenderController {
 
   void bind(CodeLineEditingController controller) {
     _spanBuilder.bind(controller);
+  }
+
+  /// Binds the editor's focus node: the caret line reveals its raw
+  /// markers only while the editor holds focus, the same rule the
+  /// wrapper's taps apply through its own `focusNode`. The node is read at
+  /// layout, which `ModernEditorWrapper` reruns on every focus change, so
+  /// no listener is needed here. `null` unbinds (call it before the node
+  /// is disposed); until a node is bound the editor counts as focused.
+  void bindFocus(FocusNode? node) {
+    _spanBuilder.bindFocus(node);
+  }
+
+  /// Binds the in-note find session as the second reveal input: while it
+  /// is active the selection's lines reveal without focus, because find
+  /// selects its match while the search field holds focus. The wrapper
+  /// takes the same listenable as `revealWhenUnfocused`, so render and
+  /// taps keep agreeing. `null` unbinds.
+  void bindRevealWhenUnfocused(ValueListenable<bool>? listenable) {
+    _spanBuilder.bindRevealWhenUnfocused(listenable);
   }
 
   /// Applies [config] and reports whether it differs from what was

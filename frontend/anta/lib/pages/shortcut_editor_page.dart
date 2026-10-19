@@ -13,6 +13,7 @@ import '../widgets/overlay_snackbar.dart';
 import '../widgets/simple_markdown_preview.dart';
 import '../constants/settings_keys.dart';
 import '../services/settings_service.dart';
+import '../utils/editor_input_policy.dart';
 import '../utils/icon_utils.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_list_utils.dart';
@@ -370,13 +371,37 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
 
       String prevLine = text.substring(prevLineStart, selection.baseOffset - 1);
 
-      if (MarkdownListUtils.isEmptyListItem(prevLine)) {
+      // The note editor's Enter rules, so these fields edit lists and
+      // quotes the way a note does: a bare marker line takes one marker
+      // back (a nested item outdents by the Shift-Tab step, a top-level
+      // one ends into its quote), while an Enter that split content off a
+      // bare marker continues it instead.
+      final lineEnd = text.indexOf('\n', selection.baseOffset);
+      final splitContent =
+          (lineEnd == -1 ? text.length : lineEnd) != selection.baseOffset;
+      final end = splitContent
+          ? null
+          : MarkdownListUtils.emptyLineEnd(prevLine);
+      if (end != null) {
+        final replacement = switch (end) {
+          MarkdownEndMarker(text: final rest) => rest,
+          MarkdownOutdentItem(:final quote, :final item) =>
+            quote +
+                (EditorInputPolicy.listIndent(
+                      lineText: item,
+                      outdent: true,
+                    )?.text ??
+                    item),
+        };
         final newText =
             text.substring(0, prevLineStart) +
+            replacement +
             text.substring(selection.baseOffset);
         controller.value = TextEditingValue(
           text: newText,
-          selection: TextSelection.collapsed(offset: prevLineStart),
+          selection: TextSelection.collapsed(
+            offset: prevLineStart + replacement.length,
+          ),
         );
         if (isBefore) {
           _previousBeforeText = newText;
@@ -387,7 +412,7 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
         return;
       }
 
-      final String? listPrefix = MarkdownListUtils.getListPrefix(prevLine);
+      final String? listPrefix = MarkdownListUtils.continuationPrefix(prevLine);
       if (listPrefix != null) {
         final beforeCursor = text.substring(0, selection.baseOffset);
         final afterCursor = text.substring(selection.baseOffset);

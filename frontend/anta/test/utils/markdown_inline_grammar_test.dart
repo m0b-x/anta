@@ -1,3 +1,4 @@
+import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/ghost_text.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_inline_grammar.dart';
@@ -18,18 +19,29 @@ String describe(InlineToken t, [int shift = 0]) {
   final int s = t.start + shift;
   final int e = t.end + shift;
   if (t is InlineEscape) return 'escape[$s,$e)';
+  if (t is InlineEntity) return 'entity[$s,$e) ${t.decoded}';
   if (t is InlineGhost) return 'ghost[$s,$e)';
   if (t is InlineCode) {
     return 'code[$s,$e) inner[${t.innerStart + shift},${t.innerEnd + shift})';
   }
   if (t is InlineLink) {
     final String kind = t.isImage ? 'image' : 'link';
+    // The destination is named only where it is narrower than the url
+    // range, so every link without a title or angle form reads as before.
+    final String dest = t.destStart == t.urlStart && t.destEnd == t.urlEnd
+        ? ''
+        : ' dest[${t.destStart + shift},${t.destEnd + shift})';
     return '$kind[$s,$e) text[${t.textStart + shift},${t.textEnd + shift}) '
-        'url[${t.urlStart + shift},${t.urlEnd + shift})';
+        'url[${t.urlStart + shift},${t.urlEnd + shift})$dest';
   }
   if (t is InlineWikiLink) {
-    return 'wiki[$s,$e) '
-        'title[${t.titleStart + shift},${t.titleEnd + shift})';
+    final int? alias = t.aliasStart;
+    return '${t.isEmbed ? 'embed' : 'wiki'}[$s,$e) '
+        'title[${t.titleStart + shift},${t.titleEnd + shift})'
+        '${alias == null ? '' : ' alias${alias + shift}'}';
+  }
+  if (t is InlineAutolink) {
+    return '${t.isEmail ? 'email' : 'autolink'}[$s,$e)';
   }
   if (t is InlineColor) {
     return 'color[$s,$e) inner[${t.innerStart + shift},${t.innerEnd + shift})';
@@ -400,6 +412,23 @@ void main() {
       expect(show('https://a.com/x?q=YWI=='), 'url[0,23)');
     });
 
+    test('balanced parentheses stay in a bare url', () {
+      const String line = 'https://en.wikipedia.org/wiki/Squat_(exercise)';
+      expect(show(line), 'url[0,${line.length})');
+      expect(show('$line.'), 'url[0,${line.length})');
+    });
+
+    test('an unbalanced close paren ends a bare url', () {
+      expect(show('(https://x.y).'), 'url[1,12)');
+      expect(show('(see https://x.y/a_(b))'), 'url[5,22)');
+      expect(show('https://x.y/a)b'), 'url[0,13)');
+    });
+
+    test('an unclosed open paren ends a bare url before it', () {
+      expect(show('https://x.y/a(b c'), 'url[0,13)');
+      expect(show('https://x.y/a(b)c(d'), 'url[0,17)');
+    });
+
     test('tagOf and urlOf return the source text', () {
       const String line = '[t](https://x.io) #done';
       final List<InlineToken> tokens = tok(line);
@@ -440,8 +469,39 @@ void main() {
       expect(show('[['), '');
     });
 
-    test('an alias pipe is not part of the title, so the run is literal', () {
-      expect(show('[[a|b]]'), '');
+    test('an alias ends the title at the pipe', () {
+      const String line = '[[Squat Day|leg day]]';
+      expect(show(line), 'wiki[0,21) title[2,11) alias12');
+      final InlineWikiLink w = tok(line).single as InlineWikiLink;
+      expect(w.titleOf(line), 'Squat Day');
+      expect(w.displayOf(line), 'leg day');
+      expect(w.closeStart, 19);
+    });
+
+    test('an empty or blank alias shows the title', () {
+      for (final String line in <String>['[[a|]]', '[[a| ]]']) {
+        final InlineWikiLink w = tok(line).single as InlineWikiLink;
+        expect(w.aliasStart, isNull, reason: line);
+        expect(w.titleOf(line), 'a', reason: line);
+        expect(w.displayOf(line), 'a', reason: line);
+      }
+    });
+
+    test('a blank title before an alias is literal', () {
+      expect(show('[[|b]]'), '');
+      expect(show('[[ |b]]'), '');
+    });
+
+    test('a second pipe leaves the run literal', () {
+      expect(show('[[a|b|c]]'), '');
+    });
+
+    test('an alias is literal and keeps a heading suffix in the title', () {
+      expect(show('[[a#h|**b**]]'), 'wiki[0,13) title[2,5) alias6');
+    });
+
+    test('a ghost inside the alias rejects the wiki link', () {
+      expect(show('[[a|{{g}}]]'), 'ghost[4,9)');
     });
 
     test('a bracket inside the title is literal', () {
@@ -570,9 +630,22 @@ void main() {
       expect(show('[[snake_case]]'), 'wiki[0,14) title[2,12)');
     });
 
-    test('a leading bang is literal, never an image', () {
-      expect(show('![[a]]'), 'wiki[1,6) title[3,4)');
-      expect(show('![[a]](u)'), 'wiki[1,6) title[3,4)');
+    test('a leading bang makes an embed reported from the bang', () {
+      expect(show('![[a]]'), 'embed[0,6) title[3,4)');
+      expect(show('![[a]](u)'), 'embed[0,6) title[3,4)');
+      expect(show('x ![[a|b]] y'), 'embed[2,10) title[5,6) alias7');
+      final InlineWikiLink w = tok('![[a]]').single as InlineWikiLink;
+      expect(w.bracketStart, 1);
+      expect(w.containsStrict(1), isFalse);
+      expect(w.containsStrict(2), isTrue);
+    });
+
+    test('an escaped bang leaves a plain wiki link', () {
+      expect(show(r'\![[a]]'), 'escape[0,2) wiki[2,7) title[4,5)');
+    });
+
+    test('an image whose alt opens with a bracket stays an image', () {
+      expect(show('![[a](b)'), 'image[0,8) text[2,4) url[6,7)');
     });
 
     test('a tag, a wiki link and a url on one line keep their order', () {
@@ -600,6 +673,151 @@ void main() {
       expectRangeEdge('[[a]][[b]]');
       expectRangeEdge('**[[a]]**');
       expectRangeEdge('[[a {{g}} b]]');
+      expectRangeEdge('[[a|b]]');
+      expectRangeEdge('x ![[a|b]] y');
+    });
+  });
+
+  group('angle autolinks', () {
+    test('an http url in angle brackets is an autolink', () {
+      const String line = 'see <https://x.y/a> now';
+      expect(show(line), 'autolink[4,19)');
+      final InlineAutolink a = tok(line).single as InlineAutolink;
+      expect(a.hrefOf(line), 'https://x.y/a');
+    });
+
+    test('mailto, tel and an upper-case scheme are autolinks', () {
+      expect(show('<mailto:a@b.c>'), 'autolink[0,14)');
+      expect(show('<tel:+40700>'), 'autolink[0,12)');
+      expect(show('<HTTPS://X.Y>'), 'autolink[0,13)');
+    });
+
+    test('a bare address opens as mailto', () {
+      const String line = '<me@example.com>';
+      expect(show(line), 'email[0,16)');
+      expect(
+        (tok(line).single as InlineAutolink).hrefOf(line),
+        'mailto:me@example.com',
+      );
+    });
+
+    test('anything else in angle brackets stays literal', () {
+      expect(show('a <b> c'), '');
+      expect(show('x < y > z'), '');
+      expect(show('<javascript:alert(1)>'), '');
+      expect(show('<https:>'), '');
+      expect(show('<>'), '');
+      expect(show('<me@localhost>'), '');
+      expect(show('<a@-b.c>'), '');
+      expect(show('<https://x y>'), 'url[1,10)');
+      expect(show('<https://x.y'), 'url[1,12)');
+    });
+
+    test('an atom inside refuses the autolink', () {
+      expect(show(r'<https://x.y/\_a>'), r'url[1,13) escape[13,15)');
+      expect(show('<https://x{{g}}>'), 'url[1,10) ghost[10,15)');
+    });
+
+    test('the inside is literal: no url, tag or emphasis inside', () {
+      expect(show('<https://x.y/#tag_*a*>'), 'autolink[0,22)');
+    });
+
+    test('emphasis around an autolink rediscovers it inside', () {
+      expect(show('*<https://x.y>*'), 'italic[0,15) inner[1,14)');
+      expect(show('*<https://x.y>*', start: 1, end: 14), 'autolink[1,14)');
+    });
+
+    test('a less-than sign makes a candidate line', () {
+      expect(MarkdownInlineGrammar.hasCandidates('<me@example.com>'), isTrue);
+    });
+
+    test('linksAndTags reports autolinks without descending', () {
+      final List<InlineToken> found = MarkdownInlineGrammar.linksAndTags(
+        '<https://x.y/#a> #t',
+        palette: palette,
+      );
+      expect(render(found), 'autolink[0,16) tag[17,19)');
+    });
+
+    test('sub-ranges of an autolink line match substring tokenization', () {
+      expectRangeEdge('a <https://x.y> b');
+      expectRangeEdge('<me@example.com>');
+    });
+  });
+
+  group('link destinations', () {
+    test('a quoted title is not part of the destination', () {
+      const String line = '[t](https://x.com/s "Guide")';
+      expect(show(line), 'link[0,28) text[1,2) url[4,27) dest[4,19)');
+      expect((tok(line).single as InlineLink).urlOf(line), 'https://x.com/s');
+    });
+
+    test('single-quoted and parenthesised titles', () {
+      expect((tok("[t](u 'T')").single as InlineLink).urlOf("[t](u 'T')"), 'u');
+      expect((tok('[t](u (T))').single as InlineLink).urlOf('[t](u (T))'), 'u');
+    });
+
+    test('balanced parentheses stay in the destination', () {
+      const String line = '[w](https://en.wikipedia.org/wiki/Foo_(bar)) x';
+      final InlineLink l = tok(line).first as InlineLink;
+      expect(l.end, 44);
+      expect(l.urlOf(line), 'https://en.wikipedia.org/wiki/Foo_(bar)');
+      expect(show(line), 'link[0,44) text[1,2) url[4,43)');
+    });
+
+    test('an angle destination opens without its brackets', () {
+      const String line = '[t](<a b>)';
+      expect(show(line), 'link[0,10) text[1,2) url[4,9) dest[5,8)');
+      expect((tok(line).single as InlineLink).urlOf(line), 'a b');
+    });
+
+    test('an unbalanced paren ends the link at the first close', () {
+      const String line = '[a](b(c) d';
+      expect(show(line), 'link[0,8) text[1,2) url[4,7)');
+      expect((tok(line).single as InlineLink).urlOf(line), 'b(c');
+    });
+
+    test('blanks around the destination stay chrome', () {
+      const String line = '[a]( b )';
+      expect(show(line), 'link[0,8) text[1,2) url[4,7) dest[5,6)');
+    });
+
+    test('a destination with a blank and no title opens its first run', () {
+      const String line = '[a](b c)';
+      expect(show(line), 'link[0,8) text[1,2) url[4,7) dest[4,5)');
+      expect((tok(line).single as InlineLink).urlOf(line), 'b');
+    });
+
+    test('a title the reading cannot close never reaches the url', () {
+      const String line = "[G](https://x.y 'Bob's guide') x";
+      expect(show(line), 'link[0,30) text[1,2) url[4,29) dest[4,15)');
+      expect((tok(line).single as InlineLink).urlOf(line), 'https://x.y');
+    });
+
+    test('an escaped quote stays inside its title', () {
+      const String line = r'[t](u "a \" b")';
+      expect(show(line), 'link[0,15) text[1,2) url[4,14) dest[4,5)');
+    });
+
+    test('an image reads its destination the same way', () {
+      const String line = '![a](u "t")';
+      expect(show(line), 'image[0,11) text[2,3) url[5,10) dest[5,6)');
+    });
+
+    test('an image may leave its alt empty, a link may not', () {
+      expect(show('![](u)'), 'image[0,6) text[2,2) url[4,5)');
+      expect(show('a [](u) b'), '');
+      expect(show('![]()'), '');
+    });
+
+    test('a range edge never lets the destination read past it', () {
+      expectRangeEdge('[w](x_(b)) y');
+      expectRangeEdge('[t](u "T") y');
+      expectRangeEdge('x [t](<a b>)');
+      expect(
+        show('**[w](x_(b))**', start: 2, end: 12),
+        'link[2,12) text[3,4) url[6,11)',
+      );
     });
   });
 
@@ -659,8 +877,18 @@ void main() {
       expect(wikiAt('{{ [[a]] }}', 5), isNull);
     });
 
-    test('an aliased title is not a wiki link', () {
-      expect(wikiAt('[[a|b]] x', 3), isNull);
+    test('an aliased link resolves to its title on the alias', () {
+      const String line = '[[a|b]] x';
+      final InlineWikiLink? w = wikiAt(line, 4);
+      expect(w, isNotNull);
+      expect(w!.titleOf(line), 'a');
+      expect(w.displayOf(line), 'b');
+      expect(wikiAt('[[a|b|c]] x', 3), isNull);
+    });
+
+    test("an embed's bang and first bracket are not inside it", () {
+      expect(wikiAt('![[a]]', 1), isNull);
+      expect(wikiAt('![[a]]', 2), isNotNull);
     });
 
     test('an inline link is not a wiki link', () {
@@ -968,6 +1196,9 @@ void main() {
       '![a](b) ![c](d)',
       'a `b` c `d` e',
       '> quoted **line** with #tag',
+      '„_foarte greu_“ and 😀_x_',
+      'Squat 3*10, Bench 3*8',
+      'a &amp; b &#169; &nope; `&lt;`',
     ];
 
     for (final String line in corpus) {
@@ -1223,6 +1454,180 @@ void main() {
       expect(MarkdownInlineGrammar.isWordChar('ș'.codeUnitAt(0)), isTrue);
       expect(MarkdownInlineGrammar.isWordChar(' '.codeUnitAt(0)), isFalse);
       expect(MarkdownInlineGrammar.isWordChar('-'.codeUnitAt(0)), isFalse);
+    });
+
+    test('above 0x7F only letters, digits and marks are word characters', () {
+      expect(MarkdownInlineGrammar.isWordChar('ü'.codeUnitAt(0)), isTrue);
+      expect(MarkdownInlineGrammar.isWordChar('٣'.codeUnitAt(0)), isTrue);
+      expect(MarkdownInlineGrammar.isWordChar(0x0301), isTrue);
+      expect(MarkdownInlineGrammar.isWordChar('𝐀'.runes.single), isTrue);
+      expect(MarkdownInlineGrammar.isWordChar('„'.codeUnitAt(0)), isFalse);
+      expect(MarkdownInlineGrammar.isWordChar('—'.codeUnitAt(0)), isFalse);
+      expect(MarkdownInlineGrammar.isWordChar('«'.codeUnitAt(0)), isFalse);
+      expect(MarkdownInlineGrammar.isWordChar(0xA0), isFalse);
+    });
+  });
+
+  group('underscore flanking past ASCII', () {
+    test('Romanian quotes around underscores italicise', () {
+      expect(show('„_foarte greu_“'), 'italic[1,14) inner[2,13)');
+    });
+
+    test('an em dash before underscores italicises', () {
+      expect(show('—_x_'), 'italic[1,4) inner[2,3)');
+    });
+
+    test('guillemets around underscores italicise', () {
+      expect(show('«_x_»'), 'italic[1,4) inner[2,3)');
+    });
+
+    test('a letter before underscores stays literal', () {
+      expect(show('über_x_'), '');
+      expect(show('aș_x_'), '');
+    });
+
+    test('a surrogate-pair letter before underscores stays literal', () {
+      expect(show('𝐀_x_'), '');
+    });
+
+    test('an emoji before underscores is punctuation', () {
+      expect(show('😀_x_'), 'italic[2,5) inner[3,4)');
+    });
+
+    test('a range edge splits no surrogate pair', () {
+      // The low half alone is no word character, exactly as the range
+      // starting there reads it.
+      expect(show('𝐀_x_', start: 1), 'italic[2,5) inner[3,4)');
+    });
+  });
+
+  group('a star between digits', () {
+    test('2*3*4 is literal', () {
+      expect(show('2*3*4'), '');
+    });
+
+    test('a gym log line stays literal', () {
+      expect(show('Squat 3*10, Bench 3*8'), '');
+    });
+
+    test('one digit side is not enough to block', () {
+      expect(show('2*x*'), 'italic[1,4) inner[2,3)');
+      expect(show('*3*'), 'italic[0,3) inner[1,2)');
+    });
+
+    test('a double star between digits is still bold', () {
+      expect(show('2**3**4'), 'bold[1,6) inner[3,4)');
+    });
+
+    test('underscores between digits keep their own rule', () {
+      expect(show('2_3_4'), '');
+      expect(show('_3_'), 'italic[0,3) inner[1,2)');
+    });
+  });
+
+  group('html entities', () {
+    test('a named entity is one token decoding to one unit', () {
+      final InlineEntity e = tok('&amp;').single as InlineEntity;
+      expect(e.end, 5);
+      expect(e.decoded, '&');
+      expect(show('a &copy; b'), 'entity[2,8) ©');
+    });
+
+    test('decimal and hex references decode', () {
+      expect(show('&#169;'), 'entity[0,6) ©');
+      expect(show('&#xA9;'), 'entity[0,6) ©');
+      expect(show('&#X2014;'), 'entity[0,8) —');
+    });
+
+    test('every table name decodes to a single unit', () {
+      expect(MarkdownConstants.htmlEntities, hasLength(32));
+      MarkdownConstants.htmlEntities.forEach((String name, int char) {
+        final List<InlineToken> tokens = tok('&$name;');
+        expect(tokens.single, isA<InlineEntity>(), reason: name);
+        expect((tokens.single as InlineEntity).char, char, reason: name);
+        expect((tokens.single as InlineEntity).decoded.length, 1);
+      });
+    });
+
+    // A `#` after the `&` may still read as a tag (`&` is a word
+    // boundary); what matters here is that no entity is decoded.
+    void expectNoEntity(String line) =>
+        expect(tok(line).whereType<InlineEntity>(), isEmpty, reason: line);
+
+    test('unknown or malformed entities stay literal', () {
+      for (final String line in const <String>[
+        '&nope;',
+        '&AMP;',
+        '&amp',
+        '& amp;',
+        '&;',
+        '&#;',
+        '&#x;',
+        '&#12a;',
+        'AT&T',
+        '&verylongname;',
+      ]) {
+        expectNoEntity(line);
+      }
+      expect(show('&nope;'), '');
+    });
+
+    test('references outside one printable BMP unit stay literal', () {
+      for (final String line in const <String>[
+        '&#0;',
+        '&#31;',
+        '&#xD800;',
+        '&#xDFFF;',
+        '&#x1F600;',
+        '&#65536;',
+      ]) {
+        expectNoEntity(line);
+      }
+      expect(show('&#32;'), 'entity[0,5)  ');
+    });
+
+    test('an entity inside a code span or a url stays literal', () {
+      expect(show('`&amp;`'), 'code[0,7) inner[1,6)');
+      expect(show('https://a.com/?a=1&amp;b=2'), 'url[0,26)');
+    });
+
+    test('an entity nests in emphasis and link text', () {
+      expect(show('*a &amp; b*', start: 1, end: 10), 'entity[3,8) &');
+      expect(show('[&lt;x](u)', start: 1, end: 6), 'entity[1,5) <');
+    });
+
+    test('an escaped ampersand is not an entity', () {
+      expect(show(r'\&amp;'), 'escape[0,2)');
+    });
+  });
+
+  group('hard breaks', () {
+    bool breaks(String line) => MarkdownInlineGrammar.endsWithHardBreak(
+      line,
+      0,
+      line.length,
+      tok(line),
+    );
+
+    test('a trailing backslash after content is a hard break', () {
+      expect(breaks(r'next line\'), isTrue);
+      expect(breaks(r'a \'), isTrue);
+      expect(breaks(r'**a**\'), isTrue);
+    });
+
+    test('an escaped trailing backslash is not', () {
+      expect(breaks(r'a\\'), isFalse);
+      expect(breaks(r'a\\\'), isTrue);
+    });
+
+    test('a line that is only a backslash is not', () {
+      expect(breaks(r'\'), isFalse);
+      expect(breaks(r'   \'), isFalse);
+    });
+
+    test('a backslash a token covers is not', () {
+      expect(breaks(r'`a\`'), isFalse);
+      expect(breaks('a'), isFalse);
     });
   });
 }

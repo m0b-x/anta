@@ -3,6 +3,7 @@ import 'package:re_editor/re_editor.dart';
 
 import 'markdown_line_shape.dart';
 import 'markdown_list_syntax.dart';
+import 'marker_backspace_policy.dart';
 
 /// Multi-line paste that continues the caret line's list.
 ///
@@ -23,9 +24,14 @@ import 'markdown_list_syntax.dart';
 ///     (a blank line ends a markdown list);
 ///   * the caret line is inside a ``` fence, where list syntax is inert.
 ///
-/// Only the copy/paste toolbar and Ctrl+V reach [paste]; text inserted
-/// by the IME's own paste key arrives as a plain insertion and is left
-/// alone by design.
+/// The copy/paste toolbar and Ctrl+V reach [paste]; the keyboard's own
+/// paste key arrives as a multi-line [edit] and is given the same
+/// transform there.
+///
+/// Being the delegate every edit passes through, it is also where a
+/// Backspace right after a list or quote marker takes the whole marker
+/// ([MarkerBackspacePolicy]), from a hardware key and a soft keyboard
+/// alike.
 class ListAwarePasteController extends CodeLineEditingControllerDelegate {
   ListAwarePasteController({
     required super.delegate,
@@ -39,24 +45,82 @@ class ListAwarePasteController extends CodeLineEditingControllerDelegate {
   final bool Function(int lineIndex)? _isFenceLine;
 
   @override
+  void deleteBackward() {
+    if (!_applyMarkerBackspace()) super.deleteBackward();
+  }
+
+  /// A soft keyboard's Backspace arrives here as a rewrite of the caret
+  /// line, never as [deleteBackward], so the marker rule is applied to
+  /// that shape too; any other single-unit Backspace goes on to the fork,
+  /// which runs its own Backspace rules for it.
+  ///
+  /// A multi-line commit is the keyboard's own paste key (Gboard's
+  /// clipboard strip): it gets the same list continuation as [paste], cut
+  /// out of the commit exactly as the editor cuts it ([imeReplacement]),
+  /// as one undo step. Anything the transform leaves alone goes to the
+  /// fork unchanged.
+  @override
+  void edit(TextEditingValue newValue) {
+    if (isSingleBackspace(newValue) && _applyMarkerBackspace()) return;
+    if (newValue.text.contains('\n') && _applyImePaste(newValue.text)) return;
+    super.edit(newValue);
+  }
+
+  bool _applyImePaste(String committed) {
+    final pasted = imeReplacement(committed);
+    final transformed = _transformAtCaret(pasted);
+    if (transformed == pasted) return false;
+    replaceSelection(transformed);
+    return true;
+  }
+
+  /// [pasted] through [ListAwarePaste.transform] against the caret line.
+  String _transformAtCaret(String pasted) {
+    final sel = selection;
+    final inRange = sel.extentIndex >= 0 && sel.extentIndex < codeLines.length;
+    final caretLine = inRange ? codeLines[sel.extentIndex].text : '';
+    final fenced = inRange && (_isFenceLine?.call(sel.extentIndex) ?? false);
+    return ListAwarePaste.transform(
+      caretLine: caretLine,
+      caretOffset: sel.extentOffset,
+      collapsed: sel.isCollapsed,
+      pasted: pasted,
+      inFence: fenced,
+    );
+  }
+
+  /// Applies [MarkerBackspacePolicy] to the collapsed caret's line as one
+  /// undo step, or returns false to leave the Backspace to the editor. A
+  /// fenced line is inert markdown, so its `- ` is plain text there.
+  bool _applyMarkerBackspace() {
+    final sel = selection;
+    if (!sel.isCollapsed) return false;
+    final index = sel.extentIndex;
+    final lines = codeLines;
+    if (index < 0 || index >= lines.length) return false;
+    if (_isFenceLine?.call(index) ?? false) return false;
+    final line = lines[index];
+    final result = MarkerBackspacePolicy.apply(line.text, sel.extentOffset);
+    if (result == null) return false;
+    runRevocableOp(() {
+      value = CodeLineEditingValue(
+        codeLines: lines.replaceLine(index, line.copyWith(text: result.line)),
+        selection: CodeLineSelection.collapsed(
+          index: index,
+          offset: result.caretOffset,
+        ),
+      );
+    });
+    makeCursorCenterIfInvisible();
+    return true;
+  }
+
+  @override
   void paste() {
     Clipboard.getData(Clipboard.kTextPlain).then((data) {
       final text = data?.text;
       if (text == null || text.isEmpty) return;
-      final sel = selection;
-      final inRange =
-          sel.extentIndex >= 0 && sel.extentIndex < codeLines.length;
-      final caretLine = inRange ? codeLines[sel.extentIndex].text : '';
-      final fenced = inRange && (_isFenceLine?.call(sel.extentIndex) ?? false);
-      replaceSelection(
-        ListAwarePaste.transform(
-          caretLine: caretLine,
-          caretOffset: sel.extentOffset,
-          collapsed: sel.isCollapsed,
-          pasted: text,
-          inFence: fenced,
-        ),
-      );
+      replaceSelection(_transformAtCaret(text));
     });
   }
 }
@@ -84,7 +148,15 @@ class ListAwarePaste {
     final item = MarkdownListSyntax.parse(caretLine);
     if (item == null || caretOffset < item.contentStart) return normalized;
 
-    final lines = normalized.split('\n');
+    // One trailing line break is the copy's own end of line (a list copied
+    // whole ends with one), not a blank line: kept after the last item, it
+    // would leave the caret on a bare unmarked line under the new items.
+    // After a tail pasted as written (past a blank line) it is put back.
+    final trailingBreak = normalized.endsWith('\n');
+    final body = trailingBreak
+        ? normalized.substring(0, normalized.length - 1)
+        : normalized;
+    final lines = body.split('\n');
     var hasContinuation = false;
     for (var i = 1; i < lines.length; i++) {
       final line = lines[i];
@@ -121,6 +193,7 @@ class ListAwarePaste {
       }
       out.write(line.trimLeft());
     }
+    if (stopped && trailingBreak) out.write('\n');
     return out.toString();
   }
 }

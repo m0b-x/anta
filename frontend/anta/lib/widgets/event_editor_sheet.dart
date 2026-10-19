@@ -521,6 +521,11 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// controller-delegate handoff).
   bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
 
+  /// The app-wide haptics setting, resolved with the rest of the sheet's
+  /// settings, so a description box toggled here clicks exactly when one
+  /// in a note does.
+  bool _hapticsEnabled = SettingsKeys.defaultHapticFeedback;
+
   /// Character budget for the description (Calendar Settings). Enforced by
   /// blocking Save, never by truncating — the description is markdown the
   /// user typed, and silently dropping its tail is the one outcome worse
@@ -673,6 +678,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _descriptionEdits.syncLength();
     _descriptionSpanBuilder.bind(_descriptionController);
     _descriptionFocus = FocusNode()..addListener(_onDescriptionFocusChanged);
+    // The wrapper's taps read real focus, so the rendering must too: an
+    // unfocused description shows its caret line rendered, box and all.
+    _descriptionSpanBuilder.bindFocus(_descriptionFocus);
     _descriptionScroll = CodeScrollController();
     _descriptionSearch = ReEditorSearchController()
       ..initialize(_descriptionController);
@@ -796,6 +804,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _descriptionRevision.dispose();
     _descriptionMetricsTick.dispose();
     _descriptionPreviewScroll.dispose();
+    _descriptionSpanBuilder.bindFocus(null);
     _descriptionFocus.dispose();
     _descriptionScroll.dispose();
     _descriptionSearch.dispose();
@@ -1459,6 +1468,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final descriptionLimit = await settings.getEventDescriptionLimit();
     final railStyle = await settings.getCalendarDayRailStyle();
     final alertSettings = await settings.getAlertSettings();
+    final haptics = await settings.getHapticFeedback();
     if (!mounted) return;
     // Both reach the editor surface non-destructively: the span memos are
     // cleared and re_editor is nudged to rebuild its display paragraphs.
@@ -1471,6 +1481,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() {
       _colorPalette = palette;
       _liveMarkdownRendering = liveRendering;
+      _hapticsEnabled = haptics;
       _descriptionLimit = descriptionLimit;
       _dayRailEnabled = railStyle != DayRailStyle.none;
       _timedAlertDefault = alertSettings.timedDefault;
@@ -2109,6 +2120,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           paintGround: false,
           onTextChanged: _descriptionEdits.onTextChanged,
           checkboxTapToggle: _liveMarkdownRendering,
+          hapticsEnabled: _hapticsEnabled,
           // The wrapper's own rail would sit on the last characters of every
           // line (the box has no padding to hold it); the cell draws one in
           // its button gutter instead.
@@ -2333,6 +2345,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             onIncreaseFontSize: () {},
             onSettings: () {},
             onShortcutPressed: _handleDescriptionShortcut,
+            hapticsEnabled: _hapticsEnabled,
           ),
         );
       },

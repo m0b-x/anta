@@ -1856,6 +1856,69 @@ class AppLocalizationsDe extends AppLocalizations {
   String get header6 => 'Überschrift 6';
 
   @override
+  String get indentLine => 'Einzug vergrößern';
+
+  @override
+  String get outdentLine => 'Einzug verringern';
+
+  @override
+  String get shortcutHighlight => 'Hervorheben';
+
+  @override
+  String get shortcutCallout => 'Hinweisblock';
+
+  @override
+  String get shortcutCheckedCheckbox => 'Abgehakt';
+
+  @override
+  String get shortcutTable => 'Tabelle';
+
+  @override
+  String get shortcutHorizontalRule => 'Trennlinie';
+
+  @override
+  String get shortcutImage => 'Bild';
+
+  @override
+  String get shortcutGhostText => 'Platzhalter';
+
+  @override
+  String get shortcutColorText => 'Farbiger Text';
+
+  @override
+  String get shortcutColorHighlight => 'Farbige Markierung';
+
+  @override
+  String get shortcutMoneyAdd => 'Geld +';
+
+  @override
+  String get shortcutMoneySubtract => 'Geld -';
+
+  @override
+  String get shortcutMoneyMultiply => 'Geld ×';
+
+  @override
+  String get shortcutMoneyDivide => 'Geld ÷';
+
+  @override
+  String get shortcutMoneyStart => 'Geld Start';
+
+  @override
+  String get shortcutMoneyTotal => 'Geld Summe';
+
+  @override
+  String get shortcutMoneyChange => 'Geld Änderung';
+
+  @override
+  String get shortcutMoneyTarget => 'Geld Ziel';
+
+  @override
+  String get shortcutMoneyDiff => 'Geld Differenz';
+
+  @override
+  String get shortcutMoneySpan => 'Geld Zeitraum';
+
+  @override
   String get undo => 'Rückgängig';
 
   @override

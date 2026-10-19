@@ -29,6 +29,9 @@ abstract final class SemanticsIds {
   static const String editorToolbar = 'editor-toolbar';
   static const String editorMore = 'editor-more';
 
+  /// A level in the markdown bar's heading menu, 1 to 6.
+  static String editorHeadingLevel(int level) => 'editor-heading-$level';
+
   /// Drawer destinations.
   static const String drawerSettings = 'drawer-settings';
   static const String drawerCalendar = 'drawer-calendar';

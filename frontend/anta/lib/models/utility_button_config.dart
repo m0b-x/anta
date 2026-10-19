@@ -21,11 +21,21 @@ class UtilityButtonId {
   static const String scrollToTop = 'scroll_to_top';
   static const String scrollToBottom = 'scroll_to_bottom';
   static const String counter = 'counter';
+  static const String indent = 'indent';
+  static const String outdent = 'outdent';
 
-  /// Ordered list of all known utility button IDs (default order).
+  /// Ordered list of all known utility button IDs — a new install's order.
+  ///
+  /// A new id may go anywhere here: [UtilityButtonConfig.decode] appends
+  /// the ids a stored layout lacks after the stored ones, so an existing
+  /// user's arrangement is never reshuffled by an update. Indent and
+  /// outdent sit beside undo and redo, where a new install reaches them
+  /// without scrolling the strip past the settings button.
   static const List<String> defaultOrder = [
     undo,
     redo,
+    indent,
+    outdent,
     paste,
     decreaseFont,
     increaseFont,

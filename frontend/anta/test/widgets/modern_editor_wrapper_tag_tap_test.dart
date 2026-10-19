@@ -39,6 +39,7 @@ void main() {
       List<String> tags,
       List<String> links,
       CodeLineEditingController controller,
+      FocusNode focusNode,
     })
   >
   pumpEditor(
@@ -79,7 +80,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    return (tags: tags, links: links, controller: controller);
+    return (
+      tags: tags,
+      links: links,
+      controller: controller,
+      focusNode: focusNode,
+    );
   }
 
   /// The focused editor keeps a cursor-blink timer running, so the tree
@@ -132,6 +138,8 @@ void main() {
     tester,
   ) async {
     final e = await pumpEditor(tester, text: 'see #project now\nsecond');
+    e.focusNode.requestFocus();
+    await tester.pump();
 
     await tester.tapAt(positionOf(tester, 0, 6));
     await tester.pump();
@@ -139,6 +147,23 @@ void main() {
     expect(e.tags, isEmpty);
     expect(e.controller.selection.baseIndex, 0);
     expect(e.controller.selection.baseOffset, 6);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an unfocused editor reveals no caret line — its tag fires', (
+    tester,
+  ) async {
+    // The caret starts at 0:0 on a note nobody is editing yet; the line
+    // it sits on renders concealed, so its tag is a live zone.
+    final e = await pumpEditor(tester, text: 'see #project now\nsecond');
+    expect(e.focusNode.hasFocus, isFalse);
+
+    await tester.tapAt(positionOf(tester, 0, 6));
+    await tester.pump();
+
+    expect(e.tags, ['#project']);
+    expect(e.controller.selection.baseOffset, 0);
+    expect(e.focusNode.hasFocus, isFalse);
     await teardownEditor(tester);
   });
 
@@ -178,6 +203,30 @@ void main() {
     await tester.pump();
 
     expect(e.tags, isEmpty);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a nested tag searches whole and a digit-led tag fires', (
+    tester,
+  ) async {
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\nrun #program/5x5 then #1rm or #123',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 3));
+    await tester.pump();
+    // Inside `5x5`, past the slash.
+    await tester.tapAt(positionOf(tester, 1, 14));
+    await tester.pump();
+    // Inside `#1rm`.
+    await tester.tapAt(positionOf(tester, 1, 24));
+    await tester.pump();
+    // Inside the all-digit `#123`, which stays prose.
+    await tester.tapAt(positionOf(tester, 1, 31));
+    await tester.pump();
+
+    expect(e.tags, ['#program/5x5', '#1rm']);
     await teardownEditor(tester);
   });
 

@@ -67,6 +67,10 @@ class EditorSettings extends Equatable {
   final double editorFontSize;
   final double previewFontSize;
 
+  /// The app-wide haptics switch, carried here so the editor's wrapper and
+  /// toolbar honour it without a read of their own on every tap.
+  final bool hapticFeedback;
+
   /// Not `const`: [toolbarUtilityConfig] defaults to a freshly built list, so
   /// the fill happens in the initializer rather than in a default value. The
   /// list is stored unmodifiable because [defaults] is one shared instance —
@@ -93,6 +97,7 @@ class EditorSettings extends Equatable {
     this.vocabularyTriggerChar = SettingsKeys.defaultVocabularyTriggerChar,
     this.editorFontSize = FontConstants.defaultFontSize,
     this.previewFontSize = FontConstants.defaultFontSize,
+    this.hapticFeedback = SettingsKeys.defaultHapticFeedback,
   }) : toolbarUtilityConfig = List.unmodifiable(
          toolbarUtilityConfig ?? UtilityButtonConfig.defaults(),
        );
@@ -128,6 +133,7 @@ class EditorSettings extends Equatable {
     String? vocabularyTriggerChar,
     double? editorFontSize,
     double? previewFontSize,
+    bool? hapticFeedback,
   }) {
     return EditorSettings(
       noteSwipeEnabled: noteSwipeEnabled ?? this.noteSwipeEnabled,
@@ -154,6 +160,7 @@ class EditorSettings extends Equatable {
           vocabularyTriggerChar ?? this.vocabularyTriggerChar,
       editorFontSize: editorFontSize ?? this.editorFontSize,
       previewFontSize: previewFontSize ?? this.previewFontSize,
+      hapticFeedback: hapticFeedback ?? this.hapticFeedback,
     );
   }
 
@@ -178,5 +185,6 @@ class EditorSettings extends Equatable {
     vocabularyTriggerChar,
     editorFontSize,
     previewFontSize,
+    hapticFeedback,
   ];
 }

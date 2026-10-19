@@ -66,6 +66,28 @@ void main() {
     );
   });
 
+  // A tag tap submits the tag the grammar claimed, `#` and all, so a
+  // nested or digit-led tag must find its note and highlight whole.
+  test('a nested or digit-led tag finds and highlights whole', () async {
+    await notes.createNote(
+      folderId: folder.id,
+      title: 'Session',
+      content: 'Today #Program/5x5 then a #1RM test.',
+    );
+
+    for (final (query, raw) in <(String, String)>[
+      ('#program/5x5', '#Program/5x5'),
+      ('#1rm', '#1RM'),
+    ]) {
+      final results = await search.search(query);
+      expect(results, hasLength(1), reason: query);
+      final contentMatch = results.single.matches.firstWhere(
+        (m) => m.type == SearchMatchType.content,
+      );
+      expect(highlighted(contentMatch), raw);
+    }
+  });
+
   test('a fold in the body keeps the snippet highlight on the query', () async {
     await notes.createNote(
       folderId: folder.id,

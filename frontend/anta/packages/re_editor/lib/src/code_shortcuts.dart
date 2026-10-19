@@ -475,7 +475,8 @@ const Map<CodeShortcutType, List<ShortcutActivator>>
     SingleActivator(LogicalKeyboardKey.keyZ, control: true)
   ],
   CodeShortcutType.redo: [
-    SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true)
+    SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true),
+    SingleActivator(LogicalKeyboardKey.keyY, control: true)
   ],
   CodeShortcutType.lineSelect: [
     SingleActivator(LogicalKeyboardKey.keyL, control: true)
@@ -483,11 +484,13 @@ const Map<CodeShortcutType, List<ShortcutActivator>>
   CodeShortcutType.lineDelete: [
     SingleActivator(LogicalKeyboardKey.keyD, control: true)
   ],
+  // Windows and Linux convention: Ctrl+Backspace / Ctrl+Delete delete a
+  // word (below), so the whole-line deletes take Shift as well.
   CodeShortcutType.lineDeleteForward: [
-    SingleActivator(LogicalKeyboardKey.delete, control: true)
+    SingleActivator(LogicalKeyboardKey.delete, control: true, shift: true)
   ],
   CodeShortcutType.lineDeleteBackward: [
-    SingleActivator(LogicalKeyboardKey.backspace, control: true)
+    SingleActivator(LogicalKeyboardKey.backspace, control: true, shift: true)
   ],
   CodeShortcutType.lineMoveUp: [
     SingleActivator(LogicalKeyboardKey.arrowUp, alt: true)
@@ -505,14 +508,12 @@ const Map<CodeShortcutType, List<ShortcutActivator>>
   CodeShortcutType.cursorMoveBackward: [
     SingleActivator(LogicalKeyboardKey.arrowLeft)
   ],
+  // Ctrl+←/→ move by word on Windows and Linux, not to the line edges as
+  // Cmd+←/→ do on macOS; Home/End reach the line edges.
   CodeShortcutType.cursorMoveLineStart: [
-    SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     SingleActivator(LogicalKeyboardKey.home)
   ],
-  CodeShortcutType.cursorMoveLineEnd: [
-    SingleActivator(LogicalKeyboardKey.arrowRight, control: true),
-    SingleActivator(LogicalKeyboardKey.end)
-  ],
+  CodeShortcutType.cursorMoveLineEnd: [SingleActivator(LogicalKeyboardKey.end)],
   CodeShortcutType.cursorMovePageStart: [
     SingleActivator(LogicalKeyboardKey.arrowUp, control: true),
     SingleActivator(LogicalKeyboardKey.home, control: true)
@@ -522,9 +523,11 @@ const Map<CodeShortcutType, List<ShortcutActivator>>
     SingleActivator(LogicalKeyboardKey.end, control: true)
   ],
   CodeShortcutType.cursorMoveWordBoundaryBackward: [
+    SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true)
   ],
   CodeShortcutType.cursorMoveWordBoundaryForward: [
+    SingleActivator(LogicalKeyboardKey.arrowRight, control: true),
     SingleActivator(LogicalKeyboardKey.arrowRight, alt: true)
   ],
   CodeShortcutType.selectionExtendUp: [
@@ -551,10 +554,15 @@ const Map<CodeShortcutType, List<ShortcutActivator>>
   CodeShortcutType.selectionExtendLineEnd: [
     SingleActivator(LogicalKeyboardKey.end, shift: true)
   ],
+  // The controller's extend-by-word names are reversed (…Forward moves the
+  // extent left, …Backward right), so ← binds Forward here as in the macOS
+  // table; renaming the methods would break the delegate contract instead.
   CodeShortcutType.selectionExtendWordBoundaryForward: [
+    SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true, control: true),
     SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true, alt: true)
   ],
   CodeShortcutType.selectionExtendWordBoundaryBackward: [
+    SingleActivator(LogicalKeyboardKey.arrowRight, shift: true, control: true),
     SingleActivator(LogicalKeyboardKey.arrowRight, shift: true, alt: true)
   ],
   CodeShortcutType.wordDeleteForward: [

@@ -609,6 +609,7 @@ class SettingsService {
     SettingsKeys.vocabularyTriggerChar,
     SettingsKeys.editorFontSize,
     SettingsKeys.previewFontSize,
+    SettingsKeys.hapticFeedback,
   ];
 
   /// Every setting the note editor page needs before it can mount, in one
@@ -705,6 +706,10 @@ class SettingsService {
       previewFontSize: _decodeDouble(
         values[SettingsKeys.previewFontSize],
         FontConstants.defaultFontSize,
+      ),
+      hapticFeedback: _decodeBool(
+        values[SettingsKeys.hapticFeedback],
+        SettingsKeys.defaultHapticFeedback,
       ),
     );
   }
