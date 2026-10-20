@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../constants/json_keys.dart';
+import '../l10n/app_localizations.dart';
 
 /// Operation a [CounterBinding] performs each time its token is expanded.
 enum CounterOp {
@@ -249,6 +250,47 @@ class CustomMarkdownShortcut extends Equatable {
     }
     return const [];
   }
+
+  /// The name to show for this shortcut in the app's language: the bar's
+  /// tooltips, its reorder chips and the settings list all read it, so
+  /// none of them can show the stored English seed to a German or
+  /// Romanian user. Built-ins cannot be renamed, so their stored [label] is
+  /// only ever the seed's; a user's own shortcut keeps the label they gave.
+  String localizedLabel(AppLocalizations l10n) => switch (id) {
+    'default_bold' => l10n.bold,
+    'default_italic' => l10n.italic,
+    'default_header' => l10n.headers,
+    'default_point_list' => l10n.pointList,
+    'default_strikethrough' => l10n.strikethrough,
+    'default_highlight' => l10n.shortcutHighlight,
+    'default_bullet_list' => l10n.bulletList,
+    'default_numbered_list' => l10n.numberedList,
+    'default_checkbox' => l10n.checkbox,
+    'default_quote' => l10n.quote,
+    'default_callout' => l10n.shortcutCallout,
+    'default_inline_code' => l10n.inlineCode,
+    'default_code_block' => l10n.codeBlock,
+    'default_link' => l10n.link,
+    'default_checked_checkbox' => l10n.shortcutCheckedCheckbox,
+    'default_table' => l10n.shortcutTable,
+    'default_horizontal_rule' => l10n.shortcutHorizontalRule,
+    'default_image' => l10n.shortcutImage,
+    'default_date' => l10n.currentDate,
+    'default_ghost' => l10n.shortcutGhostText,
+    'default_color_text' => l10n.shortcutColorText,
+    'default_color_highlight' => l10n.shortcutColorHighlight,
+    'default_money' => l10n.shortcutMoneyAdd,
+    'default_money_subtract' => l10n.shortcutMoneySubtract,
+    'default_money_multiply' => l10n.shortcutMoneyMultiply,
+    'default_money_divide' => l10n.shortcutMoneyDivide,
+    'default_money_set' => l10n.shortcutMoneyStart,
+    'default_money_total' => l10n.shortcutMoneyTotal,
+    'default_money_delta' => l10n.shortcutMoneyChange,
+    'default_money_target' => l10n.shortcutMoneyTarget,
+    'default_money_diff' => l10n.shortcutMoneyDiff,
+    'default_money_span' => l10n.shortcutMoneySpan,
+    _ => label,
+  };
 
   Map<String, dynamic> toJson() {
     return {

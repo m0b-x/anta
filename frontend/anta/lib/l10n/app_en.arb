@@ -1888,7 +1888,7 @@
       }
     }
   },
-  "deleteFolder": "Delete Folder",
+  "deleteFolder": "Delete folder",
   "@deleteFolder": {
     "description": "Delete folder dialog title"
   },
@@ -1917,7 +1917,7 @@
   "@rename": {
     "description": "Rename button text"
   },
-  "renameFolder": "Rename Folder",
+  "renameFolder": "Rename folder",
   "@renameFolder": {
     "description": "Rename folder dialog title"
   },
@@ -1933,7 +1933,7 @@
   "@noteNotFound": {
     "description": "Error shown when a note action cannot find the note — it has no saved copy yet, or it was deleted elsewhere"
   },
-  "deleteNote": "Delete Note",
+  "deleteNote": "Delete note",
   "@deleteNote": {
     "description": "Delete note dialog title"
   },
@@ -2002,7 +2002,7 @@
   "@noteSaved": {
     "description": "Success message when note is saved"
   },
-  "editTitle": "Edit Title",
+  "editTitle": "Edit title",
   "@editTitle": {
     "description": "Edit title dialog title"
   },
@@ -2078,7 +2078,7 @@
   "@insertsCurrentDate": {
     "description": "Description for date shortcut"
   },
-  "opensHeaderMenu": "Opens header menu (H1-H6)",
+  "opensHeaderMenu": "Opens the heading menu (body text, H1-H6)",
   "@opensHeaderMenu": {
     "description": "Description for header shortcut"
   },
@@ -2194,7 +2194,7 @@
   "@italic": {
     "description": "Italic shortcut label"
   },
-  "headers": "Headers",
+  "headers": "Heading",
   "@headers": {
     "description": "Headers shortcut label"
   },
@@ -2238,29 +2238,33 @@
   "@currentDate": {
     "description": "Current date shortcut label"
   },
-  "header1": "Header 1",
+  "header1": "Heading 1",
   "@header1": {
     "description": "Header 1 menu item"
   },
-  "header2": "Header 2",
+  "header2": "Heading 2",
   "@header2": {
     "description": "Header 2 menu item"
   },
-  "header3": "Header 3",
+  "header3": "Heading 3",
   "@header3": {
     "description": "Header 3 menu item"
   },
-  "header4": "Header 4",
+  "header4": "Heading 4",
   "@header4": {
     "description": "Header 4 menu item"
   },
-  "header5": "Header 5",
+  "header5": "Heading 5",
   "@header5": {
     "description": "Header 5 menu item"
   },
-  "header6": "Header 6",
+  "header6": "Heading 6",
   "@header6": {
     "description": "Header 6 menu item"
+  },
+  "headingBodyText": "Body text",
+  "@headingBodyText": {
+    "description": "The heading menu's first item: turns the caret line back into plain text"
   },
   "indentLine": "Indent",
   "@indentLine": {
@@ -2443,17 +2447,52 @@
   "@largeNoteWarning": {
     "description": "Warning for large notes"
   },
-  "noteStats": "{count, plural, =1{1 distinct character} other{{count} distinct characters}}, {chunks, plural, =1{1 chunk} other{{chunks} chunks}}",
+  "noteStats": "{count, plural, =1{1 character} other{{count} characters}} · {lines, plural, =1{1 line} other{{lines} lines}}",
   "@noteStats": {
     "description": "Note statistics display",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
       },
-      "chunks": {
+      "lines": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "noteChunkCount": "{count, plural, =1{1 chunk} other{{count} chunks}}",
+  "@noteChunkCount": {
+    "description": "Storage chunk count on the note stats strip, shown only with the developer chunk indicators on",
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }
+  },
+  "editorHint": "Start typing…",
+  "@editorHint": {
+    "description": "Dimmed hint in an empty note editor"
+  },
+  "closeSearch": "Close search",
+  "@closeSearch": {
+    "description": "Tooltip of the in-note find row's trailing X while its query is empty"
+  },
+  "saveStateSaved": "Saved",
+  "@saveStateSaved": {
+    "description": "Spoken label of the note editor's save indicator when every change is saved"
+  },
+  "saveStateUnsaved": "Unsaved changes",
+  "@saveStateUnsaved": {
+    "description": "Spoken label of the note editor's save indicator while changes wait for the next save"
+  },
+  "saveStateSaving": "Saving",
+  "@saveStateSaving": {
+    "description": "Spoken label of the note editor's save indicator while a save runs"
+  },
+  "saveStateError": "Not saved",
+  "@saveStateError": {
+    "description": "Spoken label of the note editor's save indicator when the last save failed"
   },
   "compressedNote": "Compressed",
   "@compressedNote": {
@@ -2755,7 +2794,7 @@
   "@databaseNotFound": {
     "description": "Error when database file does not exist"
   },
-  "renameNote": "Rename Note",
+  "renameNote": "Rename note",
   "@renameNote": {
     "description": "Rename note dialog title"
   },
@@ -2924,11 +2963,11 @@
   "@settingsReset": {
     "description": "Settings reset confirmation message"
   },
-  "shareNote": "Share Note",
+  "shareNote": "Share note",
   "@shareNote": {
     "description": "Share note option"
   },
-  "shareFolder": "Share Folder",
+  "shareFolder": "Share folder",
   "@shareFolder": {
     "description": "Share folder option (exports folder tree as zip archive)"
   },
@@ -4639,7 +4678,7 @@
   "@noteAlreadyAdded": {
     "description": "Snackbar when trying to add a duplicate note"
   },
-  "moveToFolder": "Move to Folder",
+  "moveToFolder": "Move to folder",
   "@moveToFolder": {
     "description": "Menu action to move a note to another folder"
   },
@@ -6136,6 +6175,42 @@
   "editorZoneOpenWikiLink": "Open linked note",
   "@editorZoneOpenWikiLink": {
     "description": "Accessibility label of the editor tap zone over a [[wiki link]] to another note"
+  },
+  "editorZoneToggleTaskNamed": "Toggle task: {task}",
+  "@editorZoneToggleTaskNamed": {
+    "description": "Accessibility label of the editor tap zone over a task list checkbox, naming the task's text",
+    "placeholders": {
+      "task": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneOpenLinkNamed": "Open link: {link}",
+  "@editorZoneOpenLinkNamed": {
+    "description": "Accessibility label of the editor tap zone over a markdown link, naming the link's text",
+    "placeholders": {
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneOpenWikiLinkNamed": "Open linked note: {note}",
+  "@editorZoneOpenWikiLinkNamed": {
+    "description": "Accessibility label of the editor tap zone over a [[wiki link]], naming the linked note",
+    "placeholders": {
+      "note": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneSearchTagNamed": "Search tag: {tag}",
+  "@editorZoneSearchTagNamed": {
+    "description": "Accessibility label of the editor tap zone over a #tag, naming the tag",
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
   },
   "showAncestors": "Show parent folders",
   "@showAncestors": {

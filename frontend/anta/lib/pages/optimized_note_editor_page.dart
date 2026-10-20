@@ -366,7 +366,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _stats = NoteEditorStatsTracker(
       snapshot: () => (
         lineCount: _contentController.lineCount,
-        charCount: _contentController.textLength,
+        charCount: NoteEditorStatsTracker.countCharacters(
+          _contentController.text,
+        ),
       ),
     );
     _edits = EditorEditTracker(
@@ -378,6 +380,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       // document, not of the live-rendering setting.
       isFenceLine: _render.lineInFence,
       lineInFenceBody: _render.lineInFenceBody,
+      blockStateAt: _render.blockStateAt,
     );
     _saves = NoteSaveCoordinator(
       folderId: widget.folderId,
@@ -404,7 +407,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
 
     _titleController.addListener(_onTextChanged);
-    _contentController.addListener(_onTextChanged);
+    // Seeded so the first selection-only notification of a page with no
+    // load (a new note) is not taken for an edit.
+    _notifiedLines = _contentController.codeLines;
+    _notifiedLength = _contentController.textLength;
+    _contentController.addListener(_onContentNotified);
     _searchController.addListener(_onSearchChanged);
 
     if (widget.noteId != null) {
@@ -549,12 +556,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final lines = <int>[];
     final texts = <(String, String)>[];
     for (int i = 0; i < codeLines.length; i++) {
+      // A setext heading is its whole text line; the underline (negative)
+      // is chrome.
+      if (_render.headingLevelAt(i) <= 0) continue;
       final text = codeLines[i].text;
       final match = MarkdownLineShape.headingAt(text);
-      if (match == null || _render.lineInFence(i)) continue;
       lines.add(i);
       texts.add((
-        text.substring(match.contentStart, match.contentEnd).trim(),
+        match == null
+            ? text.trim()
+            : text.substring(match.contentStart, match.contentEnd).trim(),
         MarkdownPlainText.strip(text, maxLength: 0, money: false),
       ));
     }
@@ -720,7 +731,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// to actual search activity (open / close / next / prev / typing
   /// in the search field), not per-character note edits.
   void _onSearchChanged() {
-    _findActive.value = _searchController.isSearching;
+    // A line reveals for find only while a match sits on it: a query with
+    // no match must not leave the last hop's line raw (U2.7).
+    _findActive.value =
+        _searchController.isSearching && _searchController.currentMatch != null;
     if (_searchController.isSearching) {
       _previewBloc.add(
         PreviewSearchUpdated(
@@ -915,8 +929,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// Warns once that the title the user typed is already taken in this
   /// folder. The content is still saved — under the note's original
   /// title — so a rename that cannot be applied never costs keystrokes.
+  /// The app bar goes back to the title the row keeps, or it would show a
+  /// rename that never happened (U2.2).
   void _showDuplicateTitleWarning(String title) {
     if (!mounted) return;
+    setState(() {
+      _titleController.text = _saves.originalTitle ?? '';
+    });
     CustomSnackbar.showError(
       context,
       AppLocalizations.of(context)!.noteTitleAlreadyExists(title),
@@ -975,8 +994,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // exact and already in hand.
     _stats.set((
       lineCount: '\n'.allMatches(content).length + 1,
-      charCount: content.length,
-    ));
+      charCount: NoteEditorStatsTracker.countCharacters(content),
+    ), textLength: content.length);
     // A load, not an edit: the loaded text is the undo baseline.
     setState(() {
       _contentController.loadText(content);
@@ -1058,6 +1077,24 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       return;
     }
     _adoptLoadedContent(content, keepCaret: true);
+  }
+
+  /// The document [_onContentNotified] last reported, so a notification
+  /// that only moved the caret or hopped a search match is told apart.
+  CodeLines? _notifiedLines;
+  int _notifiedLength = 0;
+
+  /// The editing controller notifies on selection moves too; only a change
+  /// of the text reaches the save coordinator, or a caret move flips the
+  /// save indicator to unsaved (U2.3). Every edit replaces the code-lines
+  /// instance, so identity plus length is exact without reading the text.
+  void _onContentNotified() {
+    final lines = _contentController.codeLines;
+    final length = _contentController.textLength;
+    if (identical(lines, _notifiedLines) && length == _notifiedLength) return;
+    _notifiedLines = lines;
+    _notifiedLength = length;
+    _onTextChanged();
   }
 
   void _onTextChanged() {
@@ -1405,7 +1442,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _titleController.dispose();
     _historyObserver.dispose();
     _vocabularySuggestions.dispose();
-    _contentController.removeListener(_onTextChanged);
+    _contentController.removeListener(_onContentNotified);
     _contentController.dispose();
     _contentFocusNode.removeListener(_onContentFocusChanged);
     _render.bindFocus(null);
@@ -1424,15 +1461,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   void _toggleSearch() {
     if (_searchController.isSearching) {
-      // One exit: the bar plays its own leave animation and then closes the
-      // controller, exactly as its trailing X does. The direct close is the
-      // fallback for a bar that is not mounted yet.
-      final bar = _searchBarKey.currentState;
-      if (bar != null) {
-        bar.close();
-        return;
-      }
-      _searchController.closeSearch();
+      // The open row owns its one exit, its trailing X; the toggle only
+      // brings the field back, so a second tap never throws the query away
+      // (U2.7).
+      _searchBarKey.currentState?.focusField();
+      return;
     } else {
       _searchController.openSearch();
     }
@@ -1483,6 +1516,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       message: l10n.linkOpenPrompt(target),
       actionLabel: l10n.linkOpenAction,
       onAction: () => _launchLink(uri),
+      // Long enough to read the target before deciding.
+      duration: CustomSnackbar.confirmActionDuration,
       // Above the toolbar, or the prompt sits on the bar the user's thumb
       // is already on.
       withToolbarOffset: true,
@@ -1832,7 +1867,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             ? _lineNumbersKey
             : null,
         scrollIndicatorKey: _scrollIndicatorKey,
-        fontSize: _editorSettings.value.editorFontSize,
+        // The wrapper's formula, so reflow breaks at the width it wraps at.
+        fontSize: ModernEditorWrapper.scaledFontSize(
+          context,
+          _editorSettings.value.editorFontSize,
+        ),
         fontFamily: FontConstants.editorFontFamily,
       ),
       editorPadding: EdgeInsets.only(
@@ -1979,11 +2018,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 onTitleTap: _editTitle,
                 actions: [
                   IconButton(
-                    icon: Icon(
-                      _searchController.isSearching
-                          ? Icons.search_off
-                          : Icons.search,
-                    ),
+                    icon: const Icon(Icons.search),
                     onPressed: _toggleSearch,
                     tooltip: AppLocalizations.of(context)!.search,
                   ),
@@ -2161,8 +2196,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final metadata = widget.metadata;
     return NoteEditorStatsBar(
       stats: _stats.stats,
-      fallbackCharCount: metadata?.contentLength ?? 0,
-      chunkCount: metadata?.chunkCount ?? 1,
+      // The content load reports exact counts, so the stored length only
+      // stands in before it.
+      fallbackCharCount: _contentLoaded ? null : metadata?.contentLength,
+      chunkCount: DevOptions.instance.showChunkIndicators
+          ? metadata?.chunkCount ?? 1
+          : null,
       isCompressed: metadata?.isCompressed ?? false,
     );
   }
@@ -2332,6 +2371,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           // line reveals for render and taps alike.
           revealWhenUnfocused: _findActive,
           onFormatShortcut: _toggleFormatShortcut,
+          hint: AppLocalizations.of(context)!.editorHint,
+          followsTextScale: true,
           colorPalette: _render.palette,
           lineNumbersKey: _lineNumbersKey,
           scrollIndicatorKey: _scrollIndicatorKey,
@@ -2513,14 +2554,46 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   void _editTitle() async {
+    final l10n = AppLocalizations.of(context)!;
+    // Answers of the folder's title check, by lower-cased title; the dialog
+    // asks again as each one lands, so a taken title is flagged before Save.
+    final taken = <String, bool>{};
+    final answers = ValueNotifier<int>(0);
+    var open = true;
+    String? warningFor(String text) {
+      final trimmed = text.trim();
+      if (trimmed.isEmpty) return null;
+      final key = trimmed.toLowerCase();
+      if (!taken.containsKey(key)) {
+        taken[key] = false;
+        GetIt.I<NoteStorageService>()
+            .noteTitleExistsInFolder(
+              folderId: _folderId,
+              title: trimmed,
+              excludeId: _saves.effectiveNoteId,
+            )
+            .then((exists) {
+              if (!exists || !open) return;
+              taken[key] = true;
+              answers.value++;
+            }, onError: (Object _) {});
+      }
+      return taken[key]! ? l10n.noteTitleAlreadyExists(trimmed) : null;
+    }
+
     final newTitle = await AppDialogs.textInput(
       context,
-      title: AppLocalizations.of(context)!.editTitle,
-      hintText: AppLocalizations.of(context)!.enterNoteTitle,
+      title: l10n.editTitle,
+      hintText: l10n.enterNoteTitle,
       initialValue: _titleController.text,
-      confirmText: AppLocalizations.of(context)!.save,
+      confirmText: l10n.save,
+      selectAll: true,
+      warningFor: warningFor,
+      warningRefresh: answers,
     );
-    if (newTitle == null) return;
+    open = false;
+    answers.dispose();
+    if (newTitle == null || !mounted) return;
     setState(() {
       _titleController.text = newTitle;
     });
@@ -2675,7 +2748,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final lines = _contentController.codeLines;
     final index = _contentController.selection.startIndex;
     if (index < 0 || index >= lines.length) return null;
-    return MarkdownLineShape.headingAt(lines[index].text)?.level;
+    // An underline answers its heading's level, negated.
+    final level = _render.headingLevelAt(index);
+    return level == 0 ? null : level.abs();
   }
 
   /// Ctrl/Cmd+B and Ctrl/Cmd+I, through the bookkeeping the bar's Bold
@@ -2705,6 +2780,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// send. Guarded like every other programmatic insert so the tracker
   /// never reads the indent's growth as typing or a paste.
   void _shiftListIndent({required bool outdent}) {
+    _focusContentFirst();
     _edits.runGuarded(
       () => ListIndentAction.apply(
         _contentController,
@@ -2715,7 +2791,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _onTextChanged();
   }
 
+  /// Raises the caret and the keyboard before a bar edit, as the bar's
+  /// Paste does: on an unfocused editor the edit would land at a stale,
+  /// unpainted caret (U2.1).
+  void _focusContentFirst() {
+    if (!_contentFocusNode.hasFocus) _contentFocusNode.requestFocus();
+  }
+
   Future<void> _handleShortcut(CustomMarkdownShortcut shortcut) async {
+    _focusContentFirst();
     // Ghost text has bespoke insert behavior (on an empty selection the
     // caret lands inside the placeholder), so it bypasses the generic
     // applier — mirroring how the header shortcut has its own handling.
@@ -2768,6 +2852,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             _contentController,
             shortcut,
             isFenceLine: _render.lineInFence,
+            headingLevelAt: _render.headingLevelAt,
           );
         } else {
           _contentController.replaceSelection(text);

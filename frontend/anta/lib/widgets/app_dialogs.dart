@@ -144,6 +144,8 @@ class AppDialogs {
   /// name". It is drawn in the counter's own style, so beside a counter it
   /// shares the counter's line and the dialog does not move under the finger
   /// as it appears; the caption's 13 px on an 18 px line grew the row.
+  /// [warningRefresh] asks again when it notifies, for a [warningFor] whose
+  /// answer lands after the keystroke (a lookup in the database).
   ///
   /// [fieldIdentifier] and [confirmIdentifier] are `SemanticsIds` for a
   /// device script; the confirm button's falls back to the generic
@@ -162,6 +164,7 @@ class AppDialogs {
     bool selectAll = false,
     bool allowEmpty = true,
     String? Function(String text)? warningFor,
+    Listenable? warningRefresh,
     String? fieldIdentifier,
     String? confirmIdentifier,
   }) async {
@@ -183,7 +186,9 @@ class AppDialogs {
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: ListenableBuilder(
-          listenable: controller,
+          listenable: warningRefresh == null
+              ? controller
+              : Listenable.merge([controller, warningRefresh]),
           builder: (context, _) {
             final warning = warningFor?.call(controller.text);
             final field = TextField(

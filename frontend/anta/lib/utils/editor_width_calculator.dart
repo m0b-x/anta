@@ -251,7 +251,10 @@ class EditorWidthCalculator {
   /// hard-wrapped. [fenceOpener] is the packed opener of that fence
   /// ([MarkdownChunker.fenceOpenerOf]), so a ``` line pasted into a
   /// ```` ```` ```` or `~~~` body is not read as its closer; without it the
-  /// seed is taken as ```.
+  /// seed is taken as ```. [blockState], when given, replaces both: the
+  /// packed [MarkdownChunker.blockStateAfter] state the slice's first line
+  /// is read in, so a slice inside a `%%` comment or a front matter is
+  /// kept as written like a fence body.
   ///
   /// [firstLineKeep] is how many leading code units of the first line
   /// were there before the paste: no break lands inside them, so a paste
@@ -268,12 +271,15 @@ class EditorWidthCalculator {
     int? fenceOpener,
     int firstLineKeep = 0,
     String? nextLine,
+    int? blockState,
   }) {
     final result = <String>[];
     int linesModified = 0;
-    int fence = inCodeBlock
-        ? fenceOpener ?? MarkdownChunker.fenceOpenerOf('```')
-        : MarkdownChunker.outsideBlock;
+    int fence =
+        blockState ??
+        (inCodeBlock
+            ? fenceOpener ?? MarkdownChunker.fenceOpenerOf('```')
+            : MarkdownChunker.outsideBlock);
     List<int> lastLineSourceOffsets = const <int>[0];
 
     for (int index = 0; index < lines.length; index++) {
@@ -281,17 +287,18 @@ class EditorWidthCalculator {
       final bool isLast = index == lines.length - 1;
       if (isLast) lastLineSourceOffsets = const <int>[0];
 
-      // Toggle code block state on the fence grammar both surfaces read,
-      // so a lead only `trim` strips (a no-break space) toggles nothing.
-      final next = MarkdownChunker.fenceStateAfter(line, fence);
+      // Step the block grammar the editor's index steps, so a lead only
+      // `trim` strips (a no-break space) toggles nothing and a fence line
+      // inside a `%%` comment opens nothing.
+      final next = MarkdownChunker.blockStateAfter(line, fence);
       if (next != fence) {
         fence = next;
         result.add(line);
         continue;
       }
 
-      // Skip lines inside code blocks
-      if (MarkdownChunker.isFenceState(fence)) {
+      // A fence, comment or front matter body is kept as written.
+      if (fence != MarkdownChunker.outsideBlock) {
         result.add(line);
         continue;
       }

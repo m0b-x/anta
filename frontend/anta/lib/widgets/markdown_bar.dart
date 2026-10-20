@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
@@ -8,6 +10,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_theme.dart';
 import '../constants/form_metrics.dart';
+import '../constants/markdown_bar_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
@@ -46,7 +49,8 @@ class MarkdownBar extends StatefulWidget {
 
   /// The caret line's heading level (1–6), or null on a plain line, read
   /// when the heading menu opens so that level shows checked — picking it
-  /// again removes the heading. Null reports no level.
+  /// again removes the heading. Without a reader the line's level is
+  /// unknown: no row is checked and Body text is disabled.
   final int? Function()? currentHeadingLevel;
 
   /// The app-wide haptics setting. Off silences the reorder mode's
@@ -58,10 +62,15 @@ class MarkdownBar extends StatefulWidget {
   final Function(List<UtilityButtonConfig>)? onUtilityReorderComplete;
   final bool showSettings;
   final bool showBackground;
+
+  /// What a bar drawn without its own background stands on, so its edge
+  /// fades blend into that ground; `surface` when null.
+  final Color? fadeGround;
   final bool showReorder;
 
   /// Ratio of toolbar width allocated to the shortcuts section (0.0–1.0).
-  /// The utility section (undo/redo/settings/etc.) gets (1 - shortcutRatio).
+  /// The utility scroller gets (1 - shortcutRatio); both share what the
+  /// pinned undo and redo leave of the bar.
   final double shortcutRatio;
 
   /// When true, toolbar is split into two independently scrollable sections.
@@ -104,6 +113,7 @@ class MarkdownBar extends StatefulWidget {
     this.onUtilityReorderComplete,
     this.showSettings = true,
     this.showBackground = true,
+    this.fadeGround,
     this.showReorder = true,
     this.shortcutRatio = 0.7,
     this.splitEnabled = true,
@@ -111,11 +121,9 @@ class MarkdownBar extends StatefulWidget {
     this.suggestions,
   });
 
-  /// An icon button's height: a 20 px glyph in its 10 px padding. The
-  /// suggestion pills match it, and the pressed ink is a circle this wide.
-  static const double rowHeight =
-      AppConstants.markdownToolbarIconSize +
-      2 * AppConstants.markdownToolbarButtonPadding;
+  /// The button row's height, every button's 48 dp square. The suggestion
+  /// pills match it, and the pressed ink is a circle this wide.
+  static const double rowHeight = MarkdownBarMetrics.buttonSize;
 
   /// Times the normal bar's button rows were built. Debug builds only.
   /// Exists so a test can pin that a vocabulary session's keystrokes
@@ -131,6 +139,31 @@ class _MarkdownBarState extends State<MarkdownBar> {
   bool _isReorderMode = false;
   late List<CustomMarkdownShortcut> _reorderableShortcuts;
   late List<UtilityButtonConfig> _reorderableUtilities;
+
+  /// The utility scroller's offset, put back at the start after a tap on a
+  /// button inside it so the strip opens the same way every time; the
+  /// repeatable buttons ([_repeatableUtilityIds]) keep it.
+  final ScrollController _utilityScroll = ScrollController();
+
+  /// Undo and redo sit outside the utility scroller (the review's D2): the
+  /// "no lost text" action must never scroll away.
+  static const Set<String> _pinnedUtilityIds = {
+    UtilityButtonId.undo,
+    UtilityButtonId.redo,
+  };
+
+  /// Buttons tapped several times in a row: the scroller keeps its offset
+  /// after them, so the second tap lands on the same button, not on
+  /// whichever one the reset slid under the finger. Indent and outdent
+  /// belong here too — nesting a sub-item two levels deep is two taps.
+  static const Set<String> _repeatableUtilityIds = {
+    UtilityButtonId.decreaseFont,
+    UtilityButtonId.increaseFont,
+    UtilityButtonId.scrollToTop,
+    UtilityButtonId.scrollToBottom,
+    UtilityButtonId.indent,
+    UtilityButtonId.outdent,
+  };
 
   @override
   void initState() {
@@ -152,8 +185,17 @@ class _MarkdownBarState extends State<MarkdownBar> {
     }
   }
 
+  @override
+  void dispose() {
+    _utilityScroll.dispose();
+    super.dispose();
+  }
+
   void _enterReorderMode() {
     if (widget.hapticsEnabled) HapticFeedback.mediumImpact();
+    // The panel needs the height the keyboard holds, and a chip dragged
+    // past the caret must not type into the note.
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _isReorderMode = true;
       _reorderableShortcuts = List.from(widget.shortcuts);
@@ -186,8 +228,25 @@ class _MarkdownBarState extends State<MarkdownBar> {
   Widget _buildVerticalDivider(BuildContext context) {
     return Container(
       width: 1,
-      height: 24,
+      height: MarkdownBarMetrics.dividerHeight,
       color: Theme.of(context).colorScheme.outlineVariant,
+    );
+  }
+
+  /// The ground under the strips' edge fades: the bar's own when it draws
+  /// one, the host's when it stands on the host's.
+  Color? get _fadeGround => widget.showBackground ? null : widget.fadeGround;
+
+  /// The utility buttons that scroll, behind their edge fade.
+  Widget _buildUtilityScroller(List<Widget> buttons) {
+    return MarkdownBarEdgeFade(
+      ground: _fadeGround,
+      child: SingleChildScrollView(
+        controller: _utilityScroll,
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(right: MarkdownBarMetrics.sidePadding),
+        child: Row(mainAxisSize: MainAxisSize.min, children: buttons),
+      ),
     );
   }
 
@@ -247,24 +306,27 @@ class _MarkdownBarState extends State<MarkdownBar> {
         .where((s) => s.isVisible)
         .toList();
 
-    // Build the utility buttons driven by config (order + visibility).
+    // Build the utility buttons driven by config (order + visibility). Undo
+    // and redo pin in every mode; only a bar with a utility scroller of its
+    // own puts that scroller back after a tap.
+    final hasUtilityScroller = widget.isPreviewMode || widget.splitEnabled;
     final configs = widget.utilityConfigs ?? UtilityButtonConfig.defaults();
+    final pinnedButtons = <Widget>[];
     final utilityButtons = <Widget>[];
     for (final config in configs) {
       if (!config.isVisible) continue;
-      final button = _buildUtilityButtonWidget(context, config.id);
-      if (button != null) {
-        if (utilityButtons.isNotEmpty) {
-          utilityButtons.add(const SizedBox(width: 4));
-        }
-        utilityButtons.add(button);
-      }
+      final pinned = _pinnedUtilityIds.contains(config.id);
+      final button = _buildUtilityButtonWidget(
+        context,
+        config.id,
+        resetsScroll:
+            hasUtilityScroller &&
+            !pinned &&
+            !_repeatableUtilityIds.contains(config.id),
+      );
+      if (button == null) continue;
+      (pinned ? pinnedButtons : utilityButtons).add(button);
     }
-
-    final utilityContent = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: utilityButtons,
-    );
 
     final decoration = widget.showBackground
         ? AppTheme.editorBarDecoration(Theme.of(context).colorScheme)
@@ -274,13 +336,16 @@ class _MarkdownBarState extends State<MarkdownBar> {
     if (widget.isPreviewMode) {
       return Container(
         decoration: decoration,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: AppTheme.editorBarVerticalPadding,
-          ),
-          child: utilityContent,
+        padding: const EdgeInsets.only(
+          left: MarkdownBarMetrics.sidePadding,
+          top: MarkdownBarMetrics.verticalPadding,
+          bottom: MarkdownBarMetrics.verticalPadding,
+        ),
+        child: Row(
+          children: [
+            ...pinnedButtons,
+            Expanded(child: _buildUtilityScroller(utilityButtons)),
+          ],
         ),
       );
     }
@@ -304,26 +369,52 @@ class _MarkdownBarState extends State<MarkdownBar> {
         )
         .toList();
 
-    // Classic mode: single horizontally scrollable row with all buttons
+    // Classic mode: one horizontally scrollable row with every button but
+    // undo and redo, which hold the trailing edge past a divider.
     if (!widget.splitEnabled) {
       return Container(
         decoration: decoration,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: AppTheme.editorBarVerticalPadding,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...shortcutButtons,
-              const SizedBox(width: 8),
-              _buildVerticalDivider(context),
-              const SizedBox(width: 8),
-              ...utilityButtons,
+        padding: const EdgeInsets.symmetric(
+          vertical: MarkdownBarMetrics.verticalPadding,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: MarkdownBarEdgeFade(
+                ground: _fadeGround,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: MarkdownBarMetrics.sidePadding,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ...shortcutButtons,
+                      const SizedBox(
+                        width: MarkdownBarMetrics.singleRowDividerGap,
+                      ),
+                      _buildVerticalDivider(context),
+                      const SizedBox(
+                        width: MarkdownBarMetrics.singleRowDividerGap,
+                      ),
+                      ...utilityButtons,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (pinnedButtons.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MarkdownBarMetrics.dividerGap,
+                ),
+                child: _buildVerticalDivider(context),
+              ),
+              ...pinnedButtons,
+              const SizedBox(width: MarkdownBarMetrics.dividerGap),
             ],
-          ),
+          ],
         ),
       );
     }
@@ -338,35 +429,40 @@ class _MarkdownBarState extends State<MarkdownBar> {
     return Container(
       decoration: decoration,
       padding: const EdgeInsets.symmetric(
-        vertical: AppTheme.editorBarVerticalPadding,
+        vertical: MarkdownBarMetrics.verticalPadding,
       ),
       child: Row(
         children: [
           // Left section: markdown shortcuts (scrolls independently)
           Expanded(
             flex: (ratio * 100).round(),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(left: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: shortcutButtons,
+            child: MarkdownBarEdgeFade(
+              ground: _fadeGround,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(
+                  left: MarkdownBarMetrics.sidePadding,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: shortcutButtons,
+                ),
               ),
             ),
           ),
           // Divider between sections
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            padding: const EdgeInsets.symmetric(
+              horizontal: MarkdownBarMetrics.dividerGap,
+            ),
             child: _buildVerticalDivider(context),
           ),
-          // Right section: utility buttons (scrolls independently)
+          // Undo and redo, then the rest of the utility buttons; the ratio
+          // shares out what the pinned pair leaves.
+          ...pinnedButtons,
           Expanded(
             flex: ((1.0 - ratio) * 100).round(),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(right: 12),
-              child: utilityContent,
-            ),
+            child: _buildUtilityScroller(utilityButtons),
           ),
         ],
       ),
@@ -374,8 +470,14 @@ class _MarkdownBarState extends State<MarkdownBar> {
   }
 
   /// Builds a single utility button widget for the given [id],
-  /// or returns null if contextual conditions prevent showing it.
-  Widget? _buildUtilityButtonWidget(BuildContext context, String id) {
+  /// or returns null if contextual conditions prevent showing it. A button
+  /// that [resetsScroll] puts the utility scroller back at its start after
+  /// its own action.
+  Widget? _buildUtilityButtonWidget(
+    BuildContext context,
+    String id, {
+    required bool resetsScroll,
+  }) {
     final def = UtilityButtonDefinition.getById(id);
     if (def == null) return null;
 
@@ -428,30 +530,36 @@ class _MarkdownBarState extends State<MarkdownBar> {
         return null;
     }
 
+    final action = onPressed;
     return _ToolbarButton(
       icon: def.icon,
       tooltip: def.label(l10n),
-      onPressed: onPressed,
+      onPressed: action == null || !resetsScroll
+          ? action
+          : () {
+              action();
+              if (_utilityScroll.hasClients) _utilityScroll.jumpTo(0);
+            },
     );
   }
 
-  /// The six levels as the language's choice menu, centred on the H button.
-  /// Each item carries the same shortcut the page has always received —
-  /// its level is read from [CustomMarkdownShortcut.beforeText].
-  Future<void> _showHeaderMenu(BuildContext anchor) async {
-    final l10n = AppLocalizations.of(anchor)!;
-    final colorScheme = Theme.of(anchor).colorScheme;
-    final labels = [
-      l10n.header1,
-      l10n.header2,
-      l10n.header3,
-      l10n.header4,
-      l10n.header5,
-      l10n.header6,
-    ];
-    final headerShortcuts = List.generate(6, (i) {
-      final level = i + 1;
-      return CustomMarkdownShortcut(
+  /// Whether the heading menu takes focus from the editor. On a touch
+  /// screen it must not: the soft keyboard would close and the caret
+  /// line's reveal flip, then both reopen. A hardware keyboard loses
+  /// neither, and without focus the menu would let it type into the note.
+  static bool get _headingMenuTakesFocus => switch (defaultTargetPlatform) {
+    TargetPlatform.android ||
+    TargetPlatform.iOS ||
+    TargetPlatform.fuchsia => false,
+    TargetPlatform.linux ||
+    TargetPlatform.macOS ||
+    TargetPlatform.windows => true,
+  };
+
+  /// The shortcut the page has always received for a heading [level],
+  /// which the applier reads from its [CustomMarkdownShortcut.beforeText].
+  static CustomMarkdownShortcut _headingShortcut(int level) =>
+      CustomMarkdownShortcut(
         id: 'header_level_$level',
         label: 'H$level',
         iconCodePoint: Icons.tag.codePoint,
@@ -460,45 +568,134 @@ class _MarkdownBarState extends State<MarkdownBar> {
         afterText: '',
         insertType: 'header',
       );
-    });
 
+  /// Body text and the six levels as the language's choice menu, centred on
+  /// the H button, the caret line's own choice checked. The value is the
+  /// level, 0 for body text.
+  Future<void> _showHeaderMenu(BuildContext anchor) async {
+    final l10n = AppLocalizations.of(anchor)!;
+    final colorScheme = Theme.of(anchor).colorScheme;
+    final labels = [
+      l10n.headingBodyText,
+      l10n.header1,
+      l10n.header2,
+      l10n.header3,
+      l10n.header4,
+      l10n.header5,
+      l10n.header6,
+    ];
+
+    // A host without a reader cannot say what the caret line is: no row is
+    // checked, and Body text, which needs the line's level to remove it,
+    // stays in place disabled.
+    final readsLevel = widget.currentHeadingLevel != null;
     final current = widget.currentHeadingLevel?.call();
-    final selected = await showMenu<CustomMarkdownShortcut>(
+    final side = FormMenuSide();
+    // The keyboard stays up under this menu, so it is capped to the room
+    // beside it and scrolls past that. A scaled label wraps beyond any
+    // estimate, so there the menu is placed as if it took the whole cap:
+    // it may stop short of the button, but never covers it.
+    final maxHeight = formMenuMaxHeight(anchor);
+    final placedHeight =
+        maxHeight.isFinite && MediaQuery.textScalerOf(anchor).scale(1) > 1
+        ? maxHeight
+        : math.min(formMenuHeight(labels.length), maxHeight);
+    final selected = await showMenu<int>(
       context: anchor,
-      // The editor keeps focus under the menu: taking it would close the
-      // keyboard and flip the caret line's reveal, then reopen both.
-      requestFocus: false,
+      requestFocus: _headingMenuTakesFocus,
       positionBuilder: (_, constraints) => formMenuPosition(
         anchor,
         constraints,
-        menuHeight: formMenuHeight(headerShortcuts.length),
+        menuHeight: placedHeight,
         alignment: FormMenuAlignment.center,
+        side: side,
       ),
       color: colorScheme.menuSurface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
       ),
       menuPadding: FormMetrics.menuPadding,
-      constraints: const BoxConstraints(
+      constraints: BoxConstraints(
         minWidth: FormMetrics.menuWidth,
         maxWidth: FormMetrics.menuMaxWidth,
+        maxHeight: maxHeight,
       ),
       items: [
-        for (var i = 0; i < headerShortcuts.length; i++)
-          FormMenuChoiceItem<CustomMarkdownShortcut>(
-            value: headerShortcuts[i],
-            checked: current == i + 1,
+        for (var level = 0; level < labels.length; level++)
+          FormMenuChoiceItem<int>(
+            value: level,
+            checked: readsLevel && (current ?? 0) == level,
+            enabled: readsLevel || level > 0,
             child: _HeadingMenuRow(
-              level: i + 1,
-              label: labels[i],
-              marker: headerShortcuts[i].beforeText.trim(),
+              level: level,
+              label: labels[level],
+              checked: readsLevel && (current ?? 0) == level,
+              enabled: readsLevel || level > 0,
             ),
           ),
       ],
     );
-    if (selected != null && mounted) {
-      widget.onShortcutPressed(selected);
-    }
+    if (selected == null || !mounted) return;
+    // Body text removes the heading through the path the menu always had:
+    // the caret line's own level, picked again, drops it. Read again now:
+    // on a touch screen the editor keeps its keyboard while the menu is
+    // open, so the caret may have moved to another line since. A plain
+    // line has nothing to remove.
+    final level = selected == 0 ? widget.currentHeadingLevel?.call() : selected;
+    if (level == null) return;
+    widget.onShortcutPressed(_headingShortcut(level));
+  }
+
+  /// German at 2.0 wraps the title into a header taller than the panel's
+  /// whole cap while the keyboard is still going down: past [maxHeight]
+  /// the title scrolls beside Done, which stays in view as the panel's
+  /// only exit.
+  Widget _reorderHeader(
+    ThemeData theme,
+    AppLocalizations l10n, {
+    required double maxHeight,
+  }) {
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      padding: MarkdownBarMetrics.reorderHeaderPadding,
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.drag_indicator,
+                    size: MarkdownBarMetrics.reorderHeaderGlyphSize,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: MarkdownBarMetrics.reorderHeaderGap),
+                  Expanded(
+                    child: Text(
+                      l10n.reorderShortcuts,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: MarkdownBarMetrics.reorderHeaderGap),
+          FilledButton(
+            onPressed: _exitReorderMode,
+            child: Text(l10n.doneReordering),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildReorderMode(BuildContext context) {
@@ -511,93 +708,96 @@ class _MarkdownBarState extends State<MarkdownBar> {
         .where((u) => u.isVisible)
         .toList();
 
+    // Read in build: the keyboard's inset falls as the editor lets go of
+    // focus, and the panel may take the room it leaves.
+    final maxHeight =
+        (MediaQuery.sizeOf(context).height -
+            MediaQuery.viewInsetsOf(context).bottom) *
+        MarkdownBarMetrics.reorderPanelMaxShare;
+
     return Container(
       decoration: AppTheme.editorBarDecoration(theme.colorScheme),
+      constraints: BoxConstraints(maxHeight: maxHeight),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: theme.colorScheme.outlineVariant,
-                  width: 1,
-                ),
+          _reorderHeader(
+            theme,
+            l10n,
+            maxHeight: maxHeight * MarkdownBarMetrics.reorderHeaderMaxShare,
+          ),
+          // Both sections scroll together under the header, which stays.
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Shortcuts section
+                  MarkdownBarReorderWrap(
+                    itemCount: visibleShortcuts.length,
+                    onReorder: (oldIndex, newIndex) {
+                      final oldFullIndex = _reorderableShortcuts.indexOf(
+                        visibleShortcuts[oldIndex],
+                      );
+                      final newFullIndex = newIndex >= visibleShortcuts.length
+                          ? _reorderableShortcuts.indexOf(
+                                  visibleShortcuts.last,
+                                ) +
+                                1
+                          : _reorderableShortcuts.indexOf(
+                              visibleShortcuts[newIndex],
+                            );
+                      _onReorder(oldFullIndex, newFullIndex);
+                    },
+                    hapticsEnabled: widget.hapticsEnabled,
+                    itemBuilder: (context, index) => _ReorderableShortcutItem(
+                      shortcut: visibleShortcuts[index],
+                    ),
+                  ),
+                  // Utilities section
+                  if (visibleUtilities.isNotEmpty) ...[
+                    Divider(height: 1, color: theme.colorScheme.outlineVariant),
+                    Padding(
+                      padding: MarkdownBarMetrics.reorderSectionLabelPadding,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          l10n.utilities,
+                          style: TextStyle(
+                            fontSize:
+                                MarkdownBarMetrics.reorderSectionLabelFontSize,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                    MarkdownBarReorderWrap(
+                      itemCount: visibleUtilities.length,
+                      onReorder: (oldIndex, newIndex) {
+                        final oldFullIndex = _reorderableUtilities.indexOf(
+                          visibleUtilities[oldIndex],
+                        );
+                        final newFullIndex = newIndex >= visibleUtilities.length
+                            ? _reorderableUtilities.indexOf(
+                                    visibleUtilities.last,
+                                  ) +
+                                  1
+                            : _reorderableUtilities.indexOf(
+                                visibleUtilities[newIndex],
+                              );
+                        _onUtilityReorder(oldFullIndex, newFullIndex);
+                      },
+                      hapticsEnabled: widget.hapticsEnabled,
+                      itemBuilder: (context, index) => _ReorderableUtilityItem(
+                        config: visibleUtilities[index],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.drag_indicator,
-                  size: 20,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  l10n.reorderShortcuts,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: _exitReorderMode,
-                  child: Text(l10n.doneReordering),
-                ),
-              ],
-            ),
           ),
-          // Shortcuts section
-          HorizontalReorderableList(
-            itemCount: visibleShortcuts.length,
-            onReorder: (oldIndex, newIndex) {
-              final oldFullIndex = _reorderableShortcuts.indexOf(
-                visibleShortcuts[oldIndex],
-              );
-              final newFullIndex = newIndex >= visibleShortcuts.length
-                  ? _reorderableShortcuts.indexOf(visibleShortcuts.last) + 1
-                  : _reorderableShortcuts.indexOf(visibleShortcuts[newIndex]);
-              _onReorder(oldFullIndex, newFullIndex);
-            },
-            hapticsEnabled: widget.hapticsEnabled,
-            itemBuilder: (context, index) =>
-                _ReorderableShortcutItem(shortcut: visibleShortcuts[index]),
-          ),
-          // Utilities section
-          if (visibleUtilities.isNotEmpty) ...[
-            Divider(height: 1, color: theme.colorScheme.outlineVariant),
-            Padding(
-              padding: const EdgeInsets.only(left: 16, top: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  l10n.utilities,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-            HorizontalReorderableList(
-              itemCount: visibleUtilities.length,
-              onReorder: (oldIndex, newIndex) {
-                final oldFullIndex = _reorderableUtilities.indexOf(
-                  visibleUtilities[oldIndex],
-                );
-                final newFullIndex = newIndex >= visibleUtilities.length
-                    ? _reorderableUtilities.indexOf(visibleUtilities.last) + 1
-                    : _reorderableUtilities.indexOf(visibleUtilities[newIndex]);
-                _onUtilityReorder(oldFullIndex, newFullIndex);
-              },
-              hapticsEnabled: widget.hapticsEnabled,
-              itemBuilder: (context, index) =>
-                  _ReorderableUtilityItem(config: visibleUtilities[index]),
-            ),
-          ],
         ],
       ),
     );
@@ -615,45 +815,45 @@ class _MarkdownBarState extends State<MarkdownBar> {
   }
 }
 
-class HorizontalReorderableList extends StatefulWidget {
+/// The reorder panel's chips, laid out as wide as the panel allows and
+/// wrapped onto as many runs as they need, so no chip or label is ever cut
+/// at the right edge in a long language or at a large text scale. It does
+/// not scroll itself: the panel's scroll view holds both sections, and a
+/// drag near that view's edge scrolls it.
+class MarkdownBarReorderWrap extends StatefulWidget {
   final int itemCount;
   final void Function(int oldIndex, int newIndex) onReorder;
   final Widget Function(BuildContext context, int index) itemBuilder;
-  final int itemsPerRow;
 
   /// The app-wide haptics setting, gating the drag's vibrations.
   final bool hapticsEnabled;
 
-  const HorizontalReorderableList({
+  const MarkdownBarReorderWrap({
     super.key,
     required this.itemCount,
     required this.onReorder,
     required this.itemBuilder,
-    this.itemsPerRow = 3,
     this.hapticsEnabled = true,
   });
 
   @override
-  State<HorizontalReorderableList> createState() =>
-      _HorizontalReorderableListState();
+  State<MarkdownBarReorderWrap> createState() => _MarkdownBarReorderWrapState();
 }
 
-class _HorizontalReorderableListState extends State<HorizontalReorderableList> {
-  final ScrollController _verticalScrollController = ScrollController();
-  final ScrollController _horizontalScrollController = ScrollController();
+class _MarkdownBarReorderWrapState extends State<MarkdownBarReorderWrap> {
   final Map<int, GlobalKey> _itemKeys = {};
   Timer? _autoScrollTimer;
   int? _draggingIndex;
   int? _targetIndex;
   Offset? _lastDragPosition;
 
-  static const double _edgeScrollThreshold = 60.0;
-  static const double _autoScrollSpeed = 12.0;
+  static const double _edgeScrollThreshold =
+      MarkdownBarMetrics.reorderEdgeScrollZone;
+  static const double _autoScrollSpeed =
+      MarkdownBarMetrics.reorderAutoScrollStep;
 
   @override
   void dispose() {
-    _verticalScrollController.dispose();
-    _horizontalScrollController.dispose();
     _autoScrollTimer?.cancel();
     super.dispose();
   }
@@ -709,88 +909,49 @@ class _HorizontalReorderableListState extends State<HorizontalReorderableList> {
     }
   }
 
+  /// Scrolls the panel's scroll view while a drag hovers near its top or
+  /// bottom edge, faster the closer it gets. The chips wrap to the panel's
+  /// width, so there is no horizontal edge left to scroll.
   void _handleAutoScroll(Offset globalPosition) {
-    final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
-
-    final localPosition = renderBox.globalToLocal(globalPosition);
-    final size = renderBox.size;
-    final screenSize = MediaQuery.of(context).size;
-
-    double deltaX = 0;
-    double deltaY = 0;
-
-    // Check horizontal scrolling - use both local bounds and screen edges
-    if (localPosition.dx < _edgeScrollThreshold ||
-        globalPosition.dx < _edgeScrollThreshold) {
-      // Calculate scroll speed based on how close to edge (faster when closer)
-      final distanceFromEdge = localPosition.dx < _edgeScrollThreshold
-          ? localPosition.dx
-          : globalPosition.dx;
-      final speedMultiplier =
-          1.0 - (distanceFromEdge / _edgeScrollThreshold).clamp(0.0, 1.0);
-      deltaX = -_autoScrollSpeed * (0.5 + speedMultiplier * 0.5);
-    } else if (localPosition.dx > size.width - _edgeScrollThreshold ||
-        globalPosition.dx > screenSize.width - _edgeScrollThreshold) {
-      final distanceFromEdge =
-          localPosition.dx > size.width - _edgeScrollThreshold
-          ? size.width - localPosition.dx
-          : screenSize.width - globalPosition.dx;
-      final speedMultiplier =
-          1.0 - (distanceFromEdge / _edgeScrollThreshold).clamp(0.0, 1.0);
-      deltaX = _autoScrollSpeed * (0.5 + speedMultiplier * 0.5);
+    final scrollable = Scrollable.maybeOf(context);
+    final viewport = scrollable?.context.findRenderObject();
+    if (scrollable == null || viewport is! RenderBox || !viewport.hasSize) {
+      return;
     }
 
-    // Check vertical scrolling
-    if (localPosition.dy < _edgeScrollThreshold) {
-      final speedMultiplier =
-          1.0 - (localPosition.dy / _edgeScrollThreshold).clamp(0.0, 1.0);
+    final dy = viewport.globalToLocal(globalPosition).dy;
+    final height = viewport.size.height;
+
+    double deltaY = 0;
+    if (dy < _edgeScrollThreshold) {
+      final speedMultiplier = 1.0 - (dy / _edgeScrollThreshold).clamp(0.0, 1.0);
       deltaY = -_autoScrollSpeed * (0.5 + speedMultiplier * 0.5);
-    } else if (localPosition.dy > size.height - _edgeScrollThreshold) {
-      final distanceFromEdge = size.height - localPosition.dy;
+    } else if (dy > height - _edgeScrollThreshold) {
+      final distanceFromEdge = height - dy;
       final speedMultiplier =
           1.0 - (distanceFromEdge / _edgeScrollThreshold).clamp(0.0, 1.0);
       deltaY = _autoScrollSpeed * (0.5 + speedMultiplier * 0.5);
     }
 
-    if (deltaX != 0 || deltaY != 0) {
-      _startAutoScroll(deltaX, deltaY);
+    if (deltaY != 0) {
+      _startAutoScroll(scrollable.position, deltaY);
     } else {
       _stopAutoScroll();
     }
   }
 
-  void _startAutoScroll(double deltaX, double deltaY) {
+  void _startAutoScroll(ScrollPosition position, double deltaY) {
     _autoScrollTimer?.cancel();
     _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      bool scrolled = false;
-
-      if (deltaX != 0 && _horizontalScrollController.hasClients) {
-        final currentX = _horizontalScrollController.offset;
-        final newX = (currentX + deltaX).clamp(
-          0.0,
-          _horizontalScrollController.position.maxScrollExtent,
-        );
-        if (newX != currentX) {
-          _horizontalScrollController.jumpTo(newX);
-          scrolled = true;
-        }
-      }
-
-      if (deltaY != 0 && _verticalScrollController.hasClients) {
-        final currentY = _verticalScrollController.offset;
-        final newY = (currentY + deltaY).clamp(
-          0.0,
-          _verticalScrollController.position.maxScrollExtent,
-        );
-        if (newY != currentY) {
-          _verticalScrollController.jumpTo(newY);
-          scrolled = true;
-        }
-      }
-
+      final currentY = position.pixels;
+      final newY = (currentY + deltaY).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if (newY == currentY) return;
+      position.jumpTo(newY);
       // Update target index while scrolling to keep the drop indicator accurate
-      if (scrolled && _lastDragPosition != null && mounted) {
+      if (_lastDragPosition != null && mounted) {
         _updateTargetIndex(_lastDragPosition!);
       }
     });
@@ -807,122 +968,108 @@ class _HorizontalReorderableListState extends State<HorizontalReorderableList> {
       _itemKeys.putIfAbsent(i, () => GlobalKey());
     }
 
-    final rows = <List<int>>[];
-    for (var i = 0; i < widget.itemCount; i += widget.itemsPerRow) {
-      final end = (i + widget.itemsPerRow > widget.itemCount)
-          ? widget.itemCount
-          : i + widget.itemsPerRow;
-      rows.add(List.generate(end - i, (j) => i + j));
-    }
-
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 200),
-      child: SingleChildScrollView(
-        controller: _verticalScrollController,
-        physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: SingleChildScrollView(
-          controller: _horizontalScrollController,
-          scrollDirection: Axis.horizontal,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: rows.asMap().entries.map((entry) {
-              final rowIndex = entry.key;
-              final indices = entry.value;
-
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: rowIndex < rows.length - 1 ? 8 : 0,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: indices.asMap().entries.map((itemEntry) {
-                    final indexInRow = itemEntry.key;
-                    final index = itemEntry.value;
-                    final child = widget.itemBuilder(context, index);
-                    final isDragging = _draggingIndex == index;
-                    final isTarget = _targetIndex == index;
-
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isTarget && _draggingIndex != null && !isDragging)
-                          Container(
-                            width: 4,
-                            height: 44,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        DragTarget<int>(
-                          key: _itemKeys[index],
-                          onWillAcceptWithDetails: (details) =>
-                              details.data != index,
-                          onAcceptWithDetails: (details) {
-                            if (_targetIndex != null) {
-                              widget.onReorder(details.data, _targetIndex!);
-                            }
-                            setState(() {
-                              _draggingIndex = null;
-                              _targetIndex = null;
-                            });
-                          },
-                          builder: (context, candidateData, rejectedData) {
-                            return LongPressDraggable<int>(
-                              data: index,
-                              onDragStarted: () {
-                                if (widget.hapticsEnabled) {
-                                  HapticFeedback.mediumImpact();
-                                }
-                                setState(() => _draggingIndex = index);
-                              },
-                              onDragUpdate: _onDragUpdate,
-                              onDragEnd: (_) {
-                                _stopAutoScroll();
-                                setState(() {
-                                  _draggingIndex = null;
-                                  _targetIndex = null;
-                                });
-                              },
-                              onDraggableCanceled: (_, _) {
-                                _stopAutoScroll();
-                                setState(() {
-                                  _draggingIndex = null;
-                                  _targetIndex = null;
-                                });
-                              },
-                              feedback: Material(
-                                elevation: 8,
-                                borderRadius: BorderRadius.circular(12),
-                                color: Theme.of(context).colorScheme.surface,
-                                child: child,
-                              ),
-                              childWhenDragging: Opacity(
-                                opacity: 0.3,
-                                child: child,
-                              ),
-                              child: Opacity(
-                                opacity: isDragging ? 0.3 : 1.0,
-                                child: child,
-                              ),
-                            );
-                          },
-                        ),
-                        if (indexInRow < indices.length - 1)
-                          const SizedBox(width: 8),
-                      ],
-                    );
-                  }).toList(),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
+    return Padding(
+      padding: MarkdownBarMetrics.reorderSectionPadding,
+      child: Wrap(
+        spacing: MarkdownBarMetrics.reorderChipSpacing,
+        runSpacing: MarkdownBarMetrics.reorderChipSpacing,
+        children: [
+          for (var index = 0; index < widget.itemCount; index++)
+            _buildItem(context, index),
+        ],
       ),
+    );
+  }
+
+  Widget _buildItem(BuildContext context, int index) {
+    final child = widget.itemBuilder(context, index);
+    final isDragging = _draggingIndex == index;
+    final isTarget = _targetIndex == index;
+
+    // A chip wider than the panel shrinks to it and wraps its label rather
+    // than overflowing: the Wrap hands the stack the panel's width. The drop
+    // marker is positioned in the spacing before the chip and takes no
+    // width, because a wider target would reflow the runs under the finger.
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        DragTarget<int>(
+          key: _itemKeys[index],
+          onWillAcceptWithDetails: (details) => details.data != index,
+          onAcceptWithDetails: (details) {
+            if (_targetIndex != null) {
+              widget.onReorder(details.data, _targetIndex!);
+            }
+            setState(() {
+              _draggingIndex = null;
+              _targetIndex = null;
+            });
+          },
+          builder: (context, candidateData, rejectedData) {
+            return LongPressDraggable<int>(
+              data: index,
+              onDragStarted: () {
+                if (widget.hapticsEnabled) {
+                  HapticFeedback.mediumImpact();
+                }
+                setState(() => _draggingIndex = index);
+              },
+              onDragUpdate: _onDragUpdate,
+              onDragEnd: (_) {
+                _stopAutoScroll();
+                setState(() {
+                  _draggingIndex = null;
+                  _targetIndex = null;
+                });
+              },
+              onDraggableCanceled: (_, _) {
+                _stopAutoScroll();
+                setState(() {
+                  _draggingIndex = null;
+                  _targetIndex = null;
+                });
+              },
+              feedback: Material(
+                elevation: MarkdownBarMetrics.reorderFeedbackElevation,
+                borderRadius: BorderRadius.circular(
+                  MarkdownBarMetrics.reorderFeedbackRadius,
+                ),
+                color: Theme.of(context).colorScheme.surface,
+                child: child,
+              ),
+              childWhenDragging: Opacity(
+                opacity: MarkdownBarMetrics.reorderDraggedOpacity,
+                child: child,
+              ),
+              child: Opacity(
+                opacity: isDragging
+                    ? MarkdownBarMetrics.reorderDraggedOpacity
+                    : 1.0,
+                child: child,
+              ),
+            );
+          },
+        ),
+        if (isTarget && _draggingIndex != null && !isDragging)
+          Positioned(
+            key: const ValueKey('reorder-drop-marker'),
+            left:
+                -(MarkdownBarMetrics.reorderChipSpacing +
+                    MarkdownBarMetrics.reorderDropMarkerWidth) /
+                2,
+            top: 0,
+            bottom: 0,
+            width: MarkdownBarMetrics.reorderDropMarkerWidth,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(
+                  MarkdownBarMetrics.reorderDropMarkerRadius,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -935,28 +1082,35 @@ class _ReorderableShortcutItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      constraints: const BoxConstraints(
+        minHeight: MarkdownBarMetrics.reorderChipMinHeight,
+      ),
+      padding: MarkdownBarMetrics.reorderChipPadding,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(
+          MarkdownBarMetrics.reorderChipRadius,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.drag_indicator,
-            size: 18,
+            size: MarkdownBarMetrics.reorderChipGlyphSize,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: MarkdownBarMetrics.reorderChipHandleGap),
           _buildIcon(context),
-          const SizedBox(width: 8),
-          Text(
-            shortcut.label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Theme.of(context).colorScheme.onSurface,
+          const SizedBox(width: MarkdownBarMetrics.reorderChipLabelGap),
+          Flexible(
+            child: Text(
+              shortcut.localizedLabel(AppLocalizations.of(context)!),
+              style: TextStyle(
+                fontSize: MarkdownBarMetrics.reorderChipLabelFontSize,
+                fontWeight: FontWeight.w500,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
           ),
         ],
@@ -969,7 +1123,7 @@ class _ReorderableShortcutItem extends StatelessWidget {
       return Text(
         'B',
         style: TextStyle(
-          fontSize: 16,
+          fontSize: MarkdownBarMetrics.reorderChipLetterSize,
           fontWeight: FontWeight.bold,
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -979,7 +1133,7 @@ class _ReorderableShortcutItem extends StatelessWidget {
       return Text(
         'I',
         style: TextStyle(
-          fontSize: 16,
+          fontSize: MarkdownBarMetrics.reorderChipLetterSize,
           fontStyle: FontStyle.italic,
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -989,7 +1143,7 @@ class _ReorderableShortcutItem extends StatelessWidget {
       return Text(
         'H',
         style: TextStyle(
-          fontSize: 16,
+          fontSize: MarkdownBarMetrics.reorderChipLetterSize,
           fontWeight: FontWeight.bold,
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -1000,7 +1154,7 @@ class _ReorderableShortcutItem extends StatelessWidget {
         shortcut.iconCodePoint,
         shortcut.iconFontFamily,
       ),
-      size: 18,
+      size: MarkdownBarMetrics.reorderChipGlyphSize,
       color: Theme.of(context).colorScheme.onSurface,
     );
   }
@@ -1019,34 +1173,41 @@ class _ReorderableUtilityItem extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      constraints: const BoxConstraints(
+        minHeight: MarkdownBarMetrics.reorderChipMinHeight,
+      ),
+      padding: MarkdownBarMetrics.reorderChipPadding,
       decoration: BoxDecoration(
         color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(
+          MarkdownBarMetrics.reorderChipRadius,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.drag_indicator,
-            size: 18,
+            size: MarkdownBarMetrics.reorderChipGlyphSize,
             color: theme.colorScheme.onSecondaryContainer.withValues(
-              alpha: 0.6,
+              alpha: MarkdownBarMetrics.reorderChipHandleAlpha,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: MarkdownBarMetrics.reorderChipHandleGap),
           Icon(
             def.icon,
-            size: 18,
+            size: MarkdownBarMetrics.reorderChipGlyphSize,
             color: theme.colorScheme.onSecondaryContainer,
           ),
-          const SizedBox(width: 8),
-          Text(
-            def.label(l10n),
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: theme.colorScheme.onSecondaryContainer,
+          const SizedBox(width: MarkdownBarMetrics.reorderChipLabelGap),
+          Flexible(
+            child: Text(
+              def.label(l10n),
+              style: TextStyle(
+                fontSize: MarkdownBarMetrics.reorderChipLabelFontSize,
+                fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
             ),
           ),
         ],
@@ -1063,74 +1224,22 @@ class _ShortcutButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: _label(AppLocalizations.of(context)!),
-      preferBelow: false,
-      child: _BarInk(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(
-            AppConstants.markdownToolbarButtonPadding,
-          ),
-          margin: const EdgeInsets.symmetric(
-            horizontal: AppConstants.markdownToolbarButtonMargin,
-          ),
-          // B, I and H are glyphs like the icons beside them: scaled with
-          // the system text size they outgrow the 40 px row and the bar
-          // grows taller than the suggestion bar that replaces it.
-          child: MediaQuery.withNoTextScaling(
-            child: _buildButtonContent(context),
-          ),
-        ),
-      ),
+    return _BarButton(
+      tooltip: shortcut.localizedLabel(AppLocalizations.of(context)!),
+      onTap: onTap,
+      // B, I and H are glyphs like the icons beside them: scaled with the
+      // system text size they outgrow the row and the bar grows taller
+      // than the suggestion bar that replaces it.
+      glyph: MediaQuery.withNoTextScaling(child: _buildButtonContent(context)),
     );
   }
-
-  /// A built-in shortcut's name in the app's language. Built-ins cannot be
-  /// renamed, so the stored English label is only ever the seed's; a
-  /// user's own shortcut keeps the label they gave it.
-  String _label(AppLocalizations l10n) => switch (shortcut.id) {
-    'default_bold' => l10n.bold,
-    'default_italic' => l10n.italic,
-    'default_header' => l10n.headers,
-    'default_point_list' => l10n.pointList,
-    'default_strikethrough' => l10n.strikethrough,
-    'default_highlight' => l10n.shortcutHighlight,
-    'default_bullet_list' => l10n.bulletList,
-    'default_numbered_list' => l10n.numberedList,
-    'default_checkbox' => l10n.checkbox,
-    'default_quote' => l10n.quote,
-    'default_callout' => l10n.shortcutCallout,
-    'default_inline_code' => l10n.inlineCode,
-    'default_code_block' => l10n.codeBlock,
-    'default_link' => l10n.link,
-    'default_checked_checkbox' => l10n.shortcutCheckedCheckbox,
-    'default_table' => l10n.shortcutTable,
-    'default_horizontal_rule' => l10n.shortcutHorizontalRule,
-    'default_image' => l10n.shortcutImage,
-    'default_date' => l10n.currentDate,
-    'default_ghost' => l10n.shortcutGhostText,
-    'default_color_text' => l10n.shortcutColorText,
-    'default_color_highlight' => l10n.shortcutColorHighlight,
-    'default_money' => l10n.shortcutMoneyAdd,
-    'default_money_subtract' => l10n.shortcutMoneySubtract,
-    'default_money_multiply' => l10n.shortcutMoneyMultiply,
-    'default_money_divide' => l10n.shortcutMoneyDivide,
-    'default_money_set' => l10n.shortcutMoneyStart,
-    'default_money_total' => l10n.shortcutMoneyTotal,
-    'default_money_delta' => l10n.shortcutMoneyChange,
-    'default_money_target' => l10n.shortcutMoneyTarget,
-    'default_money_diff' => l10n.shortcutMoneyDiff,
-    'default_money_span' => l10n.shortcutMoneySpan,
-    _ => shortcut.label,
-  };
 
   Widget _buildButtonContent(BuildContext context) {
     if (shortcut.id == 'default_bold') {
       return Text(
         'B',
         style: TextStyle(
-          fontSize: AppConstants.markdownToolbarTextSize,
+          fontSize: MarkdownBarMetrics.letterGlyphSize,
           fontWeight: FontWeight.bold,
           color: Theme.of(context).iconTheme.color,
         ),
@@ -1140,7 +1249,7 @@ class _ShortcutButton extends StatelessWidget {
       return Text(
         'I',
         style: TextStyle(
-          fontSize: AppConstants.markdownToolbarTextSize,
+          fontSize: MarkdownBarMetrics.letterGlyphSize,
           fontStyle: FontStyle.italic,
           color: Theme.of(context).iconTheme.color,
         ),
@@ -1150,7 +1259,7 @@ class _ShortcutButton extends StatelessWidget {
       return Text(
         'H',
         style: TextStyle(
-          fontSize: AppConstants.markdownToolbarTextSize,
+          fontSize: MarkdownBarMetrics.letterGlyphSize,
           fontWeight: FontWeight.bold,
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -1161,7 +1270,7 @@ class _ShortcutButton extends StatelessWidget {
         shortcut.iconCodePoint,
         shortcut.iconFontFamily,
       ),
-      size: AppConstants.markdownToolbarIconSize,
+      size: MarkdownBarMetrics.glyphSize,
       color: Theme.of(context).iconTheme.color,
     );
   }
@@ -1180,27 +1289,58 @@ class _ToolbarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      preferBelow: false,
-      child: _BarInk(
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.markdownToolbarButtonMargin,
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(
-              AppConstants.markdownToolbarButtonPadding,
-            ),
-            child: Icon(
-              icon,
-              size: AppConstants.markdownToolbarIconSize,
-              color: onPressed == null
-                  ? Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.3)
-                  : Theme.of(context).colorScheme.onSurface,
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return _BarButton(
+      tooltip: tooltip,
+      onTap: onPressed,
+      glyph: Icon(
+        icon,
+        size: MarkdownBarMetrics.glyphSize,
+        color: onPressed == null
+            ? onSurface.withValues(alpha: FormMetrics.disabledOpacity)
+            : onSurface,
+      ),
+    );
+  }
+}
+
+/// Every bar button: a [MarkdownBarMetrics.buttonSize] square that is all
+/// hit area, laid edge to edge with its neighbours so no tap lands on dead
+/// bar. The pressed ink is an icon button's circle on its own transparent
+/// material, because the bar's decorated surface would paint over the
+/// page's, and the ink with it.
+///
+/// A screen reader hears one node per button — the tooltip, the button
+/// role and whether it is enabled — and never the glyph, which for B, I
+/// and H is a bare letter that names nothing.
+class _BarButton extends StatelessWidget {
+  final String tooltip;
+  final VoidCallback? onTap;
+  final Widget glyph;
+
+  const _BarButton({
+    required this.tooltip,
+    required this.onTap,
+    required this.glyph,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: onTap != null,
+      child: Tooltip(
+        message: tooltip,
+        preferBelow: false,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkResponse(
+            onTap: onTap,
+            radius: MarkdownBar.rowHeight / 2,
+            child: SizedBox.square(
+              dimension: MarkdownBarMetrics.buttonSize,
+              child: Center(child: ExcludeSemantics(child: glyph)),
             ),
           ),
         ),
@@ -1209,61 +1349,180 @@ class _ToolbarButton extends StatelessWidget {
   }
 }
 
-/// The pressed feedback every bar button shows: an icon button's circular
-/// ink, drawn on its own transparent material because the bar's decorated
-/// surface would paint over the page's, and the ink with it. The tap target
-/// stays the child's whole box.
-class _BarInk extends StatelessWidget {
-  final VoidCallback? onTap;
-  final Widget child;
+/// A heading menu item: the localized level, the marker it types, so the
+/// menu teaches the syntax, and the check on the caret line's own choice.
+/// Body text is level 0, with no marker. The check's slot is kept on every
+/// row so the markers stand in one column. The marker is decoration to a
+/// screen reader, which hears the level and the checked state alone. A
+/// disabled label is dimmed here, as `FormMenuItemRow` does, because the
+/// theme's menu label style is state-independent.
+class _HeadingMenuRow extends StatelessWidget {
+  final int level;
+  final String label;
+  final bool checked;
+  final bool enabled;
 
-  const _BarInk({required this.onTap, required this.child});
+  const _HeadingMenuRow({
+    required this.level,
+    required this.label,
+    required this.checked,
+    required this.enabled,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      type: MaterialType.transparency,
-      child: InkResponse(
-        onTap: onTap,
-        radius: MarkdownBar.rowHeight / 2,
-        child: child,
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      identifier: SemanticsIds.editorHeadingLevel(level),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: enabled
+                  ? null
+                  : TextStyle(
+                      color: colorScheme.onSurface.withValues(
+                        alpha: FormMetrics.disabledOpacity,
+                      ),
+                    ),
+            ),
+          ),
+          if (level > 0) ...[
+            const SizedBox(width: FormMetrics.gap),
+            ExcludeSemantics(
+              child: Text(
+                '#' * level,
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+          const SizedBox(width: FormMetrics.gap),
+          SizedBox.square(
+            dimension: FormMetrics.menuIconSize,
+            child: checked
+                ? Icon(
+                    Icons.check_rounded,
+                    size: FormMetrics.menuIconSize,
+                    color: colorScheme.primary,
+                  )
+                : null,
+          ),
+        ],
       ),
     );
   }
 }
 
-/// A heading menu item: the localized level and, at the trailing edge, the
-/// marker it types, so the menu teaches the syntax. The marker is decoration
-/// to a screen reader, which hears the level alone.
-class _HeadingMenuRow extends StatelessWidget {
-  final int level;
-  final String label;
-  final String marker;
+/// The cue that a bar strip scrolls: an edge fades out wherever content
+/// lies beyond it, driven by the scroll extent, so a strip that fits shows
+/// no fade and one scrolled to its end fades only its start.
+class MarkdownBarEdgeFade extends StatefulWidget {
+  /// The horizontal scroll view the fade masks.
+  final Widget child;
 
-  const _HeadingMenuRow({
-    required this.level,
-    required this.label,
-    required this.marker,
-  });
+  /// The colour the fade paints over a faded edge — whatever the strip
+  /// stands on; the theme's `surface`, the bar's own ground, when null.
+  final Color? ground;
+
+  const MarkdownBarEdgeFade({super.key, required this.child, this.ground});
+
+  @override
+  State<MarkdownBarEdgeFade> createState() => MarkdownBarEdgeFadeState();
+}
+
+/// Public so a test can read which edges fade without decoding a shader.
+class MarkdownBarEdgeFadeState extends State<MarkdownBarEdgeFade> {
+  bool _fadesStart = false;
+  bool _fadesEnd = false;
+
+  /// Whether content lies before the leading edge.
+  @visibleForTesting
+  bool get fadesStart => _fadesStart;
+
+  /// Whether content lies beyond the trailing edge.
+  @visibleForTesting
+  bool get fadesEnd => _fadesEnd;
+
+  bool _onMetrics(ScrollMetrics metrics, int depth) {
+    if (depth != 0) return false;
+    final start = metrics.extentBefore > 0;
+    final end = metrics.extentAfter > 0;
+    if (start != _fadesStart || end != _fadesEnd) {
+      setState(() {
+        _fadesStart = start;
+        _fadesEnd = end;
+      });
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      identifier: SemanticsIds.editorHeadingLevel(level),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          const SizedBox(width: FormMetrics.gap),
-          ExcludeSemantics(
-            child: Text(
-              marker,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
+    final ground = widget.ground ?? Theme.of(context).colorScheme.surface;
+    // The bar's ground painted over a faded edge, not a mask: a ShaderMask
+    // is a saveLayer per strip on every frame the bar composites, even with
+    // nothing to fade. The strip stays the Stack's first child, so an edge
+    // coming and going never rebuilds the scroll view or loses its offset.
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (n) => _onMetrics(n.metrics, n.depth),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (n) => _onMetrics(n.metrics, n.depth),
+        // A narrow split strip fading at both ends keeps its middle clear:
+        // neither fade reaches past half the strip.
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final extent = math.min(
+              MarkdownBarMetrics.edgeFadeExtent,
+              constraints.maxWidth / 2,
+            );
+            return Stack(
+              fit: StackFit.passthrough,
+              children: [
+                widget.child,
+                if (_fadesStart)
+                  _edge(start: true, ground: ground, extent: extent),
+                if (_fadesEnd)
+                  _edge(start: false, ground: ground, extent: extent),
+              ],
+            );
+          },
+        ),
       ),
+    );
+  }
+
+  Widget _edge({
+    required bool start,
+    required Color ground,
+    required double extent,
+  }) {
+    return Positioned(
+      left: start ? 0 : null,
+      right: start ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: extent,
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: gradientFor(start: start, ground: ground),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The overlay on one faded edge: the bar's [ground] at the edge, clear
+  /// [MarkdownBarMetrics.edgeFadeExtent] in.
+  static LinearGradient gradientFor({
+    required bool start,
+    required Color ground,
+  }) {
+    return LinearGradient(
+      begin: start ? Alignment.centerLeft : Alignment.centerRight,
+      end: start ? Alignment.centerRight : Alignment.centerLeft,
+      colors: [ground, ground.withValues(alpha: 0)],
     );
   }
 }

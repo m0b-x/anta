@@ -2014,6 +2014,9 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
                     onShortcutPressed: _handleShortcut,
                     showSettings: false,
                     showBackground: false,
+                    fadeGround: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     showReorder: false,
                   ),
                 ),

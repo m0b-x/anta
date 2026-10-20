@@ -222,6 +222,73 @@ ANTA-only, no verdict: money rows, `{{ghost}}`, `{name:text}` colours and
 
 ## 5. Ledger
 
+- **2026-10-20, phase two BUILT and COMMITTED `8fbdeeb` — slices D, E, F
+  (F1, F17, F21b, F9, F10, F15, F14, F16), every slice gated green; phase
+  one is `ec808d4`, the checkpoint before it `1732603`.** Same machinery
+  (baselines D `8e9ccbd5`, E `4cad2939`, F `051e188e`). Findings: D 36
+  raised / 32 kept / 24 fixed; E 34 / 33 / 31; F 38 / 33 / 19. The run took
+  17 hours because E's fix pass stalled for 15 before the harness retried
+  it. **As built, where it departs from §2/§3 or needs a note:**
+  - F1: fence openers and closers are a packed state (character, run
+    length) stepped by `MarkdownChunker.blockStateAfter` through the
+    chunker, the line index (its seam proofs compare the state), the plain
+    text, the excerpt and the width calculator; the deprecated preview's own
+    ```` ``` ```` tests went through the shared API; no tab or four-space
+    fence indent (CommonMark; two old pins flipped); `isFenceDelimiter`
+    survives only as the stateless opener-shaped question. The ledger
+    service and the paste breaker still used the old shape after D — the
+    sweep S2 (§5 below) moves them onto the state.
+  - F17: `%%…%%` is a one-line atom (an unclosed `%%` stays literal;
+    Obsidian pairs across lines — accepted); a block comment needs `%%`
+    alone on a line (trailing blanks and up to three spaces of indent
+    allowed) and runs to the next such line or the end of the note, as in
+    Obsidian; block lines are dimmed in both reveal states (a line cannot
+    vanish), inert for tags and money; ordinary `%%` in prose becomes a
+    comment (as in Obsidian); ghosts inside a block stay tinted and
+    tappable (left); a comment-only note previews its raw text (the
+    plain-text fallback, left).
+  - F21b: the hard break follows the next line (non-blank → break; blank,
+    whitespace-only or end of note → the `\` shows) through a positional
+    memo; headings, callout titles and money rows never take one. A next
+    line that starts a list item or another block still counted as a
+    continuation after D — S2 narrows it to a paragraph continuation.
+  - F9: the fold marker `-`/`+` directly after `]` is chrome; a `-` after a
+    space is title text.
+  - F10: a titleless lead shows the type word title-cased by 1:1 case
+    substitution (no localisation on either surface, by the offset
+    invariant); aliases info→note, hint→tip, check/done→success,
+    attention→warning, error→danger, fail/missing→failure, cite→quote,
+    summary/tldr→abstract, faq/help→question; new kinds example, question,
+    danger, bug, todo, quote, abstract, failure with accents and icons; an
+    unknown `[!word]` is a note-styled callout titled by the word; a lead
+    word must be a type word (`[![a](u)](l)` and `[!two words]` stay
+    quotes); a tab after the last `>` is a separator; Obsidian's
+    `[!type|meta]` is not parsed (accepted); a `[!x]` line in the middle of
+    a plain quote still opens a callout (predates the slice, deferred).
+  - F15: lists, tasks and headings render and toggle inside quotes and
+    callouts on both surfaces; quoted tasks do not feed the
+    indeterminate-parent pass; the line-height calculator reads quoted
+    headings; the editor's quoted heading bar took the heading weight and a
+    quoted bullet the quote's italic — S2 aligns both with the preview.
+  - F14: any single non-whitespace character in the brackets is a task;
+    `x`/`X` checked, `-` cancelled (struck and dimmed), the others plain
+    with their own painted glyph; a tap on a custom state clears it to
+    `[ ]`; custom states need a blank after `]` while `x`/`X` do not (an
+    asymmetry kept for the existing pins); the cancelled dash resembled the
+    indeterminate bar — S2 paints a cross.
+  - F16: a setext underline needs three or more markers (CommonMark takes
+    one; deliberate); the underline renders as a dimmed rule and is not a
+    horizontal rule when the line above qualifies; positional memo keys on
+    both lines, the line index untouched; an image line above `---`
+    becomes an H2 (CommonMark; accepted); the H menu, `applyHeaderLevel`,
+    the wiki heading target, the excerpt, the width breaker and the
+    list-aware paste did not know setext after F — S2 teaches them; the
+    front-matter note's last property rendered as a setext H2 — S2 adds a
+    front-matter block.
+  - The span-builder route order is now fence → callout → setext → money →
+    indeterminate task → text memo; the corpus has new lines in sections
+    1, 2, 4, 5, 6, 8, a section 9 "Block comments" and the unclosed fence
+    as section 10.
 - **2026-10-19/20, phase one BUILT — slices A, B1, B2, C and S (F2, F3, F4
   option B, F5, F6, F7, F8, F11, F12, F13, F19, F20, F21, F23, F24 plus the
   sweep), every slice gated green (`flutter test test/utils` and the slice

@@ -83,7 +83,10 @@ void main() {
       expect(ticks, MarkdownChunker.fenceOpenerOf('```'));
       expect(MarkdownChunker.closesFence('```\r', ticks), isTrue);
       expect(
-        MarkdownChunker.closesFence('~~~\r', MarkdownChunker.fenceOpenerOf('~~~')),
+        MarkdownChunker.closesFence(
+          '~~~\r',
+          MarkdownChunker.fenceOpenerOf('~~~'),
+        ),
         isTrue,
       );
       expect(MarkdownChunker.isCommentDelimiter('%%\r'), isTrue);
@@ -139,6 +142,50 @@ void main() {
       expect(MarkdownChunker.isBlankLine(' \t '), isTrue);
       expect(MarkdownChunker.isBlankLine(' b'), isFalse);
     });
+
+    test('only prose continues a paragraph', () {
+      bool goesOn(String line, String? next) =>
+          MarkdownChunker.continuesParagraph(line, next);
+      expect(goesOn('a', 'b'), isTrue);
+      expect(goesOn('a', '  indented prose'), isTrue);
+      expect(goesOn('> a', '> b'), isTrue);
+      expect(goesOn('a', null), isFalse);
+      expect(goesOn('a', ' \t'), isFalse);
+      for (final next in [
+        '- b',
+        '1. b',
+        '- [ ] b',
+        '# H',
+        '```',
+        '~~~js',
+        '***',
+        '%%',
+        '| a | b |',
+        r'$+ 5 x',
+        '> b',
+      ]) {
+        expect(goesOn('a', next), isFalse, reason: next);
+      }
+      expect(goesOn(r'- D:\a\', r'- D:\b\'), isFalse);
+      expect(goesOn('> a', 'b'), isFalse);
+      expect(goesOn('> a', '>'), isFalse);
+      expect(goesOn('> a', '> - b'), isFalse);
+      expect(goesOn('> a', '> # H'), isFalse);
+    });
+
+    test('a deeper quote, a callout lead or a setext text line ends it', () {
+      expect(MarkdownChunker.continuesParagraph('> a', '> > b'), isFalse);
+      expect(MarkdownChunker.continuesParagraph('> > a', '> > b'), isTrue);
+      expect(
+        MarkdownChunker.continuesParagraph('> > a', '> b'),
+        isTrue,
+        reason: 'a shallower line is a lazy continuation',
+      );
+      expect(MarkdownChunker.continuesParagraph('> a', '> [!TIP] x'), isFalse);
+      expect(MarkdownChunker.continuesParagraph('a', 'b', '==='), isFalse);
+      expect(MarkdownChunker.continuesParagraph('a', 'b', '---'), isFalse);
+      expect(MarkdownChunker.continuesParagraph('a', 'b', 'c'), isTrue);
+    });
   });
 
   group('block scan — fence pairing and comments', () {
@@ -153,6 +200,69 @@ void main() {
       expect(blocksOf(['```npm i```', '#tag', 'more']), isEmpty);
     });
 
+    group('front matter', () {
+      const fm = MarkdownBlockKind.frontMatter;
+      int endOf(List<String> lines) =>
+          MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
+
+      test('closes at --- or ... and holds only properties', () {
+        expect(endOf(['---', 'tags: [a, b]', 'aliases:', '  - x', '---']), 5);
+        expect(endOf(['---', 'title: x', '...', '# H']), 3);
+        expect(endOf(['---  ', 'k: v', '---\r', 'x']), 3);
+        expect(endOf(['---', 'Übung: Kniebeuge', 'note.v2: a', '---']), 4);
+        expect(blocksOf(['---', 'k: v', '---', '# H', '```', 'c', '```']), [
+          (fm, 0, 3),
+          (fence, 4, 7),
+        ]);
+      });
+
+      test('a rule with no closer, or a broken candidate, is none', () {
+        expect(endOf(['---', 'k: v']), 0);
+        expect(endOf(['---', 'k: v', 'prose', '---']), 0);
+        expect(endOf(['---', 'k: v', '', '---']), 0);
+        expect(endOf(['---', '```', '---']), 0);
+        expect(endOf(['---', '%%', '---']), 0);
+        expect(endOf(['---', r'$+ 5: x', '---']), 0);
+        expect(endOf(['---', '# k: v', '---']), 0);
+        expect(endOf(['---', '---', 'k: v']), 0);
+        expect(endOf([' ---', 'k: v', '---']), 0);
+        expect(endOf(['---', 'k: v', ' ---']), 0);
+        expect(endOf(['x', '---', 'k: v', '---']), 0);
+        expect(endOf(['---', 'k:v', '---']), 0);
+      });
+
+      // C1 fix pass C2 — YAML front matter is a mapping: a list framed by
+      // two rules at the top of a note stays rule, list, rule.
+      test('the first property is a key; an item only continues one', () {
+        expect(endOf(['---', '- a', '---']), 0);
+        expect(endOf(['---', '- [ ] buy milk', '- [ ] eggs', '---', 'x']), 0);
+        expect(endOf(['---', '-', 'k: v', '---']), 0);
+        expect(endOf(['---', 'k:', '- a', '---']), 4);
+        expect(blocksOf(['---', '- a', '---']), isEmpty);
+      });
+
+      // C1 fix pass C8 — where the scan stops is the line index's re-read
+      // bound: nothing below it is read.
+      test('frontMatterStop is the closer, the break, or the end', () {
+        int stopOf(List<String> lines) =>
+            MarkdownChunker.frontMatterStop(lines.length, (i) => lines[i]);
+        expect(stopOf(['---', 'k: v', '---', 'x']), 2);
+        expect(stopOf(['---', 'k: v', 'prose', 'k: v', '---']), 2);
+        expect(stopOf(['---', 'k: v', '- a', '- b']), 4);
+        expect(stopOf(['x', 'k: v', '---']), 0);
+        expect(stopOf(['---', '- a', 'k: v']), 1);
+      });
+
+      test('blockStateAfter steps an open block to its closer', () {
+        const open = MarkdownChunker.insideFrontMatter;
+        expect(MarkdownChunker.blockStateAfter('```', open), open);
+        expect(MarkdownChunker.blockStateAfter('%%', open), open);
+        expect(MarkdownChunker.blockStateAfter('...', open), 0);
+        expect(MarkdownChunker.blockStateAfter('---', open), 0);
+        expect(MarkdownChunker.isFenceState(open), isFalse);
+      });
+    });
+
     test('```js inside an open fence does not close it', () {
       expect(blocksOf(['```', 'a', '```js', 'b', '```', 'after']), [
         (fence, 0, 5),
@@ -160,9 +270,7 @@ void main() {
     });
 
     test('a ```` fence stays open past a ``` line until ````', () {
-      expect(blocksOf(['````', '```', 'x', '````', 'after']), [
-        (fence, 0, 4),
-      ]);
+      expect(blocksOf(['````', '```', 'x', '````', 'after']), [(fence, 0, 4)]);
     });
 
     test('~~~ pairs with ~~~ and never closes a backtick fence', () {
@@ -188,9 +296,7 @@ void main() {
     });
 
     test('a %% block runs to the next %% line or the end', () {
-      expect(blocksOf(['a', '%%', 'hidden ```', '%%', 'b']), [
-        (comment, 1, 4),
-      ]);
+      expect(blocksOf(['a', '%%', 'hidden ```', '%%', 'b']), [(comment, 1, 4)]);
       expect(blocksOf(['%%', 'x', 'y']), [(comment, 0, 3)]);
     });
 
@@ -531,10 +637,7 @@ void main() {
         for (final lines in [0, 999, 1000, 9999, 10000, 49999, 50000, 200000]) {
           final size = MarkdownChunker.adaptiveChunkSize(lines, base);
           expect(size, greaterThanOrEqualTo(base));
-          expect(
-            size,
-            lessThanOrEqualTo(MarkdownChunker.maxAdaptiveChunkSize),
-          );
+          expect(size, lessThanOrEqualTo(MarkdownChunker.maxAdaptiveChunkSize));
         }
       }
     });

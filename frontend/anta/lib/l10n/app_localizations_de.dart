@@ -1722,7 +1722,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get insertsCurrentDate => 'Fügt aktuelles Datum ein';
 
   @override
-  String get opensHeaderMenu => 'Öffnet Überschriftenmenü (H1-H6)';
+  String get opensHeaderMenu =>
+      'Öffnet das Überschriftenmenü (Fließtext, H1-H6)';
 
   @override
   String beforeAfterText(String before, String after) {
@@ -1805,7 +1806,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get italic => 'Kursiv';
 
   @override
-  String get headers => 'Überschriften';
+  String get headers => 'Überschrift';
 
   @override
   String get pointList => 'Punktliste';
@@ -1854,6 +1855,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get header6 => 'Überschrift 6';
+
+  @override
+  String get headingBodyText => 'Fließtext';
 
   @override
   String get indentLine => 'Einzug vergrößern';
@@ -1992,21 +1996,57 @@ class AppLocalizationsDe extends AppLocalizations {
       'Diese Notiz ist sehr groß und kann einen Moment zum Laden benötigen';
 
   @override
-  String noteStats(int count, int chunks) {
+  String noteStats(int count, int lines) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+    final intl.NumberFormat linesNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String linesString = linesNumberFormat.format(lines);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count Zeichen',
+      other: '$countString Zeichen',
       one: '1 Zeichen',
     );
     String _temp1 = intl.Intl.pluralLogic(
-      chunks,
+      lines,
       locale: localeName,
-      other: '$chunks Teile',
+      other: '$linesString Zeilen',
+      one: '1 Zeile',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String noteChunkCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Teile',
       one: '1 Teil',
     );
-    return '$_temp0, $_temp1';
+    return '$_temp0';
   }
+
+  @override
+  String get editorHint => 'Tippe los…';
+
+  @override
+  String get closeSearch => 'Suche schließen';
+
+  @override
+  String get saveStateSaved => 'Gespeichert';
+
+  @override
+  String get saveStateUnsaved => 'Ungespeicherte Änderungen';
+
+  @override
+  String get saveStateSaving => 'Wird gespeichert';
+
+  @override
+  String get saveStateError => 'Nicht gespeichert';
 
   @override
   String get compressedNote => 'Komprimiert';
@@ -4914,6 +4954,26 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get editorZoneOpenWikiLink => 'Verknüpfte Notiz öffnen';
+
+  @override
+  String editorZoneToggleTaskNamed(String task) {
+    return 'Aufgabe umschalten: $task';
+  }
+
+  @override
+  String editorZoneOpenLinkNamed(String link) {
+    return 'Link öffnen: $link';
+  }
+
+  @override
+  String editorZoneOpenWikiLinkNamed(String note) {
+    return 'Verknüpfte Notiz öffnen: $note';
+  }
+
+  @override
+  String editorZoneSearchTagNamed(String tag) {
+    return 'Schlagwort suchen: $tag';
+  }
 
   @override
   String get showAncestors => 'Übergeordnete Ordner anzeigen';

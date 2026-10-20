@@ -237,6 +237,16 @@ void main() {
       expect(MarkdownPlainText.strip('> a\\\n> b'), 'a b');
     });
 
+    test('keeps a trailing backslash the next line does not continue', () {
+      expect(MarkdownPlainText.strip('- D:\\a\\\n- D:\\b\\'), r'D:\a\ D:\b\');
+      expect(MarkdownPlainText.strip('a\\\n# H'), r'a\ H');
+      expect(MarkdownPlainText.strip('a\\\n> b'), r'a\ b');
+      expect(MarkdownPlainText.strip('> a\\\nb'), r'a\ b');
+      expect(MarkdownPlainText.strip('a\\\nb\n==='), r'a\ b');
+      expect(MarkdownPlainText.strip('> a\\\n> > b'), r'a\ b');
+      expect(MarkdownPlainText.strip('> a\\\n> [!TIP] x'), r'a\ Tip x');
+    });
+
     test('pairs fences by character and run length', () {
       expect(
         MarkdownPlainText.strip('```npm i``` then #tag'),
@@ -262,6 +272,17 @@ void main() {
       expect(MarkdownPlainText.strip('a\n%%\nsecret\n%%\nb'), 'a b');
       expect(MarkdownPlainText.strip('a\n%%\nsecret to the end'), 'a');
       expect(MarkdownPlainText.strip('```\n%%\n```\nb'), 'b');
+    });
+
+    test('drops a front matter and keeps a rule with no closer', () {
+      expect(
+        MarkdownPlainText.strip('---\ntags: [a]\naliases: [fm]\n---\n# Body'),
+        'Body',
+      );
+      expect(MarkdownPlainText.strip('---\ntitle: x\n...\nshown'), 'shown');
+      expect(MarkdownPlainText.strip('---\ntags: a\n---'), '');
+      expect(MarkdownPlainText.strip('---\nprose here\n---\nb'), contains('b'));
+      expect(MarkdownPlainText.strip('---\nk: v\nmore'), contains('k: v'));
     });
 
     test('a note that is only a comment previews blank, not its text', () {

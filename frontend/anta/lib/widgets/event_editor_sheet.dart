@@ -2120,6 +2120,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           paintGround: false,
           onTextChanged: _descriptionEdits.onTextChanged,
           checkboxTapToggle: _liveMarkdownRendering,
+          // A fenced line renders raw, so a box drawn there is text: taps
+          // on it stay plain editing.
+          isFenceLine: _descriptionSpanBuilder.lineInFence,
           hapticsEnabled: _hapticsEnabled,
           // The wrapper's own rail would sit on the last characters of every
           // line (the box has no padding to hold it); the cell draws one in
@@ -2369,6 +2372,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             controller: _descriptionController,
             shortcut: shortcut,
             mutateCounter: (_, _) async => null,
+            isFenceLine: _descriptionSpanBuilder.lineInFence,
           );
         });
       }
@@ -2435,7 +2439,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
           identifier: SemanticsIds.eventDate,
-                            label: l10n.eventDateLabel,
+          label: l10n.eventDateLabel,
           value: dateFormat.format(_date),
           onTap: _pickDate,
         )
@@ -2443,7 +2447,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
           identifier: SemanticsIds.eventDates,
-                            label: l10n.eventDatesLabel,
+          label: l10n.eventDatesLabel,
           value: _datesValue(l10n, oneTimeDates),
           onTap: () => _pickOneTimeDates(view: CalendarDatePickerView.list),
         )
@@ -2463,7 +2467,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
           identifier: SemanticsIds.eventDate,
-                            label: l10n.eventDate,
+          label: l10n.eventDate,
           value: dateFormat.format(_date),
           onTap: _pickDate,
         ),
@@ -2471,13 +2475,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         FormActionRow(
           glyph: Icons.add_rounded,
           identifier: SemanticsIds.eventAddDate,
-                            label: l10n.eventAddDate,
+          label: l10n.eventAddDate,
           onTap: _pickOneTimeDates,
         ),
       FormSwitchRow(
         glyph: Icons.schedule_outlined,
         identifier: SemanticsIds.eventAllDay,
-                            label: l10n.eventAllDay,
+        label: l10n.eventAllDay,
         value: _isAllDay,
         onChanged: _setAllDay,
       ),
@@ -2487,7 +2491,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           child: FormPickerRow(
             subRow: true,
             identifier: SemanticsIds.eventStarts,
-                            label: l10n.eventStarts,
+            label: l10n.eventStarts,
             value: EventTimeFormatter.formatMinute(_startMinute, context),
             onTap: _pickStartTime,
           ),
@@ -2498,7 +2502,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
               ? FormPickerRow(
                   subRow: true,
                   identifier: SemanticsIds.eventEnds,
-                            label: l10n.eventEnds,
+                  label: l10n.eventEnds,
                   value: l10n.eventEndTimeNone,
                   onTap: _pickEndTime,
                 )
@@ -2523,7 +2527,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       FormPickerRow(
         glyph: Icons.repeat_rounded,
         identifier: SemanticsIds.eventRepeat,
-                            label: l10n.eventRepeat,
+        label: l10n.eventRepeat,
         value: _repeatValue(l10n),
         onTap: _pickRepeat,
       ),
@@ -2720,7 +2724,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       return FormPickerRow(
         glyph: Icons.sticky_note_2_outlined,
         identifier: SemanticsIds.eventLinkedNote,
-                            label: l10n.eventLinkedNote,
+        label: l10n.eventLinkedNote,
         value: l10n.eventLinkedNoteNone,
         onTap: _pickNote,
       );
@@ -2735,7 +2739,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         glyph: Icons.warning_amber_rounded,
         glyphColor: colorScheme.error,
         identifier: SemanticsIds.eventLinkedNote,
-                            label: l10n.eventLinkedNote,
+        label: l10n.eventLinkedNote,
         value: l10n.eventLinkedNoteNotFound,
         valueColor: colorScheme.error,
         semanticsLabel: l10n.eventLinkedNoteMissing,
@@ -2747,7 +2751,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     return FormPickerRow(
       glyph: Icons.sticky_note_2_outlined,
       identifier: SemanticsIds.eventLinkedNote,
-                            label: l10n.eventLinkedNote,
+      label: l10n.eventLinkedNote,
       value: title == null ? '' : (title.isEmpty ? l10n.untitledNote : title),
       onTap: _pickNote,
       trailingButton: unlink,

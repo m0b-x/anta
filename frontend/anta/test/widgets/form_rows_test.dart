@@ -18,10 +18,102 @@ import 'package:anta/widgets/value_change_highlight.dart';
 /// its trailing button as a second node, a chip's tap target is padded to
 /// 48 dp, and a disabled row is drawn at the disabled opacity without ink.
 void main() {
+  group('formMenuPosition and the keyboard (U1.6)', () {
+    testWidgets('a menu that fits the screen but not above the keyboard '
+        'opens above its anchor, and below again once it closes', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final anchorKey = GlobalKey();
+      // A Scaffold that resizes for the keyboard strips the inset from its
+      // body, where the anchor sits: the overlay is what still knows it.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 380),
+                child: SizedBox(key: anchorKey, width: 48, height: 48),
+              ),
+            ),
+          ),
+        ),
+      );
+      double top() => formMenuPosition(
+        anchorKey.currentContext!,
+        const BoxConstraints.tightFor(width: 360, height: 780),
+        menuHeight: 200,
+      ).top;
+
+      expect(top(), 428);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+      await tester.pump();
+      expect(top(), 180);
+
+      tester.view.resetViewInsets();
+      await tester.pump();
+      expect(top(), 428);
+
+      // The system bar counts the same way, and the taller of the two wins.
+      tester.view.viewPadding = const FakeViewPadding(bottom: 160);
+      await tester.pump();
+      expect(top(), 180);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 100);
+      await tester.pump();
+      expect(top(), 180);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 100);
+      await tester.pump();
+      expect(top(), 428);
+    });
+
+    testWidgets('an open menu keeps the side its first layout chose while '
+        'the keyboard closes, and is capped to the room beside its anchor', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final anchorKey = GlobalKey();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 380),
+                child: SizedBox(key: anchorKey, width: 48, height: 48),
+              ),
+            ),
+          ),
+        ),
+      );
+      final side = FormMenuSide();
+      double top() => formMenuPosition(
+        anchorKey.currentContext!,
+        const BoxConstraints.tightFor(width: 360, height: 780),
+        menuHeight: 200,
+        side: side,
+      ).top;
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+      await tester.pump();
+      expect(top(), 180);
+      // Above the anchor, less the route's 8 dp margin; below it the
+      // keyboard leaves 780 - 320 - 428 - 8.
+      expect(formMenuMaxHeight(anchorKey.currentContext!), 372);
+
+      tester.view.resetViewInsets();
+      await tester.pump();
+      expect(top(), 180);
+    });
+  });
+
   Widget host(Widget child) => MaterialApp(
-    home: Scaffold(
-      body: FormRowGroup(children: [child]),
-    ),
+    home: Scaffold(body: FormRowGroup(children: [child])),
   );
 
   group('picker row with a switch', () {
@@ -822,10 +914,7 @@ void main() {
       final chip = tester.getCenter(find.text('Missed'));
       expect(chip.dy, moreOrLessEquals(label.dy, epsilon: 1));
       expect(chip.dx, greaterThan(label.dx));
-      for (final chipFinder in [
-        find.text('Present'),
-        find.text('Missed'),
-      ]) {
+      for (final chipFinder in [find.text('Present'), find.text('Missed')]) {
         expect(
           tester
               .getSize(
@@ -1173,7 +1262,9 @@ void main() {
         FormMetrics.dividerIndentPlain,
       );
       // Three dots stay three nodes under the row's: never a merge.
-      final node = tester.getSemantics(find.bySemanticsIdentifier('swatch-row'));
+      final node = tester.getSemantics(
+        find.bySemanticsIdentifier('swatch-row'),
+      );
       expect(node.childrenCount, 3);
       expect(
         tester
@@ -1394,7 +1485,10 @@ void main() {
       expect(button.tooltip, 'Saved filter options');
       expect(
         tester.getSize(find.byTooltip('Saved filter options')),
-        const Size(FormMetrics.trailingButtonSize, FormMetrics.trailingButtonSize),
+        const Size(
+          FormMetrics.trailingButtonSize,
+          FormMetrics.trailingButtonSize,
+        ),
       );
       await tester.tap(find.bySemanticsIdentifier('filter-preset-options-p1'));
       expect(menus, 1);
@@ -1432,8 +1526,10 @@ void main() {
       expect(handle.label, 'Drag to reorder');
       final row = dataOf(tester, 'filter-preset-p1');
       expect(row.label, isNot(contains('Drag to reorder')));
-      expect(dataOf(tester, 'filter-preset-options-p1').tooltip,
-          'Saved filter options');
+      expect(
+        dataOf(tester, 'filter-preset-options-p1').tooltip,
+        'Saved filter options',
+      );
       // The 48 dp slot leads the row; the text sits where a glyph row's
       // text does, so the rows above and below line up with the names.
       final slot = find.byType(FormDragHandle);
@@ -1550,8 +1646,10 @@ void main() {
       );
       expect(find.byType(ReorderableDragStartListener), findsNothing);
       expect(find.byIcon(Icons.drag_handle), findsOneWidget);
-      expect(dataOf(tester, 'filter-preset-handle-p1').label,
-          'Drag to reorder');
+      expect(
+        dataOf(tester, 'filter-preset-handle-p1').label,
+        'Drag to reorder',
+      );
     });
 
     testWidgets('a row shell rounds the ends only and draws a hairline under '
@@ -1589,10 +1687,7 @@ void main() {
           .toList();
       expect(materials, hasLength(2), reason: 'only the ends are clipped');
       final radius = Radius.circular(RowMetrics.groupRadius);
-      expect(
-        materials.first.borderRadius,
-        BorderRadius.vertical(top: radius),
-      );
+      expect(materials.first.borderRadius, BorderRadius.vertical(top: radius));
       expect(
         materials.last.borderRadius,
         BorderRadius.vertical(bottom: radius),
@@ -1753,7 +1848,10 @@ void main() {
       );
       await tester.pump();
       expect(
-        tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
         isFalse,
       );
     });
@@ -1800,7 +1898,11 @@ void main() {
           identifier: 'filter-repeat',
           menuWidth: 220,
           items: const [
-            FormMenuItem(value: 1, label: 'All', identifier: 'filter-repeat-all'),
+            FormMenuItem(
+              value: 1,
+              label: 'All',
+              identifier: 'filter-repeat-all',
+            ),
             FormMenuItem(
               value: 2,
               label: 'Recurring',
@@ -1836,7 +1938,9 @@ void main() {
     testWidgets("a menu row's items are radio nodes with ids and the current "
         'one checked', (tester) async {
       int? picked;
-      await tester.pumpWidget(sheetLike(repeatRow(onSelected: (v) => picked = v)));
+      await tester.pumpWidget(
+        sheetLike(repeatRow(onSelected: (v) => picked = v)),
+      );
       await openMenu(tester);
 
       final current = dataOf(tester, 'filter-repeat-recurring');
@@ -1877,8 +1981,10 @@ void main() {
       expect(first.right, moreOrLessEquals(groupRect.right, epsilon: 0.5));
       expect(
         first.top,
-        moreOrLessEquals(rowRect.bottom + FormMetrics.menuPadding.top,
-            epsilon: 0.5),
+        moreOrLessEquals(
+          rowRect.bottom + FormMetrics.menuPadding.top,
+          epsilon: 0.5,
+        ),
       );
       expect(first.height, FormMetrics.menuRowHeight);
     });

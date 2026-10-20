@@ -55,7 +55,7 @@ void main() {
     test('publishes the exact numbers at once', () {
       final h = _Harness();
 
-      h.tracker.set((lineCount: 120, charCount: 4000));
+      h.tracker.set((lineCount: 120, charCount: 4000), textLength: 4000);
 
       expect(h.published, [(lineCount: 120, charCount: 4000)]);
       // The caller already knew the answer; nothing was recounted.
@@ -68,7 +68,7 @@ void main() {
       fakeAsync((async) {
         final h = _Harness()..edit(length: 10);
 
-        h.tracker.set((lineCount: 120, charCount: 4000));
+        h.tracker.set((lineCount: 120, charCount: 4000), textLength: 4000);
         async.elapse(const Duration(seconds: 1));
 
         expect(h.snapshots, 0);
@@ -84,7 +84,7 @@ void main() {
 
         // A long note landing must not make the very next keystroke look
         // like a 4,000-character paste.
-        h.tracker.set((lineCount: 120, charCount: 4000));
+        h.tracker.set((lineCount: 120, charCount: 4000), textLength: 4000);
         h.edit(length: 4001, lines: 120);
 
         expect(h.snapshots, 0);
@@ -194,7 +194,8 @@ void main() {
 
     test('a large deletion counts immediately too', () {
       fakeAsync((async) {
-        final h = _Harness()..tracker.set((lineCount: 90, charCount: 3000));
+        final h = _Harness()
+          ..tracker.set((lineCount: 90, charCount: 3000), textLength: 3000);
 
         h.edit(length: 100, lines: 3);
 
@@ -245,11 +246,61 @@ void main() {
 
         h.edit(length: 900, lines: 12);
         h.tracker.refresh();
-        h.tracker.set((lineCount: 5, charCount: 5));
+        h.tracker.set((lineCount: 5, charCount: 5), textLength: 5);
         async.elapse(const Duration(seconds: 1));
 
         expect(h.snapshots, 0);
         expect(h.published, isEmpty);
+      });
+    });
+  });
+
+  // U2 P19: the strip promises characters, and code units made '👍👍' four.
+  group('countCharacters', () {
+    test('counts an emoji and a combining mark as one each', () {
+      expect(NoteEditorStatsTracker.countCharacters('👍👍'), 2);
+      expect(NoteEditorStatsTracker.countCharacters('café'), 4);
+      expect(NoteEditorStatsTracker.countCharacters('👍🏽 ok'), 4);
+      expect(NoteEditorStatsTracker.countCharacters(''), 0);
+    });
+
+    test('a set baseline stays in code units, so the next keystroke on an '
+        'emoji-heavy note still debounces', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        // 1,200 code units over 600 characters: a baseline taken in
+        // characters would make the next keystroke a 601-unit paste.
+        final content = '👍' * 600;
+
+        h.tracker.set((
+          lineCount: 1,
+          charCount: NoteEditorStatsTracker.countCharacters(content),
+        ), textLength: content.length);
+        expect(h.published.last.charCount, 600);
+
+        h.edit(length: content.length + 1);
+        expect(h.snapshots, 0, reason: 'a one-unit edit is no paste');
+
+        h.tracker.dispose();
+      });
+    });
+
+    test('a refresh baseline stays in code units too', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        h.tracker.set((lineCount: 1, charCount: 0), textLength: 0);
+        h.edit(length: 1200);
+        expect(h.snapshots, 1, reason: 'a 1,200-unit paste counts at once');
+        // What the editor counts for those 1,200 units of emoji.
+        h.charCount = 600;
+        h.tracker.refresh();
+        expect(h.published.last.charCount, 600);
+        final counted = h.snapshots;
+
+        h.tracker.onTextChanged(1201);
+        expect(h.snapshots, counted, reason: 'a one-unit edit is no paste');
+
+        h.tracker.dispose();
       });
     });
   });

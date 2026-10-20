@@ -710,7 +710,7 @@
   "@insertsCurrentDate": {
     "description": "Description for date shortcut"
   },
-  "opensHeaderMenu": "Öffnet Überschriftenmenü (H1-H6)",
+  "opensHeaderMenu": "Öffnet das Überschriftenmenü (Fließtext, H1-H6)",
   "@opensHeaderMenu": {
     "description": "Description for header shortcut"
   },
@@ -826,7 +826,7 @@
   "@italic": {
     "description": "Italic shortcut label"
   },
-  "headers": "Überschriften",
+  "headers": "Überschrift",
   "@headers": {
     "description": "Headers shortcut label"
   },
@@ -894,6 +894,7 @@
   "@header6": {
     "description": "Header 6 Menüelement"
   },
+  "headingBodyText": "Fließtext",
   "indentLine": "Einzug vergrößern",
   "outdentLine": "Einzug verringern",
   "shortcutHighlight": "Hervorheben",
@@ -1012,18 +1013,35 @@
   "@largeNoteWarning": {
     "description": "Warnung für große Notizen"
   },
-  "noteStats": "{count, plural, =1{1 Zeichen} other{{count} Zeichen}}, {chunks, plural, =1{1 Teil} other{{chunks} Teile}}",
+  "noteStats": "{count, plural, =1{1 Zeichen} other{{count} Zeichen}} · {lines, plural, =1{1 Zeile} other{{lines} Zeilen}}",
   "@noteStats": {
     "description": "Notizstatistiken",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
       },
-      "chunks": {
+      "lines": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "noteChunkCount": "{count, plural, =1{1 Teil} other{{count} Teile}}",
+  "@noteChunkCount": {
+    "description": "Anzahl der Speicherteile in der Statistikzeile, nur mit den Entwickler-Teilanzeigen",
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }
   },
+  "editorHint": "Tippe los…",
+  "closeSearch": "Suche schließen",
+  "saveStateSaved": "Gespeichert",
+  "saveStateUnsaved": "Ungespeicherte Änderungen",
+  "saveStateSaving": "Wird gespeichert",
+  "saveStateError": "Nicht gespeichert",
   "compressedNote": "Komprimiert",
   "@compressedNote": {
     "description": "Label für komprimierte Notizen"
@@ -2680,6 +2698,38 @@
   "editorZoneOpenMoney": "Kassenbuchdetails öffnen",
   "editorZoneSearchTag": "Schlagwort suchen",
   "editorZoneOpenWikiLink": "Verknüpfte Notiz öffnen",
+  "editorZoneToggleTaskNamed": "Aufgabe umschalten: {task}",
+  "@editorZoneToggleTaskNamed": {
+    "placeholders": {
+      "task": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneOpenLinkNamed": "Link öffnen: {link}",
+  "@editorZoneOpenLinkNamed": {
+    "placeholders": {
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneOpenWikiLinkNamed": "Verknüpfte Notiz öffnen: {note}",
+  "@editorZoneOpenWikiLinkNamed": {
+    "placeholders": {
+      "note": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneSearchTagNamed": "Schlagwort suchen: {tag}",
+  "@editorZoneSearchTagNamed": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
   "showAncestors": "Übergeordnete Ordner anzeigen",
   "labelAction": "Etikett",
   "labelSelected": "Etikett",

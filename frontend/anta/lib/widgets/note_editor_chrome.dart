@@ -37,16 +37,26 @@ class NoteEditorStatsBar extends StatelessWidget {
   /// with the platform text scale and push the editor body down.
   static const double statsBarHeight = 24.0;
 
+  /// How far the strip's text follows the system text size: legible at a
+  /// large scale while the 24 dp height still holds it.
+  static const double maxTextScale = 1.3;
+
   final ValueListenable<NoteEditorStats> stats;
-  final int fallbackCharCount;
-  final int chunkCount;
+
+  /// The stored length, shown only until the tracker's first report; null
+  /// once it has reported, so an emptied note never shows its old length.
+  final int? fallbackCharCount;
+
+  /// The storage chunk count, a developer's number: null keeps it off the
+  /// strip.
+  final int? chunkCount;
   final bool isCompressed;
 
   const NoteEditorStatsBar({
     super.key,
     required this.stats,
-    required this.fallbackCharCount,
-    required this.chunkCount,
+    this.fallbackCharCount,
+    this.chunkCount,
     required this.isCompressed,
   });
 
@@ -62,7 +72,7 @@ class NoteEditorStatsBar extends StatelessWidget {
       fontFeatures: tabular,
     );
     return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: 1.0,
+      maxScaleFactor: maxTextScale,
       child: Container(
         height: statsBarHeight,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -71,12 +81,18 @@ class NoteEditorStatsBar extends StatelessWidget {
         child: ValueListenableBuilder<NoteEditorStats>(
           valueListenable: stats,
           builder: (context, value, _) {
-            final charCount = value.charCount > 0
-                ? value.charCount
-                : fallbackCharCount;
+            final charCount = fallbackCharCount ?? value.charCount;
+            final chunks = chunkCount;
             return Row(
               children: [
-                Text(l10n.noteStats(charCount, chunkCount), style: labelStyle),
+                Flexible(
+                  child: Text(
+                    l10n.noteStats(charCount, value.lineCount),
+                    style: labelStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 if (isCompressed) ...[
                   const SizedBox(width: 8),
                   Icon(Icons.compress, size: 14, color: colorScheme.primary),
@@ -89,8 +105,10 @@ class NoteEditorStatsBar extends StatelessWidget {
                     ),
                   ),
                 ],
-                const Spacer(),
-                Text(l10n.lineCount(value.lineCount), style: labelStyle),
+                if (chunks != null) ...[
+                  const Spacer(),
+                  Text(l10n.noteChunkCount(chunks), style: labelStyle),
+                ],
               ],
             );
           },

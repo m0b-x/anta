@@ -609,7 +609,7 @@ void main() {
       expect(line(['> 1. bench'], 0), '┃ 1. bench');
       expect(line(['> # Week 3'], 0), '┃ Week 3');
       expect(line(['> > - inner'], 0), '┃┃ • inner');
-      expect(line(['> [!TIP] x', '> - [x] done'], 1), '┃ ☒ done');
+      expect(line(['> [!TIP] x', '> - [x] done'], 1), '┃ ☑ done');
     });
 
     test('a quoted heading keeps its source offset for search', () {
@@ -680,7 +680,7 @@ void main() {
         callout,
         onCheckbox: (s, e, c) => taps.add((s, e, c)),
       );
-      _fire(second.buildLine(callout[1], 1), '☒ ');
+      _fire(second.buildLine(callout[1], 1), '☑ ');
       final lineStart = callout[0].length + 1;
       expect(callout[1].substring(4, 7), '[x]');
       expect(taps, [(6, 9, false), (lineStart + 4, lineStart + 7, true)]);
@@ -901,6 +901,28 @@ void main() {
       expect(scales.last, greaterThan(1.0));
     });
 
+    test('a front matter keeps blank slots and the H1 below it', () {
+      const note = '---\ntags: [a]\naliases: [fm]\n---\n# Body';
+      for (final i in [0, 1, 2, 3]) {
+        expect(render(note, i).trim(), '', reason: 'line $i');
+      }
+      expect(render(note, 4), 'Body');
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(note);
+      final scales = builder.getLineHeightScales(0);
+      expect(
+        scales.sublist(0, 4),
+        everyElement(MarkdownConstants.emptyLineScale),
+      );
+      expect(scales.last, greaterThan(1.0));
+      // With no closer the `---` is a rule and the property plain text.
+      expect(render('---\nk: v', 1), 'k: v');
+    });
+
     test('comments render nothing', () {
       expect(render('a %%secret #tag%% b'), 'a  b');
       expect(render('%%all comment%%'), '');
@@ -917,6 +939,19 @@ void main() {
       expect(render('a\\\n\nb', 0), r'a\');
       expect(render('a\\\n  \nb', 0), r'a\');
       expect(render('> quoted\\'), contains(r'quoted\'));
+    });
+
+    test('a trailing backslash breaks only where the paragraph goes on', () {
+      expect(render('a\\\n- b', 0), r'a\');
+      expect(render('a\\\n# H', 0), r'a\');
+      expect(render('a\\\n***', 0), r'a\');
+      expect(render('a\\\n> quoted', 0), r'a\');
+      expect(render('> a\\\nb', 0), endsWith(r'a\'));
+      expect(render('- item\\\n  more', 0), isNot(endsWith(r'\')));
+      expect(render('> a\\\n> b', 0), isNot(endsWith(r'\')));
+      expect(render('a\\\nb\n===', 0), r'a\');
+      expect(render('> a\\\n> > b', 0), endsWith(r'a\'));
+      expect(render('> a\\\n> [!TIP] x', 0), endsWith(r'a\'));
     });
 
     test('an escaped or lone backslash stays', () {
@@ -1054,9 +1089,9 @@ void main() {
 
     test('taskGlyph maps every state the editor paints', () {
       expect(LineBasedMarkdownBuilder.taskGlyph(' '), '☐');
-      expect(LineBasedMarkdownBuilder.taskGlyph('x'), '☒');
-      expect(LineBasedMarkdownBuilder.taskGlyph('X'), '☒');
-      expect(LineBasedMarkdownBuilder.taskGlyph('-'), '⊟');
+      expect(LineBasedMarkdownBuilder.taskGlyph('x'), '☑');
+      expect(LineBasedMarkdownBuilder.taskGlyph('X'), '☑');
+      expect(LineBasedMarkdownBuilder.taskGlyph('-'), '⊠');
       expect(LineBasedMarkdownBuilder.taskGlyph('/'), '◩');
       expect(LineBasedMarkdownBuilder.taskGlyph('>'), '→');
       expect(LineBasedMarkdownBuilder.taskGlyph('<'), '←');
@@ -1068,7 +1103,7 @@ void main() {
 
     test('a cancelled task strikes its content, other states do not', () {
       final (cancelledBox, cancelled) = row('- [-] skipped');
-      expect(cancelledBox, '⊟ ');
+      expect(cancelledBox, '⊠ ');
       expect(cancelled?.decoration, TextDecoration.lineThrough);
 
       final (halfBox, half) = row('- [/] halfway');
@@ -1084,8 +1119,8 @@ void main() {
         onCheckbox: (s, e, c) => taps.add((s, e, c)),
       );
       final span = builder.buildLine(source, 0);
-      expect(_text(span), '┃ ⊟ skipped');
-      _fire(span, '⊟ ');
+      expect(_text(span), '┃ ⊠ skipped');
+      _fire(span, '⊠ ');
       expect(taps, [(4, 7, true)], reason: 'a marked box is cleared');
     });
 

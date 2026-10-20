@@ -159,9 +159,9 @@ abstract final class _InlineMarkdownCache {
     return span;
   }
 
-  /// Drops blank lines and `%%` block comments and keeps at most
-  /// [_maxLines], so a description that opens with a heading and a blank
-  /// line, or with a comment the builder would draw as spacers, still
+  /// Drops a front matter, blank lines and `%%` block comments and keeps
+  /// at most [_maxLines], so a description that opens with a heading and a
+  /// blank line, or with a block the builder would draw as spacers, still
   /// shows real text in the two visible rows. A dropped gap between a text
   /// line and a `---` or `===` line stays one blank line: closed up, the
   /// two would read as a setext heading the note does not hold.
@@ -170,7 +170,10 @@ abstract final class _InlineMarkdownCache {
     var count = 0;
     var gap = false;
     var state = MarkdownChunker.outsideBlock;
-    for (final line in data.split('\n')) {
+    final lines = data.split('\n');
+    final body = MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
+    for (var i = body; i < lines.length; i++) {
+      final line = lines[i];
       final entry = state;
       state = MarkdownChunker.blockStateAfter(line, state);
       if (entry == MarkdownChunker.insideComment ||

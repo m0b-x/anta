@@ -164,9 +164,19 @@ class ListAwarePaste {
       // A rule past a lead only `trim` strips (a no-break space) is prose
       // on screen, but prefixed with its lead stripped it would become
       // `- ---`, a rule.
+      // A setext pair neither: a prefixed text line is a list item, no
+      // heading, and a prefixed `===` underline is a bullet of prose. The
+      // first fragment joins the caret's list line, which is never a text
+      // line, so an underline right after it underlines nothing.
       if (MarkdownListSyntax.isListLine(line) ||
           MarkdownLineShape.isLineLedConstruct(line) ||
-          MarkdownLineShape.isHorizontalRule(line.trimLeft())) {
+          MarkdownLineShape.isHorizontalRule(line.trimLeft()) ||
+          MarkdownLineShape.setextLevelOf(
+                line,
+                i + 1 < lines.length ? lines[i + 1] : null,
+              ) >
+              0 ||
+          (i > 1 && MarkdownLineShape.setextLevelOf(lines[i - 1], line) > 0)) {
         return normalized;
       }
       hasContinuation = true;

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/utils/markdown_callout_syntax.dart';
+import 'package:anta/utils/markdown_chunker.dart' show MarkdownChunker;
 import 'package:anta/utils/markdown_editor_line_index.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart'
     show MarkdownEditorSpanBuilder;
@@ -1954,6 +1955,184 @@ void main() {
       expect(rolesOf(['a', '%%', 'b']), [n, c, c]);
     });
 
+    const f = MarkdownFenceRole.frontMatter;
+
+    test('a front matter at line 0 is one block, both markers included', () {
+      expect(rolesOf(['---', 'tags: [a]', '- b', '---', '# H', '---']), [
+        f,
+        f,
+        f,
+        f,
+        n,
+        n,
+      ]);
+      expect(rolesOf(['---', 'title: x', '...', 'after']), [f, f, f, n]);
+    });
+
+    test('a --- with no closer or a broken candidate stays a rule', () {
+      expect(rolesOf(['---', 'tags: a', 'b']), [n, n, n]);
+      expect(rolesOf(['---', 'tags: a', '', '---']), [n, n, n, n]);
+      expect(rolesOf(['---', '```', '---']), [n, d, i]);
+      expect(rolesOf(['a', '---', 'k: v', '---']), [n, n, n, n]);
+      // C1 fix pass C2 — a key-less list framed by rules stays a list.
+      expect(rolesOf(['---', '- a', '---']), [n, n, n]);
+    });
+
+    // C1 fix pass T6 — a front matter crossing the 256-line seam, edited
+    // without changing its extent, reopened at line 0 and re-closed.
+    List<String> longFrontMatter() => [
+      '---',
+      'tags:',
+      for (int k = 0; k < 300; k++) '  - item $k',
+      '---',
+      ...buildTrainingLog(),
+    ];
+
+    test('a front matter across a seam matches a fresh index', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(longFrontMatter()),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      void matches(String reason) => expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: reason,
+      );
+
+      matches('initial');
+      expect(index.fenceRoleAt(controller.codeLines, 300), f);
+      expect(
+        index.blockStateAt(controller.codeLines, 300),
+        MarkdownChunker.insideFrontMatter,
+      );
+      for (final at in [1, 255, 256, 257, 301]) {
+        _replaceLine(controller, at, at == 1 ? 'tags: x' : '  - edited $at');
+        matches('a value edited at $at');
+      }
+      expect(index.fenceRoleAt(controller.codeLines, 302), f);
+      _replaceLine(controller, 302, 'prose');
+      matches('the closer deleted');
+      expect(index.fenceRoleAt(controller.codeLines, 300), n);
+      _replaceLine(controller, 302, '---');
+      matches('the closer typed back');
+      _replaceLine(controller, 0, 'x');
+      matches('the opener deleted');
+      _replaceLine(controller, 0, '---');
+      matches('--- typed at line 0 above the properties');
+      expect(index.fenceRoleAt(controller.codeLines, 300), f);
+    });
+
+    test('seeded mixed edits on a long front matter', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(longFrontMatter()),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      final rng = Random(1301);
+      for (int step = 0; step < 60; step++) {
+        final int target = step < _boundaryTargets.length
+            ? _boundaryTargets[step]
+            : rng.nextInt(controller.codeLines.length);
+        final _EditKind kind =
+            _EditKind.values[rng.nextInt(_EditKind.values.length)];
+        _applyEdit(controller, target, kind, rng);
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: true,
+          reason: 'step $step: ${kind.name} @ $target',
+        );
+      }
+    });
+
+    // C1 fix pass C8 — under an unclosed `---` the re-read reaches only to
+    // the line that broke the candidate, which an edit there still finds.
+    test('a closer typed at the break of a long unclosed run', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf([
+          '---',
+          'k:',
+          for (int k = 0; k < 600; k++) '- item $k',
+          'prose',
+          ...buildTrainingLog(),
+        ]),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      void matches(String reason) => expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: reason,
+      );
+
+      matches('initial');
+      _replaceLine(controller, 900, 'a line far below');
+      matches('an edit below the break');
+      expect(index.debugLastScan.rebuilt, isFalse);
+      _replaceLine(controller, 602, '---');
+      matches('the closer typed at the break');
+      expect(index.fenceRoleAt(controller.codeLines, 300), f);
+    });
+
+    test('typing a closer and breaking a property match a fresh index', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf([
+          '---',
+          'tags: a',
+          'body',
+          ...buildTrainingLog(),
+        ]),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      void matches(String reason) => expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: reason,
+      );
+
+      matches('initial');
+      expect(index.fenceRoleAt(controller.codeLines, 1), n);
+      _replaceLine(controller, 2, '---');
+      matches('the closer typed');
+      expect(index.fenceRoleAt(controller.codeLines, 1), f);
+      expect(index.fenceRoleAt(controller.codeLines, 2), f);
+      _replaceLine(controller, 400, 'a line far below');
+      matches('an edit below the block');
+      expect(index.debugLastScan.rebuilt, isFalse);
+      _replaceLine(controller, 1, 'tags a');
+      matches('the property broken');
+      expect(index.fenceRoleAt(controller.codeLines, 0), n);
+    });
+
+    test('blockStateAt answers the state each line is read in', () {
+      final lines = [
+        '---',
+        'k: v',
+        '---',
+        '%%',
+        'note',
+        '%%',
+        '```',
+        'code',
+        '```',
+        'x',
+      ];
+      final codeLines = codeLinesOf(lines);
+      final index = newIndex(money: false);
+      expect(
+        [
+          for (int k = 0; k < lines.length; k++)
+            index.blockStateAt(codeLines, k),
+        ],
+        [0, 2, 2, 0, 1, 1, 0, 6, 6, 0],
+      );
+    });
+
     test('a %% line inside a fence is code', () {
       expect(rolesOf(['```', '%%', '```', 'x']), [d, i, d, n]);
     });
@@ -2002,6 +2181,47 @@ void main() {
       matches('comment closed at 600');
       _replaceLine(controller, 256, '- back to a plain bullet');
       matches('marker removed');
+    });
+
+    // The seam proof compares the packed state, not "in a fence": a
+    // ```` or ~~~ opener on line 0 leaves the segment-2 seam inside a
+    // fence either way, but only the packed value knows that the ``` at
+    // 512 no longer closes anything.
+    test('a ``` closer on the 512 seam follows the opener above it', () {
+      final lines = <String>[for (int k = 0; k < 800; k++) 'filler $k'];
+      lines[511] = '```';
+      lines[512] = '```';
+      lines[700] = '````';
+      lines[750] = '~~~';
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
+      addTearDown(controller.dispose);
+      expect(controller.codeLines.segments.length, greaterThanOrEqualTo(3));
+      final index = newIndex(money: true);
+      void matches(String reason) => expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: reason,
+      );
+
+      matches('initial');
+      expect(index.fenceRoleAt(controller.codeLines, 512), d);
+
+      _replaceLine(controller, 0, '````');
+      matches('```` opened on line 0');
+      expect(index.fenceRoleAt(controller.codeLines, 511), i);
+      expect(index.fenceRoleAt(controller.codeLines, 512), i);
+      expect(index.fenceRoleAt(controller.codeLines, 700), d);
+      expect(index.fenceRoleAt(controller.codeLines, 701), n);
+
+      _replaceLine(controller, 0, '~~~');
+      matches('~~~ opened on line 0');
+      expect(index.fenceRoleAt(controller.codeLines, 512), i);
+      expect(index.fenceRoleAt(controller.codeLines, 700), i);
+      expect(index.fenceRoleAt(controller.codeLines, 750), d);
+      expect(index.fenceRoleAt(controller.codeLines, 751), n);
     });
   });
 

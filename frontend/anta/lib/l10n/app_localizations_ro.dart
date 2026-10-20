@@ -1593,7 +1593,7 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get deleteFolder => 'Șterge Folder';
+  String get deleteFolder => 'Șterge dosarul';
 
   @override
   String deleteFolderConfirm(String name) {
@@ -1616,7 +1616,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get rename => 'Redenumește';
 
   @override
-  String get renameFolder => 'Redenumește Folder';
+  String get renameFolder => 'Redenumește dosarul';
 
   @override
   String get untitledNote => 'Notiță fără titlu';
@@ -1628,7 +1628,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get noteNotFound => 'Notița nu a fost găsită';
 
   @override
-  String get deleteNote => 'Șterge Notiță';
+  String get deleteNote => 'Șterge notița';
 
   @override
   String deleteNoteConfirm(String title) {
@@ -1679,7 +1679,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get noteSaved => 'Notiță salvată!';
 
   @override
-  String get editTitle => 'Editează Titlu';
+  String get editTitle => 'Editează titlul';
 
   @override
   String get enterNoteTitle => 'Introdu titlul notiței';
@@ -1740,7 +1740,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get insertsCurrentDate => 'Inserează data curentă';
 
   @override
-  String get opensHeaderMenu => 'Deschide meniul de anteturi (H1-H6)';
+  String get opensHeaderMenu =>
+      'Deschide meniul de titluri (text normal, H1-H6)';
 
   @override
   String beforeAfterText(String before, String after) {
@@ -1823,7 +1824,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get italic => 'Italic';
 
   @override
-  String get headers => 'Anteturi';
+  String get headers => 'Titlu';
 
   @override
   String get pointList => 'Listă cu Puncte';
@@ -1856,22 +1857,25 @@ class AppLocalizationsRo extends AppLocalizations {
   String get currentDate => 'Data Curentă';
 
   @override
-  String get header1 => 'Antet 1';
+  String get header1 => 'Titlu 1';
 
   @override
-  String get header2 => 'Antet 2';
+  String get header2 => 'Titlu 2';
 
   @override
-  String get header3 => 'Antet 3';
+  String get header3 => 'Titlu 3';
 
   @override
-  String get header4 => 'Antet 4';
+  String get header4 => 'Titlu 4';
 
   @override
-  String get header5 => 'Antet 5';
+  String get header5 => 'Titlu 5';
 
   @override
-  String get header6 => 'Antet 6';
+  String get header6 => 'Titlu 6';
+
+  @override
+  String get headingBodyText => 'Text normal';
 
   @override
   String get indentLine => 'Indentează';
@@ -2010,23 +2014,60 @@ class AppLocalizationsRo extends AppLocalizations {
       'Această notiță este foarte mare și poate dura un moment să se încarce';
 
   @override
-  String noteStats(int count, int chunks) {
+  String noteStats(int count, int lines) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+    final intl.NumberFormat linesNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String linesString = linesNumberFormat.format(lines);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count de caractere distincte',
-      few: '$count caractere distincte',
-      one: '1 caracter distinct',
+      other: '$countString de caractere',
+      few: '$countString caractere',
+      one: '1 caracter',
     );
     String _temp1 = intl.Intl.pluralLogic(
-      chunks,
+      lines,
       locale: localeName,
-      other: '$chunks de fragmente',
-      few: '$chunks fragmente',
+      other: '$linesString de linii',
+      few: '$linesString linii',
+      one: '1 linie',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String noteChunkCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de fragmente',
+      few: '$count fragmente',
       one: '1 fragment',
     );
-    return '$_temp0, $_temp1';
+    return '$_temp0';
   }
+
+  @override
+  String get editorHint => 'Începe să scrii…';
+
+  @override
+  String get closeSearch => 'Închide căutarea';
+
+  @override
+  String get saveStateSaved => 'Salvat';
+
+  @override
+  String get saveStateUnsaved => 'Modificări nesalvate';
+
+  @override
+  String get saveStateSaving => 'Se salvează';
+
+  @override
+  String get saveStateError => 'Nesalvat';
 
   @override
   String get compressedNote => 'Comprimat';
@@ -2279,7 +2320,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get databaseNotFound => 'Fișierul bazei de date nu a fost găsit';
 
   @override
-  String get renameNote => 'Redenumește Notița';
+  String get renameNote => 'Redenumește notița';
 
   @override
   String get enterNewName => 'Introdu noul nume';
@@ -2413,10 +2454,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get settingsReset => 'Setările au fost resetate la valorile implicite';
 
   @override
-  String get shareNote => 'Partajează Notița';
+  String get shareNote => 'Partajează notița';
 
   @override
-  String get shareFolder => 'Partajează Folderul';
+  String get shareFolder => 'Partajează dosarul';
 
   @override
   String get exportingFolder => 'Se exportă folderul...';
@@ -4964,6 +5005,26 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get editorZoneOpenWikiLink => 'Deschide nota asociată';
+
+  @override
+  String editorZoneToggleTaskNamed(String task) {
+    return 'Comută sarcina: $task';
+  }
+
+  @override
+  String editorZoneOpenLinkNamed(String link) {
+    return 'Deschide linkul: $link';
+  }
+
+  @override
+  String editorZoneOpenWikiLinkNamed(String note) {
+    return 'Deschide nota asociată: $note';
+  }
+
+  @override
+  String editorZoneSearchTagNamed(String tag) {
+    return 'Caută eticheta: $tag';
+  }
 
   @override
   String get showAncestors => 'Arată folderele părinte';

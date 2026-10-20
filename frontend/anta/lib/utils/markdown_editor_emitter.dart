@@ -61,6 +61,11 @@ class EditorSpanEmitter {
   /// style the split is skipped: concealed chrome (a link's `](url)`,
   /// a `{name:` opener) paints nothing at all, ghosts included.
   ///
+  /// [ghostStyle], when given, is the style a ghost inside the range
+  /// derives from instead of [style]: inline code passes its prose style,
+  /// so a ghost in a code span leaves the code font as the preview's
+  /// does, the same way it leaves the chip.
+  ///
   /// Guards the code-unit invariant in debug builds: the spans appended
   /// to [out] for `[start, end)` must total exactly `end - start` UTF-16
   /// code units (a placeholder run counting as the one unit it
@@ -75,6 +80,7 @@ class EditorSpanEmitter {
     required List<GhostMatch> ghosts,
     required List<InlineSpan> out,
     CodeTextDecoration? decoration,
+    TextStyle? ghostStyle,
   }) {
     var mark = 0;
     assert(() {
@@ -90,6 +96,7 @@ class EditorSpanEmitter {
       ghosts: ghosts,
       out: out,
       decoration: decoration,
+      ghostStyle: ghostStyle,
     );
     assert(
       _unitsAppendedFrom(out, mark) == (end > start ? end - start : 0),
@@ -150,6 +157,7 @@ class EditorSpanEmitter {
     required List<GhostMatch> ghosts,
     required List<InlineSpan> out,
     CodeTextDecoration? decoration,
+    TextStyle? ghostStyle,
   }) {
     if (start >= end) return;
     if (ghosts.isEmpty || _isConcealed(style)) {
@@ -163,15 +171,16 @@ class EditorSpanEmitter {
       if (g.start > pos) {
         out.add(_plainSpan(text.substring(pos, g.start), style, decoration));
       }
+      final ghostGround = ghostStyle ?? style;
       final ghostColor = baseColor.withValues(alpha: dimAlpha);
-      var innerStyle = style.copyWith(color: ghostColor);
+      var innerStyle = ghostGround.copyWith(color: ghostColor);
       if (_ghostBlank(text, g)) {
         innerStyle = innerStyle.copyWith(
           decoration: TextDecoration.underline,
           decorationColor: ghostColor,
         );
       }
-      final concealed = concealStyle(style);
+      final concealed = concealStyle(ghostGround);
       _emitClamped(text, g.start, g.innerStart, pos, end, concealed, out);
       _emitClamped(text, g.innerStart, g.innerEnd, pos, end, innerStyle, out);
       _emitClamped(text, g.innerEnd, g.end, pos, end, concealed, out);

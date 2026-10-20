@@ -26,9 +26,10 @@ class UtilityButtonId {
 
   /// Ordered list of all known utility button IDs — a new install's order.
   ///
-  /// A new id may go anywhere here: [UtilityButtonConfig.decode] appends
-  /// the ids a stored layout lacks after the stored ones, so an existing
-  /// user's arrangement is never reshuffled by an update. Indent and
+  /// A new id may go anywhere here: [UtilityButtonConfig.decode] inserts an
+  /// id a stored layout lacks after its nearest predecessor in this order
+  /// that the layout holds, so it lands where a new install has it while
+  /// an existing user's arrangement is never reshuffled. Indent and
   /// outdent sit beside undo and redo, where a new install reaches them
   /// without scrolling the strip past the settings button.
   static const List<String> defaultOrder = [
@@ -96,7 +97,7 @@ class UtilityButtonConfig extends Equatable {
         .map((json) => UtilityButtonConfig.fromJson(json))
         .toList();
 
-    // Preserve saved order for known buttons, then append any new defaults.
+    // Preserve saved order for known buttons, then place any new defaults.
     final knownIds = UtilityButtonId.defaultOrder.toSet();
     final result = <UtilityButtonConfig>[];
 
@@ -107,12 +108,24 @@ class UtilityButtonConfig extends Equatable {
       }
     }
 
-    // Second: any new default buttons not yet in saved config.
-    final savedIds = result.map((c) => c.id).toSet();
-    for (final id in UtilityButtonId.defaultOrder) {
-      if (!savedIds.contains(id)) {
-        result.add(UtilityButtonConfig(id: id));
+    // Second: each id the stored layout lacks goes right after its nearest
+    // default-order predecessor that the layout holds — at the front when
+    // it has none. Walking the default order lets an id inserted a step
+    // earlier serve as the next one's predecessor, so indent and outdent
+    // arrive together after redo, not at the end of a strip that scrolls.
+    for (var i = 0; i < UtilityButtonId.defaultOrder.length; i++) {
+      final id = UtilityButtonId.defaultOrder[i];
+      if (result.any((c) => c.id == id)) continue;
+      var at = 0;
+      for (var p = i - 1; p >= 0; p--) {
+        final predecessor = UtilityButtonId.defaultOrder[p];
+        final index = result.indexWhere((c) => c.id == predecessor);
+        if (index >= 0) {
+          at = index + 1;
+          break;
+        }
       }
+      result.insert(at, UtilityButtonConfig(id: id));
     }
 
     return result;

@@ -1569,7 +1569,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get deleteFolder => 'Delete Folder';
+  String get deleteFolder => 'Delete folder';
 
   @override
   String deleteFolderConfirm(String name) {
@@ -1591,7 +1591,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get rename => 'Rename';
 
   @override
-  String get renameFolder => 'Rename Folder';
+  String get renameFolder => 'Rename folder';
 
   @override
   String get untitledNote => 'Untitled Note';
@@ -1603,7 +1603,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noteNotFound => 'Note not found';
 
   @override
-  String get deleteNote => 'Delete Note';
+  String get deleteNote => 'Delete note';
 
   @override
   String deleteNoteConfirm(String title) {
@@ -1653,7 +1653,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noteSaved => 'Note saved!';
 
   @override
-  String get editTitle => 'Edit Title';
+  String get editTitle => 'Edit title';
 
   @override
   String get enterNoteTitle => 'Enter note title';
@@ -1713,7 +1713,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get insertsCurrentDate => 'Inserts current date';
 
   @override
-  String get opensHeaderMenu => 'Opens header menu (H1-H6)';
+  String get opensHeaderMenu => 'Opens the heading menu (body text, H1-H6)';
 
   @override
   String beforeAfterText(String before, String after) {
@@ -1796,7 +1796,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get italic => 'Italic';
 
   @override
-  String get headers => 'Headers';
+  String get headers => 'Heading';
 
   @override
   String get pointList => 'Point List';
@@ -1829,22 +1829,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get currentDate => 'Current Date';
 
   @override
-  String get header1 => 'Header 1';
+  String get header1 => 'Heading 1';
 
   @override
-  String get header2 => 'Header 2';
+  String get header2 => 'Heading 2';
 
   @override
-  String get header3 => 'Header 3';
+  String get header3 => 'Heading 3';
 
   @override
-  String get header4 => 'Header 4';
+  String get header4 => 'Heading 4';
 
   @override
-  String get header5 => 'Header 5';
+  String get header5 => 'Heading 5';
 
   @override
-  String get header6 => 'Header 6';
+  String get header6 => 'Heading 6';
+
+  @override
+  String get headingBodyText => 'Body text';
 
   @override
   String get indentLine => 'Indent';
@@ -1983,21 +1986,57 @@ class AppLocalizationsEn extends AppLocalizations {
       'This note is very large and may take a moment to load';
 
   @override
-  String noteStats(int count, int chunks) {
+  String noteStats(int count, int lines) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+    final intl.NumberFormat linesNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String linesString = linesNumberFormat.format(lines);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count distinct characters',
-      one: '1 distinct character',
+      other: '$countString characters',
+      one: '1 character',
     );
     String _temp1 = intl.Intl.pluralLogic(
-      chunks,
+      lines,
       locale: localeName,
-      other: '$chunks chunks',
+      other: '$linesString lines',
+      one: '1 line',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String noteChunkCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count chunks',
       one: '1 chunk',
     );
-    return '$_temp0, $_temp1';
+    return '$_temp0';
   }
+
+  @override
+  String get editorHint => 'Start typing…';
+
+  @override
+  String get closeSearch => 'Close search';
+
+  @override
+  String get saveStateSaved => 'Saved';
+
+  @override
+  String get saveStateUnsaved => 'Unsaved changes';
+
+  @override
+  String get saveStateSaving => 'Saving';
+
+  @override
+  String get saveStateError => 'Not saved';
 
   @override
   String get compressedNote => 'Compressed';
@@ -2245,7 +2284,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get databaseNotFound => 'Database file not found';
 
   @override
-  String get renameNote => 'Rename Note';
+  String get renameNote => 'Rename note';
 
   @override
   String get enterNewName => 'Enter new name';
@@ -2378,10 +2417,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsReset => 'Settings have been reset to defaults';
 
   @override
-  String get shareNote => 'Share Note';
+  String get shareNote => 'Share note';
 
   @override
-  String get shareFolder => 'Share Folder';
+  String get shareFolder => 'Share folder';
 
   @override
   String get exportingFolder => 'Exporting folder...';
@@ -3731,7 +3770,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noteAlreadyAdded => 'This note is already added';
 
   @override
-  String get moveToFolder => 'Move to Folder';
+  String get moveToFolder => 'Move to folder';
 
   @override
   String get selectDestinationFolder => 'Select Destination';
@@ -4878,6 +4917,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorZoneOpenWikiLink => 'Open linked note';
+
+  @override
+  String editorZoneToggleTaskNamed(String task) {
+    return 'Toggle task: $task';
+  }
+
+  @override
+  String editorZoneOpenLinkNamed(String link) {
+    return 'Open link: $link';
+  }
+
+  @override
+  String editorZoneOpenWikiLinkNamed(String note) {
+    return 'Open linked note: $note';
+  }
+
+  @override
+  String editorZoneSearchTagNamed(String tag) {
+    return 'Search tag: $tag';
+  }
 
   @override
   String get showAncestors => 'Show parent folders';

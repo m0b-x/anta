@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'package:anta/controllers/editor_render_controller.dart';
 import 'package:anta/controllers/shortcut_applier.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
 
@@ -197,6 +198,27 @@ void main() {
         mutateCounter: noCounter,
       );
       expect(controller.text, 'squat');
+    });
+
+    // U2 T15: the fence predicate reaches the rewrite through apply.
+    test('forwards isFenceLine: a fenced line takes no heading or marker', () async {
+      for (final s in [
+        shortcut(insertType: 'header', id: 'header_level_2', beforeText: '## '),
+        shortcut(
+          insertType: 'wrap',
+          id: 'default_bullet_list',
+          beforeText: '- ',
+        ),
+      ]) {
+        final controller = controllerWith('```\ncode\n```', line: 1);
+        await ShortcutApplier.apply(
+          controller: controller,
+          shortcut: s,
+          mutateCounter: noCounter,
+          isFenceLine: (index) => index <= 2,
+        );
+        expect(controller.text, '```\ncode\n```', reason: s.id);
+      }
     });
   });
 
@@ -697,6 +719,144 @@ void main() {
     });
   });
 
+  group('a setext heading', () {
+    test('a picked level converts it to ATX and drops the underline', () {
+      final controller = controllerWith('Week 3\n===\nafter');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 2,
+      );
+      ShortcutApplier.applyHeaderLevel(controller, 3);
+      expect(controller.text, '### Week 3\nafter');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 0, offset: 6),
+      );
+    });
+
+    test('its own level removes the heading and keeps the text', () {
+      final h1 = controllerWith('Week 3\n===\nafter');
+      ShortcutApplier.applyHeaderLevel(h1, 1);
+      expect(h1.text, 'Week 3\nafter');
+      final h2 = controllerWith('Week 3\n---');
+      ShortcutApplier.applyHeaderLevel(h2, 2);
+      expect(h2.text, 'Week 3');
+    });
+
+    test('the cycling button steps on from its level', () {
+      final controller = controllerWith('Week 3\n---\nafter');
+      ShortcutApplier.applyHeader(controller);
+      expect(controller.text, '### Week 3\nafter');
+    });
+
+    test('a selection past the underline moves up with the lines', () {
+      final controller = controllerWith('Week 3\n===\nafter');
+      controller.selection = range(0, 0, 3, toLine: 2);
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      expect(controller.text, '## Week 3\nafter');
+      expect(controller.selection, range(0, 3, 3, toLine: 1));
+    });
+
+    test('one undo restores both lines', () {
+      final controller = controllerWith('Week 3\n===\nafter');
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      expect(controller.text, '## Week 3\nafter');
+      controller.undo();
+      expect(controller.text, 'Week 3\n===\nafter');
+    });
+
+    test('a list line above a rule is no setext heading', () {
+      final controller = controllerWith('- item\n---');
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      expect(controller.text, '## - item\n---');
+    });
+
+    test('a caret on the underline acts on the heading above it', () {
+      final controller = controllerWith('Title\n===\nafter');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 3,
+      );
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      expect(controller.text, '## Title\nafter');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 0, offset: 8),
+      );
+      final own = controllerWith('Title\n===');
+      own.selection = const CodeLineSelection.collapsed(index: 1, offset: 3);
+      ShortcutApplier.applyHeaderLevel(own, 1);
+      expect(own.text, 'Title');
+    });
+
+    test('a selection ending on the underline ends at the heading text', () {
+      final controller = controllerWith('Week 3\n===\nafter');
+      controller.selection = range(0, 0, 2, toLine: 1);
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      expect(controller.text, '## Week 3\nafter');
+      expect(controller.selection, range(0, 3, 9));
+    });
+
+    test('removing its own level keeps the caret in the text', () {
+      final controller = controllerWith('Week 3\n===\nafter');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 4,
+      );
+      ShortcutApplier.applyHeaderLevel(controller, 1);
+      expect(controller.text, 'Week 3\nafter');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 0, offset: 4),
+      );
+    });
+
+    test('removal is refused when another underline would slide up', () {
+      final controller = controllerWith('Title\n---\n---');
+      ShortcutApplier.applyHeaderLevel(controller, 2);
+      expect(controller.text, 'Title\n---\n---');
+      ShortcutApplier.applyHeaderLevel(controller, 1);
+      expect(controller.text, '# Title\n---');
+    });
+
+    test('a front matter property above its closer is no heading', () {
+      const note = '---\ntitle: x\ntags: a\n---\n# H1';
+      final controller = controllerWith(note);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: 0,
+      );
+      ShortcutApplier.applyHeaderLevel(controller, 1);
+      expect(controller.text, '---\ntitle: x\n# tags: a\n---\n# H1');
+      final onCloser = controllerWith(note);
+      onCloser.selection = const CodeLineSelection.collapsed(
+        index: 3,
+        offset: 3,
+      );
+      ShortcutApplier.applyHeaderLevel(onCloser, 2);
+      expect(onCloser.text, '---\ntitle: x\ntags: a\n## ---\n# H1');
+      // A later `---` is an underline again: the closer came first.
+      final after = controllerWith('$note\nWeek 3\n---');
+      after.selection = const CodeLineSelection.collapsed(index: 5, offset: 0);
+      ShortcutApplier.applyHeaderLevel(after, 1);
+      expect(after.text, '$note\n# Week 3');
+    });
+
+    test('a pair on fence lines is left to the fence', () {
+      final controller = controllerWith('Title\n===\nafter');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 0,
+      );
+      ShortcutApplier.applyHeaderLevel(
+        controller,
+        2,
+        isFenceLine: (line) => line == 0,
+      );
+      expect(controller.text, 'Title\n## ===\nafter');
+    });
+  });
+
   group('applyHeaderLevel', () {
     String pick(String from, int level) {
       final controller = controllerWith(from);
@@ -828,6 +988,103 @@ void main() {
         );
         expect(controller.text, '```\n## build ##\n```', reason: id);
       }
+    });
+  });
+
+  // S2 C5 / U1 C15 — handed the editor's positional reader, the setext
+  // branch acts only on the pairs the editor draws as headings.
+  group('the editor\'s heading reader', () {
+    (CodeLineEditingController, EditorRenderController) bound(
+      String text,
+      int line,
+    ) {
+      final controller = controllerWith(text, line: line);
+      final render = EditorRenderController()..bind(controller);
+      return (controller, render);
+    }
+
+    test('answers ATX, setext text and underline, and nothing in a block', () {
+      final (controller, render) = bound(
+        '# a\nTitle\n===\n```\n# x\n```\n---\nk: v',
+        0,
+      );
+      expect(
+        [
+          for (int i = 0; i < controller.codeLines.length; i++)
+            render.headingLevelAt(i),
+        ],
+        [1, 1, -1, 0, 0, 0, 0, 0],
+      );
+    });
+
+    test('a pair past the render cap is no heading to the rewrite', () {
+      final long = 'a' * 5000;
+      final (controller, render) = bound('$long\n===\nafter', 1);
+      expect(render.headingLevelAt(0), 0);
+      expect(render.headingLevelAt(1), 0);
+
+      ShortcutApplier.applyHeaderLevel(
+        controller,
+        2,
+        isFenceLine: render.lineInFence,
+        headingLevelAt: render.headingLevelAt,
+      );
+
+      expect(controller.codeLines[0].text, long);
+      expect(controller.codeLines[1].text, '## ===');
+    });
+
+    // C1 fix pass C5 / P6 / T9 — the menu checks nothing on an ATX line
+    // drawn raw, so a pick sets that level and never strips the run.
+    test('an ATX line past the render cap is set, never toggled off', () {
+      final long = '# ${'a' * 5000}';
+      for (final (level, expected) in [(1, long), (2, '#$long')]) {
+        final (controller, render) = bound('$long\nafter', 0);
+        expect(render.headingLevelAt(0), 0);
+
+        ShortcutApplier.applyHeaderLevel(
+          controller,
+          level,
+          isFenceLine: render.lineInFence,
+          headingLevelAt: render.headingLevelAt,
+        );
+
+        expect(controller.codeLines[0].text, expected, reason: 'H$level');
+      }
+    });
+
+    test('a drawn setext pair still toggles off through the reader', () {
+      final (controller, render) = bound('Title\n===\nafter', 1);
+
+      ShortcutApplier.applyHeaderLevel(
+        controller,
+        1,
+        isFenceLine: render.lineInFence,
+        headingLevelAt: render.headingLevelAt,
+      );
+
+      expect(controller.text, 'Title\nafter');
+    });
+
+    // C1 fix pass C4 / P5 / T3 — the event sheets pass no positional
+    // reader; the text reader now reads the chunker's front matter, so a
+    // candidate it rejects converts as the pair the editor draws.
+    test('the text reader agrees with the editor on a rejected block', () {
+      const text = '---\nTitle\n---\nafter';
+      final (_, render) = bound(text, 1);
+      expect(render.headingLevelAt(1), 2);
+      final controller = controllerWith(text, line: 1);
+
+      ShortcutApplier.applyHeaderLevel(controller, 1);
+
+      expect(controller.text, '---\n# Title\nafter');
+    });
+
+    test('a front matter closer underlines nothing', () {
+      final (controller, render) = bound('---\ntags: a\n---\n# H', 2);
+      expect(render.headingLevelAt(2), 0);
+      expect(render.lineInFence(1), isTrue);
+      expect(controller.codeLines.length, 4);
     });
   });
 }

@@ -18,6 +18,7 @@ class _CodeEditable extends StatefulWidget {
   final Color? backgroundColor;
   final Color selectionColor;
   final Color highlightColor;
+  final Color? currentHighlightColor;
   final Color cursorColor;
   final Color? cursorLineColor;
   final Color? chunkIndicatorColor;
@@ -64,6 +65,7 @@ class _CodeEditable extends StatefulWidget {
     this.backgroundColor,
     required this.selectionColor,
     required this.highlightColor,
+    this.currentHighlightColor,
     required this.cursorColor,
     this.cursorLineColor,
     this.chunkIndicatorColor,
@@ -240,8 +242,12 @@ class _CodeEditableState extends State<_CodeEditable>
                       ignoring: true,
                       child: Padding(
                         padding: widget.padding,
+                        // The host's font size already carries any text
+                        // scale, as it does for the code paragraphs, so
+                        // the hint never scales a second time.
                         child: Text(
                           hint,
+                          textScaler: TextScaler.noScaling,
                           style: widget.textStyle
                               .copyWith(color: widget.hintTextColor),
                         ),
@@ -308,6 +314,7 @@ class _CodeEditableState extends State<_CodeEditable>
           widget.horizontalScrollbarHeight ?? _kScrollbarThickness,
       selection: widget.controller.selection,
       highlightSelections: widget.findController.allMatchSelections,
+      currentHighlightSelection: widget.findController.currentMatchSelection,
       codes: widget.controller.codeLines,
       textStyle: widget.textStyle,
       hasFocus: widget.focusNode.hasFocus,
@@ -321,6 +328,8 @@ class _CodeEditableState extends State<_CodeEditable>
       },
       selectionColor: widget.selectionColor,
       highlightColor: widget.highlightColor,
+      currentHighlightColor:
+          widget.currentHighlightColor ?? widget.highlightColor,
       cursorColor: widget.cursorColor,
       cursorLineColor: widget.cursorLineColor,
       chunkIndicatorColor: widget.chunkIndicatorColor,

@@ -228,7 +228,7 @@ void main() {
 
     await tapAndAwaitState(
       tester,
-      find.text('UNDO'),
+      find.text('Undo'),
       until: (state) => state is CalendarPageLoaded && state.allEvents.isEmpty,
     );
 

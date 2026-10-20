@@ -13,6 +13,7 @@ class CodeEditorStyle {
     this.backgroundColor,
     this.selectionColor,
     this.highlightColor,
+    this.currentHighlightColor,
     this.cursorColor,
     this.cursorWidth,
     this.cursorLineColor,
@@ -115,6 +116,11 @@ class CodeEditorStyle {
   /// The paint layer is above [selectionColor].
   final Color? highlightColor;
 
+  /// The background of the one match a find session has selected, painted
+  /// over [highlightColor] so the hop target reads apart from every other
+  /// match. Null paints it like the rest.
+  final Color? currentHighlightColor;
+
   /// The color of the cursor.
   ///
   /// The cursor indicates the current location of text insertion point in
@@ -216,6 +222,9 @@ class CodeEditorSemanticsZone {
     required this.start,
     required this.end,
     required this.label,
+    this.checked,
+    this.isLink = false,
+    this.value,
   });
 
   /// First source offset of the zone.
@@ -226,6 +235,19 @@ class CodeEditorSemanticsZone {
 
   /// What a screen reader announces for the zone.
   final String label;
+
+  /// The zone's checked state, for a zone that toggles one (a task box),
+  /// so the reader says "checked" or "not checked" instead of leaving the
+  /// state to the label; null for a zone with no such state.
+  final bool? checked;
+
+  /// Whether performing the zone follows a link, so the reader names the
+  /// zone's role the way it does for a link anywhere else.
+  final bool isLink;
+
+  /// What the zone currently holds, announced after its [label]; null for
+  /// a zone whose label already says everything.
+  final String? value;
 }
 
 class CodeEditor extends StatefulWidget {
@@ -595,6 +617,7 @@ class _CodeEditorState extends State<CodeEditor> {
       highlightColor: widget.style?.highlightColor ??
           selectionTheme.selectionColor ??
           theme.colorScheme.primary.withValues(alpha: 0.4),
+      currentHighlightColor: widget.style?.currentHighlightColor,
       cursorColor: widget.style?.cursorColor ??
           selectionTheme.cursorColor ??
           theme.colorScheme.primary,

@@ -660,26 +660,17 @@ final List<_Case> _corpus = <_Case>[
   // F15: lists, tasks and headings past the `>` run.
   // Unlike a plain list item, a quoted one is a text run on both
   // surfaces, so it compares; what differs is chrome around the content.
-  _Case(
-    'quoted heading',
-    '> # Week 3',
-    expectedDivergence:
-        'the editor builds the whole quoted line in the heading style, so '
-        'its bar and the blank after it carry the heading weight; the '
-        'preview draws the bar in the quote style. Marker weight only: the '
-        'heading text agrees',
-    expectedDiff:
-        'unit 0 "┃" — weight: editor FontWeight.w600 vs preview '
-        'FontWeight.w400',
-  ),
+  const _Case('quoted heading', '> # Week 3'),
   _Case(
     'quoted bullet',
     '> - squat',
     expectedDivergence:
-        'the editor\'s bullet inherits the quote\'s italic and its blank the '
-        'content style, where the preview paints both in the plain marker '
-        'style. Marker style only: the content agrees',
-    expectedDiff: 'unit 2 "•" — italic: editor true vs preview false',
+        'the bullet stands upright on both surfaces, but the editor\'s blank '
+        'after it keeps the content style where the preview paints it in '
+        'the bold marker style. Whitespace style only: the content agrees',
+    expectedDiff:
+        'unit 3 " " — weight: editor FontWeight.w400 vs preview '
+        'FontWeight.w700',
   ),
   _Case(
     'quoted ordered item',
@@ -704,8 +695,8 @@ final List<_Case> _corpus = <_Case>[
   _Case(
     'quoted done task',
     '> - [x] done',
-    expectedDivergence: 'as the open task: a painted box against a ☒ glyph',
-    expectedDiff: 'visible text: editor "┃ <box> done" vs preview "┃ ☒ done"',
+    expectedDivergence: 'as the open task: a painted box against a ☑ glyph',
+    expectedDiff: 'visible text: editor "┃ <box> done" vs preview "┃ ☑ done"',
   ),
   _Case(
     'nested quoted bullet',
@@ -731,16 +722,10 @@ final List<_Case> _corpus = <_Case>[
     expectedDiff:
         'visible text: editor "┃ <box> stretch" vs preview "┃ ☐ stretch"',
   ),
-  _Case(
+  const _Case(
     'quoted heading in a callout body',
     '> ## Legs',
     above: <String>['> [!TIP] x'],
-    expectedDivergence:
-        'as the quoted heading: the editor\'s blank after the bar carries '
-        'the heading weight',
-    expectedDiff:
-        'unit 1 " " — weight: editor FontWeight.w600 vs preview '
-        'FontWeight.w400',
   ),
 
   // Tables-lite: the editor keeps the row's own units, the preview lays

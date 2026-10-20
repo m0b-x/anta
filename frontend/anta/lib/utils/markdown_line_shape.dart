@@ -365,15 +365,43 @@ class MarkdownLineShape {
   /// before it stay prose — and an indented line, a list item's
   /// continuation or a bare `-` marker is a text line like any other,
   /// since the grammar models no lazy continuation. The heading menu, the
-  /// header-level rewrite and the `[[Note#heading]]` target read
-  /// [headingAt] only, so they leave a setext heading alone: it shows no
-  /// level, a picked level prefixes `#`s (the underline then reads as a
-  /// rule), and a wiki link cannot land on it.
+  /// header-level rewrite and the `[[Note#heading]]` target read this
+  /// beside [headingAt]: the menu checks the level, a picked level turns
+  /// the pair into one ATX line, and a wiki link lands on the text line.
   static int setextLevelOf(String line, String? nextLine) {
     if (nextLine == null) return 0;
     final level = setextUnderlineLevel(nextLine);
     if (level == 0) return 0;
     return isSetextTextLine(line) ? level : 0;
+  }
+
+  /// The text line of the setext heading the line at [index] belongs to —
+  /// [index] itself when an underline follows it, the line above when
+  /// [index] is the underline — or `-1`. The heading tools (the H menu's
+  /// check, the header-level rewrite, the `[[Note#heading]]` target) read
+  /// this one positional answer, so a caret on the underline, where typing
+  /// it leaves the caret, acts on the heading the editor draws. [isInert]
+  /// reports fence and comment lines, where a pair is text; a front
+  /// matter's closing `---` underlines nothing either, since converting
+  /// the property above it would delete the closer.
+  static int setextTextLineAt(
+    String Function(int index) lineAt,
+    int lineCount,
+    int index, {
+    bool Function(int index)? isInert,
+  }) {
+    if (index < 0 || index >= lineCount) return -1;
+    final textLine = setextUnderlineLevel(lineAt(index)) != 0
+        ? index - 1
+        : index;
+    if (textLine < 0 || textLine + 1 >= lineCount) return -1;
+    if (setextLevelOf(lineAt(textLine), lineAt(textLine + 1)) == 0) return -1;
+    if (isInert?.call(textLine) ?? false) return -1;
+    // The renderer's own front matter grammar, so a text-only caller (the
+    // event sheets) and the editor agree on which `---` closes a block.
+    return textLine < MarkdownChunker.frontMatterEnd(lineCount, lineAt)
+        ? -1
+        : textLine;
   }
 
   /// Whether [line] is a line-led construct that must stay one intact,

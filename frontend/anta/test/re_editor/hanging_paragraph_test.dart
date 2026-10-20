@@ -583,6 +583,251 @@ void main() {
       );
     });
   });
+
+  group('quote lines', () {
+    for (final String bar in const ['┃ ', '> ']) {
+      test('a 200-character quote hangs its wrapped rows past "$bar"', () {
+        final provider = _provider();
+        final String content = List.filled(
+          40,
+          'reps',
+        ).join(' ').substring(0, 198);
+        final CodeHangingTextSpan span = CodeHangingTextSpan(
+          hangingChars: 2,
+          style: _base,
+          children: [
+            TextSpan(text: bar, style: _base),
+            TextSpan(text: content, style: _base),
+          ],
+        );
+        final IParagraph paragraph = provider.build(span, _maxWidth);
+
+        expect(provider.isHanging(paragraph), isTrue);
+        expect(paragraph.lineCount, greaterThan(1));
+        expect(
+          provider.markerCacheContains(provider.truncate(span, 2)),
+          isTrue,
+          reason: 'the bar prefix is a one-line marker',
+        );
+        final List<Rect> rects = paragraph.getRangeRects(
+          TextRange(start: 2, end: paragraph.length),
+        );
+        for (final Rect rect in rects) {
+          expect(rect.left, greaterThanOrEqualTo(_indent));
+        }
+      });
+    }
+  });
+
+  group('decoration chips', () {
+    const CodeTextDecoration padded = CodeTextDecoration(
+      color: Color(0xFF00FF00),
+      radius: 4,
+      horizontalPadding: 8,
+    );
+
+    List<Rect> chipsOf(IParagraph paragraph) {
+      final _ChipCanvas canvas = _ChipCanvas();
+      paragraph.draw(canvas, Offset.zero);
+      return canvas.chips;
+    }
+
+    test('a chip opening hanging content pads into the marker blank', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        CodeHangingTextSpan(
+          hangingChars: 2,
+          style: _base,
+          children: const [
+            TextSpan(text: '• ', style: _base),
+            CodeDecoratedTextSpan(
+              decoration: padded,
+              text: '#gym',
+              style: _base,
+            ),
+          ],
+        ),
+        _maxWidth,
+      );
+      expect(provider.isHanging(paragraph), isTrue);
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips, hasLength(1));
+      expect(chips.single.left, _indent - 8);
+      expect(chips.single.right, _indent + 4 * kGlyph + 8);
+    });
+
+    test('a chip after a marker with no blank stops at the marker', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        CodeHangingTextSpan(
+          hangingChars: 1,
+          style: _base,
+          children: const [
+            TextSpan(text: '┃', style: _base),
+            CodeDecoratedTextSpan(
+              decoration: padded,
+              text: '#gym',
+              style: _base,
+            ),
+          ],
+        ),
+        _maxWidth,
+      );
+      expect(provider.isHanging(paragraph), isTrue);
+      expect(chipsOf(paragraph).single.left, kGlyph);
+    });
+
+    test('a middle chip gives up padding to both neighbours', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        const TextSpan(
+          style: _base,
+          children: [
+            TextSpan(text: 'x ', style: _base),
+            CodeDecoratedTextSpan(decoration: padded, text: '#a', style: _base),
+            TextSpan(text: ' ', style: _base),
+            CodeDecoratedTextSpan(decoration: padded, text: '#b', style: _base),
+            TextSpan(text: ' ', style: _base),
+            CodeDecoratedTextSpan(decoration: padded, text: '#c', style: _base),
+          ],
+        ),
+        _maxWidth,
+      );
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips, hasLength(3));
+      expect(chips[1].left - chips[0].right, greaterThanOrEqualTo(2.0));
+      expect(chips[2].left - chips[1].right, greaterThanOrEqualTo(2.0));
+      // The middle chip still covers its own glyphs, columns 5 and 6.
+      expect(chips[1].left, lessThanOrEqualTo(5 * kGlyph));
+      expect(chips[1].right, greaterThanOrEqualTo(7 * kGlyph));
+      expect(chips.last.right, 10 * kGlyph + 8);
+    });
+
+    test('chips on two rows keep their padding and the row start clamp', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        const TextSpan(
+          style: _base,
+          children: [
+            CodeDecoratedTextSpan(
+              decoration: padded,
+              text: '#aaaaaaaaaaa',
+              style: _base,
+            ),
+            TextSpan(text: ' ', style: _base),
+            CodeDecoratedTextSpan(
+              decoration: padded,
+              text: '#bb',
+              style: _base,
+            ),
+          ],
+        ),
+        _maxWidth,
+      );
+      expect(paragraph.lineCount, 2);
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips, hasLength(2));
+      expect(chips.first.right, 12 * kGlyph + 8);
+      expect(chips.last.top, greaterThan(chips.first.top));
+      expect(chips.last.left, 0);
+      expect(chips.last.right, 3 * kGlyph + 8);
+    });
+
+    test('one chip wrapped over two rows is never split by the gap rule', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        const TextSpan(
+          style: _base,
+          children: [
+            CodeDecoratedTextSpan(
+              decoration: padded,
+              text: 'aaaaaaaaaa bbbbbbbb',
+              style: _base,
+            ),
+          ],
+        ),
+        _maxWidth,
+      );
+      expect(paragraph.lineCount, 2);
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips, hasLength(2));
+      expect(chips.first.left, 0);
+      expect(chips.last.left, 0);
+      expect(chips.last.right, 8 * kGlyph + 8);
+    });
+
+    test('a chip at the line start never reaches left of x = 0', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        const TextSpan(
+          style: _base,
+          children: [
+            CodeDecoratedTextSpan(decoration: padded, text: '#a', style: _base),
+            TextSpan(text: ' b', style: _base),
+          ],
+        ),
+        _maxWidth,
+      );
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips, hasLength(1));
+      expect(chips.single.left, 0);
+      expect(chips.single.right, 2 * kGlyph + 8);
+    });
+
+    test('two chips one space apart keep a visible gap', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        const TextSpan(
+          style: _base,
+          children: [
+            TextSpan(text: 'x ', style: _base),
+            CodeDecoratedTextSpan(decoration: padded, text: '#a', style: _base),
+            TextSpan(text: ' ', style: _base),
+            CodeDecoratedTextSpan(decoration: padded, text: '#b', style: _base),
+          ],
+        ),
+        _maxWidth,
+      );
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips, hasLength(2));
+      // The outer edges keep their padding; the shared blank is split.
+      expect(chips.first.left, 2 * kGlyph - 8);
+      expect(chips.last.right, 7 * kGlyph + 8);
+      expect(chips.last.left - chips.first.right, greaterThanOrEqualTo(2.0));
+      expect(chips.first.right, greaterThanOrEqualTo(4 * kGlyph));
+      expect(chips.last.left, lessThanOrEqualTo(5 * kGlyph));
+    });
+
+    test('chips far apart keep their full padding', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        const TextSpan(
+          style: _base,
+          children: [
+            CodeDecoratedTextSpan(decoration: padded, text: '#a', style: _base),
+            TextSpan(text: '   ', style: _base),
+            CodeDecoratedTextSpan(decoration: padded, text: '#b', style: _base),
+          ],
+        ),
+        _maxWidth,
+      );
+      final List<Rect> chips = chipsOf(paragraph);
+      expect(chips.first.right, 2 * kGlyph + 8);
+      expect(chips.last.left, 5 * kGlyph - 8);
+    });
+  });
+}
+
+/// Records the chip rects a paragraph paints; every other call is a
+/// no-op, since only the chips are under test.
+class _ChipCanvas implements Canvas {
+  final List<Rect> chips = <Rect>[];
+
+  @override
+  void drawRRect(RRect rrect, Paint paint) => chips.add(rrect.outerRect);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 const TextStyle _base = TextStyle(fontSize: 14, height: 1.4);

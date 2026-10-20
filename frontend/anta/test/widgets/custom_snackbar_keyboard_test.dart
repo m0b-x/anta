@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/snackbar_metrics.dart';
 import 'package:anta/utils/custom_snackbar.dart';
 import 'package:anta/widgets/overlay_snackbar.dart';
 
@@ -286,7 +288,7 @@ void main() {
     );
     await showBar(tester);
 
-    expect(find.text('OPEN'), findsOneWidget);
+    expect(find.text('Open'), findsOneWidget);
     expect(barRect(tester).bottom, lessThanOrEqualTo(screenHeight - keyboard));
 
     await disposeHost(tester);
@@ -307,7 +309,7 @@ void main() {
     );
     await showBar(tester);
 
-    await tester.tap(find.text('OPEN'));
+    await tester.tap(find.text('Open'));
     await tester.pump();
 
     expect(opened, 1);
@@ -351,7 +353,7 @@ void main() {
     );
     expect(pill.color, scheme.surfaceContainerHigh);
     final action = tester.widget<TextButton>(
-      find.widgetWithText(TextButton, 'OPEN'),
+      find.widgetWithText(TextButton, 'Open'),
     );
     expect(
       action.style?.foregroundColor?.resolve(const <WidgetState>{}),
@@ -359,6 +361,130 @@ void main() {
     );
 
     await disposeHost(tester);
+  });
+
+  // U2.6 grew the action to a 48 dp target, and it sat inside the content's
+  // 14 dp padding: a 76 dp bar app-wide. The target stays; the bar is 56.
+  for (final resizes in [false, true]) {
+    testWidgets('an action bar keeps the 48 dp target within 56 dp '
+        '(${resizes ? 'Scaffold' : 'overlay'} road)', (tester) async {
+      sizeSurface(tester);
+      await pumpHost(
+        tester,
+        resizeToAvoidBottomInset: resizes,
+        onShow: (context) => CustomSnackbar.showWithAction(
+          context,
+          // One line, as an Undo is: a wrapped message keeps its 14 dp.
+          message: 'Moved',
+          actionLabel: 'Open',
+          onAction: () {},
+        ),
+      );
+      await showBar(tester);
+
+      final action = tester.getSize(find.widgetWithText(TextButton, 'Open'));
+      expect(action.width, greaterThanOrEqualTo(kMinInteractiveDimension));
+      expect(action.height, greaterThanOrEqualTo(kMinInteractiveDimension));
+      expect(barRect(tester).height, lessThanOrEqualTo(56));
+
+      await disposeHost(tester);
+    });
+  }
+
+  group('action bar durations', () {
+    for (final resize in [false, true]) {
+      final road = resize ? 'the Scaffold road' : 'the overlay road';
+
+      Future<void> showAction(
+        WidgetTester tester, {
+        Duration? duration,
+      }) async {
+        sizeSurface(tester);
+        await pumpHost(
+          tester,
+          resizeToAvoidBottomInset: resize,
+          onShow: (context) => CustomSnackbar.showWithAction(
+            context,
+            message: message,
+            actionLabel: 'Open',
+            onAction: () {},
+            duration: duration,
+          ),
+        );
+        await tester.tap(find.text('show'));
+        await tester.pump();
+      }
+
+      // The Scaffold road's bar animates out after its duration, so it is
+      // read off the bar the messenger was handed.
+      Future<void> expectUpFor(WidgetTester tester, Duration up) async {
+        if (resize) {
+          expect(tester.widget<SnackBar>(find.byType(SnackBar)).duration, up);
+        } else {
+          await tester.pump(up - const Duration(milliseconds: 100));
+          expect(find.byType(OverlaySnackbarBody), findsOneWidget);
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(find.byType(OverlaySnackbarBody), findsNothing);
+        }
+        await disposeHost(tester);
+      }
+
+      testWidgets('an Undo keeps the 3 s default on $road', (tester) async {
+        await showAction(tester);
+        await expectUpFor(tester, AppConstants.snackbarActionDefaultDuration);
+        expect(
+          AppConstants.snackbarActionDefaultDuration,
+          const Duration(seconds: 3),
+        );
+      });
+
+      testWidgets('the link confirm stays up 5 s on $road', (tester) async {
+        await showAction(
+          tester,
+          duration: CustomSnackbar.confirmActionDuration,
+        );
+        await expectUpFor(tester, const Duration(seconds: 5));
+      });
+
+      testWidgets('a longer request is capped at the 5 s max on $road', (
+        tester,
+      ) async {
+        await showAction(tester, duration: const Duration(seconds: 10));
+        await expectUpFor(tester, AppConstants.snackbarActionMaxDuration);
+        expect(
+          AppConstants.snackbarActionMaxDuration,
+          const Duration(seconds: 5),
+        );
+      });
+    }
+
+    // Only a bar with an action trades its padding for the action's own
+    // 48 dp target; a plain message keeps a SnackBar's 14 dp.
+    testWidgets('a plain message keeps the 14 dp padding on both roads', (
+      tester,
+    ) async {
+      for (final resize in [false, true]) {
+        sizeSurface(tester);
+        await pumpHost(
+          tester,
+          resizeToAvoidBottomInset: resize,
+          onShow: (context) => CustomSnackbar.show(context, message),
+        );
+        await showBar(tester);
+        if (resize) {
+          expect(tester.widget<SnackBar>(find.byType(SnackBar)).padding, null);
+        } else {
+          expect(
+            tester
+                .widget<OverlaySnackbarBody>(find.byType(OverlaySnackbarBody))
+                .verticalPadding,
+            SnackbarMetrics.barVerticalPadding,
+          );
+        }
+        await disposeHost(tester);
+      }
+      expect(SnackbarMetrics.barVerticalPadding, 14);
+    });
   });
 }
 

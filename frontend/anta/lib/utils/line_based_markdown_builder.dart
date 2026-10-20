@@ -595,11 +595,13 @@ class LineBasedMarkdownBuilder {
         );
         continue;
       }
-      // A comment line is drawn as a blank line ([buildLine]), so it is
-      // measured as one, whatever text it hides.
+      // A comment or front matter line is drawn as a blank line
+      // ([buildLine]), so it is measured as one, whatever text it hides.
       scales.add(
         MarkdownLineHeightCalculator.getLineHeightScale(
-          block != null && block.kind == MarkdownBlockKind.comment
+          block != null &&
+                  (block.kind == MarkdownBlockKind.comment ||
+                      block.kind == MarkdownBlockKind.frontMatter)
               ? ''
               : _getLine(i),
           isInsideCodeBlock:
@@ -650,8 +652,11 @@ class LineBasedMarkdownBuilder {
       return _buildCodeBlockLine(line, trimmed, lineIndex, block, lineStart);
     }
     // A `%%` block comment keeps only its line slots, drawn like blank
-    // lines, so the source-line mapping of everything below holds.
-    if (block != null && block.kind == MarkdownBlockKind.comment) {
+    // lines, so the source-line mapping of everything below holds; a
+    // front matter's properties are metadata and are dropped the same way.
+    if (block != null &&
+        (block.kind == MarkdownBlockKind.comment ||
+            block.kind == MarkdownBlockKind.frontMatter)) {
       return TextSpan(
         text: ' ',
         style: baseStyle.copyWith(
@@ -849,14 +854,16 @@ class LineBasedMarkdownBuilder {
     );
   }
 
-  /// The preview's glyph for a task box holding [state]: `☐` open, `☒`
-  /// done, and the custom states as the editor paints them — `⊟`
-  /// cancelled, `◩` in progress, `→` / `←`, `★` for `*`, and any other
-  /// unit as itself (`?`, `!`, …).
+  /// The preview's glyph for a task box holding [state]: `☐` open, `☑`
+  /// done, and the custom states as the editor paints them — `⊠`
+  /// cancelled (a cross, never a bar that reads as a partly done parent,
+  /// and a check for done keeps the two struck rows apart by shape, not
+  /// colour alone), `◩` in progress, `→` / `←`, `★` for `*`, and any
+  /// other unit as itself (`?`, `!`, …).
   static String taskGlyph(String state) => switch (state) {
     ' ' => '☐',
-    'x' || 'X' => '☒',
-    '-' => '⊟',
+    'x' || 'X' => '☑',
+    '-' => '⊠',
     '/' => '◩',
     '>' => '→',
     '<' => '←',
@@ -1206,8 +1213,7 @@ class LineBasedMarkdownBuilder {
       lineEnd,
     );
     final children = <InlineSpan>[
-      if (item.level > 0)
-        TextSpan(text: ' ' * item.level, style: contentStyle),
+      if (item.level > 0) TextSpan(text: ' ' * item.level, style: contentStyle),
       marker,
     ];
     _appendFlattened(children, content);
@@ -2081,13 +2087,18 @@ class LineBasedMarkdownBuilder {
   static const int _noHardBreak = -1;
 
   /// Whether [line]'s trailing `\`, if it has one, may be a hard break:
-  /// only while a non-blank line follows it, the editor's and the plain
-  /// text's reading too ([MarkdownChunker.isBlankLine]). A line without
-  /// a trailing `\` answers true, so only such lines pay the lookup.
+  /// only while the next line continues its paragraph, the editor's and
+  /// the plain text's reading too ([MarkdownChunker.continuesParagraph]).
+  /// A line without a trailing `\` answers true, so only such lines pay
+  /// the lookup.
   bool _hardBreakMayEnd(String line, int lineIndex) {
     if (line.isEmpty || line.codeUnitAt(line.length - 1) != 0x5C) return true;
     return lineIndex + 1 < _lineCount &&
-        !MarkdownChunker.isBlankLine(_getLine(lineIndex + 1));
+        MarkdownChunker.continuesParagraph(
+          line,
+          _getLine(lineIndex + 1),
+          lineIndex + 2 < _lineCount ? _getLine(lineIndex + 2) : null,
+        );
   }
 
   /// Build inline formatted text with bold, italic, code, links, and

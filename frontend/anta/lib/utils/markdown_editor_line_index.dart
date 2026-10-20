@@ -16,7 +16,12 @@ import 'markdown_money_syntax.dart';
 /// [comment] covers a block comment's `%%` markers and its body alike:
 /// both render dimmed and are inert like fenced lines, so every caller
 /// that asks "is this line markdown" (`!= none`) refuses them too.
-enum MarkdownFenceRole { none, delimiter, interior, comment }
+///
+/// [frontMatter] covers the YAML properties block at the top of a note
+/// ([MarkdownChunker.frontMatterEnd]), both `---` lines included: dimmed
+/// and inert like a comment, so its `---` is neither a rule nor a setext
+/// underline and a property is never a heading, list or money row.
+enum MarkdownFenceRole { none, delimiter, interior, comment, frontMatter }
 
 /// Positional role of a line inside a callout block: the `> [!TYPE]`
 /// [lead] line, one of the contiguous blockquote [body] lines under it,
@@ -127,6 +132,20 @@ class MarkdownEditorLineIndex {
   /// structural edit splices its middle range.
   List<MarkdownFenceRole>? _fence;
 
+  /// [MarkdownChunker.frontMatterEnd] of the indexed document. Whether
+  /// line `0` opens a front matter depends on lines below it, which no
+  /// forward scan can see, so it is read before the passes and a change
+  /// to it rebuilds the index — the only edits that can change it are
+  /// typing or breaking a closer or a property, never ordinary typing.
+  int _frontMatterEnd = 0;
+
+  /// The last line an edit can touch and still change [_frontMatterEnd]
+  /// ([MarkdownChunker.frontMatterStop]): the closer of a front matter,
+  /// line `0` when that line opens none, and otherwise the line that broke
+  /// the candidate — an edit below it cannot reach the scan, so typing at
+  /// the bottom of a note under an unclosed `---` re-reads nothing.
+  int _frontMatterReach = 0;
+
   /// Per-line callout roles, packed as `((type.index + 1) << 2) | role`
   /// with role 1 = lead and 2 = body; `0` is "no callout here". `null`
   /// means the document holds no callout at all (the common case pays no
@@ -225,6 +244,36 @@ class MarkdownEditorLineIndex {
       return MarkdownFenceRole.none;
     }
     return fence[index];
+  }
+
+  /// The packed [MarkdownChunker.blockStateAfter] state the line at
+  /// [index] is read in — the state after the line above it, so
+  /// [MarkdownChunker.outsideBlock] for line `0` — telling a caller that
+  /// starts work on that line which fence, comment or front matter is
+  /// open there. Walked from the stored entry state of the line's
+  /// segment, so it costs at most one segment's lines: meant for one
+  /// call per paste, never per keystroke or per line.
+  int blockStateAt(CodeLines lines, int index) {
+    _ensure(lines);
+    if (index <= 0 || _segStarts.isEmpty) return MarkdownChunker.outsideBlock;
+    final int line = index < _lineCount ? index : _lineCount;
+    int low = 0;
+    int high = _segStarts.length - 1;
+    while (low < high) {
+      final int mid = (low + high + 1) >> 1;
+      if (_segStarts[mid] <= line) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    int state = _states[low].fenceEntry;
+    for (int g = _segStarts[low]; g < line; g++) {
+      state = g == 0 && _frontMatterEnd > 0
+          ? MarkdownChunker.insideFrontMatter
+          : MarkdownChunker.blockStateAfter(lines[g].text, state);
+    }
+    return state;
   }
 
   /// The packed callout state of the line at [index] — `0` when the line
@@ -342,6 +391,15 @@ class MarkdownEditorLineIndex {
     if (p >= m) {
       p = m - 1;
     }
+    if (_segStarts[p] <= _frontMatterReach) {
+      final int before = _frontMatterEnd;
+      _readFrontMatter(lines);
+      if (_frontMatterEnd != before) {
+        _rebuildAll(lines, segs);
+        _lines = lines;
+        return;
+      }
+    }
 
     final int oldMiddleEnd = m - q;
     final int newMiddleEnd = n - q;
@@ -427,8 +485,21 @@ class MarkdownEditorLineIndex {
     return starts;
   }
 
+  /// Re-reads [_frontMatterEnd] and [_frontMatterReach] from [lines].
+  void _readFrontMatter(CodeLines lines) {
+    final int count = lines.length;
+    String lineAt(int i) => lines[i].text;
+    _frontMatterReach = MarkdownChunker.frontMatterStop(count, lineAt);
+    _frontMatterEnd = MarkdownChunker.frontMatterEndAt(
+      _frontMatterReach,
+      count,
+      lineAt,
+    );
+  }
+
   void _rebuildAll(CodeLines lines, List<CodeLineSegment> segs) {
     _lastRebuilt = true;
+    _readFrontMatter(lines);
     _lineCount = lines.length;
     _segStarts = _startsOf(segs);
     _fence = null;
@@ -484,7 +555,11 @@ class MarkdownEditorLineIndex {
       int g = _segStarts[s];
       List<MarkdownFenceRole>? fence = _fence;
       for (int j = 0; j < lines.length; j++, g++) {
-        final int next = MarkdownChunker.blockStateAfter(lines[j].text, state);
+        // Only [MarkdownChunker.frontMatterEnd] opens a front matter: its
+        // `---` at line 0 is a rule to the one-line step.
+        final int next = g == 0 && _frontMatterEnd > 0
+            ? MarkdownChunker.insideFrontMatter
+            : MarkdownChunker.blockStateAfter(lines[j].text, state);
         if (state == MarkdownChunker.outsideBlock &&
             next == MarkdownChunker.outsideBlock) {
           if (fence != null) fence[g] = MarkdownFenceRole.none;
@@ -496,8 +571,11 @@ class MarkdownEditorLineIndex {
           growable: true,
         );
         fence[g] =
-            state == MarkdownChunker.insideComment ||
-                next == MarkdownChunker.insideComment
+            state == MarkdownChunker.insideFrontMatter ||
+                next == MarkdownChunker.insideFrontMatter
+            ? MarkdownFenceRole.frontMatter
+            : state == MarkdownChunker.insideComment ||
+                  next == MarkdownChunker.insideComment
             ? MarkdownFenceRole.comment
             : state != next
             ? MarkdownFenceRole.delimiter

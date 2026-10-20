@@ -487,6 +487,39 @@ void main() {
       expect(MarkdownLineShape.setextLevelOf('', '==='), 0);
     });
 
+    test('setextTextLineAt answers from the text line or its underline', () {
+      int at(List<String> lines, int index, {bool Function(int)? isInert}) =>
+          MarkdownLineShape.setextTextLineAt(
+            (i) => lines[i],
+            lines.length,
+            index,
+            isInert: isInert,
+          );
+
+      const pair = ['Title', '===', 'after'];
+      expect(at(pair, 0), 0);
+      expect(at(pair, 1), 0, reason: 'the underline belongs to its heading');
+      expect(at(pair, 2), -1);
+      expect(at(pair, 1, isInert: (i) => i == 0), -1);
+      expect(at(['===', 'x'], 0), -1);
+      expect(at(['a', '', '---'], 2), -1, reason: 'a rule, not an underline');
+      // A front matter's closer underlines nothing; a later `---` does.
+      const fm = ['---', 'title: x', 'tags: a', '---', 'Week 3', '---'];
+      expect(at(fm, 2), -1);
+      expect(at(fm, 3), -1);
+      expect(at(fm, 4), 4);
+      expect(at(fm, 5), 4);
+      expect(at(['Title', '---'], 0), 0, reason: 'line 0 is no opener here');
+      // C1 fix pass C4 — the chunker's grammar decides, so a block it
+      // rejects is a rule over a setext pair, as the renderer draws it,
+      // and a bare `-` property underlines nothing inside a block.
+      expect(at(['---', 'Title', '---'], 1), 1);
+      expect(at(['---', 'Title', '---'], 2), 1);
+      expect(at(['---', 'prose here', '---', 'after'], 1), 1);
+      expect(at(['---', 'aliases:', '-', '---'], 1), -1);
+      expect(at(['---', 'k: v', '...', 'Week 3', '---'], 3), 3);
+    });
+
     test('headingAt stays line-only: a setext text line is no ATX match', () {
       expect(MarkdownLineShape.headingAt('Title'), isNull);
       expect(MarkdownLineShape.headingAt('==='), isNull);

@@ -12,10 +12,12 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/scroll_progress_indicator.dart';
 
@@ -359,9 +361,69 @@ void main() {
     });
   });
 
+  // U2 T15: the fence predicate reaches the editor, so a box or a heading
+  // drawn on a fenced line takes no tap.
+  testWidgets('the editor knows a fenced line from a plain one', (
+    tester,
+  ) async {
+    await openSheet(tester, initialText: '```\n- [ ] code\n```\n- [ ] after');
+    final isFenceLine = tester
+        .widget<ModernEditorWrapper>(find.byType(ModernEditorWrapper))
+        .isFenceLine;
+    expect(isFenceLine, isNotNull);
+    expect(isFenceLine!(1), isTrue);
+    expect(isFenceLine(3), isFalse);
+  });
+
+  // U2 T15: the sheet hands the same predicate to the bar's applier.
+  testWidgets('a bar heading on a fenced line leaves it as it is', (
+    tester,
+  ) async {
+    const text = '```\n- [ ] code\n```\n- [ ] after';
+    await openSheet(tester, initialText: text);
+    // The bar's shortcuts load from the real service, off the fake clock.
+    if (barBloc.state is! MarkdownBarLoaded) {
+      await tester.runAsync(
+        () => barBloc.stream.firstWhere((s) => s is MarkdownBarLoaded),
+      );
+    }
+    await tester.pumpAndSettle();
+    final controller = controllerOf(tester);
+    tester
+        .widget<ModernEditorWrapper>(find.byType(ModernEditorWrapper))
+        .focusNode
+        .requestFocus();
+    await tester.pumpAndSettle();
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 1,
+      offset: 0,
+    );
+    await tester.pump();
+
+    tester
+        .widget<MarkdownBar>(find.byType(MarkdownBar))
+        .onShortcutPressed(_heading2);
+    await tester.pumpAndSettle();
+    expect(controller.text, text);
+
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 3,
+      offset: 0,
+    );
+    await tester.pump();
+    tester
+        .widget<MarkdownBar>(find.byType(MarkdownBar))
+        .onShortcutPressed(_heading2);
+    await tester.pumpAndSettle();
+    expect(controller.codeLines[3].text, startsWith('## '));
+
+    await closeDiscarding(tester);
+  });
+
   // Y2: the wrapper's taps read real focus, so the rendering must too — an
   // unbound builder counted as focused and drew the caret line raw while a
   // tap on it still toggled the box.
+
   testWidgets('the caret line reveals only while the editor has focus', (
     tester,
   ) async {
@@ -729,3 +791,15 @@ void main() {
     expect(data.hasAction(SemanticsAction.scrollDown), isFalse);
   });
 }
+
+/// The bar's H2, as the heading menu hands it to the sheet.
+final _heading2 = CustomMarkdownShortcut(
+  id: 'header_level_2',
+  label: 'H2',
+  iconCodePoint: 0xe167,
+  iconFontFamily: 'MaterialIcons',
+  beforeText: '## ',
+  afterText: '',
+  isDefault: true,
+  insertType: 'header',
+);

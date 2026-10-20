@@ -53,4 +53,12 @@ void main() {
     expect(apart, isNot(pair), reason: 'a paragraph and a rule, as written');
     expect(commented, isNot(shown));
   });
+
+  // C1 fix pass P4 — a front matter is metadata, dropped before the budget
+  // as the alert excerpt drops it, so the row shows the text under it.
+  testWidgets('a front matter leaves the budget to the text below it', (
+    tester,
+  ) async {
+    expect(await rowText(tester, '---\ntitle: x\n---\nReal text'), 'Real text');
+  });
 }

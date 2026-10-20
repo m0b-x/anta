@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,7 +15,9 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/app_spacing.dart';
+import 'package:anta/controllers/note_editor_stats_tracker.dart';
 import 'package:anta/widgets/overlay_snackbar.dart';
 import 'package:anta/constants/font_constants.dart';
 import 'package:anta/constants/markdown_constants.dart';
@@ -47,6 +50,7 @@ import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
+import 'package:anta/widgets/note_editor_chrome.dart';
 import 'package:anta/widgets/note_search_bar.dart';
 import 'package:anta/widgets/unified_app_bars.dart';
 
@@ -999,6 +1003,78 @@ void main() {
       await teardownPage(tester);
     });
 
+    testWidgets('the H menu checks a setext heading and its pick removes it', (
+      tester,
+    ) async {
+      final controller = await loadListNote(tester);
+      controller.text = 'Week 3\n---\nafter';
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 2,
+      );
+      await tester.pump();
+      int? checked() => tester
+          .widget<MarkdownBar>(find.byType(MarkdownBar, skipOffstage: false))
+          .currentHeadingLevel!();
+      expect(checked(), 2);
+
+      press(tester, headerLevel(2));
+      await settle(tester, rounds: 3);
+      expect(controller.text, 'Week 3\nafter');
+      expect(checked(), isNull);
+      await teardownPage(tester);
+    });
+
+    testWidgets('the H menu reads a setext pair only where it is a heading', (
+      tester,
+    ) async {
+      final controller = await loadListNote(tester);
+      int? checkedAt(String text, int index) {
+        controller.text = text;
+        controller.selection = CodeLineSelection.collapsed(
+          index: index,
+          offset: 0,
+        );
+        return tester
+            .widget<MarkdownBar>(find.byType(MarkdownBar, skipOffstage: false))
+            .currentHeadingLevel!();
+      }
+
+      await tester.pump();
+      expect(checkedAt('Week 3\n===\nafter', 1), 1, reason: 'the underline');
+      expect(checkedAt('```\nWeek 3\n---\n```', 1), isNull);
+      expect(checkedAt('%%\nWeek 3\n---\n%%', 1), isNull);
+      expect(checkedAt('---\ntags: a\n---\n# H', 1), isNull);
+      expect(checkedAt('---\ntags: a\n---\n# H', 2), isNull);
+      // S2 C5 / U1 C15 — the editor's own reader: a fenced `#` line is
+      // code, and a text line past the render cap draws no heading.
+      expect(checkedAt('```\n# x\n```', 1), isNull);
+      expect(checkedAt('${'a' * 5000}\n===\nafter', 1), isNull);
+      expect(checkedAt('${'a' * 5000}\n===\nafter', 0), isNull);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a level picked on a fenced # line is inert; a capped '
+        'underline takes an ATX run', (tester) async {
+      final controller = await loadListNote(tester);
+      final long = 'a' * 5000;
+      for (final (text, index, after) in [
+        ('```\n# x\n```', 1, '```\n# x\n```'),
+        ('$long\n===\nafter', 1, '$long\n## ===\nafter'),
+      ]) {
+        controller.text = text;
+        controller.selection = CodeLineSelection.collapsed(
+          index: index,
+          offset: 0,
+        );
+        await tester.pump();
+        press(tester, headerLevel(2));
+        await settle(tester, rounds: 3);
+        expect(controller.text, after, reason: text.substring(0, 3));
+      }
+      await teardownPage(tester);
+    });
+
     testWidgets('a list shortcut toggles the line marker as one undo step', (
       tester,
     ) async {
@@ -1134,6 +1210,56 @@ void main() {
       expect(noteBloc.updates, hasLength(1));
       expect(noteBloc.updates.single.noteId, noteId);
       expect(noteBloc.updates.single.content, startsWith('first line typed'));
+      await teardownPage(tester);
+    });
+
+    testWidgets('U2.3 a caret move is not an edit', (tester) async {
+      final controller = await loadNote(tester);
+      noteBloc.clearDispatched();
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 3,
+      );
+      await tester.pump();
+      controller.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 0,
+        extentOffset: 5,
+      );
+      await tester.pump();
+      expect(appBar(tester).hasChanges, isFalse);
+
+      await tester.pump(pastDebounce);
+      await settle(tester);
+
+      expect(noteBloc.updates, isEmpty);
+      expect(appBar(tester).hasChanges, isFalse);
+      await teardownPage(tester);
+    });
+
+    testWidgets('U2.3 a same-length replacement is still an edit', (
+      tester,
+    ) async {
+      final controller = await loadNote(tester);
+      noteBloc.clearDispatched();
+
+      // 'f' -> 'F': the text length does not move, the lines instance does.
+      controller.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 0,
+        extentOffset: 1,
+      );
+      await tester.pump();
+      controller.replaceSelection('F');
+      await tester.pump();
+
+      expect(appBar(tester).hasChanges, isTrue);
+      await tester.pump(pastDebounce);
+      await settle(tester);
+      expect(noteBloc.updates, hasLength(1));
       await teardownPage(tester);
     });
 
@@ -1392,7 +1518,11 @@ void main() {
     ) async {
       await tester.runAsync(() => settings.setAutoBreakLongLines(true));
       addTearDown(
-        () => tester.runAsync(() => settings.setAutoBreakLongLines(false)),
+        () => tester.runAsync(
+          () => settings.setAutoBreakLongLines(
+            SettingsKeys.defaultAutoBreakLongLines,
+          ),
+        ),
       );
 
       await pumpPage(tester);
@@ -1753,6 +1883,83 @@ void main() {
       await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
 
       expect(editorOf(tester).controller.selection.baseIndex, 151);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a setext heading is a target too, by its text line', (
+      tester,
+    ) async {
+      await pumpPageWithHeading(tester, 'squat DAY');
+      noteBloc.emitContentLoaded(
+        metadata,
+        <String>[
+          'top',
+          for (var i = 0; i < 150; i++) 'line $i',
+          '**Squat** day',
+          '---',
+          'end',
+        ].join('\n'),
+      );
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      expect(editorOf(tester).controller.selection.baseIndex, 151);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a front matter property or a commented pair is no target', (
+      tester,
+    ) async {
+      await pumpPageWithHeading(tester, 'tags: a');
+      noteBloc.emitContentLoaded(
+        metadata,
+        <String>[
+          '---',
+          'tags: a',
+          '---',
+          '%%',
+          'tags: a',
+          '---',
+          '%%',
+          for (var i = 0; i < 150; i++) 'line $i',
+          'tags: a',
+          '===',
+          'end',
+        ].join('\n'),
+      );
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      expect(editorOf(tester).controller.selection.baseIndex, 157);
+      await teardownPage(tester);
+    });
+
+    // C1 fix pass P14 — the target reads the editor's heading reader, so a
+    // match the editor draws as no heading (fenced, past the render cap)
+    // keeps the restored position.
+    testWidgets('a fenced or capped match is no target', (tester) async {
+      final long = 'a' * 5000;
+      await savePosition(tester, 2, 1);
+      await pumpPageWithHeading(tester, long);
+      noteBloc.emitContentLoaded(
+        metadata,
+        <String>[
+          'top',
+          for (var i = 0; i < 150; i++) 'line $i',
+          '```',
+          '# $long',
+          '```',
+          long,
+          '===',
+          '# $long',
+          'end',
+        ].join('\n'),
+      );
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settleUntil(tester, () => caretLine(tester) == 2);
+
+      expect(editorOf(tester).controller.selection.baseOffset, 1);
       await teardownPage(tester);
     });
 
@@ -2388,20 +2595,39 @@ void main() {
       await teardownPage(tester);
     });
 
-    testWidgets('a brand-new note has no Label row', (tester) async {
+    PopupMenuItem labelItem(WidgetTester tester) =>
+        tester.widget(
+              find.ancestor(
+                of: find.text(AppLocalizationsEn().labelAction),
+                matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+              ),
+            )
+            as PopupMenuItem;
+
+    testWidgets('a brand-new note shows the Label row disabled (U2.8)', (
+      tester,
+    ) async {
       await pushNewNoteEditor(tester);
       await openMenu(tester);
 
       final l10n = AppLocalizationsEn();
-      expect(
-        find.text(l10n.labelAction),
-        findsNothing,
-        reason: 'a note with no id has no row to carry a colour',
-      );
+      // Disabled, never removed: the menu keeps its shape before and after
+      // the early create.
+      expect(find.text(l10n.labelAction), findsOneWidget);
       expect(
         find.byWidgetPredicate((widget) => widget is PopupMenuItem),
-        findsNWidgets(6),
+        findsNWidgets(7),
       );
+      expect(
+        labelItem(tester).enabled,
+        isFalse,
+        reason: 'a note with no id has no row to carry a colour',
+      );
+
+      await tester.tap(find.text(l10n.labelAction), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(noteBloc.dispatched.whereType<SetOptimizedNoteLabel>(), isEmpty);
+      expect(find.text(l10n.labelAction), findsOneWidget);
 
       await tester.tapAt(const Offset(400, 8));
       await tester.pumpAndSettle();
@@ -2417,6 +2643,11 @@ void main() {
         if (state is OptimizedNoteCreated) created.add(state.metadata.id);
       });
       addTearDown(sub.cancel);
+
+      await openMenu(tester);
+      expect(labelItem(tester).enabled, isFalse);
+      await tester.tapAt(const Offset(400, 8));
+      await tester.pumpAndSettle();
 
       await type(tester, 'bench press');
       await settleUntil(
@@ -2434,11 +2665,67 @@ void main() {
         findsOneWidget,
         reason: 'adopting the new id has to rebuild the bar that reads it',
       );
+      expect(
+        labelItem(tester).enabled,
+        isTrue,
+        reason: 'adopting the new id has to rebuild the bar that reads it',
+      );
 
       await tester.tapAt(const Offset(400, 8));
       await tester.pumpAndSettle();
       await teardownPage(tester);
       await discardNotes(tester, created);
+    });
+
+    testWidgets('U2.2 a rename to a taken title warns in the dialog, and the '
+        'reverted save puts the stored title back in the bar', (tester) async {
+      // Drift runs outside the test's fake clock.
+      final sibling = (await tester.runAsync(
+        () => storageService.createNote(
+          folderId: menuFolder.id,
+          title: 'Bench day',
+          content: '',
+        ),
+      ))!;
+      addTearDown(
+        () => tester.runAsync(() => db.noteDao.hardDeleteNote(sibling.id)),
+      );
+      await pushEditorOverFolder(tester);
+      final l10n = AppLocalizationsEn();
+
+      await tester.tap(find.text(menuNote.title));
+      await tester.pumpAndSettle();
+
+      final field = find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      );
+      expect(
+        tester.widget<TextField>(field).controller!.selection,
+        TextSelection(baseOffset: 0, extentOffset: menuNote.title.length),
+        reason: 'the title opens selected whole, so typing replaces it',
+      );
+
+      await tester.enterText(field, 'Bench day');
+      final warning = find.text(l10n.noteTitleAlreadyExists('Bench day'));
+      await settleUntil(tester, () => warning.evaluate().isNotEmpty);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(l10n.save),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(appBar(tester).title, 'Bench day');
+
+      await tester.pump(const Duration(seconds: 6));
+      await settleUntil(tester, () => appBar(tester).title == menuNote.title);
+      expect(find.text('Bench day'), findsNothing);
+
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
+      await teardownPage(tester);
     });
 
     testWidgets('picking a swatch dispatches SetOptimizedNoteLabel once', (
@@ -2644,22 +2931,38 @@ void main() {
       await teardownPage(tester);
     });
 
-    testWidgets('the app bar toggle leaves search through the bar itself', (
-      tester,
-    ) async {
-      // E23: the toggle used to close the controller directly, skipping the
-      // bar's own exit — two ways out of one surface.
+    testWidgets('U2.7 the app bar toggle focuses the open field; the row X '
+        'is the one way out', (tester) async {
       await pushEditorOverFolder(tester);
+      final toggle = find.descendant(
+        of: find.byType(NoteAppBar),
+        matching: find.byIcon(Icons.search),
+      );
+      final focusedField = find.descendant(
+        of: find.byType(NoteSearchBar),
+        matching: find.byWidgetPredicate(
+          (w) => w is EditableText && w.focusNode.hasFocus,
+        ),
+      );
 
-      await tester.tap(find.byIcon(Icons.search));
+      await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(find.byType(NoteSearchBar), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.search_off));
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      expect(focusedField, findsNothing);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byType(NoteSearchBar), findsOneWidget);
+      expect(focusedField, findsOneWidget);
+
+      await tester.tap(find.byTooltip(AppLocalizationsEn().closeSearch));
       await tester.pumpAndSettle();
 
       expect(find.byType(NoteSearchBar), findsNothing);
-      expect(find.byIcon(Icons.search), findsOneWidget);
+      expect(toggle, findsOneWidget);
 
       await teardownPage(tester);
     });
@@ -2809,6 +3112,102 @@ void main() {
       expect(controller.codeLines[0].text, 'pasted first line');
       await teardownPage(tester);
     });
+
+    CustomMarkdownShortcut heading(int level) => CustomMarkdownShortcut(
+      id: 'header_level_$level',
+      label: 'H$level',
+      iconCodePoint: 0xe167,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '${'#' * level} ',
+      afterText: '',
+      isDefault: true,
+      insertType: 'header',
+    );
+
+    // U2.1: a bar edit on an unfocused editor focuses it first, or the
+    // edit lands with no caret on screen and no keyboard to go on with.
+    testWidgets('U2.1: Bold, Indent and the H menu focus an unfocused editor '
+        'and edit at the caret', (tester) async {
+      final controller = await loadText(tester, listContent);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 11,
+      );
+      await tester.pump();
+
+      Future<void> unfocus() async {
+        focusOf(tester).unfocus();
+        await tester.pump();
+        await tester.pump();
+        expect(focusOf(tester).hasFocus, isFalse);
+      }
+
+      await unfocus();
+      bar(tester).onIndent!();
+      await tester.pump();
+      await tester.pump();
+      expect(focusOf(tester).hasFocus, isTrue, reason: 'indent');
+      expect(controller.codeLines[1].text, '  - squat 5x5');
+
+      await unfocus();
+      bar(tester).onShortcutPressed(
+        const CustomMarkdownShortcut(
+          id: 'default_bold',
+          label: 'Bold',
+          iconCodePoint: 0xe238,
+          iconFontFamily: 'MaterialIcons',
+          beforeText: '**',
+          afterText: '**',
+          isDefault: true,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(focusOf(tester).hasFocus, isTrue, reason: 'bold');
+      expect(controller.codeLines[1].text, contains('**'));
+
+      await unfocus();
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: 0,
+      );
+      bar(tester).onShortcutPressed(heading(2));
+      await tester.pump();
+      await tester.pump();
+      expect(focusOf(tester).hasFocus, isTrue, reason: 'H menu');
+      expect(controller.codeLines[2].text, '## third line');
+      await teardownPage(tester);
+    });
+
+    // U1 T10: Body text is the caret line's own level picked again, the
+    // path the bar's menu takes; both heading shapes come off.
+    for (final (name, text, index, expected) in [
+      (
+        'an ATX heading with a closing run',
+        'intro\n## Squat ##',
+        1,
+        'intro\nSquat',
+      ),
+      ('a setext heading', 'Squat\n===\nafter', 0, 'Squat\nafter'),
+    ]) {
+      testWidgets('U1: Body text removes $name', (tester) async {
+        final controller = await loadText(tester, text);
+        controller.selection = CodeLineSelection.collapsed(
+          index: index,
+          offset: 0,
+        );
+        await tester.pump();
+
+        final level = bar(tester).currentHeadingLevel!();
+        expect(level, isNotNull);
+        bar(tester).onShortcutPressed(heading(level!));
+        await tester.pump();
+        await tester.pump();
+
+        expect(controller.text, expected);
+        await teardownPage(tester);
+      });
+    }
 
     testWidgets('E9: the bar indents and outdents a list line, caret kept', (
       tester,
@@ -2982,49 +3381,62 @@ void main() {
       expect(visibleText(tester, 0), contains('youtube'));
       expect(editorOf(tester).revealWhenUnfocused?.value, isTrue);
 
-      await tester.tap(find.byIcon(Icons.search_off));
+      // A query that finds nothing reveals nothing (U2.7).
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(NoteSearchBar),
+          matching: find.byType(TextField),
+        ),
+        'zzz',
+      );
+      await settle(tester);
+      expect(editorOf(tester).revealWhenUnfocused?.value, isFalse);
+
+      tester.state<NoteSearchBarState>(find.byType(NoteSearchBar)).close();
       await tester.pumpAndSettle();
       expect(editorOf(tester).revealWhenUnfocused?.value, isFalse);
       await teardownPage(tester);
     });
 
-    testWidgets('Y13: Ctrl+B runs under the page\'s guard as one undo step', (
-      tester,
-    ) async {
-      final controller = await loadText(tester, 'do squat now');
-      expect(editorOf(tester).onFormatShortcut, isNotNull);
-      await focusEditor(tester);
-      controller.selection = const CodeLineSelection.collapsed(
-        index: 0,
-        offset: 'do squat now'.length,
-      );
-      controller.replaceSelection(' typed');
-      await tester.pump();
-      controller.selection = const CodeLineSelection(
-        baseIndex: 0,
-        baseOffset: 3,
-        extentIndex: 0,
-        extentOffset: 8,
-      );
-      await tester.pump();
+    testWidgets(
+      'Y13: Ctrl+B runs under the page\'s guard as one undo step',
+      (tester) async {
+        final controller = await loadText(tester, 'do squat now');
+        expect(editorOf(tester).onFormatShortcut, isNotNull);
+        await focusEditor(tester);
+        controller.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 'do squat now'.length,
+        );
+        controller.replaceSelection(' typed');
+        await tester.pump();
+        controller.selection = const CodeLineSelection(
+          baseIndex: 0,
+          baseOffset: 3,
+          extentIndex: 0,
+          extentOffset: 8,
+        );
+        await tester.pump();
 
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-      await settle(tester, rounds: 3);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await settle(tester, rounds: 3);
 
-      expect(controller.codeLines[0].text, 'do **squat** now typed');
-      expect(controller.selectedText, 'squat');
+        expect(controller.codeLines[0].text, 'do **squat** now typed');
+        expect(controller.selectedText, 'squat');
 
-      controller.undo();
-      await tester.pump();
-      expect(
-        controller.codeLines[0].text,
-        'do squat now typed',
-        reason: 'one undo reverts the toggle, not the typing before it',
-      );
-      await teardownPage(tester);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+        controller.undo();
+        await tester.pump();
+        expect(
+          controller.codeLines[0].text,
+          'do squat now typed',
+          reason: 'one undo reverts the toggle, not the typing before it',
+        );
+        await teardownPage(tester);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
 
     testWidgets('E25: an unfocused editor is not scrolled by a font-size '
         'step', (tester) async {
@@ -3043,6 +3455,253 @@ void main() {
 
       expect(scrollOffset(tester), 0);
       await flushFontSizeWrite(tester);
+      await teardownPage(tester);
+    });
+  });
+
+  // Slice L1 — the page-level pins the completion pass could not reach:
+  // each one is a promise of a widget suite that only the page can keep.
+  group('the page keeps its widgets\' promises (L1)', () {
+    final en = AppLocalizationsEn();
+
+    Widget host({
+      Widget home = const OptimizedNoteEditorPage(
+        folderId: folderId,
+        noteId: noteId,
+      ),
+      Locale locale = const Locale('en'),
+      double textScale = 1.0,
+    }) => MultiBlocProvider(
+      providers: [
+        BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+        BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+        BlocProvider<CounterBloc>.value(value: counterBloc),
+      ],
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: locale,
+        navigatorObservers: [AppNavigator.routeObserver],
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: home,
+      ),
+    );
+
+    Future<CodeLineEditingController> loadText(
+      WidgetTester tester,
+      String text, {
+      Locale locale = const Locale('en'),
+      double textScale = 1.0,
+    }) async {
+      await tester.pumpWidget(host(locale: locale, textScale: textScale));
+      noteBloc.emitContentLoaded(metadataFor(text), text);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      return editorOf(tester).controller;
+    }
+
+    String statsText(WidgetTester tester) => tester
+        .widget<Text>(
+          find
+              .descendant(
+                of: find.byType(NoteEditorStatsBar),
+                matching: find.byType(Text),
+              )
+              .first,
+        )
+        .data!;
+
+    testWidgets('a 360 x 780 de screen at 2.0: the body follows the text '
+        'scale, the strip stays legible, the bar keeps its height', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.view.resetViewInsets);
+      expect(SettingsKeys.defaultAutoBreakLongLines, isTrue);
+      final controller = await loadText(
+        tester,
+        '',
+        locale: const Locale('de'),
+        textScale: 2.0,
+      );
+      const scaled = FontConstants.defaultFontSize * 2.0;
+      expect(
+        tester.widget<CodeEditor>(find.byType(CodeEditor)).style!.fontSize,
+        scaled,
+      );
+
+      // The reflow measures with the width calculator, padded as the page
+      // pads it: at the scaled size a line holds (360 - 16 - 16 - 16) / 32
+      // = 9 cells, where an unscaled calculator would leave lines of up to
+      // 19. Every third word is "satzx", so a calculator one cell wider
+      // (one that lost the scrollbar padding) joins it into a 10-cell line.
+      editorOf(tester).focusNode.requestFocus();
+      await tester.pump();
+      await tester.pump();
+      controller.replaceSelection(
+        List.generate(12, (i) => i % 3 == 2 ? 'satzx' : 'satz').join(' '),
+      );
+      await tester.pump();
+      await tester.pump();
+      final maxCells =
+          ((360 - 2 * AppSpacing.lg - AppConstants.editorScrollbarPadding) /
+                  scaled)
+              .floor();
+      expect(maxCells, 9);
+      final lines = [
+        for (var i = 0; i < controller.lineCount; i++)
+          controller.codeLines[i].text,
+      ];
+      expect(lines.length, greaterThan(1), reason: 'the paste was reflowed');
+      for (final line in lines) {
+        expect(line.length, lessThanOrEqualTo(maxCells), reason: line);
+      }
+      expect(
+        lines.any((line) => line.split(' ').length > 1),
+        isTrue,
+        reason:
+            'a line holds two words: the width is the scaled one, not '
+            'a fallback that breaks at every space',
+      );
+
+      // The strip follows the system size up to its own cap, inside its
+      // fixed height.
+      final strip = find.byType(NoteEditorStatsBar);
+      expect(tester.getSize(strip).height, NoteEditorStatsBar.statsBarHeight);
+      final stripText = find
+          .descendant(of: strip, matching: find.byType(Text))
+          .first;
+      expect(
+        MediaQuery.textScalerOf(tester.element(stripText)).scale(10),
+        closeTo(10 * NoteEditorStatsBar.maxTextScale, 1e-9),
+      );
+      // A clipped or ellipsized line throws nothing, so the fit is read off
+      // the paragraph itself.
+      expect(
+        tester.renderObject<RenderParagraph>(stripText).didExceedMaxLines,
+        isFalse,
+        reason: statsText(tester),
+      );
+
+      final bar = find.byType(MarkdownBar);
+      final height = tester.getSize(bar).height;
+      final bottom = tester.getBottomLeft(bar).dy;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getSize(bar).height, height);
+      expect(tester.getBottomLeft(bar).dy, bottom - 300);
+
+      tester.view.resetViewInsets();
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getSize(bar).height, height);
+      expect(tester.getBottomLeft(bar).dy, bottom);
+      expect(tester.takeException(), isNull);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a new note shows the hint until the first keystroke, and '
+        'the first line keeps its height when it goes', (tester) async {
+      await tester.pumpWidget(
+        host(home: const OptimizedNoteEditorPage(folderId: folderId)),
+      );
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      final hint = find.text(en.editorHint);
+      expect(hint, findsOneWidget);
+      CodeFieldRenderForTesting field() => CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      );
+      final before = field().lineHeightOfLine(0);
+
+      editorOf(tester).controller.replaceSelection('a');
+      await tester.pump();
+      await tester.pump();
+
+      expect(hint, findsNothing);
+      expect(field().lineHeightOfLine(0), before);
+      await settle(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('the strip counts graphemes once the tracker has reported', (
+      tester,
+    ) async {
+      // '👍👍 ok' is 7 code units and 5 characters. The stored length is
+      // the code-unit fallback, accepted before the first report; the
+      // loading body is blank, so it never reaches this page's screen.
+      const text = '👍👍 ok';
+      expect(text.length, 7);
+      await loadText(tester, text);
+
+      expect(statsText(tester), en.noteStats(5, 1));
+      await teardownPage(tester);
+    });
+
+    testWidgets('the stored length never outlives the load', (tester) async {
+      const text = '👍👍 ok';
+      final note = metadataFor(text);
+      await pumpPageFor(tester, note);
+      await tester.pump();
+      expect(
+        find.byType(NoteEditorStatsBar),
+        findsNothing,
+        reason: 'the loading body is blank',
+      );
+
+      noteBloc.emitContentLoaded(note, text);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      expect(
+        tester
+            .widget<NoteEditorStatsBar>(find.byType(NoteEditorStatsBar))
+            .fallbackCharCount,
+        isNull,
+      );
+      expect(statsText(tester), en.noteStats(5, 1));
+
+      // Emptied, the note shows its own count, never the stored 7.
+      final controller = editorOf(tester).controller;
+      controller.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 0,
+        extentOffset: text.length,
+      );
+      controller.replaceSelection('');
+      await tester.pump(
+        NoteEditorStatsTracker.debounceDelay + const Duration(milliseconds: 50),
+      );
+      await tester.pump();
+      expect(statsText(tester), en.noteStats(0, 1));
+      await settle(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a link prompt stays up past 4.5 s and is gone by 5.5 s', (
+      tester,
+    ) async {
+      await loadText(tester, content);
+      editorOf(tester).onOpenLink!('https://example.com/squat');
+      await tester.pump();
+      final prompt = find.text(en.linkOpenPrompt('example.com'));
+      expect(prompt, findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 4500));
+      expect(prompt, findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 1000));
+      expect(prompt, findsNothing);
       await teardownPage(tester);
     });
   });

@@ -44,9 +44,11 @@ class MarkdownConstants {
   static const double h5Scale = 1.0;
   static const double h6Scale = 1.0;
 
-  /// The weight every heading renders at, on both surfaces: semibold, so
-  /// the base-size h5 and h6 still stand apart from body text.
-  static const FontWeight headingWeight = FontWeight.w600;
+  /// The weight every heading renders at, on both surfaces: bold, the
+  /// weight `**bold**` body text takes, so a heading never reads lighter
+  /// than the emphasis under it and the base-size h5 and h6 still stand
+  /// apart from body text.
+  static const FontWeight headingWeight = FontWeight.w700;
 
   /// Heading scale in the live editor — the same factors the preview
   /// reads, so the two surfaces size a heading identically. H5 and H6
@@ -113,8 +115,9 @@ class MarkdownConstants {
   /// Opacity for unchecked checkbox icons
   static const double uncheckedCheckboxOpacity = 0.6;
 
-  /// Opacity for checked/disabled text
-  static const double checkedTextOpacity = 0.5;
+  /// Opacity for checked/disabled text: 0.62 keeps a done task's text at
+  /// 4.5:1 on the light page (0.5 read at 3.26:1) while it still recedes.
+  static const double checkedTextOpacity = 0.62;
 
   /// Opacity for quote text
   static const double quoteTextOpacity = 0.7;
@@ -123,6 +126,15 @@ class MarkdownConstants {
   /// run: `#tag` pills and money value chips, which must read as the
   /// same weight of tint.
   static const double editorChipBackgroundAlpha = 0.12;
+
+  /// Alpha of the light theme's in-note find boxes, painted in tertiary:
+  /// primaryContainer all but vanished on the light ground, and a primary
+  /// box read as one more selection.
+  static const double findMatchAlphaLight = 0.22;
+
+  /// Alpha of the light theme's current find match, laid over its plain
+  /// match box so a hop is seen landing; dark text still clears 4.5:1.
+  static const double findCurrentMatchAlphaLight = 0.45;
 
   // List item widths
   /// Width reserved for numbered list numbers
@@ -199,14 +211,14 @@ class MarkdownConstants {
   /// Accent for money-ledger multiply/divide (`$*` / `$/`); values
   /// mirror the warning-callout ambers.
   static Color moneyNeutral({required bool dark}) =>
-      dark ? const Color(0xFFFFB74D) : const Color(0xFFE65100);
+      dark ? const Color(0xFFFFB74D) : const Color(0xFFBF360C);
 
   /// Accent for money-ledger error rows (over-limit amount, divide by
   /// zero, …) and for computed values pinned at the balance cap. Shared
   /// by the preview renderer, the live editor, and the detail sheet so
   /// every surface warns in the same yellow.
   static Color moneyWarning({required bool dark}) =>
-      dark ? const Color(0xFFFFC107) : const Color(0xFFB28704);
+      dark ? const Color(0xFFFFC107) : const Color(0xFF8A6A00);
 
   /// Semantic accent for a money row: fixed sign colours on op rows,
   /// value-sign colours on display rows (`$$` red only when negative,
@@ -243,29 +255,29 @@ class MarkdownConstants {
   /// The accent colour for a callout [type], in a light/dark variant.
   /// Shared by the preview renderer (bar, icon-label header, band tint)
   /// and the live editor (quote bar + `[!TYPE]` token tint) so the two
-  /// surfaces always match.
+  /// surfaces always match. Every light variant clears 4.5:1 on the light
+  /// page and on the cursor line's tint, so a title in the accent reads as
+  /// body text does wherever the caret sits.
   static Color calloutAccent(MarkdownCalloutType type, {required bool dark}) {
     switch (type) {
       case MarkdownCalloutType.note:
-        return dark ? const Color(0xFF64B5F6) : const Color(0xFF1976D2);
+        return dark ? const Color(0xFF64B5F6) : const Color(0xFF1565C0);
       case MarkdownCalloutType.tip:
         return dark ? const Color(0xFF81C784) : const Color(0xFF2E7D32);
       case MarkdownCalloutType.important:
         return dark ? const Color(0xFFBA68C8) : const Color(0xFF6A1B9A);
       case MarkdownCalloutType.warning:
-        return dark ? const Color(0xFFFFB74D) : const Color(0xFFE65100);
+        return dark ? const Color(0xFFFFB74D) : const Color(0xFFBF360C);
       case MarkdownCalloutType.caution:
         return dark ? const Color(0xFFEF9A9A) : const Color(0xFFC62828);
       case MarkdownCalloutType.success:
-        return dark ? const Color(0xFF4DB6AC) : const Color(0xFF00897B);
+        return dark ? const Color(0xFF4DB6AC) : const Color(0xFF00796B);
       case MarkdownCalloutType.pr:
-        return dark ? const Color(0xFFFFD54F) : const Color(0xFFF9A825);
-      // The kinds below keep their light variant at 4.5:1 or better on
-      // the light page, so a title in the accent reads as body text does.
+        return dark ? const Color(0xFFFFD54F) : const Color(0xFF7A5C00);
       case MarkdownCalloutType.example:
         return dark ? const Color(0xFFB39DDB) : const Color(0xFF5E35B1);
       case MarkdownCalloutType.question:
-        return dark ? const Color(0xFFFFCC80) : const Color(0xFF9A6700);
+        return dark ? const Color(0xFFFFCC80) : const Color(0xFF946300);
       case MarkdownCalloutType.danger:
         return dark ? const Color(0xFFFF8A80) : const Color(0xFFB71C1C);
       case MarkdownCalloutType.bug:

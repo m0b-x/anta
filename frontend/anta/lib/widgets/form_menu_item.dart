@@ -69,6 +69,50 @@ class _FormMenuChoiceItemState<T>
 double formMenuHeight(int itemCount) =>
     itemCount * FormMetrics.menuRowHeight + FormMetrics.menuPadding.vertical;
 
+/// The tallest a menu opened from [anchor] may be and still clear the status
+/// bar and the bottom inset (the keyboard or the system bar, whichever is
+/// taller) on the roomier side of the anchor. The route itself only keeps a
+/// menu inside the screen's padding, which ignores the keyboard: a menu
+/// taller than this, given it as its height cap, scrolls its rows instead of
+/// spilling behind the keyboard. Read once, when the menu opens.
+double formMenuMaxHeight(BuildContext anchor) {
+  final overlayContext = Navigator.of(anchor).overlay?.context;
+  final box = anchor.findRenderObject();
+  final overlayBox = overlayContext?.findRenderObject();
+  final media = overlayContext
+      ?.getInheritedWidgetOfExactType<MediaQuery>()
+      ?.data;
+  if (media == null ||
+      box is! RenderBox ||
+      overlayBox is! RenderBox ||
+      !box.attached ||
+      !overlayBox.attached) {
+    return double.infinity;
+  }
+  final rect = box.localToGlobal(Offset.zero, ancestor: overlayBox) & box.size;
+  final bottomInset = math.max(
+    media.viewInsets.bottom,
+    media.viewPadding.bottom,
+  );
+  final above = rect.top - media.padding.top - _routeScreenMargin;
+  final below =
+      overlayBox.size.height - bottomInset - rect.bottom - _routeScreenMargin;
+  return math.max(0, math.max(above, below));
+}
+
+/// The margin the popup route keeps between a menu and the screen's padding
+/// (its private `_kMenuScreenPadding`).
+const double _routeScreenMargin = 8;
+
+/// The side of its anchor an open menu took, decided at its first layout and
+/// kept for as long as it stays open. A row that drops focus to open its
+/// menu watches the keyboard close under it: read live, the falling inset
+/// would flip the menu from above the row to below it while the finger is
+/// on its way to an item. One per open, never shared between two menus.
+class FormMenuSide {
+  bool? _below;
+}
+
 /// How a menu sits against its anchor horizontally.
 ///
 /// A row's menu hangs from the row's right edge ([end]). A centred anchor —
@@ -80,8 +124,9 @@ double formMenuHeight(int itemCount) =>
 enum FormMenuAlignment { end, center }
 
 /// Where a menu opened from [anchor] goes, for `showMenu`'s `positionBuilder`:
-/// under the anchor while [menuHeight] fits above the screen's bottom inset,
-/// else above it — what `MenuAnchor`'s `bottomEnd` did.
+/// under the anchor while [menuHeight] fits above the screen's bottom inset
+/// (the keyboard or the system bar, whichever is taller), else above it —
+/// what `MenuAnchor`'s `bottomEnd` did.
 ///
 /// With [FormMenuAlignment.end] the menu's right edge is on the anchor's: the
 /// anchor rect is zero-width at the anchor's right edge, which is the
@@ -94,27 +139,47 @@ enum FormMenuAlignment { end, center }
 /// [anchor] is the row or the button the menu belongs to: in a form group
 /// every row is stretched to the group's width, so a row's right edge is the
 /// group's.
+///
+/// The route lays the menu out again on every frame its `MediaQuery`
+/// changes; a [side] passed once per open keeps the side the first layout
+/// chose (see [FormMenuSide]).
 RelativeRect formMenuPosition(
   BuildContext anchor,
   BoxConstraints overlay, {
   required double menuHeight,
   FormMenuAlignment alignment = FormMenuAlignment.end,
   double menuWidth = FormMetrics.menuWidth,
+  FormMenuSide? side,
 }) {
   final overlaySize = overlay.biggest;
   final fallback = RelativeRect.fromSize(Rect.zero, overlaySize);
   if (!anchor.mounted) return fallback;
   final box = anchor.findRenderObject();
-  final overlayBox = Navigator.of(anchor).overlay?.context.findRenderObject();
-  if (box is! RenderBox ||
+  final overlayContext = Navigator.of(anchor).overlay?.context;
+  final overlayBox = overlayContext?.findRenderObject();
+  if (overlayContext == null ||
+      box is! RenderBox ||
       overlayBox is! RenderBox ||
       !box.attached ||
       !overlayBox.attached) {
     return fallback;
   }
   final rect = box.localToGlobal(Offset.zero, ancestor: overlayBox) & box.size;
-  final bottomInset = MediaQuery.viewPaddingOf(anchor).bottom;
-  final fitsBelow = rect.bottom + menuHeight <= overlaySize.height - bottomInset;
+  // The app's clearance rule: an open keyboard covers the bottom as surely
+  // as the system bar does, and a menu below the markdown bar would open
+  // behind it. Read from the overlay the menu is laid out in: a Scaffold
+  // that resizes for the keyboard strips the inset from its body, where
+  // the anchor sits, while the overlay still reaches behind the keyboard.
+  // Read without subscribing: this runs in the route's layout, and a
+  // dependency would tie the app's root overlay to every keyboard frame.
+  final media = overlayContext
+      .getInheritedWidgetOfExactType<MediaQuery>()
+      ?.data;
+  final bottomInset = media == null
+      ? 0.0
+      : math.max(media.viewInsets.bottom, media.viewPadding.bottom);
+  final fitsNow = rect.bottom + menuHeight <= overlaySize.height - bottomInset;
+  final fitsBelow = side == null ? fitsNow : (side._below ??= fitsNow);
   final top = fitsBelow ? rect.bottom : rect.top - menuHeight;
   final Rect menuRect;
   switch (alignment) {
@@ -146,6 +211,7 @@ Future<T?> showFormMenu<T>(
   FormMenuAlignment alignment = FormMenuAlignment.end,
 }) {
   final colorScheme = Theme.of(anchor).colorScheme;
+  final side = FormMenuSide();
   return showMenu<T>(
     context: anchor,
     positionBuilder: (_, constraints) => formMenuPosition(
@@ -154,6 +220,7 @@ Future<T?> showFormMenu<T>(
       menuHeight: formMenuHeight(items.length),
       alignment: alignment,
       menuWidth: menuWidth,
+      side: side,
     ),
     color: colorScheme.menuSurface,
     shape: RoundedRectangleBorder(

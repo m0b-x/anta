@@ -9,6 +9,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final CodeLines codes;
   final CodeLineSelection selection;
   final List<CodeLineSelection>? highlightSelections;
+  final CodeLineSelection? currentHighlightSelection;
   final TextStyle textStyle;
   final bool hasFocus;
   final _CodeHighlighter highlighter;
@@ -17,6 +18,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final ValueChanged<List<CodeLineRenderParagraph>> onRenderParagraphsChanged;
   final Color selectionColor;
   final Color highlightColor;
+  final Color currentHighlightColor;
   final Color cursorColor;
   final Color floatingCursorColor;
   final Color? cursorLineColor;
@@ -44,6 +46,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
     required this.codes,
     required this.selection,
     required this.highlightSelections,
+    this.currentHighlightSelection,
     required this.textStyle,
     required this.hasFocus,
     required this.highlighter,
@@ -52,6 +55,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
     required this.onRenderParagraphsChanged,
     required this.selectionColor,
     required this.highlightColor,
+    required this.currentHighlightColor,
     required this.cursorColor,
     floatingCursorColor,
     this.cursorLineColor,
@@ -82,6 +86,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
         codes: codes,
         selection: selection,
         highlightSelections: highlightSelections,
+        currentHighlightSelection: currentHighlightSelection,
         textStyle: textStyle,
         hasFocus: hasFocus,
         highlighter: highlighter,
@@ -90,6 +95,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
         onRenderParagraphsChanged: onRenderParagraphsChanged,
         selectionColor: selectionColor,
         highlightColor: highlightColor,
+        currentHighlightColor: currentHighlightColor,
         cursorColor: cursorColor,
         floatingCursorColor: floatingCursorColor,
         cursorLineColor: cursorLineColor,
@@ -121,6 +127,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
       ..codes = codes
       ..selection = selection
       ..highlightSelections = highlightSelections
+      ..currentHighlightSelection = currentHighlightSelection
       ..textStyle = textStyle
       ..hasFocus = hasFocus
       ..highlighter = highlighter
@@ -129,6 +136,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
       ..onRenderParagraphsChanged = onRenderParagraphsChanged
       ..selectionColor = selectionColor
       ..highlightColor = highlightColor
+      ..currentHighlightColor = currentHighlightColor
       ..cursorColor = cursorColor
       ..floatingCursorColor = floatingCursorColor
       ..cursorLineColor = cursorLineColor
@@ -176,9 +184,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   ValueChanged<CodeLinePosition> _onSemanticsPerformZone;
 
   /// The zone child nodes built by the last [assembleSemanticsNode] pass,
-  /// keyed by line/range/label so an unchanged zone keeps its node — and
+  /// keyed by line and range so an unchanged zone keeps its node — and
   /// therefore its id — across frames instead of stealing the screen
-  /// reader's focus back to the top on every rebuild.
+  /// reader's focus back to the top on every rebuild. The label is not
+  /// part of the key: a task zone's label carries the task's text, so
+  /// typing after the box would otherwise hand the reader a new node per
+  /// keystroke; `updateWith` carries the new label onto the kept node.
   Map<Key, SemanticsNode>? _cachedZoneNodes;
 
   double? _horizontalViewportSize;
@@ -202,6 +213,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     required CodeLines codes,
     required CodeLineSelection selection,
     required List<CodeLineSelection>? highlightSelections,
+    CodeLineSelection? currentHighlightSelection,
     required TextStyle textStyle,
     required bool hasFocus,
     required _CodeHighlighter highlighter,
@@ -211,6 +223,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         onRenderParagraphsChanged,
     required Color selectionColor,
     required Color highlightColor,
+    required Color currentHighlightColor,
     required Color cursorColor,
     required Color floatingCursorColor,
     Color? cursorLineColor,
@@ -261,7 +274,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       _CodeCursorLinePainter(cursorLineColor, _selection),
       _CodeFieldSelectionPainter(selectionColor, _selection),
       _CodeFieldHighlightPainter(
-          highlightColor, highlightSelections ?? const [])
+          highlightColor, highlightSelections ?? const []),
+      // After the all-matches painter, so `find<_CodeFieldHighlightPainter>`
+      // still answers that one and the current box paints on top of it.
+      _CodeFieldCurrentHighlightPainter(currentHighlightColor, [
+        if (currentHighlightSelection != null) currentHighlightSelection,
+      ]),
     ]);
     adoptChild(_backgroundRender);
     _foregroundRender = _CodeFieldExtraRender(painters: [
@@ -459,6 +477,16 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
 
   set highlightColor(Color value) {
     _backgroundRender.find<_CodeFieldHighlightPainter>().color = value;
+  }
+
+  set currentHighlightSelection(CodeLineSelection? value) {
+    _backgroundRender.find<_CodeFieldCurrentHighlightPainter>().selections = [
+      if (value != null) value,
+    ];
+  }
+
+  set currentHighlightColor(Color value) {
+    _backgroundRender.find<_CodeFieldCurrentHighlightPainter>().color = value;
   }
 
   set cursorColor(Color value) {
@@ -744,14 +772,22 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         if (rect == null) {
           continue;
         }
-        final Key key =
-            ValueKey<String>('$index:${zone.start}:${zone.end}:${zone.label}');
+        final Key key = ValueKey<String>('$index:${zone.start}:${zone.end}');
         final SemanticsConfiguration zoneConfig = SemanticsConfiguration()
           ..sortKey = OrdinalSortKey(ordinal++)
           ..textDirection = TextDirection.ltr
           ..label = zone.label
+          ..isLink = zone.isLink
           ..onTap = () => _onSemanticsPerformZone(
               CodeLinePosition(index: index, offset: zone.start));
+        final bool? checked = zone.checked;
+        if (checked != null) {
+          zoneConfig.isChecked = checked;
+        }
+        final String? value = zone.value;
+        if (value != null) {
+          zoneConfig.value = value;
+        }
         final SemanticsNode? cached = _cachedZoneNodes?.remove(key);
         final SemanticsNode child =
             cached != null && (!cached.attached || cached.parent == node)
@@ -2179,6 +2215,12 @@ class _CodeFieldHighlightPainter extends _CodeFieldSelectionsPainter {
             _radius),
         _paint);
   }
+}
+
+/// The find session's selected match, drawn over the all-matches boxes in
+/// its own colour so the hop target is told apart from the rest.
+class _CodeFieldCurrentHighlightPainter extends _CodeFieldHighlightPainter {
+  _CodeFieldCurrentHighlightPainter(super.color, super.selections);
 }
 
 class _CodeFieldCursorPainter extends _CodeFieldExtraPainter {

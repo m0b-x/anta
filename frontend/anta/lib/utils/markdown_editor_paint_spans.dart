@@ -171,7 +171,7 @@ class EditorCheckboxSpan extends CodeInlinePaintSpan {
   final Color mark;
 
   /// The box's state unit for [EditorCheckboxVisual.custom]: `-` paints a
-  /// dimmed dash (cancelled), `/` a half fill (in progress), `>` and `<`
+  /// dimmed cross (cancelled), `/` a half fill (in progress), `>` and `<`
   /// arrows, `*` a star, and any other unit draws itself (`?`, `!`, …).
   /// Empty for the other visuals.
   final String state;
@@ -262,12 +262,20 @@ class EditorCheckboxSpan extends CodeInlinePaintSpan {
     double x(double f) => box.left + box.width * f;
     double y(double f) => box.top + box.height * f;
     switch (state) {
+      // A cross, not a dash: a dash reads as the indeterminate parent's
+      // bar, which means "partly done", the opposite of cancelled.
       case '-':
-        canvas.drawLine(
-          Offset(x(0.28), y(0.5)),
-          Offset(x(0.72), y(0.5)),
-          _markPaint,
-        );
+        canvas
+          ..drawLine(
+            Offset(x(0.32), y(0.32)),
+            Offset(x(0.68), y(0.68)),
+            _markPaint,
+          )
+          ..drawLine(
+            Offset(x(0.68), y(0.32)),
+            Offset(x(0.32), y(0.68)),
+            _markPaint,
+          );
       case '/':
         canvas
           ..save()

@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:anta/constants/font_constants.dart';
 import 'package:anta/utils/editor_width_calculator.dart';
+import 'package:anta/utils/markdown_chunker.dart';
+import 'package:anta/utils/markdown_editor_line_index.dart';
 import 'package:anta/utils/markdown_line_shape.dart';
 import 'package:anta/utils/paste_line_breaker.dart';
 import 'package:flutter/material.dart';
@@ -56,6 +58,7 @@ void main() {
     required int endOffset,
     required int pastedLength,
     bool Function(int lineIndex)? lineInFenceBody,
+    int Function(int lineIndex)? blockStateAt,
   }) {
     return PasteLineBreaker.run(
       controller: controller,
@@ -64,6 +67,7 @@ void main() {
       pasteEnd: CodeLinePosition(index: endIndex, offset: endOffset),
       pastedLength: pastedLength,
       lineInFenceBody: lineInFenceBody,
+      blockStateAt: blockStateAt,
     );
   }
 
@@ -407,27 +411,167 @@ void main() {
     });
   });
 
-  group('a paste into a fence body opened by ```` or ~~~', () {
-    // The seed carries the real opener: a pasted ``` line closes neither
-    // body, so the long code line after it stays whole.
-    for (final opener in ['~~~', '````']) {
-      test('$opener: a pasted ``` line is body, not the closer', () {
-        final controller = CodeLineEditingController.fromText(
-          [opener, 'x', '```', longLine, opener].join('\n'),
-        );
+  // S2 C11 / P8 / P9 — the seed is the editor index's packed block state,
+  // so a `%%` comment body or a front matter is kept as written and a
+  // fence line inside a comment opens nothing.
+  group('a paste into a comment or front matter body', () {
+    int Function(int) statesOf(CodeLineEditingController controller) {
+      final index = MarkdownEditorLineIndex(maxScannedLineLength: 4096);
+      return (i) => index.blockStateAt(controller.codeLines, i);
+    }
 
+    for (final (name, lines) in [
+      ('comment', ['%%', 'x', longLine, '%%', 'after']),
+      ('comment holding a fence line', ['%%', '```', longLine, '%%', 'b']),
+      ('front matter', ['---', 'k: v', 'note: $longLine', '---', 'after']),
+    ]) {
+      test('$name: the pasted lines stay whole', () {
+        final controller = CodeLineEditingController.fromText(lines.join('\n'));
         final result = runOn(
           controller,
-          endIndex: 3,
-          endOffset: longLine.length,
-          pastedLength: 3 + 1 + longLine.length,
-          lineInFenceBody: (index) => index >= 1 && index <= 3,
+          endIndex: 2,
+          endOffset: lines[2].length,
+          pastedLength: lines[1].length + 1 + lines[2].length,
+          blockStateAt: statesOf(controller),
         );
 
         expect(result.reformatted, isFalse);
-        expect(controller.codeLines[3].text, longLine);
+        expect(controller.codeLines[2].text, lines[2]);
       });
     }
+
+    // C1 fix pass C1 / P1 / T1 — a whole note pasted from line 0: the
+    // index reads line 0 outside every block, so the breaker reads the
+    // front matter itself. The long property sits above another, where no
+    // setext guard keeps it whole.
+    test('a paste from line 0 keeps the front matter it carries', () {
+      final lines = [
+        '---',
+        'description: $longLine',
+        'tags: x',
+        '---',
+        longLine,
+      ];
+      for (final seeded in [true, false]) {
+        final controller = CodeLineEditingController.fromText(lines.join('\n'));
+        final result = runOn(
+          controller,
+          endIndex: 4,
+          endOffset: longLine.length,
+          pastedLength: lines.join('\n').length,
+          blockStateAt: seeded ? statesOf(controller) : null,
+        );
+
+        expect(result.reformatted, isTrue, reason: 'the body still wraps');
+        final out = controller.codeLines;
+        expect([for (int i = 0; i < 4; i++) out[i].text], lines.sublist(0, 4));
+        expect(
+          MarkdownChunker.frontMatterEnd(out.length, (i) => out[i].text),
+          4,
+        );
+        expect(out.length, greaterThan(lines.length));
+      }
+    });
+
+    test('a paste into a fence body still seeds from its opener', () {
+      final lines = ['~~~', 'x', '```', longLine, '~~~'];
+      final controller = CodeLineEditingController.fromText(lines.join('\n'));
+      final result = runOn(
+        controller,
+        endIndex: 3,
+        endOffset: longLine.length,
+        pastedLength: 4 + longLine.length,
+        blockStateAt: statesOf(controller),
+      );
+      expect(result.reformatted, isFalse);
+    });
+
+    test('the calculator steps comments and front matter like the index', () {
+      final calc = newCalculator();
+      expect(
+        calc.breakLinesSmartly([
+          '%%',
+          '```',
+          '%%',
+          longLine,
+        ], width).linesModified,
+        1,
+        reason: 'the ``` line was comment, so the prose after %% wraps',
+      );
+      expect(
+        calc.breakLinesSmartly(['%%', longLine, '%%'], width).linesModified,
+        0,
+      );
+      for (final seed in [
+        MarkdownChunker.insideComment,
+        MarkdownChunker.insideFrontMatter,
+      ]) {
+        expect(
+          calc
+              .breakLinesSmartly(['x', longLine], width, blockState: seed)
+              .linesModified,
+          0,
+          reason: 'seed $seed',
+        );
+      }
+      expect(
+        calc
+            .breakLinesSmartly(
+              ['%%', longLine],
+              width,
+              blockState: MarkdownChunker.insideComment,
+            )
+            .linesModified,
+        1,
+        reason: 'the seeded comment closes at %%',
+      );
+    });
+  });
+
+  group('a paste into a fence body opened by ```` or ~~~', () {
+    // The seed carries the real opener: a pasted ``` line closes neither
+    // body, so the long code line after it stays whole.
+    const notClosers = <String, List<String>>{
+      '~~~': ['```', '````'],
+      '````': ['```', '~~~', '~~~~'],
+    };
+    for (final MapEntry(key: opener, value: pasted) in notClosers.entries) {
+      for (final delimiter in pasted) {
+        test('$opener: a pasted $delimiter line is body, not the closer', () {
+          final controller = CodeLineEditingController.fromText(
+            [opener, 'x', delimiter, longLine, opener].join('\n'),
+          );
+
+          final result = runOn(
+            controller,
+            endIndex: 3,
+            endOffset: longLine.length,
+            pastedLength: delimiter.length + 1 + longLine.length,
+            lineInFenceBody: (index) => index >= 1 && index <= 3,
+          );
+
+          expect(result.reformatted, isFalse);
+          expect(controller.codeLines[3].text, longLine);
+        });
+      }
+    }
+
+    test('the calculator steps from the opener it is seeded with', () {
+      final tilde = newCalculator().breakLinesSmartly(
+        ['```', longLine],
+        width,
+        inCodeBlock: true,
+        fenceOpener: MarkdownChunker.fenceOpenerOf('~~~'),
+      );
+      expect(tilde.linesModified, 0, reason: '``` closes no ~~~ body');
+
+      final backtick = newCalculator().breakLinesSmartly(
+        ['```', longLine],
+        width,
+        inCodeBlock: true,
+      );
+      expect(backtick.linesModified, 1, reason: 'the default seed is ```');
+    });
   });
 
   group('a range that starts inside a fence body', () {

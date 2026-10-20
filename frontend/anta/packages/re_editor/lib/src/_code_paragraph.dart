@@ -31,9 +31,17 @@ class _ParagraphImpl extends IParagraph {
     required this.paragraph,
     required bool trucated,
     required double preferredLineHeight,
+    double decorMinLeft = 0,
   })  : _trucated = trucated,
         _preferredLineHeight = preferredLineHeight,
+        _decorMinLeft = decorMinLeft,
         _lineCount = (paragraph.height / preferredLineHeight).ceil();
+
+  // The leftmost x a chip's padding may reach: 0 for a paragraph that
+  // starts at the editor margin; negative for a hanging line's content,
+  // whose x = 0 is the indent, so a chip opening the content (`- #gym`)
+  // keeps its left padding inside the marker's trailing blank.
+  final double _decorMinLeft;
 
   int get runeLength => text.runes.length;
 
@@ -88,8 +96,22 @@ class _ParagraphImpl extends IParagraph {
   /// paragraph text counts them (placeholders are one unit), asks for
   /// strut-height boxes so chip height is uniform regardless of the
   /// run's glyphs, then applies the decoration's padding/inset.
+  ///
+  /// The padding is paint-only, so it is free to stop short of what the
+  /// glyphs leave: a chip never reaches left of [_decorMinLeft] (it would
+  /// overhang the editor margin, or cover a hanging line's marker glyphs),
+  /// and two chips side by side on one visual line keep [_kDecorMinGap]
+  /// between them — a space is narrower than two paddings, so `#a #b`
+  /// used to read as one pill.
   List<_DecorPaintBox> _resolveDecorPaints() {
     List<_DecorPaintBox>? found;
+    // Per entry of [found]: the decorated run it came from (the gap rule
+    // only separates different chips, never the boxes of one run) and its
+    // glyphs' left edge, before padding and the clamp. Built with
+    // [found], so a paragraph without chips allocates none of them.
+    List<int>? owners;
+    List<double>? glyphLefts;
+    int run = 0;
     int walk(InlineSpan node, int offset) {
       if (node is TextSpan) {
         final int start = offset;
@@ -110,15 +132,18 @@ class _ParagraphImpl extends IParagraph {
           final List<ui.TextBox> boxes = paragraph.getBoxesForRange(
               start, offset,
               boxHeightStyle: ui.BoxHeightStyle.strut);
+          run++;
           for (final ui.TextBox box in boxes) {
             final Rect rect = Rect.fromLTRB(
-              box.left - decoration.horizontalPadding,
+              max(_decorMinLeft, box.left - decoration.horizontalPadding),
               box.top + decoration.verticalInset,
               box.right + decoration.horizontalPadding,
               box.bottom - decoration.verticalInset,
             );
             if (!rect.isEmpty) {
               (found ??= []).add(_DecorPaintBox(decoration, rect));
+              (owners ??= []).add(run);
+              (glyphLefts ??= []).add(box.left);
             }
           }
         }
@@ -128,7 +153,42 @@ class _ParagraphImpl extends IParagraph {
     }
 
     walk(span, 0);
-    return found ?? const [];
+    final List<_DecorPaintBox>? boxes = found;
+    if (boxes == null) {
+      return const [];
+    }
+    final List<int> runOwners = owners!;
+    final List<double> runGlyphLefts = glyphLefts!;
+    for (int i = 1; i < boxes.length; i++) {
+      final _DecorPaintBox left = boxes[i - 1];
+      final _DecorPaintBox right = boxes[i];
+      final bool sameRow = right.rect.top < left.rect.bottom &&
+          right.rect.bottom > left.rect.top;
+      if (runOwners[i] == runOwners[i - 1] ||
+          !sameRow ||
+          right.rect.left < left.rect.left ||
+          right.rect.left >= left.rect.right + _kDecorMinGap) {
+        continue;
+      }
+      // Split the blank between the two glyph runs: each chip gives up
+      // padding toward the middle, never past its own glyphs.
+      final double glyphsEnd =
+          left.rect.right - left.decoration.horizontalPadding;
+      final double glyphsStart = runGlyphLefts[i];
+      final double middle = (glyphsEnd + glyphsStart) / 2;
+      final double leftEnd = max(glyphsEnd, middle - _kDecorMinGap / 2);
+      final double rightStart = min(glyphsStart, middle + _kDecorMinGap / 2);
+      boxes[i - 1] = _DecorPaintBox(
+        left.decoration,
+        Rect.fromLTRB(left.rect.left, left.rect.top, leftEnd, left.rect.bottom),
+      );
+      boxes[i] = _DecorPaintBox(
+        right.decoration,
+        Rect.fromLTRB(
+            rightStart, right.rect.top, right.rect.right, right.rect.bottom),
+      );
+    }
+    return boxes;
   }
 
   /// Pairs each [CodeInlinePaintSpan] in the span tree with its
@@ -312,6 +372,11 @@ class _InlinePaintBox {
   const _InlinePaintBox(this.span, this.rect);
 }
 
+/// The blank, in logical pixels, kept between two chips side by side on
+/// one visual line: a seam that separates the pills while each keeps most
+/// of the padding the space between them leaves.
+const double _kDecorMinGap = 2.0;
+
 /// A [CodeTextDecoration] paired with one padded chip rect (paragraph
 /// coordinates), resolved once per built paragraph.
 class _DecorPaintBox {
@@ -332,7 +397,14 @@ class _MarkerMeasurement {
   final _ParagraphImpl paragraph;
   final double indent;
 
-  const _MarkerMeasurement({required this.paragraph, required this.indent});
+  /// The right edge of the marker's glyphs, its trailing blanks excluded.
+  final double inkRight;
+
+  const _MarkerMeasurement({
+    required this.paragraph,
+    required this.indent,
+    required this.inkRight,
+  });
 }
 
 class _ScaledLineStyle {
@@ -791,6 +863,7 @@ class _CodeParagraphProvider {
         paragraph: contentParagraph,
         trucated: false,
         preferredLineHeight: preferredLineHeight,
+        decorMinLeft: min(0.0, measured.inkRight - indent),
       ),
       indent: indent,
     );
@@ -852,12 +925,32 @@ class _CodeParagraphProvider {
         markerRight = box.right;
       }
     }
+    // Where the marker's glyphs end, its trailing blanks excluded: the
+    // content's chips may pad back to here, never over the marker itself.
+    int inkEnd = markerText.length;
+    while (inkEnd > 0 && markerText.codeUnitAt(inkEnd - 1) == 0x20) {
+      inkEnd--;
+    }
+    double inkRight = 0;
+    if (inkEnd == markerText.length) {
+      inkRight = markerRight;
+    } else if (inkEnd > 0) {
+      for (final ui.TextBox box in markerParagraph.getBoxesForRange(0, inkEnd,
+          boxHeightStyle: ui.BoxHeightStyle.strut)) {
+        if (box.right > inkRight) {
+          inkRight = box.right;
+        }
+      }
+    }
     // Placeholder boxes (inline-painted marks like checkboxes) are
     // queried separately so the measured indent always covers them,
     // whether or not getBoxesForRange reports placeholder clusters.
     for (final ui.TextBox box in markerParagraph.getBoxesForPlaceholders()) {
       if (box.right > markerRight) {
         markerRight = box.right;
+      }
+      if (box.right > inkRight) {
+        inkRight = box.right;
       }
     }
     final _MarkerMeasurement measured = _MarkerMeasurement(
@@ -867,6 +960,7 @@ class _CodeParagraphProvider {
       // overlap the content's rects by under a pixel instead of
       // leaving a visible gap before them.
       indent: markerRight.floorToDouble(),
+      inkRight: inkRight,
     );
     _markerMeasurements[markerSpan] = measured;
     if (_markerMeasurements.length > _kMaxMarkerCacheSize) {

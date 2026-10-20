@@ -11,22 +11,24 @@ import '../constants/app_colors.dart';
 /// The alarm page and the lock-screen cover both stand on it, so a ring on a
 /// locked phone goes cover, page, cover with no step in tone between them.
 ///
-/// **It says what the system bars wear**, which nothing else in the app does
-/// for a page with no app bar. Without it the status icons were whatever the
-/// page underneath had left — white on this light ground after Calendar
-/// settings — and under the dark theme the navigation bar was the phone's
-/// own light band across the bottom of a dark page, on the one screen with
-/// nothing else down there.
+/// **It says what the system bars wear** over its own ground. Before U2.10
+/// nothing else in the app did for a page with no app bar: the status icons
+/// were whatever the page underneath had left — white on this light ground
+/// after Calendar settings — and under the dark theme the navigation bar was
+/// the phone's own light band across the bottom of a dark page, on the one
+/// screen with nothing else down there.
 ///
 /// **And it hands the navigation bar back.** Android keeps a bar's style
-/// until somebody sets another, and the app's other pages set none for the
-/// navigation bar: left alone, one ring would strip the bar's contrast band
-/// from every page after it and leave its buttons in this theme's colour
-/// whatever theme came next. So when the last ground leaves the screen the
-/// bar is put back in the state the app asks for at launch ([barsAfter]).
-/// What the phone draws from there is the phone's own, as it was before the
-/// ring. What the rest of the app's bars should wear stays an app-wide
-/// decision; this only puts back what a ring took.
+/// until somebody sets another, and before U2.10 the app's other pages set
+/// none for the navigation bar: left alone, one ring would strip the bar's
+/// contrast band from every page after it and leave its buttons in this
+/// theme's colour whatever theme came next. So when the last ground leaves
+/// the screen the bar is put back in the state the app asks for at launch
+/// ([barsAfter]). Since U2.10 the root `AppSystemBars` region (`main.dart`),
+/// keyed on the app's resolved theme, is what the rest of the app's bars
+/// wear, but the hand-back is sent after the frame that removed the ground
+/// has already sent that region: [barsAfter] holds until the next frame the
+/// app composites, which on an idle page waits for the next interaction.
 class AlarmGround extends StatefulWidget {
   const AlarmGround({super.key, this.child});
 
@@ -61,7 +63,8 @@ class AlarmGround extends StatefulWidget {
 
   /// What the navigation bar goes back to once no ground is on screen: what
   /// the app asks for at launch, whatever the phone's brightness and the
-  /// app's theme.
+  /// app's theme — until the next frame the app composites, when the root
+  /// `AppSystemBars` region takes the bars over again.
   ///
   /// That is what `MaterialApp` itself sets every time it builds its theme —
   /// [SystemUiOverlayStyle.light] or [SystemUiOverlayStyle.dark], which say

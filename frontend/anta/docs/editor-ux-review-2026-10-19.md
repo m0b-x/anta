@@ -114,6 +114,13 @@ names), `markdown-engine` for U3, `flutter-principles`, `verify`, `l10n`.
 
 ## 3. Left as is
 
+- **The find row as an overlay (U2.7)** — deferred 2026-10-21: the fork's
+  find scroll has no top inset, so an overlaid row would hide matches on
+  the top lines; it needs a fork change to the match-visible check first.
+- **Custom task states in TalkBack (U3.8)** — a custom state and an
+  indeterminate parent still announce "not checked"; the positional task
+  index would have to feed the zone.
+
 - I18's auto-title setting (D8); R12's size-scaled menu labels (clutter in a
   48 dp row); I10's reordering of the new-install default row (set earlier
   the same day); R16 unless the optional variant proves safe.
@@ -131,6 +138,84 @@ menu by level; the stable bar height with the suggestion row.
 
 ## 5. Ledger
 
+- **2026-10-20/21 — U1, U2, U3 BUILT and gated (uncommitted at the time of
+  writing; the completion pass C2 of the same workflow family closes the
+  coverage gaps listed below).** Same machinery as the grammar slices: one
+  implementer, three reviewers, three verifiers per finding, a fix pass, a
+  gate (baselines U1 `0ca58c36`, U2 `f71f0f0d`, U3 `eb656361`). Findings:
+  U1 49 raised / 42 kept / 30 fixed; U2 53 / 50 / 28 (its implementer ran
+  out of budget before testing, the fix pass finished U2.2, U2.3's memo
+  seed, U2.7's toggle and X, U2.10 and the pins it could reach); U3 35 / 28
+  / 21. **As built, where it departs from §1:**
+  - U1.1: the bar is 55 dp (hairline + 3 + 48 + 3; was 47, D1's growth of
+    8); every bar button is a 48 dp contiguous target; the numbers live in
+    `lib/constants/markdown_bar_metrics.dart`.
+  - U1.2: Undo and Redo are pinned in split mode and in preview mode; the
+    single-row mode has no utility scroller to pin them outside of, so it
+    gets the edge fade and the 48 dp targets only; the utility scroller
+    resets its offset after every tap — including the font-size buttons,
+    so a second tap on A+ can land elsewhere (a follow-up exempts the
+    repeatable buttons); stored lists gain an unseen id after its nearest
+    stored predecessor.
+  - U1.3: the reorder panel is a width-driven Wrap in a vertical scroller
+    capped at half the screen minus the keyboard inset; entering it
+    unfocuses the editor; at de @ 2.0 with the keyboard still up the header
+    overflowed the cap for one frame (C2 wraps it).
+  - U1.5: the check is trailing in a slot reserved on every row (the marker
+    preview stays leading); "Body text" carries the id
+    `editor-heading-0`; copy as decided (en "Heading", de "Überschrift", ro
+    "Titlu"; "Body text" / "Fließtext" / "Text normal").
+  - U1.8: `FormMetrics.disabledOpacity`, `Semantics(button, enabled)`,
+    `ExcludeSemantics` on the glyphs.
+  - U2.2: the title dialog opens selected with an inline duplicate warning
+    (an async folder-title cache redrawn through `warningRefresh` on
+    `AppDialogs.textInput`); a reverted save restores the bar title from
+    the coordinator's original title.
+  - U2.3: selection-only notifications no longer reach the save
+    coordinator (a text-length and code-lines-identity memo seeded in
+    `initState`).
+  - U2.5: `followsTextScale` is opt-in and only the note editor turns it
+    on; the event description box keeps unscaled lines by design.
+  - U2.6: the overlay road (the earlier ledger entry) plus a sentence-case
+    action; the 5 s confirm cap lived on `CustomSnackbar` beside the 3 s
+    default in `AppConstants` (C2 names them honestly); the bar had grown
+    to ~76 dp around the 48 dp action (C2 brings it to ≤ 56).
+  - U2.7: reveal only while a match is selected; a tertiary-hued current
+    match and stronger boxes in light mode; the app-bar toggle focuses the
+    open field (tooltip "Close search" while searching), the row's X
+    closes; **the find row still pushes the body down** — an overlay needs
+    a top inset in the fork's match-visible check, deferred (§3); focus
+    returns to the match on close by the fork's own collapse.
+  - U2.10: `AppSystemBars`, an `AnnotatedRegion` keyed on the resolved
+    brightness at the app root (the alarm page's own bars hand over to it
+    once its route is gone).
+  - U2.11: the hint shows on a new empty note, not after every character
+    is deleted (accepted).
+  - U2.12: the fork anchors the toolbar above the selection start when it
+    fits, below the end otherwise, never over the bar — computed at show
+    time (C2 re-anchors on every inset change); Bold, Italic and Highlight
+    in the selection toolbar.
+  - U3.1–U3.3: as decided; the named colour palette's light presets in
+    `markdown_color_syntax.dart` (user-chosen text colours) keep their
+    values; `question` measured 4.41:1 on the cursor-line ground (C1
+    darkens it).
+  - U3.4: monospace inside the chip; fence lines at the inline-code scale
+    on a faint chip ground painted per glyph (a blank interior line shows
+    no ground, mild); `ghostStyle` keeps a ghost inside a code span in
+    prose, as the preview does.
+  - U3.5: quotes and callouts hang at their content start; the hanging
+    width is measured from the marker, which differs between `>` and `┃`
+    exactly as lists differ between `-` and `•` — line height never
+    changes.
+  - U3.6: a 2 px paint-only gap between pills, the chip's left edge clamped
+    to the paragraph's x = 0 in `_code_paragraph.dart`.
+  - U3.7: left as is (optional).
+  - U3.8: zones announce the task text and its state, the link text or
+    the tag (ARB patterns en/de/ro); the node key no longer includes the
+    label; custom task states and indeterminate parents still announce
+    "not checked" (the positional index would be needed).
+  - One U3 agent ran `sed -i` once on an LF test file against the house
+    rule; the result was verified correct and nothing was lost.
 - **2026-10-19** — written by the lead (Fable 5.1) from the UX review
   workflow (4 reviewers, 91 findings, 74 verified) and the device matrix.
   Slices U1–U3 are scheduled after the grammar slices; their outcomes will

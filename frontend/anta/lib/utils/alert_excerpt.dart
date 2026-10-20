@@ -22,7 +22,10 @@ String alertExcerptFor(String? description) {
   if (description == null || description.isEmpty) return '';
   final lines = description.split('\n');
   var state = MarkdownChunker.outsideBlock;
-  for (var i = 0; i < lines.length; i++) {
+  String? above;
+  // A front matter is metadata: the excerpt starts under it.
+  final body = MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
+  for (var i = body; i < lines.length; i++) {
     final raw = lines[i];
     final entry = state;
     state = MarkdownChunker.blockStateAfter(raw, state);
@@ -31,15 +34,31 @@ String alertExcerptFor(String? description) {
     if (entry != state ||
         state == MarkdownChunker.insideComment ||
         entry == MarkdownChunker.insideComment) {
+      above = null;
       continue;
     }
+    // A setext underline is chrome, even under a text line that came out
+    // empty (`%%note%%` above `===`).
+    final prose = entry == MarkdownChunker.outsideBlock;
+    final underline =
+        prose &&
+        above != null &&
+        MarkdownLineShape.setextLevelOf(above, raw) > 0;
+    above = prose ? raw : null;
+    if (underline) continue;
     final line = raw.trim();
     if (line.isEmpty) continue;
-    // A trailing `\` is a hard break only where a non-blank line follows,
-    // and never on a setext heading's text line.
+    // A trailing `\` is a hard break only where the paragraph continues,
+    // and never on a setext heading's text line. Only a line that ends in
+    // one pays the paragraph test.
     final hardBreak =
         i + 1 < lines.length &&
-        !MarkdownChunker.isBlankLine(lines[i + 1]) &&
+        raw.endsWith(r'\') &&
+        MarkdownChunker.continuesParagraph(
+          raw,
+          lines[i + 1],
+          i + 2 < lines.length ? lines[i + 2] : null,
+        ) &&
         MarkdownLineShape.setextLevelOf(raw, lines[i + 1]) == 0;
     final plain = _plainLine(line, hardBreak: hardBreak);
     if (plain.isEmpty) continue;
@@ -66,7 +85,9 @@ String _plainLine(String line, {required bool hardBreak}) {
   if (money != null) return _plainMoney(line, money);
   var text = line;
   final callout = MarkdownCalloutSyntax.parseLead(text);
-  if (callout != null) return _collapseSpaces(_plainInline(callout.title.trim()));
+  if (callout != null) {
+    return _collapseSpaces(_plainInline(callout.title.trim()));
+  }
   final quote = MarkdownCalloutSyntax.quoteMarkers(text);
   if (quote != null) text = text.substring(quote.contentStart);
   final heading = MarkdownLineShape.headingAt(text);

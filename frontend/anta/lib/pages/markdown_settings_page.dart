@@ -474,6 +474,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   /// on the real position regardless of what is being shown.
   List<({CustomMarkdownShortcut shortcut, int index})> get _filteredShortcuts {
     final query = SettingsQuery.parse(_shortcutQuery);
+    final l10n = AppLocalizations.of(context)!;
     final result = <({CustomMarkdownShortcut shortcut, int index})>[];
     for (var i = 0; i < _shortcuts.length; i++) {
       final shortcut = _shortcuts[i];
@@ -485,8 +486,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         if (!matches) continue;
       }
       // Folded through the app's single normalization, so `evidentieri`
-      // finds `evidențieri` and `schriftgrosse` finds `Schriftgröße`.
+      // finds `evidențieri` and `schriftgrosse` finds `Schriftgröße`. The
+      // shown name is searched beside the stored seed it may translate.
       if (!matchesSettingsQuery(query, [
+        shortcut.localizedLabel(l10n),
         shortcut.label,
         shortcut.category ?? '',
         shortcut.beforeText,
@@ -1060,11 +1063,16 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Text(
-                        '${l10n.shortcuts} $percentLeft%  ·  ${l10n.utilities} $percentRight%',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.6,
+                      // Flexible: the German caption outgrows a 412 dp
+                      // phone, and a Row overflow clips it in release.
+                      Flexible(
+                        child: Text(
+                          '${l10n.shortcuts} $percentLeft%  ·  ${l10n.utilities} $percentRight%',
+                          textAlign: TextAlign.end,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.6,
+                            ),
                           ),
                         ),
                       ),
@@ -1204,14 +1212,17 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.vocabularySection,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
+                // Expanded: the German title outgrows a 412 dp phone beside
+                // the icon and the chevron; a Row overflow clips it.
+                Expanded(
+                  child: Text(
+                    l10n.vocabularySection,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 AnimatedRotation(
                   turns: _vocabularyExpanded ? 0.0 : 0.5,
                   duration: const Duration(milliseconds: 200),
@@ -1462,11 +1473,14 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                         // Symbol-after-amount toggle row
                         Row(
                           children: [
-                            Text(
-                              l10n.moneyCurrencySuffixLabel,
-                              style: theme.textTheme.bodyLarge,
+                            // Expanded: the German label outgrows a 412 dp
+                            // phone beside the switch; a Row overflow clips.
+                            Expanded(
+                              child: Text(
+                                l10n.moneyCurrencySuffixLabel,
+                                style: theme.textTheme.bodyLarge,
+                              ),
                             ),
-                            const Spacer(),
                             Transform.scale(
                               scale: 0.8,
                               child: Switch(
@@ -1768,11 +1782,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         children: [
           Icon(Icons.keyboard, size: 26, color: theme.colorScheme.primary),
           const SizedBox(width: 8),
-          Text(
-            l10n.markdownShortcuts,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              fontSize: 17,
+          // Flexible: the German title plus the count pill and the chevron
+          // outgrow a 412 dp phone; a Row overflow clips them in release.
+          Flexible(
+            child: Text(
+              l10n.markdownShortcuts,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                fontSize: 17,
+              ),
             ),
           ),
           if (_shortcuts.isNotEmpty) ...[
@@ -2005,7 +2023,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
             runSpacing: 4,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text(shortcut.label),
+              Text(shortcut.localizedLabel(l10n)),
               if (shortcut.isDefault)
                 Container(
                   padding: const EdgeInsets.symmetric(

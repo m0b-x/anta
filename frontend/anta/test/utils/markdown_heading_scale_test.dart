@@ -50,7 +50,7 @@ void main() {
     expect(base * MarkdownConstants.h4Scale, closeTo(16.8, 1e-9));
     expect(MarkdownConstants.h5Scale, 1.0);
     expect(MarkdownConstants.h6Scale, 1.0);
-    expect(MarkdownConstants.headingWeight, FontWeight.w600);
+    expect(MarkdownConstants.headingWeight, FontWeight.w700);
   });
 
   test('every level steps down from the one above it to the base', () {
@@ -67,17 +67,17 @@ void main() {
     expect(MarkdownConstants.h5Scale, MarkdownConstants.h6Scale);
   });
 
-  test('an h1 line is 1.5x the base at w600', () {
+  test('an h1 line is 1.5x the base at w700', () {
     final span = renderHeading('# Warm up');
     expect(span.style?.fontSize, base * MarkdownConstants.h1Scale);
     expect(span.style?.fontSize, 24.0);
-    expect(span.style?.fontWeight, FontWeight.w600);
+    expect(span.style?.fontWeight, FontWeight.w700);
   });
 
-  test('an h2 line is 1.3x the base at w600', () {
+  test('an h2 line is 1.3x the base at w700', () {
     final span = renderHeading('## Working sets');
     expect(span.style?.fontSize, base * MarkdownConstants.h2Scale);
-    expect(span.style?.fontWeight, FontWeight.w600);
+    expect(span.style?.fontWeight, FontWeight.w700);
   });
 
   test('h3 and h4 sit between h2 and the base', () {

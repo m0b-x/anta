@@ -187,11 +187,12 @@ class EditorInlineEmitter {
             text: text,
             start: token.innerStart,
             end: token.innerEnd,
-            style: _codeStyle(contextStyle),
+            style: codeStyle(contextStyle),
             baseColor: baseColor,
             ghosts: ghosts,
             out: out,
-            decoration: _codeDecoration(contextStyle, baseColor),
+            decoration: codeDecoration(contextStyle, baseColor),
+            ghostStyle: contextStyle,
           );
           EditorSpanEmitter.emitChrome(
             text,
@@ -511,27 +512,26 @@ class EditorInlineEmitter {
     );
   }
 
-  /// The style inline `` `code` `` content renders in: the surrounding
-  /// style at [MarkdownConstants.inlineCodeScale], the same factor the
-  /// preview applies, so code reads as code on both surfaces.
+  /// The style code renders in — inline `` `code` `` content and the
+  /// lines of a ``` fence: the surrounding style in monospace at
+  /// [MarkdownConstants.inlineCodeScale], the font and factor the preview
+  /// applies, so code reads as code on both surfaces.
   ///
-  /// Safe by construction: the fork builds every paragraph with a
-  /// `StrutStyle(forceStrutHeight: true)` derived from the **root**
-  /// span's fontSize, and the root here is untouched — a smaller child
-  /// therefore cannot change the line's height, and reveal states differ
-  /// in nothing but the markers. The chip decoration keeps its geometry
-  /// from the *context* size so the pill around a code run stays the
-  /// size it was.
-  static TextStyle _codeStyle(TextStyle context) => context.copyWith(
+  /// Safe only under a base-size root: the fork builds every paragraph
+  /// with a `StrutStyle(forceStrutHeight: true)` derived from the
+  /// **root** span's fontSize and the base family, so a caller keeps its line's
+  /// root at the line style and passes this style to children — a
+  /// smaller monospace child then cannot change the line's height, and
+  /// reveal states differ in nothing but the markers.
+  static TextStyle codeStyle(TextStyle context) => context.copyWith(
+    fontFamily: 'monospace',
     fontSize: (context.fontSize ?? 16.0) * MarkdownConstants.inlineCodeScale,
   );
 
-  /// Rounded chip behind inline `` `code` `` content (markers stay
-  /// outside the chip).
-  static CodeTextDecoration _codeDecoration(
-    TextStyle context,
-    Color baseColor,
-  ) {
+  /// Rounded chip behind code content (inline markers stay outside the
+  /// chip). Its geometry comes from the *context* size, not the scaled
+  /// code size, so the pill keeps the height of the line's text.
+  static CodeTextDecoration codeDecoration(TextStyle context, Color baseColor) {
     final size = context.fontSize ?? 16.0;
     return CodeTextDecoration(
       color: baseColor.withValues(alpha: _codeBackgroundAlpha),

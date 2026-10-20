@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/utils/list_aware_paste.dart';
+import 'package:anta/utils/markdown_editor_line_index.dart';
 
 /// `ListAwarePaste.transform` is the whole policy behind the list-aware
 /// paste — the controller around it does nothing but read the clipboard,
@@ -91,6 +92,15 @@ void main() {
           reason: 'prefixed a line-led construct: "$led"',
         );
       }
+    });
+
+    test('a pasted setext pair', () {
+      expect(pasteInto('- item', 'a\nWeek 3\n===\nb'), 'a\nWeek 3\n===\nb');
+      // The first fragment joins `- item`, a list line, so its `===`
+      // underlines nothing and the paste continues the list.
+      expect(pasteInto('- item', 'Week 3\n===\nb'), 'Week 3\n- ===\n- b');
+      // Without an underline the same lines become siblings.
+      expect(pasteInto('- item', 'a\nWeek 3\nb'), 'a\n- Week 3\n- b');
     });
 
     test('a pasted horizontal rule', () {
@@ -235,6 +245,32 @@ void main() {
       );
       controller.undo();
       expect(controller.text, '- a');
+    });
+
+    // S2 C11 — the page hands the editor's `lineInFence`, whose roles
+    // count a `%%` comment and a front matter as inert like a fence.
+    test('a comment or front matter item takes no prefix', () {
+      for (final (text, line) in [
+        ('%%\n- a\n%%', 1),
+        ('---\nk:\n- a\n---', 2),
+      ]) {
+        final index = MarkdownEditorLineIndex(maxScannedLineLength: 4096);
+        late final ListAwarePasteController controller;
+        controller = controllerOf(
+          text,
+          isFenceLine: (i) =>
+              index.fenceRoleAt(controller.codeLines, i) !=
+              MarkdownFenceRole.none,
+        );
+        controller.selection = CodeLineSelection.collapsed(
+          index: line,
+          offset: 3,
+        );
+
+        commit(controller, '- aX\nY');
+
+        expect(controller.text, text.replaceFirst('- a', '- aX\nY'));
+      }
     });
 
     test('leaves a paste outside a list to the editor', () {

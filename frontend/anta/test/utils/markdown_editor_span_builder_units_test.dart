@@ -500,6 +500,45 @@ void main() {
       );
     });
 
+    // The leaves sit under the heading's root span, so the weight they
+    // render with is the root's style merged with their own.
+    test('a quoted heading leaves its bar and blank at the bar weight', () {
+      final heading = _renderOffCaret('> # Week 3');
+      final root = heading.span.style!;
+      expect(root.fontWeight, MarkdownConstants.headingWeight);
+      final bar = heading.leaves.firstWhere((leaf) => leaf.text == '┃');
+      final blank = heading.leaves.firstWhere((leaf) => leaf.text == ' ');
+      expect(root.merge(bar.style).fontWeight, isNot(root.fontWeight));
+      expect(root.merge(blank.style).fontWeight, isNot(root.fontWeight));
+      final week = heading.leaves.singleWhere((leaf) => leaf.text == 'Week 3');
+      expect(root.merge(week.style).fontWeight, root.fontWeight);
+    });
+
+    test('a revealed quoted heading leaves its marker and blank light', () {
+      final heading = _renderBothStates('> # Week 3', money: false).on;
+      final root = heading.span.style!;
+      final marker = heading.leaves.firstWhere((leaf) => leaf.text == '>');
+      final blank = heading.leaves.firstWhere((leaf) => leaf.text == ' ');
+      expect(root.merge(marker.style).fontWeight, isNot(root.fontWeight));
+      expect(root.merge(blank.style).fontWeight, isNot(root.fontWeight));
+    });
+
+    test('a quoted bullet glyph stands upright in the italic quote', () {
+      final render = _renderOffCaret('> - squat');
+      final glyph = render.leaves.singleWhere((leaf) => leaf.text == '•');
+      expect(glyph.style?.fontStyle, FontStyle.normal);
+      final content = render.leaves.singleWhere((leaf) => leaf.text == 'squat');
+      expect(content.style?.fontStyle, FontStyle.italic);
+    });
+
+    test('a quoted ordered marker stands upright in the italic quote', () {
+      final render = _renderOffCaret('> 1. bench');
+      final marker = render.leaves.singleWhere((leaf) => leaf.text == '1.');
+      expect(marker.style?.fontStyle, FontStyle.normal);
+      final content = render.leaves.singleWhere((leaf) => leaf.text == 'bench');
+      expect(content.style?.fontStyle, FontStyle.italic);
+    });
+
     test('a callout body renders plain in the block accent', () {
       final render = _renderOffCaret(
         '> body',
@@ -1060,9 +1099,42 @@ void main() {
       expect(_concealedRuns(path), isNot(contains(r'\')));
     });
 
+    test('a trailing backslash conceals only where the paragraph goes on', () {
+      String? concealed(List<String> lines) {
+        // A plain line with a literal tail builds no styled span at all.
+        final span = at(lines, 0, caretLine: lines.length - 1);
+        if (span == null) return null;
+        return _concealedRuns(span).contains(r'\') ? r'\' : null;
+      }
+
+      const pad = _pad;
+      expect(concealed([r'- D:\a\', r'- D:\b\', pad]), isNull);
+      expect(concealed([r'a\', '# H', pad]), isNull);
+      expect(concealed([r'a\', '```', pad]), isNull);
+      expect(concealed([r'a\', '***', pad]), isNull);
+      expect(concealed([r'a\', '%%', pad]), isNull);
+      expect(concealed([r'a\', '| a | b |', pad]), isNull);
+      expect(concealed([r'a\', '> quoted', pad]), isNull);
+      expect(concealed([r'> a\', 'b', pad]), isNull);
+      expect(concealed([r'> a\', '> - b', pad]), isNull);
+      expect(concealed([r'a\', 'b', '===', pad]), isNull);
+      expect(concealed([r'> a\', '> > b', pad]), isNull);
+      expect(concealed([r'> a\', '> [!TIP] x', pad]), isNull);
+      expect(concealed([r'a\', 'b', 'c', pad]), r'\');
+      expect(concealed([r'- item\', '  more', pad]), r'\');
+      expect(concealed([r'> a\', '> b', pad]), r'\');
+    });
+
     test('a callout body and a quote follow the next line too', () {
       final body = ['> [!TIP] x', r'> body\'];
-      expect(_concealedRuns(at([...body, _pad], 1, caretLine: 2)!), [r'\']);
+      // Only a quote line continues a quote's paragraph (sweep S2).
+      expect(_concealedRuns(at([...body, '> more', _pad], 1, caretLine: 3)!), [
+        r'\',
+      ]);
+      expect(
+        _concealedRuns(at([...body, _pad], 1, caretLine: 2)!),
+        isNot(contains(r'\')),
+      );
       expect(
         _concealedRuns(at([_pad, ...body], 2, caretLine: 0)!),
         isNot(contains(r'\')),
@@ -1162,6 +1234,37 @@ void main() {
         for (final caret in [index, 3]) {
           final span = at(lines, index, caretLine: caret)!;
           expect(_concealedRuns(span), isEmpty);
+          for (final leaf in _visibleLeaves(span)) {
+            expect(leaf.style?.color, dim, reason: '$index/$caret');
+          }
+        }
+      }
+    });
+
+    // S2.7 — the properties block renders as a comment block does: no
+    // rule, no setext H2 under the last property, nothing concealed.
+    test('a front matter dims every line in both reveal states', () {
+      // C1 fix pass T7 — a task-shaped item under a key paints no box, and
+      // every line keeps its code units.
+      final lines = [
+        '---',
+        'tags: [a]',
+        'todo:',
+        '- [ ] x',
+        'title: x',
+        '---',
+        '# H',
+        _pad,
+      ];
+      for (final index in [0, 1, 2, 3, 4, 5]) {
+        for (final caret in [index, 7]) {
+          final span = at(lines, index, caretLine: caret)!;
+          expect(_concealedRuns(span), isEmpty);
+          expect(span.toPlainText(), lines[index], reason: '$index/$caret');
+          span.visitChildren((child) {
+            expect(child.runtimeType, TextSpan, reason: '$index/$caret');
+            return true;
+          });
           for (final leaf in _visibleLeaves(span)) {
             expect(leaf.style?.color, dim, reason: '$index/$caret');
           }
@@ -1604,7 +1707,7 @@ void main() {
         .style
         ?.decoration;
 
-    test('a cancelled box paints its dash and strikes its content', () {
+    test('a cancelled box paints its cross and strikes its content', () {
       final render = _renderOffCaret('- [-] skipped');
       final box = boxOf(render);
       expect(box.visual, EditorCheckboxVisual.custom);
@@ -1666,6 +1769,28 @@ void main() {
       expect(box('-'), box('-'));
       expect(box('-'), isNot(box('/')));
       expect(box('-').hashCode, box('-').hashCode);
+    });
+
+    // A dash would read as the indeterminate parent's bar.
+    test('a cancelled box paints a cross, not a dash', () {
+      const border = Color(0xFF808080);
+      const box = EditorCheckboxSpan(
+        side: 20,
+        visual: EditorCheckboxVisual.custom,
+        accent: Color(0xFF2050C0),
+        border: border,
+        mark: Color(0xFFFFFFFF),
+        state: '-',
+      );
+      void paint(Canvas canvas) =>
+          box.paint(canvas, const Rect.fromLTWH(0, 0, 20, 20));
+      expect(
+        paint,
+        paints
+          ..rrect(color: border)
+          ..line(color: border)
+          ..line(color: border),
+      );
     });
 
     test('every state paints, past the glyph cache bound too', () {
@@ -1736,6 +1861,37 @@ void main() {
         at(2)!.style!.fontSize,
         base * MarkdownConstants.editorHeaderScale(2),
       );
+    });
+
+    // C1 fix pass T7 — the front matter route is positional and checked
+    // before the text memo, so lines a warm builder memoized as a rule and
+    // as prose turn dim once the closer is typed, and back once it breaks.
+    test('a front matter flips through a warm builder', () {
+      final dim = _renderContext.baseColor.withValues(alpha: _dimAlpha);
+      // A plain line the renderer declines builds no span at all.
+      bool dimmed(int index) {
+        final span = at(index);
+        return span != null &&
+            _visibleLeaves(span).every((leaf) => leaf.style?.color == dim);
+      }
+
+      open(['---', 'tags: a', 'body', 'more']);
+      final rule = at(0);
+      expect(dimmed(1), isFalse);
+
+      replace(2, '---');
+      expect(dimmed(0), isTrue);
+      expect(dimmed(1), isTrue);
+      expect(dimmed(2), isTrue);
+
+      replace(1, 'tags a');
+      expect(dimmed(1), isFalse);
+      expect(
+        at(1)!.style!.fontSize,
+        _renderContext.style.fontSize! * MarkdownConstants.editorHeaderScale(2),
+        reason: 'the broken property is a setext H2 over the old closer',
+      );
+      expect(at(0)?.toPlainText(), rule?.toPlainText());
     });
 
     test('the underline draws ─ for its markers, never concealed', () {
@@ -1905,6 +2061,51 @@ void main() {
   // must keep a warm cache (the page rebuilds it whenever the fork hands
   // over a new style instance), a different one must drop it.
   group('render context generation', () {
+    // S2 C16 — the quote bars' ground is resolved once per generation, so
+    // a quote line's build allocates no style for it.
+    test('the quote bar ground is one instance per generation', () {
+      final cache = EditorSpanCache();
+      final ground = cache.quoteBarGround(_renderContext);
+      expect(identical(cache.quoteBarGround(_renderContext), ground), isTrue);
+      expect(
+        ground.fontWeight,
+        _renderContext.style.fontWeight ?? FontWeight.normal,
+      );
+      final bold = EditorRenderContext(
+        style: _renderContext.style.copyWith(fontWeight: FontWeight.bold),
+        baseColor: _renderContext.baseColor,
+        primary: _renderContext.primary,
+        isDark: _renderContext.isDark,
+      );
+      expect(identical(cache.quoteBarGround(bold), bold.style), isTrue);
+    });
+
+    // C1 fix pass C7 / T5 — through the builder: two quote lines' bars
+    // share one style per accent, so a line's build copies none.
+    test('quote lines share one bar style per accent and generation', () {
+      final controller = CodeLineEditingController.fromText(
+        ['> one', '> two words', '> [!TIP] t', '> body', _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 4,
+        offset: 0,
+      );
+      TextStyle? barOf(int index) => _visibleLeaves(
+        builder.build(
+          context: _renderContext,
+          index: index,
+          codeLine: controller.codeLines[index],
+        )!,
+      ).firstWhere((leaf) => leaf.text.contains('┃')).style;
+
+      expect(identical(barOf(0), barOf(1)), isTrue);
+      expect(identical(barOf(2), barOf(3)), isTrue);
+      expect(identical(barOf(0), barOf(2)), isFalse, reason: 'own accent');
+    });
+
     test('an equal context keeps the memos, a different one drops them', () {
       final cache = EditorSpanCache();
       expect(cache.renderContext, isNull);
@@ -1994,6 +2195,170 @@ void main() {
         isTrue,
         reason: 'an equal generation must hit the span memo',
       );
+    });
+  });
+
+  group('code chips and hanging quotes', () {
+    final base = _renderContext.style.fontSize!;
+    final codeSize = base * MarkdownConstants.inlineCodeScale;
+
+    TextSpan lineOf(List<String> lines, int index, {required int caretLine}) {
+      final controller = CodeLineEditingController.fromText(lines.join('\n'));
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      controller.selection = CodeLineSelection.collapsed(
+        index: caretLine,
+        offset: 0,
+      );
+      final span = builder.build(
+        context: _renderContext,
+        index: index,
+        codeLine: controller.codeLines[index],
+      );
+      expect(span, isNotNull, reason: lines[index]);
+      return span!;
+    }
+
+    test('inline code is monospace at the code scale inside its chip', () {
+      final render = _renderOffCaret('a `code()` b');
+      final chipped = render.leaves
+          .where((leaf) => leaf.span is CodeDecoratedTextSpan)
+          .toList();
+      expect(chipped.map((leaf) => leaf.text).join(), 'code()');
+      for (final leaf in chipped) {
+        expect(leaf.style?.fontFamily, 'monospace');
+        expect(leaf.style?.fontSize, codeSize);
+      }
+      expect(
+        render.span.style?.fontSize,
+        base,
+        reason: 'the root keeps the strut',
+      );
+      expect(render.span.style?.fontFamily, _renderContext.style.fontFamily);
+    });
+
+    test('a ghost inside a code span keeps the prose font', () {
+      final render = _renderOffCaret('`a {{b}} c` d');
+      final ghost = render.leaves.firstWhere((leaf) => leaf.text == 'b');
+      expect(ghost.style?.fontFamily, isNot('monospace'));
+      expect(ghost.span, isNot(isA<CodeDecoratedTextSpan>()));
+    });
+
+    test('fence delimiters and interior sit on the code chip at the code '
+        'scale, the root at the line style in both reveal states', () {
+      final lines = ['```dart', 'final x = 1;', '```', _pad];
+      for (final index in [0, 1, 2]) {
+        for (final caretLine in [index, 3]) {
+          final span = lineOf(lines, index, caretLine: caretLine);
+          expect(span.style, _renderContext.style, reason: lines[index]);
+          final leaves = _visibleLeaves(span);
+          expect(leaves, isNotEmpty);
+          for (final leaf in leaves) {
+            expect(leaf.span, isA<CodeDecoratedTextSpan>(), reason: leaf.text);
+            expect(leaf.style?.fontFamily, 'monospace');
+            expect(leaf.style?.fontSize, codeSize);
+          }
+        }
+      }
+    });
+
+    test('a block comment keeps the prose font and no chip', () {
+      final span = lineOf(['%%', 'hidden', '%%', _pad], 1, caretLine: 3);
+      for (final leaf in _visibleLeaves(span)) {
+        expect(leaf.span, isNot(isA<CodeDecoratedTextSpan>()));
+        expect(leaf.style?.fontFamily, isNot('monospace'));
+      }
+    });
+
+    test('a 200-character quote line hangs at its content start in both '
+        'reveal states', () {
+      final words = List.filled(40, 'reps').join(' ');
+      final line = '> ${words.substring(0, 198)}';
+      expect(line.length, 200);
+      final pair = _renderBothStates(line, money: false);
+      for (final render in [pair.off, pair.on]) {
+        expect(render.span, isA<CodeHangingTextSpan>());
+        expect((render.span as CodeHangingTextSpan).hangingChars, 2);
+        expect(render.span.style, _renderContext.style);
+      }
+      expect(pair.off.visibleText.length, line.length);
+    });
+
+    test('nested quotes and callouts hang past every bar', () {
+      final nested = _renderOffCaret('> > second level');
+      expect((nested.span as CodeHangingTextSpan).hangingChars, 4);
+      final lead = _renderOffCaret('> [!NOTE] Warm-up first');
+      expect((lead.span as CodeHangingTextSpan).hangingChars, 2);
+      final body = _renderOffCaret(
+        '> keep the elbows in',
+        above: const <String>['> [!TIP] Form'],
+      );
+      expect((body.span as CodeHangingTextSpan).hangingChars, 2);
+    });
+
+    test('a quoted heading hangs past the bar at the heading scale in both '
+        'reveal states', () {
+      const line = '> ## Warm-up sets before the working weight';
+      final pair = _renderBothStates(line, money: false);
+      for (final render in [pair.off, pair.on]) {
+        final span = render.span as CodeHangingTextSpan;
+        expect(span.hangingChars, 2);
+        expect(
+          span.style?.fontSize,
+          greaterThan(_renderContext.style.fontSize!),
+          reason: 'the root keeps the heading style the line height reads',
+        );
+      }
+      expect(pair.off.span.toPlainText().length, line.length);
+      // An unquoted heading has no bars to hang past.
+      expect(
+        _renderOffCaret('## Warm-up').span,
+        isNot(isA<CodeHangingTextSpan>()),
+      );
+    });
+
+    test('the fork lays the real quote spans out hanging past the bar', () {
+      final words = List.filled(40, 'reps').join(' ').substring(0, 198);
+      final pair = _renderBothStates('> $words', money: false);
+      final renders = <String, _Render>{
+        'quote, concealed': pair.off,
+        'quote, revealed': pair.on,
+        'callout lead': _renderOffCaret('> [!NOTE] $words'),
+        'callout body': _renderOffCaret(
+          '> $words',
+          above: const <String>['> [!TIP] Form'],
+        ),
+        'no blank after the bar': _renderOffCaret('>$words'),
+        'quoted heading': _renderOffCaret('> ## $words'),
+      };
+      for (final MapEntry(key: name, value: render) in renders.entries) {
+        final span = render.span as CodeHangingTextSpan;
+        final provider = CodeParagraphProviderForTesting()
+          ..updateBaseStyle(_renderContext.style);
+        final paragraph = provider.build(span, 240);
+        expect(provider.isHanging(paragraph), isTrue, reason: name);
+        expect(paragraph.lineCount, greaterThan(1), reason: name);
+        expect(
+          provider.markerCacheContains(
+            provider.truncate(span, span.hangingChars),
+          ),
+          isTrue,
+          reason: '$name: the bar prefix is a one-line marker',
+        );
+        final rects = paragraph.getRangeRects(
+          TextRange(start: span.hangingChars, end: paragraph.length),
+        );
+        final indent = rects.first.left;
+        expect(indent, greaterThan(0), reason: name);
+        for (final rect in rects) {
+          expect(rect.left, greaterThanOrEqualTo(indent - 0.5), reason: name);
+        }
+      }
+    });
+
+    test('a quote line with no content does not hang', () {
+      expect(_renderOffCaret('> ').span, isNot(isA<CodeHangingTextSpan>()));
     });
   });
 }

@@ -152,7 +152,12 @@ class NoteMoneyLedgerService {
     final fold = MoneyFold(_startCents);
     var net = 0;
     var state = MarkdownChunker.outsideBlock;
-    for (final line in content.split('\n')) {
+    final lines = content.split('\n');
+    // A front matter is metadata the editor's money pass skips, so a
+    // `- $` property never reaches the event's total either.
+    final body = MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
+    for (var i = body; i < lines.length; i++) {
+      final line = lines[i];
       final entry = state;
       state = MarkdownChunker.blockStateAfter(line, state);
       if (entry != MarkdownChunker.outsideBlock ||

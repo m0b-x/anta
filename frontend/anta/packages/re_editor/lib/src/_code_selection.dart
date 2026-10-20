@@ -1,5 +1,11 @@
 part of re_editor;
 
+/// How far a Material selection toolbar placed below its anchor reaches
+/// past it: the 20 dp handle gap plus the 44 dp toolbar
+/// (`material/text_selection_toolbar.dart`). An anchor held this far above
+/// the field's bottom keeps the toolbar off whatever is docked below.
+const double _kToolbarExtentBelow = 64.0;
+
 class _CodeSelectionGestureDetector extends StatefulWidget {
   final CodeLineEditingController controller;
   final _CodeInputController inputController;
@@ -725,7 +731,9 @@ class _DesktopSelectionOverlayController
   void dispose() {}
 }
 
-class _MobileSelectionOverlayController implements _SelectionOverlayController {
+class _MobileSelectionOverlayController
+    with WidgetsBindingObserver
+    implements _SelectionOverlayController {
   final CodeLineEditingController controller;
   final GlobalKey editorKey;
   final LayerLink startHandleLayerLink;
@@ -743,6 +751,11 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
   bool _toolbarShown = false;
   Offset? _toolbarPosition;
   bool _toolbarHiddenByScroll = false;
+
+  // The field's global rect the shown toolbar was anchored against, and
+  // whether a metrics change already queued a re-anchor for this frame.
+  Rect? _toolbarRegion;
+  bool _reanchorScheduled = false;
 
   final ValueNotifier<bool> _effectiveStartHandleVisibility =
       ValueNotifier<bool>(false);
@@ -792,6 +805,7 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
   }) {
     _context = context;
     controller.addListener(_updateTextSelectionHandle);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   TextSelectionControls get selectionControls {
@@ -880,19 +894,23 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
     _toolbarHiddenByScroll = false;
     _toolbarPosition = globalPosition;
     globalPosition = _clampPosition(globalPosition);
-    final Rect editingRegion = Rect.fromPoints(
-      render.localToGlobal(Offset.zero),
-      render.localToGlobal(render.size.bottomRight(Offset.zero)),
-    );
+    final Rect editingRegion = _regionOf(render);
+    _toolbarRegion = editingRegion;
     final CodeLineSelection selection = controller.selection;
     final TextSelectionToolbarAnchors anchors;
     if (selection.isCollapsed) {
+      final Offset caret = render.calculateTextPositionScreenOffset(
+            selection.start,
+            false,
+          ) ??
+          globalPosition;
+      // A wrapped paragraph the keyboard cut through can leave the caret's
+      // row below the field's bottom; the toolbar stays inside the field.
       anchors = TextSelectionToolbarAnchors(
-        primaryAnchor: render.calculateTextPositionScreenOffset(
-              selection.start,
-              false,
-            ) ??
-            globalPosition,
+        primaryAnchor: Offset(
+          caret.dx,
+          caret.dy.clamp(editingRegion.top, editingRegion.bottom),
+        ),
       );
     } else {
       Offset startPosition = render.calculateTextPositionScreenOffset(
@@ -906,6 +924,11 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
       if (startPosition.dy < editingRegion.top) {
         startPosition = Offset(startPosition.dx, editingRegion.top);
       }
+      // A field the keyboard shrank can leave the start below its bottom;
+      // the toolbar then waits at the bottom edge, never over the bar.
+      if (startPosition.dy > editingRegion.bottom) {
+        startPosition = Offset(startPosition.dx, editingRegion.bottom);
+      }
       if (endPosition.dy > editingRegion.bottom) {
         endPosition = Offset(endPosition.dx, editingRegion.bottom);
       }
@@ -913,24 +936,59 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
           endPosition.dy >= editingRegion.bottom - lineHeight) {
         anchors = TextSelectionToolbarAnchors(primaryAnchor: globalPosition);
       } else {
-        final double distanceToStart =
-            (globalPosition - startPosition).distance;
-        final double distanceToEnd = (globalPosition - endPosition).distance;
-        if (distanceToStart < distanceToEnd) {
-          anchors = TextSelectionToolbarAnchors(
-            primaryAnchor: startPosition,
-            secondaryAnchor: endPosition,
-          );
-        } else {
-          anchors = TextSelectionToolbarAnchors(
-            // This is trick, make secondary anchor takes effect
-            primaryAnchor: const Offset(-10000, -10000),
-            secondaryAnchor: endPosition,
-          );
-        }
+        // Above the start whenever the toolbar fits there, whichever end
+        // the finger is on: below the end it covers the next lines, and
+        // near the bottom of the field the bar docked under it. When it
+        // must go below, the anchor is held high enough that the whole
+        // toolbar stays inside the field.
+        final double belowLimit = max(
+          editingRegion.top,
+          editingRegion.bottom - _kToolbarExtentBelow,
+        );
+        anchors = TextSelectionToolbarAnchors(
+          primaryAnchor: startPosition,
+          secondaryAnchor: endPosition.dy > belowLimit
+              ? Offset(endPosition.dx, belowLimit)
+              : endPosition,
+        );
       }
     }
     onShowToolbar(context, anchors, editingRegion);
+  }
+
+  Rect _regionOf(_CodeFieldRender render) => Rect.fromPoints(
+        render.localToGlobal(Offset.zero),
+        render.localToGlobal(render.size.bottomRight(Offset.zero)),
+      );
+
+  /// The keyboard rising or falling re-pads the page under a shown
+  /// toolbar, and its anchors and the clamp that keeps it off the docked
+  /// bar were measured against the old field: they are measured again
+  /// once the frame with the new insets has laid out.
+  @override
+  void didChangeMetrics() {
+    if (!_toolbarShown || _reanchorScheduled) {
+      return;
+    }
+    _reanchorScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _reanchorScheduled = false;
+      _reanchorToolbar();
+    });
+  }
+
+  void _reanchorToolbar() {
+    final Offset? position = _toolbarPosition;
+    final _CodeFieldRender? render = this.render;
+    if (!_toolbarShown ||
+        position == null ||
+        render == null ||
+        !render.attached ||
+        !render.hasSize ||
+        _regionOf(render) == _toolbarRegion) {
+      return;
+    }
+    showToolbar(_context, position);
   }
 
   void init() {
@@ -950,6 +1008,7 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
     _startHandleDragging = false;
     _endHandleDragging = false;
     hideHandle();
+    WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_updateTextSelectionHandle);
     _startInViewport?.removeListener(_updateTextSelectionOverlayVisibilities);
     _endInViewport?.removeListener(_updateTextSelectionOverlayVisibilities);
@@ -1517,6 +1576,9 @@ class _MobileSelectionToolbarController
     implements MobileSelectionToolbarController {
   final ToolbarMenuBuilder builder;
   OverlayEntry? _entry;
+  // What the shown entry builds: a show while it is up swaps this and
+  // rebuilds in place, so a re-anchor does not replay the fade-in.
+  WidgetBuilder? _content;
 
   _MobileSelectionToolbarController({required this.builder});
 
@@ -1524,6 +1586,7 @@ class _MobileSelectionToolbarController
   void hide(BuildContext context) {
     _entry?.remove();
     _entry = null;
+    _content = null;
   }
 
   @override
@@ -1537,13 +1600,12 @@ class _MobileSelectionToolbarController
     VoidCallback? onRefresh,
     VoidCallback? onDismiss,
   }) {
-    hide(context);
     final OverlayState? overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) {
+      hide(context);
       return;
     }
-    final OverlayEntry entry = OverlayEntry(
-      builder: (_) => _SelectionToolbarWrapper(
+    _content = (_) => _SelectionToolbarWrapper(
         visibility: visibility,
         layerLink: layerLink,
         offset: -renderRect!.topLeft,
@@ -1568,7 +1630,16 @@ class _MobileSelectionToolbarController
                 );
               },
         ),
-      ),
+      );
+    final OverlayEntry? shown = _entry;
+    if (shown != null && shown.mounted) {
+      shown.markNeedsBuild();
+      return;
+    }
+    _entry?.remove();
+    final OverlayEntry entry = OverlayEntry(
+      builder: (BuildContext context) =>
+          _content?.call(context) ?? const SizedBox.shrink(),
     );
     overlay.insert(entry);
     _entry = entry;

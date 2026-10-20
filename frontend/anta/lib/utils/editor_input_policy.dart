@@ -89,6 +89,9 @@ class EditorTapZone extends Equatable {
     required this.start,
     required this.end,
     required this.action,
+    this.nameStart = 0,
+    this.nameEnd = 0,
+    this.checked,
   });
 
   /// First offset of the zone.
@@ -100,6 +103,26 @@ class EditorTapZone extends Equatable {
   /// What a tap anywhere in `[start, end)` does.
   final EditorTapAction action;
 
+  /// `[nameStart, nameEnd)` of the line is the source of the text a reader
+  /// sees for what the zone acts on — a task's content, a link's label, a
+  /// wiki link's alias else its title — taken from the parsed construct,
+  /// not from the zone, so a task whose box ends at its content keeps its
+  /// first letter and both halves of a link a ghost cuts name the same
+  /// text. Empty for an autolink, a money row and a tag, which their
+  /// action already names.
+  final int nameStart;
+
+  /// One past the last offset of the zone's name; see [nameStart].
+  final int nameEnd;
+
+  /// For a task zone, whether its box is marked — `[x]` or a custom state
+  /// such as `[-]`, every box a tap clears — so a screen reader hears the
+  /// state change a tap makes; null for every other zone.
+  final bool? checked;
+
+  /// The name and the state are left out: both are read from the same
+  /// parse as the action, so two zones of one line that agree on place
+  /// and action agree on them too.
   @override
   List<Object?> get props => [start, end, action];
 }
@@ -365,6 +388,9 @@ class EditorInputPolicy {
           task.base + task.item.bracketStart + 4,
           EditorToggleTaskAction(lineIndex),
           length,
+          nameStart: task.base + task.item.contentStart,
+          nameEnd: length,
+          checked: task.item.state != ' ',
         );
       }
     }
@@ -398,6 +424,8 @@ class EditorInputPolicy {
             token.end,
             EditorOpenLinkAction(token.urlOf(lineText)),
             length,
+            nameStart: token.textStart,
+            nameEnd: token.textEnd,
           );
         } else if (token is InlineAutolink) {
           _addCandidate(
@@ -420,6 +448,8 @@ class EditorInputPolicy {
             token.end,
             EditorOpenWikiLinkAction(token.titleOf(lineText)),
             length,
+            nameStart: token.displayStart,
+            nameEnd: token.displayEnd,
           );
         }
       }
@@ -504,11 +534,15 @@ class EditorInputPolicy {
       while (end < hi && owner[end - lo] == claim) {
         end++;
       }
+      final _ZoneCandidate candidate = candidates[claim];
       result.add(
         EditorTapZone(
           start: offset,
           end: end,
-          action: candidates[claim].action,
+          action: candidate.action,
+          nameStart: candidate.nameStart,
+          nameEnd: candidate.nameEnd,
+          checked: candidate.checked,
         ),
       );
       offset = end;
@@ -553,10 +587,17 @@ class EditorInputPolicy {
     int start,
     int end,
     EditorTapAction action,
-    int length,
-  ) {
+    int length, {
+    int nameStart = 0,
+    int nameEnd = 0,
+    bool? checked,
+  }) {
     final int hi = end > length ? length : end;
-    if (start < hi) candidates.add(_ZoneCandidate(start, hi, action));
+    if (start < hi) {
+      candidates.add(
+        _ZoneCandidate(start, hi, action, nameStart, nameEnd, checked),
+      );
+    }
   }
 
   /// [lineText] with its task box flipped, or `null` when it is not a
@@ -642,11 +683,21 @@ class EditorInputPolicy {
 }
 
 class _ZoneCandidate {
-  const _ZoneCandidate(this.start, this.end, this.action);
+  const _ZoneCandidate(
+    this.start,
+    this.end,
+    this.action,
+    this.nameStart,
+    this.nameEnd,
+    this.checked,
+  );
 
   final int start;
   final int end;
   final EditorTapAction action;
+  final int nameStart;
+  final int nameEnd;
+  final bool? checked;
 }
 
 /// What the editor should do about the ghost run under the caret after a

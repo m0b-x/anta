@@ -57,6 +57,11 @@ void main() {
     bool withInterceptor = true,
     bool withZones = true,
     bool zonesFollowText = false,
+    CodeEditorSemanticsZone zone = const CodeEditorSemanticsZone(
+      start: zoneStart,
+      end: zoneEnd,
+      label: label,
+    ),
   }) async {
     final controller = CodeLineEditingController.fromText(text);
     final scroll = CodeScrollController();
@@ -86,13 +91,7 @@ void main() {
               if (!carries) {
                 return const <CodeEditorSemanticsZone>[];
               }
-              return const [
-                CodeEditorSemanticsZone(
-                  start: zoneStart,
-                  end: zoneEnd,
-                  label: label,
-                ),
-              ];
+              return [zone];
             }
           : null,
     );
@@ -179,6 +178,63 @@ void main() {
         nodes[i].getSemanticsData().hasAction(SemanticsAction.tap),
         isTrue,
       );
+    }
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a zone carries its checked state, link role and value', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await pumpEditor(
+      tester,
+      text: buildDocument(6),
+      zone: const CodeEditorSemanticsZone(
+        start: zoneStart,
+        end: zoneEnd,
+        label: label,
+        checked: true,
+        isLink: true,
+        value: 'held',
+      ),
+    );
+    await settle(tester);
+
+    final nodes = find.semantics.byLabel(label).evaluate().toList();
+    expect(nodes, hasLength(2));
+    for (final node in nodes) {
+      expect(
+        node,
+        isSemantics(
+          label: label,
+          value: 'held',
+          hasCheckedState: true,
+          isChecked: true,
+          isLink: true,
+          hasTapAction: true,
+        ),
+      );
+    }
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a plain zone has no checked state, link role or value', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await pumpEditor(tester, text: buildDocument(6));
+    await settle(tester);
+
+    for (final node in find.semantics.byLabel(label).evaluate()) {
+      expect(
+        node,
+        isSemantics(label: label, hasCheckedState: false, isLink: false),
+      );
+      expect(node.getSemanticsData().value, isEmpty);
     }
 
     handle.dispose();

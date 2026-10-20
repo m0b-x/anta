@@ -77,6 +77,13 @@ class PasteLineBreaker {
   /// caller with no fence index passes nothing and gets the old,
   /// slice-local reading.
   ///
+  /// [blockStateAt], when given, supersedes [lineInFenceBody]: it answers
+  /// the packed block state a line is read in (the editor's
+  /// `EditorRenderController.blockStateAt`), so the range's first line is
+  /// seeded with whichever fence, `%%` comment or front matter is open
+  /// there — a paste into a comment body is neither wrapped nor read for
+  /// fences, exactly as the editor draws it.
+  ///
   /// Returns [PasteLineBreakerResult.empty] with the controller untouched
   /// when nothing in the range needs breaking; otherwise the caret follows
   /// [pasteEnd] onto whichever output line now holds it.
@@ -87,6 +94,7 @@ class PasteLineBreaker {
     required CodeLinePosition pasteEnd,
     required int pastedLength,
     bool Function(int lineIndex)? lineInFenceBody,
+    int Function(int lineIndex)? blockStateAt,
   }) {
     if (availableWidth <= 0) return PasteLineBreakerResult.empty;
 
@@ -97,7 +105,7 @@ class PasteLineBreaker {
     final int end = pasteEnd.index.clamp(0, lineCount - 1);
     final String endText = codeLines[end].text;
     final int caretOffset = pasteEnd.offset.clamp(0, endText.length);
-    final (:start, :startOffset) = _startLine(
+    var (:start, :startOffset) = _startLine(
       codeLines: codeLines,
       end: end,
       caretOffset: caretOffset,
@@ -110,6 +118,20 @@ class PasteLineBreaker {
       'PasteLineBreaker would rebuild a collapsed chunk parent as a plain '
       'line and drop its children; a paste must never land on one',
     );
+
+    // A range from line 0 carries a front matter's opener, which no
+    // one-line step opens — only [MarkdownChunker.frontMatterEnd] reads
+    // ahead to the closer — so the opener is kept as written and the slice
+    // is read from line 1, inside the block, as the editor draws it.
+    int? seed = blockStateAt?.call(start);
+    if (start == 0 &&
+        end > 0 &&
+        MarkdownChunker.frontMatterEnd(lineCount, (i) => codeLines[i].text) >
+            0) {
+      start = 1;
+      startOffset = 0;
+      seed = MarkdownChunker.insideFrontMatter;
+    }
 
     // Only the pasted span is reflowed. The text that already followed the
     // caret is held back from the breaker and rejoined to the last piece,
@@ -127,10 +149,12 @@ class PasteLineBreaker {
     lines.add(lastLine);
     final String suffix = endText.substring(lastLine.length);
 
-    final bool inFenceBody = lineInFenceBody?.call(start) ?? false;
+    final bool inFenceBody =
+        seed == null && (lineInFenceBody?.call(start) ?? false);
     final result = calculator.breakLinesSmartly(
       lines,
       availableWidth,
+      blockState: seed,
       inCodeBlock: inFenceBody,
       fenceOpener: inFenceBody
           ? _fenceOpenerAbove(codeLines, start, lineInFenceBody!)

@@ -123,6 +123,19 @@ class EditorRenderController {
   bool lineInFenceBody(int lineIndex) =>
       _spanBuilder.lineInFenceBody(lineIndex);
 
+  /// The heading the editor draws on [lineIndex] — an ATX or setext text
+  /// line's level, a setext underline's level negated, `0` for none —
+  /// with the renderer's own length cap and block roles, so the heading
+  /// tools never disagree with what is on screen.
+  int headingLevelAt(int lineIndex) => _spanBuilder.headingLevelAt(lineIndex);
+
+  /// The packed `MarkdownChunker.blockStateAfter` state [lineIndex] is
+  /// read in — which fence, `%%` comment or front matter is open there —
+  /// so a paste's reflow treats a block body exactly as the editor draws
+  /// it. One segment walk per call: a paste-time question, not a per-line
+  /// one.
+  int blockStateAt(int lineIndex) => _spanBuilder.blockStateAt(lineIndex);
+
   /// The callout role of [lineIndex] — lead, body, or none. Positional
   /// like the fence predicates: a `> body` line reads as ordinary quote
   /// text on its own, and only the lines above it say which block (if

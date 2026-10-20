@@ -14,6 +14,8 @@
 library;
 
 import 'markdown_callout_syntax.dart';
+import 'markdown_line_shape.dart';
+import 'markdown_list_syntax.dart';
 
 /// Kinds of multi-line block recognized by the chunker. Single-line
 /// content (paragraphs, headings, list items, blockquotes, rules,
@@ -27,7 +29,10 @@ import 'markdown_callout_syntax.dart';
 ///
 /// [comment] is a `%%` block comment, from a `%%` line through the next
 /// one (or the end); its lines render as nothing but their line slot.
-enum MarkdownBlockKind { codeFence, callout, comment }
+///
+/// [frontMatter] is a YAML properties block ([MarkdownChunker.frontMatterEnd]),
+/// only ever at line `0`; like a comment it keeps only its line slots.
+enum MarkdownBlockKind { codeFence, callout, comment, frontMatter }
 
 /// A contiguous run of source lines forming one logical markdown block.
 ///
@@ -108,6 +113,106 @@ class MarkdownChunker {
   /// fence packs to at least 6 ([fenceOpenerOf]), so the two never meet.
   static const int insideComment = 1;
 
+  /// The [blockStateAfter] state inside a front matter block, which only
+  /// [frontMatterEnd] can open — the opener at line `0` is a front
+  /// matter only when a closer follows, which no one-line step can know —
+  /// and which [blockStateAfter] closes at its `---` or `...` line.
+  static const int insideFrontMatter = 2;
+
+  /// The line after the front matter that opens the document, or `0`
+  /// when there is none: line `0` is `---` with no indent, a later line
+  /// is `---` or `...` with no indent (trailing blanks aside, as for every
+  /// marker), and every line between them — at least one — is a YAML-ish
+  /// property: `key: value`, `key:` or `- item`, indented by spaces or
+  /// not. The first property is a key: YAML front matter is a mapping, so
+  /// a `- item` only continues a key's list, and a list framed by two rules
+  /// at the top of a note stays a list. A blank line, a fence or comment
+  /// delimiter, or any other shape breaks the candidate, so a `---` rule
+  /// above prose stays a rule. The scan stops at the first line that
+  /// closes or breaks the block, so it costs no more than the block is
+  /// long.
+  static int frontMatterEnd(int lineCount, String Function(int index) lineAt) =>
+      frontMatterEndAt(frontMatterStop(lineCount, lineAt), lineCount, lineAt);
+
+  /// The line [frontMatterEnd]'s scan stops at: the closer, the first line
+  /// that breaks the candidate, `0` when line `0` opens none, or
+  /// [lineCount] when the properties run to the end. No line below it is
+  /// read, so an edit below it cannot change [frontMatterEnd] — the bound
+  /// the editor's line index re-reads within.
+  static int frontMatterStop(int lineCount, String Function(int index) lineAt) {
+    if (lineCount < 3 || !_isFrontMatterMarker(lineAt(0), _kDash)) return 0;
+    for (int i = 1; i < lineCount; i++) {
+      final String line = lineAt(i);
+      if (i > 1 && isFrontMatterCloser(line)) return i;
+      if (!_isFrontMatterProperty(line, itemAllowed: i > 1)) return i;
+    }
+    return lineCount;
+  }
+
+  /// [frontMatterEnd] from a [frontMatterStop] already read, so a caller
+  /// that needs both scans once: the stop closes a front matter only when
+  /// it is a closer below the first property.
+  static int frontMatterEndAt(
+    int stop,
+    int lineCount,
+    String Function(int index) lineAt,
+  ) => stop > 1 && stop < lineCount && isFrontMatterCloser(lineAt(stop))
+      ? stop + 1
+      : 0;
+
+  /// Whether [line] closes an open front matter: `---` or `...` with no
+  /// indent and nothing but blanks after it.
+  static bool isFrontMatterCloser(String line) =>
+      _isFrontMatterMarker(line, _kDash) || _isFrontMatterMarker(line, _kDot);
+
+  /// `ccc` at the start of [line], then nothing but blanks.
+  static bool _isFrontMatterMarker(String line, int c) =>
+      line.length >= 3 &&
+      line.codeUnitAt(0) == c &&
+      line.codeUnitAt(1) == c &&
+      line.codeUnitAt(2) == c &&
+      _blankFrom(line, 3);
+
+  /// A YAML-ish property line: spaces, then `- ` (or a bare `-`), or a
+  /// key of letters, digits, `_`, `-`, `.`, spaces or any non-ASCII unit,
+  /// led by a letter, digit, `_` or non-ASCII unit, then `:` at the end or
+  /// before a blank. The lead keeps every markdown construct out — a
+  /// `#`, `>`, `$`, `%`, `|`, a backtick or a tilde never starts a key.
+  /// Allocation-free. [itemAllowed] is false for the first property, which
+  /// must be a key.
+  static bool _isFrontMatterProperty(String line, {required bool itemAllowed}) {
+    final int n = line.length;
+    int i = 0;
+    while (i < n && line.codeUnitAt(i) == 0x20) {
+      i++;
+    }
+    if (i >= n) return false;
+    final int lead = line.codeUnitAt(i);
+    if (lead == _kDash) {
+      return itemAllowed && (i + 1 == n || line.codeUnitAt(i + 1) == 0x20);
+    }
+    if (!_isKeyLead(lead)) return false;
+    for (int j = i + 1; j < n; j++) {
+      final int c = line.codeUnitAt(j);
+      if (c == _kColon) {
+        if (j + 1 == n) return true;
+        final int after = line.codeUnitAt(j + 1);
+        return after == 0x20 || after == 0x09 || after == 0x0D;
+      }
+      if (!_isKeyLead(c) && c != _kDash && c != _kDot && c != 0x20) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  static bool _isKeyLead(int c) =>
+      (c >= 0x30 && c <= 0x39) ||
+      (c >= 0x41 && c <= 0x5A) ||
+      (c >= 0x61 && c <= 0x7A) ||
+      c == 0x5F ||
+      c >= 0x80;
+
   /// The packed fence [line] would open, or [outsideBlock] when it opens
   /// none: any indent of spaces or tabs, then a run of three or more
   /// backticks whose info string (the rest of the line) holds no
@@ -173,14 +278,53 @@ class MarkdownChunker {
       fenceOpenerOf(line) != outsideBlock;
 
   /// Whether [line] is blank — empty or whitespace by `trim`'s reading.
-  /// The one test every surface reads for "a non-blank line follows",
-  /// the condition under which a trailing `\` is a hard break rather
-  /// than text: CommonMark breaks a line only inside a paragraph.
   static bool isBlankLine(String line) => line.trim().isEmpty;
+
+  /// Whether [nextLine] continues the paragraph [line] ends — the one
+  /// test every surface reads for a trailing `\`, which CommonMark breaks
+  /// only inside a paragraph: elsewhere it stays text, so `- D:\a\` above
+  /// `- D:\b\` keeps its backslash. The next line must hold prose: not
+  /// blank, not a list item, not a [MarkdownLineShape.isLineLedConstruct]
+  /// (headings, rules, fences, `%%` markers, tables, money rows). A quote
+  /// line is continued only by a quote line whose content passes the same
+  /// test and that is no deeper — a deeper `>` opens a nested quote, which
+  /// interrupts the paragraph, where a shallower one is CommonMark's lazy
+  /// continuation — and never by a callout lead, which opens a new block.
+  /// A quote line never continues a non-quote one. [lineAfter], the line
+  /// after [nextLine], rejects a setext heading's text line: the grammar
+  /// makes only that one line the heading, so the paragraph ends above it.
+  /// Whether either line sits in a fence or a comment is positional; the
+  /// caller checks that.
+  static bool continuesParagraph(
+    String line,
+    String? nextLine, [
+    String? lineAfter,
+  ]) {
+    if (nextLine == null) return false;
+    final bool quoted = MarkdownCalloutSyntax.isBlockquoteLine(line);
+    if (quoted != MarkdownCalloutSyntax.isBlockquoteLine(nextLine)) {
+      return false;
+    }
+    var restStart = 0;
+    if (quoted) {
+      final next = MarkdownCalloutSyntax.quoteMarkers(nextLine);
+      final own = MarkdownCalloutSyntax.quoteMarkers(line);
+      if (next != null && own != null && next.depth > own.depth) return false;
+      if (MarkdownCalloutSyntax.parseLead(nextLine) != null) return false;
+      restStart = next?.contentStart ?? 0;
+    }
+    final String rest = restStart == 0
+        ? nextLine
+        : nextLine.substring(restStart);
+    return !isBlankLine(rest) &&
+        MarkdownListSyntax.scanListShape(rest) < 0 &&
+        !MarkdownLineShape.isLineLedConstruct(rest) &&
+        MarkdownLineShape.setextLevelOf(nextLine, lineAfter) == 0;
+  }
 
   /// Whether a [blockStateAfter] / [fenceStateAfter] state is inside a
   /// code fence.
-  static bool isFenceState(int state) => state > insideComment;
+  static bool isFenceState(int state) => state > insideFrontMatter;
 
   /// The fence state after [line] when [state] held before it: the one
   /// fence transition the preview's block scan, the editor's line index,
@@ -196,10 +340,15 @@ class MarkdownChunker {
   /// [fenceStateAfter] with `%%` block comments: a comment opens only
   /// outside a fence (a `%%` line inside one is code), and nothing but
   /// the next `%%` line ends it (a fence line inside one is comment). An
-  /// unclosed comment runs to the end like an unclosed fence.
+  /// unclosed comment runs to the end like an unclosed fence. An open
+  /// front matter ([insideFrontMatter], seeded by a caller that read
+  /// [frontMatterEnd]) ends at its closer and opens nothing inside.
   static int blockStateAfter(String line, int state) {
     if (state == insideComment) {
       return isCommentDelimiter(line) ? outsideBlock : insideComment;
+    }
+    if (state == insideFrontMatter) {
+      return isFrontMatterCloser(line) ? outsideBlock : insideFrontMatter;
     }
     final int next = fenceStateAfter(line, state);
     if (state == outsideBlock && next == outsideBlock) {
@@ -235,6 +384,9 @@ class MarkdownChunker {
   static const int _kBacktick = 0x60; // `
   static const int _kTilde = 0x7E; // ~
   static const int _kPercent = 0x25; // %
+  static const int _kDash = 0x2D; // -
+  static const int _kDot = 0x2E; // .
+  static const int _kColon = 0x3A; // :
 
   /// Computes the full chunk layout for a document of [lineCount] lines.
   ///
@@ -267,7 +419,17 @@ class MarkdownChunker {
   ) {
     final blocks = <MarkdownBlock>[];
 
-    int i = 0;
+    int i = frontMatterEnd(lineCount, lineAt);
+    if (i > 0) {
+      blocks.add(
+        MarkdownBlock(
+          kind: MarkdownBlockKind.frontMatter,
+          startLine: 0,
+          endLine: i,
+          atomic: false,
+        ),
+      );
+    }
     while (i < lineCount) {
       final line = lineAt(i);
 

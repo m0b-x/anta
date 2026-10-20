@@ -118,6 +118,71 @@ void main() {
       }
     });
 
+    // U2.9: the glyph alone says nothing to TalkBack.
+    testWidgets('each save state has its own label, and only a failed save '
+        'is a live region', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final en = lookupAppLocalizations(const Locale('en'));
+      final status = ValueNotifier<SaveStatus>(SaveStatus.saved);
+      addTearDown(status.dispose);
+      await tester.pumpWidget(
+        host(NoteAppBar(title: 'Wednesday', saveStatusNotifier: status)),
+      );
+
+      final labels = {
+        SaveStatus.saved: en.saveStateSaved,
+        SaveStatus.unsaved: en.saveStateUnsaved,
+        SaveStatus.saving: en.saveStateSaving,
+        SaveStatus.error: en.saveStateError,
+      };
+      for (final MapEntry(key: next, value: label) in labels.entries) {
+        status.value = next;
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(label)),
+          isSemantics(
+            label: label,
+            isLiveRegion: next == SaveStatus.error,
+          ),
+          reason: next.name,
+        );
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('a clean note with no notifier has no save-state node', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final en = lookupAppLocalizations(const Locale('en'));
+      await tester.pumpWidget(host(const NoteAppBar(title: 'Wednesday')));
+
+      expect(find.bySemanticsLabel(en.saveStateSaved), findsNothing);
+      expect(find.bySemanticsLabel(en.saveStateUnsaved), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('the title is a button named Edit title with a tap action', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final en = lookupAppLocalizations(const Locale('en'));
+      var taps = 0;
+      await tester.pumpWidget(
+        host(NoteAppBar(title: 'Wednesday', onTitleTap: () => taps++)),
+      );
+
+      final title = find.bySemanticsLabel(RegExp(RegExp.escape(en.editTitle)));
+      expect(
+        tester.getSemantics(title),
+        isSemantics(isButton: true, hasTapAction: true),
+      );
+      await tester.tap(find.text('Wednesday'));
+      expect(taps, 1);
+      semantics.dispose();
+    });
+
     testWidgets('the unsaved dot is 8 dp in primary on both paths', (
       tester,
     ) async {

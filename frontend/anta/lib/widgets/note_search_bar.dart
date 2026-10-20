@@ -190,9 +190,13 @@ class NoteSearchBarState extends State<NoteSearchBar>
     _navigateToCurrent();
   }
 
-  /// Leaves search the one way this bar knows how, so the app bar's own
-  /// toggle and the bar's trailing X take the same path out.
+  /// Leaves search the one way this bar knows how, the trailing X's path
+  /// out, for a host that has to close it from outside.
   Future<void> close() => _close();
+
+  /// Puts the caret back in the query field, for the app bar's toggle while
+  /// the row is already open.
+  void focusField() => _searchFocus.requestFocus();
 
   Future<void> _close() async {
     _messageTimer?.cancel();
@@ -397,7 +401,7 @@ class NoteSearchBarState extends State<NoteSearchBar>
                   ),
                   _IconBtn(
                     icon: Icons.close_rounded,
-                    tooltip: hasQuery ? l10n.clearSearch : l10n.close,
+                    tooltip: hasQuery ? l10n.clearSearch : l10n.closeSearch,
                     onPressed: _clearOrClose,
                     muted: true,
                     width: buttonWidth,

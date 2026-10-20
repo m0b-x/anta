@@ -104,6 +104,14 @@ import 'money_display_config.dart';
 /// whole document.
 class MarkdownEditorSpanBuilder {
   static const double _quoteContentAlpha = 0.8;
+
+  // The [EditorSpanCache.quoteStyle] slots: a plain quote's content, the
+  // revealed bars, a plain quote's bars, then one per callout type.
+  static const int _quoteContentSlot = 0;
+  static const int _quoteRevealedBarSlot = 1;
+  static const int _quotePlainBarSlot = 2;
+  static const int _quoteCalloutBarSlot = 3;
+
   static const double _ruleAlpha = 0.3;
 
   /// Alpha of a table row's `|` separators, tinted with the primary
@@ -262,7 +270,9 @@ class MarkdownEditorSpanBuilder {
         switch (fenceRole) {
           MarkdownFenceRole.delimiter =>
             EditorSpanCache.positionalFenceDelimiter,
-          MarkdownFenceRole.comment => EditorSpanCache.positionalComment,
+          // A front matter line renders exactly as a comment line does.
+          MarkdownFenceRole.comment ||
+          MarkdownFenceRole.frontMatter => EditorSpanCache.positionalComment,
           _ => EditorSpanCache.positionalFenceInterior,
         },
         0,
@@ -668,6 +678,16 @@ class MarkdownEditorSpanBuilder {
         TextSpan(text: text.substring(contentEnd), style: chromeStyle),
       );
     }
+    // A quoted heading hangs past the bars like every other quote line
+    // with content, in both reveal states, so its wrapped rows never
+    // run under the bar.
+    if (base > 0 && base < text.length) {
+      return CodeHangingTextSpan(
+        hangingChars: base,
+        style: headerStyle,
+        children: children,
+      );
+    }
     return TextSpan(style: headerStyle, children: children);
   }
 
@@ -822,7 +842,9 @@ class MarkdownEditorSpanBuilder {
   ///
   /// On reveal the raw `>` shows dimmed; line height never changes. The
   /// icon is sized off the line's own font size and clamped under the
-  /// line box exactly like the task checkbox.
+  /// line box exactly like the task checkbox. A line with content returns
+  /// a [CodeHangingTextSpan] split at the content start, so its wrapped
+  /// rows sit under the text instead of under the bars.
   ///
   /// The shapeless branch is unreachable by the grammar's own contract —
   /// [MarkdownCalloutSyntax.quoteMarkers] returns a shape for every line
@@ -847,10 +869,14 @@ class MarkdownEditorSpanBuilder {
     final children = <InlineSpan>[];
     final shape = MarkdownCalloutSyntax.quoteMarkers(text);
     final contentStyle = blockAccent == null
-        ? style.copyWith(
-            fontStyle: FontStyle.italic,
-            color: ctx.baseColor.withValues(alpha: _quoteContentAlpha),
-          )
+        ? _cache.quoteStyle(ctx, _quoteContentSlot) ??
+              _cache.putQuoteStyle(
+                _quoteContentSlot,
+                style.copyWith(
+                  fontStyle: FontStyle.italic,
+                  color: ctx.baseColor.withValues(alpha: _quoteContentAlpha),
+                ),
+              )
         : style;
     if (shape == null) {
       EditorInlineEmitter.append(
@@ -869,18 +895,34 @@ class MarkdownEditorSpanBuilder {
       return TextSpan(style: style, children: children);
     }
 
+    // The bars sit inside a quoted heading's root span, so a weight left
+    // null would inherit the heading's; pinned, they keep the bar style
+    // the preview draws.
+    final barGround = _cache.quoteBarGround(ctx);
+    final int barSlot = reveal
+        ? _quoteRevealedBarSlot
+        : blockType == null
+        ? _quotePlainBarSlot
+        : _quoteCalloutBarSlot + blockType.index;
     _emitQuoteBars(
       text: text,
       shape: shape,
-      style: style,
-      barStyle: reveal
-          ? EditorSpanEmitter.dimStyle(style, ctx.baseColor)
-          : style.copyWith(
-              color:
-                  blockAccent ??
-                  (ctx.isDark ? Colors.grey.shade700 : Colors.grey.shade300),
-              fontWeight: blockAccent == null ? null : FontWeight.bold,
-            ),
+      style: barGround,
+      barStyle:
+          _cache.quoteStyle(ctx, barSlot) ??
+          _cache.putQuoteStyle(
+            barSlot,
+            reveal
+                ? EditorSpanEmitter.dimStyle(barGround, ctx.baseColor)
+                : barGround.copyWith(
+                    color:
+                        blockAccent ??
+                        (ctx.isDark
+                            ? Colors.grey.shade700
+                            : Colors.grey.shade300),
+                    fontWeight: blockAccent == null ? null : FontWeight.bold,
+                  ),
+          ),
       reveal: reveal,
       out: children,
     );
@@ -1044,6 +1086,16 @@ class MarkdownEditorSpanBuilder {
         out: children,
         depth: 0,
         hardBreaks: hardBreaks && lead == null,
+      );
+    }
+    // Like a list item, a quote or callout line with content hangs its
+    // wrapped rows at the content start, past the bars, in both reveal
+    // states; the split falls after the bars' blank, a word boundary.
+    if (shape.contentStart < text.length) {
+      return CodeHangingTextSpan(
+        hangingChars: shape.contentStart,
+        style: style,
+        children: children,
       );
     }
     return TextSpan(style: style, children: children);
@@ -1314,7 +1366,12 @@ class MarkdownEditorSpanBuilder {
                 : MarkdownListSyntax.bulletGlyph(item.level),
             style: reveal
                 ? EditorSpanEmitter.dimStyle(style, baseColor)
-                : style.copyWith(color: primary, fontWeight: FontWeight.bold),
+                // Upright even in a quote's italic, as the preview draws it.
+                : style.copyWith(
+                    color: primary,
+                    fontWeight: FontWeight.bold,
+                    fontStyle: FontStyle.normal,
+                  ),
           ),
         );
         if (markerEnd < contentStart) {
@@ -1331,7 +1388,12 @@ class MarkdownEditorSpanBuilder {
         children.add(
           TextSpan(
             text: '${item.marker}${item.delimiter}',
-            style: style.copyWith(color: primary, fontWeight: FontWeight.w600),
+            // Upright in a quote's italic too, as the preview draws it.
+            style: style.copyWith(
+              color: primary,
+              fontWeight: FontWeight.w600,
+              fontStyle: FontStyle.normal,
+            ),
           ),
         );
         if (markerEnd < contentStart) {
@@ -1450,13 +1512,16 @@ class MarkdownEditorSpanBuilder {
     return TextSpan(style: ctx.style, children: children);
   }
 
-  /// Code-fence lines mirror the preview's treatment at base size: ```
-  /// delimiter lines render monospace and dimmed, interior lines plain
-  /// monospace. No per-line background: an empty interior line can't
-  /// paint one (no glyphs, and inserting characters is forbidden), so a
-  /// background would render striped around blank lines. Nothing is
-  /// concealed, so the styling holds on reveal lines too (same rule as
-  /// tags), and ghosts compose on delimiter and interior lines alike.
+  /// Code-fence lines mirror the preview's treatment: ``` delimiter
+  /// lines dimmed, interior lines plain, both in the inline-code style
+  /// ([EditorInlineEmitter.codeStyle], monospace at the code scale) over
+  /// the inline-code chip. The root keeps the line style, so the strut —
+  /// and the line's height — is the prose line's. The chip is the faint
+  /// per-glyph ground, never a block background: an empty interior line
+  /// has no glyphs to paint one behind, and inserting characters is
+  /// forbidden. Nothing is concealed, so the styling holds on reveal
+  /// lines too (same rule as tags), and ghosts compose on delimiter and
+  /// interior lines alike.
   ///
   /// A `%%` block comment's lines — markers and body — render dimmed in
   /// the prose font in both reveal states: concealing a whole line would
@@ -1472,15 +1537,12 @@ class MarkdownEditorSpanBuilder {
         ? GhostText.findGhosts(text)
         : const <GhostMatch>[];
     final lineStyle = switch (role) {
-      MarkdownFenceRole.delimiter => style.copyWith(
-        fontFamily: 'monospace',
-        color: ctx.baseColor.withValues(alpha: _fenceDelimiterAlpha),
-      ),
-      MarkdownFenceRole.comment => EditorSpanEmitter.dimStyle(
+      MarkdownFenceRole.delimiter => EditorInlineEmitter.codeStyle(
         style,
-        ctx.baseColor,
-      ),
-      _ => style.copyWith(fontFamily: 'monospace'),
+      ).copyWith(color: ctx.baseColor.withValues(alpha: _fenceDelimiterAlpha)),
+      MarkdownFenceRole.comment || MarkdownFenceRole.frontMatter =>
+        EditorSpanEmitter.dimStyle(style, ctx.baseColor),
+      _ => EditorInlineEmitter.codeStyle(style),
     };
     final children = <InlineSpan>[];
     EditorSpanEmitter.emit(
@@ -1491,6 +1553,11 @@ class MarkdownEditorSpanBuilder {
       baseColor: ctx.baseColor,
       ghosts: ghosts,
       out: children,
+      decoration:
+          role == MarkdownFenceRole.comment ||
+              role == MarkdownFenceRole.frontMatter
+          ? null
+          : EditorInlineEmitter.codeDecoration(style, ctx.baseColor),
     );
     return TextSpan(style: style, children: children);
   }
@@ -1568,6 +1635,37 @@ class MarkdownEditorSpanBuilder {
     return _fenceRoleAt(controller, index) == MarkdownFenceRole.interior;
   }
 
+  /// The packed [MarkdownChunker.blockStateAfter] state the line at
+  /// [index] is read in, from the shared index
+  /// ([MarkdownEditorLineIndex.blockStateAt]): which fence, comment or
+  /// front matter is open there. Public so a paste seeds its reflow with
+  /// the editor's own reading of the lines above it.
+  int blockStateAt(int index) {
+    final controller = _controller;
+    if (controller == null) return MarkdownChunker.outsideBlock;
+    return _lineIndex.blockStateAt(controller.codeLines, index);
+  }
+
+  /// The heading the editor draws on the line at [index]: an ATX line's
+  /// level, a setext text line's level, a setext underline's level
+  /// negated, or `0`. Read with the rendering's own rules — a line past
+  /// [maxStyledLineLength] renders raw, and a line with a block role is
+  /// never a heading — so the heading tools (the H menu's check, the
+  /// level rewrite, the `[[Note#heading]]` target) act on exactly the
+  /// headings the user sees.
+  int headingLevelAt(int index) {
+    final controller = _controller;
+    if (controller == null) return 0;
+    final lines = controller.codeLines;
+    if (index < 0 || index >= lines.length) return 0;
+    final text = lines[index].text;
+    if (text.isEmpty || text.length > maxStyledLineLength) return 0;
+    if (_fenceRoleAt(controller, index) != MarkdownFenceRole.none) return 0;
+    final atx = MarkdownLineShape.headingAt(text)?.level;
+    if (atx != null) return atx;
+    return _setextAt(controller, index, text);
+  }
+
   /// The callout role of the line at [index] — whether it leads a
   /// `> [!TYPE]` block, sits in one's body, or belongs to none. Public
   /// alongside [lineInFence] for the same reason: membership is
@@ -1589,13 +1687,19 @@ class MarkdownEditorSpanBuilder {
     int index,
   ) => _lineIndex.fenceRoleAt(controller.codeLines, index);
 
-  /// Whether a line follows [index] and holds more than spacing — the
+  /// Whether the line after [index] continues its paragraph — the
   /// condition under which the line's trailing `\` is a hard break, read
-  /// through [MarkdownChunker.isBlankLine] as the preview and the plain
-  /// text read it.
+  /// through [MarkdownChunker.continuesParagraph] as the preview and the
+  /// plain text read it. The line after next takes part (a setext text
+  /// line ends the paragraph), and the memo keys on the answer, so a
+  /// change two lines down still reaches this line's span.
   static bool _nextLineContinues(CodeLines lines, int index) =>
       index + 1 < lines.length &&
-      !MarkdownChunker.isBlankLine(lines[index + 1].text);
+      MarkdownChunker.continuesParagraph(
+        lines[index].text,
+        lines[index + 1].text,
+        index + 2 < lines.length ? lines[index + 2].text : null,
+      );
 
   static const int _kBackslash = 0x5C; // \
 

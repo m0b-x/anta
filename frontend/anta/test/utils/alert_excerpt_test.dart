@@ -38,6 +38,13 @@ void main() {
     expect(alertExcerptFor('Title\\\nmore'), 'Title');
   });
 
+  test('a setext underline never surfaces', () {
+    expect(alertExcerptFor('%%note%%\n===\nbody'), 'body');
+    expect(alertExcerptFor('%%note%%\n---\nbody'), 'body');
+    // Under a fence body line it is no underline, and `===` is text.
+    expect(alertExcerptFor('```\n%%note%%\n===\n```'), '===');
+  });
+
   test('links keep their text, wiki links their title', () {
     expect(
       alertExcerptFor('See [the plan](https://example.com) and [[Session 1]]'),
@@ -85,6 +92,12 @@ void main() {
     expect(alertExcerptFor('- call Bob\\'), r'call Bob\');
     expect(alertExcerptFor(r'D:\Backups\'), r'D:\Backups\');
     expect(alertExcerptFor('a\\\n\nb'), r'a\');
+    expect(alertExcerptFor('- D:\\a\\\n- D:\\b\\'), r'D:\a\');
+    expect(alertExcerptFor('a\\\n# H'), r'a\');
+    expect(alertExcerptFor('a\\\n> b'), r'a\');
+    expect(alertExcerptFor('a\\\nb\n==='), r'a\');
+    expect(alertExcerptFor('> a\\\n> > b'), r'a\');
+    expect(alertExcerptFor('> a\\\n> [!TIP] x'), r'a\');
     expect(alertExcerptFor(r'a\\'), r'a\');
     expect(alertExcerptFor(r'# Heading\'), r'Heading\');
     expect(alertExcerptFor(r'> [!TIP] title\'), r'title\');
@@ -100,6 +113,8 @@ void main() {
     expect(alertExcerptFor('~~~\ncode\n~~~\nafter'), 'code');
     expect(alertExcerptFor('```npm i```'), 'npm i');
     expect(alertExcerptFor('%%\nhidden\n%%\nshown'), 'shown');
+    expect(alertExcerptFor('---\ntitle: x\ntags: a\n---\n# H1'), 'H1');
+    expect(alertExcerptFor('---\ntitle: x\n...\nshown'), 'shown');
     expect(alertExcerptFor('%%secret%% visible'), 'visible');
     expect(alertExcerptFor('| a | b |\n| --- | --- |\nreal text'), 'real text');
     expect(alertExcerptFor('> quoted words'), 'quoted words');

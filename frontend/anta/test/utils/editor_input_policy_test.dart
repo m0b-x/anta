@@ -958,6 +958,43 @@ void main() {
       expect(zonesFor(''), isEmpty);
     });
 
+    String nameOf(String line, EditorTapZone zone) =>
+        line.substring(zone.nameStart, zone.nameEnd);
+
+    test('a task zone names its content and carries the marked state', () {
+      for (final (line, name, checked) in const [
+        ('- [ ] squat', 'squat', false),
+        ('- [x] squat', 'squat', true),
+        ('- [-] skip', 'skip', true),
+        ('- [/] half', 'half', true),
+        ('- [x]done', 'done', true),
+        ('> - [ ] quoted', 'quoted', false),
+      ]) {
+        final zone = zonesFor(line).single;
+        expect(zone.action, const EditorToggleTaskAction(lineIndex));
+        expect(nameOf(line, zone), name, reason: line);
+        expect(zone.checked, checked, reason: line);
+      }
+    });
+
+    test('a link zone names its label, and both halves a ghost cuts agree', () {
+      const line = '[a {{reps}} b](https://x.dev)';
+      final zones = zonesFor(line);
+      expect(zones, hasLength(2));
+      for (final zone in zones) {
+        expect(nameOf(line, zone), 'a {{reps}} b');
+        expect(zone.checked, isNull);
+      }
+      expect(nameOf('<https://x.dev>', zonesFor('<https://x.dev>').single), '');
+    });
+
+    test('a wiki-link zone names its alias, else its title', () {
+      const aliased = '[[Squat|the plan]]';
+      expect(nameOf(aliased, zonesFor(aliased).single), 'the plan');
+      const plain = '[[Workout#Warm-up]]';
+      expect(nameOf(plain, zonesFor(plain).single), 'Workout#Warm-up');
+    });
+
     test('a tag or link inside a %%comment%% is no zone, revealed or not', () {
       expect(zonesFor('#t [l](https://a.com)'), isNotEmpty);
       expect(zonesFor('%%#t [l](https://a.com)%%'), isEmpty);

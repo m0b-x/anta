@@ -452,15 +452,15 @@
   "error": "Eroare: {message}",
   "created": "Creat: {date}",
   "updated": "Actualizat: {date}",
-  "deleteFolder": "Șterge Folder",
+  "deleteFolder": "Șterge dosarul",
   "deleteFolderConfirm": "Ești sigur că vrei să ștergi \"{name}\"?",
   "deleteFolderWithNotesConfirm": "Ești sigur că vrei să ștergi \"{name}\"? {count, plural, =1{Aceasta va șterge și 1 notiță.} few{Aceasta va șterge și {count} notițe.} other{Aceasta va șterge și {count} de notițe.}}",
   "rename": "Redenumește",
-  "renameFolder": "Redenumește Folder",
+  "renameFolder": "Redenumește dosarul",
   "untitledNote": "Notiță fără titlu",
   "emptyNote": "Notiță goală",
   "noteNotFound": "Notița nu a fost găsită",
-  "deleteNote": "Șterge Notiță",
+  "deleteNote": "Șterge notița",
   "deleteNoteConfirm": "Ești sigur că vrei să ștergi \"{title}\"?",
   "deleteThisNote": "această notiță",
   "enterFolderName": "Introdu numele folderului",
@@ -476,7 +476,7 @@
   "startWriting": "Începe să scrii prima ta notiță...",
   "noteCannotBeEmpty": "Notița nu poate fi goală",
   "noteSaved": "Notiță salvată!",
-  "editTitle": "Editează Titlu",
+  "editTitle": "Editează titlul",
   "enterNoteTitle": "Introdu titlul notiței",
   "autoSaveEnabled": "Auto-salvare activată",
   "autoSaveDisabled": "Auto-salvare dezactivată",
@@ -495,7 +495,7 @@
   "remove": "Elimină",
   "defaultLabel": "IMPLICIT",
   "insertsCurrentDate": "Inserează data curentă",
-  "opensHeaderMenu": "Deschide meniul de anteturi (H1-H6)",
+  "opensHeaderMenu": "Deschide meniul de titluri (text normal, H1-H6)",
   "beforeAfterText": "Înainte: \"{before}\" | După: \"{after}\"",
   "hide": "Ascunde",
   "show": "Arată",
@@ -522,7 +522,7 @@
   "formHasErrors": "Te rugăm să corectezi erorile din formular",
   "bold": "Îngroșat",
   "italic": "Italic",
-  "headers": "Anteturi",
+  "headers": "Titlu",
   "pointList": "Listă cu Puncte",
   "strikethrough": "Tăiat",
   "bulletList": "Listă cu Buline",
@@ -533,12 +533,13 @@
   "codeBlock": "Bloc de Cod",
   "link": "Link",
   "currentDate": "Data Curentă",
-  "header1": "Antet 1",
-  "header2": "Antet 2",
-  "header3": "Antet 3",
-  "header4": "Antet 4",
-  "header5": "Antet 5",
-  "header6": "Antet 6",
+  "header1": "Titlu 1",
+  "header2": "Titlu 2",
+  "header3": "Titlu 3",
+  "header4": "Titlu 4",
+  "header5": "Titlu 5",
+  "header6": "Titlu 6",
+  "headingBodyText": "Text normal",
   "indentLine": "Indentează",
   "outdentLine": "Reduce indentarea",
   "shortcutHighlight": "Evidențiere",
@@ -583,7 +584,35 @@
   "descending": "Descrescător",
   "loadingContent": "Se încarcă conținutul...",
   "largeNoteWarning": "Această notiță este foarte mare și poate dura un moment să se încarce",
-  "noteStats": "{count, plural, =1{1 caracter distinct} few{{count} caractere distincte} other{{count} de caractere distincte}}, {chunks, plural, =1{1 fragment} few{{chunks} fragmente} other{{chunks} de fragmente}}",
+  "noteStats": "{count, plural, =1{1 caracter} few{{count} caractere} other{{count} de caractere}} · {lines, plural, =1{1 linie} few{{lines} linii} other{{lines} de linii}}",
+  "@noteStats": {
+    "description": "Statisticile notiței",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "lines": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "noteChunkCount": "{count, plural, =1{1 fragment} few{{count} fragmente} other{{count} de fragmente}}",
+  "@noteChunkCount": {
+    "description": "Numărul de fragmente de stocare din linia de statistici, doar cu indicatorii de dezvoltator",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editorHint": "Începe să scrii…",
+  "closeSearch": "Închide căutarea",
+  "saveStateSaved": "Salvat",
+  "saveStateUnsaved": "Modificări nesalvate",
+  "saveStateSaving": "Se salvează",
+  "saveStateError": "Nesalvat",
   "compressedNote": "Comprimat",
   "searchInFolder": "Caută în acest folder",
   "searchAll": "Caută în toate notițele",
@@ -650,7 +679,7 @@
   "preparingShare": "Se pregătește partajarea...",
   "shareError": "Eroare la partajarea bazei de date",
   "databaseNotFound": "Fișierul bazei de date nu a fost găsit",
-  "renameNote": "Redenumește Notița",
+  "renameNote": "Redenumește notița",
   "enterNewName": "Introdu noul nume",
   "sortByCustom": "Ordine Personalizată",
   "quickSort": "Sortare Rapidă",
@@ -691,8 +720,8 @@
   "resetToDefaults": "Resetează la valorile implicite",
   "resetToDefaultsConfirm": "Ești sigur că vrei să resetezi toate setările la valorile implicite?",
   "settingsReset": "Setările au fost resetate la valorile implicite",
-  "shareNote": "Partajează Notița",
-  "shareFolder": "Partajează Folderul",
+  "shareNote": "Partajează notița",
+  "shareFolder": "Partajează dosarul",
   "exportingFolder": "Se exportă folderul...",
   "folderExportError": "Eroare la exportul folderului",
   "importingFile": "Se importă...",
@@ -1534,6 +1563,38 @@
   "editorZoneOpenMoney": "Deschide detaliile registrului",
   "editorZoneSearchTag": "Caută eticheta",
   "editorZoneOpenWikiLink": "Deschide nota asociată",
+  "editorZoneToggleTaskNamed": "Comută sarcina: {task}",
+  "@editorZoneToggleTaskNamed": {
+    "placeholders": {
+      "task": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneOpenLinkNamed": "Deschide linkul: {link}",
+  "@editorZoneOpenLinkNamed": {
+    "placeholders": {
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneOpenWikiLinkNamed": "Deschide nota asociată: {note}",
+  "@editorZoneOpenWikiLinkNamed": {
+    "placeholders": {
+      "note": {
+        "type": "String"
+      }
+    }
+  },
+  "editorZoneSearchTagNamed": "Caută eticheta: {tag}",
+  "@editorZoneSearchTagNamed": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
   "showAncestors": "Arată folderele părinte",
   "labelAction": "Etichetă",
   "labelSelected": "Etichetă",

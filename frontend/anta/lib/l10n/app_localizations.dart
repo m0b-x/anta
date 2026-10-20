@@ -2695,7 +2695,7 @@ abstract class AppLocalizations {
   /// Delete folder dialog title
   ///
   /// In en, this message translates to:
-  /// **'Delete Folder'**
+  /// **'Delete folder'**
   String get deleteFolder;
 
   /// Delete folder confirmation message
@@ -2719,7 +2719,7 @@ abstract class AppLocalizations {
   /// Rename folder dialog title
   ///
   /// In en, this message translates to:
-  /// **'Rename Folder'**
+  /// **'Rename folder'**
   String get renameFolder;
 
   /// Default title for untitled notes
@@ -2743,7 +2743,7 @@ abstract class AppLocalizations {
   /// Delete note dialog title
   ///
   /// In en, this message translates to:
-  /// **'Delete Note'**
+  /// **'Delete note'**
   String get deleteNote;
 
   /// Delete note confirmation message
@@ -2839,7 +2839,7 @@ abstract class AppLocalizations {
   /// Edit title dialog title
   ///
   /// In en, this message translates to:
-  /// **'Edit Title'**
+  /// **'Edit title'**
   String get editTitle;
 
   /// Hint text for note title input
@@ -2953,7 +2953,7 @@ abstract class AppLocalizations {
   /// Description for header shortcut
   ///
   /// In en, this message translates to:
-  /// **'Opens header menu (H1-H6)'**
+  /// **'Opens the heading menu (body text, H1-H6)'**
   String get opensHeaderMenu;
 
   /// Description showing before and after text
@@ -3115,7 +3115,7 @@ abstract class AppLocalizations {
   /// Headers shortcut label
   ///
   /// In en, this message translates to:
-  /// **'Headers'**
+  /// **'Heading'**
   String get headers;
 
   /// Point list shortcut label
@@ -3181,38 +3181,44 @@ abstract class AppLocalizations {
   /// Header 1 menu item
   ///
   /// In en, this message translates to:
-  /// **'Header 1'**
+  /// **'Heading 1'**
   String get header1;
 
   /// Header 2 menu item
   ///
   /// In en, this message translates to:
-  /// **'Header 2'**
+  /// **'Heading 2'**
   String get header2;
 
   /// Header 3 menu item
   ///
   /// In en, this message translates to:
-  /// **'Header 3'**
+  /// **'Heading 3'**
   String get header3;
 
   /// Header 4 menu item
   ///
   /// In en, this message translates to:
-  /// **'Header 4'**
+  /// **'Heading 4'**
   String get header4;
 
   /// Header 5 menu item
   ///
   /// In en, this message translates to:
-  /// **'Header 5'**
+  /// **'Heading 5'**
   String get header5;
 
   /// Header 6 menu item
   ///
   /// In en, this message translates to:
-  /// **'Header 6'**
+  /// **'Heading 6'**
   String get header6;
+
+  /// The heading menu's first item: turns the caret line back into plain text
+  ///
+  /// In en, this message translates to:
+  /// **'Body text'**
+  String get headingBodyText;
 
   /// Markdown bar button tooltip: indent the list line one level
   ///
@@ -3481,8 +3487,50 @@ abstract class AppLocalizations {
   /// Note statistics display
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{1 distinct character} other{{count} distinct characters}}, {chunks, plural, =1{1 chunk} other{{chunks} chunks}}'**
-  String noteStats(int count, int chunks);
+  /// **'{count, plural, =1{1 character} other{{count} characters}} · {lines, plural, =1{1 line} other{{lines} lines}}'**
+  String noteStats(int count, int lines);
+
+  /// Storage chunk count on the note stats strip, shown only with the developer chunk indicators on
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 chunk} other{{count} chunks}}'**
+  String noteChunkCount(int count);
+
+  /// Dimmed hint in an empty note editor
+  ///
+  /// In en, this message translates to:
+  /// **'Start typing…'**
+  String get editorHint;
+
+  /// Tooltip of the in-note find row's trailing X while its query is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Close search'**
+  String get closeSearch;
+
+  /// Spoken label of the note editor's save indicator when every change is saved
+  ///
+  /// In en, this message translates to:
+  /// **'Saved'**
+  String get saveStateSaved;
+
+  /// Spoken label of the note editor's save indicator while changes wait for the next save
+  ///
+  /// In en, this message translates to:
+  /// **'Unsaved changes'**
+  String get saveStateUnsaved;
+
+  /// Spoken label of the note editor's save indicator while a save runs
+  ///
+  /// In en, this message translates to:
+  /// **'Saving'**
+  String get saveStateSaving;
+
+  /// Spoken label of the note editor's save indicator when the last save failed
+  ///
+  /// In en, this message translates to:
+  /// **'Not saved'**
+  String get saveStateError;
 
   /// Label for compressed notes
   ///
@@ -3901,7 +3949,7 @@ abstract class AppLocalizations {
   /// Rename note dialog title
   ///
   /// In en, this message translates to:
-  /// **'Rename Note'**
+  /// **'Rename note'**
   String get renameNote;
 
   /// Hint text for rename input
@@ -4147,13 +4195,13 @@ abstract class AppLocalizations {
   /// Share note option
   ///
   /// In en, this message translates to:
-  /// **'Share Note'**
+  /// **'Share note'**
   String get shareNote;
 
   /// Share folder option (exports folder tree as zip archive)
   ///
   /// In en, this message translates to:
-  /// **'Share Folder'**
+  /// **'Share folder'**
   String get shareFolder;
 
   /// Message shown while exporting a folder archive
@@ -6481,7 +6529,7 @@ abstract class AppLocalizations {
   /// Menu action to move a note to another folder
   ///
   /// In en, this message translates to:
-  /// **'Move to Folder'**
+  /// **'Move to folder'**
   String get moveToFolder;
 
   /// Title for the folder picker dialog when moving a note
@@ -8379,6 +8427,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open linked note'**
   String get editorZoneOpenWikiLink;
+
+  /// Accessibility label of the editor tap zone over a task list checkbox, naming the task's text
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle task: {task}'**
+  String editorZoneToggleTaskNamed(String task);
+
+  /// Accessibility label of the editor tap zone over a markdown link, naming the link's text
+  ///
+  /// In en, this message translates to:
+  /// **'Open link: {link}'**
+  String editorZoneOpenLinkNamed(String link);
+
+  /// Accessibility label of the editor tap zone over a [[wiki link]], naming the linked note
+  ///
+  /// In en, this message translates to:
+  /// **'Open linked note: {note}'**
+  String editorZoneOpenWikiLinkNamed(String note);
+
+  /// Accessibility label of the editor tap zone over a #tag, naming the tag
+  ///
+  /// In en, this message translates to:
+  /// **'Search tag: {tag}'**
+  String editorZoneSearchTagNamed(String tag);
 
   /// Accessibility action on the browser's back button, and hint on the parent name above the folder title, that lists every folder above this one
   ///

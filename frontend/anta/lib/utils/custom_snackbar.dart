@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
+import '../constants/snackbar_metrics.dart';
 import '../widgets/overlay_snackbar.dart';
 
 class CustomSnackbar {
+  /// How long a prompt the user must read before acting on stays up — the
+  /// editor's link confirm names the target: the most any action bar is
+  /// given; an Undo keeps the shorter default.
+  static const Duration confirmActionDuration =
+      AppConstants.snackbarActionMaxDuration;
+
   static void show(
     BuildContext context,
     String message, {
@@ -53,10 +60,9 @@ class CustomSnackbar {
     Duration? duration,
     bool withToolbarOffset = false,
   }) {
-    // Cap so an action prompt (e.g. Undo) never lingers indefinitely.
-    // Anything longer than the cap collapses down to the cap; callers
-    // that pass a shorter duration are honored as-is.
-    final requested = duration ?? AppConstants.snackbarActionMaxDuration;
+    // Cap so an action prompt (e.g. Undo) never lingers indefinitely: a
+    // duration past the max collapses down to it; a shorter one is honoured.
+    final requested = duration ?? AppConstants.snackbarActionDefaultDuration;
     final capped = requested > AppConstants.snackbarActionMaxDuration
         ? AppConstants.snackbarActionMaxDuration
         : requested;
@@ -81,6 +87,7 @@ class CustomSnackbar {
       duration: capped,
       withToolbarOffset: withToolbarOffset,
       showCloseIcon: true,
+      verticalPadding: SnackbarMetrics.actionBarVerticalPadding,
     );
   }
 
@@ -121,6 +128,7 @@ class CustomSnackbar {
     required Duration duration,
     required bool withToolbarOffset,
     bool showCloseIcon = false,
+    double? verticalPadding,
   }) {
     final margin = AppSpacing.snackbarMargin(
       withToolbarOffset: withToolbarOffset,
@@ -134,6 +142,7 @@ class CustomSnackbar {
         duration: duration,
         bottomOffset: margin.bottom,
         showCloseIcon: showCloseIcon,
+        verticalPadding: verticalPadding ?? SnackbarMetrics.barVerticalPadding,
       );
       return;
     }
@@ -144,6 +153,15 @@ class CustomSnackbar {
         margin: margin,
         duration: duration,
         showCloseIcon: showCloseIcon,
+        // A padding of our own also drops the 14 dp `SnackBar` keeps around
+        // its content, which the action content restores around its text.
+        padding: verticalPadding == null
+            ? null
+            : EdgeInsetsDirectional.only(
+                start: SnackbarMetrics.barStartPadding,
+                top: verticalPadding,
+                bottom: verticalPadding,
+              ),
       ),
     );
   }
@@ -209,7 +227,18 @@ class _ActionContent extends StatelessWidget {
 
     return Row(
       children: [
-        Expanded(child: Text(message)),
+        // The bar's own padding shrank around the 48 dp action; the text
+        // keeps the usual distance from the bar's edges when it wraps.
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical:
+                  SnackbarMetrics.barVerticalPadding -
+                  SnackbarMetrics.actionBarVerticalPadding,
+            ),
+            child: Text(message),
+          ),
+        ),
         const SizedBox(width: 12),
         TextButton(
           onPressed: () {
@@ -219,12 +248,17 @@ class _ActionContent extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: actionColor,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            minimumSize: const Size(0, 32),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            // A full touch target, in the label's own sentence case: the
+            // 32 dp uppercase button was Material 2's.
+            minimumSize: const Size(
+              kMinInteractiveDimension,
+              kMinInteractiveDimension,
+            ),
+            tapTargetSize: MaterialTapTargetSize.padded,
           ),
           child: Text(
-            actionLabel.toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            actionLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
         ),
       ],

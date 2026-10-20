@@ -384,6 +384,7 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
             controller: _controller,
             shortcut: shortcut,
             mutateCounter: (_, _) async => null,
+            isFenceLine: _spanBuilder.lineInFence,
           );
         });
       }
@@ -589,6 +590,9 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
               editorFontSize: FontConstants.defaultFontSize,
               onTextChanged: _tracker.onTextChanged,
               checkboxTapToggle: _liveMarkdownRendering,
+              // A fenced line renders raw, so a box or heading drawn there
+              // is text: taps on it stay plain editing.
+              isFenceLine: _spanBuilder.lineInFence,
               hapticsEnabled: _hapticsEnabled,
               // The note editor's rail, shown only once the text runs past
               // the sheet: a description is usually a paragraph, and the

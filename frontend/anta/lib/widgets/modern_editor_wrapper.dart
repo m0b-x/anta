@@ -16,6 +16,7 @@ import '../utils/editor_input_policy.dart';
 import '../utils/lru_cache.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
+import '../utils/markdown_plain_text.dart';
 import '../utils/re_editor_search_controller.dart';
 import 'editor_chunk_overlay.dart';
 import 'scroll_progress_indicator.dart';
@@ -111,6 +112,27 @@ class ModernEditorWrapper extends StatefulWidget {
   /// Whether to show borders around chunks (debug mode)
   final bool showChunkBorders;
 
+  /// The dimmed line an empty document shows until the first keystroke, so
+  /// a new note says where to type. Null shows nothing.
+  final String? hint;
+
+  /// Whether [editorFontSize] is the base the system text size scales (the
+  /// note editor, D3 of the editor UX review). Off for hosts whose editor
+  /// sits in a box sized for its unscaled lines.
+  final bool followsTextScale;
+
+  /// The system text scale the editor follows at most: past it a phone
+  /// line holds two or three words.
+  static const double maxTextScale = 2.0;
+
+  /// [base] under the system text size, clamped at [maxTextScale] — the
+  /// one formula for the editor's font and for every width the host
+  /// measures against it, so reflow and wrapping agree.
+  static double scaledFontSize(BuildContext context, double base) =>
+      MediaQuery.textScalerOf(
+        context,
+      ).clamp(maxScaleFactor: maxTextScale).scale(base);
+
   const ModernEditorWrapper({
     super.key,
     required this.controller,
@@ -132,6 +154,8 @@ class ModernEditorWrapper extends StatefulWidget {
     this.hapticsEnabled = true,
     this.revealWhenUnfocused,
     this.onFormatShortcut,
+    this.hint,
+    this.followsTextScale = false,
     this.lineNumbersKey,
     this.scrollIndicatorKey,
     this.showScrollIndicator = true,
@@ -252,6 +276,11 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   String? _zoneOpenMoneyLabel;
   String? _zoneSearchTagLabel;
 
+  /// The localizations the zone labels above came from, kept for the
+  /// patterns that name a zone's content ("Toggle task: {task}"), which
+  /// resolve per line rather than once per locale.
+  AppLocalizations? _zoneL10n;
+
   /// Which zone kinds this host has enabled, resolved once per widget
   /// configuration instead of per tap and per enumerated line.
   late EditorTapZones _enabledZones;
@@ -285,6 +314,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// same markdown.
   static const String _boldMarker = '**';
   static const String _italicMarker = '_';
+  static const String _highlightMarker = '==';
 
   /// Ctrl+B / Ctrl+I (Cmd on macOS), bound on desktop only: a phone has
   /// no hardware keyboard to speak of, and the bar carries both toggles.
@@ -340,6 +370,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     _zoneOpenWikiLinkLabel = wikiLabel;
     _zoneOpenMoneyLabel = moneyLabel;
     _zoneSearchTagLabel = tagLabel;
+    _zoneL10n = l10n;
     _zoneMemo.clear();
   }
 
@@ -444,8 +475,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     required VoidCallback onRefresh,
   }) {
     // This builder re-runs on every rebuild of the toolbar's overlay
-    // entry, so the clipboard is asked once per show by the host's
-    // initState, and the toolbar below rebuilds on the answer.
+    // entry, so the clipboard is asked once per fresh toolbar by the
+    // host's initState, and the toolbar below rebuilds on the answer. A
+    // re-show while the toolbar is up (a re-anchor, Select all, a handle
+    // drag's end) rebuilds the same entry and keeps the last answer.
     return _SelectionToolbarShowHook(
       onShow: _refreshClipboardStatus,
       child: ValueListenableBuilder<bool?>(
@@ -483,6 +516,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     required VoidCallback onRefresh,
   }) {
     final isCollapsed = controller.selection.isCollapsed;
+    final l10n = AppLocalizations.of(context);
 
     // Build button items based on selection state
     final buttonItems = <ContextMenuButtonItem>[
@@ -523,6 +557,24 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
           onRefresh();
         },
       ),
+      // The formats a selection is most often made for, so the bar below is
+      // not the only road to them (U2.12). They come after the platform's
+      // own items so a narrow phone's overflow takes the formats, never
+      // Paste or Select all; a host without the app's localizations (a
+      // bare test harness) gets the platform items alone.
+      if (!isCollapsed && l10n != null)
+        for (final (label, marker) in [
+          (l10n.bold, _boldMarker),
+          (l10n.italic, _italicMarker),
+          (l10n.shortcutHighlight, _highlightMarker),
+        ])
+          ContextMenuButtonItem(
+            label: label,
+            onPressed: () {
+              _applyToolbarFormat(marker);
+              onDismiss();
+            },
+          ),
     ];
 
     return AdaptiveTextSelectionToolbar.buttonItems(
@@ -616,11 +668,13 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final wikiLabel = _zoneOpenWikiLinkLabel;
     final moneyLabel = _zoneOpenMoneyLabel;
     final tagLabel = _zoneSearchTagLabel;
+    final l10n = _zoneL10n;
     if (toggleLabel == null ||
         linkLabel == null ||
         wikiLabel == null ||
         moneyLabel == null ||
-        tagLabel == null) {
+        tagLabel == null ||
+        l10n == null) {
       return const [];
     }
     final lineText = _lineTextAt(lineIndex);
@@ -662,20 +716,77 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         ? const <CodeEditorSemanticsZone>[]
         : <CodeEditorSemanticsZone>[
             for (final zone in zones)
-              CodeEditorSemanticsZone(
-                start: zone.start,
-                end: zone.end,
-                label: switch (zone.action) {
-                  EditorToggleTaskAction() => toggleLabel,
-                  EditorOpenLinkAction() => linkLabel,
-                  EditorOpenWikiLinkAction() => wikiLabel,
-                  EditorOpenMoneyAction() => moneyLabel,
-                  EditorOpenTagAction() => tagLabel,
-                },
-              ),
+              switch (zone.action) {
+                EditorToggleTaskAction() => CodeEditorSemanticsZone(
+                  start: zone.start,
+                  end: zone.end,
+                  label: _named(
+                    _zonePlainText(lineText, zone.nameStart, zone.nameEnd),
+                    toggleLabel,
+                    l10n.editorZoneToggleTaskNamed,
+                  ),
+                  checked: zone.checked,
+                ),
+                EditorOpenLinkAction(:final url) => CodeEditorSemanticsZone(
+                  start: zone.start,
+                  end: zone.end,
+                  label: _named(
+                    _linkZoneText(lineText, zone, url),
+                    linkLabel,
+                    l10n.editorZoneOpenLinkNamed,
+                  ),
+                  isLink: true,
+                ),
+                EditorOpenWikiLinkAction() => CodeEditorSemanticsZone(
+                  start: zone.start,
+                  end: zone.end,
+                  label: _named(
+                    lineText.substring(zone.nameStart, zone.nameEnd).trim(),
+                    wikiLabel,
+                    l10n.editorZoneOpenWikiLinkNamed,
+                  ),
+                  isLink: true,
+                ),
+                EditorOpenMoneyAction() => CodeEditorSemanticsZone(
+                  start: zone.start,
+                  end: zone.end,
+                  label: moneyLabel,
+                ),
+                EditorOpenTagAction(:final tag) => CodeEditorSemanticsZone(
+                  start: zone.start,
+                  end: zone.end,
+                  label: _named(tag, tagLabel, l10n.editorZoneSearchTagNamed),
+                ),
+              },
           ];
     if (!revealed) _zoneMemo.put(lineText, nodes);
     return nodes;
+  }
+
+  /// [pattern] filled with [content], or the bare [fallback] when there
+  /// is nothing to name — a blank task reads "Toggle task", never
+  /// "Toggle task: ".
+  static String _named(
+    String content,
+    String fallback,
+    String Function(String) pattern,
+  ) => content.isEmpty ? fallback : pattern(content);
+
+  /// The text a reader sees in `[from, to)` of [lineText], markers
+  /// stripped by the one plain-text projection the note list uses.
+  String _zonePlainText(String lineText, int from, int to) => from >= to
+      ? ''
+      : MarkdownPlainText.strip(
+          lineText.substring(from, to),
+          palette: _enabledZones.palette,
+          money: false,
+        );
+
+  /// A link zone's visible text: the label of a `[text](url)`, else the
+  /// address itself (an autolink, or a link with an empty label).
+  String _linkZoneText(String lineText, EditorTapZone zone, String url) {
+    final text = _zonePlainText(lineText, zone.nameStart, zone.nameEnd);
+    return text.isNotEmpty ? text : url;
   }
 
   /// Resolves what a tap at [position] does instead of editing: toggle
@@ -809,6 +920,24 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     ShortcutApplier.toggleWrap(widget.controller, marker);
   }
 
+  /// The font the editor paints with: the host's size, scaled by the
+  /// system text size when [ModernEditorWrapper.followsTextScale] says so.
+  double _fontSize(BuildContext context) => widget.followsTextScale
+      ? ModernEditorWrapper.scaledFontSize(context, widget.editorFontSize)
+      : widget.editorFontSize;
+
+  /// A selection toolbar format: the same edit as [_toggleFormat] without
+  /// its key-event focus check — the toolbar only shows over a selection
+  /// the user is holding in this editor.
+  void _applyToolbarFormat(String marker) {
+    final onFormatShortcut = widget.onFormatShortcut;
+    if (onFormatShortcut != null) {
+      onFormatShortcut(marker);
+      return;
+    }
+    ShortcutApplier.toggleWrap(widget.controller, marker);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -849,7 +978,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
                 scrollController: widget.scrollController,
                 editingController: widget.controller,
                 linesPerChunk: widget.linesPerChunk,
-                fontSize: widget.editorFontSize,
+                fontSize: _fontSize(context),
                 lineHeight: MarkdownConstants.lineHeight,
                 showColors: widget.showChunkColors,
                 showBorders: widget.showChunkBorders,
@@ -887,17 +1016,21 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     // Account for bottom system navigation bar (gesture bar on phones)
     final bottomSafeArea = MediaQuery.of(context).viewPadding.bottom;
 
+    final isDark = theme.brightness == Brightness.dark;
+
     final Widget editor = CodeEditor(
       controller: widget.controller,
       focusNode: widget.focusNode,
       scrollController: widget.scrollController,
       // Enable mobile selection toolbar (copy/paste/cut/select all)
       toolbarController: _toolbarController,
+      hint: widget.hint,
       style: CodeEditorStyle(
-        fontSize: widget.editorFontSize,
+        fontSize: _fontSize(context),
         fontFamily: FontConstants.editorFontFamily,
         fontHeight: widget.editorLineHeight ?? MarkdownConstants.lineHeight,
         textColor: theme.textTheme.bodyLarge?.color,
+        hintTextColor: theme.colorScheme.onSurfaceVariant,
         backgroundColor: Colors.transparent,
         cursorColor: theme.colorScheme.primary,
         cursorWidth: 2.5,
@@ -905,7 +1038,19 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
             ? theme.colorScheme.surfaceContainerLow
             : null,
         selectionColor: theme.colorScheme.primary.withValues(alpha: 0.3),
-        highlightColor: theme.colorScheme.primaryContainer,
+        // Light mode boxes every match in tertiary, a hue the primary
+        // selection does not share; the dark current match is the opaque
+        // tertiaryContainer, which keeps light text legible on it.
+        highlightColor: isDark
+            ? theme.colorScheme.primaryContainer
+            : theme.colorScheme.tertiary.withValues(
+                alpha: MarkdownConstants.findMatchAlphaLight,
+              ),
+        currentHighlightColor: isDark
+            ? theme.colorScheme.tertiaryContainer
+            : theme.colorScheme.tertiary.withValues(
+                alpha: MarkdownConstants.findCurrentMatchAlphaLight,
+              ),
       ),
       wordWrap: widget.wordWrap,
       readOnly: false,
@@ -964,7 +1109,8 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
 
 /// Runs [onShow] once when the selection toolbar mounts. The fork builds
 /// the toolbar inside an overlay entry whose builder re-runs on every
-/// entry rebuild; a state's [State.initState] runs once per show.
+/// entry rebuild; a state's [State.initState] runs once per inserted
+/// entry, and a re-show of a toolbar still up rebuilds that entry in place.
 class _SelectionToolbarShowHook extends StatefulWidget {
   const _SelectionToolbarShowHook({required this.onShow, required this.child});
 

@@ -114,6 +114,49 @@ void main() {
   double barHeight(WidgetTester tester) =>
       tester.getSize(find.byType(MarkdownBar)).height;
 
+  testWidgets('the pills and the dismiss button are buttons to a screen '
+      'reader, as the bar buttons they stand in for are (U1.8)', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final accepted = <String>[];
+    var dismissed = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: VocabularySuggestionBar(
+            session: session,
+            onAccept: (candidate) => accepted.add(candidate.term),
+            onDismiss: () => dismissed++,
+          ),
+        ),
+      ),
+    );
+
+    final en = lookupAppLocalizations(const Locale('en'));
+    expect(
+      tester.getSemantics(find.byTooltip(en.vocabularySuggestionsDismiss)),
+      isSemantics(isButton: true, hasTapAction: true),
+    );
+    final pill = find.ancestor(
+      of: find.text('Bench press'),
+      matching: find.byType(Semantics),
+    );
+    expect(
+      tester.getSemantics(pill.first),
+      isSemantics(isButton: true, hasTapAction: true),
+    );
+
+    await tester.tap(find.text('Bench press'));
+    await tester.tap(find.byTooltip(en.vocabularySuggestionsDismiss));
+    expect(accepted, ['Bench press']);
+    expect(dismissed, 1);
+    semantics.dispose();
+  });
+
   for (final textScale in [1.0, 2.0]) {
     testWidgets('opening and closing a session never moves the editor at '
         '${textScale}x', (tester) async {

@@ -42,12 +42,14 @@ class EditorEditTracker {
     required void Function(int linesModified) onLinesReformatted,
     bool Function(int lineIndex)? isFenceLine,
     bool Function(int lineIndex)? lineInFenceBody,
+    int Function(int lineIndex)? blockStateAt,
   }) : _controller = controller,
        _autoBreakLongLines = autoBreakLongLines,
        _pasteContext = pasteContext,
        _onLinesReformatted = onLinesReformatted,
        _isFenceLine = isFenceLine,
-       _lineInFenceBody = lineInFenceBody;
+       _lineInFenceBody = lineInFenceBody,
+       _blockStateAt = blockStateAt;
 
   /// Growth beyond this many code units in one notification is a paste, not
   /// typing. Deliberately low: a fast typist never lands 20 characters in
@@ -71,6 +73,12 @@ class EditorEditTracker {
   /// is not hard-wrapped — a different question from [_isFenceLine],
   /// which counts the delimiters as fenced too.
   final bool Function(int lineIndex)? _lineInFenceBody;
+
+  /// The packed block state a line is read in, or `null` when the host
+  /// cannot tell. Supersedes [_lineInFenceBody] for the width breaker's
+  /// seed, so a paste into a `%%` comment or a front matter is kept as
+  /// written like one into a fence body.
+  final int Function(int lineIndex)? _blockStateAt;
 
   int _previousTextLength = 0;
   bool _isProcessing = false;
@@ -296,6 +304,7 @@ class EditorEditTracker {
         pasteEnd: pasteEnd,
         pastedLength: pastedLength,
         lineInFenceBody: _lineInFenceBody,
+        blockStateAt: _blockStateAt,
       );
       if (result.reformatted) {
         _previousTextLength = _controller.textLength;

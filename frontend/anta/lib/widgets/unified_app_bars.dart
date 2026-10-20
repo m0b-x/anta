@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
+import '../l10n/app_localizations.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
 import 'leading_nav_pair.dart';
@@ -188,25 +189,32 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
           onMenu: onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
         ),
       ),
-      title: GestureDetector(
-        onTap: onTitleTap,
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: AppBarMetrics.titleFontSize,
-                  fontWeight: AppBarMetrics.titleFontWeight,
+      // The title is the rename button, and says so to a screen reader.
+      title: Semantics(
+        button: onTitleTap != null,
+        label: onTitleTap == null
+            ? null
+            : AppLocalizations.of(context)!.editTitle,
+        child: GestureDetector(
+          onTap: onTitleTap,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: AppBarMetrics.titleFontSize,
+                    fontWeight: AppBarMetrics.titleFontWeight,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            _SaveStatusIndicator(
-              hasChanges: hasChanges,
-              saveStatusNotifier: saveStatusNotifier,
-            ),
-          ],
+              _SaveStatusIndicator(
+                hasChanges: hasChanges,
+                saveStatusNotifier: saveStatusNotifier,
+              ),
+            ],
+          ),
         ),
       ),
       actions: actions,
@@ -240,7 +248,11 @@ class _SaveStatusIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final notifier = saveStatusNotifier;
     if (notifier == null) {
-      return _slot(hasChanges ? _dot(context) : const SizedBox.shrink());
+      return _spoken(
+        context,
+        hasChanges ? SaveStatus.unsaved : null,
+        _slot(hasChanges ? _dot(context) : const SizedBox.shrink()),
+      );
     }
 
     return ValueListenableBuilder<SaveStatus>(
@@ -249,34 +261,58 @@ class _SaveStatusIndicator extends StatelessWidget {
         final effective = hasChanges && status == SaveStatus.saved
             ? SaveStatus.unsaved
             : status;
-        return _slot(
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            layoutBuilder: (currentChild, previousChildren) {
-              final allChildren = [...previousChildren, ?currentChild];
-              final seenKeys = <Key>{};
-              final uniqueChildren = <Widget>[];
+        return _spoken(
+          context,
+          effective,
+          _slot(
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              layoutBuilder: (currentChild, previousChildren) {
+                final allChildren = [...previousChildren, ?currentChild];
+                final seenKeys = <Key>{};
+                final uniqueChildren = <Widget>[];
 
-              for (final child in allChildren.reversed) {
-                final key = child.key;
-                if (key != null && !seenKeys.contains(key)) {
-                  seenKeys.add(key);
-                  uniqueChildren.insert(0, child);
-                } else if (key == null) {
-                  uniqueChildren.insert(0, child);
+                for (final child in allChildren.reversed) {
+                  final key = child.key;
+                  if (key != null && !seenKeys.contains(key)) {
+                    seenKeys.add(key);
+                    uniqueChildren.insert(0, child);
+                  } else if (key == null) {
+                    uniqueChildren.insert(0, child);
+                  }
                 }
-              }
 
-              return Stack(
-                fit: StackFit.passthrough,
-                alignment: Alignment.center,
-                children: uniqueChildren,
-              );
-            },
-            child: _buildIcon(context, effective),
+                return Stack(
+                  fit: StackFit.passthrough,
+                  alignment: Alignment.center,
+                  children: uniqueChildren,
+                );
+              },
+              child: _buildIcon(context, effective),
+            ),
           ),
         );
       },
+    );
+  }
+
+  /// The glyph's spoken state — a glyph alone says nothing to TalkBack.
+  /// Only a failed save is a live region: the others change on every
+  /// pause in typing and would interrupt the reader each time.
+  Widget _spoken(BuildContext context, SaveStatus? status, Widget child) {
+    if (status == null) return child;
+    final l10n = AppLocalizations.of(context)!;
+    final label = switch (status) {
+      SaveStatus.saved => l10n.saveStateSaved,
+      SaveStatus.unsaved => l10n.saveStateUnsaved,
+      SaveStatus.saving => l10n.saveStateSaving,
+      SaveStatus.error => l10n.saveStateError,
+    };
+    return Semantics(
+      container: true,
+      label: label,
+      liveRegion: status == SaveStatus.error,
+      child: ExcludeSemantics(child: child),
     );
   }
 

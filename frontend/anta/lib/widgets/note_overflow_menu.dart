@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_theme.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import 'automation_id.dart';
 import '../l10n/app_localizations.dart';
@@ -43,7 +44,8 @@ class NoteOverflowMenu extends StatelessWidget {
 
   /// Opens the colour-label picker, or `null` while there is nothing to
   /// label — a note the early create has not persisted yet has no row to
-  /// carry a colour, so the row is left out of the menu entirely.
+  /// carry a colour, so the row shows disabled: the menu keeps its shape
+  /// from the first keystroke on.
   final VoidCallback? onLabel;
 
   final VoidCallback onShare;
@@ -108,13 +110,13 @@ class NoteOverflowMenu extends StatelessWidget {
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
         ),
-        if (onLabel != null)
-          _row(
-            colorScheme,
-            value: _NoteMenuAction.label,
-            icon: Icons.label_outline,
-            label: l10n.labelAction,
-          ),
+        _row(
+          colorScheme,
+          value: _NoteMenuAction.label,
+          icon: Icons.label_outline,
+          label: l10n.labelAction,
+          enabled: onLabel != null,
+        ),
         _row(
           colorScheme,
           value: _NoteMenuAction.share,
@@ -147,16 +149,21 @@ class NoteOverflowMenu extends StatelessWidget {
     required String label,
     String? trailing,
     Color? color,
+    bool enabled = true,
   }) {
     return PopupMenuItem<_NoteMenuAction>(
       value: value,
+      enabled: enabled,
       height: AppTheme.menuItemHeight,
       child: Row(
         children: [
           Icon(
             icon,
             size: AppTheme.menuIconSize,
-            color: color ?? colorScheme.onSurfaceVariant,
+            // A disabled row's glyph dims with its label.
+            color: (color ?? colorScheme.onSurfaceVariant).withValues(
+              alpha: enabled ? 1 : FormMetrics.disabledOpacity,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

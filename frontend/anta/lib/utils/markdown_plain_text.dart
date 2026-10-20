@@ -68,7 +68,9 @@ class MarkdownPlainText {
     // The previous line when it sat outside every fence and comment, the
     // only kind a setext underline can belong to.
     String? previous;
-    for (var i = 0; i < lines.length; i++) {
+    // A front matter is metadata, not text: the block is dropped whole.
+    final body = MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
+    for (var i = body; i < lines.length; i++) {
       final line = lines[i];
       final entry = state;
       state = MarkdownChunker.blockStateAfter(line, state);
@@ -89,11 +91,17 @@ class MarkdownPlainText {
       callout = MarkdownCalloutSyntax.blockStep(line, callout);
       final isLead = openBefore == null && callout != null;
       final next = i + 1 < lines.length ? lines[i + 1] : null;
-      // A trailing `\` breaks the line only when a non-blank line follows,
-      // and never on a setext heading's text line.
+      // A trailing `\` breaks the line only where the paragraph continues,
+      // and never on a setext heading's text line. Only a line that ends
+      // in one pays the paragraph test.
       final hardBreaks =
           next != null &&
-          !MarkdownChunker.isBlankLine(next) &&
+          line.endsWith(r'\') &&
+          MarkdownChunker.continuesParagraph(
+            line,
+            next,
+            i + 2 < lines.length ? lines[i + 2] : null,
+          ) &&
           MarkdownLineShape.setextLevelOf(line, next) == 0;
       final before = out.length;
       _line(line, out, palette, 0, money, hardBreaks, isLead: isLead);
@@ -102,17 +110,14 @@ class MarkdownPlainText {
 
     final collapsed = _collapse(out.toString());
     final text = collapsed.isEmpty
-        ? _collapse(_uncommented(lines, palette))
+        ? _collapse(_uncommented(lines.sublist(body), palette))
         : collapsed;
     return _cap(text, maxLength);
   }
 
   /// The fallback's source: [lines] as written, without `%%` block
   /// comments and with every top-level `%%…%%` run outside a fence cut.
-  static String _uncommented(
-    List<String> lines,
-    MarkdownColorPalette palette,
-  ) {
+  static String _uncommented(List<String> lines, MarkdownColorPalette palette) {
     final out = StringBuffer();
     var state = MarkdownChunker.outsideBlock;
     for (final line in lines) {

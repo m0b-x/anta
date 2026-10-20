@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/controllers/editor_edit_tracker.dart';
+import 'package:anta/controllers/editor_render_controller.dart';
 import 'package:anta/utils/editor_input_policy.dart';
 import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/editor_width_calculator.dart';
@@ -30,6 +31,7 @@ class _Harness {
     this.autoBreak = true,
     bool measurable = true,
     bool Function(int lineIndex)? isFenceLine,
+    int Function(int lineIndex)? blockStateAt,
   }) {
     editor = CodeLineEditingController.fromText(text);
     calculator = EditorWidthCalculator(
@@ -46,6 +48,7 @@ class _Harness {
           : null,
       onLinesReformatted: reformatted.add,
       isFenceLine: isFenceLine,
+      blockStateAt: blockStateAt,
     );
     tracker.syncLength();
   }
@@ -808,6 +811,25 @@ void main() {
       final span = first();
       expect(span, isNotNull);
       expect(concealed(span!), isTrue, reason: 'off-caret: concealed');
+
+      h.dispose();
+    });
+
+    // C1 fix pass T4 — the page hands the render controller's block state
+    // through the tracker; a fence-only answer would wrap this comment.
+    test('a paste into a comment body is kept as written', () {
+      final render = EditorRenderController();
+      final h = _Harness(
+        '%%\nx\n%%',
+        isFenceLine: (index) => render.lineInFenceBody(index),
+        blockStateAt: render.blockStateAt,
+      );
+      render.bind(h.editor);
+
+      h.insertAt(1, 1, ' aaaa bbbb cccc dddd eeee');
+
+      expect(h.lines, ['%%', 'x aaaa bbbb cccc dddd eeee', '%%']);
+      expect(h.reformatted, isEmpty);
 
       h.dispose();
     });

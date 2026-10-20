@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/utils/markdown_callout_syntax.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 
 /// E20 — a custom colour is lightness-shifted until it clears 3.0 against
@@ -49,6 +51,67 @@ void main() {
         _contrast(spec.text(dark: true), AppTheme.darkScheme.surface),
         greaterThanOrEqualTo(minContrast),
         reason: '$name on the dark surface',
+      );
+    }
+  });
+
+  // U3.1 / U3.2 — the shared accents and a done task's text are read as
+  // body text on the light page, so they hold the 4.5:1 body floor.
+  const bodyContrast = 4.5;
+  final lightPage = AppTheme.lightScheme.surface;
+  // The editor paints no ground of its own, so a money row or a done task
+  // sits on the page — or, with the cursor-line setting on, on the caret
+  // line's tint.
+  final lightGrounds = <String, Color>{
+    'light page': lightPage,
+    'cursor line': AppTheme.lightScheme.surfaceContainerLow,
+  };
+
+  test('every light callout accent clears 4.5:1 on the light grounds', () {
+    for (final type in MarkdownCalloutType.values) {
+      for (final ground in lightGrounds.entries) {
+        expect(
+          _contrast(
+            MarkdownConstants.calloutAccent(type, dark: false),
+            ground.value,
+          ),
+          greaterThanOrEqualTo(bodyContrast),
+          reason: '${type.name} on the ${ground.key}',
+        );
+      }
+    }
+  });
+
+  test('every light money accent clears 4.5:1 on the light page', () {
+    final accents = <String, Color>{
+      'positive': MarkdownConstants.moneyPositive(dark: false),
+      'negative': MarkdownConstants.moneyNegative(dark: false),
+      'neutral': MarkdownConstants.moneyNeutral(dark: false),
+      'warning': MarkdownConstants.moneyWarning(dark: false),
+    };
+    for (final entry in accents.entries) {
+      for (final ground in lightGrounds.entries) {
+        expect(
+          _contrast(entry.value, ground.value),
+          greaterThanOrEqualTo(bodyContrast),
+          reason: '${entry.key} on the ${ground.key}',
+        );
+      }
+    }
+  });
+
+  test('a done task\'s dimmed text clears 4.5:1 on the light page', () {
+    for (final ground in lightGrounds.entries) {
+      final dimmed = Color.alphaBlend(
+        AppTheme.lightScheme.onSurface.withValues(
+          alpha: MarkdownConstants.checkedTextOpacity,
+        ),
+        ground.value,
+      );
+      expect(
+        _contrast(dimmed, ground.value),
+        greaterThanOrEqualTo(bodyContrast),
+        reason: ground.key,
       );
     }
   });

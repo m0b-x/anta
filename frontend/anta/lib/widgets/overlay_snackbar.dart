@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_theme.dart';
 import '../constants/form_metrics.dart';
+import '../constants/snackbar_metrics.dart';
 import '../l10n/app_localizations.dart';
 
 /// A message raised in the navigator's overlay rather than in a `Scaffold`:
@@ -64,6 +65,7 @@ class OverlaySnackbar {
     required Duration duration,
     double bottomOffset = sheetBottomOffset,
     bool showCloseIcon = true,
+    double verticalPadding = SnackbarMetrics.barVerticalPadding,
   }) {
     hide();
 
@@ -75,6 +77,7 @@ class OverlaySnackbar {
           duration: duration,
           bottomOffset: bottomOffset,
           showCloseIcon: showCloseIcon,
+          verticalPadding: verticalPadding,
           onDismiss: () => _remove(shown),
         ),
       ),
@@ -116,6 +119,10 @@ class OverlaySnackbarBody extends StatefulWidget {
   final bool showCloseIcon;
   final VoidCallback onDismiss;
 
+  /// Above and below the row; [SnackbarMetrics.barVerticalPadding] unless
+  /// the content carries its own target.
+  final double verticalPadding;
+
   const OverlaySnackbarBody({
     super.key,
     required this.content,
@@ -123,6 +130,7 @@ class OverlaySnackbarBody extends StatefulWidget {
     required this.bottomOffset,
     required this.onDismiss,
     this.showCloseIcon = true,
+    this.verticalPadding = SnackbarMetrics.barVerticalPadding,
   });
 
   @override
@@ -198,8 +206,8 @@ class _OverlaySnackbarBodyState extends State<OverlaySnackbarBody> {
             child: Padding(
               padding: EdgeInsets.only(
                 left: 16,
-                top: 14,
-                bottom: 14,
+                top: widget.verticalPadding,
+                bottom: widget.verticalPadding,
                 right: widget.showCloseIcon ? 8 : 16,
               ),
               child: Row(

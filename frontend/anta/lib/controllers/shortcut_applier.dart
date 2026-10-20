@@ -126,13 +126,22 @@ class ShortcutApplier {
   ///
   /// A rewrite needs nothing awaited, so it runs before the first `await`
   /// and still lands inside whatever guard or undo op the caller raised.
+  /// [isFenceLine] and [headingLevelAt] reach the rewrite as in
+  /// [applyRewrite], so a fenced line takes no heading or marker.
   static Future<void> apply({
     required CodeLineEditingController controller,
     required CustomMarkdownShortcut shortcut,
     required CounterMutator mutateCounter,
+    bool Function(int lineIndex)? isFenceLine,
+    int Function(int lineIndex)? headingLevelAt,
   }) async {
     if (rewrites(shortcut)) {
-      applyRewrite(controller, shortcut);
+      applyRewrite(
+        controller,
+        shortcut,
+        isFenceLine: isFenceLine,
+        headingLevelAt: headingLevelAt,
+      );
       return;
     }
     final text = await resolve(
@@ -157,11 +166,16 @@ class ShortcutApplier {
   /// (the H menu's `### `) sets exactly that level; the bar's own
   /// `default_header` button carries `# ` as well, but it keeps cycling.
   /// [isFenceLine] keeps line-marker toggles and headings off code-fence
-  /// lines, where a `#` run is code text.
+  /// lines, where a `#` run is code text. [headingLevelAt] is the editor's
+  /// own positional heading reader (`EditorRenderController.headingLevelAt`):
+  /// given, the setext branch acts on exactly the pairs the editor draws as
+  /// headings — its line-length cap and its block roles included — instead
+  /// of re-reading the pair from the text.
   static void applyRewrite(
     CodeLineEditingController controller,
     CustomMarkdownShortcut shortcut, {
     bool Function(int lineIndex)? isFenceLine,
+    int Function(int lineIndex)? headingLevelAt,
   }) {
     assert(rewrites(shortcut), '${shortcut.id} inserts, it does not rewrite');
     if (shortcut.insertType == 'header') {
@@ -170,9 +184,18 @@ class ShortcutApplier {
           ? null
           : MarkdownLineShape.headingAt(shortcut.beforeText)?.level;
       if (level == null) {
-        applyHeader(controller);
+        applyHeader(
+          controller,
+          isFenceLine: isFenceLine,
+          headingLevelAt: headingLevelAt,
+        );
       } else {
-        applyHeaderLevel(controller, level);
+        applyHeaderLevel(
+          controller,
+          level,
+          isFenceLine: isFenceLine,
+          headingLevelAt: headingLevelAt,
+        );
       }
       return;
     }
@@ -326,11 +349,19 @@ class ShortcutApplier {
   /// heading predicate, so the toolbar agrees with what both rendering
   /// surfaces call a heading. One consequence worth knowing: a bare `###`
   /// with no trailing space *is* a level-3 heading with empty content, so
-  /// cycling it yields `#### `.
-  static void applyHeader(CodeLineEditingController controller) {
+  /// cycling it yields `#### `. [isFenceLine] keeps a setext pair inside a
+  /// fence or a comment from reading as a heading; [headingLevelAt], when
+  /// given, reads the setext pair as [applyRewrite] says.
+  static void applyHeader(
+    CodeLineEditingController controller, {
+    bool Function(int lineIndex)? isFenceLine,
+    int Function(int lineIndex)? headingLevelAt,
+  }) {
     _setHeading(
       controller,
       (current) => current == null ? 1 : (current >= 6 ? 0 : current + 1),
+      isFenceLine,
+      headingLevelAt,
     );
   }
 
@@ -339,10 +370,17 @@ class ShortcutApplier {
   /// menu toggles like the other line markers.
   static void applyHeaderLevel(
     CodeLineEditingController controller,
-    int level,
-  ) {
+    int level, {
+    bool Function(int lineIndex)? isFenceLine,
+    int Function(int lineIndex)? headingLevelAt,
+  }) {
     assert(level >= 1 && level <= 6, 'no heading level $level');
-    _setHeading(controller, (current) => current == level ? 0 : level);
+    _setHeading(
+      controller,
+      (current) => current == level ? 0 : level,
+      isFenceLine,
+      headingLevelAt,
+    );
   }
 
   /// Rewrites the caret line's `#` run to the level [levelFor] picks from
@@ -354,11 +392,53 @@ class ShortcutApplier {
   static void _setHeading(
     CodeLineEditingController controller,
     int Function(int? current) levelFor,
+    bool Function(int lineIndex)? isFenceLine,
+    int Function(int lineIndex)? headingLevelAt,
   ) {
     final lineIndex = controller.selection.startIndex;
-    final line = controller.codeLines[lineIndex];
+    final codeLines = controller.codeLines;
+    final line = codeLines[lineIndex];
     final heading = MarkdownLineShape.headingAt(line.text);
-    final level = levelFor(heading?.level);
+    if (heading == null) {
+      // The positional reader answers a text line with its level and an
+      // underline with the level negated; the text reader, for callers
+      // with no editor index, finds the pair's text line itself.
+      final int textLine;
+      final int setext;
+      if (headingLevelAt != null) {
+        final role = headingLevelAt(lineIndex);
+        textLine = role == 0 ? -1 : (role < 0 ? lineIndex - 1 : lineIndex);
+        setext = role.abs();
+      } else {
+        textLine = MarkdownLineShape.setextTextLineAt(
+          (i) => codeLines[i].text,
+          codeLines.length,
+          lineIndex,
+          isInert: isFenceLine,
+        );
+        setext = textLine < 0
+            ? 0
+            : MarkdownLineShape.setextLevelOf(
+                codeLines[textLine].text,
+                codeLines[textLine + 1].text,
+              );
+      }
+      if (textLine >= 0) {
+        _setSetextHeading(controller, textLine, levelFor(setext));
+        return;
+      }
+    }
+    // An ATX line the editor draws raw (past the render cap) is no heading
+    // to the positional reader, so a pick sets the level the menu showed
+    // unchecked instead of toggling it off; the splice still replaces the
+    // line's own `#` run, never prefixes a second one.
+    final int? current =
+        heading != null &&
+            headingLevelAt != null &&
+            headingLevelAt(lineIndex) == 0
+        ? null
+        : heading?.level;
+    final level = levelFor(current);
     // A plain line gains its run after the indentation, where
     // [MarkdownLineShape.headingAt] finds it again, not in front of it.
     final plainStart = _LineMarker._indentOf(line.text);
@@ -380,6 +460,63 @@ class ShortcutApplier {
       ),
       {lineIndex: splice},
     );
+  }
+
+  /// [_setHeading] on a setext text line at [lineIndex]: the underline
+  /// below it goes either way — kept, it would turn the new `#` line's
+  /// neighbour into a rule — and a [level] above `0` prefixes the ATX run,
+  /// so the heading changes form but keeps its text and the caret its
+  /// column. One value change, so one undo step restores both lines.
+  /// Removing the heading when another underline-shaped line follows the
+  /// underline is refused: that line would slide up and underline the text
+  /// again, and deleting it too would take a line the user never touched.
+  static void _setSetextHeading(
+    CodeLineEditingController controller,
+    int lineIndex,
+    int level,
+  ) {
+    final line = controller.codeLines[lineIndex];
+    if (level == 0 &&
+        lineIndex + 2 < controller.codeLines.length &&
+        MarkdownLineShape.setextLevelOf(
+              line.text,
+              controller.codeLines[lineIndex + 2].text,
+            ) >
+            0) {
+      return;
+    }
+    final plainStart = _LineMarker._indentOf(line.text);
+    final splice = _Splice(
+      plainStart,
+      plainStart,
+      level == 0 ? '' : '${'#' * level} ',
+    );
+    final text = splice.applyTo(line.text);
+    final lines = controller.codeLines
+        .replaceLine(lineIndex, line.copyWith(text: text))
+        .removeLine(lineIndex + 1);
+    // Ends past the removed underline move up a line; an end on the
+    // underline itself lands at the end of the heading text.
+    (int, int) moved(int index, int offset) {
+      if (index == lineIndex) return (index, splice.map(offset));
+      if (index == lineIndex + 1) return (lineIndex, text.length);
+      return index > lineIndex ? (index - 1, offset) : (index, offset);
+    }
+
+    final selection = controller.selection;
+    final base = moved(selection.baseIndex, selection.baseOffset);
+    final extent = moved(selection.extentIndex, selection.extentOffset);
+    controller.runRevocableOp(() {
+      controller.value = CodeLineEditingValue(
+        codeLines: lines,
+        selection: selection.copyWith(
+          baseIndex: base.$1,
+          baseOffset: base.$2,
+          extentIndex: extent.$1,
+          extentOffset: extent.$2,
+        ),
+      );
+    });
   }
 
   // ---------------------------------------------------------------------------

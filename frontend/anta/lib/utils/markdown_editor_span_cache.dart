@@ -66,7 +66,7 @@ class EditorSpanCache {
   static const int positionalCallout = 4;
 
   /// [PositionalSpanKey] tag: a line of a `%%` block comment, marker or
-  /// body.
+  /// body, or of a front matter, which renders exactly like one.
   static const int positionalComment = 5;
 
   /// [PositionalSpanKey] tag: a line ending in `\` with no non-blank line
@@ -150,6 +150,50 @@ class EditorSpanCache {
   void clearSpanMemos() {
     _spanCache.clear();
     _positionalSpanCache.clear();
+  }
+
+  EditorRenderContext? _quoteBarGroundContext;
+  TextStyle? _quoteBarGround;
+
+  /// The style a quote line's `>` bars sit on: [context]'s line style with
+  /// its weight pinned to normal when it leaves the weight unset, so the
+  /// bars inside a quoted heading's root span do not inherit its bold.
+  /// It depends only on the generation, so it is resolved once per
+  /// [EditorRenderContext] and a quote line's build allocates no style
+  /// for it.
+  TextStyle quoteBarGround(EditorRenderContext context) {
+    final cached = _quoteBarGround;
+    if (cached != null && identical(context, _quoteBarGroundContext)) {
+      return cached;
+    }
+    final style = context.style;
+    _quoteBarGroundContext = context;
+    _quoteStyles.clear();
+    return _quoteBarGround = style.fontWeight == null
+        ? style.copyWith(fontWeight: FontWeight.normal)
+        : style;
+  }
+
+  final List<TextStyle?> _quoteStyles = <TextStyle?>[];
+
+  /// The quote style the renderer keeps in [slot] (its bar per callout
+  /// accent, its revealed bar, a plain quote's content) for [context]'s
+  /// generation, or `null` until [putQuoteStyle] stores it. Each depends
+  /// only on the generation and the slot, so a quote line's build reads
+  /// them instead of copying a style per line; a new generation drops
+  /// them all with [quoteBarGround].
+  TextStyle? quoteStyle(EditorRenderContext context, int slot) {
+    quoteBarGround(context);
+    return slot < _quoteStyles.length ? _quoteStyles[slot] : null;
+  }
+
+  /// Stores [style] in [slot] for the generation the last [quoteStyle]
+  /// read, and returns it.
+  TextStyle putQuoteStyle(int slot, TextStyle style) {
+    while (_quoteStyles.length <= slot) {
+      _quoteStyles.add(null);
+    }
+    return _quoteStyles[slot] = style;
   }
 
   /// The memoized span for a purely textual line, [unhandled] when the

@@ -21,25 +21,21 @@ class AppConstants {
   // - Default: success / informational ("Note moved", "Saved…").
   // - Error: same as default — errors that need more attention should
   //   be a dialog, not a long-lived snackbar.
-  // - WithAction: capped equally so an Undo prompt can't outstay its
-  //   welcome; users tap immediately if they're going to.
+  // - WithAction: the default keeps an Undo prompt as short as a message,
+  //   since users tap at once if they are going to; a prompt that must be
+  //   read first (the editor's link confirm) asks for more, and nothing
+  //   with an action stays longer than the max.
   static const Duration snackbarDuration = Duration(seconds: 3);
   static const Duration snackbarErrorDuration = Duration(seconds: 3);
   static const Duration snackbarSuccessDuration = Duration(seconds: 2);
-  static const Duration snackbarActionMaxDuration = Duration(seconds: 3);
+  static const Duration snackbarActionDefaultDuration = Duration(seconds: 3);
+  static const Duration snackbarActionMaxDuration = Duration(seconds: 5);
 
   // ============================================================
   // UI CONSTANTS
   // ============================================================
   static const double edgeScrollThreshold = 80.0;
   static const double autoScrollSpeed = 10.0;
-
-  // Markdown toolbar sizing
-  static const double markdownToolbarPadding = 8.0;
-  static const double markdownToolbarButtonPadding = 10.0;
-  static const double markdownToolbarButtonMargin = 2.0;
-  static const double markdownToolbarIconSize = 20.0;
-  static const double markdownToolbarTextSize = 16.0;
 
   /// Minimum toolbar shortcut ratio (30%).
   static const double minToolbarRatio = 0.3;
