@@ -2009,9 +2009,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             appBar: ValueListenableAppBar<bool>(
               valueListenable: _saves.hasChanges,
               builder: (context, hasChanges) => NoteAppBar(
-                title: _titleController.text.isEmpty
+                // A page opened to create a note is "New Note" for its
+                // whole session, even once autosave has given the note an
+                // id; a saved note reopened without a title carries the
+                // name the folder lists it under, so one note never has
+                // two names.
+                title: _titleController.text.isNotEmpty
+                    ? _titleController.text
+                    : widget.noteId == null
                     ? AppLocalizations.of(context)!.newNote
-                    : _titleController.text,
+                    : AppLocalizations.of(context)!.untitledNote,
                 hasChanges: hasChanges,
                 saveStatusNotifier: _saves.saveStatus,
                 onMenuPressed: () => _scaffoldKey.currentState?.openDrawer(),

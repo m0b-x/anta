@@ -1,6 +1,6 @@
 # Live editor — quality-of-life review (2026-10-19)
 
-**Status: IMPLEMENTED 2026-10-19, uncommitted — E1–E33 built the same day
+**Status: IMPLEMENTED 2026-10-19, committed `1732603` (2026-10-20) — E1–E33 built the same day
 on the owner's "solve all of them" (E22 kept as is, E33 already held, E35 a
 note; E34 and E36 left out, §5).** Eight implementer slices on disjoint files
 (F1 fork engine, F2 tracker/reflow, T1 shortcut semantics, T2 bar chrome, R1
@@ -818,3 +818,13 @@ E35: `getListPrefix` rebuilds the marker with one space
     the toolbar up and a second tap closed it (possibly a harness timing
     quirk; E26's dismiss path is the suspect if it reproduces on the
     phone). Screenshots under `build/qa/shots/20261019_18*`.
+- **2026-10-21 — the device checks re-run on `6b46bd6`** (qa-runner, the
+  Pixel_9_Pro emulator, `--via agent`), all green: list Enter and the
+  one-level exit, marker Backspace for `- `, `1. ` and `- [ ] ` through
+  `qa key backspace`, the box on the caret line ticking with the caret
+  unmoved, Indent and Outdent with the strip at the same bounds between
+  the taps, the H menu's Body text turning `## Head` into `Head`, the
+  reopened note's painted box toggling without focus, the tap below the
+  last line parking the caret at the end and toggling nothing, `qa errors`
+  clean. The phone-only items above stay owed. Screenshots under
+  `build/qa/shots/20261021_00*`.

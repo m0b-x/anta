@@ -77,6 +77,27 @@ lines bypass the memo.
       quote auto-pair tamed, selection-toolbar and desktop-shortcut fixes;
       the skill references carry the rules (`references/live-editor-rendering.md`,
       `references/fork-and-hot-path.md`, dated paragraphs)
+- [x] Markdown features pass against Obsidian (2026-10-20/21, record
+      `docs/markdown-features-audit-2026-10-19.md`, F1–F27 less F22; commits
+      `ec808d4`, `8fbdeeb`, `6b46bd6`): links and wiki links with aliases,
+      targets and the image glyph, autolinks, tags, rules, closing hashes,
+      flanking rules and the digit-star deviation, HTML entities, the
+      positional hard break, table pipes, fences and front matter as a packed
+      block state (`MarkdownChunker.blockStateAfter`), `%%` comments, the
+      callout kinds and aliases, lists, tasks and headings inside quotes,
+      custom task states, setext headings; the route is fence → callout →
+      setext → money → indeterminate task → text memo; the corpus fixture
+      `tool/qa/fixtures/markdown_corpus.json` is the regression set
+- [x] UX/UI pass (2026-10-20/21, record `docs/editor-ux-review-2026-10-19.md`,
+      U1–U3 + C2 + L, commit `6b46bd6`): the 55 dp bar with 48 dp contiguous
+      targets (`MarkdownBarMetrics`), pinned Undo/Redo, edge fades, the
+      reorder grid, the H menu with Body text; the page's focus-first bar
+      edits, the title dialog, the text-scale-following editor, the 56 dp
+      action snackbar on the overlay road, in-note search revealing only the
+      selected match, `AppSystemBars`, the empty-note hint, the selection
+      toolbar with Bold/Italic/Highlight anchored above the selection;
+      accents at 4.5:1, w700 headings, monospace code, hanging quotes and
+      callouts, TalkBack zone labels
 - [x] Headers `#`–`######` at preview scale factors (H1 2.0 / H2 1.5 / H3 1.25 /
       H4 1.125; H5–H6 clamped to 1.0, bold only) with real per-line heights
 - [x] Bullets (`-*+•` → `•` / `◦` / `▪` cycling by nesting depth since
@@ -600,6 +621,16 @@ lines bypass the memo.
   lines, drag-select, IME composing on a wrapped item, word double-tap near
   the seam, Home/End on first and continuation visual lines, search-highlight
   rects, horizontal-scroll width with wordWrap off, deep-indent fallback
+- Editor passes of 2026-10-19/21 (QoL, markdown features, UX — every
+  emulator check was green, these need the phone because the driver build
+  raises no soft keyboard): Backspace right after a list marker on the soft
+  keyboard (the delegate path), the caret line revealing as the keyboard
+  rises, the vocabulary suggestion row at text scale 2.0, the selection
+  toolbar re-anchoring during the keyboard animation, the first tap on the
+  toolbar's Copy (once on the emulator a second tap seemed needed), the
+  56 dp action snackbar following the keyboard down, the dimmed front
+  matter and the question accent on the phone's panel, Android back
+  closing the keyboard before it leaves the page
 
 ## Roadmap to "perfect Obsidian"
 

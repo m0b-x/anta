@@ -1,7 +1,8 @@
 # Note editor — the UX/UI review (2026-10-19)
 
-**Status: PROPOSED 2026-10-19 — fixes scheduled as slices U1–U3 after the
-markdown features pass; nothing built yet.** The owner asked for a UX/UI
+**Status: BUILT 2026-10-20/21, committed `6b46bd6` — U1–U3, the completion
+pass C2 and the last mile L; §5 is the as-built ledger, §3 what stays as
+it is.** The owner asked for a UX/UI
 review on top of the quality-of-life pass (`docs/editor-qol-review-2026-10-19.md`)
 and the markdown features audit (`docs/markdown-features-audit-2026-10-19.md`),
 with the code going straight to production. Method: a qa-runner shot a
@@ -138,9 +139,54 @@ menu by level; the stable bar height with the suggestion row.
 
 ## 5. Ledger
 
-- **2026-10-20/21 — U1, U2, U3 BUILT and gated (uncommitted at the time of
-  writing; the completion pass C2 of the same workflow family closes the
-  coverage gaps listed below).** Same machinery as the grammar slices: one
+- **2026-10-21 — the completion pass C2 and the last mile L, committed with
+  U1–U3 as `6b46bd6`.** C2 (one implementer, the reviewers and the fix pass
+  of the same family) closed the gaps the U-ledger names: the utility
+  scroller keeps its offset after a repeatable button (font size, scroll to
+  top/bottom, Indent, Outdent — `_repeatableUtilityIds` in
+  `lib/widgets/markdown_bar.dart`, the two list buttons added by the lead
+  after the pass); the reorder panel's header wraps under its share of the
+  cap (`MarkdownBarMetrics.reorderHeaderMaxShare`); the action snackbar is
+  at most 56 dp around its 48 dp button and its durations are named for
+  what they are (`AppConstants.snackbarActionDefaultDuration` 3 s,
+  `snackbarActionMaxDuration` 5 s); the selection toolbar re-anchors on
+  every keyboard inset change rather than once at show time. L added the
+  page-level coverage the reviewers asked for — the editor page at 360 × 780
+  in German at text scale 2.0, the empty-note hint, the grapheme count in
+  the stats strip, the link prompt — and a suite for the markdown settings
+  page (`test/pages/markdown_settings_page_test.dart`, 412 dp, German),
+  which found four rows overflowing at that width (the ratio caption, the
+  vocabulary header, the money suffix row, the shortcuts header); the lead
+  wrapped their text in `Flexible`/`Expanded`. Gate on the committed tree:
+  analyze clean, `+9244 ~10 -1` (the Windows-only host_devices case),
+  `untranslated.txt` `{}`. The device pass on this tree is the entry below
+  it.
+- **2026-10-21 — the device pass on `6b46bd6` (qa-runner, Pixel_9_Pro
+  emulator, `qa run` then `qa relaunch --fresh --seed
+  tool/qa/fixtures/markdown_corpus.json`, `--via agent`), every image read
+  by the lead: nothing red, `qa errors` clean.** Seen: the bar at 1.0 in
+  light and dark and at de @ 2.0 with the same bounds, unscaled glyphs and
+  the stats strip grouped as `5.760 Zeichen · 237 Zeilen`; the utility strip
+  swiped to its end; the H menu with Body text first and the caret's
+  Heading 2 checked; the reorder grid under its header with Done; the
+  selection toolbar above `bold` reading Cut, Copy, Paste, Select all, Bold,
+  Italic, Highlight; in-note search for `bold` at 1/8 with the current
+  match darker than the others; the new note with the dimmed hint and the
+  save dot after one character; the dark theme's navigation bar without a
+  light band. The find row still pushes the body down (§3). Two
+  observations: Android back with no soft keyboard pops the page (the
+  driver build raises no IME, so "back closes the keyboard first" is a
+  phone check); and a note saved without a title was titled "New Note" in
+  the editor while the folder listed it as "Untitled Note" — fixed the same
+  day in `lib/pages/optimized_note_editor_page.dart`: the `NoteAppBar`
+  title falls back to "New Note" only on a page opened with no note id (a
+  note being created keeps that name for its whole session, even once
+  autosave has given it an id) and to "Untitled Note" otherwise; pinned in
+  `test/widgets/optimized_note_editor_page_test.dart` ("the title
+  fallback"). Screenshots: `build/qa/shots/20261021_00*`.
+- **2026-10-20/21 — U1, U2, U3 BUILT and gated (committed as `6b46bd6` on
+  2026-10-21 together with the completion pass C2 and the last mile L, the
+  entry above).** Same machinery as the grammar slices: one
   implementer, three reviewers, three verifiers per finding, a fix pass, a
   gate (baselines U1 `0ca58c36`, U2 `f71f0f0d`, U3 `eb656361`). Findings:
   U1 49 raised / 42 kept / 30 fixed; U2 53 / 50 / 28 (its implementer ran

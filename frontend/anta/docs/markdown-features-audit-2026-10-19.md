@@ -1,6 +1,9 @@
 # Markdown features — the Obsidian audit (2026-10-19)
 
-**Status: PROPOSED 2026-10-19 — nothing implemented.** The owner asked, after
+**Status: IMPLEMENTED — phase one committed `ec808d4`, phase two `8fbdeeb`
+(both 2026-10-20), the sweep S2 and the completion pass C1 `6b46bd6`
+(2026-10-21); F22 stays deferred (§4); §5 is the as-built ledger, the corpus
+fixture the regression set.** The owner asked, after
 the editor quality-of-life pass (`docs/editor-qol-review-2026-10-19.md`),
 whether the markdown features themselves work the way Obsidian's do and are
 in good shape. Three sources: one read-only review (Opus 5.5) of every
@@ -222,6 +225,31 @@ ANTA-only, no verdict: money rows, `{{ghost}}`, `{name:text}` colours and
 
 ## 5. Ledger
 
+- **2026-10-21 — the corpus re-shot on `6b46bd6` (qa-runner, Pixel_9_Pro
+  emulator, `qa run` then `qa relaunch --fresh --seed
+  tool/qa/fixtures/markdown_corpus.json`, 16 light shots top to bottom, six
+  dark, the front-matter note), every image read by the lead against the
+  fixture's lines: every construct renders as the entries below describe,
+  nothing red, `qa errors` clean.** Confirmed on the device: the graded
+  headings with setext underlines as dimmed rules, the closing-hash cases,
+  the NBSP-led heading as prose; the emphasis matrix with the digit-star
+  deviation and the Romanian quote pairs; code spans holding a backtick;
+  entities decoded, the invisible ones kept as typed; inline comments
+  concealed, block comments dimmed with inert tags and money; the link
+  family with the image glyph, aliases, heading and block targets; bullet
+  glyphs by depth, every task state with its glyph and the cancelled
+  cross; quotes holding lists, tasks, numbers and a heading, every callout
+  kind and alias with its icon, fold markers as chrome, the two
+  quote-not-callout lines; fences with info strings, the four-backtick
+  fence, the indented and tab-indented fences, the pasted ```` ```npm i``` ````
+  as inline code; the table with the escaped pipe, the alias cell and the
+  raw escaped alias, the pipeless table as prose (F22); the rule family
+  solid and the NBSP-led `- - -` as a bullet (the pinned tier-3 case); the
+  positional hard break on every corpus line; the tag family; ghosts,
+  colours, the money rows and the balance; the unclosed fence to the end.
+  Seen and left: a lone `-` (corpus line 93) renders as a literal dash,
+  where Obsidian shows an empty item; the linked badge shows its inner
+  link raw (§4).
 - **2026-10-20, phase two BUILT and COMMITTED `8fbdeeb` — slices D, E, F
   (F1, F17, F21b, F9, F10, F15, F14, F16), every slice gated green; phase
   one is `ec808d4`, the checkpoint before it `1732603`.** Same machinery

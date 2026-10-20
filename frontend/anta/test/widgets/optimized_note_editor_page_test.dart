@@ -1169,6 +1169,49 @@ void main() {
     });
   });
 
+  group('the title fallback', () {
+    // The folder opens an existing note with its metadata, whose title
+    // seeds the page's title field; the folder lists a note saved without
+    // a title as "Untitled Note", and the editor once called the same note
+    // "New Note" on reopening, so one note carried two names (device pass,
+    // 2026-10-21). "New Note" is for a page opened with no note id.
+    Future<void> open(WidgetTester tester, NoteMetadata note) async {
+      await pumpPageFor(tester, note);
+      noteBloc.emitContentLoaded(note, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+    }
+
+    testWidgets('a saved note reopened without a title is named as the '
+        'folder lists it', (tester) async {
+      await open(
+        tester,
+        NoteMetadata(
+          id: noteId,
+          folderId: folderId,
+          title: '',
+          preview: 'first line',
+          contentLength: content.length,
+          chunkCount: 1,
+          isCompressed: false,
+          createdAt: DateTime(2026, 9, 1),
+          updatedAt: DateTime(2026, 9, 1),
+        ),
+      );
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      expect(appBar(tester).title, l10n.untitledNote);
+      expect(appBar(tester).title, isNot(l10n.newNote));
+      await teardownPage(tester);
+    });
+
+    testWidgets('a titled note keeps its title', (tester) async {
+      await open(tester, metadata);
+      expect(appBar(tester).title, 'Training log');
+      await teardownPage(tester);
+    });
+  });
+
   group('B1 — loading a note is not an edit', () {
     /// The page's auto-save runs on the shipped defaults, so a case about
     /// the debounce has to outlast the real one.
