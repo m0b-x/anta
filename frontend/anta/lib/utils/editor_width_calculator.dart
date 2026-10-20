@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../constants/markdown_constants.dart';
 import 'markdown_chunker.dart';
+import 'markdown_color_syntax.dart';
+import 'markdown_inline_grammar.dart';
 import 'markdown_line_shape.dart';
 import 'markdown_link_patterns.dart';
 import 'markdown_list_syntax.dart';
@@ -246,22 +248,32 @@ class EditorWidthCalculator {
   /// of a document (the lines a paste landed on), and a slice starting
   /// inside a fence body carries no opening delimiter of its own. Without
   /// the seed such a slice reads as ordinary prose and its code lines are
-  /// hard-wrapped.
+  /// hard-wrapped. [fenceOpener] is the packed opener of that fence
+  /// ([MarkdownChunker.fenceOpenerOf]), so a ``` line pasted into a
+  /// ```` ```` ```` or `~~~` body is not read as its closer; without it the
+  /// seed is taken as ```.
   ///
   /// [firstLineKeep] is how many leading code units of the first line
   /// were there before the paste: no break lands inside them, so a paste
   /// reflows its own text and never the user's. The whitespace that ends
   /// them is still a word boundary — breaking there costs the kept text
   /// nothing but the space the break replaces.
+  ///
+  /// [nextLine] is the document line after the slice, so a pasted setext
+  /// text line above an underline already in the note stays whole too.
   LineBreakResult breakLinesSmartly(
     List<String> lines,
     double maxWidth, {
     bool inCodeBlock = false,
+    int? fenceOpener,
     int firstLineKeep = 0,
+    String? nextLine,
   }) {
     final result = <String>[];
     int linesModified = 0;
-    bool inFence = inCodeBlock;
+    int fence = inCodeBlock
+        ? fenceOpener ?? MarkdownChunker.fenceOpenerOf('```')
+        : MarkdownChunker.outsideBlock;
     List<int> lastLineSourceOffsets = const <int>[0];
 
     for (int index = 0; index < lines.length; index++) {
@@ -271,14 +283,15 @@ class EditorWidthCalculator {
 
       // Toggle code block state on the fence grammar both surfaces read,
       // so a lead only `trim` strips (a no-break space) toggles nothing.
-      if (MarkdownChunker.isFenceDelimiter(line)) {
-        inFence = !inFence;
+      final next = MarkdownChunker.fenceStateAfter(line, fence);
+      if (next != fence) {
+        fence = next;
         result.add(line);
         continue;
       }
 
       // Skip lines inside code blocks
-      if (inFence) {
+      if (MarkdownChunker.isFenceState(fence)) {
         result.add(line);
         continue;
       }
@@ -298,9 +311,17 @@ class EditorWidthCalculator {
       // break, so fitting lines never pay the shape probes. A run that is
       // a rule past a lead only `trim` strips stays whole too: it is prose
       // on screen, but every cut tail would be a bare rule.
+      // A setext pair neither: a cut text line leaves only its last piece
+      // the heading, and a cut `===` run reads its tail as prose.
       if (MarkdownLineShape.isLineLedConstruct(line) ||
           MarkdownLineShape.isHorizontalRule(line.trimLeft()) ||
-          MarkdownListSyntax.scanListShape(line) >= 0) {
+          MarkdownListSyntax.scanListShape(line) >= 0 ||
+          MarkdownLineShape.setextUnderlineLevel(line) != 0 ||
+          MarkdownLineShape.setextLevelOf(
+                line,
+                isLast ? nextLine : lines[index + 1],
+              ) >
+              0) {
         result.add(line);
         continue;
       }
@@ -455,6 +476,19 @@ class EditorWidthCalculator {
     ]) {
       for (final match in pattern.allMatches(line)) {
         ranges.add(_Range(match.start, match.end));
+      }
+    }
+
+    // A `%%…%%` comment closes on its own line only, so a break inside one
+    // would leave two unclosed, literal halves showing the hidden text.
+    // Its extent is the inline grammar's (comments are atoms there, so
+    // the palette never moves one).
+    if (line.contains('%%')) {
+      for (final token in MarkdownInlineGrammar.tokenize(
+        line,
+        palette: MarkdownColorPalette.presets,
+      )) {
+        if (token is InlineComment) ranges.add(_Range(token.start, token.end));
       }
     }
 

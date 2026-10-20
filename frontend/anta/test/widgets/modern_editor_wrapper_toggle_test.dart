@@ -236,6 +236,25 @@ void main() {
     await teardownEditor(tester);
   });
 
+  testWidgets('a tap on a custom-state box clears it to the open box, '
+      'and the next tap ticks it', (tester) async {
+    final e = await pumpEditor(
+      tester,
+      text: buildDocument(lineAt650: '- [-] squat 5x5'),
+    );
+
+    var scroll = await scrollToLine(tester, e.scroller, taskLine);
+    await tester.tapAt(positionOf(tester, taskLine, 0, scroll: scroll));
+    await tester.pump();
+    expect(e.controller.codeLines[taskLine].text, '- [ ] squat 5x5');
+
+    scroll = await scrollToLine(tester, e.scroller, taskLine);
+    await tester.tapAt(positionOf(tester, taskLine, 0, scroll: scroll));
+    await tester.pump();
+    expect(e.controller.codeLines[taskLine].text, '- [x] squat 5x5');
+    await teardownEditor(tester);
+  });
+
   testWidgets('the box on the caret line toggles once the caret is past '
       'its marker', (tester) async {
     // Typing `- [ ] squat 5x5` leaves the caret at the line's end: the
@@ -260,6 +279,41 @@ void main() {
     expect(e.controller.codeLines[taskLine].text, '- [x] squat 5x5');
     expect(e.controller.selection, selectionBefore);
     expect(e.focusNode.hasFocus, isTrue);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a quoted task toggles at its box behind the bar', (
+    tester,
+  ) async {
+    final e = await pumpEditor(
+      tester,
+      text: buildDocument(lineAt650: '> - [ ] squat 5x5'),
+    );
+    e.focusNode.requestFocus();
+    await tester.pump();
+    e.controller.selection = const CodeLineSelection.collapsed(
+      index: taskLine,
+      offset: 17,
+    );
+    await tester.pump();
+    final selectionBefore = e.controller.selection;
+
+    var scroll = await scrollToLine(tester, e.scroller, taskLine);
+    await tester.tapAt(positionOf(tester, taskLine, 2, scroll: scroll));
+    await tester.pump();
+
+    expect(e.controller.codeLines[taskLine].text, '> - [x] squat 5x5');
+    expect(e.controller.selection, selectionBefore);
+
+    // One atomic value change: a single undo restores the open box.
+    e.controller.undo();
+    await tester.pump();
+    expect(e.controller.codeLines[taskLine].text, '> - [ ] squat 5x5');
+
+    scroll = await scrollToLine(tester, e.scroller, taskLine);
+    await tester.tapAt(positionOf(tester, taskLine, 2, scroll: scroll));
+    await tester.pump();
+    expect(e.controller.codeLines[taskLine].text, '> - [x] squat 5x5');
     await teardownEditor(tester);
   });
 

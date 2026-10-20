@@ -216,9 +216,10 @@ void main() {
           reason: 'initial',
         );
 
-        // A lone opening fence at 256 leaves the rest of the document
-        // inside a fence: every task/money line below it goes inert.
-        _replaceLine(controller, 256, '```');
+        // A lone four-backtick opener at 256 leaves the rest of the
+        // document inside a fence — none of the ``` closers below is long
+        // enough to end it — so every task/money line below goes inert.
+        _replaceLine(controller, 256, '````');
         expectMatchesFresh(
           index,
           controller.codeLines,
@@ -238,7 +239,7 @@ void main() {
         );
 
         // Closing it again restores every role below.
-        _replaceLine(controller, 600, '```');
+        _replaceLine(controller, 600, '````');
         expectMatchesFresh(
           index,
           controller.codeLines,
@@ -789,6 +790,37 @@ void main() {
         MarkdownCalloutRole.none,
       );
       expect(MarkdownEditorLineIndex.calloutTypeOf(0), isNull);
+    });
+
+    test('an unknown word leads a note; a blank or non-word token none', () {
+      final CodeLines codeLines = codeLinesOf(<String>[
+        '> [!FOO]',
+        '> body',
+        '',
+        '> [!]',
+        '> plain',
+        '',
+        '> [![a](u)](l)',
+        '> plain',
+      ]);
+      final index = newIndex(money: false);
+
+      final int lead = index.calloutAt(codeLines, 0);
+      expect(
+        MarkdownEditorLineIndex.calloutRoleOf(lead),
+        MarkdownCalloutRole.lead,
+      );
+      expect(
+        MarkdownEditorLineIndex.calloutTypeOf(lead),
+        MarkdownCalloutType.note,
+      );
+      expect(
+        MarkdownEditorLineIndex.calloutRoleOf(index.calloutAt(codeLines, 1)),
+        MarkdownCalloutRole.body,
+      );
+      for (final int i in const [3, 4, 6, 7]) {
+        expect(index.calloutAt(codeLines, i), 0, reason: 'line $i');
+      }
     });
 
     test('Enter in a body and deleting the lead stay equivalent', () {
@@ -1746,12 +1778,23 @@ void main() {
         reason: 'only the closing fence removed',
       );
       expect(closerScan.rebuilt, isFalse);
+      // The fence now runs on through the following block's ```dart — an
+      // info string never closes a fence — and ends at that block's
+      // closer, so the roles re-pair there and the tail is back outside.
+      var absorbed = next + 3;
+      while (controller.codeLines[absorbed].text != '```dart') {
+        absorbed++;
+      }
+      expect(
+        index.fenceRoleAt(controller.codeLines, absorbed),
+        MarkdownFenceRole.interior,
+      );
       expect(
         index.fenceRoleAt(
           controller.codeLines,
           controller.codeLines.length - 1,
         ),
-        MarkdownFenceRole.interior,
+        MarkdownFenceRole.none,
       );
     });
 
@@ -1845,6 +1888,123 @@ void main() {
     });
   });
 
+  group('fence and comment grammar', () {
+    const n = MarkdownFenceRole.none;
+    const d = MarkdownFenceRole.delimiter;
+    const i = MarkdownFenceRole.interior;
+    const c = MarkdownFenceRole.comment;
+
+    List<MarkdownFenceRole> rolesOf(List<String> lines) {
+      final codeLines = codeLinesOf(lines);
+      final index = newIndex(money: true);
+      return [
+        for (int k = 0; k < lines.length; k++) index.fenceRoleAt(codeLines, k),
+      ];
+    }
+
+    test('a one-line ```npm i``` opens no fence', () {
+      expect(rolesOf(['```npm i```', '- [ ] a', r'$+ 5 x']), [n, n, n]);
+    });
+
+    test('```js inside an open fence does not close it', () {
+      expect(rolesOf(['```', 'a', '```js', 'b', '```', 'after']), [
+        d,
+        i,
+        i,
+        i,
+        d,
+        n,
+      ]);
+    });
+
+    test('a ```` fence holds a ``` line until ````', () {
+      expect(rolesOf(['````', '```', 'x', '````', 'after']), [d, i, i, d, n]);
+    });
+
+    test('~~~ opens and closes, and never closes a backtick fence', () {
+      expect(rolesOf(['~~~', 'a', '~~~', '```', '~~~', '```']), [
+        d,
+        i,
+        d,
+        d,
+        i,
+        d,
+      ]);
+    });
+
+    test('a fence under a list item is a fence at any indent', () {
+      expect(rolesOf(['- step', '    ```', 'a', '    ```', 'b']), [
+        n,
+        d,
+        i,
+        d,
+        n,
+      ]);
+      expect(rolesOf(['- step', '\t```', 'a', '\t```', 'b']), [n, d, i, d, n]);
+    });
+
+    test('a %% block is comment, markers, body and fence lines alike', () {
+      expect(rolesOf(['%%', 'note #tag', '```', '%%', 'after']), [
+        c,
+        c,
+        c,
+        c,
+        n,
+      ]);
+      expect(rolesOf(['a', '%%', 'b']), [n, c, c]);
+    });
+
+    test('a %% line inside a fence is code', () {
+      expect(rolesOf(['```', '%%', '```', 'x']), [d, i, d, n]);
+    });
+
+    test('money rows inside a block comment are inert', () {
+      final lines = [r'$+ 5 a', '%%', r'$+ 7 b', r'$$', '%%', r'$$'];
+      final codeLines = codeLinesOf(lines);
+      final index = newIndex(money: true);
+      expect(index.moneyValueAt(codeLines, 3), isNull);
+      expect(index.moneyValueAt(codeLines, 5), 500);
+    });
+
+    test('tilde fences and comments typed mid-document match fresh', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(buildTrainingLog()),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      void matches(String reason) => expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: reason,
+      );
+
+      matches('initial');
+      _replaceLine(controller, 256, '~~~~');
+      matches('tilde fence opened at 256');
+      expect(
+        index.fenceRoleAt(
+          controller.codeLines,
+          controller.codeLines.length - 1,
+        ),
+        i,
+      );
+      _replaceLine(controller, 256, '%%');
+      matches('the opener became a comment marker');
+      expect(
+        index.fenceRoleAt(
+          controller.codeLines,
+          controller.codeLines.length - 1,
+        ),
+        c,
+      );
+      _replaceLine(controller, 600, '%%');
+      matches('comment closed at 600');
+      _replaceLine(controller, 256, '- back to a plain bullet');
+      matches('marker removed');
+    });
+  });
+
   group('degenerate documents', () {
     test('the document collapses to one line and then to none', () {
       final controller = CodeLineEditingController(
@@ -1884,6 +2044,18 @@ void main() {
       expect(index.taskIndeterminate(empty, 0), isFalse);
       expect(index.debugIndeterminate(empty), isEmpty);
       expectMatchesFresh(index, empty, money: true, reason: 'no lines left');
+    });
+  });
+
+  group('custom task states', () {
+    test('count as open tasks: only x / X is done', () {
+      final index = newIndex(money: false);
+      final mixed = codeLinesOf(['- [ ] p', '  - [x] a', '  - [-] b']);
+      expect(index.taskIndeterminate(mixed, 0), isTrue);
+      final done = codeLinesOf(['- [ ] p', '  - [x] a', '  - [X] b']);
+      expect(newIndex(money: false).taskIndeterminate(done, 0), isFalse);
+      final open = codeLinesOf(['- [ ] p', '  - [/] a', '  - [-] b']);
+      expect(newIndex(money: false).taskIndeterminate(open, 0), isFalse);
     });
   });
 

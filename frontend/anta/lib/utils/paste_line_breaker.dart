@@ -1,6 +1,7 @@
 import 'package:re_editor/re_editor.dart';
 
 import 'editor_width_calculator.dart';
+import 'markdown_chunker.dart';
 
 /// Translates a line index into a flat character offset in a
 /// [CodeLineEditingController]'s text. O(lines), so it belongs to the
@@ -67,10 +68,12 @@ class PasteLineBreaker {
   /// document.
   ///
   /// [lineInFenceBody] answers whether a given document line sits **inside**
-  /// a fence body (delimiters excluded). It is consulted once, for the
-  /// range's first line, so a paste landing in the middle of a code block
-  /// is recognised as such: the range carries no opening delimiter of its
-  /// own, and without the seed its code lines would be hard-wrapped. A
+  /// a fence body (delimiters excluded). It is consulted for the range's
+  /// first line, so a paste landing in the middle of a code block is
+  /// recognised as such: the range carries no opening delimiter of its
+  /// own, and without the seed its code lines would be hard-wrapped. When
+  /// it is, the lines above are walked back to the opener, so the seed
+  /// knows the opener's character and run. A
   /// caller with no fence index passes nothing and gets the old,
   /// slice-local reading.
   ///
@@ -124,11 +127,16 @@ class PasteLineBreaker {
     lines.add(lastLine);
     final String suffix = endText.substring(lastLine.length);
 
+    final bool inFenceBody = lineInFenceBody?.call(start) ?? false;
     final result = calculator.breakLinesSmartly(
       lines,
       availableWidth,
-      inCodeBlock: lineInFenceBody?.call(start) ?? false,
+      inCodeBlock: inFenceBody,
+      fenceOpener: inFenceBody
+          ? _fenceOpenerAbove(codeLines, start, lineInFenceBody!)
+          : null,
       firstLineKeep: startOffset,
+      nextLine: end + 1 < lineCount ? codeLines[end + 1].text : null,
     );
     if (result.linesModified == 0) return PasteLineBreakerResult.empty;
 
@@ -228,6 +236,28 @@ class PasteLineBreaker {
   /// (roadmap Session 11) a parent line carries its hidden children in
   /// [CodeLine.chunks], and the splice below re-creates every line in the
   /// range as a plain [CodeLine] — silently deleting them.
+  /// The packed opener of the fence whose body holds [index]. A body is
+  /// one contiguous run, so the first line above it that is not body is
+  /// its opening delimiter; reading that line's opener lets the seed know
+  /// that a pasted ``` line inside a ```` ```` ```` or `~~~` body closes
+  /// nothing. One walk per paste, never per keystroke.
+  static int _fenceOpenerAbove(
+    CodeLines codeLines,
+    int index,
+    bool Function(int lineIndex) lineInFenceBody,
+  ) {
+    int i = index - 1;
+    while (i >= 0 && lineInFenceBody(i)) {
+      i--;
+    }
+    final int opener = i >= 0
+        ? MarkdownChunker.fenceOpenerOf(codeLines[i].text)
+        : MarkdownChunker.outsideBlock;
+    return opener != MarkdownChunker.outsideBlock
+        ? opener
+        : MarkdownChunker.fenceOpenerOf('```');
+  }
+
   static bool _noChunkParents(CodeLines codeLines, int start, int end) {
     for (int i = start; i <= end; i++) {
       if (codeLines[i].chunkParent) return false;

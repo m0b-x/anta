@@ -60,9 +60,10 @@ class NoteMoneyLedgerService {
   /// Rebuilds the ledger summary for every note linked from [events].
   ///
   /// Reads the global money display config, folds each linked note's
-  /// content exactly like the render passes (fence-delimiter lines toggle
-  /// parity and are themselves inert, lines inside a fence are inert,
-  /// oversized lines are skipped) and drops entries whose note is no
+  /// content exactly like the render passes (fence and `%%` comment
+  /// delimiters and every line between them are inert, as
+  /// [MarkdownChunker.blockStateAfter] pairs them; oversized lines are
+  /// skipped) and drops entries whose note is no
   /// longer linked. Per-note failures are logged and skipped so one
   /// broken note cannot hide the rest.
   Future<void> refresh(List<CalendarEvent> events) async {
@@ -150,15 +151,15 @@ class NoteMoneyLedgerService {
     // [MoneyFold]; this fold only layers its op-only `net` on top.
     final fold = MoneyFold(_startCents);
     var net = 0;
-    var inFence = false;
+    var state = MarkdownChunker.outsideBlock;
     for (final line in content.split('\n')) {
-      if (MarkdownChunker.isFenceDelimiter(line)) {
-        inFence = !inFence;
+      final entry = state;
+      state = MarkdownChunker.blockStateAfter(line, state);
+      if (entry != MarkdownChunker.outsideBlock ||
+          state != MarkdownChunker.outsideBlock) {
         continue;
       }
-      if (inFence || line.length > MarkdownMoneySyntax.maxLineLength) {
-        continue;
-      }
+      if (line.length > MarkdownMoneySyntax.maxLineLength) continue;
       if (line.isEmpty || !MarkdownMoneySyntax.leadsWithMoney(line)) {
         continue;
       }

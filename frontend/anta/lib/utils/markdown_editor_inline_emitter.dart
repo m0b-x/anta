@@ -160,6 +160,18 @@ class EditorInlineEmitter {
             out,
           );
           styled = true;
+        case InlineComment():
+          // A comment is chrome from `%%` to `%%`: concealed whole
+          // off-caret, dimmed on reveal. The grammar never lets one hold
+          // a ghost, so no split is needed.
+          EditorSpanEmitter.emitChrome(
+            text,
+            token.start,
+            token.end,
+            markerStyle,
+            out,
+          );
+          styled = true;
         case InlineCode():
           // Code spans are literal all the way down: no recursion, and
           // the chip is painted at the emit site (CodeDecoratedTextSpan)

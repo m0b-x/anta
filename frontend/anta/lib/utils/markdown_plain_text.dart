@@ -14,7 +14,7 @@ import 'markdown_money_syntax.dart';
 /// and the editor's `EditorInlineEmitter`.
 ///
 /// Nothing here scans for a construct of its own: line shapes come from
-/// [MarkdownLineShape], [MarkdownChunker.isFenceDelimiter],
+/// [MarkdownLineShape], [MarkdownChunker.blockStateAfter],
 /// [MarkdownCalloutSyntax], [MarkdownListSyntax] and
 /// [MarkdownMoneySyntax], and everything inline comes from
 /// [MarkdownInlineGrammar.tokenize]. The only decision this file makes
@@ -34,12 +34,16 @@ class MarkdownPlainText {
   /// The plain text of [content], collapsed onto one line and capped at
   /// [maxLength] with a trailing ellipsis.
   ///
-  /// Blank lines, fence delimiters and fenced bodies, horizontal rules
-  /// and table separators contribute nothing; every other line is
+  /// Blank lines, fence delimiters and fenced bodies, `%%` block comments,
+  /// horizontal rules and table separators contribute nothing, and a
+  /// trailing `\` is dropped only where a non-blank line follows (a hard
+  /// break); every other line is
   /// unwrapped to its content and appended in source order, so the first
   /// meaningful line leads. A note whose every line strips to nothing
   /// (a lone `---`, a fenced-only note) falls back to the raw whitespace
-  /// collapse, so a non-empty note never previews blank.
+  /// collapse, so a non-empty note never previews blank — less its `%%`
+  /// comments, so a note that holds only a comment previews blank rather
+  /// than the text its author hid.
   ///
   /// [money] is whether the text has a ledger. A note does, so a `$`-led
   /// line is one of its rows and loses its marker. An event's or a
@@ -56,21 +60,85 @@ class MarkdownPlainText {
 
     final out = StringBuffer();
     final lines = const LineSplitter().convert(content);
-    var inFence = false;
-    for (final line in lines) {
-      if (MarkdownChunker.isFenceDelimiter(line)) {
-        inFence = !inFence;
+    var state = MarkdownChunker.outsideBlock;
+    // The open callout, stepped as the chunker steps it: only the line
+    // that opens a block is its lead, so a `[!x]` on a body line stays
+    // the body text both surfaces show.
+    MarkdownCalloutType? callout;
+    // The previous line when it sat outside every fence and comment, the
+    // only kind a setext underline can belong to.
+    String? previous;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final entry = state;
+      state = MarkdownChunker.blockStateAfter(line, state);
+      final above = previous;
+      previous = null;
+      if (entry != MarkdownChunker.outsideBlock ||
+          state != MarkdownChunker.outsideBlock) {
+        callout = null;
         continue;
       }
-      if (inFence) continue;
+      previous = line;
+      // A setext underline is chrome: its text line above already printed.
+      if (above != null && MarkdownLineShape.setextLevelOf(above, line) > 0) {
+        callout = null;
+        continue;
+      }
+      final openBefore = callout;
+      callout = MarkdownCalloutSyntax.blockStep(line, callout);
+      final isLead = openBefore == null && callout != null;
+      final next = i + 1 < lines.length ? lines[i + 1] : null;
+      // A trailing `\` breaks the line only when a non-blank line follows,
+      // and never on a setext heading's text line.
+      final hardBreaks =
+          next != null &&
+          !MarkdownChunker.isBlankLine(next) &&
+          MarkdownLineShape.setextLevelOf(line, next) == 0;
       final before = out.length;
-      _line(line, out, palette, 0, money);
+      _line(line, out, palette, 0, money, hardBreaks, isLead: isLead);
       if (out.length > before) out.write(' ');
     }
 
     final collapsed = _collapse(out.toString());
-    final text = collapsed.isEmpty ? _collapse(content) : collapsed;
+    final text = collapsed.isEmpty
+        ? _collapse(_uncommented(lines, palette))
+        : collapsed;
     return _cap(text, maxLength);
+  }
+
+  /// The fallback's source: [lines] as written, without `%%` block
+  /// comments and with every top-level `%%…%%` run outside a fence cut.
+  static String _uncommented(
+    List<String> lines,
+    MarkdownColorPalette palette,
+  ) {
+    final out = StringBuffer();
+    var state = MarkdownChunker.outsideBlock;
+    for (final line in lines) {
+      final entry = state;
+      state = MarkdownChunker.blockStateAfter(line, state);
+      if (entry == MarkdownChunker.insideComment ||
+          state == MarkdownChunker.insideComment) {
+        continue;
+      }
+      var from = 0;
+      if (entry == MarkdownChunker.outsideBlock &&
+          state == MarkdownChunker.outsideBlock) {
+        for (final token in MarkdownInlineGrammar.tokenize(
+          line,
+          palette: palette,
+        )) {
+          if (token is! InlineComment) continue;
+          out.write(line.substring(from, token.start));
+          from = token.end;
+        }
+      }
+      out
+        ..write(line.substring(from))
+        ..write(' ');
+    }
+    return out.toString();
   }
 
   static String _collapse(String text) =>
@@ -90,7 +158,9 @@ class MarkdownPlainText {
     MarkdownColorPalette palette,
     int depth,
     bool money,
-  ) {
+    bool hardBreaks, {
+    bool isLead = false,
+  }) {
     if (line.trim().isEmpty) return;
     if (MarkdownLineShape.isHorizontalRule(line)) return;
     if (MarkdownLineShape.isTableSeparator(line)) return;
@@ -99,9 +169,14 @@ class MarkdownPlainText {
         ? GhostText.findGhosts(line)
         : const <GhostMatch>[];
 
-    final lead = MarkdownCalloutSyntax.parseLead(line);
+    // Only a block's opening line is read as a lead ([isLead]); nested
+    // content never is.
+    final lead = isLead ? MarkdownCalloutSyntax.parseLead(line) : null;
     if (lead != null) {
-      out.write(MarkdownCalloutSyntax.labelFor(lead.type));
+      // The token's own word, as both surfaces title it (`[!hint]` reads
+      // `Hint`, an unknown `[!drill]` reads `Drill`); a fold marker is
+      // chrome and never reaches the title.
+      out.write(lead.label.trim());
       if (lead.title.isNotEmpty) {
         out.write(' ');
         _inline(
@@ -127,9 +202,19 @@ class MarkdownPlainText {
           palette,
           depth + 1,
           money,
+          hardBreaks,
         );
       } else {
-        _inline(line, quote.contentStart, line.length, out, palette, ghosts, 0);
+        _inline(
+          line,
+          quote.contentStart,
+          line.length,
+          out,
+          palette,
+          ghosts,
+          0,
+          hardBreaks,
+        );
       }
       return;
     }
@@ -162,7 +247,27 @@ class MarkdownPlainText {
     final item = MarkdownListSyntax.parse(line);
     if (item != null) {
       if (item.kind == MarkdownListKind.task && item.checked) out.write('✓ ');
-      _inline(line, item.contentStart, line.length, out, palette, ghosts, 0);
+      // A custom state keeps its box as typed (`[-] skipped`): no glyph
+      // carries `-` or `/` into a share or a note preview. The box is
+      // written verbatim, since a `*`, a backtick or a `\` state would
+      // otherwise open emphasis, code or an escape against the content.
+      final custom =
+          item.kind == MarkdownListKind.task &&
+          !item.checked &&
+          item.state != ' ';
+      if (custom) {
+        out.write(line.substring(item.bracketStart, item.bracketStart + 3));
+      }
+      _inline(
+        line,
+        custom ? item.bracketStart + 3 : item.contentStart,
+        line.length,
+        out,
+        palette,
+        ghosts,
+        0,
+        hardBreaks,
+      );
       return;
     }
 
@@ -171,7 +276,7 @@ class MarkdownPlainText {
       return;
     }
 
-    _inline(line, 0, line.length, out, palette, ghosts, 0);
+    _inline(line, 0, line.length, out, palette, ghosts, 0, hardBreaks);
   }
 
   /// Cells of a `| a | b |` row joined with a middot. The row shape is
@@ -315,6 +420,7 @@ class MarkdownPlainText {
       plainFrom = token.end;
       switch (token) {
         case InlineGhost():
+        case InlineComment():
           break;
         case InlineEscape():
           out.write(text.substring(token.charStart, token.end));

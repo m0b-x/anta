@@ -20,10 +20,28 @@ const int kAlertExcerptMaxLength = 120;
 /// the grammar does not name passes through as written.
 String alertExcerptFor(String? description) {
   if (description == null || description.isEmpty) return '';
-  for (final raw in description.split('\n')) {
+  final lines = description.split('\n');
+  var state = MarkdownChunker.outsideBlock;
+  for (var i = 0; i < lines.length; i++) {
+    final raw = lines[i];
+    final entry = state;
+    state = MarkdownChunker.blockStateAfter(raw, state);
+    // A fence's delimiters and a `%%` block comment never surface; a
+    // fence's body reads as written.
+    if (entry != state ||
+        state == MarkdownChunker.insideComment ||
+        entry == MarkdownChunker.insideComment) {
+      continue;
+    }
     final line = raw.trim();
     if (line.isEmpty) continue;
-    final plain = _plainLine(line);
+    // A trailing `\` is a hard break only where a non-blank line follows,
+    // and never on a setext heading's text line.
+    final hardBreak =
+        i + 1 < lines.length &&
+        !MarkdownChunker.isBlankLine(lines[i + 1]) &&
+        MarkdownLineShape.setextLevelOf(raw, lines[i + 1]) == 0;
+    final plain = _plainLine(line, hardBreak: hardBreak);
     if (plain.isEmpty) continue;
     if (plain.length <= kAlertExcerptMaxLength) return plain;
     // The cap counts code units, so the last one kept can be the lead half
@@ -38,11 +56,10 @@ String alertExcerptFor(String? description) {
   return '';
 }
 
-String _plainLine(String line) {
+String _plainLine(String line, {required bool hardBreak}) {
   if (MarkdownLineShape.isHorizontalRule(line) ||
       MarkdownLineShape.isTableSeparator(line) ||
-      MarkdownLineShape.isTableRow(line) ||
-      MarkdownChunker.isFenceDelimiter(line)) {
+      MarkdownLineShape.isTableRow(line)) {
     return '';
   }
   final money = MarkdownMoneySyntax.parse(line);
@@ -57,9 +74,26 @@ String _plainLine(String line) {
     text = text.substring(heading.contentStart, heading.contentEnd);
   }
   final item = MarkdownListSyntax.parse(text);
-  if (item != null) text = item.content;
+  if (item != null) {
+    // A custom state keeps its box as typed, as MarkdownPlainText does, so
+    // a cancelled `[-]` task does not read as a live one; the box skips the
+    // inline grammar, which would read a `*` or a `\` state as markup.
+    if (item.kind == MarkdownListKind.task &&
+        !item.checked &&
+        item.state != ' ') {
+      final box = text.substring(item.bracketStart, item.bracketStart + 3);
+      final rest = _plainInline(
+        item.content.trim(),
+        hardBreak: hardBreak && heading == null,
+      );
+      return _collapseSpaces(rest.isEmpty ? box : '$box $rest');
+    }
+    text = item.content;
+  }
   // A heading keeps a trailing `\` as text, as every surface does.
-  return _collapseSpaces(_plainInline(text.trim(), hardBreak: heading == null));
+  return _collapseSpaces(
+    _plainInline(text.trim(), hardBreak: hardBreak && heading == null),
+  );
 }
 
 /// A ledger line reads as its amount, signed for an add or a subtract, and
@@ -110,6 +144,7 @@ String _plainToken(String text, InlineToken token) => switch (token) {
   InlineEscape() => text.substring(token.start + 1, token.end),
   InlineEntity() => token.decoded,
   InlineGhost() => '',
+  InlineComment() => '',
   InlineCode() => text.substring(token.innerStart, token.innerEnd),
   // An image reads as its alt text, as MarkdownPlainText prints it.
   InlineLink() => _plainInline(text.substring(token.textStart, token.textEnd)),

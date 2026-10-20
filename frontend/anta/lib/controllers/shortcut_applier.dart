@@ -750,12 +750,16 @@ final class _LineMarker {
 
   /// A bullet matches by glyph and a task by its box, so the `•` and `-`
   /// buttons, and the open and ticked boxes, swap rather than remove each
-  /// other; any number matches a numbered marker.
+  /// other; a custom state (`[-]`, `[/]`) matches neither box, so either
+  /// button swaps it rather than stripping the task; any number matches a
+  /// numbered marker.
   static bool _sameMarker(MarkdownListItem item, MarkdownListItem wanted) {
     if (item.kind != wanted.kind) return false;
     return switch (item.kind) {
       MarkdownListKind.bullet => item.marker == wanted.marker,
-      MarkdownListKind.task => item.checked == wanted.checked,
+      MarkdownListKind.task =>
+        item.checked == wanted.checked &&
+            (item.checked || item.state == wanted.state),
       MarkdownListKind.ordered => true,
     };
   }

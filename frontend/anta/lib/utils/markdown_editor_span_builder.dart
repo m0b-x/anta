@@ -6,6 +6,7 @@ import '../constants/markdown_constants.dart';
 import 'editor_render_context.dart';
 import 'ghost_text.dart';
 import 'markdown_callout_syntax.dart';
+import 'markdown_chunker.dart';
 import 'markdown_color_syntax.dart';
 import 'markdown_editor_emitter.dart';
 import 'markdown_editor_inline_emitter.dart';
@@ -235,8 +236,9 @@ class MarkdownEditorSpanBuilder {
 
   /// [build]'s routing, split out so the debug inventory assert can wrap
   /// every path at one place: positional shapes first — fence roles,
-  /// callout membership, money display rows, indeterminate task parents,
-  /// in that order — then the text-keyed memo, then [_buildLine] for the
+  /// callout membership, setext headings, money display rows,
+  /// indeterminate task parents, in that order — then the text-keyed
+  /// memo, then [_buildLine] for the
   /// line shapes themselves. The order is the precedence: a fence wins
   /// over everything (a `> [!TIP]` inside a fence is code), and a
   /// callout line is never a money or task row.
@@ -257,9 +259,12 @@ class MarkdownEditorSpanBuilder {
     final fenceRole = _fenceRoleAt(controller, index);
     if (fenceRole != MarkdownFenceRole.none) {
       final fenceKey = (
-        fenceRole == MarkdownFenceRole.delimiter
-            ? EditorSpanCache.positionalFenceDelimiter
-            : EditorSpanCache.positionalFenceInterior,
+        switch (fenceRole) {
+          MarkdownFenceRole.delimiter =>
+            EditorSpanCache.positionalFenceDelimiter,
+          MarkdownFenceRole.comment => EditorSpanCache.positionalComment,
+          _ => EditorSpanCache.positionalFenceInterior,
+        },
         0,
         text,
       );
@@ -280,17 +285,34 @@ class MarkdownEditorSpanBuilder {
           findActive: _revealWhenUnfocused?.value ?? false,
         );
 
+    // A trailing `\` is a hard break only while a non-blank line follows
+    // it — at the end of a block CommonMark keeps it as text — so such a
+    // line's rendering reads its neighbour. Every memo below keys on the
+    // answer, and a literal tail never reaches the text-keyed memo.
+    final literalTail =
+        text.codeUnitAt(text.length - 1) == _kBackslash &&
+        !_nextLineContinues(controller.codeLines, index);
+    final hardBreaks = !literalTail;
+
     final callout = _lineIndex.calloutAt(controller.codeLines, index);
     if (callout != 0) {
       if (reveal) {
+        // The caret rides along for a quoted task's box, which stays
+        // painted past its marker exactly as the tap policy reads it.
         return _buildLine(
           text: text,
           ctx: context,
           reveal: true,
+          caretOffset: caretOffsetOn(selection, index),
           callout: callout,
+          hardBreaks: hardBreaks,
         );
       }
-      final calloutKey = (EditorSpanCache.positionalCallout, callout, text);
+      final calloutKey = (
+        EditorSpanCache.positionalCallout,
+        (callout << 1) | (literalTail ? 1 : 0),
+        text,
+      );
       final cached = _cache.positional(calloutKey);
       if (cached != null) return cached;
       final span = _buildLine(
@@ -298,10 +320,49 @@ class MarkdownEditorSpanBuilder {
         ctx: context,
         reveal: false,
         callout: callout,
+        hardBreaks: hardBreaks,
       );
       if (span != null) {
         _cache.putPositional(calloutKey, span);
       }
+      return span;
+    }
+
+    // A setext heading is positional both ways: the text line is a
+    // heading only while an underline follows it, the underline one only
+    // while such a text line precedes it. Both key the positional memo,
+    // never the text-keyed one, so the same `---` stays a rule — and the
+    // same text plain — anywhere else.
+    final setext = _setextAt(controller, index, text);
+    if (setext != 0) {
+      final underline = setext < 0;
+      final level = underline ? -setext : setext;
+      if (reveal) {
+        return _buildSetext(
+          text: text,
+          level: level,
+          underline: underline,
+          ctx: context,
+          reveal: true,
+        );
+      }
+      final setextKey = (
+        underline
+            ? EditorSpanCache.positionalSetextUnderline
+            : EditorSpanCache.positionalSetextText,
+        level,
+        text,
+      );
+      final cached = _cache.positional(setextKey);
+      if (cached != null) return cached;
+      final span = _buildSetext(
+        text: text,
+        level: level,
+        underline: underline,
+        ctx: context,
+        reveal: false,
+      );
+      _cache.putPositional(setextKey, span);
       return span;
     }
 
@@ -356,7 +417,11 @@ class MarkdownEditorSpanBuilder {
     // positional memo, mirroring fences. Reveal lines are never memoized
     // and resolve the facet on their own path below.
     if (!reveal && _isTaskIndeterminate(controller, index)) {
-      final taskKey = (EditorSpanCache.positionalTaskIndeterminate, 0, text);
+      final taskKey = (
+        EditorSpanCache.positionalTaskIndeterminate,
+        literalTail ? 1 : 0,
+        text,
+      );
       final cached = _cache.positional(taskKey);
       if (cached != null) return cached;
       final span = _buildLine(
@@ -364,10 +429,27 @@ class MarkdownEditorSpanBuilder {
         ctx: context,
         reveal: false,
         taskIndeterminate: true,
+        hardBreaks: hardBreaks,
       );
       if (span != null) {
         _cache.putPositional(taskKey, span);
       }
+      return span;
+    }
+
+    if (!reveal && literalTail) {
+      final tailKey = (EditorSpanCache.positionalLiteralBackslash, 0, text);
+      final cached = _cache.positional(tailKey);
+      if (cached != null) {
+        return identical(cached, EditorSpanCache.unhandled) ? null : cached;
+      }
+      final span = _buildLine(
+        text: text,
+        ctx: context,
+        reveal: false,
+        hardBreaks: false,
+      );
+      _cache.putPositional(tailKey, span ?? EditorSpanCache.unhandled);
       return span;
     }
 
@@ -391,6 +473,7 @@ class MarkdownEditorSpanBuilder {
       caretOffset: caret,
       taskIndeterminate:
           caret != null && _isTaskIndeterminate(controller, index),
+      hardBreaks: hardBreaks,
     );
   }
 
@@ -403,6 +486,7 @@ class MarkdownEditorSpanBuilder {
     MoneyLineMatch? money,
     int moneyBalance = 0,
     int callout = 0,
+    bool hardBreaks = true,
   }) {
     final ghosts = GhostText.mightContain(text)
         ? GhostText.findGhosts(text)
@@ -472,6 +556,7 @@ class MarkdownEditorSpanBuilder {
           caretOffset: caretOffset,
           ghosts: ghosts,
           indeterminate: taskIndeterminate,
+          hardBreaks: hardBreaks,
         );
       }
     }
@@ -481,8 +566,10 @@ class MarkdownEditorSpanBuilder {
         text: text,
         ctx: ctx,
         reveal: reveal,
+        caretOffset: caretOffset,
         ghosts: ghosts,
         callout: callout,
+        hardBreaks: hardBreaks,
       );
     }
 
@@ -511,6 +598,7 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         out: children,
         depth: 0,
+        hardBreaks: hardBreaks,
       );
     } else {
       EditorSpanEmitter.emit(
@@ -531,41 +619,33 @@ class MarkdownEditorSpanBuilder {
   /// and their separating space (`[hashStart, contentStart)` — empty
   /// content for a bare `###`) conceal as one chrome run, and the rest
   /// of the line renders inline at the level's scale.
+  ///
+  /// A heading inside a quote is read off the remainder past the `>` run:
+  /// [heading]'s offsets are relative to [base] there, and [prefix]
+  /// already holds the bars for `[0, base)`.
   TextSpan _buildHeader({
     required String text,
     required MarkdownHeadingMatch heading,
     required EditorRenderContext ctx,
     required bool reveal,
     required List<GhostMatch> ghosts,
+    int base = 0,
+    List<InlineSpan>? prefix,
   }) {
-    final level = heading.level;
-    final start = heading.hashStart;
-    final style = ctx.style;
-    final baseSize = style.fontSize ?? 16.0;
-    var headerStyle = style.copyWith(
-      fontSize: baseSize * MarkdownConstants.editorHeaderScale(level),
-      fontWeight: MarkdownConstants.headingWeight,
-    );
-    // H5/H6 keep the base size (sub-base line heights buy nothing in the
-    // editor), so they distinguish themselves by colour instead: blended
-    // toward primary, H6 additionally muted below H5.
-    if (level >= 5) {
-      final blended = Color.lerp(ctx.baseColor, ctx.primary, _h56PrimaryBlend)!;
-      headerStyle = headerStyle.copyWith(
-        color: level == 5 ? blended : blended.withValues(alpha: _h6Alpha),
-      );
-    }
+    final start = base + heading.hashStart;
+    final headerStyle = _headingStyle(heading.level, ctx);
     // [start] is past any leading indent — kept visible (like list
     // indent) while the hashes + their space conceal, so an indented
     // header keeps its width and only the chrome disappears.
-    final markerEnd = heading.contentStart;
-    final contentEnd = heading.contentEnd;
+    final markerEnd = base + heading.contentStart;
+    final contentEnd = base + heading.contentEnd;
     final chromeStyle = reveal
         ? EditorSpanEmitter.dimStyle(headerStyle, ctx.baseColor)
         : EditorSpanEmitter.concealStyle(headerStyle);
     final children = <InlineSpan>[
-      if (start > 0)
-        TextSpan(text: text.substring(0, start), style: headerStyle),
+      ...?prefix,
+      if (start > base)
+        TextSpan(text: text.substring(base, start), style: headerStyle),
       TextSpan(text: text.substring(start, markerEnd), style: chromeStyle),
     ];
     EditorInlineEmitter.append(
@@ -591,6 +671,127 @@ class MarkdownEditorSpanBuilder {
     return TextSpan(style: headerStyle, children: children);
   }
 
+  /// The style of a heading at [level], one scale for the ATX and the
+  /// setext forms.
+  TextStyle _headingStyle(int level, EditorRenderContext ctx) {
+    final style = ctx.style;
+    final baseSize = style.fontSize ?? 16.0;
+    final headerStyle = style.copyWith(
+      fontSize: baseSize * MarkdownConstants.editorHeaderScale(level),
+      fontWeight: MarkdownConstants.headingWeight,
+    );
+    // H5/H6 keep the base size (sub-base line heights buy nothing in the
+    // editor), so they distinguish themselves by colour instead: blended
+    // toward primary, H6 additionally muted below H5.
+    if (level < 5) return headerStyle;
+    final blended = Color.lerp(ctx.baseColor, ctx.primary, _h56PrimaryBlend)!;
+    return headerStyle.copyWith(
+      color: level == 5 ? blended : blended.withValues(alpha: _h6Alpha),
+    );
+  }
+
+  TextSpan _buildSetext({
+    required String text,
+    required int level,
+    required bool underline,
+    required EditorRenderContext ctx,
+    required bool reveal,
+  }) => underline
+      ? _buildSetextUnderline(text: text, ctx: ctx, reveal: reveal)
+      : _buildSetextText(text: text, level: level, ctx: ctx, reveal: reveal);
+
+  /// A setext heading's text line: the whole line, indent included, at
+  /// [level]'s scale with nothing concealed — its chrome is the next
+  /// line — and no hard break, as on every heading.
+  TextSpan _buildSetextText({
+    required String text,
+    required int level,
+    required EditorRenderContext ctx,
+    required bool reveal,
+  }) {
+    final ghosts = GhostText.mightContain(text)
+        ? GhostText.findGhosts(text)
+        : const <GhostMatch>[];
+    final headerStyle = _headingStyle(level, ctx);
+    final children = <InlineSpan>[];
+    EditorInlineEmitter.append(
+      text: text,
+      start: 0,
+      end: text.length,
+      contextStyle: headerStyle,
+      context: ctx,
+      palette: _colorPalette,
+      reveal: reveal,
+      ghosts: ghosts,
+      out: children,
+      depth: 0,
+      hardBreaks: false,
+    );
+    return TextSpan(style: headerStyle, children: children);
+  }
+
+  /// A setext underline: its `=` / `-` run substituted 1:1 with `─` and
+  /// dimmed like a rule, at the base size, the indent and trailing blanks
+  /// as typed. Never concealed, so the line keeps its height and its
+  /// place under the caret; on reveal the raw markers show dimmed.
+  TextSpan _buildSetextUnderline({
+    required String text,
+    required EditorRenderContext ctx,
+    required bool reveal,
+  }) {
+    final style = ctx.style;
+    if (reveal) {
+      return TextSpan(
+        style: style,
+        children: [
+          TextSpan(
+            text: text,
+            style: EditorSpanEmitter.dimStyle(style, ctx.baseColor),
+          ),
+        ],
+      );
+    }
+    final marker = text.trimLeft().codeUnitAt(0);
+    final units = List<int>.generate(text.length, (i) {
+      final unit = text.codeUnitAt(i);
+      return unit == marker ? 0x2500 : unit;
+    });
+    return TextSpan(
+      style: style,
+      children: [
+        TextSpan(
+          text: String.fromCharCodes(units),
+          style: style.copyWith(
+            color: ctx.baseColor.withValues(alpha: _ruleAlpha),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The setext role of the line at [index]: the level as a negative
+  /// number for an underline whose previous line is a setext text line
+  /// outside any fence or comment, the level for a text line an
+  /// underline follows, `0` otherwise. Both directions read the
+  /// neighbour from [controller] — the line index stays forward-only.
+  int _setextAt(CodeLineEditingController controller, int index, String text) {
+    final lines = controller.codeLines;
+    final own = MarkdownLineShape.setextUnderlineLevel(text);
+    if (own != 0) {
+      if (index == 0) return 0;
+      final previous = lines[index - 1].text;
+      return previous.length <= maxStyledLineLength &&
+              MarkdownLineShape.isSetextTextLine(previous) &&
+              _fenceRoleAt(controller, index - 1) == MarkdownFenceRole.none
+          ? -own
+          : 0;
+    }
+    if (index + 1 >= lines.length) return 0;
+    final next = lines[index + 1].text;
+    if (next.length > maxStyledLineLength) return 0;
+    return MarkdownLineShape.setextLevelOf(text, next);
+  }
+
   /// Blockquote and callout lines, shaped by
   /// [MarkdownCalloutSyntax.quoteMarkers]: every `>` is substituted 1:1
   /// with a `┃` bar (both a single code unit), so `>> a` reads `┃┃ a`
@@ -608,12 +809,16 @@ class MarkdownEditorSpanBuilder {
   ///     [EditorCalloutIconSpan] painting the type's icon and `!TYPE]`
   ///     conceals beside it, on reveal the whole `[!TYPE]` token shows
   ///     tinted so it stays readable while editing; the title renders
-  ///     accent + bold, matching the preview's header;
+  ///     accent + bold, matching the preview's header. With no title the
+  ///     type word is the title, title-cased over its own units; a fold
+  ///     marker (`]-`, `]+`) conceals with the token (dimmed on reveal);
   ///   * **callout body** — bars in the *block's* accent and content in
   ///     the ambient style (not italic, not dimmed — preview parity). A
   ///     textually lead-shaped body line (`> [!NOTE]` under an open
-  ///     block) keeps its token tinted with its own type's accent but
-  ///     paints no icon: it is body text, not a second header.
+  ///     block) is body text: no icon, no token tint.
+  ///
+  /// A heading or a list item past the `>` run (`> # Week`, `> - [ ] a`)
+  /// renders as it would at the line start, behind the bars.
   ///
   /// On reveal the raw `>` shows dimmed; line height never changes. The
   /// icon is sized off the line's own font size and clamped under the
@@ -629,7 +834,9 @@ class MarkdownEditorSpanBuilder {
     required EditorRenderContext ctx,
     required bool reveal,
     required List<GhostMatch> ghosts,
+    int? caretOffset,
     int callout = 0,
+    bool hardBreaks = true,
   }) {
     final style = ctx.style;
     final role = MarkdownEditorLineIndex.calloutRoleOf(callout);
@@ -657,6 +864,7 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         out: children,
         depth: 0,
+        hardBreaks: hardBreaks,
       );
       return TextSpan(style: style, children: children);
     }
@@ -682,12 +890,19 @@ class MarkdownEditorSpanBuilder {
     while (probe < text.length && text.codeUnitAt(probe) == 0x20) {
       probe++;
     }
+    // Only the block's lead line reads a token: a `[!x]` on a body line
+    // is body text, not a second header in a foreign accent.
     final lead =
-        role != MarkdownCalloutRole.none &&
+        role == MarkdownCalloutRole.lead &&
             probe < text.length &&
             text.codeUnitAt(probe) == 0x5B
         ? MarkdownCalloutSyntax.parseLead(text)
         : null;
+    // Late, so a quote line without a lead never builds it.
+    late final titleStyle = style.copyWith(
+      color: blockAccent,
+      fontWeight: FontWeight.bold,
+    );
     if (lead != null) {
       final tokenAccent = MarkdownConstants.calloutAccent(
         lead.type,
@@ -701,7 +916,7 @@ class MarkdownEditorSpanBuilder {
           ),
         );
       }
-      if (role == MarkdownCalloutRole.lead && !reveal) {
+      if (!reveal) {
         final baseSize = style.fontSize ?? 16.0;
         final lineBox =
             baseSize * (style.height ?? MarkdownConstants.lineHeight);
@@ -712,14 +927,39 @@ class MarkdownEditorSpanBuilder {
             side: side,
             icon: MarkdownConstants.calloutIcon(lead.type),
             accent: tokenAccent,
+            gap: lead.title.isEmpty
+                ? side * MarkdownConstants.editorCalloutLabelGapScale
+                : 0,
           ),
         );
-        children.add(
-          TextSpan(
-            text: text.substring(lead.tokenStart + 1, lead.tokenEnd),
-            style: EditorSpanEmitter.concealStyle(style),
-          ),
-        );
+        final conceal = EditorSpanEmitter.concealStyle(style);
+        if (lead.title.isEmpty) {
+          // No title: the type word itself is the title, painted over
+          // its own units title-cased (`WARNING` → `Warning`), with the
+          // `!`, the `]` and a fold marker concealed around it.
+          final labelEnd = lead.labelStart + lead.label.length;
+          children
+            ..add(
+              TextSpan(
+                text: text.substring(lead.tokenStart + 1, lead.labelStart),
+                style: conceal,
+              ),
+            )
+            ..add(TextSpan(text: lead.label, style: titleStyle))
+            ..add(
+              TextSpan(
+                text: text.substring(labelEnd, lead.chromeEnd),
+                style: conceal,
+              ),
+            );
+        } else {
+          children.add(
+            TextSpan(
+              text: text.substring(lead.tokenStart + 1, lead.chromeEnd),
+              style: conceal,
+            ),
+          );
+        }
       } else {
         children.add(
           TextSpan(
@@ -730,32 +970,80 @@ class MarkdownEditorSpanBuilder {
             ),
           ),
         );
+        if (lead.chromeEnd > lead.tokenEnd) {
+          children.add(
+            TextSpan(
+              text: text.substring(lead.tokenEnd, lead.chromeEnd),
+              style: EditorSpanEmitter.dimStyle(style, ctx.baseColor),
+            ),
+          );
+        }
       }
-      if (lead.titleStart > lead.tokenEnd) {
+      if (lead.titleStart > lead.chromeEnd) {
         children.add(
           TextSpan(
-            text: text.substring(lead.tokenEnd, lead.titleStart),
+            text: text.substring(lead.chromeEnd, lead.titleStart),
             style: style,
           ),
         );
       }
       contentStart = lead.titleStart;
+    } else if (contentStart < text.length) {
+      // A heading or a list item inside the quote is read off the
+      // remainder past the `>` run and drawn as at the line start, every
+      // offset shifted by that run; a quoted task's box is never
+      // indeterminate (the task index reads unquoted lines only).
+      final rest = text.substring(contentStart);
+      final heading = MarkdownLineShape.headingAt(rest);
+      if (heading != null) {
+        return _buildHeader(
+          text: text,
+          heading: heading,
+          ctx: ctx,
+          reveal: reveal,
+          ghosts: ghosts,
+          base: contentStart,
+          prefix: children,
+        );
+      }
+      final quoted = MarkdownCalloutSyntax.quotedListItem(text, shape: shape);
+      if (quoted != null) {
+        // A tab separating the last `>` from the item is outside it.
+        if (quoted.base > contentStart) {
+          children.add(
+            TextSpan(
+              text: text.substring(contentStart, quoted.base),
+              style: contentStyle,
+            ),
+          );
+        }
+        return _buildListItem(
+          text: text,
+          item: quoted.item,
+          ctx: ctx,
+          reveal: reveal,
+          caretOffset: caretOffset,
+          ghosts: ghosts,
+          hardBreaks: hardBreaks,
+          base: quoted.base,
+          prefix: children,
+          itemStyle: contentStyle,
+        );
+      }
     }
     if (contentStart < text.length) {
       EditorInlineEmitter.append(
         text: text,
         start: contentStart,
         end: text.length,
-        contextStyle: role == MarkdownCalloutRole.lead && blockAccent != null
-            ? style.copyWith(color: blockAccent, fontWeight: FontWeight.bold)
-            : contentStyle,
+        contextStyle: lead != null ? titleStyle : contentStyle,
         context: ctx,
         palette: _colorPalette,
         reveal: reveal,
         ghosts: ghosts,
         out: children,
         depth: 0,
-        hardBreaks: role != MarkdownCalloutRole.lead,
+        hardBreaks: hardBreaks && lead == null,
       );
     }
     return TextSpan(style: style, children: children);
@@ -988,6 +1276,10 @@ class MarkdownEditorSpanBuilder {
     );
   }
 
+  /// A list item, bullet, ordered or task. Inside a quote [item] was read
+  /// off the remainder past the `>` run ([MarkdownCalloutSyntax.quotedListItem]):
+  /// its offsets are relative to [base], [prefix] already holds the bars
+  /// for `[0, base)`, and [itemStyle] is the quote's content style.
   TextSpan _buildListItem({
     required String text,
     required MarkdownListItem item,
@@ -996,19 +1288,25 @@ class MarkdownEditorSpanBuilder {
     required int? caretOffset,
     required List<GhostMatch> ghosts,
     bool indeterminate = false,
+    bool hardBreaks = true,
+    int base = 0,
+    List<InlineSpan>? prefix,
+    TextStyle? itemStyle,
   }) {
-    final style = ctx.style;
+    final style = itemStyle ?? ctx.style;
     final baseColor = ctx.baseColor;
     final primary = ctx.primary;
-    final children = <InlineSpan>[];
+    final children = prefix ?? <InlineSpan>[];
     if (item.indent.isNotEmpty) {
       children.add(TextSpan(text: item.indent, style: style));
     }
     var contentStyle = style;
+    final indentEnd = base + item.indent.length;
+    final contentStart = base + item.contentStart;
 
     switch (item.kind) {
       case MarkdownListKind.bullet:
-        final markerEnd = item.indent.length + item.marker.length;
+        final markerEnd = indentEnd + item.marker.length;
         children.add(
           TextSpan(
             text: reveal
@@ -1019,46 +1317,51 @@ class MarkdownEditorSpanBuilder {
                 : style.copyWith(color: primary, fontWeight: FontWeight.bold),
           ),
         );
-        if (markerEnd < item.contentStart) {
+        if (markerEnd < contentStart) {
           children.add(
             TextSpan(
-              text: text.substring(markerEnd, item.contentStart),
+              text: text.substring(markerEnd, contentStart),
               style: style,
             ),
           );
         }
       case MarkdownListKind.ordered:
         final markerEnd =
-            item.indent.length + item.marker.length + item.delimiter.length;
+            indentEnd + item.marker.length + item.delimiter.length;
         children.add(
           TextSpan(
             text: '${item.marker}${item.delimiter}',
             style: style.copyWith(color: primary, fontWeight: FontWeight.w600),
           ),
         );
-        if (markerEnd < item.contentStart) {
+        if (markerEnd < contentStart) {
           children.add(
             TextSpan(
-              text: text.substring(markerEnd, item.contentStart),
+              text: text.substring(markerEnd, contentStart),
               style: style,
             ),
           );
         }
       case MarkdownListKind.task:
-        final boxEnd = item.bracketStart + 3;
+        final bracketStart = base + item.bracketStart;
+        final boxEnd = bracketStart + 3;
         // Only the marker's own conceal state follows the caret: the
         // content after it reveals with the line either way.
-        if (reveal && taskMarkerRevealed(item, caretOffset)) {
+        if (reveal &&
+            taskMarkerRevealed(
+              item,
+              caretOffset == null ? null : caretOffset - base,
+            )) {
           children.add(
             TextSpan(
-              text: text.substring(item.indent.length, boxEnd),
+              text: text.substring(indentEnd, boxEnd),
               style: EditorSpanEmitter.dimStyle(style, baseColor),
             ),
           );
         } else {
           children.add(
             TextSpan(
-              text: text.substring(item.indent.length, item.bracketStart),
+              text: text.substring(indentEnd, bracketStart),
               style: EditorSpanEmitter.concealStyle(style),
             ),
           );
@@ -1075,8 +1378,13 @@ class MarkdownEditorSpanBuilder {
           children.add(
             EditorCheckboxSpan(
               side: side,
+              // A custom state's own mark wins over the aggregate: the
+              // index counts it as an open task, but a cancelled parent
+              // must still read cancelled.
               visual: item.checked
                   ? EditorCheckboxVisual.checked
+                  : item.state != ' '
+                  ? EditorCheckboxVisual.custom
                   : indeterminate
                   ? EditorCheckboxVisual.indeterminate
                   : EditorCheckboxVisual.unchecked,
@@ -1085,24 +1393,24 @@ class MarkdownEditorSpanBuilder {
                 alpha: MarkdownConstants.uncheckedCheckboxOpacity,
               ),
               mark: ctx.onAccent,
+              state: item.checked || item.state == ' ' ? '' : item.state,
             ),
           );
           children.add(
             TextSpan(
-              text: text.substring(item.bracketStart + 1, boxEnd),
+              text: text.substring(bracketStart + 1, boxEnd),
               style: EditorSpanEmitter.concealStyle(style),
             ),
           );
         }
-        if (boxEnd < item.contentStart) {
+        if (boxEnd < contentStart) {
           children.add(
-            TextSpan(
-              text: text.substring(boxEnd, item.contentStart),
-              style: style,
-            ),
+            TextSpan(text: text.substring(boxEnd, contentStart), style: style),
           );
         }
-        if (item.checked) {
+        // A cancelled `[-]` reads like a done task; the other custom
+        // states leave their content plain.
+        if (item.checked || item.state == '-') {
           final checkedColor = baseColor.withValues(
             alpha: MarkdownConstants.checkedTextOpacity,
           );
@@ -1114,10 +1422,10 @@ class MarkdownEditorSpanBuilder {
         }
     }
 
-    if (item.contentStart < text.length) {
+    if (contentStart < text.length) {
       EditorInlineEmitter.append(
         text: text,
-        start: item.contentStart,
+        start: contentStart,
         end: text.length,
         contextStyle: contentStyle,
         context: ctx,
@@ -1126,18 +1434,20 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         out: children,
         depth: 0,
+        hardBreaks: hardBreaks,
       );
       // Hanging indent: the fork lays out the marker prefix and the
       // content as two paragraphs, so soft-wrapped continuation lines
-      // align under the content (Obsidian-style). Code units and span
-      // order are untouched — this only tags the root span.
+      // align under the content (Obsidian-style; a quote's bars are part
+      // of the prefix). Code units and span order are untouched — this
+      // only tags the root span.
       return CodeHangingTextSpan(
-        hangingChars: item.contentStart,
-        style: style,
+        hangingChars: contentStart,
+        style: ctx.style,
         children: children,
       );
     }
-    return TextSpan(style: style, children: children);
+    return TextSpan(style: ctx.style, children: children);
   }
 
   /// Code-fence lines mirror the preview's treatment at base size: ```
@@ -1147,6 +1457,11 @@ class MarkdownEditorSpanBuilder {
   /// background would render striped around blank lines. Nothing is
   /// concealed, so the styling holds on reveal lines too (same rule as
   /// tags), and ghosts compose on delimiter and interior lines alike.
+  ///
+  /// A `%%` block comment's lines — markers and body — render dimmed in
+  /// the prose font in both reveal states: concealing a whole line would
+  /// not make it vanish (its height stays), so dim is the honest reading
+  /// of "hidden", and nothing differs between reveal states.
   TextSpan _buildFenceLine({
     required String text,
     required MarkdownFenceRole role,
@@ -1156,12 +1471,17 @@ class MarkdownEditorSpanBuilder {
     final ghosts = GhostText.mightContain(text)
         ? GhostText.findGhosts(text)
         : const <GhostMatch>[];
-    final lineStyle = role == MarkdownFenceRole.delimiter
-        ? style.copyWith(
-            fontFamily: 'monospace',
-            color: ctx.baseColor.withValues(alpha: _fenceDelimiterAlpha),
-          )
-        : style.copyWith(fontFamily: 'monospace');
+    final lineStyle = switch (role) {
+      MarkdownFenceRole.delimiter => style.copyWith(
+        fontFamily: 'monospace',
+        color: ctx.baseColor.withValues(alpha: _fenceDelimiterAlpha),
+      ),
+      MarkdownFenceRole.comment => EditorSpanEmitter.dimStyle(
+        style,
+        ctx.baseColor,
+      ),
+      _ => style.copyWith(fontFamily: 'monospace'),
+    };
     final children = <InlineSpan>[];
     EditorSpanEmitter.emit(
       text: text,
@@ -1203,8 +1523,10 @@ class MarkdownEditorSpanBuilder {
   /// focus, or while an in-note find session is active — find selects its
   /// match only while the search field holds focus, and a match inside
   /// concealed syntax must still show.
-  static bool revealEnabled({required bool focused, required bool findActive}) =>
-      focused || findActive;
+  static bool revealEnabled({
+    required bool focused,
+    required bool findActive,
+  }) => focused || findActive;
 
   /// The collapsed caret's offset when it sits on [index], else `null` —
   /// a range selection over the line, or a caret on another line. The
@@ -1266,6 +1588,16 @@ class MarkdownEditorSpanBuilder {
     CodeLineEditingController controller,
     int index,
   ) => _lineIndex.fenceRoleAt(controller.codeLines, index);
+
+  /// Whether a line follows [index] and holds more than spacing — the
+  /// condition under which the line's trailing `\` is a hard break, read
+  /// through [MarkdownChunker.isBlankLine] as the preview and the plain
+  /// text read it.
+  static bool _nextLineContinues(CodeLines lines, int index) =>
+      index + 1 < lines.length &&
+      !MarkdownChunker.isBlankLine(lines[index + 1].text);
+
+  static const int _kBackslash = 0x5C; // \
 
   /// Whether the task line at [index] renders its unchecked box as
   /// indeterminate: its subtree holds at least one checked and at least

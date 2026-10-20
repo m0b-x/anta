@@ -99,8 +99,16 @@ void main() {
   group('editor and preview agree', () {
     for (final entry in _corpus) {
       test(entry.label, () {
-        final editor = _editorUnits(entry.line, above: entry.above);
-        final preview = _previewUnits(entry.line, above: entry.above);
+        final editor = _editorUnits(
+          entry.line,
+          above: entry.above,
+          below: entry.below,
+        );
+        final preview = _previewUnits(
+          entry.line,
+          above: entry.above,
+          below: entry.below,
+        );
         // Agreement between two empty projections proves nothing, so
         // pin that both surfaces actually rendered something. A bare
         // `###` is the one line that legitimately shows nothing.
@@ -218,6 +226,12 @@ class _Case {
   /// document, so neither can be fed a shape the other never sees.
   final List<String> above;
 
+  /// Lines placed directly below [line] in place of the trailing padding
+  /// line, for the constructs that read the next line: a trailing `\` is
+  /// text before a blank line or at the end, so the literal side of the
+  /// positional hard break is compared only through this.
+  final List<String>? below;
+
   /// Set when the two surfaces are known to differ here on purpose. The
   /// test then asserts the difference *still* reproduces, so a fixed
   /// divergence cannot rot into a silently skipped entry.
@@ -233,6 +247,7 @@ class _Case {
     this.label,
     this.line, {
     this.above = const <String>[],
+    this.below,
     this.expectedDivergence,
     this.expectedDiff,
   }) : assert(
@@ -286,7 +301,14 @@ final List<_Case> _corpus = <_Case>[
 
   // Strikethrough and highlight (two-at-a-time runs).
   const _Case('strikethrough', 'a ~~gone~~ b'),
-  const _Case('triple tilde', '~~~x~~~'),
+  // Mid-line: a line led by `~~~` opens a tilde fence (any info string).
+  const _Case('triple tilde', 'a ~~~x~~~'),
+  const _Case('one-line triple-backtick code', '```npm i``` and #tag'),
+  const _Case('inline comment', 'a %%x #t [l](u) **b**%% c'),
+  const _Case('comment leads the line', '%%a comment%% then text'),
+  const _Case('unclosed comment stays literal', 'a %%x **b**'),
+  const _Case('comment inside bold', '**a %%x%% b**'),
+  const _Case('comment never swallows a ghost', 'a %%x {{ g }} y%% b'),
   const _Case('single tilde stays plain', '~x~'),
   const _Case('highlight plain', '==x=='),
   const _Case('highlight in prose', 'a ==marked== b'),
@@ -329,6 +351,21 @@ final List<_Case> _corpus = <_Case>[
     'see https://a.com/?a&amp;b',
   ),
   const _Case('trailing backslash hard break', r'next line\'),
+  const _Case(
+    'a trailing backslash on the last line is text',
+    r'D:\Backups\',
+    below: <String>[],
+  ),
+  const _Case(
+    'a trailing backslash before a blank line is text',
+    r'**a**\',
+    below: <String>['', _pad],
+  ),
+  const _Case(
+    'a trailing backslash before a whitespace line is text',
+    r'D:\Backups\',
+    below: <String>[' \t', _pad],
+  ),
   const _Case('hard break after bold', r'**a**\'),
   const _Case('escaped trailing backslash', r'a\\'),
   const _Case('a lone backslash stays', r'\'),
@@ -558,10 +595,12 @@ final List<_Case> _corpus = <_Case>[
     'callout lead without a title',
     '> [!TIP]',
     expectedDivergence:
-        'the preview synthesises the type label ("Tip") as a header; the '
-        'editor may not add code units the source does not have, so it '
-        'shows the icon and nothing else',
-    expectedDiff: 'visible text: editor "┃ <icon>" vs preview "┃ <icon> Tip"',
+        'both surfaces title the lead with its type word ("Tip", F10); the '
+        'preview sets a space after its icon; the editor, which has no code '
+        'unit between the `[` it paints and the word, carries that gap as '
+        'the icon span\'s own width',
+    expectedDiff:
+        'visible text: editor "┃ <icon>Tip" vs preview "┃ <icon> Tip"',
   ),
 
   // Callout bodies: the block accent on the bars, plain content.
@@ -580,18 +619,128 @@ final List<_Case> _corpus = <_Case>[
     '> hold `3s` at the top',
     above: <String>['> [!WARNING] x'],
   ),
-  _Case(
+  // F10 (e): a token on a body line is body text on both surfaces — no
+  // icon, no second header, no foreign accent.
+  const _Case(
     'a nested lead is body text',
     '> [!NOTE] inner',
     above: <String>['> [!TIP] x'],
+  ),
+  const _Case(
+    'a titleless nested lead is body text',
+    '> [!NOTE]',
+    above: <String>['> [!TIP] x'],
+  ),
+
+  // F9 / F10: fold markers are chrome, aliases and unknown words title
+  // the lead, a linked image is no type word.
+  const _Case('callout lead folded', '> [!WARNING]- Knee'),
+  const _Case('callout lead unfolded', '> [!TIP]+ open'),
+  const _Case('callout lead new kind', '> [!bug] Squeaky knee'),
+  _Case(
+    'callout lead alias without a title',
+    '> [!hint]',
     expectedDivergence:
-        'both surfaces agree the line is body text of the open tip block — '
-        'no icon, no second header — but the preview renders the `[!NOTE]` '
-        'token as literal body text while the editor keeps it tinted in the '
-        "note accent at w600, so a lead you are still typing stays legible "
-        'as the token it is',
+        'as the titleless lead above: the gap after the icon is a space in '
+        'the preview and the icon span\'s own width in the editor',
     expectedDiff:
-        'unit 2 "[" — weight: editor FontWeight.w600 vs preview FontWeight.w400',
+        'visible text: editor "┃ <icon>Hint" vs preview "┃ <icon> Hint"',
+  ),
+  _Case(
+    'callout lead unknown word without a title',
+    '> [!drill]',
+    expectedDivergence:
+        'as the titleless lead above: the gap after the icon is a space in '
+        'the preview and the icon span\'s own width in the editor',
+    expectedDiff:
+        'visible text: editor "┃ <icon>Drill" vs preview "┃ <icon> Drill"',
+  ),
+  const _Case('quoted linked badge stays a quote', '> [![a](u)](l)'),
+
+  // F15: lists, tasks and headings past the `>` run.
+  // Unlike a plain list item, a quoted one is a text run on both
+  // surfaces, so it compares; what differs is chrome around the content.
+  _Case(
+    'quoted heading',
+    '> # Week 3',
+    expectedDivergence:
+        'the editor builds the whole quoted line in the heading style, so '
+        'its bar and the blank after it carry the heading weight; the '
+        'preview draws the bar in the quote style. Marker weight only: the '
+        'heading text agrees',
+    expectedDiff:
+        'unit 0 "┃" — weight: editor FontWeight.w600 vs preview '
+        'FontWeight.w400',
+  ),
+  _Case(
+    'quoted bullet',
+    '> - squat',
+    expectedDivergence:
+        'the editor\'s bullet inherits the quote\'s italic and its blank the '
+        'content style, where the preview paints both in the plain marker '
+        'style. Marker style only: the content agrees',
+    expectedDiff: 'unit 2 "•" — italic: editor true vs preview false',
+  ),
+  _Case(
+    'quoted ordered item',
+    '> 1. bench',
+    expectedDivergence:
+        'the ordered marker keeps each surface\'s own list weight (w600 in '
+        'the editor, w700 in the preview), as on an unquoted item. Marker '
+        'weight only',
+    expectedDiff:
+        'unit 2 "1" — weight: editor FontWeight.w600 vs preview '
+        'FontWeight.w700',
+  ),
+  _Case(
+    'quoted open task',
+    '> - [ ] warm-up',
+    expectedDivergence:
+        'the editor paints its tappable box over the `[`, the preview '
+        'writes a ☐ glyph; the box is the same source units on both',
+    expectedDiff:
+        'visible text: editor "┃ <box> warm-up" vs preview "┃ ☐ warm-up"',
+  ),
+  _Case(
+    'quoted done task',
+    '> - [x] done',
+    expectedDivergence: 'as the open task: a painted box against a ☒ glyph',
+    expectedDiff: 'visible text: editor "┃ <box> done" vs preview "┃ ☒ done"',
+  ),
+  _Case(
+    'nested quoted bullet',
+    '> > - inner',
+    expectedDivergence:
+        'as the spaced nested quote: the editor keeps the blank between the '
+        '`>` markers. Whitespace-only',
+    expectedDiff: 'visible text: editor "┃ ┃ • inner" vs preview "┃┃ • inner"',
+  ),
+  _Case(
+    'deeper quoted bullet',
+    '>   - deep',
+    expectedDivergence:
+        'the editor keeps the item\'s two indent blanks as typed, the '
+        'preview draws one em space per level. Whitespace-only',
+    expectedDiff: 'visible text: editor "┃   ◦ deep" vs preview "┃  ◦ deep"',
+  ),
+  _Case(
+    'quoted task in a callout body',
+    '> - [ ] stretch',
+    above: <String>['> [!TIP] x'],
+    expectedDivergence: 'as the quoted open task: a painted box against a ☐',
+    expectedDiff:
+        'visible text: editor "┃ <box> stretch" vs preview "┃ ☐ stretch"',
+  ),
+  _Case(
+    'quoted heading in a callout body',
+    '> ## Legs',
+    above: <String>['> [!TIP] x'],
+    expectedDivergence:
+        'as the quoted heading: the editor\'s blank after the bar carries '
+        'the heading weight',
+    expectedDiff:
+        'unit 1 " " — weight: editor FontWeight.w600 vs preview '
+        'FontWeight.w400',
   ),
 
   // Tables-lite: the editor keeps the row's own units, the preview lays
@@ -715,14 +864,19 @@ final LineMarkdownStyle _previewStyle = LineMarkdownStyle.fromTheme(
 );
 
 /// The document a case renders inside: a padding line, the case's
-/// [above] context, the line under test, and a trailing padding line.
-/// Both surfaces see exactly this, so a block construct (a callout
-/// body's accent, a chunker block extent) resolves the same way on each.
-List<String> _document(String line, List<String> above) => <String>[
+/// [above] context, the line under test, and a trailing padding line (or
+/// [below] in its place). Both surfaces see exactly this, so a block
+/// construct (a callout body's accent, a chunker block extent) resolves
+/// the same way on each.
+List<String> _document(
+  String line,
+  List<String> above, [
+  List<String>? below,
+]) => <String>[
   _pad,
   ...above,
   line,
-  _pad,
+  ...(below ?? const <String>[_pad]),
 ];
 
 /// Index of the line under test inside [_document].
@@ -738,9 +892,13 @@ int _lineStart(List<String> above) => _document(
 /// so nothing reveals) and projects the span tree down to visible units.
 /// A line the builder declines to style renders as plain text, which is
 /// exactly what the editor page falls back to.
-List<_Unit> _editorUnits(String line, {List<String> above = const <String>[]}) {
+List<_Unit> _editorUnits(
+  String line, {
+  List<String> above = const <String>[],
+  List<String>? below,
+}) {
   final controller = CodeLineEditingController.fromText(
-    _document(line, above).join('\n'),
+    _document(line, above, below).join('\n'),
   );
   addTearDown(controller.dispose);
   final builder = MarkdownEditorSpanBuilder()..bind(controller);
@@ -765,6 +923,7 @@ List<_Unit> _editorUnits(String line, {List<String> above = const <String>[]}) {
 TextSpan _previewSpan(
   String line, {
   List<String> above = const <String>[],
+  List<String>? below,
   List<TextRange>? highlights,
 }) {
   final builder = LineBasedMarkdownBuilder(
@@ -773,14 +932,15 @@ TextSpan _previewSpan(
     searchHighlights: highlights,
   );
   addTearDown(builder.dispose);
-  builder.prepare(_document(line, above).join('\n'));
+  builder.prepare(_document(line, above, below).join('\n'));
   return builder.buildLine(line, _lineIndex(above));
 }
 
 List<_Unit> _previewUnits(
   String line, {
   List<String> above = const <String>[],
-}) => _project(_previewSpan(line, above: above), editor: false);
+  List<String>? below,
+}) => _project(_previewSpan(line, above: above, below: below), editor: false);
 
 // ---------------------------------------------------------------------------
 // Projection

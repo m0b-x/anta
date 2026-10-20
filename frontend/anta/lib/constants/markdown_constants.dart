@@ -89,6 +89,12 @@ class MarkdownConstants {
   /// comfortably below [lineHeight] or the placeholder grows the line.
   static const double editorCheckboxScale = 1.05;
 
+  /// Live editor callout icon: the blank after its square on a titleless
+  /// lead, as a fraction of the icon's side — about a space's width, so
+  /// the painted label does not touch the icon where no source blank
+  /// stands between them.
+  static const double editorCalloutLabelGapScale = 0.3;
+
   /// Indent multiplier per level for checkboxes and lists
   static const double indentPerLevel = 16.0;
 
@@ -254,6 +260,24 @@ class MarkdownConstants {
         return dark ? const Color(0xFF4DB6AC) : const Color(0xFF00897B);
       case MarkdownCalloutType.pr:
         return dark ? const Color(0xFFFFD54F) : const Color(0xFFF9A825);
+      // The kinds below keep their light variant at 4.5:1 or better on
+      // the light page, so a title in the accent reads as body text does.
+      case MarkdownCalloutType.example:
+        return dark ? const Color(0xFFB39DDB) : const Color(0xFF5E35B1);
+      case MarkdownCalloutType.question:
+        return dark ? const Color(0xFFFFCC80) : const Color(0xFF9A6700);
+      case MarkdownCalloutType.danger:
+        return dark ? const Color(0xFFFF8A80) : const Color(0xFFB71C1C);
+      case MarkdownCalloutType.bug:
+        return dark ? const Color(0xFFF48FB1) : const Color(0xFFAD1457);
+      case MarkdownCalloutType.todo:
+        return dark ? const Color(0xFF9FA8DA) : const Color(0xFF3949AB);
+      case MarkdownCalloutType.quote:
+        return dark ? const Color(0xFFBDBDBD) : const Color(0xFF616161);
+      case MarkdownCalloutType.abstract:
+        return dark ? const Color(0xFF80DEEA) : const Color(0xFF00737D);
+      case MarkdownCalloutType.failure:
+        return dark ? const Color(0xFFFFAB91) : const Color(0xFFBF360C);
     }
   }
 
@@ -277,6 +301,22 @@ class MarkdownConstants {
         return Icons.check_circle_outline_rounded;
       case MarkdownCalloutType.pr:
         return Icons.emoji_events_outlined;
+      case MarkdownCalloutType.example:
+        return Icons.list_alt_rounded;
+      case MarkdownCalloutType.question:
+        return Icons.help_outline_rounded;
+      case MarkdownCalloutType.danger:
+        return Icons.bolt_rounded;
+      case MarkdownCalloutType.bug:
+        return Icons.bug_report_outlined;
+      case MarkdownCalloutType.todo:
+        return Icons.checklist_rounded;
+      case MarkdownCalloutType.quote:
+        return Icons.format_quote_rounded;
+      case MarkdownCalloutType.abstract:
+        return Icons.summarize_outlined;
+      case MarkdownCalloutType.failure:
+        return Icons.cancel_outlined;
     }
   }
 }

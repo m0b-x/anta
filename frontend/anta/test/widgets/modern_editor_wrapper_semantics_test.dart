@@ -63,12 +63,13 @@ void main() {
     WidgetTester tester, {
     Locale locale = const Locale('en'),
     bool wikiLinks = true,
+    String text = document,
   }) async {
     final tags = <String>[];
     final links = <String>[];
     final money = <int>[];
     final wikis = <String>[];
-    final controller = CodeLineEditingController.fromText(document);
+    final controller = CodeLineEditingController.fromText(text);
     final searchController = ReEditorSearchController();
     final scrollController = CodeScrollController();
     final focusNode = FocusNode();
@@ -161,6 +162,22 @@ void main() {
     expect(find.semantics.byLabel(l10n.editorZoneSearchTag), findsOne);
     expect(find.semantics.byLabel(l10n.editorZoneOpenMoney), findsOne);
     expect(find.semantics.byLabel(l10n.editorZoneOpenWikiLink), findsOne);
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a quoted task gets a toggle node that ticks its box', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester, text: 'plain line\n> - [ ] quoted task');
+    await parkCaret(tester, e.controller, 0);
+
+    expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsOne);
+    tester.semantics.tap(find.semantics.byLabel(l10n.editorZoneToggleTask));
+    await tester.pump();
+    expect(e.controller.codeLines[1].text, '> - [x] quoted task');
 
     handle.dispose();
     await teardownEditor(tester);

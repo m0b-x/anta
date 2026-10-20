@@ -339,6 +339,24 @@ void main() {
       text: '- [ ] squat',
       offset: 6,
     ),
+    // A custom state's box is the same three units wide (F14).
+    tapRow(
+      'a custom-state box toggles on its closing bracket',
+      text: '- [-] skipped',
+      offset: 5,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'the content right of a custom-state box stays editable',
+      text: '- [-] skipped',
+      offset: 6,
+    ),
+    tapRow(
+      'a quoted custom-state box toggles on its closing bracket',
+      text: '> - [!] urgent',
+      offset: 7,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
     tapRow(
       'the indent left of the marker stays editable',
       text: '  - [ ] squat',
@@ -355,6 +373,51 @@ void main() {
       text: '  - [ ] squat',
       offset: 7,
       expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    // A task inside a quote: the zone is shifted past the `>` run (F15).
+    tapRow(
+      'a quoted box toggles from its marker',
+      text: '> - [ ] warm-up',
+      offset: 2,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'a quoted box toggles on its closing bracket',
+      text: '> - [ ] warm-up',
+      offset: 7,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow('the quote bar stays editable', text: '> - [ ] warm-up', offset: 0),
+    tapRow(
+      'the quoted content stays editable',
+      text: '> - [ ] warm-up',
+      offset: 8,
+    ),
+    tapRow(
+      'a nested quote shifts by its innermost run',
+      text: '> > - [x] done',
+      offset: 4,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'a quoted box on the caret line keeps its zone past the marker',
+      text: '> - [ ] warm-up',
+      offset: 4,
+      revealed: true,
+      caret: 15,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'a quoted box passes through while the caret is in its marker',
+      text: '> - [ ] warm-up',
+      offset: 4,
+      revealed: true,
+      caret: 3,
+    ),
+    tapRow(
+      'a quoted bullet is not a checkbox zone',
+      text: '> - squat',
+      offset: 2,
     ),
     tapRow('a plain bullet is not a checkbox zone', text: '- squat', offset: 0),
     tapRow(
@@ -895,6 +958,15 @@ void main() {
       expect(zonesFor(''), isEmpty);
     });
 
+    test('a tag or link inside a %%comment%% is no zone, revealed or not', () {
+      expect(zonesFor('#t [l](https://a.com)'), isNotEmpty);
+      expect(zonesFor('%%#t [l](https://a.com)%%'), isEmpty);
+      expect(
+        zonesFor('%%#t [l](https://a.com)%%', revealed: true, caret: 0),
+        isEmpty,
+      );
+    });
+
     test('a line a range selection reveals enumerates nothing', () {
       expect(zonesFor('- [ ] $linkLine', revealed: true), isEmpty);
     });
@@ -1082,6 +1154,18 @@ void main() {
       '- [X] squat': '- [ ] squat',
       '  * [ ] squat': '  * [x] squat',
       '- [ ]': '- [x]',
+      '> - [ ] warm-up': '> - [x] warm-up',
+      '> - [x] warm-up': '> - [ ] warm-up',
+      '> > * [ ] a': '> > * [x] a',
+      // A custom state clears to the open box (option A), never ticks.
+      '- [-] skipped': '- [ ] skipped',
+      '- [/] halfway': '- [ ] halfway',
+      '* [>] later': '* [ ] later',
+      '- [?]': '- [ ]',
+      '> - [!] knee': '> - [ ] knee',
+      '- [a](https://x.dev) link': null,
+      '> - squat': null,
+      '> squat': null,
       '- squat': null,
       '1. squat': null,
       'squat': null,

@@ -4,7 +4,9 @@ import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/controllers/editor_edit_tracker.dart';
 import 'package:anta/utils/editor_input_policy.dart';
+import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/editor_width_calculator.dart';
+import 'package:anta/utils/markdown_editor_span_builder.dart';
 
 /// The tracker is the only thing standing between a controller
 /// notification and an edit the user did not type, so each of its three
@@ -259,6 +261,32 @@ void main() {
       h.pressEnter(0, '- [x] done'.length);
 
       expect(h.lines, ['- [x] done', '- [ ] ', 'plain']);
+
+      h.dispose();
+    });
+
+    test('continues a custom-state task with the open box', () {
+      final h = _Harness('- [-] skipped\nplain');
+
+      h.pressEnter(0, '- [-] skipped'.length);
+
+      expect(h.lines, ['- [-] skipped', '- [ ] ', 'plain']);
+
+      h.dispose();
+    });
+
+    test('a setext heading continues nothing, text line or underline', () {
+      final h = _Harness('Title\n===\nSub\n---\nplain');
+
+      // Bottom up, so every press lands on a pair still intact.
+      h.pressEnter(3, '---'.length);
+      expect(h.lines, ['Title', '===', 'Sub', '---', '', 'plain']);
+
+      h.pressEnter(1, '==='.length);
+      expect(h.lines, ['Title', '===', '', 'Sub', '---', '', 'plain']);
+
+      h.pressEnter(0, 'Title'.length);
+      expect(h.lines, ['Title', '', '===', '', 'Sub', '---', '', 'plain']);
 
       h.dispose();
     });
@@ -726,6 +754,60 @@ void main() {
       h.pressEnter(0, '- foo'.length);
 
       expect(h.lines, ['- foo', '', 'plain']);
+
+      h.dispose();
+    });
+
+    test('Enter inside a tilde fence grows no marker', () {
+      // The host's answer, wired as the page wires it: the span builder's
+      // positional index over the same controller.
+      final builder = MarkdownEditorSpanBuilder();
+      final h = _Harness(
+        '~~~\n- foo\n~~~',
+        isFenceLine: (index) => builder.lineInFenceBody(index),
+      );
+      builder.bind(h.editor);
+
+      h.pressEnter(1, '- foo'.length);
+
+      expect(h.lines, ['~~~', '- foo', '', '~~~']);
+
+      h.dispose();
+    });
+
+    test('typing below a trailing backslash conceals it, never revealing it', () {
+      final builder = MarkdownEditorSpanBuilder();
+      final h = _Harness('a\\\n');
+      builder.bind(h.editor);
+      final context = EditorRenderContext(
+        style: TextStyle(fontSize: 10),
+        baseColor: Color(0xFF000000),
+        primary: Color(0xFF0000FF),
+        isDark: false,
+      );
+      TextSpan? first() => builder.build(
+        context: context,
+        index: 0,
+        codeLine: h.editor.codeLines[0],
+      );
+      bool concealed(TextSpan span) =>
+          span.children!.whereType<TextSpan>().any(
+            (leaf) => leaf.text == r'\' && leaf.style?.fontSize == 0.01,
+          );
+
+      h.editor.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 0,
+      );
+      expect(first(), isNull, reason: 'no line follows yet: `\\` is text');
+
+      h.insertAt(1, 0, 'b');
+
+      expect(h.lines, [r'a\', 'b']);
+      expect(h.editor.selection.extentIndex, 1);
+      final span = first();
+      expect(span, isNotNull);
+      expect(concealed(span!), isTrue, reason: 'off-caret: concealed');
 
       h.dispose();
     });

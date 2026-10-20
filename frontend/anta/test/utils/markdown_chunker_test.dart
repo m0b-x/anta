@@ -69,18 +69,133 @@ void main() {
       expect(MarkdownChunker.isFenceDelimiter('````'), isTrue);
     });
 
-    test('leading spaces and tabs are tolerated', () {
+    test('any indent of spaces or tabs is tolerated', () {
       expect(MarkdownChunker.isFenceDelimiter('   ```'), isTrue);
+      expect(MarkdownChunker.isFenceDelimiter('  ~~~ js'), isTrue);
+      // A fence under a list item sits at the item's content column.
+      expect(MarkdownChunker.isFenceDelimiter('    ```'), isTrue);
       expect(MarkdownChunker.isFenceDelimiter('\t```dart'), isTrue);
       expect(MarkdownChunker.isFenceDelimiter(' \t ```'), isTrue);
+    });
+
+    test('a trailing CR is a blank, so CRLF closers and markers hold', () {
+      final int ticks = MarkdownChunker.fenceOpenerOf('```\r');
+      expect(ticks, MarkdownChunker.fenceOpenerOf('```'));
+      expect(MarkdownChunker.closesFence('```\r', ticks), isTrue);
+      expect(
+        MarkdownChunker.closesFence('~~~\r', MarkdownChunker.fenceOpenerOf('~~~')),
+        isTrue,
+      );
+      expect(MarkdownChunker.isCommentDelimiter('%%\r'), isTrue);
+      expect(MarkdownChunker.closesFence('```js\r', ticks), isFalse);
+    });
+
+    test('tilde fences open with any info string', () {
+      expect(MarkdownChunker.isFenceDelimiter('~~~'), isTrue);
+      expect(MarkdownChunker.isFenceDelimiter('~~~~python'), isTrue);
+      expect(MarkdownChunker.isFenceDelimiter('~~~ a ` b ~'), isTrue);
+    });
+
+    test('a backtick run with a backtick later in the line is inline code', () {
+      expect(MarkdownChunker.isFenceDelimiter('```npm i```'), isFalse);
+      expect(MarkdownChunker.isFenceDelimiter('``` a ` b'), isFalse);
     });
 
     test('anything else is not a delimiter', () {
       expect(MarkdownChunker.isFenceDelimiter(''), isFalse);
       expect(MarkdownChunker.isFenceDelimiter('``'), isFalse);
+      expect(MarkdownChunker.isFenceDelimiter('~~'), isFalse);
       expect(MarkdownChunker.isFenceDelimiter('a```'), isFalse);
-      expect(MarkdownChunker.isFenceDelimiter('~~~'), isFalse);
       expect(MarkdownChunker.isFenceDelimiter('  `` `'), isFalse);
+    });
+
+    test('a closer is the opener character, at least as long, bare', () {
+      final int ticks = MarkdownChunker.fenceOpenerOf('```js');
+      final int quad = MarkdownChunker.fenceOpenerOf('````');
+      final int tildes = MarkdownChunker.fenceOpenerOf('~~~');
+      expect(MarkdownChunker.closesFence('```', ticks), isTrue);
+      expect(MarkdownChunker.closesFence('`````  ', ticks), isTrue);
+      expect(MarkdownChunker.closesFence('```js', ticks), isFalse);
+      expect(MarkdownChunker.closesFence('~~~', ticks), isFalse);
+      expect(MarkdownChunker.closesFence('```', quad), isFalse);
+      expect(MarkdownChunker.closesFence('````', quad), isTrue);
+      expect(MarkdownChunker.closesFence('~~~', tildes), isTrue);
+      expect(MarkdownChunker.closesFence('```', tildes), isFalse);
+      expect(MarkdownChunker.closesFence('    ```', ticks), isTrue);
+      expect(MarkdownChunker.closesFence('\t```', ticks), isTrue);
+    });
+
+    test('a comment marker is a bare %% line', () {
+      expect(MarkdownChunker.isCommentDelimiter('%%'), isTrue);
+      expect(MarkdownChunker.isCommentDelimiter('   %%  '), isTrue);
+      expect(MarkdownChunker.isCommentDelimiter('\t%%'), isTrue);
+      expect(MarkdownChunker.isCommentDelimiter('%%note%%'), isFalse);
+      expect(MarkdownChunker.isCommentDelimiter('%'), isFalse);
+      expect(MarkdownChunker.isCommentDelimiter('%%%'), isFalse);
+    });
+
+    test('a blank line is empty or whitespace', () {
+      expect(MarkdownChunker.isBlankLine(''), isTrue);
+      expect(MarkdownChunker.isBlankLine(' \t '), isTrue);
+      expect(MarkdownChunker.isBlankLine(' b'), isFalse);
+    });
+  });
+
+  group('block scan — fence pairing and comments', () {
+    List<(MarkdownBlockKind, int, int)> blocksOf(List<String> lines) => [
+      for (final b in layoutOf(doc(lines)).blocks)
+        (b.kind, b.startLine, b.endLine),
+    ];
+    const fence = MarkdownBlockKind.codeFence;
+    const comment = MarkdownBlockKind.comment;
+
+    test('a one-line ```npm i``` opens no block', () {
+      expect(blocksOf(['```npm i```', '#tag', 'more']), isEmpty);
+    });
+
+    test('```js inside an open fence does not close it', () {
+      expect(blocksOf(['```', 'a', '```js', 'b', '```', 'after']), [
+        (fence, 0, 5),
+      ]);
+    });
+
+    test('a ```` fence stays open past a ``` line until ````', () {
+      expect(blocksOf(['````', '```', 'x', '````', 'after']), [
+        (fence, 0, 4),
+      ]);
+    });
+
+    test('~~~ pairs with ~~~ and never closes a backtick fence', () {
+      expect(blocksOf(['~~~', 'a', '~~~', 'b']), [(fence, 0, 3)]);
+      expect(blocksOf(['```', '~~~', 'x']), [(fence, 0, 3)]);
+    });
+
+    test('a fence under a list item pairs at any indent', () {
+      expect(
+        blocksOf(['- step', '    ```bash', '    npm i #tag', '    ```', 'x']),
+        [(fence, 1, 4)],
+      );
+      expect(blocksOf(['- step', '\t```bash', '\tnpm i', '\t```', 'x']), [
+        (fence, 1, 4),
+      ]);
+    });
+
+    test('CRLF lines pair their fences and comments', () {
+      expect(blocksOf(['```js\r', 'code\r', '```\r', 'after\r', 'more']), [
+        (fence, 0, 3),
+      ]);
+      expect(blocksOf(['%%\r', 'x\r', '%%\r', 'after']), [(comment, 0, 3)]);
+    });
+
+    test('a %% block runs to the next %% line or the end', () {
+      expect(blocksOf(['a', '%%', 'hidden ```', '%%', 'b']), [
+        (comment, 1, 4),
+      ]);
+      expect(blocksOf(['%%', 'x', 'y']), [(comment, 0, 3)]);
+    });
+
+    test('a %% line inside a fence is code', () {
+      expect(blocksOf(['```', '%%', '```', 'b']), [(fence, 0, 3)]);
     });
   });
 
@@ -203,8 +318,17 @@ void main() {
       expect(layout.blocks.single.endLine, 3);
     });
 
-    test('an unrecognised type stays a plain blockquote', () {
+    test('an unrecognised type still opens a callout block', () {
       final source = doc(['> [!FOO]', '> body', 'after']);
+
+      final blocks = layoutOf(source).blocks;
+      expect(blocks, hasLength(1));
+      expect(blocks.single.kind, MarkdownBlockKind.callout);
+      expect(blocks.single.endLine, 2);
+    });
+
+    test('a blank token stays a plain blockquote', () {
+      final source = doc(['> [!]', '> body', 'after']);
 
       expect(layoutOf(source).blocks, isEmpty);
     });

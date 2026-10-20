@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/markdown_callout_syntax.dart';
@@ -92,7 +94,7 @@ void main() {
           spans[reveal] = span;
           final where = '${entry.label} [money=$money reveal=$reveal]';
           if (span == null) continue;
-          _expectCodeUnits(entry.line, span, where);
+          _expectCodeUnits(entry.line, span, where, above: entry.above);
         }
 
         final off = spans[false];
@@ -145,7 +147,12 @@ void main() {
           reason: 'handled-ness must not depend on the caret offset: $where',
         );
         if (tail != null) {
-          _expectCodeUnits(entry.line, tail, '$where [caret at end]');
+          _expectCodeUnits(
+            entry.line,
+            tail,
+            '$where [caret at end]',
+            above: entry.above,
+          );
           expect(
             tail.runtimeType,
             off.runtimeType,
@@ -340,6 +347,157 @@ void main() {
       expect(icon, isA<EditorCalloutIconSpan>());
       expect((icon as EditorCalloutIconSpan).accent, accent);
       expect(icon.icon, MarkdownConstants.calloutIcon(MarkdownCalloutType.tip));
+    });
+
+    test('a titleless lead paints its type word title-cased as the title', () {
+      final pair = _renderBothStates('> [!WARNING]', money: false);
+      final accent = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.warning,
+        dark: false,
+      );
+      expect(pair.off.visibleText, '┃ ￼Warning');
+      final title = pair.off.leaves.singleWhere(
+        (leaf) => leaf.text == 'Warning',
+      );
+      expect(title.style?.color, accent);
+      expect(title.style?.fontWeight, FontWeight.bold);
+      expect(pair.on.visibleText, '> [!WARNING]', reason: 'raw on reveal');
+    });
+
+    test('a fold marker conceals with the token, dimmed on reveal', () {
+      final pair = _renderBothStates('> [!WARNING]- Knee', money: false);
+      expect(pair.off.visibleText, '┃ ￼ Knee');
+      expect(pair.on.visibleText, '> [!WARNING]- Knee');
+      final marker = pair.on.leaves.singleWhere((leaf) => leaf.text == '-');
+      expect(
+        marker.style?.color,
+        _renderContext.baseColor.withValues(alpha: _dimAlpha),
+        reason: 'dimmed like every revealed marker, not the token accent',
+      );
+      expect(marker.style?.fontWeight, isNot(FontWeight.w600));
+      expect(
+        _renderOffCaret('> [!TIP]-').visibleText,
+        '┃ ￼Tip',
+        reason: 'a folded lead with no title still titles its type',
+      );
+      expect(
+        _renderOffCaret('> [!TIP] - x').visibleText,
+        '┃ ￼ - x',
+        reason: 'a `-` after a blank is title text',
+      );
+    });
+
+    test('aliases, new kinds and unknown words paint their own icon', () {
+      IconData iconOf(String line) =>
+          (_renderOffCaret(line).leaves
+                      .singleWhere((leaf) => leaf.span is PlaceholderSpan)
+                      .span
+                  as EditorCalloutIconSpan)
+              .icon;
+      expect(
+        iconOf('> [!hint] x'),
+        MarkdownConstants.calloutIcon(MarkdownCalloutType.tip),
+      );
+      expect(
+        iconOf('> [!bug] x'),
+        MarkdownConstants.calloutIcon(MarkdownCalloutType.bug),
+      );
+      expect(
+        iconOf('> [!drill]'),
+        MarkdownConstants.calloutIcon(MarkdownCalloutType.note),
+      );
+      expect(_renderOffCaret('> [!drill]').visibleText, '┃ ￼Drill');
+    });
+
+    test('a titleless lead keeps a gap after its icon, in width only', () {
+      EditorCalloutIconSpan iconOf(String line) =>
+          _renderOffCaret(
+                line,
+              ).leaves.singleWhere((leaf) => leaf.span is PlaceholderSpan).span
+              as EditorCalloutIconSpan;
+      final bare = iconOf('> [!WARNING]');
+      final titled = iconOf('> [!WARNING] x');
+      expect(titled.gap, 0, reason: 'the source blank already separates');
+      expect(bare.gap, greaterThan(0));
+      expect(bare.width, titled.width + bare.gap);
+      expect(bare.height, titled.height, reason: 'the line height holds');
+    });
+
+    test('a token naming no type word stays a plain quote', () {
+      expect(
+        _renderOffCaret(
+          '> [![badge](https://x/b.svg)](https://x)',
+        ).leaves.any((leaf) => leaf.span is EditorCalloutIconSpan),
+        isFalse,
+      );
+      expect(
+        _renderOffCaret('> [!two words] x').visibleText,
+        '┃ [!two words] x',
+      );
+    });
+
+    test('a titleless token on a body line is body text', () {
+      final render = _renderOffCaret(
+        '> [!NOTE]',
+        above: const <String>['> [!TIP] x'],
+      );
+      expect(render.visibleText, '┃ [!NOTE]');
+    });
+
+    test('a tab after `>` reads a top-level quoted bullet', () {
+      expect(_renderOffCaret('>\t- squat').visibleText, '┃\t• squat');
+    });
+
+    test('a token on a body line is body text, not a foreign accent', () {
+      final render = _renderOffCaret(
+        '> [!NOTE] y',
+        above: const <String>['> [!TIP] x'],
+      );
+      expect(render.visibleText, '┃ [!NOTE] y');
+      final note = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.note,
+        dark: false,
+      );
+      expect(render.leaves.where((leaf) => leaf.style?.color == note), isEmpty);
+      expect(
+        render.leaves.any((leaf) => leaf.span is PlaceholderSpan),
+        isFalse,
+      );
+    });
+
+    test('a quoted task paints its box behind the bar', () {
+      final render = _renderOffCaret('> - [ ] warm-up');
+      expect(render.visibleText, '┃ ￼ warm-up');
+      expect(
+        render.leaves.map((leaf) => leaf.span).whereType<EditorCheckboxSpan>(),
+        hasLength(1),
+      );
+      expect(render.span, isA<CodeHangingTextSpan>());
+      expect((render.span as CodeHangingTextSpan).hangingChars, 8);
+      final ticked = _renderOffCaret(
+        '> - [x] done',
+        above: const <String>['> [!TODO] Today'],
+      );
+      final box = ticked.leaves
+          .map((leaf) => leaf.span)
+          .whereType<EditorCheckboxSpan>()
+          .single;
+      expect(box.visual, EditorCheckboxVisual.checked);
+    });
+
+    test('quoted bullets, numbers and headings render behind the bars', () {
+      expect(_renderOffCaret('> - squat').visibleText, '┃ • squat');
+      expect(_renderOffCaret('>   - deep').visibleText, '┃   ◦ deep');
+      expect(_renderOffCaret('> > - inner').visibleText, '┃ ┃ • inner');
+      expect(_renderOffCaret('> 1. bench').visibleText, '┃ 1. bench');
+      final heading = _renderOffCaret('> # Week 3');
+      expect(heading.visibleText, '┃ Week 3');
+      final week = heading.leaves.singleWhere((leaf) => leaf.text == 'Week 3');
+      expect(
+        week.style?.fontSize,
+        greaterThan(_renderContext.style.fontSize!),
+        reason: 'a quoted heading keeps its scale',
+      );
     });
 
     test('a callout body renders plain in the block accent', () {
@@ -868,6 +1026,161 @@ void main() {
     });
   });
 
+  // Fence pairing, `%%` comments and the hard break all read other lines,
+  // so each case builds one line of a real multi-line document.
+  group('fences, comments and the positional hard break', () {
+    TextSpan? at(List<String> lines, int index, {required int caretLine}) {
+      final controller = CodeLineEditingController.fromText(lines.join('\n'));
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      controller.selection = CodeLineSelection.collapsed(
+        index: caretLine,
+        offset: 0,
+      );
+      return builder.build(
+        context: _renderContext,
+        index: index,
+        codeLine: controller.codeLines[index],
+      );
+    }
+
+    final dim = _renderContext.baseColor.withValues(alpha: _dimAlpha);
+
+    test('a trailing backslash conceals only before a non-blank line', () {
+      expect(_concealedRuns(at([r'a\', 'b'], 0, caretLine: 1)!), [r'\']);
+      expect(at([_pad, r'a\'], 1, caretLine: 0), isNull);
+      expect(at([_pad, r'a\', '', 'b'], 1, caretLine: 0), isNull);
+      expect(at([_pad, r'a\', ' \t', 'b'], 1, caretLine: 0), isNull);
+      final path = at([_pad, r'- D:\Backups\'], 1, caretLine: 0)!;
+      expect(
+        _visibleLeaves(path).map((leaf) => leaf.text).join(),
+        endsWith(r'D:\Backups\'),
+      );
+      expect(_concealedRuns(path), isNot(contains(r'\')));
+    });
+
+    test('a callout body and a quote follow the next line too', () {
+      final body = ['> [!TIP] x', r'> body\'];
+      expect(_concealedRuns(at([...body, _pad], 1, caretLine: 2)!), [r'\']);
+      expect(
+        _concealedRuns(at([_pad, ...body], 2, caretLine: 0)!),
+        isNot(contains(r'\')),
+      );
+      expect(
+        _concealedRuns(at([_pad, r'> quoted\'], 1, caretLine: 0)!),
+        isNot(contains(r'\')),
+      );
+    });
+
+    test('the memo re-renders a line when the line below it changes', () {
+      final controller = CodeLineEditingController.fromText(
+        <String>[r'a\', 'b', _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: 0,
+      );
+      TextSpan? first() => builder.build(
+        context: _renderContext,
+        index: 0,
+        codeLine: controller.codeLines[0],
+      );
+
+      final broken = first();
+      expect(_concealedRuns(broken!), [r'\']);
+      expect(identical(first(), broken), isTrue);
+
+      controller.codeLines = controller.codeLines.replaceLine(1, CodeLine(''));
+      expect(first(), isNull, reason: 'a blank line below keeps the `\\`');
+
+      controller.codeLines = controller.codeLines.replaceLine(1, CodeLine('c'));
+      expect(_concealedRuns(first()!), [r'\']);
+    });
+
+    // The callout memo is positional and outlives an edit, so its key must
+    // carry the literal-tail bit: one builder, the line below flipped
+    // between blank and not.
+    for (final (name, lines, below) in [
+      ('a callout body', [_pad, '> [!TIP] x', r'> body\', '> more'], 3),
+    ]) {
+      test('$name re-renders when the line below turns blank and back', () {
+        final controller = CodeLineEditingController.fromText(lines.join('\n'));
+        addTearDown(controller.dispose);
+        final builder = MarkdownEditorSpanBuilder()..bind(controller);
+        builder.configureMoney(MoneyDisplayConfig.disabled);
+        controller.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 0,
+        );
+        TextSpan line() => builder.build(
+          context: _renderContext,
+          index: below - 1,
+          codeLine: controller.codeLines[below - 1],
+        )!;
+        final String original = lines[below];
+
+        expect(_concealedRuns(line()), contains(r'\'));
+        controller.codeLines = controller.codeLines.replaceLine(
+          below,
+          CodeLine(''),
+        );
+        expect(_concealedRuns(line()), isNot(contains(r'\')));
+        controller.codeLines = controller.codeLines.replaceLine(
+          below,
+          CodeLine(original),
+        );
+        expect(_concealedRuns(line()), contains(r'\'));
+      });
+    }
+
+    test('a tilde fence dims its delimiters like a backtick one', () {
+      final lines = ['~~~ py', 'x = 1', '~~~', _pad];
+      for (final index in [0, 2]) {
+        final leaves = _visibleLeaves(at(lines, index, caretLine: 3)!);
+        for (final leaf in leaves) {
+          expect(leaf.style?.fontFamily, 'monospace');
+          expect(leaf.style?.color, isNot(_renderContext.baseColor));
+        }
+      }
+      final body = _visibleLeaves(at(lines, 1, caretLine: 3)!);
+      expect(body.single.style?.fontFamily, 'monospace');
+    });
+
+    test('a one-line ```npm i``` is inline code, not a fence', () {
+      final span = at(['```npm i```', '- [ ] a', _pad], 0, caretLine: 2)!;
+      expect(_concealedRuns(span), ['```', '```']);
+      expect(at(['```npm i```', '- [ ] a', _pad], 1, caretLine: 2), isNotNull);
+    });
+
+    test('a block comment dims every line in both reveal states', () {
+      final lines = ['%%', 'secret #tag', '%%', _pad];
+      for (final index in [0, 1, 2]) {
+        for (final caret in [index, 3]) {
+          final span = at(lines, index, caretLine: caret)!;
+          expect(_concealedRuns(span), isEmpty);
+          for (final leaf in _visibleLeaves(span)) {
+            expect(leaf.style?.color, dim, reason: '$index/$caret');
+          }
+        }
+      }
+    });
+
+    test('an inline comment conceals off-caret and dims on reveal', () {
+      final lines = ['a %%x #t%% b', _pad];
+      expect(_concealedRuns(at(lines, 0, caretLine: 1)!), ['%%x #t%%']);
+      final on = at(lines, 0, caretLine: 0)!;
+      expect(_concealedRuns(on), isEmpty);
+      final comment = _visibleLeaves(
+        on,
+      ).singleWhere((leaf) => leaf.text == '%%x #t%%');
+      expect(comment.style?.color, dim);
+    });
+  });
+
   // A callout body's rendering is a function of the lead above it, which
   // is positional state. The memo has to key on that, or a body keeps
   // the colour of a block that has since changed type.
@@ -1142,6 +1455,44 @@ void main() {
         .whereType<EditorCheckboxSpan>()
         .firstOrNull;
 
+    test('a quoted task follows the caret past its quote run', () {
+      const quoted = '> - [ ] warm-up';
+      expect(
+        boxOf(renderUnder(quoted, (_) => caretAt(quoted.length))),
+        isNotNull,
+        reason: 'past the marker the box stays painted',
+      );
+      expect(
+        boxOf(renderUnder(quoted, (_) => caretAt(1))),
+        isNotNull,
+        reason: 'on the bar the caret is not in the marker',
+      );
+      expect(boxOf(renderUnder(quoted, (_) => caretAt(2))), isNull);
+      expect(boxOf(renderUnder(quoted, (_) => caretAt(5))), isNull);
+
+      // A callout body reveals through the positional route, which must
+      // hand the caret through as well.
+      final controller = CodeLineEditingController.fromText(
+        <String>[_pad, '> [!TODO] Today', quoted, _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: quoted.length,
+      );
+      final span = builder.build(
+        context: _renderContext,
+        index: 2,
+        codeLine: controller.codeLines[2],
+      )!;
+      expect(
+        _visibleLeaves(span).map((leaf) => leaf.span),
+        contains(isA<EditorCheckboxSpan>()),
+        reason: 'a callout body hands the caret through too',
+      );
+    });
+
     const line = '- [ ] squat **5x5**';
 
     test('a caret past the marker keeps the box and reveals the content', () {
@@ -1239,6 +1590,249 @@ void main() {
         findActive: findActive,
       );
       expect(closed.visibleText, _renderOffCaret(link).visibleText);
+    });
+  });
+
+  group('custom task states', () {
+    EditorCheckboxSpan boxOf(_Render render) => render.leaves
+        .map((leaf) => leaf.span)
+        .whereType<EditorCheckboxSpan>()
+        .single;
+
+    TextDecoration? decorationOf(_Render render, String text) => render.leaves
+        .singleWhere((leaf) => leaf.text == text)
+        .style
+        ?.decoration;
+
+    test('a cancelled box paints its dash and strikes its content', () {
+      final render = _renderOffCaret('- [-] skipped');
+      final box = boxOf(render);
+      expect(box.visual, EditorCheckboxVisual.custom);
+      expect(box.state, '-');
+      expect(decorationOf(render, 'skipped'), TextDecoration.lineThrough);
+    });
+
+    test('the other states paint their unit and leave the content plain', () {
+      for (final state in ['/', '>', '<', '?', '!', '*', 'y']) {
+        final render = _renderOffCaret('- [$state] item');
+        final box = boxOf(render);
+        expect(box.visual, EditorCheckboxVisual.custom, reason: state);
+        expect(box.state, state);
+        expect(
+          decorationOf(render, 'item'),
+          isNot(TextDecoration.lineThrough),
+          reason: state,
+        );
+      }
+    });
+
+    test('the open and done boxes carry no state', () {
+      expect(boxOf(_renderOffCaret('- [ ] a')).state, '');
+      expect(boxOf(_renderOffCaret('- [x] a')).state, '');
+    });
+
+    test('a custom parent keeps its own mark over mixed children', () {
+      final controller = CodeLineEditingController.fromText(
+        <String>[
+          _pad,
+          '- [-] parent',
+          '  - [x] done',
+          '  - [ ] open',
+        ].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      final span = builder.build(
+        context: _renderContext,
+        index: 1,
+        codeLine: controller.codeLines[1],
+      )!;
+      final box = _visibleLeaves(
+        span,
+      ).map((leaf) => leaf.span).whereType<EditorCheckboxSpan>().single;
+      expect(box.visual, EditorCheckboxVisual.custom);
+    });
+
+    test('a custom-state box is value-equal only to the same state', () {
+      EditorCheckboxSpan box(String state) => EditorCheckboxSpan(
+        side: 10,
+        visual: EditorCheckboxVisual.custom,
+        accent: Colors.blue,
+        border: Colors.grey,
+        mark: Colors.white,
+        state: state,
+      );
+      expect(box('-'), box('-'));
+      expect(box('-'), isNot(box('/')));
+      expect(box('-').hashCode, box('-').hashCode);
+    });
+
+    test('every state paints, past the glyph cache bound too', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      void paint(String state, double side) {
+        final recorder = ui.PictureRecorder();
+        EditorCheckboxSpan(
+          side: side,
+          visual: EditorCheckboxVisual.custom,
+          accent: Colors.blue,
+          border: Colors.grey,
+          mark: Colors.white,
+          state: state,
+        ).paint(Canvas(recorder), Rect.fromLTWH(0, 0, side, side));
+        recorder.endRecording().dispose();
+      }
+
+      for (final state in const ['-', '/', '>', '<', '*', '?', '!', 'y']) {
+        expect(() => paint(state, 14), returnsNormally, reason: state);
+      }
+      // Each size is its own cache key: 40 of them overrun the bound, so
+      // the cache disposes its painters and lays the next glyph out anew.
+      for (var i = 0; i < 40; i++) {
+        expect(() => paint('?', 10.0 + i), returnsNormally);
+      }
+      expect(() => paint('?', 14), returnsNormally);
+    });
+  });
+
+  group('setext headings', () {
+    late CodeLineEditingController controller;
+    late MarkdownEditorSpanBuilder builder;
+
+    void open(List<String> lines) {
+      controller = CodeLineEditingController.fromText(
+        <String>[...lines, _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      controller.selection = CodeLineSelection.collapsed(
+        index: lines.length,
+        offset: 0,
+      );
+    }
+
+    TextSpan? at(int index) => builder.build(
+      context: _renderContext,
+      index: index,
+      codeLine: controller.codeLines[index],
+    );
+
+    void replace(int index, String text) {
+      controller.codeLines = controller.codeLines.replaceLine(
+        index,
+        CodeLine(text),
+      );
+    }
+
+    test('the text line takes its level\'s heading scale', () {
+      open(['Title', '===', 'Sub', '---']);
+      final base = _renderContext.style.fontSize!;
+      expect(
+        at(0)!.style!.fontSize,
+        base * MarkdownConstants.editorHeaderScale(1),
+      );
+      expect(
+        at(2)!.style!.fontSize,
+        base * MarkdownConstants.editorHeaderScale(2),
+      );
+    });
+
+    test('the underline draws ─ for its markers, never concealed', () {
+      open(['Title', '  ====  ']);
+      final span = at(1)!;
+      expect(span.toPlainText(), '  ────  ');
+      expect(_concealedRuns(span), isEmpty);
+    });
+
+    test('the pair follows its neighbours through the positional memo', () {
+      open(['Title', '===']);
+      final heading = at(0)!;
+      expect(identical(at(0), heading), isTrue, reason: 'memo hit');
+      expect(at(1)!.toPlainText(), '───');
+
+      replace(1, 'more prose');
+      expect(at(0), isNull, reason: 'no underline, plain prose again');
+      expect(at(1), isNull);
+
+      replace(1, '===');
+      expect(at(0)!.style!.fontSize, heading.style!.fontSize);
+
+      replace(0, '- a');
+      expect(at(1), isNull, reason: '=== under a list item is text');
+    });
+
+    test('the same text off a pair never reads the pair\'s memo', () {
+      open(['Title', '===', 'Title', 'x']);
+      expect(at(0), isNotNull);
+      expect(at(2), isNull);
+    });
+
+    test('a fenced line is no text line, a fence close no underline', () {
+      open(['```', 'Title', '===', '```', '===']);
+      expect(
+        at(1)!.style!.fontSize,
+        isNot(
+          _renderContext.style.fontSize! *
+              MarkdownConstants.editorHeaderScale(1),
+        ),
+      );
+      expect(at(2)?.toPlainText(), isNot(contains('─')));
+      expect(at(4), isNull);
+    });
+
+    test('a line-led neighbour keeps --- a rule and === text', () {
+      // The editor draws a `---` underline and a rule alike, so the text
+      // line's own span is what tells a pair from a line-led neighbour.
+      for (final above in const ['> quote', '> [!TIP] x', r'$= 500']) {
+        open([above, 'x']);
+        builder.configureMoney(_moneyEnabled);
+        final alone = at(0);
+        open([above, '---', above, '===']);
+        builder.configureMoney(_moneyEnabled);
+        expect(at(0), alone, reason: '$above takes no heading');
+        expect(at(2), alone, reason: '$above takes no heading');
+        expect(at(3), isNull, reason: '$above: === is prose');
+      }
+    });
+
+    test('an underline at line 0 has no text line above it', () {
+      open(['', '---']);
+      final rule = at(1)!;
+      open(['---', 'x']);
+      expect(at(0), rule);
+      open(['===', 'x']);
+      expect(at(0), isNull);
+    });
+
+    test('a neighbour past the length guard cancels the pair', () {
+      // The editor draws a line over the guard raw, so neither half of a
+      // pair it belongs to is styled; the preview has no guard.
+      open([
+        'Title',
+        '=' * (MarkdownEditorSpanBuilder.maxStyledLineLength + 1),
+      ]);
+      expect(at(0), isNull, reason: 'the text line stays prose');
+      open([_longLine, '===']);
+      expect(at(1), isNull, reason: 'the underline stays prose');
+    });
+
+    test('the caret line keeps the heading height', () {
+      open(['Title', '===']);
+      final off = at(0)!;
+      final offUnderline = at(1)!;
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 2,
+      );
+      expect(at(0)!.style!.fontSize, off.style!.fontSize);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 1,
+      );
+      final on = at(1)!;
+      expect(on.toPlainText(), '===', reason: 'raw markers on reveal');
+      expect(on.style!.fontSize, offUnderline.style!.fontSize);
     });
   });
 
@@ -1454,7 +2048,9 @@ const Map<int, String> _substitutions = <int, String>{
   0x25E6: '-*+•', // ◦ — the same bullet one nesting level deeper
   0x25AA: '-*+•', // ▪ — and two levels deeper (the cycle wraps at three)
   0x2503: '>', // ┃ — blockquote bar
-  0x2500: '-*_ \t', // ─ — horizontal rule, the blanks between markers too
+  // ─ — horizontal rule, the blanks between markers too; a setext
+  // underline's `=` / `-` run
+  0x2500: '-*_ \t=',
   0x03A3: r'$', // Σ — `$$` total marker with a value slot
   0x25CE: '!', // ◎ — `$!` marker, and the `$!` target op glyph
   0x0394: '?^~', // Δ — `$?` / `$^` / `$~` markers with a value slot
@@ -1472,6 +2068,28 @@ const Map<int, String> _substitutions = <int, String>{
   // the caret is past the marker), money chip, op glyph
   0xFFFC: r'[$?^~!:',
 };
+
+/// The one substitution [_substitutions] cannot list, because it maps
+/// letters to letters: a titleless callout lead paints its type word
+/// title-cased over the word's own units (`[!WARNING]` reads `Warning`).
+/// Allowed at offset [i] only as a case change of a unit inside the word
+/// between `[!` and `]`, on a lead with nothing but a fold marker after
+/// the token. Located here without the parser, so the code-unit check
+/// never takes the renderer's own label as its expectation.
+bool _isLabelCaseMap(String source, int i, int want, int got) {
+  final open = source.indexOf('[!');
+  if (open < 0) return false;
+  final close = source.indexOf(']', open + 2);
+  if (close < 0 || i < open + 2 || i >= close) return false;
+  var after = source.substring(close + 1);
+  if (after.startsWith('-') || after.startsWith('+')) {
+    after = after.substring(1);
+  }
+  if (after.trim().isNotEmpty) return false;
+  final w = String.fromCharCode(want);
+  final g = String.fromCharCode(got);
+  return g == w.toUpperCase() || g == w.toLowerCase();
+}
 
 /// One visible piece of a built line: a text leaf that is not concealed,
 /// or a placeholder run (a checkbox, a money chip, an op glyph).
@@ -1662,7 +2280,16 @@ List<_Leaf> _visibleLeaves(InlineSpan root) {
   return leaves;
 }
 
-void _expectCodeUnits(String source, InlineSpan span, String where) {
+void _expectCodeUnits(
+  String source,
+  InlineSpan span,
+  String where, {
+  List<String> above = const <String>[],
+}) {
+  // Only a line under no quote line can open a callout block, so only
+  // there may the type word's case map apply (F10 e: a token on a body
+  // line is body text).
+  final leadLine = above.isEmpty || !above.last.trimLeft().startsWith('>');
   final plain = span.toPlainText(includePlaceholders: true);
   expect(
     plain.length,
@@ -1677,6 +2304,7 @@ void _expectCodeUnits(String source, InlineSpan span, String where) {
     final want = source.codeUnitAt(i);
     final got = plain.codeUnitAt(i);
     if (want == got) continue;
+    if (leadLine && _isLabelCaseMap(source, i, want, got)) continue;
     final allowed = _substitutions[got];
     expect(
       allowed != null && allowed.codeUnits.contains(want),
@@ -1742,6 +2370,28 @@ final List<_Case> _corpus = <_Case>[
   const _Case('closing hashes with trailing blanks', '### Title   ###  '),
   const _Case('glued closing hashes', '## Title##'),
   const _Case('only closing hashes', '## ##'),
+  // Setext pairs: each line positional on the other.
+  const _Case('setext h1 text', 'Title', below: <String>['===']),
+  const _Case('setext h2 text', 'Sub', below: <String>['---']),
+  const _Case(
+    'setext text with inline runs',
+    '**Big** `x` #t',
+    below: <String>['===='],
+  ),
+  const _Case('setext h1 underline', '===', above: <String>['Title']),
+  const _Case('setext h2 underline', '---', above: <String>['Sub']),
+  const _Case(
+    'setext underline indented',
+    '   ====  ',
+    above: <String>['Title'],
+  ),
+  const _Case('--- under a list item is a rule', '---', above: <String>['- a']),
+  const _Case('--- under a heading is a rule', '---', above: <String>['# H']),
+  const _Case(
+    '=== under a fence is text',
+    '===',
+    above: <String>['```', 'x', '```'],
+  ),
 
   // Emphasis / code / strike / highlight.
   const _Case('bold', 'a **bold** b'),
@@ -1865,6 +2515,50 @@ final List<_Case> _corpus = <_Case>[
   const _Case('callout lead with no title', '> [!TIP]'),
   const _Case('callout lead with two spaces', '>  [!TIP] x'),
   const _Case('callout lead with no space', '>[!TIP] x'),
+  // F9 fold markers, F10 default titles, aliases, new kinds, unknown words.
+  const _Case('callout lead folded with a title', '> [!WARNING]- Knee'),
+  const _Case('callout lead unfolded with a title', '> [!TIP]+ title'),
+  const _Case('callout lead folded with no title', '> [!TIP]-'),
+  const _Case('callout lead with a spaced dash title', '> [!TIP] - x'),
+  const _Case('callout lead alias', '> [!hint]'),
+  const _Case('callout lead new kind', '> [!bug] Squeaky knee'),
+  const _Case('callout lead unknown word', '> [!drill]'),
+  const _Case('callout lead spaced word', '> [! tip ]'),
+  const _Case('callout lead spaced kind', '> [! pr ]'),
+  const _Case('callout lead non-ASCII word', '> [!ßtraße]'),
+  const _Case('indented callout lead folded', '  > [!WARNING]-'),
+  const _Case('quoted linked badge', '> [![a](u)](l)'),
+  const _Case('quote with a two-word token', '> [!two words] x'),
+  _Case(
+    'callout body with a foreign token',
+    '> [!NOTE] y',
+    above: const <String>['> [!TIP] x'],
+  ),
+  _Case(
+    'callout body with a titleless foreign token',
+    '> [!NOTE]',
+    above: const <String>['> [!TIP] x'],
+  ),
+  const _Case('quoted bullet after a tab', '>\t- squat'),
+  const _Case('quoted task after a tab', '>\t- [ ] warm-up'),
+  // F15 lists, tasks and headings past the `>` run.
+  const _Case('quoted task', '> - [ ] warm-up'),
+  const _Case('quoted ticked task', '> - [x] warm-up'),
+  const _Case('quoted bullet', '> - squat'),
+  const _Case('quoted nested bullet', '>   - deep'),
+  const _Case('quoted ordered item', '> 1. bench'),
+  const _Case('quoted heading', '> # Week 3'),
+  const _Case('nested quoted bullet', '> > - inner'),
+  _Case(
+    'quoted task in a callout body',
+    '> - [ ] warm-up',
+    above: const <String>['> [!TODO] Today'],
+  ),
+  _Case(
+    'quoted heading in a callout body',
+    '> ## Legs',
+    above: const <String>['> [!NOTE] x'],
+  ),
   _Case('callout body', '> body', above: const <String>['> [!TIP] x']),
   _Case(
     'nested lead is body text',
@@ -1935,6 +2629,21 @@ final List<_Case> _corpus = <_Case>[
     '- [ ] parent',
     below: const <String>['  - [x] done child', '  - [ ] open child'],
   ),
+  const _Case('task cancelled', '- [-] skipped'),
+  const _Case('task in progress', '- [/] halfway'),
+  const _Case('task forwarded', '* [>] next week'),
+  const _Case('task scheduled', '- [<] booked'),
+  const _Case('task question', '- [?] maybe'),
+  const _Case('task important', '- [!] knee'),
+  const _Case('task star', '- [*] pr'),
+  const _Case('task any other unit', '- [y] yes'),
+  const _Case('task custom state, empty', '- [-]'),
+  const _Case('quoted task cancelled', '> - [-] skipped'),
+  _Case(
+    'task cancelled parent over mixed children',
+    '- [-] parent',
+    below: const <String>['  - [x] done child', '  - [ ] open child'],
+  ),
   const _Case('list with inline runs', '- **heavy** `3x5` #legs'),
 
   // Empty list items — the shape Enter-continuation leaves behind. The
@@ -1968,6 +2677,10 @@ final List<_Case> _corpus = <_Case>[
   const _Case('escaped trailing backslash', r'a\\'),
   const _Case('hard break in a list item', r'- item\'),
   const _Case('hard break in a quote', r'> quoted\'),
+  const _Case('one-line triple-backtick code', '```npm i```'),
+  const _Case('inline comment', 'a %%x #t [l](u)%% b'),
+  const _Case('unclosed comment', 'a %%x **b**'),
+  const _Case('adjacent comments', '%%a%%%%b%%'),
   const _Case('url ending in a backslash', r'see https://a.com/x\'),
   const _Case('heading ending in a backslash', r'# a\'),
   const _Case('callout title ending in a backslash', r'> [!NOTE] Title\'),

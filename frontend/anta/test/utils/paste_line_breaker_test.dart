@@ -338,6 +338,43 @@ void main() {
     });
   });
 
+  group('a setext pair through the breaker', () {
+    final underline = '=' * 60;
+
+    test('the text line and a long underline stay whole', () {
+      final result = newCalculator().breakLinesSmartly([
+        longLine,
+        underline,
+      ], width);
+
+      expect(result.linesModified, 0);
+      expect(result.lines, [longLine, underline]);
+    });
+
+    test('a text line above an underline outside the slice stays whole', () {
+      final calculator = newCalculator();
+
+      expect(
+        calculator.breakLinesSmartly([longLine], width, nextLine: '---').lines,
+        [longLine],
+      );
+      expect(
+        calculator.breakLinesSmartly([longLine], width).linesModified,
+        1,
+        reason: 'with no underline after it the line is prose',
+      );
+    });
+
+    test('a prose line above an unrelated line still reflows', () {
+      final result = newCalculator().breakLinesSmartly([
+        longLine,
+        'next',
+      ], width);
+
+      expect(result.linesModified, 1);
+    });
+  });
+
   group('protected ranges through the breaker', () {
     test('an aliased wiki link is never split at its blanks', () {
       const alias = '[[Squat Progression|my squat log]]';
@@ -358,6 +395,39 @@ void main() {
       expect(result.linesModified, 1);
       expect(result.lines, contains(url));
     });
+
+    test('an inline comment is never split, so its text stays hidden', () {
+      const comment = '%%a long private note%%';
+      final result = newCalculator().breakLinesSmartly([
+        'see $comment then more words',
+      ], width);
+
+      expect(result.linesModified, 1);
+      expect(result.lines, contains(comment));
+    });
+  });
+
+  group('a paste into a fence body opened by ```` or ~~~', () {
+    // The seed carries the real opener: a pasted ``` line closes neither
+    // body, so the long code line after it stays whole.
+    for (final opener in ['~~~', '````']) {
+      test('$opener: a pasted ``` line is body, not the closer', () {
+        final controller = CodeLineEditingController.fromText(
+          [opener, 'x', '```', longLine, opener].join('\n'),
+        );
+
+        final result = runOn(
+          controller,
+          endIndex: 3,
+          endOffset: longLine.length,
+          pastedLength: 3 + 1 + longLine.length,
+          lineInFenceBody: (index) => index >= 1 && index <= 3,
+        );
+
+        expect(result.reformatted, isFalse);
+        expect(controller.codeLines[3].text, longLine);
+      });
+    }
   });
 
   group('a range that starts inside a fence body', () {

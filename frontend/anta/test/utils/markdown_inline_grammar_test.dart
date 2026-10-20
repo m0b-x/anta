@@ -1742,4 +1742,36 @@ void main() {
       expect(breaks('a'), isFalse);
     });
   });
+
+  group('inline comments', () {
+    List<(Type, int, int)> shape(String line) => [
+      for (final t in tok(line)) (t.runtimeType, t.start, t.end),
+    ];
+
+    test('a %%…%% run is one opaque atom, tags and links inert inside', () {
+      expect(shape('a %%x #t [l](u)%% b'), [(InlineComment, 2, 17)]);
+    });
+
+    test('an unclosed %% is literal and opens nothing', () {
+      expect(shape('a %%unclosed #t'), [(InlineTag, 13, 15)]);
+    });
+
+    test('adjacent comments are two atoms', () {
+      expect(shape('%%a%%%%b%%'), [
+        (InlineComment, 0, 5),
+        (InlineComment, 5, 10),
+      ]);
+    });
+
+    test('a comment never swallows a ghost', () {
+      final tokens = tok('a %%x {{ g }} y%% b');
+      expect(tokens.whereType<InlineComment>(), isEmpty);
+      expect(tokens.whereType<InlineGhost>(), hasLength(1));
+    });
+
+    test('a lone % is no candidate, %% is', () {
+      expect(MarkdownInlineGrammar.hasCandidates('50% off'), isFalse);
+      expect(MarkdownInlineGrammar.hasCandidates('%%'), isTrue);
+    });
+  });
 }

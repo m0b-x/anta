@@ -543,6 +543,160 @@ void main() {
     });
   });
 
+  // F9, F10 and F15: the lead's title, the fold marker, the kinds, and
+  // the block shapes a quote holds past its `>` run.
+  group('callout titles and quoted blocks', () {
+    LineBasedMarkdownBuilder built(
+      List<String> lines, {
+      void Function(int start, int end, bool checked)? onCheckbox,
+    }) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        onCheckboxTap: onCheckbox,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(lines.join('\n'));
+      return builder;
+    }
+
+    String line(List<String> lines, int index) =>
+        _text(built(lines).buildLine(lines[index], index));
+
+    test('a lead with no title shows its type word title-cased', () {
+      expect(line(['> [!WARNING]'], 0), '┃ ⚠️ Warning');
+      expect(line(['> [!pr]'], 0), '┃ 🏆 PR');
+    });
+
+    test('the fold marker never reaches the title', () {
+      expect(line(['> [!WARNING]- Knee'], 0), '┃ ⚠️ Knee');
+      expect(line(['> [!TIP]+ title'], 0), '┃ 💡 title');
+      expect(line(['> [!TIP]-'], 0), '┃ 💡 Tip');
+      expect(
+        line(['> [!TIP] - x'], 0),
+        '┃ 💡 - x',
+        reason: 'a `-` after a blank is title text',
+      );
+    });
+
+    test('aliases, new kinds and unknown words are callouts', () {
+      expect(line(['> [!hint]'], 0), '┃ 💡 Hint');
+      expect(line(['> [!danger] Hot'], 0), '┃ ⚡ Hot');
+      expect(line(['> [!drill]'], 0), '┃ 📝 Drill');
+    });
+
+    test('a body token is body text, the block keeps its accent', () {
+      expect(line(['> [!TIP] x', '> [!NOTE] y'], 1), '┃ [!NOTE] y');
+    });
+
+    test('a quoted task draws its box and toggles at its source units', () {
+      const source = ['> - [ ] warm-up'];
+      final taps = <(int, int, bool)>[];
+      final builder = built(
+        source,
+        onCheckbox: (s, e, c) => taps.add((s, e, c)),
+      );
+      final span = builder.buildLine(source[0], 0);
+      expect(_text(span), '┃ ☐ warm-up');
+      _fire(span, '☐ ');
+      expect(taps, [(4, 7, false)]);
+      expect(source[0].substring(4, 7), '[ ]');
+    });
+
+    test('quoted bullets, numbers, headings and callout bodies render', () {
+      expect(line(['> - squat'], 0), '┃ • squat');
+      expect(line(['>   - deep'], 0), '┃  ◦ deep');
+      expect(line(['> 1. bench'], 0), '┃ 1. bench');
+      expect(line(['> # Week 3'], 0), '┃ Week 3');
+      expect(line(['> > - inner'], 0), '┃┃ • inner');
+      expect(line(['> [!TIP] x', '> - [x] done'], 1), '┃ ☒ done');
+    });
+
+    test('a quoted heading keeps its source offset for search', () {
+      const source = '> ## Legs';
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        searchHighlights: const <TextRange>[TextRange(start: 5, end: 9)],
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(source);
+      final hit = _leaves(builder.buildLine(source, 0))
+          .where((s) => s.style?.backgroundColor == _style.highlightColor)
+          .map((s) => s.text);
+      expect(hit.join(), 'Legs');
+    });
+
+    String hitOf(List<String> lines, int index, TextRange range) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        searchHighlights: <TextRange>[range],
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(lines.join('\n'));
+      return _leaves(builder.buildLine(lines[index], index))
+          .where((s) => s.style?.backgroundColor == _style.highlightColor)
+          .map((s) => s.text)
+          .join();
+    }
+
+    test('a titleless label maps onto its token word for search', () {
+      // `Warning` is painted over the source's `WARNING` at 4..11.
+      expect(
+        hitOf(['> [!WARNING]'], 0, const TextRange(start: 4, end: 11)),
+        'Warning',
+      );
+      expect(
+        hitOf(['> [! tip ]'], 0, const TextRange(start: 5, end: 8)),
+        'Tip',
+      );
+    });
+
+    test('a titleless label is one plain run, never inline markdown', () {
+      expect(line(['> [!__x__]'], 0), '┃ 📝 __x__');
+    });
+
+    test('quoted list content keeps its source offset for search', () {
+      expect(
+        hitOf(['> - [ ] warm-up'], 0, const TextRange(start: 8, end: 15)),
+        'warm-up',
+      );
+      expect(
+        hitOf(['> 1. bench'], 0, const TextRange(start: 5, end: 10)),
+        'bench',
+      );
+    });
+
+    test('nested and callout-body quoted boxes toggle at their units', () {
+      final taps = <(int, int, bool)>[];
+      const nested = ['> > - [ ] a'];
+      final first = built(nested, onCheckbox: (s, e, c) => taps.add((s, e, c)));
+      _fire(first.buildLine(nested[0], 0), '☐ ');
+      expect(nested[0].substring(6, 9), '[ ]');
+
+      const callout = ['> [!TIP] x', '> - [x] done'];
+      final second = built(
+        callout,
+        onCheckbox: (s, e, c) => taps.add((s, e, c)),
+      );
+      _fire(second.buildLine(callout[1], 1), '☒ ');
+      final lineStart = callout[0].length + 1;
+      expect(callout[1].substring(4, 7), '[x]');
+      expect(taps, [(6, 9, false), (lineStart + 4, lineStart + 7, true)]);
+    });
+
+    test('a quoted heading is drawn at heading scale', () {
+      double? sizeOf(String source, String text) => _leaves(
+        built([source]).buildLine(source, 0),
+      ).firstWhere((s) => s.text?.contains(text) ?? false).style?.fontSize;
+      final heading = sizeOf('> # Week 3', 'Week');
+      final prose = sizeOf('> Week 3', 'Week');
+      expect(heading, isNotNull);
+      expect(heading!, greaterThan(prose ?? _style.baseFontSize));
+    });
+  });
+
   // The table predicates are [MarkdownLineShape]'s, shared with the
   // live editor and the paste policies. A row with trailing whitespace
   // is a table row now — the preview used to reject it, which is the
@@ -698,7 +852,7 @@ void main() {
           colorPalette: MarkdownColorPalette.presets,
         );
         addTearDown(builder.dispose);
-        builder.prepare(line);
+        builder.prepare('$line\nnext');
         return _text(_listRowContent(builder.buildLine(line, 0)));
       }
 
@@ -706,11 +860,63 @@ void main() {
       expect(content(r'- [ ] task\'), 'task');
     });
 
-    test('a trailing backslash is dropped on every line it ends', () {
+    test('a trailing backslash is dropped where a non-blank line follows', () {
       expect(render('first\\\nsecond\\', 0), 'first');
-      expect(render('first\\\nsecond\\', 1), 'second');
-      expect(render(r'> quoted\'), contains('quoted'));
-      expect(render(r'> quoted\'), isNot(contains(r'\')));
+      expect(render('> quoted\\\n> more', 0), contains('quoted'));
+      expect(render('> quoted\\\n> more', 0), isNot(contains(r'\')));
+    });
+
+    test('fences pair by character and run length', () {
+      expect(render('```npm i```'), 'npm i');
+      expect(render('```npm i```\n#tag', 1), '#tag');
+      expect(render('```\na\n```js\nb\n```', 2), '```js');
+      expect(render('```\na\n```js\nb\n```\nafter', 5), 'after');
+      expect(render('````\n```\n````', 1), '```');
+      expect(render('~~~py\nx\n~~~\nafter', 0), '// py');
+      expect(render('~~~py\nx\n~~~\nafter', 2), '');
+      expect(render('~~~py\nx\n~~~\nafter', 3), 'after');
+      expect(render('```\n~~~\nx', 1), '~~~');
+      // Any indent opens: a fence under a list item sits at its content
+      // column, four spaces or a tab deep.
+      expect(render('- step\n    ```js\n    x\n    ```', 1), '// js');
+      expect(render('- step\n\t~~~py\n\tx\n\t~~~\nafter', 1), '// py');
+      expect(render('- step\n\t~~~py\n\tx\n\t~~~\nafter', 4), 'after');
+      // A CRLF closer still closes.
+      expect(render('```\r\nx\r\n```\r\nafter', 3), 'after');
+    });
+
+    test('a comment line is measured as the blank line it is drawn as', () {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare('a\n%%\n# hidden\nbody\n%%\n# H');
+      final scales = builder.getLineHeightScales(0);
+      expect(scales, hasLength(6));
+      expect(
+        scales.sublist(1, 5),
+        everyElement(MarkdownConstants.emptyLineScale),
+      );
+      expect(scales.last, greaterThan(1.0));
+    });
+
+    test('comments render nothing', () {
+      expect(render('a %%secret #tag%% b'), 'a  b');
+      expect(render('%%all comment%%'), '');
+      expect(render('a %%unclosed'), 'a %%unclosed');
+      expect(render('a\n%%\nsecret #tag\n%%\nb', 2).trim(), '');
+      expect(render('a\n%%\nsecret #tag\n%%\nb', 1).trim(), '');
+      expect(render('a\n%%\nsecret #tag\n%%\nb', 4), 'b');
+      expect(render('```\n%%\n```', 1), '%%');
+    });
+
+    test('at the end of a block a trailing backslash is text', () {
+      expect(render('first\\\nsecond\\', 1), r'second\');
+      expect(render(r'D:\Backups\'), r'D:\Backups\');
+      expect(render('a\\\n\nb', 0), r'a\');
+      expect(render('a\\\n  \nb', 0), r'a\');
+      expect(render('> quoted\\'), contains(r'quoted\'));
     });
 
     test('an escaped or lone backslash stays', () {
@@ -816,6 +1022,180 @@ void main() {
         .map((leaf) => leaf.text)
         .join();
     expect(painted, 'a');
+  });
+
+  // F14: the custom task states draw the editor's states.
+  group('custom task states', () {
+    LineBasedMarkdownBuilder built(
+      String source, {
+      void Function(int start, int end, bool checked)? onCheckbox,
+    }) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        onCheckboxTap: onCheckbox,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(source);
+      return builder;
+    }
+
+    /// The task row's box glyph and its content's style.
+    (String, TextStyle?) row(String line) {
+      final root = built(line).buildLine(line, 0);
+      final widget = root.children!.single as WidgetSpan;
+      final padding = widget.child as Padding;
+      final styled = padding.child! as DefaultTextStyle;
+      final cells = (styled.child as Row).children;
+      final box = (cells.first as GestureDetector).child! as Text;
+      final content = (cells.last as Expanded).child as Text;
+      return (box.data!, content.style);
+    }
+
+    test('taskGlyph maps every state the editor paints', () {
+      expect(LineBasedMarkdownBuilder.taskGlyph(' '), '☐');
+      expect(LineBasedMarkdownBuilder.taskGlyph('x'), '☒');
+      expect(LineBasedMarkdownBuilder.taskGlyph('X'), '☒');
+      expect(LineBasedMarkdownBuilder.taskGlyph('-'), '⊟');
+      expect(LineBasedMarkdownBuilder.taskGlyph('/'), '◩');
+      expect(LineBasedMarkdownBuilder.taskGlyph('>'), '→');
+      expect(LineBasedMarkdownBuilder.taskGlyph('<'), '←');
+      expect(LineBasedMarkdownBuilder.taskGlyph('*'), '★');
+      expect(LineBasedMarkdownBuilder.taskGlyph('?'), '?');
+      expect(LineBasedMarkdownBuilder.taskGlyph('!'), '!');
+      expect(LineBasedMarkdownBuilder.taskGlyph('y'), 'y');
+    });
+
+    test('a cancelled task strikes its content, other states do not', () {
+      final (cancelledBox, cancelled) = row('- [-] skipped');
+      expect(cancelledBox, '⊟ ');
+      expect(cancelled?.decoration, TextDecoration.lineThrough);
+
+      final (halfBox, half) = row('- [/] halfway');
+      expect(halfBox, '◩ ');
+      expect(half?.decoration, isNot(TextDecoration.lineThrough));
+    });
+
+    test('a tap on a custom state reports the box as marked', () {
+      const source = '> - [-] skipped';
+      final taps = <(int, int, bool)>[];
+      final builder = built(
+        source,
+        onCheckbox: (s, e, c) => taps.add((s, e, c)),
+      );
+      final span = builder.buildLine(source, 0);
+      expect(_text(span), '┃ ⊟ skipped');
+      _fire(span, '⊟ ');
+      expect(taps, [(4, 7, true)], reason: 'a marked box is cleared');
+    });
+
+    test('a tap on a top-level custom state reports the box as marked', () {
+      const source = '- [-] skipped';
+      final taps = <(int, int, bool)>[];
+      final root = built(
+        source,
+        onCheckbox: (s, e, c) => taps.add((s, e, c)),
+      ).buildLine(source, 0);
+      final widget = root.children!.single as WidgetSpan;
+      final styled = (widget.child as Padding).child! as DefaultTextStyle;
+      final box = (styled.child as Row).children.first as GestureDetector;
+
+      box.onTap!();
+
+      expect(taps, [(2, 5, true)], reason: 'never ticked to [x]');
+    });
+
+    test('a bracketed link after a bullet stays a link', () {
+      const source = '- [a](https://x.dev) b';
+      expect(_text(_listRowContent(built(source).buildLine(source, 0))), 'a b');
+    });
+  });
+
+  // F16: setext headings read their neighbours.
+  group('setext headings', () {
+    LineBasedMarkdownBuilder built(List<String> lines) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(lines.join('\n'));
+      return builder;
+    }
+
+    TextSpan line(List<String> lines, int index) =>
+        built(lines).buildLine(lines[index], index);
+
+    double? sizeOf(TextSpan span, String text) =>
+        _leaves(span).firstWhere((leaf) => leaf.text == text).style?.fontSize ??
+        span.style?.fontSize;
+
+    test('= and - underlines make an H1 and an H2 text line', () {
+      final h1 = line(['Title', '==='], 0);
+      expect(_text(h1), 'Title');
+      expect(sizeOf(h1, 'Title'), 16.0 * MarkdownConstants.h1Scale);
+
+      final h2 = line(['Sub', '---'], 0);
+      expect(sizeOf(h2, 'Sub'), 16.0 * MarkdownConstants.h2Scale);
+    });
+
+    test('the underline draws its own units as ─, never a rule', () {
+      expect(_text(line(['Title', '==='], 1)), '───');
+      expect(_text(line(['Sub', ' ----  '], 1)), ' ────  ');
+    });
+
+    test('--- under no text line stays a rule, === stays text', () {
+      final rule = '─' * 40;
+      expect(_text(line(['- item', '---'], 1)), rule);
+      expect(_text(line(['', '---'], 1)), rule);
+      expect(_text(line(['# H', '---'], 1)), rule);
+      expect(_text(line(['- item', '==='], 1)), '===');
+    });
+
+    test('a closing fence is line-led and takes no underline', () {
+      expect(_text(line(['```', 'x', '```', '==='], 3)), '===');
+    });
+
+    test('a pair inside a fence or a comment stays block text', () {
+      for (final open in const ['```', '%%']) {
+        final lines = [open, 'Title', '===', open];
+        expect(_text(line(lines, 1)), isNot(contains('─')));
+        expect(_text(line(lines, 2)), isNot(contains('─')), reason: open);
+        expect(
+          built(lines).getLineHeightScales(0)[1],
+          isNot(MarkdownConstants.h1Scale),
+          reason: '$open: the block guard keeps the heading scale off',
+        );
+      }
+    });
+
+    test('the pair holds across a chunk boundary', () {
+      final lines = [for (var i = 0; i < 30; i++) 'row $i'];
+      final builder = built(lines);
+      final end = builder.chunkStartLine(1);
+      // Put the text line last in chunk 0 and its underline first in 1.
+      lines
+        ..[end - 1] = 'Title'
+        ..[end] = '===';
+      final paired = built(lines);
+      expect(paired.chunkStartLine(1), end);
+      expect(paired.getLineHeightScales(0).last, MarkdownConstants.h1Scale);
+      expect(
+        paired.getLineHeightScales(1).first,
+        MarkdownConstants.normalLineScale,
+      );
+      expect(_text(paired.buildLine('===', end)), '───');
+    });
+
+    test('the line scales follow the pair', () {
+      final builder = built(['Title', '===', 'body']);
+      final scales = builder.getLineHeightScales(0);
+      expect(scales.take(3), [
+        MarkdownConstants.h1Scale,
+        MarkdownConstants.normalLineScale,
+        MarkdownConstants.normalLineScale,
+      ]);
+    });
   });
 }
 

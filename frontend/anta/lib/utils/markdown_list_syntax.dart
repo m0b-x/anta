@@ -9,7 +9,8 @@
 ///     ordered / task rendering with correct source offsets.
 ///
 /// Supported (GFM): `-`, `*`, `+`, and `•` bullets; `N.` / `N)` ordered
-/// items; and `- [ ]` / `- [x]` task items (markers `-`, `*`, `+`). All
+/// items; and `- [ ]` / `- [x]` task items (markers `-`, `*`, `+`), plus
+/// Obsidian's custom states (`- [-]`, `- [/]`, `- [>]`, …). All
 /// detection is indentation-aware so nested lists round-trip correctly.
 /// A line [MarkdownLineShape.isHorizontalRule] accepts is never a list
 /// item, so `- - -` stays a rule on every surface.
@@ -37,8 +38,15 @@ class MarkdownListItem {
   /// Ordered delimiter (`.` or `)`); empty for bullets and tasks.
   final String delimiter;
 
-  /// Task only: whether the box is checked.
+  /// Task only: whether the box is checked — `x` or `X` alone, so a
+  /// custom [state] never counts as done for the indeterminate-parent
+  /// aggregate or the plain text's tick.
   final bool checked;
+
+  /// Task only: the box's one code unit as written — ` ` open, `x`/`X`
+  /// done, or a custom state (`-` cancelled, `/` in progress, `>`, `?`
+  /// and any other non-blank unit, as in Obsidian). Empty for non-tasks.
+  final String state;
 
   /// Task only: column of the `[` (so the renderer can map a tap on the
   /// 3-char `[ ]` / `[x]` box back to source). `-1` for non-tasks.
@@ -57,6 +65,7 @@ class MarkdownListItem {
     required this.marker,
     required this.delimiter,
     required this.checked,
+    this.state = '',
     required this.bracketStart,
     required this.contentStart,
     required this.content,
@@ -82,7 +91,12 @@ class MarkdownListSyntax {
 
   // Detection order is task → bullet → ordered, so `- [ ]` is a task
   // (not a plain `-` bullet whose content happens to start with `[`).
-  static final _task = RegExp(r'^(\s*)([-*+])\s+\[([ xX])\]');
+  // A custom state needs a blank or the line end after its `]`, so
+  // `- [a](url)` and `- [1](#n)` stay bullets with a link; the open and
+  // done boxes keep their older, unguarded shape.
+  static final _task = RegExp(
+    r'^(\s*)([-*+])\s+\[(?:([ xX])\]|(\S)\](?=\s|$))',
+  );
   static final _bullet = RegExp(r'^(\s*)([-*+•])\s+');
   static final _ordered = RegExp(r'^(\s*)(\d+)([.)])\s+');
 
@@ -95,12 +109,14 @@ class MarkdownListSyntax {
       // Move past the 3-char box (`[x]`) then any spacing to the content.
       int contentStart = bracketStart + 3;
       contentStart = _skipSpaces(line, contentStart);
+      final state = t.group(3) ?? t.group(4)!;
       return MarkdownListItem(
         kind: MarkdownListKind.task,
         indent: indent,
         marker: t.group(2)!,
         delimiter: '',
-        checked: t.group(3)!.toLowerCase() == 'x',
+        checked: state == 'x' || state == 'X',
+        state: state,
         bracketStart: bracketStart,
         contentStart: contentStart,
         content: line.substring(contentStart),
@@ -211,11 +227,17 @@ class MarkdownListSyntax {
         while (j < n && _isLineWhitespace(line.codeUnitAt(j))) {
           j++;
         }
-        if (j + 2 < n && line.codeUnitAt(j) == 0x5B) {
+        if (j + 2 < n &&
+            line.codeUnitAt(j) == 0x5B &&
+            line.codeUnitAt(j + 2) == 0x5D) {
           final int b = line.codeUnitAt(j + 1);
-          if ((b == 0x20 || b == 0x78 || b == 0x58) &&
-              line.codeUnitAt(j + 2) == 0x5D) {
+          if (b == 0x20 || b == 0x78 || b == 0x58) {
             return level | shapeKindTask | (b == 0x20 ? 0 : 0x4);
+          }
+          // A custom state, guarded like the regex: a blank or the end.
+          if (!_isLineWhitespace(b) &&
+              (j + 3 >= n || _isLineWhitespace(line.codeUnitAt(j + 3)))) {
+            return level | shapeKindTask;
           }
         }
         // Lockstep with [parse]: a spaced rule is not a bullet.

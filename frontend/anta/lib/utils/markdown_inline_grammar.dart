@@ -30,8 +30,10 @@ import 'markdown_tag_syntax.dart';
 ///   punctuation, unless that punctuation opens a ghost — ghosts win),
 ///   a ghost run (`{{ … }}`, from [GhostText]), and a code span (a
 ///   backtick run closed by the next run of exactly the same length,
-///   skipping runs inside ghosts; an unclosed run is literal). Nothing
-///   inside an atom is scanned again.
+///   skipping runs inside ghosts; an unclosed run is literal), and a
+///   `%%…%%` comment (closed by the next `%%` before any ghost starts;
+///   an unclosed `%%` is literal). Nothing inside an atom is scanned
+///   again.
 /// * Then, at each position outside an atom: `[[title]]` wiki links
 ///   (probed on a doubled `[` — `![[` too, an embed — before the link
 ///   rule, and rejected when any atom would start inside them),
@@ -419,8 +421,9 @@ class MarkdownInlineGrammar {
 
   /// Whether `[start, end)` holds a code unit that can open any token —
   /// `* ~ ` _ = # [ \ { < &` (`[` covers `[[` too, since a wiki link opens
-  /// on the same unit) or a bare-URL scheme lead (`ht`, `ww`; a lone
-  /// `h`/`w` would defeat the check on every prose line). The one-pass
+  /// on the same unit), a comment's `%%`, or a bare-URL scheme lead (`ht`,
+  /// `ww`; a lone `h`/`w` would defeat the check on every prose line, as a
+  /// lone `%` would on every percentage). The one-pass
   /// quick reject in front of [tokenize], and the pre-check a renderer
   /// may use to skip inline work on the common construct-free line. An
   /// image's `!` needs no entry: it is a token only when `[` follows.
@@ -441,10 +444,11 @@ class MarkdownInlineGrammar {
           c == _kAmpersand) {
         return true;
       }
-      if ((c == _kLowerH || c == _kLowerW) && i + 1 < hi) {
+      if ((c == _kLowerH || c == _kLowerW || c == _kPercent) && i + 1 < hi) {
         final int n = text.codeUnitAt(i + 1);
         if ((c == _kLowerH && n == _kLowerT) ||
-            (c == _kLowerW && n == _kLowerW)) {
+            (c == _kLowerW && n == _kLowerW) ||
+            (c == _kPercent && n == _kPercent)) {
           return true;
         }
       }
@@ -540,6 +544,7 @@ class MarkdownInlineGrammar {
 
   static const int _kBang = 0x21; // !
   static const int _kHash = 0x23; // #
+  static const int _kPercent = 0x25; // %
   static const int _kAmpersand = 0x26; // &
   static const int _kSemicolon = 0x3B; // ;
   static const int _kStar = 0x2A; // *
@@ -555,8 +560,8 @@ class MarkdownInlineGrammar {
   static const int _kOpenBrace = 0x7B; // {
   static const int _kTilde = 0x7E; // ~
 
-  /// Phase 1: the opaque runs of `[start, hi)` — escapes, ghosts and
-  /// code spans — in source order, or `null` when there are none.
+  /// Phase 1: the opaque runs of `[start, hi)` — escapes, ghosts, code
+  /// spans and comments — in source order, or `null` when there are none.
   static List<InlineToken>? _scanAtoms(
     String text,
     int start,
@@ -592,6 +597,24 @@ class MarkdownInlineGrammar {
         (atoms ??= <InlineToken>[]).add(InlineGhost(g));
         p = g.end < hi ? g.end : hi;
         gi++;
+        continue;
+      }
+      if (c == _kPercent && p + 1 < hi && text.codeUnitAt(p + 1) == _kPercent) {
+        // A comment closes at the next `%%` before any ghost starts: a
+        // ghost is never swallowed (ghosts win), and an unclosed `%%`
+        // stays literal like an unclosed code span.
+        final int limit = gi < ghostCount && ghosts[gi].start < hi
+            ? ghosts[gi].start
+            : hi;
+        final int close = text.indexOf('%%', p + 2);
+        if (close >= 0 && close + 2 <= limit) {
+          (atoms ??= <InlineToken>[]).add(
+            InlineComment(start: p, end: close + 2),
+          );
+          p = close + 2;
+          continue;
+        }
+        p += 2;
         continue;
       }
       if (c == _kBacktick) {
@@ -1170,6 +1193,13 @@ final class InlineCode extends InlineToken {
 
   /// Length of the backtick fence on either side.
   int get fenceLength => innerStart - start;
+}
+
+/// A `%%text%%` comment on one line: hidden off-caret in the editor,
+/// dropped by the preview and the plain text. Opaque like a code span —
+/// nothing inside it is scanned, so a tag or link there is inert.
+final class InlineComment extends InlineToken {
+  const InlineComment({required super.start, required super.end});
 }
 
 /// `[text](url)` — or `![text](url)` when [isImage], in which case

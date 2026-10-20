@@ -170,6 +170,22 @@ void main() {
     );
   });
 
+  testWidgets('an inert quoted task box gets the reason too', (tester) async {
+    // The preview draws a box for a task inside a quote, so the caption
+    // has to read the same quoted grammar.
+    await openSheet(
+      tester,
+      event(description: '> - [ ] stretch', rule: const DailyRecurrence()),
+      wireEventWrites: true,
+      wireOccurrenceWrites: true,
+    );
+
+    expect(
+      find.textContaining('would apply to every occurrence'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a description with no task box gets no caption', (tester) async {
     await openSheet(
       tester,

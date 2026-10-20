@@ -26,6 +26,18 @@ void main() {
     expect(alertExcerptFor('- [x] warm up'), 'warm up');
   });
 
+  test('a custom task state keeps its box as typed', () {
+    expect(alertExcerptFor('- [-] skipped'), '[-] skipped');
+    expect(alertExcerptFor('> - [/] half'), '[/] half');
+    expect(alertExcerptFor('- [*] best*ever'), '[*] best*ever');
+    expect(alertExcerptFor('- [-]'), '[-]');
+  });
+
+  test('a setext text line keeps its trailing backslash', () {
+    expect(alertExcerptFor('Title\\\n==='), r'Title\');
+    expect(alertExcerptFor('Title\\\nmore'), 'Title');
+  });
+
   test('links keep their text, wiki links their title', () {
     expect(
       alertExcerptFor('See [the plan](https://example.com) and [[Session 1]]'),
@@ -68,7 +80,11 @@ void main() {
 
   test('a hard-break backslash goes, an escaped or heading one stays', () {
     expect(alertExcerptFor('Bring water\\\nand the bag'), 'Bring water');
-    expect(alertExcerptFor('- call Bob\\'), 'call Bob');
+    expect(alertExcerptFor('- call Bob\\\nthen Ann'), 'call Bob');
+    // At the end of a block a trailing `\` is text, not a break.
+    expect(alertExcerptFor('- call Bob\\'), r'call Bob\');
+    expect(alertExcerptFor(r'D:\Backups\'), r'D:\Backups\');
+    expect(alertExcerptFor('a\\\n\nb'), r'a\');
     expect(alertExcerptFor(r'a\\'), r'a\');
     expect(alertExcerptFor(r'# Heading\'), r'Heading\');
     expect(alertExcerptFor(r'> [!TIP] title\'), r'title\');
@@ -81,6 +97,10 @@ void main() {
 
   test('fences and table rows are skipped, quotes and callouts stripped', () {
     expect(alertExcerptFor('```\ncode\n```\nafter'), 'code');
+    expect(alertExcerptFor('~~~\ncode\n~~~\nafter'), 'code');
+    expect(alertExcerptFor('```npm i```'), 'npm i');
+    expect(alertExcerptFor('%%\nhidden\n%%\nshown'), 'shown');
+    expect(alertExcerptFor('%%secret%% visible'), 'visible');
     expect(alertExcerptFor('| a | b |\n| --- | --- |\nreal text'), 'real text');
     expect(alertExcerptFor('> quoted words'), 'quoted words');
     expect(alertExcerptFor('> [!note] Remember the belt'), 'Remember the belt');

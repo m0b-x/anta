@@ -15,6 +15,11 @@ import 'markdown_money_syntax.dart';
 import 'money_display_config.dart';
 
 typedef LinkTapCallback = void Function(String url);
+
+/// A tap on the task box spanning `[start, end)`. [isChecked] is whether
+/// the box is marked — done or a custom state such as `[-]` — so a
+/// caller that writes `[ ]` for a marked box and `[x]` otherwise clears a
+/// custom state instead of ticking it, as the editor's tap does.
 typedef CheckboxTapCallback = void Function(int start, int end, bool isChecked);
 
 /// Invoked when a ghost-text run is engaged in the preview. [start] and
@@ -347,14 +352,6 @@ class LineBasedMarkdownBuilder {
     return null;
   }
 
-  /// Whether [lineIndex] is part of a fenced code block (including the
-  /// opening and closing fence lines). Replaces the former per-chunk
-  /// code-block state caches with a single block lookup.
-  bool _lineInCodeFence(int lineIndex) {
-    final block = _blockForLine(lineIndex);
-    return block != null && block.kind == MarkdownBlockKind.codeFence;
-  }
-
   /// The number of chunks. Driven by the block-aligned chunk table.
   int get chunkCount => _chunkStartLines.length;
 
@@ -583,12 +580,30 @@ class LineBasedMarkdownBuilder {
 
     for (int i = startLine; i < endLine; i++) {
       if (i >= _lineCount) break;
-      final line = _getLine(i);
-      final isInCodeBlock = _lineInCodeFence(i);
+      final block = _blockForLine(i);
+      // A setext pair is drawn by its neighbours ([buildLine]), which the
+      // one-line calculator cannot see: the text line at its heading's
+      // scale, the underline at the base size rather than a rule's.
+      final setext = block == null ? _setextAt(_getLine(i), i) : 0;
+      if (setext != 0) {
+        scales.add(
+          setext < 0
+              ? MarkdownConstants.normalLineScale
+              : setext == 1
+              ? MarkdownConstants.h1Scale
+              : MarkdownConstants.h2Scale,
+        );
+        continue;
+      }
+      // A comment line is drawn as a blank line ([buildLine]), so it is
+      // measured as one, whatever text it hides.
       scales.add(
         MarkdownLineHeightCalculator.getLineHeightScale(
-          line,
-          isInsideCodeBlock: isInCodeBlock,
+          block != null && block.kind == MarkdownBlockKind.comment
+              ? ''
+              : _getLine(i),
+          isInsideCodeBlock:
+              block != null && block.kind == MarkdownBlockKind.codeFence,
         ),
       );
     }
@@ -606,7 +621,13 @@ class LineBasedMarkdownBuilder {
     final lineStart = lineIndex < _lineOffsets.length
         ? _lineOffsets[lineIndex]
         : 0;
-    final lineEnd = lineIndex + 1 < _lineOffsets.length
+    // [lineEnd] is what tells a range it reaches the end of its source
+    // line, the one place a trailing `\` is a hard break. CommonMark
+    // breaks only inside a paragraph, so with no non-blank line below it
+    // the `\` is text and no range may end there.
+    final lineEnd = !_hardBreakMayEnd(line, lineIndex)
+        ? _noHardBreak
+        : lineIndex + 1 < _lineOffsets.length
         ? _lineOffsets[lineIndex + 1] -
               1 // -1 to exclude newline
         : _source.length;
@@ -626,7 +647,17 @@ class LineBasedMarkdownBuilder {
     // retained for call-site compatibility but no longer needed here.
     final block = _blockForLine(lineIndex);
     if (block != null && block.kind == MarkdownBlockKind.codeFence) {
-      return _buildCodeBlockLine(line, trimmed, lineStart, lineEnd);
+      return _buildCodeBlockLine(line, trimmed, lineIndex, block, lineStart);
+    }
+    // A `%%` block comment keeps only its line slots, drawn like blank
+    // lines, so the source-line mapping of everything below holds.
+    if (block != null && block.kind == MarkdownBlockKind.comment) {
+      return TextSpan(
+        text: ' ',
+        style: baseStyle.copyWith(
+          fontSize: style.baseFontSize * MarkdownConstants.emptyLineScale,
+        ),
+      );
     }
     if (block != null && block.kind == MarkdownBlockKind.callout) {
       return _buildCalloutLine(line, lineIndex, block, lineStart, lineEnd);
@@ -662,6 +693,22 @@ class LineBasedMarkdownBuilder {
         );
       }
     }
+
+    // Setext headings read their neighbours: a text line an underline
+    // follows is a heading, and the underline draws as a dimmed line of
+    // its own. Before the image and the rule branches, so `---` under a
+    // text line is no rule. Blocks returned above, so neither line here is
+    // fenced, commented or in a callout.
+    final setext = _setextAt(line, lineIndex);
+    if (setext > 0) {
+      return _buildHeading(
+        trimmed.trimRight(),
+        setext,
+        lineStart + line.length - trimmed.length,
+        lineEnd,
+      );
+    }
+    if (setext < 0) return _buildSetextUnderline(line);
 
     // A line that is one image gets the placeholder. The shared link
     // grammar decides what an image is and which destination it opens,
@@ -722,7 +769,7 @@ class LineBasedMarkdownBuilder {
         case MarkdownListKind.task:
           return _buildCheckboxLine(
             listItem.content,
-            listItem.checked,
+            listItem.state,
             listItem.level,
             lineStart + listItem.bracketStart,
             lineStart + listItem.contentStart,
@@ -759,17 +806,10 @@ class LineBasedMarkdownBuilder {
         quote.depth,
         lineStart + markerEnd + skipped,
         lineEnd,
-      );
-    }
-
-    // Code block marker (```)
-    if (trimmed.startsWith('```')) {
-      return TextSpan(
-        text: line,
-        style: baseStyle.copyWith(
-          fontFamily: 'monospace',
-          color: style.textColor.withValues(alpha: 0.6),
-        ),
+        line: line,
+        markerEnd: markerEnd,
+        lineStart: lineStart,
+        lineIndex: lineIndex,
       );
     }
 
@@ -809,16 +849,34 @@ class LineBasedMarkdownBuilder {
     );
   }
 
+  /// The preview's glyph for a task box holding [state]: `☐` open, `☒`
+  /// done, and the custom states as the editor paints them — `⊟`
+  /// cancelled, `◩` in progress, `→` / `←`, `★` for `*`, and any other
+  /// unit as itself (`?`, `!`, …).
+  static String taskGlyph(String state) => switch (state) {
+    ' ' => '☐',
+    'x' || 'X' => '☒',
+    '-' => '⊟',
+    '/' => '◩',
+    '>' => '→',
+    '<' => '←',
+    '*' => '★',
+    _ => state,
+  };
+
   TextSpan _buildCheckboxLine(
     String text,
-    bool isChecked,
+    String state,
     int level,
     int bracketStart,
     int contentStart,
     int lineEnd,
     int lineIndex,
   ) {
-    final checkboxChar = isChecked ? '☒' : '☐';
+    final isChecked = state == 'x' || state == 'X';
+    // Any marked box (done or a custom state) is cleared by a tap.
+    final marked = state != ' ';
+    final checkboxChar = taskGlyph(state);
 
     final baseStyle = TextStyle(
       fontSize: style.baseFontSize,
@@ -826,7 +884,8 @@ class LineBasedMarkdownBuilder {
       color: style.textColor,
     );
 
-    final contentStyle = isChecked
+    // A cancelled `[-]` reads like a done task, as in the editor.
+    final contentStyle = isChecked || state == '-'
         ? baseStyle.copyWith(
             color: style.textColor.withValues(alpha: 0.5),
             decoration: TextDecoration.lineThrough,
@@ -840,7 +899,7 @@ class LineBasedMarkdownBuilder {
     TapGestureRecognizer? checkboxRecognizer;
     if (onCheckboxTap != null) {
       _checkboxRecognizers[lineIndex] ??= TapGestureRecognizer()
-        ..onTap = () => onCheckboxTap!(bracketStart, bracketEnd, isChecked);
+        ..onTap = () => onCheckboxTap!(bracketStart, bracketEnd, marked);
       checkboxRecognizer = _checkboxRecognizers[lineIndex];
     }
 
@@ -870,7 +929,7 @@ class LineBasedMarkdownBuilder {
                     child: Text(
                       '$checkboxChar ',
                       style: baseStyle.copyWith(
-                        color: isChecked
+                        color: marked && state != '-'
                             ? style.primaryColor
                             : style.textColor.withValues(alpha: 0.7),
                       ),
@@ -993,12 +1052,18 @@ class LineBasedMarkdownBuilder {
   /// marker at [depth], then the quoted content at its true source
   /// offset. [depth] comes from [MarkdownCalloutSyntax.quoteMarkers], so
   /// `>> a` and `> > a` both read `┃┃ a` here and in the live editor.
+  /// [line] from [markerEnd] on is read for a quoted heading or list item
+  /// first ([_quotedBlockContent]).
   TextSpan _buildBlockquote(
     String text,
     int depth,
     int contentStart,
-    int lineEnd,
-  ) {
+    int lineEnd, {
+    required String line,
+    required int markerEnd,
+    required int lineStart,
+    required int lineIndex,
+  }) {
     final quoteStyle = TextStyle(
       fontSize: style.baseFontSize,
       height: MarkdownConstants.lineHeight,
@@ -1023,6 +1088,18 @@ class LineBasedMarkdownBuilder {
       ),
     ];
 
+    final block = _quotedBlockContent(
+      line,
+      markerEnd,
+      lineStart,
+      lineEnd,
+      lineIndex,
+      quoteStyle,
+    );
+    if (block != null) {
+      children.add(block);
+      return TextSpan(children: children);
+    }
     final contentSpan = _buildInlineFormatted(
       text,
       quoteStyle,
@@ -1031,6 +1108,109 @@ class LineBasedMarkdownBuilder {
     );
     _appendFlattened(children, contentSpan);
 
+    return TextSpan(children: children);
+  }
+
+  /// The content of a quote line past its `>` run ([markerEnd]) when it
+  /// is a heading or a list item, or `null` for prose. The remainder is
+  /// read by [MarkdownLineShape.headingAt] and
+  /// [MarkdownCalloutSyntax.quotedListItem] — the readings the live editor
+  /// draws the same line from — and every content offset is shifted by
+  /// the run. A quoted item draws its marker inline behind the bars (a
+  /// bullet, a number, a tappable box; nesting as one em per level), not
+  /// the hanging row of an unquoted item, which would wrap under the bars.
+  /// [contentStyle] carries the quote's (or the callout band's) look.
+  InlineSpan? _quotedBlockContent(
+    String line,
+    int markerEnd,
+    int lineStart,
+    int lineEnd,
+    int lineIndex,
+    TextStyle contentStyle,
+  ) {
+    if (markerEnd >= line.length) return null;
+    final rest = line.substring(markerEnd);
+    final heading = MarkdownLineShape.headingAt(rest);
+    if (heading != null) {
+      // The band tint (when there is one) reaches the heading's runs by
+      // inheritance: they set every other property themselves.
+      return TextSpan(
+        style: TextStyle(backgroundColor: contentStyle.backgroundColor),
+        children: [
+          _buildHeading(
+            rest
+                .substring(heading.contentStart, heading.contentEnd)
+                .trimRight(),
+            heading.level,
+            lineStart + markerEnd + heading.contentStart,
+            lineEnd,
+          ),
+        ],
+      );
+    }
+    final quoted = MarkdownCalloutSyntax.quotedListItem(line);
+    if (quoted == null) return null;
+    final item = quoted.item;
+    final base = lineStart + quoted.base;
+    final markerStyle = contentStyle.copyWith(
+      color: style.primaryColor,
+      fontWeight: FontWeight.bold,
+      fontStyle: FontStyle.normal,
+    );
+    var itemStyle = contentStyle;
+    final InlineSpan marker;
+    switch (item.kind) {
+      case MarkdownListKind.bullet:
+        marker = TextSpan(
+          text: '${MarkdownListSyntax.bulletGlyph(item.level)} ',
+          style: markerStyle,
+        );
+      case MarkdownListKind.ordered:
+        marker = TextSpan(
+          text: '${item.marker}${item.delimiter} ',
+          style: markerStyle,
+        );
+      case MarkdownListKind.task:
+        final bracketStart = base + item.bracketStart;
+        final checked = item.checked;
+        // Any marked box (done or a custom state) is cleared by a tap.
+        final marked = item.state != ' ';
+        TapGestureRecognizer? recognizer;
+        if (onCheckboxTap != null) {
+          recognizer = _checkboxRecognizers[lineIndex] ??=
+              TapGestureRecognizer()
+                ..onTap = () =>
+                    onCheckboxTap!(bracketStart, bracketStart + 3, marked);
+        }
+        marker = TextSpan(
+          text: '${taskGlyph(item.state)} ',
+          recognizer: recognizer,
+          style: contentStyle.copyWith(
+            fontStyle: FontStyle.normal,
+            color: marked && item.state != '-'
+                ? style.primaryColor
+                : style.textColor.withValues(alpha: 0.7),
+          ),
+        );
+        if (checked || item.state == '-') {
+          itemStyle = contentStyle.copyWith(
+            color: style.textColor.withValues(alpha: 0.5),
+            decoration: TextDecoration.lineThrough,
+          );
+        }
+    }
+    final content = _buildInlineFormatted(
+      item.content,
+      itemStyle,
+      base + item.contentStart,
+      lineEnd,
+    );
+    final children = <InlineSpan>[
+      if (item.level > 0)
+        TextSpan(text: ' ' * item.level, style: contentStyle),
+      marker,
+    ];
+    _appendFlattened(children, content);
     return TextSpan(children: children);
   }
 
@@ -1107,6 +1287,20 @@ class LineBasedMarkdownBuilder {
             _noHardBreak,
           ),
         );
+      } else if (lead != null) {
+        // No title: the token's own word, title-cased unit for unit,
+        // mapped onto its source units so a search for it still lands.
+        // One plain run, as the editor paints it: a type word is a name,
+        // never inline markdown.
+        final label = lead.label;
+        final skipped = label.length - label.trimLeft().length;
+        children.add(
+          _applyHighlighting(
+            label.trim(),
+            accentStyle,
+            lineStart + lead.labelStart + skipped,
+          ),
+        );
       } else {
         children.add(
           TextSpan(
@@ -1120,6 +1314,18 @@ class LineBasedMarkdownBuilder {
       // at its true source offset (mirrors the blockquote offset maths).
       final markerEnd =
           quote?.contentStart ?? (line.length - line.trimLeft().length);
+      final block = _quotedBlockContent(
+        line,
+        markerEnd,
+        lineStart,
+        lineEnd,
+        lineIndex,
+        lineStyle,
+      );
+      if (block != null) {
+        children.add(block);
+        return TextSpan(children: children);
+      }
       final raw = line.substring(markerEnd);
       final skipped = raw.length - raw.trimLeft().length;
       _appendFlattened(
@@ -1591,6 +1797,41 @@ class LineBasedMarkdownBuilder {
   Color _calloutAccent(MarkdownCalloutType type) =>
       MarkdownConstants.calloutAccent(type, dark: style.isDark);
 
+  /// The setext role of [line] at [lineIndex], read as the editor reads
+  /// it: minus the level for an underline whose previous line is a setext
+  /// text line in no block, the level for a text line an underline
+  /// follows, `0` otherwise. The caller has already routed [line] itself
+  /// out of every block.
+  int _setextAt(String line, int lineIndex) {
+    final own = MarkdownLineShape.setextUnderlineLevel(line);
+    if (own != 0) {
+      return lineIndex > 0 &&
+              _blockForLine(lineIndex - 1) == null &&
+              MarkdownLineShape.isSetextTextLine(_getLine(lineIndex - 1))
+          ? -own
+          : 0;
+    }
+    if (lineIndex + 1 >= _lineCount) return 0;
+    return MarkdownLineShape.setextLevelOf(line, _getLine(lineIndex + 1));
+  }
+
+  /// A setext underline: its `=` / `-` units drawn 1:1 as `─` at the
+  /// base size, dimmed like a rule, so the pair reads as a heading with
+  /// its chrome under it.
+  TextSpan _buildSetextUnderline(String line) {
+    final marker = line.trimLeft().codeUnitAt(0);
+    return TextSpan(
+      text: String.fromCharCodes(
+        line.codeUnits.map((unit) => unit == marker ? 0x2500 : unit),
+      ),
+      style: TextStyle(
+        fontSize: style.baseFontSize,
+        height: MarkdownConstants.lineHeight,
+        color: style.textColor.withValues(alpha: 0.3),
+      ),
+    );
+  }
+
   TextSpan _buildHorizontalRule() {
     return TextSpan(
       text: '─' * 40,
@@ -1602,12 +1843,15 @@ class LineBasedMarkdownBuilder {
     );
   }
 
-  /// Build a code block line (content inside ``` fences)
+  /// Build a code block line (content inside a ``` or ~~~ fence). The
+  /// block's first line is its opener; its last is a delimiter only when
+  /// it closes the fence — an unclosed fence ends on a content line.
   TextSpan _buildCodeBlockLine(
     String line,
     String trimmed,
+    int lineIndex,
+    MarkdownBlock block,
     int lineStart,
-    int lineEnd,
   ) {
     final codeStyle = TextStyle(
       fontSize: style.baseFontSize * MarkdownConstants.codeBlockScale,
@@ -1617,9 +1861,24 @@ class LineBasedMarkdownBuilder {
       backgroundColor: style.codeBackground,
     );
 
-    // If this is a fence line (``` with optional language), style it differently
-    if (trimmed.startsWith('```')) {
-      final language = trimmed.length > 3 ? trimmed.substring(3).trim() : '';
+    // A delimiter line (``` or ~~~ with an optional language) shows only
+    // the language, dimmed.
+    final opener = lineIndex == block.startLine
+        ? MarkdownChunker.fenceOpenerOf(line)
+        : MarkdownChunker.outsideBlock;
+    final delimiter =
+        opener != MarkdownChunker.outsideBlock ||
+        (lineIndex == block.endLine - 1 &&
+            MarkdownChunker.closesFence(
+              line,
+              MarkdownChunker.fenceOpenerOf(_getLine(block.startLine)),
+            ));
+    if (delimiter) {
+      // [trimmed] starts at the fence run, so the info string follows it.
+      final run = opener >> 1;
+      final language = run > 0 && trimmed.length > run
+          ? trimmed.substring(run).trim()
+          : '';
       return TextSpan(
         text: language.isNotEmpty ? '// $language' : '',
         style: codeStyle.copyWith(
@@ -1821,6 +2080,16 @@ class LineBasedMarkdownBuilder {
   /// stays text on these single-line constructs, as CommonMark keeps it.
   static const int _noHardBreak = -1;
 
+  /// Whether [line]'s trailing `\`, if it has one, may be a hard break:
+  /// only while a non-blank line follows it, the editor's and the plain
+  /// text's reading too ([MarkdownChunker.isBlankLine]). A line without
+  /// a trailing `\` answers true, so only such lines pay the lookup.
+  bool _hardBreakMayEnd(String line, int lineIndex) {
+    if (line.isEmpty || line.codeUnitAt(line.length - 1) != 0x5C) return true;
+    return lineIndex + 1 < _lineCount &&
+        !MarkdownChunker.isBlankLine(_getLine(lineIndex + 1));
+  }
+
   /// Build inline formatted text with bold, italic, code, links, and
   /// highlighting. [contentStart] is the source offset where [text]
   /// begins — critical so search highlighting lands on the right
@@ -1886,6 +2155,11 @@ class LineBasedMarkdownBuilder {
     for (final token in tokens) {
       flushRun(token.start);
       switch (token) {
+        // A `%%…%%` comment renders nothing, as the editor conceals it;
+        // the empty run keeps a line that is all comment from falling
+        // back to its raw text below.
+        case InlineComment():
+          children.add(TextSpan(text: '', style: baseStyle));
         // Backslash escape: only the escaped character renders.
         case InlineEscape():
           children.add(

@@ -26,7 +26,8 @@ typedef PositionalSpanKey = (int tag, int value, String text);
 /// * [positional] — the small LRU for lines whose rendering depends on
 ///   the lines around them (fence roles, callout membership — the role
 ///   and the block's type ride in the value slot — indeterminate task
-///   parents, money rows carrying a computed balance). The same text can
+///   parents, money rows carrying a computed balance, setext headings and
+///   their underlines). The same text can
 ///   render differently, so the role — and the value — go into the key: a
 ///   [PositionalSpanKey] record, never an interpolated string. Records
 ///   have structural equality and hashing in Dart 3, so the key is as
@@ -63,6 +64,26 @@ class EditorSpanCache {
   /// body line rendered under one type never returns the span built
   /// under another.
   static const int positionalCallout = 4;
+
+  /// [PositionalSpanKey] tag: a line of a `%%` block comment, marker or
+  /// body.
+  static const int positionalComment = 5;
+
+  /// [PositionalSpanKey] tag: a line ending in `\` with no non-blank line
+  /// below it, so the `\` is text rather than a hard break — the same
+  /// text renders differently once a line follows, so the text-keyed
+  /// memo may not serve it.
+  static const int positionalLiteralBackslash = 6;
+
+  /// [PositionalSpanKey] tag: a setext heading's text line — a heading
+  /// only because an underline follows it; the key's `value` slot
+  /// carries the level.
+  static const int positionalSetextText = 7;
+
+  /// [PositionalSpanKey] tag: a setext underline (`===` / `---`) — an
+  /// underline only because a text line precedes it; the key's `value`
+  /// slot carries the level.
+  static const int positionalSetextUnderline = 8;
 
   static const int _spanCacheSize = 1024;
   static const int _positionalSpanCacheSize = 128;

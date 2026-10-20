@@ -66,6 +66,47 @@ void main() {
     }
   });
 
+  group('custom task states', () {
+    test('any one non-blank unit in the box is a task carrying it', () {
+      for (final state in ['-', '/', '>', '<', '?', '!', '*', 'y', 'ä']) {
+        final item = MarkdownListSyntax.parse('- [$state] content');
+        expect(item?.kind, MarkdownListKind.task, reason: state);
+        expect(item!.state, state);
+        expect(item.checked, isFalse, reason: 'only x / X are done');
+        expect(item.bracketStart, 2);
+        expect(item.content, 'content');
+      }
+    });
+
+    test('the open and done boxes carry their unit too', () {
+      expect(MarkdownListSyntax.parse('- [ ] a')!.state, ' ');
+      expect(MarkdownListSyntax.parse('- [x] a')!.state, 'x');
+      expect(MarkdownListSyntax.parse('- [X] a')!.checked, isTrue);
+    });
+
+    test('a custom state needs a blank or the line end after its box', () {
+      expect(MarkdownListSyntax.parse('- [-]')!.kind, MarkdownListKind.task);
+      expect(
+        MarkdownListSyntax.parse('- [a](https://x.y) link')!.kind,
+        MarkdownListKind.bullet,
+      );
+      expect(MarkdownListSyntax.parse('- [-]x')!.kind, MarkdownListKind.bullet);
+    });
+
+    test('a non-task carries no state', () {
+      expect(MarkdownListSyntax.parse('- a')!.state, '');
+      expect(MarkdownListSyntax.parse('1. a')!.state, '');
+    });
+
+    test('a two-unit character is no state', () {
+      expect(
+        MarkdownListSyntax.parse('- [😀] smile')!.kind,
+        MarkdownListKind.bullet,
+      );
+      expect(MarkdownListSyntax.scanListShape('- [😀] smile'), 0);
+    });
+  });
+
   group('a horizontal rule is never a list item', () {
     for (final line in _spacedRules) {
       test('"${_visible(line)}"', () {
@@ -181,7 +222,21 @@ const List<String> _corpus = <String>[
   '+ [x] plus task',
   '  - [ ] nested task',
   '- [] no room',
-  '- [y] not a box',
+  '- [y] a custom state',
+  '- [-] cancelled',
+  '- [/] in progress',
+  '* [>] deferred',
+  '+ [?] question',
+  '  - [!] nested important',
+  '- [*] star',
+  '- [-]',
+  '- [-]\tafter a tab',
+  '- [-] after a no-break space',
+  '- [a](https://example.com) a link, not a box',
+  '- [1](#n) a link to an anchor',
+  '- [-]x no blank after the box',
+  '- [ ] a blank state is no state',
+  '- [x](u) the done box keeps its unguarded shape',
   '- [ ]',
   '- [ ] ',
   '-  [x] wide gap task',

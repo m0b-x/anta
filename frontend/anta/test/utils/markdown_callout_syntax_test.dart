@@ -1,6 +1,7 @@
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/markdown_callout_syntax.dart';
 import 'package:anta/utils/markdown_chunker.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// [MarkdownCalloutSyntax] is the one grammar three consumers scan with:
@@ -161,8 +162,13 @@ void main() {
       );
     });
 
-    test('an unrecognised token is a plain quote, not a callout', () {
-      expect(MarkdownCalloutSyntax.blockStep('> [!FOO]', null), isNull);
+    test('an unknown word opens a note-styled callout; a blank one none', () {
+      expect(
+        MarkdownCalloutSyntax.blockStep('> [!FOO]', null),
+        MarkdownCalloutType.note,
+      );
+      expect(MarkdownCalloutSyntax.blockStep('> [!]', null), isNull);
+      expect(MarkdownCalloutSyntax.blockStep('> [! ]', null), isNull);
       expect(MarkdownCalloutSyntax.blockStep('> quote', null), isNull);
     });
 
@@ -295,9 +301,122 @@ void main() {
 
     test('an unclosed token is not a lead', () {
       expect(MarkdownCalloutSyntax.parseLead('> [!TIP'), isNull);
-      expect(MarkdownCalloutSyntax.parseLead('> [!FOO] x'), isNull);
       expect(MarkdownCalloutSyntax.parseLead('>> [!TIP]'), isNull);
       expect(MarkdownCalloutSyntax.parseLead('plain'), isNull);
+    });
+
+    test('a fold marker right after `]` is recorded, not titled', () {
+      const line = '> [!WARNING]- Knee';
+      final lead = MarkdownCalloutSyntax.parseLead(line)!;
+      expect(lead.type, MarkdownCalloutType.warning);
+      expect(lead.foldMarker, 12);
+      expect(line[lead.foldMarker], '-');
+      expect(lead.chromeEnd, 13);
+      expect(lead.title, 'Knee');
+      expect(lead.titleStart, 14);
+
+      final plus = MarkdownCalloutSyntax.parseLead('> [!TIP]+ title')!;
+      expect(plus.foldMarker, 8);
+      expect(plus.title, 'title');
+
+      final bare = MarkdownCalloutSyntax.parseLead('> [!TIP]-')!;
+      expect(bare.foldMarker, 8);
+      expect(bare.title, isEmpty);
+    });
+
+    test('a `-` after a blank is title text', () {
+      final lead = MarkdownCalloutSyntax.parseLead('> [!TIP] - x')!;
+      expect(lead.foldMarker, -1);
+      expect(lead.chromeEnd, lead.tokenEnd);
+      expect(lead.title, '- x');
+    });
+
+    test('the label is the token word title-cased unit for unit', () {
+      String labelOf(String line) =>
+          MarkdownCalloutSyntax.parseLead(line)!.label;
+      expect(labelOf('> [!WARNING]'), 'Warning');
+      expect(labelOf('> [!tip]'), 'Tip');
+      expect(labelOf('> [!pr]'), 'PR', reason: 'the kind keeps its casing');
+      expect(labelOf('> [!hint]'), 'Hint', reason: 'an alias names itself');
+      expect(labelOf('> [!drill]'), 'Drill');
+      expect(labelOf('> [! tip ]'), ' Tip ');
+      expect(labelOf('> [!straße]'), 'Straße', reason: 'ß keeps its length');
+      for (final line in ['> [!WARNING]', '> [!straße]', '> [! tip ]']) {
+        final lead = MarkdownCalloutSyntax.parseLead(line)!;
+        expect(
+          lead.label.length,
+          lead.tokenEnd - 1 - lead.labelStart,
+          reason: 'the label covers exactly the word units: $line',
+        );
+      }
+    });
+
+    test('aliases map onto their kinds', () {
+      const aliases = <String, MarkdownCalloutType>{
+        'info': MarkdownCalloutType.note,
+        'hint': MarkdownCalloutType.tip,
+        'check': MarkdownCalloutType.success,
+        'done': MarkdownCalloutType.success,
+        'attention': MarkdownCalloutType.warning,
+        'error': MarkdownCalloutType.danger,
+        'fail': MarkdownCalloutType.failure,
+        'missing': MarkdownCalloutType.failure,
+        'cite': MarkdownCalloutType.quote,
+        'summary': MarkdownCalloutType.abstract,
+        'tldr': MarkdownCalloutType.abstract,
+        'faq': MarkdownCalloutType.question,
+        'help': MarkdownCalloutType.question,
+      };
+      for (final MapEntry(:key, :value) in aliases.entries) {
+        expect(
+          MarkdownCalloutSyntax.parseLead('> [!$key]')!.type,
+          value,
+          reason: key,
+        );
+      }
+      for (final type in MarkdownCalloutType.values) {
+        expect(
+          MarkdownCalloutSyntax.parseLead('> [!${type.name}]')!.type,
+          type,
+          reason: 'every kind names itself',
+        );
+      }
+    });
+
+    test('an unknown word is a note whose title is the word', () {
+      final lead = MarkdownCalloutSyntax.parseLead('> [!FOO] x')!;
+      expect(lead.type, MarkdownCalloutType.note);
+      expect(lead.title, 'x');
+      expect(MarkdownCalloutSyntax.parseLead('> [!foo]')!.label, 'Foo');
+    });
+
+    test('a token that names no type word leaves a plain quote', () {
+      for (final line in [
+        '> [![badge](https://x/b.svg)](https://x)',
+        '> [![img](a.png)]',
+        '> [!Note to self: rest day] legs',
+        '> [!two words] x',
+        '> [!#pr]',
+        '> [!`x`]',
+        '> [!{{w}}]',
+        '> [!http://a.b]',
+        '> [!a*b*]',
+        '> [!x&amp;y]',
+      ]) {
+        expect(MarkdownCalloutSyntax.parseLead(line), isNull, reason: line);
+        expect(MarkdownCalloutSyntax.blockStep(line, null), isNull);
+      }
+      // Letters (non-ASCII too), digits, `-` and `_` still make a word.
+      for (final line in ['> [!leg-day]', '> [!pr_2]', '> [!ßtraße]']) {
+        expect(MarkdownCalloutSyntax.parseLead(line), isNotNull, reason: line);
+      }
+    });
+
+    test('a spaced kind keeps its own casing and its blanks', () {
+      final lead = MarkdownCalloutSyntax.parseLead('> [! pr ]')!;
+      expect(lead.type, MarkdownCalloutType.pr);
+      expect(lead.label, ' PR ');
+      expect(lead.label.length, lead.tokenEnd - 1 - lead.labelStart);
     });
 
     test('indent shifts every offset; the title is trimmed', () {
@@ -311,6 +430,61 @@ void main() {
       expect(lead.titleStart, 16);
       expect(lead.title, 'Heads up');
       expect(line.substring(lead.titleStart), 'Heads up ');
+    });
+
+    test('indent shifts the fold marker and the label too', () {
+      const fold = '  > [!TIP]- x';
+      final folded = MarkdownCalloutSyntax.parseLead(fold)!;
+      expect(folded.foldMarker, 10);
+      expect(fold[folded.foldMarker], '-');
+      expect(folded.chromeEnd, 11);
+      expect(folded.titleStart, 12);
+      expect(folded.title, 'x');
+
+      final bare = MarkdownCalloutSyntax.parseLead('  > [!WARNING]')!;
+      expect(bare.labelStart, 6);
+      expect(bare.label, 'Warning');
+    });
+  });
+
+  group('quotedListItem', () {
+    test('reads the item past the innermost `>` run', () {
+      final task = MarkdownCalloutSyntax.quotedListItem('> - [ ] warm-up')!;
+      expect(task.base, 2);
+      expect(task.item.bracketStart, 2);
+      expect(task.item.content, 'warm-up');
+      final nested = MarkdownCalloutSyntax.quotedListItem('> > - a')!;
+      expect(nested.base, 4);
+      expect(nested.item.content, 'a');
+    });
+
+    test('prose, a bare quote and a non-quote read none', () {
+      expect(MarkdownCalloutSyntax.quotedListItem('> squat'), isNull);
+      expect(MarkdownCalloutSyntax.quotedListItem('>'), isNull);
+      expect(MarkdownCalloutSyntax.quotedListItem('- a'), isNull);
+      expect(MarkdownCalloutSyntax.quotedListItem('> ---'), isNull);
+    });
+
+    test('a tab right after `>` separates, it does not nest', () {
+      final bullet = MarkdownCalloutSyntax.quotedListItem('>\t- squat')!;
+      expect(bullet.base, 2);
+      expect(bullet.item.level, 0);
+      final task = MarkdownCalloutSyntax.quotedListItem('>\t- [ ] warm-up')!;
+      expect(task.base + task.item.bracketStart, 4);
+      // After the marker's own space a tab is indent, as at a line start.
+      final indented = MarkdownCalloutSyntax.quotedListItem('> \t- squat')!;
+      expect(indented.base, 2);
+      expect(indented.item.level, 1);
+    });
+
+    test('a shape in hand reads the same item', () {
+      const line = '> > - [x] done';
+      final shape = MarkdownCalloutSyntax.quoteMarkers(line)!;
+      final read = MarkdownCalloutSyntax.quotedListItem(line, shape: shape)!;
+      final plain = MarkdownCalloutSyntax.quotedListItem(line)!;
+      expect(read.base, plain.base);
+      expect(read.item.bracketStart, plain.item.bracketStart);
+      expect(read.item.checked, isTrue);
     });
   });
 
@@ -326,6 +500,25 @@ void main() {
             'the editor paints one icon glyph per lead; a shared icon would '
             'make two callout kinds indistinguishable',
       );
+    });
+
+    test('the newer kinds read at 4.5:1 or better on the light page', () {
+      const page = Color(0xFFFEF7FF); // AppTheme's light surface
+      double contrast(Color a, Color b) {
+        final la = a.computeLuminance() + 0.05;
+        final lb = b.computeLuminance() + 0.05;
+        return la > lb ? la / lb : lb / la;
+      }
+
+      for (final type in MarkdownCalloutType.values.skip(
+        MarkdownCalloutType.example.index,
+      )) {
+        expect(
+          contrast(MarkdownConstants.calloutAccent(type, dark: false), page),
+          greaterThanOrEqualTo(4.5),
+          reason: type.name,
+        );
+      }
     });
 
     test('inline code renders at 0.9 of its context size', () {

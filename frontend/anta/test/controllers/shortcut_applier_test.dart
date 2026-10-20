@@ -525,6 +525,17 @@ void main() {
       expect(toggle('- [x] squat', '- [ ] '), '- [ ] squat');
     });
 
+    test('a custom task state swaps to either box, never loses its task', () {
+      expect(toggle('- [-] skipped', '- [ ] '), '- [ ] skipped');
+      expect(toggle('- [/] half', '- [ ] '), '- [ ] half');
+      expect(toggle('- [-] skipped', '- [x] '), '- [x] skipped');
+      expect(
+        toggle('- [ ] a\n- [-] b', '- [ ] ', at: range(0, 0, 3, toLine: 1)),
+        '- [ ] a\n- [ ] b',
+        reason: 'a mixed selection is not all on, so nothing is stripped',
+      );
+    });
+
     test('numbered continues an ordered item directly above', () {
       final controller = controllerWith('4. bench\nsquat', line: 1);
 

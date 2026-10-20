@@ -1,4 +1,5 @@
 import '../constants/markdown_constants.dart';
+import 'markdown_callout_syntax.dart';
 import 'markdown_line_shape.dart';
 
 /// The **preview's** ratio table for markdown line heights.
@@ -58,7 +59,15 @@ class MarkdownLineHeightCalculator {
     // space) and `#######` (7+) are NOT headings, they render as normal
     // paragraphs, so they must use the normal scale to keep double-tap
     // line mapping aligned with what is actually drawn.
-    final heading = MarkdownLineShape.headingAt(line);
+    // A heading inside a quote or a callout body is drawn at its own
+    // scale too, read off the remainder past the `>` run as the builder
+    // reads it.
+    final quote = MarkdownCalloutSyntax.quoteMarkers(line);
+    final heading = quote == null
+        ? MarkdownLineShape.headingAt(line)
+        : quote.contentStart < line.length
+        ? MarkdownLineShape.headingAt(line.substring(quote.contentStart))
+        : null;
     if (heading != null) {
       switch (heading.level) {
         case 1:

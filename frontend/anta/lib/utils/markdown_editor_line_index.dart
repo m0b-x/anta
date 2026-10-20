@@ -6,12 +6,17 @@ import 'markdown_chunker.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
 
-/// Positional role of a line relative to ``` code fences. Delimiter and
-/// interior lines style differently in the editor, and both bypass its
-/// text-keyed span memo because the role depends on position, not
-/// content. Grammar comes from [MarkdownChunker.isFenceDelimiter] — the
-/// same predicate the preview's block scan uses.
-enum MarkdownFenceRole { none, delimiter, interior }
+/// Positional role of a line relative to code fences and `%%` block
+/// comments. Delimiter, interior and comment lines style differently in
+/// the editor, and all bypass its text-keyed span memo because the role
+/// depends on position, not content. Grammar comes from
+/// [MarkdownChunker.blockStateAfter] — the same transition the
+/// preview's block scan steps.
+///
+/// [comment] covers a block comment's `%%` markers and its body alike:
+/// both render dimmed and are inert like fenced lines, so every caller
+/// that asks "is this line markdown" (`!= none`) refuses them too.
+enum MarkdownFenceRole { none, delimiter, interior, comment }
 
 /// Positional role of a line inside a callout block: the `> [!TYPE]`
 /// [lead] line, one of the contiguous blockquote [body] lines under it,
@@ -23,7 +28,9 @@ enum MarkdownCalloutRole { none, lead, body }
 /// Incremental positional index over the editor's [CodeLines]: per-line
 /// fence roles, per-line callout roles, the set of task lines whose
 /// unchecked box renders indeterminate (subtree partially complete), and
-/// the money ledger's per-row display values.
+/// the money ledger's per-row display values. Only `[x]` / `[X]` count as
+/// done there: a custom state (`[-]`, `[/]`, …) is an unchecked task, so
+/// a cancelled child keeps its parent from reading complete.
 ///
 /// Replaces the independent O(total lines) rebuilds the span builder ran
 /// on every text mutation. The index exploits the fork's structural
@@ -50,7 +57,10 @@ enum MarkdownCalloutRole { none, lead, body }
 /// results for those lines are appended back verbatim, shifted by the
 /// change in result count above them. The four entry states differ:
 ///
-///   * fence pass — one bit, the in-fence parity;
+///   * fence pass — the open fence (its character and run length) or
+///     block comment, packed by [MarkdownChunker.blockStateAfter]; a
+///     parity bit would not do, since the same lines close a ```` ``` ````
+///     fence and leave a ```` ```` ```` one open;
 ///   * callout pass — the type of the callout block open on entry (0
 ///     when none is). It has no result list of its own: the per-line
 ///     packed roles live in an array the splice renumbers, so a proven
@@ -460,33 +470,39 @@ class MarkdownEditorLineIndex {
     _SegmentState entry,
   ) {
     final int n = segs.length;
-    bool inFence = entry.fenceEntry;
+    int state = entry.fenceEntry;
     for (int s = first; s < n; s++) {
       final _SegmentState st = _states[s];
       if (s > last &&
           identical(segs[s].codeLines, st.backing) &&
-          st.fenceEntry == inFence) {
+          st.fenceEntry == state) {
         return s;
       }
-      st.fenceEntry = inFence;
+      st.fenceEntry = state;
       _lastFenceScans++;
       final List<CodeLine> lines = segs[s].codeLines;
       int g = _segStarts[s];
       List<MarkdownFenceRole>? fence = _fence;
       for (int j = 0; j < lines.length; j++, g++) {
-        if (MarkdownChunker.isFenceDelimiter(lines[j].text)) {
-          fence ??= _fence = List<MarkdownFenceRole>.filled(
-            _lineCount,
-            MarkdownFenceRole.none,
-            growable: true,
-          );
-          fence[g] = MarkdownFenceRole.delimiter;
-          inFence = !inFence;
-        } else if (fence != null) {
-          fence[g] = inFence
-              ? MarkdownFenceRole.interior
-              : MarkdownFenceRole.none;
+        final int next = MarkdownChunker.blockStateAfter(lines[j].text, state);
+        if (state == MarkdownChunker.outsideBlock &&
+            next == MarkdownChunker.outsideBlock) {
+          if (fence != null) fence[g] = MarkdownFenceRole.none;
+          continue;
         }
+        fence ??= _fence = List<MarkdownFenceRole>.filled(
+          _lineCount,
+          MarkdownFenceRole.none,
+          growable: true,
+        );
+        fence[g] =
+            state == MarkdownChunker.insideComment ||
+                next == MarkdownChunker.insideComment
+            ? MarkdownFenceRole.comment
+            : state != next
+            ? MarkdownFenceRole.delimiter
+            : MarkdownFenceRole.interior;
+        state = next;
       }
     }
     return n;
@@ -862,7 +878,12 @@ class MarkdownEditorLineIndex {
 /// would write through the alias into the state they are resuming from.
 class _SegmentState {
   List<CodeLine> backing;
-  bool fenceEntry;
+
+  /// The [MarkdownChunker.blockStateAfter] state at this segment's
+  /// entry: which fence (its character and run length) or block comment
+  /// is open, so a seam proof can tell a ```` ``` ```` fence from a
+  /// ```` ```` ```` one that the same lines would leave open.
+  int fenceEntry;
 
   /// The callout block open at this segment's entry, as its type index
   /// plus one; `0` when none is.
@@ -878,7 +899,7 @@ class _SegmentState {
   int targetAnchor;
 
   _SegmentState(this.backing, int startCents)
-    : fenceEntry = false,
+    : fenceEntry = MarkdownChunker.outsideBlock,
       calloutEntry = 0,
       resultCount = 0,
       taskEntry = const [],

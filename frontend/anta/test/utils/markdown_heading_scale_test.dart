@@ -105,6 +105,11 @@ void main() {
     expect(scale('### a'), MarkdownConstants.h3Scale);
     expect(scale('#### a'), MarkdownConstants.h4Scale);
     expect(scale('###### a'), MarkdownConstants.h6Scale);
+    // A heading past a quote's `>` run is drawn at its own scale too.
+    expect(scale('> # Week 3'), MarkdownConstants.h1Scale);
+    expect(scale('> > ## Legs'), MarkdownConstants.h2Scale);
+    expect(scale('> plain quote'), MarkdownConstants.normalLineScale);
+    expect(scale('>'), MarkdownConstants.normalLineScale);
   });
 
   test('the body line height is the mock 1.55', () {

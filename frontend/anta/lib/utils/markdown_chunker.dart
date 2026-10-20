@@ -24,7 +24,10 @@ import 'markdown_callout_syntax.dart';
 /// (GitHub-style admonition); it is non-atomic so very long callouts
 /// keep virtualizing, and the per-line offsets of its content are
 /// unchanged from a plain blockquote.
-enum MarkdownBlockKind { codeFence, callout }
+///
+/// [comment] is a `%%` block comment, from a `%%` line through the next
+/// one (or the end); its lines render as nothing but their line slot.
+enum MarkdownBlockKind { codeFence, callout, comment }
 
 /// A contiguous run of source lines forming one logical markdown block.
 ///
@@ -97,20 +100,141 @@ class MarkdownChunker {
     return scaled;
   }
 
-  /// Whether [line] is a ``` code-fence delimiter: optional space/tab
-  /// indent, then three backticks. The single fence grammar — shared by
-  /// the preview's block scan below and the editor's positional line
-  /// index ([MarkdownEditorLineIndex]), so the two surfaces can never
-  /// disagree about where a fence starts. Allocation-free (no trim).
-  static bool isFenceDelimiter(String line) {
+  /// The [blockStateAfter] / [fenceStateAfter] state outside every
+  /// fence and block comment — the state a document starts in.
+  static const int outsideBlock = 0;
+
+  /// The [blockStateAfter] state inside a `%%` block comment. Every open
+  /// fence packs to at least 6 ([fenceOpenerOf]), so the two never meet.
+  static const int insideComment = 1;
+
+  /// The packed fence [line] would open, or [outsideBlock] when it opens
+  /// none: any indent of spaces or tabs, then a run of three or more
+  /// backticks whose info string (the rest of the line) holds no
+  /// backtick — ```` ```npm i``` ```` is inline code, not a fence — or of
+  /// three or more tildes with any info string. Packed as
+  /// `(runLength << 1) | (tilde ? 1 : 0)`, so the state a scan carries
+  /// is one comparable int that knows which closer ends it. The indent is
+  /// unbounded because a fence under a list item sits at the item's
+  /// content column (four spaces under a nested item, a tab in notes
+  /// from Obsidian), which a stateless test cannot tell from top-level
+  /// indented code — and ANTA renders no indented code (audit §3 row
+  /// 3f), so the bound would only turn those fences into prose.
+  /// Allocation-free (no trim).
+  static int fenceOpenerOf(String line) {
+    final int i = _blockIndent(line);
+    if (i < 0) return outsideBlock;
+    final int c = line.codeUnitAt(i);
+    if (c != _kBacktick && c != _kTilde) return outsideBlock;
+    int j = i + 1;
+    while (j < line.length && line.codeUnitAt(j) == c) {
+      j++;
+    }
+    final int run = j - i;
+    if (run < 3) return outsideBlock;
+    if (c == _kBacktick && line.indexOf('`', j) >= 0) return outsideBlock;
+    return (run << 1) | (c == _kTilde ? 1 : 0);
+  }
+
+  /// Whether [line] closes the fence [opener] opened (a packed
+  /// [fenceOpenerOf] value): any indent, a run of the opener's character
+  /// at least as long as its run, then nothing but blanks — so ```` ```js ```` never closes, and `~~~` never
+  /// closes a backtick fence.
+  static bool closesFence(String line, int opener) {
+    final int i = _blockIndent(line);
+    if (i < 0) return false;
+    final int c = (opener & 1) == 1 ? _kTilde : _kBacktick;
+    int j = i;
+    while (j < line.length && line.codeUnitAt(j) == c) {
+      j++;
+    }
+    if (j - i < opener >> 1) return false;
+    return _blankFrom(line, j);
+  }
+
+  /// Whether [line] opens or closes a `%%` block comment: any indent,
+  /// `%%`, then nothing but blanks (trailing
+  /// blanks are invisible in the editor, so they may not turn a marker
+  /// into prose). A `%%note%%` line is an inline comment instead.
+  static bool isCommentDelimiter(String line) {
+    final int i = _blockIndent(line);
+    if (i < 0 || i + 1 >= line.length) return false;
+    return line.codeUnitAt(i) == _kPercent &&
+        line.codeUnitAt(i + 1) == _kPercent &&
+        _blankFrom(line, i + 2);
+  }
+
+  /// Whether [line] is shaped like a fence delimiter — it would open a
+  /// fence outside one ([fenceOpenerOf]). The stateless question for a
+  /// caller that reads one line alone; a caller walking lines in order
+  /// steps [fenceStateAfter] instead, which also knows that ```` ```js ````
+  /// inside a fence closes nothing.
+  static bool isFenceDelimiter(String line) =>
+      fenceOpenerOf(line) != outsideBlock;
+
+  /// Whether [line] is blank — empty or whitespace by `trim`'s reading.
+  /// The one test every surface reads for "a non-blank line follows",
+  /// the condition under which a trailing `\` is a hard break rather
+  /// than text: CommonMark breaks a line only inside a paragraph.
+  static bool isBlankLine(String line) => line.trim().isEmpty;
+
+  /// Whether a [blockStateAfter] / [fenceStateAfter] state is inside a
+  /// code fence.
+  static bool isFenceState(int state) => state > insideComment;
+
+  /// The fence state after [line] when [state] held before it: the one
+  /// fence transition the preview's block scan, the editor's line index,
+  /// the plain text and the width breaker step, so no surface can
+  /// disagree about where a fence starts or ends. A line is a delimiter
+  /// exactly when the state changes across it. Block comments are not
+  /// seen — [blockStateAfter] adds them.
+  static int fenceStateAfter(String line, int state) {
+    if (state == outsideBlock) return fenceOpenerOf(line);
+    return closesFence(line, state) ? outsideBlock : state;
+  }
+
+  /// [fenceStateAfter] with `%%` block comments: a comment opens only
+  /// outside a fence (a `%%` line inside one is code), and nothing but
+  /// the next `%%` line ends it (a fence line inside one is comment). An
+  /// unclosed comment runs to the end like an unclosed fence.
+  static int blockStateAfter(String line, int state) {
+    if (state == insideComment) {
+      return isCommentDelimiter(line) ? outsideBlock : insideComment;
+    }
+    final int next = fenceStateAfter(line, state);
+    if (state == outsideBlock && next == outsideBlock) {
+      return isCommentDelimiter(line) ? insideComment : outsideBlock;
+    }
+    return next;
+  }
+
+  /// Index of [line]'s first unit past its leading spaces and tabs, or
+  /// `-1` for a line that is nothing but them.
+  static int _blockIndent(String line) {
     int i = 0;
-    while (i < line.length) {
-      final int c = line.codeUnitAt(i);
-      if (c != 0x20 && c != 0x09) break;
+    while (i < line.length &&
+        (line.codeUnitAt(i) == 0x20 || line.codeUnitAt(i) == 0x09)) {
       i++;
     }
-    return line.startsWith('```', i);
+    return i < line.length ? i : -1;
   }
+
+  /// Whether [line] holds nothing but spaces, tabs and carriage returns
+  /// from [from] on. A CR counts because the surfaces that split stored
+  /// content on `\n` (the preview builder, the rows, the alert excerpt,
+  /// the ledger) see `\r` at the end of every line of a CRLF import, and
+  /// a closer or marker that carries one must still end its block.
+  static bool _blankFrom(String line, int from) {
+    for (int k = from; k < line.length; k++) {
+      final int c = line.codeUnitAt(k);
+      if (c != 0x20 && c != 0x09 && c != 0x0D) return false;
+    }
+    return true;
+  }
+
+  static const int _kBacktick = 0x60; // `
+  static const int _kTilde = 0x7E; // ~
+  static const int _kPercent = 0x25; // %
 
   /// Computes the full chunk layout for a document of [lineCount] lines.
   ///
@@ -129,9 +253,10 @@ class MarkdownChunker {
     return MarkdownChunkLayout(blocks: blocks, chunkStartLines: starts);
   }
 
-  /// Scans the source once for multi-line blocks: fenced code (```),
-  /// including an unterminated fence that runs to the end of the
-  /// document, and callouts (a `>`-run led by `> [!TYPE]`). Both are
+  /// Scans the source once for multi-line blocks: fenced code (```, ~~~)
+  /// and `%%` block comments, each including an unterminated block that
+  /// runs to the end of the document, and callouts (a `>`-run led by
+  /// `> [!TYPE]`). All are
   /// non-atomic (splittable) so virtualization of very large blocks is
   /// preserved. Blocks are emitted in source order (each is consumed
   /// whole before scanning resumes), so the list stays sorted by
@@ -146,19 +271,24 @@ class MarkdownChunker {
     while (i < lineCount) {
       final line = lineAt(i);
 
-      // Fenced code block: ``` … ``` (or an unterminated fence to EOF).
-      if (isFenceDelimiter(line)) {
+      // Fenced code (``` … ``` or ~~~ … ~~~) and `%%` block comments, or
+      // an unterminated one running to EOF.
+      final open = blockStateAfter(line, outsideBlock);
+      if (open != outsideBlock) {
         final start = i;
         i++;
-        while (i < lineCount && !isFenceDelimiter(lineAt(i))) {
+        while (i < lineCount &&
+            blockStateAfter(lineAt(i), open) != outsideBlock) {
           i++;
         }
-        // Include the closing fence line when present; otherwise the
-        // fence runs to the end of the document.
+        // Include the closing line when present; otherwise the block
+        // runs to the end of the document.
         final end = i < lineCount ? i + 1 : lineCount;
         blocks.add(
           MarkdownBlock(
-            kind: MarkdownBlockKind.codeFence,
+            kind: open == insideComment
+                ? MarkdownBlockKind.comment
+                : MarkdownBlockKind.codeFence,
             startLine: start,
             endLine: end,
             atomic: false,

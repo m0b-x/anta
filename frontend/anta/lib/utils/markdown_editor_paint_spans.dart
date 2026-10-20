@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
@@ -90,12 +92,18 @@ class EditorCalloutIconSpan extends CodeInlinePaintSpan {
   final IconData icon;
   final Color accent;
 
+  /// Blank width after the icon's square. A titleless lead sets it: its
+  /// label follows the icon with no source blank between them, and the
+  /// gap is width, never a code unit.
+  final double gap;
+
   EditorCalloutIconSpan({
     required double side,
     required this.icon,
     required this.accent,
+    this.gap = 0,
   }) : painter = layoutPainter(icon, accent, side),
-       super(width: side, height: side);
+       super(width: side + gap, height: side);
 
   /// The laid-out icon glyph for one callout mark. Static so the
   /// constructor can hand it to the `final` field, and so a caller that
@@ -120,7 +128,7 @@ class EditorCalloutIconSpan extends CodeInlinePaintSpan {
     painter.paint(
       canvas,
       Offset(
-        rect.left + (rect.width - painter.width) / 2,
+        rect.left + (rect.width - gap - painter.width) / 2,
         rect.top + (rect.height - painter.height) / 2,
       ),
     );
@@ -130,6 +138,7 @@ class EditorCalloutIconSpan extends CodeInlinePaintSpan {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EditorCalloutIconSpan &&
+          other.gap == gap &&
           other.icon == icon &&
           other.accent == accent &&
           other.width == width &&
@@ -143,7 +152,9 @@ class EditorCalloutIconSpan extends CodeInlinePaintSpan {
 /// Which glyph the editor checkbox paints. `indeterminate` is a purely
 /// visual facet of an unchecked box whose child tasks are partially
 /// complete — the source text stays `[ ]`, and a tap still checks it.
-enum EditorCheckboxVisual { unchecked, checked, indeterminate }
+/// `custom` is a box holding an Obsidian state unit (`[-]`, `[/]`, …),
+/// painted from [EditorCheckboxSpan.state].
+enum EditorCheckboxVisual { unchecked, checked, indeterminate, custom }
 
 /// The live editor's task checkbox: a rounded box custom-painted into a
 /// placeholder run (fork's [CodeInlinePaintSpan]), replacing the old
@@ -159,12 +170,19 @@ class EditorCheckboxSpan extends CodeInlinePaintSpan {
   final Color border;
   final Color mark;
 
+  /// The box's state unit for [EditorCheckboxVisual.custom]: `-` paints a
+  /// dimmed dash (cancelled), `/` a half fill (in progress), `>` and `<`
+  /// arrows, `*` a star, and any other unit draws itself (`?`, `!`, …).
+  /// Empty for the other visuals.
+  final String state;
+
   const EditorCheckboxSpan({
     required double side,
     required this.visual,
     required this.accent,
     required this.border,
     required this.mark,
+    this.state = '',
   }) : super(width: side, height: side);
 
   // Glyph geometry as fractions of the box side.
@@ -224,7 +242,107 @@ class EditorCheckboxSpan extends CodeInlinePaintSpan {
           Offset(box.right - box.width * 0.28, box.center.dy),
           _markPaint,
         );
+      case EditorCheckboxVisual.custom:
+        _paintState(canvas, box, rrect, stroke);
     }
+  }
+
+  /// A custom state's box: outlined in the accent (a cancelled `-` in the
+  /// dimmed border colour, matching its struck-through content) with the
+  /// state's mark inside.
+  void _paintState(Canvas canvas, Rect box, RRect rrect, double stroke) {
+    final color = state == '-' ? border : accent;
+    _strokePaint
+      ..color = color
+      ..strokeWidth = stroke;
+    canvas.drawRRect(rrect, _strokePaint);
+    _markPaint
+      ..color = color
+      ..strokeWidth = stroke * 1.15;
+    double x(double f) => box.left + box.width * f;
+    double y(double f) => box.top + box.height * f;
+    switch (state) {
+      case '-':
+        canvas.drawLine(
+          Offset(x(0.28), y(0.5)),
+          Offset(x(0.72), y(0.5)),
+          _markPaint,
+        );
+      case '/':
+        canvas
+          ..save()
+          ..clipRRect(rrect);
+        _fillPaint.color = accent;
+        canvas
+          ..drawRect(
+            Rect.fromLTRB(box.left, box.top, box.center.dx, box.bottom),
+            _fillPaint,
+          )
+          ..restore();
+      case '>':
+        canvas.drawPath(
+          Path()
+            ..moveTo(x(0.38), y(0.26))
+            ..lineTo(x(0.64), y(0.5))
+            ..lineTo(x(0.38), y(0.74)),
+          _markPaint,
+        );
+      case '<':
+        canvas.drawPath(
+          Path()
+            ..moveTo(x(0.62), y(0.26))
+            ..lineTo(x(0.36), y(0.5))
+            ..lineTo(x(0.62), y(0.74)),
+          _markPaint,
+        );
+      case '*':
+        final star = Path();
+        final outer = box.width * 0.32;
+        final inner = outer * 0.45;
+        for (var i = 0; i < 10; i++) {
+          final r = i.isEven ? outer : inner;
+          final a = -math.pi / 2 + i * math.pi / 5;
+          final p = box.center + Offset(math.cos(a) * r, math.sin(a) * r);
+          i == 0 ? star.moveTo(p.dx, p.dy) : star.lineTo(p.dx, p.dy);
+        }
+        _fillPaint.color = accent;
+        canvas.drawPath(star..close(), _fillPaint);
+      default:
+        final glyph = _glyph(state, accent, box.height * 0.8);
+        glyph.paint(
+          canvas,
+          box.center - Offset(glyph.width / 2, glyph.height / 2),
+        );
+    }
+  }
+
+  // Laid-out state glyphs, shared across boxes so a repaint lays out
+  // nothing; bounded because the key carries the size and the colour.
+  static final Map<(String, Color, double), TextPainter> _glyphs = {};
+  static const int _maxGlyphs = 32;
+
+  static TextPainter _glyph(String unit, Color color, double size) {
+    final key = (unit, color, size);
+    final cached = _glyphs[key];
+    if (cached != null) return cached;
+    if (_glyphs.length >= _maxGlyphs) {
+      for (final painter in _glyphs.values) {
+        painter.dispose();
+      }
+      _glyphs.clear();
+    }
+    return _glyphs[key] = TextPainter(
+      text: TextSpan(
+        text: unit,
+        style: TextStyle(
+          color: color,
+          fontSize: size,
+          fontWeight: FontWeight.w700,
+          height: 1.0,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
   }
 
   @override
@@ -235,11 +353,12 @@ class EditorCheckboxSpan extends CodeInlinePaintSpan {
           other.accent == accent &&
           other.border == border &&
           other.mark == mark &&
+          other.state == state &&
           other.width == width &&
           other.height == height &&
           other.style == style;
 
   @override
   int get hashCode =>
-      Object.hash(visual, accent, border, mark, width, height, style);
+      Object.hash(visual, accent, border, mark, state, width, height, style);
 }

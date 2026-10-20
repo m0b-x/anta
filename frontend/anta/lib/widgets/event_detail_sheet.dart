@@ -23,6 +23,7 @@ import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../utils/line_based_markdown_builder.dart';
+import '../utils/markdown_callout_syntax.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_list_syntax.dart';
 import '../utils/money_display_config.dart';
@@ -337,7 +338,11 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   bool get _hasTaskBox => _description
       .split('\n')
       .any(
-        (line) => MarkdownListSyntax.parse(line)?.kind == MarkdownListKind.task,
+        (line) =>
+            (MarkdownListSyntax.parse(line) ??
+                    MarkdownCalloutSyntax.quotedListItem(line)?.item)
+                ?.kind ==
+            MarkdownListKind.task,
       );
 
   @override

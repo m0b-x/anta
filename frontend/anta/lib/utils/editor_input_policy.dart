@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'ghost_text.dart';
+import 'markdown_callout_syntax.dart';
 import 'markdown_color_syntax.dart';
 import 'markdown_editor_span_builder.dart';
 import 'markdown_inline_grammar.dart';
@@ -201,19 +202,18 @@ class EditorInputPolicy {
       if (ghost.start > offset) break;
     }
     if (zones.checkbox) {
-      final item = MarkdownListSyntax.parse(lineText);
+      final task = _taskAt(lineText);
       // The toggle zone starts at the list marker, not the bracket, so
       // fat-finger taps just left of the box still toggle; everything
-      // left of the marker is indent and keeps caret placement, and the
-      // content right of the box stays editable.
-      if (item != null &&
-          item.kind == MarkdownListKind.task &&
-          offset >= item.indent.length &&
-          offset <= item.bracketStart + 3 &&
+      // left of the marker is indent (or a quote's bars) and keeps caret
+      // placement, and the content right of the box stays editable.
+      if (task != null &&
+          offset >= task.base + task.item.indent.length &&
+          offset <= task.base + task.item.bracketStart + 3 &&
           !(lineRevealed &&
               MarkdownEditorSpanBuilder.taskMarkerRevealed(
-                item,
-                caretOffset,
+                task.item,
+                caretOffset == null ? null : caretOffset - task.base,
               ))) {
         return EditorToggleTaskAction(lineIndex);
       }
@@ -352,18 +352,17 @@ class EditorInputPolicy {
 
     final List<_ZoneCandidate> candidates = <_ZoneCandidate>[];
     if (zones.checkbox) {
-      final item = MarkdownListSyntax.parse(lineText);
-      if (item != null &&
-          item.kind == MarkdownListKind.task &&
+      final task = _taskAt(lineText);
+      if (task != null &&
           !(lineRevealed &&
               MarkdownEditorSpanBuilder.taskMarkerRevealed(
-                item,
-                caretOffset,
+                task.item,
+                caretOffset == null ? null : caretOffset - task.base,
               ))) {
         _addCandidate(
           candidates,
-          item.indent.length,
-          item.bracketStart + 4,
+          task.base + task.item.indent.length,
+          task.base + task.item.bracketStart + 4,
           EditorToggleTaskAction(lineIndex),
           length,
         );
@@ -561,16 +560,36 @@ class EditorInputPolicy {
   }
 
   /// [lineText] with its task box flipped, or `null` when it is not a
-  /// task item. The rest of the line is untouched, so the caller can
-  /// apply it as a single-line replacement.
+  /// task item — at the line start or inside a quote (`> - [ ]` ↔
+  /// `> - [x]`). The rest of the line is untouched, so the caller can
+  /// apply it as a single-line replacement. A custom state (`[-]`, `[/]`,
+  /// …) is cleared to `[ ]` rather than ticked, so one tap never turns a
+  /// cancelled task into a done one.
   static String? toggledTaskLine(String lineText) {
-    final item = MarkdownListSyntax.parse(lineText);
-    if (item == null || item.kind != MarkdownListKind.task) return null;
+    final task = _taskAt(lineText);
+    if (task == null) return null;
+    final at = task.base + task.item.bracketStart + 1;
     return lineText.replaceRange(
-      item.bracketStart + 1,
-      item.bracketStart + 2,
-      item.checked ? ' ' : 'x',
+      at,
+      at + 1,
+      task.item.state == ' ' ? 'x' : ' ',
     );
+  }
+
+  /// The task item on [lineText] with the line offset its item offsets
+  /// are relative to: `0` at the line start, the end of the `>` run for a
+  /// quoted task ([MarkdownCalloutSyntax.quotedListItem], the reading the
+  /// renderer paints the box from). `null` when the line holds no task.
+  static ({MarkdownListItem item, int base})? _taskAt(String lineText) {
+    final item = MarkdownListSyntax.parse(lineText);
+    if (item != null) {
+      return item.kind == MarkdownListKind.task ? (item: item, base: 0) : null;
+    }
+    final quoted = MarkdownCalloutSyntax.quotedListItem(lineText);
+    if (quoted == null || quoted.item.kind != MarkdownListKind.task) {
+      return null;
+    }
+    return quoted;
   }
 
   /// Tab / Shift-Tab on a single list line: the markdown-editor

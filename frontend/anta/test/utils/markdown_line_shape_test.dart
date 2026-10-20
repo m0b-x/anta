@@ -388,6 +388,14 @@ void main() {
       expect(MarkdownLineShape.isLineLedConstruct('a | b'), isFalse);
       expect(MarkdownLineShape.isLineLedConstruct('```'), isTrue);
       expect(MarkdownLineShape.isLineLedConstruct('```dart'), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct('~~~ py'), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct('\t```'), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct('%%'), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct('  %%  '), isTrue);
+      // Inline code and an inline comment are prose a break may reflow.
+      expect(MarkdownLineShape.isLineLedConstruct('```npm i```'), isFalse);
+      expect(MarkdownLineShape.isLineLedConstruct('%%note%% more'), isFalse);
+      expect(MarkdownLineShape.isLineLedConstruct('~~strike~~'), isFalse);
     });
 
     test('a lead reads as the dispatchers read it, not as trim does', () {
@@ -421,6 +429,67 @@ void main() {
       expect(MarkdownLineShape.isLineLedConstruct('just words'), isFalse);
       expect(MarkdownLineShape.isLineLedConstruct(''), isFalse);
       expect(MarkdownLineShape.isLineLedConstruct(r'$5 coffee'), isFalse);
+    });
+  });
+
+  group('setext', () {
+    int under(String line) => MarkdownLineShape.setextUnderlineLevel(line);
+
+    test('three or more = is level 1, - is level 2', () {
+      expect(under('==='), 1);
+      expect(under('=========='), 1);
+      expect(under('---'), 2);
+      expect(under('------'), 2);
+    });
+
+    test('up to three spaces of indent and trailing blanks', () {
+      expect(under('   ==='), 1);
+      expect(under('===   '), 1);
+      expect(under('---\t'), 2);
+      expect(under('    ==='), 0, reason: 'four spaces is too deep');
+      expect(under('\t==='), 0);
+    });
+
+    test('anything else refuses the underline', () {
+      for (final line in ['', '==', '--', '= = =', '- - -', '==-', '=== x']) {
+        expect(under(line), 0, reason: line);
+      }
+    });
+
+    test('a text line is a plain paragraph line', () {
+      expect(MarkdownLineShape.isSetextTextLine('Title'), isTrue);
+      expect(MarkdownLineShape.isSetextTextLine('  **bold** title'), isTrue);
+      for (final line in [
+        '',
+        '   ',
+        '# Heading',
+        '> quote',
+        '- item',
+        '1. item',
+        '- [-] task',
+        '| a | b |',
+        '```',
+        '***',
+        '===',
+        r'$+ 12.50 coffee',
+      ]) {
+        expect(MarkdownLineShape.isSetextTextLine(line), isFalse, reason: line);
+      }
+    });
+
+    test('setextLevelOf reads the line after', () {
+      expect(MarkdownLineShape.setextLevelOf('Title', '==='), 1);
+      expect(MarkdownLineShape.setextLevelOf('Title', '---'), 2);
+      expect(MarkdownLineShape.setextLevelOf('Title', 'more text'), 0);
+      expect(MarkdownLineShape.setextLevelOf('Title', null), 0);
+      expect(MarkdownLineShape.setextLevelOf('- item', '---'), 0);
+      expect(MarkdownLineShape.setextLevelOf('===', '==='), 0);
+      expect(MarkdownLineShape.setextLevelOf('', '==='), 0);
+    });
+
+    test('headingAt stays line-only: a setext text line is no ATX match', () {
+      expect(MarkdownLineShape.headingAt('Title'), isNull);
+      expect(MarkdownLineShape.headingAt('==='), isNull);
     });
   });
 

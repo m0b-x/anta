@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../constants/markdown_constants.dart';
 import '../utils/line_based_markdown_builder.dart';
+import '../utils/markdown_chunker.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/markdown_line_shape.dart';
 import '../utils/money_display_config.dart';
 
 /// Renders a short markdown string clamped to [maxLines], for list rows.
@@ -157,15 +159,34 @@ abstract final class _InlineMarkdownCache {
     return span;
   }
 
-  /// Drops blank lines and keeps at most [_maxLines], so a description that
-  /// opens with a heading and a blank line still shows real text in the two
-  /// visible rows.
+  /// Drops blank lines and `%%` block comments and keeps at most
+  /// [_maxLines], so a description that opens with a heading and a blank
+  /// line, or with a comment the builder would draw as spacers, still
+  /// shows real text in the two visible rows. A dropped gap between a text
+  /// line and a `---` or `===` line stays one blank line: closed up, the
+  /// two would read as a setext heading the note does not hold.
   static String _collapse(String data) {
     final kept = <String>[];
+    var count = 0;
+    var gap = false;
+    var state = MarkdownChunker.outsideBlock;
     for (final line in data.split('\n')) {
-      if (line.trim().isEmpty) continue;
+      final entry = state;
+      state = MarkdownChunker.blockStateAfter(line, state);
+      if (entry == MarkdownChunker.insideComment ||
+          state == MarkdownChunker.insideComment ||
+          line.trim().isEmpty) {
+        gap = true;
+        continue;
+      }
+      if (gap &&
+          kept.isNotEmpty &&
+          MarkdownLineShape.setextLevelOf(kept.last, line) > 0) {
+        kept.add('');
+      }
+      gap = false;
       kept.add(line);
-      if (kept.length == _maxLines) break;
+      if (++count == _maxLines) break;
     }
     return kept.join('\n');
   }

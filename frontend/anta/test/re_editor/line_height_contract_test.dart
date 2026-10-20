@@ -1,4 +1,7 @@
 import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/utils/editor_render_context.dart';
+import 'package:anta/utils/markdown_editor_span_builder.dart';
+import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
@@ -193,5 +196,61 @@ void main() {
 
       await teardownEditor(tester);
     });
+  });
+
+  // F16: a setext text line's span depends on the line below it, so an
+  // edit there must re-lay out the unchanged line above.
+  testWidgets('an underline typed under a line lays that line out as a '
+      'heading, and deleting it lays the line out plain again', (tester) async {
+    final markdown = MarkdownEditorSpanBuilder()
+      ..configureMoney(MoneyDisplayConfig.disabled);
+    EditorRenderContext? renderContext;
+    var bound = false;
+    final ScrollEditor e = await pumpScrollEditor(
+      tester,
+      text: 'Title\nbody\nend',
+      width: viewportWidth,
+      height: viewportHeight,
+      spanBuilder:
+          ({
+            required BuildContext context,
+            required int index,
+            required CodeLine codeLine,
+            required TextSpan textSpan,
+            required TextStyle style,
+          }) {
+            if (!bound) return textSpan;
+            renderContext ??= EditorRenderContext.fromTheme(
+              Theme.of(context),
+              style,
+            );
+            return markdown.build(
+                  context: renderContext!,
+                  index: index,
+                  codeLine: codeLine,
+                ) ??
+                textSpan;
+          },
+    );
+    markdown.bind(e.controller);
+    bound = true;
+    void replace(int index, String text) => e.controller.codeLines = e
+        .controller
+        .codeLines
+        .replaceLine(index, CodeLine(text));
+
+    replace(2, 'end.');
+    await settle(tester);
+    final CodeFieldRenderForTesting render = renderOf(tester);
+    final double plain = render.lineHeightOfLine(0);
+
+    replace(1, '===');
+    await settle(tester);
+    expect(render.lineHeightOfLine(0), greaterThan(plain));
+
+    replace(1, 'body');
+    await settle(tester);
+    expect(render.lineHeightOfLine(0), plain);
+    await teardownEditor(tester);
   });
 }

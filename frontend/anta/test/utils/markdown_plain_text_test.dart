@@ -46,6 +46,35 @@ void main() {
       expect(MarkdownPlainText.strip('- [ ] todo'), 'todo');
     });
 
+    test('keeps a custom task state as typed', () {
+      expect(MarkdownPlainText.strip('- [-] skipped'), '[-] skipped');
+      expect(MarkdownPlainText.strip('- [/] half'), '[/] half');
+      expect(MarkdownPlainText.strip('> - [?] maybe'), '[?] maybe');
+      expect(MarkdownPlainText.strip('- [-]'), '[-]');
+    });
+
+    test('a custom box is never read as inline grammar', () {
+      expect(MarkdownPlainText.strip('- [*] best*ever'), '[*] best*ever');
+      expect(MarkdownPlainText.strip('- [`] use `x`'), '[`] use x');
+      expect(MarkdownPlainText.strip(r'- [\] a'), r'[\] a');
+    });
+
+    test('prints a setext text line and drops its underline', () {
+      expect(MarkdownPlainText.strip('Title\n===\nbody'), 'Title body');
+      expect(MarkdownPlainText.strip('Sub\n---\nbody'), 'Sub body');
+      expect(MarkdownPlainText.strip('  *Big* one\n=====  '), 'Big one');
+    });
+
+    test('a setext text line takes no hard break', () {
+      expect(MarkdownPlainText.strip('Title\\\n==='), 'Title\\');
+    });
+
+    test('an underline under no text line stays what it was', () {
+      expect(MarkdownPlainText.strip('===\nb'), '=== b');
+      expect(MarkdownPlainText.strip('- a\n==='), 'a ===');
+      expect(MarkdownPlainText.strip('```\nx\n```\n==='), '===');
+    });
+
     test('skips blank lines, horizontal rules and table separators', () {
       expect(MarkdownPlainText.strip('a\n\n---\n\nb'), 'a b');
       expect(
@@ -89,6 +118,44 @@ void main() {
       );
       expect(MarkdownPlainText.strip('> [!warning]'), 'Warning');
     });
+
+    test('drops a fold marker and titles aliases and unknown words', () {
+      expect(MarkdownPlainText.strip('> [!WARNING]- Knee'), 'Warning Knee');
+      expect(MarkdownPlainText.strip('> [!TIP]+'), 'Tip');
+      expect(MarkdownPlainText.strip('> [!hint] Breathe'), 'Hint Breathe');
+      expect(MarkdownPlainText.strip('> [!drill]'), 'Drill');
+    });
+
+    test('a token on a body line stays the body text both surfaces show', () {
+      expect(
+        MarkdownPlainText.strip('> [!TIP] x\n> [!drill] y'),
+        'Tip x [!drill] y',
+      );
+      expect(
+        MarkdownPlainText.strip('> [!TIP] x\n> [!NOTE] y'),
+        'Tip x [!NOTE] y',
+      );
+      expect(MarkdownPlainText.strip('> [!TIP] x\n> [!NOTE]'), 'Tip x [!NOTE]');
+      // A blank line ends the block, so the next token leads again.
+      expect(
+        MarkdownPlainText.strip('> [!TIP] x\n\n> [!NOTE] y'),
+        'Tip x Note y',
+      );
+    });
+
+    test('a token that names no type stays quote text', () {
+      expect(MarkdownPlainText.strip('> [!two words] x'), '[!two words] x');
+    });
+
+    test(
+      'prints a quoted task state and drops quoted list and heading marks',
+      () {
+        expect(MarkdownPlainText.strip('> - [x] warm-up'), '✓ warm-up');
+        expect(MarkdownPlainText.strip('> - [ ] cool-down'), 'cool-down');
+        expect(MarkdownPlainText.strip('> # Week 3'), 'Week 3');
+        expect(MarkdownPlainText.strip('> > 1. bench'), 'bench');
+      },
+    );
   });
 
   group('MarkdownPlainText.strip inline grammar', () {
@@ -157,9 +224,61 @@ void main() {
 
     test('drops a hard-break backslash and keeps an escaped one', () {
       expect(MarkdownPlainText.strip('first\\\nsecond'), 'first second');
-      expect(MarkdownPlainText.strip(r'- item\'), 'item');
+      expect(MarkdownPlainText.strip('- item\\\nmore'), 'item more');
       expect(MarkdownPlainText.strip(r'a\\'), r'a\');
       expect(MarkdownPlainText.strip(r'\'), r'\');
+    });
+
+    test('keeps a trailing backslash at the end of a block', () {
+      expect(MarkdownPlainText.strip(r'- item\'), r'item\');
+      expect(MarkdownPlainText.strip(r'- D:\Backups\'), r'D:\Backups\');
+      expect(MarkdownPlainText.strip('a\\\n\nb'), r'a\ b');
+      expect(MarkdownPlainText.strip('a\\\n \t\nb'), r'a\ b');
+      expect(MarkdownPlainText.strip('> a\\\n> b'), 'a b');
+    });
+
+    test('pairs fences by character and run length', () {
+      expect(
+        MarkdownPlainText.strip('```npm i``` then #tag'),
+        'npm i then #tag',
+      );
+      expect(MarkdownPlainText.strip('```\na\n```js\nb\n```\nafter'), 'after');
+      expect(MarkdownPlainText.strip('````\n```\n````\nafter'), 'after');
+      expect(MarkdownPlainText.strip('~~~\ncode\n~~~\nafter'), 'after');
+      expect(MarkdownPlainText.strip('```\n~~~\n```\nafter'), 'after');
+      expect(
+        MarkdownPlainText.strip('- step\n    ```\n    npm i #tag\n    ```\nok'),
+        'step ok',
+      );
+      expect(
+        MarkdownPlainText.strip('- step\n\t```\n\tnpm i\n\t```\nok'),
+        'step ok',
+      );
+    });
+
+    test('drops comments, inline and block', () {
+      expect(MarkdownPlainText.strip('a %%secret #tag%% b'), 'a b');
+      expect(MarkdownPlainText.strip('a %%unclosed'), 'a %%unclosed');
+      expect(MarkdownPlainText.strip('a\n%%\nsecret\n%%\nb'), 'a b');
+      expect(MarkdownPlainText.strip('a\n%%\nsecret to the end'), 'a');
+      expect(MarkdownPlainText.strip('```\n%%\n```\nb'), 'b');
+    });
+
+    test('a note that is only a comment previews blank, not its text', () {
+      expect(MarkdownPlainText.strip('%%secret%%'), '');
+      expect(MarkdownPlainText.strip('%%\nmy pin 1234\n%%'), '');
+      expect(MarkdownPlainText.strip('%%\nunclosed to the end'), '');
+      // The fallback still serves a rule or a fence, less the comments.
+      expect(MarkdownPlainText.strip('---\n%%x%%\n%%\nhidden\n%%'), '---');
+      expect(
+        MarkdownPlainText.strip('```\n%%kept as code%%\n```'),
+        '``` %%kept as code%% ```',
+      );
+    });
+
+    test('a CRLF fence and comment close as their LF forms do', () {
+      expect(MarkdownPlainText.strip('```\r\ncode\r\n```\r\nafter'), 'after');
+      expect(MarkdownPlainText.strip('%%\r\nhidden\r\n%%\r\nafter'), 'after');
     });
 
     test('single-line constructs and a url keep a trailing backslash', () {

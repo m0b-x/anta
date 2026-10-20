@@ -143,4 +143,33 @@ void main() {
     // claim about its content that we cannot make.
     expect(ledger.ledgerFor(corrupt), isNull);
   });
+
+  // The fold pairs fences and `%%` comments through the chunker's block
+  // state, the transition the editor's line index steps, so the note totals
+  // and the editor's running balances count the same rows.
+  test('fenced and commented rows are inert exactly as the editor reads them',
+      () async {
+    final jsInFence = await createNote(
+      '```\n\$+ 5.00 code\n```js\n\$+ 10.00 code\n```\n\$+ 1.00 live',
+    );
+    final tildeInFence = await createNote(
+      '```\n~~~\n```\n\$+ 100.00 live',
+    );
+    final fenceInComment = await createNote(
+      '%%\n```\n%%\n\$+ 100.00 live',
+    );
+    final rowInComment = await createNote('%%\n\$+ 100.00 hidden\n%%');
+
+    await ledger.refresh([
+      linkedEvent('e-js', jsInFence),
+      linkedEvent('e-tilde', tildeInFence),
+      linkedEvent('e-fence-in-comment', fenceInComment),
+      linkedEvent('e-row-in-comment', rowInComment),
+    ]);
+
+    expect(ledger.ledgerFor(jsInFence)!.net, 100);
+    expect(ledger.ledgerFor(tildeInFence)!.net, 10000);
+    expect(ledger.ledgerFor(fenceInComment)!.net, 10000);
+    expect(ledger.ledgerFor(rowInComment)!.net, 0);
+  });
 }

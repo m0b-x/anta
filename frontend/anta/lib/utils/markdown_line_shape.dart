@@ -2,6 +2,7 @@ import '../constants/markdown_constants.dart';
 import 'ghost_text.dart';
 import 'markdown_chunker.dart';
 import 'markdown_link_patterns.dart';
+import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
 
 /// Shape probe for line-led markdown constructs whose meaning lives on
@@ -318,10 +319,68 @@ class MarkdownLineShape {
 
   static bool _isBlank(int c) => c == 0x20 || c == 0x09;
 
+  /// The heading level a setext underline under a text line gives it:
+  /// `1` for a run of three or more `=`, `2` for one of `-`, `0` when
+  /// [line] is no underline. Up to three spaces of indent and trailing
+  /// blanks are allowed, nothing between the markers — so `- - -` is only
+  /// ever a rule, while `---` is an underline or a rule depending on the
+  /// line above ([setextLevelOf]).
+  static int setextUnderlineLevel(String line) {
+    final n = line.length;
+    var i = 0;
+    while (i < n && i < 3 && line.codeUnitAt(i) == 0x20) {
+      i++;
+    }
+    if (i >= n) return 0;
+    final marker = line.codeUnitAt(i);
+    if (marker != 0x3D && marker != 0x2D) return 0;
+    var j = i;
+    while (j < n && line.codeUnitAt(j) == marker) {
+      j++;
+    }
+    if (j - i < 3) return 0;
+    for (var k = j; k < n; k++) {
+      if (!_isBlank(line.codeUnitAt(k))) return 0;
+    }
+    return marker == 0x3D ? 1 : 2;
+  }
+
+  /// Whether [line] can carry a setext underline: a plain paragraph line
+  /// — not blank, not a [isLineLedConstruct] (rules, quotes, headings,
+  /// tables, fences, money rows), not a list item, and no underline
+  /// itself, so `===` under `===` is text. Whether the line sits inside a
+  /// fence or a comment is positional; the caller checks that.
+  static bool isSetextTextLine(String line) =>
+      !MarkdownChunker.isBlankLine(line) &&
+      setextUnderlineLevel(line) == 0 &&
+      !isLineLedConstruct(line) &&
+      MarkdownListSyntax.scanListShape(line) < 0;
+
+  /// The setext heading level of [line] given the line after it, or `0`:
+  /// [nextLine] is an underline ([setextUnderlineLevel]) and [line] a
+  /// [isSetextTextLine]. The sibling of [headingAt] for the one heading
+  /// form a single line cannot answer. Only the line directly above the
+  /// underline becomes the heading, where CommonMark takes the whole
+  /// paragraph: the editor reads lines, not paragraphs, so the lines
+  /// before it stay prose — and an indented line, a list item's
+  /// continuation or a bare `-` marker is a text line like any other,
+  /// since the grammar models no lazy continuation. The heading menu, the
+  /// header-level rewrite and the `[[Note#heading]]` target read
+  /// [headingAt] only, so they leave a setext heading alone: it shows no
+  /// level, a picked level prefixes `#`s (the underline then reads as a
+  /// rule), and a wiki link cannot land on it.
+  static int setextLevelOf(String line, String? nextLine) {
+    if (nextLine == null) return 0;
+    final level = setextUnderlineLevel(nextLine);
+    if (level == 0) return 0;
+    return isSetextTextLine(line) ? level : 0;
+  }
+
   /// Whether [line] is a line-led construct that must stay one intact,
   /// unprefixed source line to keep its meaning: a horizontal rule, a
-  /// blockquote / callout, a table row, a fence delimiter, a heading, or
-  /// a money row (bare, heading-prefixed or list-prefixed).
+  /// blockquote / callout, a table row, a fence delimiter (``` or ~~~), a
+  /// `%%` block comment marker, a heading, or a money row (bare,
+  /// heading-prefixed or list-prefixed).
   static bool isLineLedConstruct(String line) {
     // Each predicate reads the raw line, as both dispatchers call it, so
     // a lead only `trim` strips (a no-break space) cannot make a line
@@ -339,7 +398,10 @@ class MarkdownLineShape {
       case 0x7C: // | — table row
         return isTableRow(line);
       case 0x60: // ` — fence delimiter
+      case 0x7E: // ~ — fence delimiter
         return MarkdownChunker.isFenceDelimiter(line);
+      case 0x25: // % — block comment marker
+        return MarkdownChunker.isCommentDelimiter(line);
       case 0x24: // $ — money row (full shape parse, not just the probe)
         return MarkdownMoneySyntax.parse(line) != null;
       case 0x23: // # — heading, or a space-less money heading (`##$$`)
