@@ -24,12 +24,18 @@ class VocabularySuggestionSession {
   final List<VocabularyCandidate> suggestions;
   final List<String> scopeNames;
 
+  /// Whether only indent precedes [start] on the line. A heading term
+  /// accepted there still becomes a heading, so the pill may flatten it;
+  /// anywhere else the hashes stay prose and the pill must show them.
+  final bool atLineStart;
+
   const VocabularySuggestionSession({
     required this.lineIndex,
     required this.start,
     required this.end,
     required this.suggestions,
     this.scopeNames = const [],
+    this.atLineStart = false,
   });
 
   bool sameAnchor(VocabularySuggestionSession? other) =>
@@ -271,6 +277,7 @@ class VocabularySuggestionController
           end: match.queryEnd,
           suggestions: suggestions,
           scopeNames: scoped ? _scopeNames(ids) : const [],
+          atLineStart: _blankBefore(text, match.triggerOffset),
         );
       }
     }
@@ -323,6 +330,7 @@ class VocabularySuggestionController
       end: ghost.end,
       suggestions: suggestions,
       scopeNames: scope == null ? const [] : [scope.name],
+      atLineStart: _blankBefore(text, ghost.start),
     );
   }
 
@@ -373,6 +381,7 @@ class VocabularySuggestionController
       end: caret,
       suggestions: suggestions,
       scopeNames: ids == null ? const [] : _scopeNames(ids),
+      atLineStart: _blankBefore(text, _anchorOffset),
     );
   }
 
@@ -406,4 +415,11 @@ class VocabularySuggestionController
   }
 
   static bool _isSpace(int unit) => unit == 0x20 || unit == 0x09;
+
+  static bool _blankBefore(String text, int offset) {
+    for (var i = 0; i < offset; i++) {
+      if (!_isSpace(text.codeUnitAt(i))) return false;
+    }
+    return true;
+  }
 }

@@ -2310,7 +2310,7 @@ class FormChip extends StatelessWidget {
       // Only a disabled chip says so: an enabled one keeps the node it has
       // always had, with no enabled state on it.
       enabled: enabled ? null : false,
-      child: _TapTargetPadding(
+      child: TapTargetPadding(
         minHeight: tapTarget,
         child: enabled
             ? body
@@ -2324,29 +2324,35 @@ class FormChip extends StatelessWidget {
   }
 }
 
-class _TapTargetPadding extends SingleChildRenderObjectWidget {
+/// A chip body smaller than the touch target keeps the target without
+/// growing the body: the box is at least [minHeight] tall, the child sits
+/// centred in it, and a tap anywhere in the band lands on the child.
+class TapTargetPadding extends SingleChildRenderObjectWidget {
   final double minHeight;
 
-  const _TapTargetPadding({required this.minHeight, required Widget child})
-    : super(child: child);
+  const TapTargetPadding({
+    super.key,
+    required this.minHeight,
+    required Widget child,
+  }) : super(child: child);
 
   @override
-  _RenderTapTargetPadding createRenderObject(BuildContext context) =>
-      _RenderTapTargetPadding(minHeight);
+  RenderTapTargetPadding createRenderObject(BuildContext context) =>
+      RenderTapTargetPadding(minHeight);
 
   @override
   void updateRenderObject(
     BuildContext context,
-    _RenderTapTargetPadding renderObject,
+    RenderTapTargetPadding renderObject,
   ) {
     renderObject.minHeight = minHeight;
   }
 }
 
-class _RenderTapTargetPadding extends RenderShiftedBox {
+class RenderTapTargetPadding extends RenderShiftedBox {
   double _minHeight;
 
-  _RenderTapTargetPadding(this._minHeight, [RenderBox? child]) : super(child);
+  RenderTapTargetPadding(this._minHeight, [RenderBox? child]) : super(child);
 
   set minHeight(double value) {
     if (value == _minHeight) return;

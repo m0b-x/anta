@@ -2254,6 +2254,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         onScrollToTop: () => _scrollToEdge(toTop: true),
         onScrollToBottom: () => _scrollToEdge(toTop: false),
         suggestions: _vocabularySuggestions,
+        suggestionPalette: settings.liveMarkdownRendering
+            ? _render.palette
+            : null,
       ),
     );
   }

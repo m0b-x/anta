@@ -177,6 +177,19 @@ void main() {
 
       expect(suggestions.value, isNull);
     });
+
+    // The bar flattens a heading term only where accepting it still makes
+    // a heading: after indent alone.
+    test('knows whether it starts the line', () {
+      type('@be');
+      expect(suggestions.value?.atLineStart, isTrue);
+
+      type('  @be');
+      expect(suggestions.value?.atLineStart, isTrue);
+
+      type('Did @be');
+      expect(suggestions.value?.atLineStart, isFalse);
+    });
   });
 
   group('the scoped trigger session', () {
@@ -346,6 +359,19 @@ void main() {
       editor.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
 
       expect(suggestions.value, isNull);
+    });
+
+    test('knows whether it starts the line, before and after typing', () {
+      engageGhost('{{exercise}}', 0, 12);
+      expect(suggestions.value?.atLineStart, isTrue);
+
+      engageGhost('Did {{exercise}}', 4, 16);
+      expect(suggestions.value?.atLineStart, isFalse);
+
+      // The anchor continuation pairs the line with the ghost's old start.
+      editor.replaceSelection('ben');
+      expect(offered(), ['Bench Press']);
+      expect(suggestions.value?.atLineStart, isFalse);
     });
   });
 }

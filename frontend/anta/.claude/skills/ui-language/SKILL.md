@@ -121,3 +121,4 @@ Device pass through `qa-emulator`: the area's fixture and flows, then dark, `de`
 | `references/sheet-chrome.md` | the three shapes, `FormSheetFrame`, the chrome rules in full, `ValueChangeHighlight`, the confirm styles | you build a sheet or a dialog |
 | `references/metrics.md` | the language's origin and records; colour and text roles, heights, `AppSpacing`; the metrics files | you need a number or a colour |
 | `references/ux-direction.md` | the app-wide UX direction: palette, keyboard insets, time entry | you touch the theme or the keyboard |
+| `references/render-recipe.md` | the scratch golden test with real fonts (Roboto + MaterialIcons from the SDK cache) that screenshots a widget in the real theme without a device | you judge or compare how a surface looks (the `designer` agent's first step) |

@@ -18,6 +18,7 @@ import '../models/custom_markdown_shortcut.dart';
 import '../models/utility_button_config.dart';
 import '../models/utility_button_definition.dart';
 import '../utils/icon_utils.dart';
+import '../utils/markdown_color_syntax.dart';
 import 'form_menu_item.dart';
 import 'vocabulary_suggestion_bar.dart';
 
@@ -86,6 +87,11 @@ class MarkdownBar extends StatefulWidget {
   /// the swap never shifts the editor. Null disables the feature for this bar.
   final VocabularySuggestionController? suggestions;
 
+  /// The colour palette the suggestion pills render their terms' markdown
+  /// with; null leaves the pills raw, the live-rendering-off state, so a raw
+  /// note never sits under styled pills.
+  final MarkdownColorPalette? suggestionPalette;
+
   const MarkdownBar({
     super.key,
     required this.shortcuts,
@@ -119,10 +125,13 @@ class MarkdownBar extends StatefulWidget {
     this.splitEnabled = true,
     this.utilityConfigs,
     this.suggestions,
+    this.suggestionPalette,
   });
 
   /// The button row's height, every button's 48 dp square. The suggestion
-  /// pills match it, and the pressed ink is a circle this wide.
+  /// pills' tap target matches it (their body is
+  /// `MarkdownBarMetrics.suggestionPillMinHeight`), and the pressed ink is a
+  /// circle this wide.
   static const double rowHeight = MarkdownBarMetrics.buttonSize;
 
   /// Times the normal bar's button rows were built. Debug builds only.
@@ -225,14 +234,6 @@ class _MarkdownBarState extends State<MarkdownBar> {
     });
   }
 
-  Widget _buildVerticalDivider(BuildContext context) {
-    return Container(
-      width: 1,
-      height: MarkdownBarMetrics.dividerHeight,
-      color: Theme.of(context).colorScheme.outlineVariant,
-    );
-  }
-
   /// The ground under the strips' edge fades: the bar's own when it draws
   /// one, the host's when it stands on the host's.
   Color? get _fadeGround => widget.showBackground ? null : widget.fadeGround;
@@ -288,6 +289,8 @@ class _MarkdownBarState extends State<MarkdownBar> {
                     onAccept: suggestions.accept,
                     onDismiss: suggestions.dismiss,
                     showBackground: widget.showBackground,
+                    fadeGround: _fadeGround,
+                    palette: widget.suggestionPalette,
                   ),
                 ),
             ],
@@ -394,7 +397,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
                       const SizedBox(
                         width: MarkdownBarMetrics.singleRowDividerGap,
                       ),
-                      _buildVerticalDivider(context),
+                      const MarkdownBarDivider(),
                       const SizedBox(
                         width: MarkdownBarMetrics.singleRowDividerGap,
                       ),
@@ -409,7 +412,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
                 padding: const EdgeInsets.symmetric(
                   horizontal: MarkdownBarMetrics.dividerGap,
                 ),
-                child: _buildVerticalDivider(context),
+                child: const MarkdownBarDivider(),
               ),
               ...pinnedButtons,
               const SizedBox(width: MarkdownBarMetrics.dividerGap),
@@ -455,7 +458,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
             padding: const EdgeInsets.symmetric(
               horizontal: MarkdownBarMetrics.dividerGap,
             ),
-            child: _buildVerticalDivider(context),
+            child: const MarkdownBarDivider(),
           ),
           // Undo and redo, then the rest of the utility buttons; the ratio
           // shares out what the pinned pair leaves.
@@ -531,7 +534,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
     }
 
     final action = onPressed;
-    return _ToolbarButton(
+    return MarkdownBarIconButton(
       icon: def.icon,
       tooltip: def.label(l10n),
       onPressed: action == null || !resetsScroll
@@ -1276,12 +1279,31 @@ class _ShortcutButton extends StatelessWidget {
   }
 }
 
-class _ToolbarButton extends StatelessWidget {
+/// The bar's section hairline. One widget for the toolbar and the
+/// suggestion row, so the two modes cannot drift apart.
+class MarkdownBarDivider extends StatelessWidget {
+  const MarkdownBarDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: MarkdownBarMetrics.dividerHeight,
+      color: Theme.of(context).colorScheme.outlineVariant,
+    );
+  }
+}
+
+/// The bar's icon button. Public so the suggestion row's dismiss takes the
+/// same target, glyph, ink and screen-reader node as the buttons it stands
+/// in for, and the two modes read as one bar.
+class MarkdownBarIconButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
 
-  const _ToolbarButton({
+  const MarkdownBarIconButton({
+    super.key,
     required this.icon,
     required this.tooltip,
     required this.onPressed,

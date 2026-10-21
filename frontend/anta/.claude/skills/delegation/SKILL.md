@@ -16,6 +16,7 @@ The owner pays for every token, on a plan where Fable 5.1 costs 2.5× Opus 5.5 a
 | `reviewer` | Opus 5.5 / high | independent read-only review of a diff against its spec and must-not-change list; every finding, CONFIRMED or PLAUSIBLE | fixing, probe tests, design |
 | `qa-runner` | Sonnet 5.5 / medium | the device pass through `tool/qa/qa`: seed, flows, matrix screenshots, `qa errors` | fixing code or flows |
 | `docs-writer` | Sonnet 5.5 / low | placing text the lead already wrote into records, references and skills | writing a record, judgement calls |
+| `designer` | Opus 5.5 / high | the look of one surface: renders it with real fonts (`ui-language/references/render-recipe.md`), diagnoses it against the UI language, returns ONE direction as an exact spec (token, value, metric per element) or one mock, re-renders after the build and lists deviations | editing `lib/` or the suite, variants, page-wide surveys |
 | `fable-max` | Fable 5.1 / max | only when the owner names it for a rework's final review or a decision that must be excellent | anything by default |
 
 The built-in `Explore` agent runs on the main session's model (Opus when the main model is Fable) — use `explorer` instead for cheap reads. `general-purpose` without a model runs on Opus 5.5 by project setting; pass `model: sonnet` or `haiku` when the task is mechanical.

@@ -4,7 +4,10 @@ import '../constants/app_theme.dart';
 import '../constants/markdown_bar_metrics.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/markdown_chip_span.dart';
+import '../utils/markdown_color_syntax.dart';
 import '../utils/vocabulary_matcher.dart';
+import 'form_rows.dart' show TapTargetPadding;
 import 'markdown_bar.dart';
 
 /// The suggestion pills, shown in place of the markdown toolbar while a
@@ -15,13 +18,23 @@ import 'markdown_bar.dart';
 /// hidden normal row, and on its own it is one [MarkdownBar.rowHeight] row
 /// inside [MarkdownBarMetrics.verticalPadding]. Capture speed is the whole
 /// point of the feature; a toolbar that jumps would cost more than the
-/// autocomplete saves. A scoped session's leading label rides inside that
-/// budget, shorter than the pills beside it.
+/// autocomplete saves. A single-list scope's leading label rides inside that
+/// budget, no taller than the pills beside it.
 class VocabularySuggestionBar extends StatelessWidget {
   final VocabularySuggestionSession session;
   final ValueChanged<VocabularyCandidate> onAccept;
   final VoidCallback onDismiss;
   final bool showBackground;
+
+  /// The ground under the strip's edge fade, as [MarkdownBar] passes its
+  /// own strips: the theme's surface when null.
+  final Color? fadeGround;
+
+  /// The colour palette a pill renders its term's markdown with, as the
+  /// live editor will once the term is accepted. Null leaves the pills raw:
+  /// the editor is showing raw markdown, and a pill should read like the
+  /// note it inserts into.
+  final MarkdownColorPalette? palette;
 
   const VocabularySuggestionBar({
     super.key,
@@ -29,15 +42,9 @@ class VocabularySuggestionBar extends StatelessWidget {
     required this.onAccept,
     required this.onDismiss,
     this.showBackground = true,
+    this.fadeGround,
+    this.palette,
   });
-
-  static const double _pillHeight = MarkdownBar.rowHeight;
-
-  /// The largest text scale whose two pill lines (the term and its list's
-  /// name) still fit the pill, kept at what the 40 px pill allowed. Past it
-  /// the pill would clip its text or, unpinned, grow the row the markdown
-  /// bar shares.
-  static const double _maxTextScale = 1.4;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +55,11 @@ class VocabularySuggestionBar extends StatelessWidget {
       for (final candidate in session.suggestions) candidate.vocabularyId,
     };
     final showSource = vocabularyIds.length > 1;
+    // Decided by the typed scope, never by the current matches: a label that
+    // came and went as a multi-list scope's matches narrowed would slide
+    // every pill sideways between keystrokes. A multi-list scope leans on
+    // the pills' second line instead.
+    final showScope = session.scopeNames.length == 1;
 
     return Container(
       decoration: showBackground
@@ -57,75 +69,70 @@ class VocabularySuggestionBar extends StatelessWidget {
         vertical: MarkdownBarMetrics.verticalPadding,
       ),
       child: MediaQuery.withClampedTextScaling(
-        maxScaleFactor: _maxTextScale,
+        maxScaleFactor: MarkdownBarMetrics.suggestionMaxTextScale,
         child: SizedBox(
-          height: _pillHeight,
+          height: MarkdownBar.rowHeight,
           child: Row(
             children: [
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: MarkdownBarMetrics.sidePadding,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (session.scopeNames.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            right: MarkdownBarMetrics.suggestionScopeGap,
-                          ),
-                          child: Text(
-                            session.scopeNames.join(', '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                child: LayoutBuilder(
+                  builder: (context, constraints) => MarkdownBarEdgeFade(
+                    ground: fadeGround,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: MarkdownBarMetrics.sidePadding,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (showScope)
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                right: MarkdownBarMetrics.suggestionScopeGap,
+                              ),
+                              child: _ScopeLabel(
+                                name: session.scopeNames.single,
+                                maxWidth:
+                                    constraints.maxWidth *
+                                    MarkdownBarMetrics.suggestionScopeMaxShare,
+                              ),
                             ),
-                          ),
-                        ),
-                      for (final candidate in session.suggestions)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            right: MarkdownBarMetrics.suggestionPillGap,
-                          ),
-                          child: _SuggestionPill(
-                            candidate: candidate,
-                            showSource: showSource,
-                            onTap: () => onAccept(candidate),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              Container(
-                width: 1,
-                height: MarkdownBarMetrics.dividerHeight,
-                color: theme.colorScheme.outlineVariant,
-              ),
-              // A button to a screen reader, as every bar button is: this
-              // row stands in for the bar.
-              Semantics(
-                container: true,
-                button: true,
-                child: Tooltip(
-                  message: l10n.vocabularySuggestionsDismiss,
-                  preferBelow: false,
-                  child: InkWell(
-                    onTap: onDismiss,
-                    customBorder: const CircleBorder(),
-                    child: const SizedBox(
-                      width: _pillHeight,
-                      height: _pillHeight,
-                      child: Icon(
-                        Icons.close,
-                        size: MarkdownBarMetrics.glyphSize,
+                          // The gap goes before every pill but the first, so
+                          // the strip ends on the side padding alone, as it
+                          // starts. Every locale the app ships is LTR.
+                          for (final (index, candidate)
+                              in session.suggestions.indexed)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                left: index == 0
+                                    ? 0
+                                    : MarkdownBarMetrics.suggestionPillGap,
+                              ),
+                              child: _SuggestionPill(
+                                candidate: candidate,
+                                showSource: showSource,
+                                palette: palette,
+                                headings: session.atLineStart,
+                                onTap: () => onAccept(candidate),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
                 ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MarkdownBarMetrics.dividerGap,
+                ),
+                child: const MarkdownBarDivider(),
+              ),
+              MarkdownBarIconButton(
+                icon: Icons.close,
+                tooltip: l10n.vocabularySuggestionsDismiss,
+                onPressed: onDismiss,
               ),
             ],
           ),
@@ -135,70 +142,188 @@ class VocabularySuggestionBar extends StatelessWidget {
   }
 }
 
+/// A single-list scope's lead: the Lists page's glyph and the list's name
+/// at the pills' own size, so the scope reads as part of the strip rather
+/// than a caption beside it.
+class _ScopeLabel extends StatelessWidget {
+  final String name;
+  final double maxWidth;
+
+  const _ScopeLabel({required this.name, required this.maxWidth});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurfaceVariant;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ExcludeSemantics(
+          child: Icon(
+            Icons.format_list_bulleted_rounded,
+            size: MarkdownBarMetrics.glyphSize,
+            color: color,
+          ),
+        ),
+        const SizedBox(width: MarkdownBarMetrics.suggestionScopeGlyphGap),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: color,
+              height: MarkdownBarMetrics.suggestionLineHeight,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SuggestionPill extends StatelessWidget {
   final VocabularyCandidate candidate;
   final bool showSource;
+  final MarkdownColorPalette? palette;
+  final bool headings;
   final VoidCallback onTap;
 
   const _SuggestionPill({
     required this.candidate,
     required this.showSource,
+    required this.palette,
+    required this.headings,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final radius = BorderRadius.circular(
-      VocabularySuggestionBar._pillHeight / 2,
-    );
+    final colorScheme = theme.colorScheme;
+    // The term at the body's own weight on the bar's own surface, so the
+    // chip span's bold, tags, colours and ghosts read as in the note.
+    final termStyle = (theme.textTheme.bodyMedium ?? const TextStyle())
+        .copyWith(
+          color: colorScheme.onSurface,
+          height: MarkdownBarMetrics.suggestionLineHeight,
+        );
+    final palette = this.palette;
 
     return Semantics(
       container: true,
       button: true,
-      child: Material(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: radius,
-        child: InkWell(
-          borderRadius: radius,
-          onTap: onTap,
-          child: Container(
-            height: VocabularySuggestionBar._pillHeight,
-            padding: const EdgeInsets.symmetric(
-              horizontal: MarkdownBarMetrics.suggestionPillPadding,
-            ),
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  candidate.term,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSecondaryContainer,
-                    fontWeight: FontWeight.w500,
-                    height: 1.1,
+      child: TapTargetPadding(
+        minHeight: MarkdownBar.rowHeight,
+        // Outlined, not filled: a filled stadium is the app's selected chip.
+        child: Material(
+          color: Colors.transparent,
+          shape: StadiumBorder(
+            side: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: MarkdownBarMetrics.suggestionPillMinHeight,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MarkdownBarMetrics.suggestionPillPadding,
+                  vertical: MarkdownBarMetrics.suggestionPillVerticalPadding,
+                ),
+                child: Center(
+                  widthFactor: 1,
+                  heightFactor: 1,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (palette == null)
+                        Text(
+                          candidate.term,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: termStyle,
+                        )
+                      else
+                        _RenderedTerm(
+                          chip: MarkdownChipSpan.build(
+                            term: candidate.term,
+                            style: termStyle,
+                            theme: theme,
+                            palette: palette,
+                            headings: headings,
+                          ),
+                        ),
+                      if (showSource)
+                        Text(
+                          candidate.vocabularyName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            height: MarkdownBarMetrics.suggestionLineHeight,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                if (showSource)
-                  Text(
-                    candidate.vocabularyName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer.withValues(
-                        alpha: MarkdownBarMetrics.suggestionSourceAlpha,
-                      ),
-                      height: 1.1,
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A pill's term line rendered as the live editor will show it. The pill
+/// sits in an unbounded horizontal scroller, so the row takes the term's
+/// intrinsic width and no flex child; the heading label sits on the term's
+/// baseline at a smaller size and the same line height, so it never adds
+/// height.
+class _RenderedTerm extends StatelessWidget {
+  final MarkdownChipSpan chip;
+
+  const _RenderedTerm({required this.chip});
+
+  @override
+  Widget build(BuildContext context) {
+    final level = chip.headingLevel;
+    final term = Text.rich(
+      chip.span,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+    if (level == null) return term;
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          'H$level',
+          semanticsLabel: switch (level) {
+            1 => l10n.header1,
+            2 => l10n.header2,
+            3 => l10n.header3,
+            4 => l10n.header4,
+            5 => l10n.header5,
+            _ => l10n.header6,
+          },
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            height: MarkdownBarMetrics.suggestionLineHeight,
+          ),
+        ),
+        const SizedBox(width: MarkdownBarMetrics.suggestionHeadingLabelGap),
+        term,
+      ],
     );
   }
 }

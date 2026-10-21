@@ -1,7 +1,8 @@
 # Vocabulary autocomplete
 
 **Status: shipped (schema v32, 2026-08-23).** Design record for the editor's
-user-defined suggestion lists.
+user-defined suggestion lists. Addendum 2026-10-21: the pills render their
+terms' markdown and are outlined chips (see Decisions).
 
 ## The problem
 
@@ -20,7 +21,8 @@ a suggestion bar over the markdown toolbar:
    to "Bench Press"; tapping the pill writes `Bench Press ` as plain text.
    Anything before the run's first colon **scopes the query to named lists**:
    `@exercise:ben` searches Exercises only, `@exercises,meals:oat` the two of
-   them together. A scoped bar labels itself with the lists it is confined to.
+   them together. A single-list scope labels the bar with that list's name; a
+   multi-list scope leaves it to each pill's second line.
 2. **Tapping a ghost placeholder.** `- {{exercise}} 3x{{sets}}` is a workout
    template; tapping the first ghost offers the Exercises list (the placeholder
    name resolves to it), and tapping a pill fills the run in place.
@@ -59,8 +61,9 @@ open (breaking "never block free typing"), anchors a popup at the caret rather
 than near the thumb, matches prefix-only, and does not wrap its insertion in
 `runRevocableOp`. No fork change was needed.
 
-**The bar replaces the toolbar's content at identical height** — 40px pills
-inside 8px padding, exactly the shortcut row's metrics. A session opening must
+**The bar replaces the toolbar's content at identical height** — one
+`MarkdownBar.rowHeight` (48 px) row inside 3 px padding, 55 px with the
+hairline, exactly the shortcut row's metrics. A session opening must
 never shift the editor. Capture speed is the point; a toolbar that jumps costs
 more than the autocomplete saves.
 
@@ -128,6 +131,42 @@ into the row it had before.
 **Store verbatim, match folded** — the tag roadmap's canonicalization rule,
 applied through `normalizeForSearch`. Never a second folding table.
 
+**The pills render a term's markdown the way the live editor will
+(2026-10-21).** A term such as `**Bench press**` or `#push` reads in the bar as
+it will read in the note: `MarkdownChipSpan` (lib/utils) feeds the term through
+the editor's own `EditorInlineEmitter.append` — the same tokenizer, the same
+conceal rule, the same colours derived from the pill's style via
+`EditorRenderContext.fromTheme` — so no third grammar exists and a new inline
+construct reaches the pills for free. Headings keep the pill's font size (the
+bar's fixed height is the whole point) and announce themselves instead with an
+`H1`…`H6` label, `labelSmall` on the term's baseline, the hashes dropped and the
+editor's heading weight kept; an empty heading stays raw so a pill is never
+blank. The page hands its colour palette through `MarkdownBar.suggestionPalette`
+only while live rendering is on, so a raw note never sits under styled pills.
+Inline markers are concealed, never dropped — the editor's rule — and only a
+heading's hashes are dropped, since nothing in a chip needs their offsets; a
+heading is flattened only when the session starts the line, because anywhere
+else the accepted hashes stay prose. A term is never shown blank: all-chrome
+terms (`%%note%%`, `# %%x%%`) fall back to the raw text. The visible `H1`…`H6`
+label is the toolbar heading menu's own literal, a markdown symbol rather than a
+word, so it is not localized; the screen reader gets `header1`…`header6`.
+
+**The pills are outlined, not filled (2026-10-21, designer pass).** A filled
+`secondaryContainer` stadium is the app's *selected* chip and was the heaviest
+chrome in the editor; the pill is now a 1 px `outlineVariant` stadium on the
+bar's own surface, its term in `onSurface` at the body weight, so the chip
+span's bold, tags, colours and ghosts read exactly as they will in the note.
+The tap target stays 48 px through `TapTargetPadding` while the body is 40 px
+and grows with its text at larger scales (47 px at the 1.4 clamp). A scoped
+session leads with the Lists glyph and the list names at the pills' own size,
+capped at 45 % of the strip, and is shown only for a single-list scope, so its
+presence never changes while typing; a multi-list scope relies on the pills'
+second line, and a two-name label at that size would have left one pill
+visible. The `H1` label is `labelSmall` on the term's baseline,
+the ✕ is the toolbar's `MarkdownBarIconButton` (ink included), and the strip
+wears the toolbar's edge fade and divider gap, so the two modes read as one
+family.
+
 ## Shape
 
 ```
@@ -139,7 +178,7 @@ VocabularyDao                    VocabularySuggestionController
         ↓                          ↓ (reads candidates per keystroke)
 vocabularies + vocabulary_items    VocabularyTrigger + VocabularyMatcher (pure)
                                    ↓
-                                   MarkdownBar → VocabularySuggestionBar
+                                   MarkdownBar → VocabularySuggestionBar (MarkdownChipSpan)
                                    ↓ accept
                                    page _applyVocabularyInsertion
 ```
@@ -200,3 +239,7 @@ same insertion path, different provider.
 - `test/utils/vocabulary_trigger_test.dart`,
   `test/utils/vocabulary_matcher_test.dart` — the pure grammar (including
   scope-segment splitting) and ranking.
+- `test/utils/markdown_chip_span_test.dart` — the pill's rendering: editor
+  colours at a fixed size, headings flattened to a level, the raw fallbacks.
+- `test/widgets/vocabulary_suggestion_bar_test.dart` — the bar's height
+  contract, the pills as buttons, rendered vs raw pills, heading pills.

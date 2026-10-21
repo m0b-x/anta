@@ -1,6 +1,7 @@
 import 'package:flutter/painting.dart';
 
 import 'app_theme.dart';
+import 'form_metrics.dart';
 
 /// The markdown bar's numbers — the editor's most tapped surface, so they
 /// live in one place rather than as literals spread over its buttons, its
@@ -40,12 +41,42 @@ abstract final class MarkdownBarMetrics {
   static const double edgeFadeExtent = 24;
 
   /// The suggestion row: the gap after a scoped session's label, the gap
-  /// between two pills, a pill's side padding and the alpha of the list's
-  /// name under a term.
-  static const double suggestionScopeGap = 8;
-  static const double suggestionPillGap = 6;
-  static const double suggestionPillPadding = 14;
-  static const double suggestionSourceAlpha = 0.7;
+  /// between two pills (a form chip's, since the pills are outlined chips)
+  /// and a pill's side padding.
+  static const double suggestionScopeGap = 12;
+  static const double suggestionPillGap = FormMetrics.chipSpacing;
+  static const double suggestionPillPadding = 16;
+
+  /// The gap between a scoped session's Lists glyph and its list names.
+  static const double suggestionScopeGlyphGap = 6;
+
+  /// The most of the strip the list names take before they ellipsize, so a
+  /// long scope never pushes every pill out of sight.
+  static const double suggestionScopeMaxShare = 0.45;
+
+  /// A pill's body: shorter than the row so the outline reads as a chip,
+  /// grown by its text past that inside the [buttonSize] tap target.
+  static const double suggestionPillMinHeight = 40;
+
+  /// The band above and below a pill's text. Two lines get the row's 48
+  /// less twice this — 40 px of text, which holds a term and its list's
+  /// name up to [suggestionMaxTextScale]; more padding would lower that
+  /// clamp, less would let the text touch the outline.
+  static const double suggestionPillVerticalPadding = 4;
+
+  /// The line height of every text in the suggestion row; tight, so a
+  /// term and its list's name fit one pill.
+  static const double suggestionLineHeight = 1.1;
+
+  /// The largest text scale the suggestion row follows. Coupled with
+  /// [suggestionPillVerticalPadding]: a two-line pill at this clamp is 47
+  /// of the row's 48 px, and a clamp past about 1.45 would overflow it or,
+  /// unpinned, grow the row the markdown bar shares.
+  static const double suggestionMaxTextScale = 1.4;
+
+  /// The gap after the `H1`…`H6` label that leads a heading term: the
+  /// smallest that keeps it from reading as part of the word.
+  static const double suggestionHeadingLabelGap = 4;
 
   /// The reorder panel's ceiling as a share of the height above the
   /// keyboard, so the editor it sits under always keeps the other half.
