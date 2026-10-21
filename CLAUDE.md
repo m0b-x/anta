@@ -9,6 +9,6 @@ The Dart package is named `anta`; the app id is `com.alexzamfir.anta`. The on-di
 - [frontend/anta/CLAUDE.md](frontend/anta/CLAUDE.md) — the machine you are on, architecture, non-negotiable rules, commands, how work is budgeted, the skill map.
 - [frontend/anta/.claude/rules/](frontend/anta/.claude/rules/) — path-scoped rules that load themselves when you touch an area's files.
 - [frontend/anta/.claude/skills/](frontend/anta/.claude/skills/) — per-area skills: `SKILL.md` is the rulebook, `references/` the facts, read by section.
-- [frontend/anta/.claude/agents/](frontend/anta/.claude/agents/) — the agent roster (explorer, implementer, reviewer, designer, qa-runner, docs-writer, fable-max) and the `delegation` skill that says who does what.
+- [frontend/anta/.claude/agents/](frontend/anta/.claude/agents/) — the agent roster (explorer, implementer, reviewer, designer, design-reviewer, qa-runner, docs-writer, fable-max) and the `delegation` skill that says who does what.
 
 Run every command from `frontend/anta`, not from the repo root.
