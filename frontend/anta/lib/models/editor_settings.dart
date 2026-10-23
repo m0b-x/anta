@@ -53,6 +53,10 @@ class EditorSettings extends Equatable {
 
   final bool toolbarSplitEnabled;
 
+  /// Whether undo and redo stand outside the utility scroller; off, they
+  /// take their place in [toolbarUtilityConfig] like any other utility.
+  final bool toolbarUndoRedoPinned;
+
   /// Order and visibility of the toolbar's utility buttons. Never empty — an
   /// absent or unreadable row decodes to [UtilityButtonConfig.defaults].
   final List<UtilityButtonConfig> toolbarUtilityConfig;
@@ -91,6 +95,7 @@ class EditorSettings extends Equatable {
     this.previewLinesPerChunk = SettingsKeys.defaultPreviewLinesPerChunk,
     this.toolbarShortcutRatio = SettingsKeys.defaultToolbarShortcutRatio,
     this.toolbarSplitEnabled = SettingsKeys.defaultToolbarSplitEnabled,
+    this.toolbarUndoRedoPinned = SettingsKeys.defaultToolbarUndoRedoPinned,
     List<UtilityButtonConfig>? toolbarUtilityConfig,
     this.vocabularySuggestionsEnabled =
         SettingsKeys.defaultVocabularySuggestionsEnabled,
@@ -128,6 +133,7 @@ class EditorSettings extends Equatable {
     int? previewLinesPerChunk,
     double? toolbarShortcutRatio,
     bool? toolbarSplitEnabled,
+    bool? toolbarUndoRedoPinned,
     List<UtilityButtonConfig>? toolbarUtilityConfig,
     bool? vocabularySuggestionsEnabled,
     String? vocabularyTriggerChar,
@@ -153,6 +159,8 @@ class EditorSettings extends Equatable {
       previewLinesPerChunk: previewLinesPerChunk ?? this.previewLinesPerChunk,
       toolbarShortcutRatio: toolbarShortcutRatio ?? this.toolbarShortcutRatio,
       toolbarSplitEnabled: toolbarSplitEnabled ?? this.toolbarSplitEnabled,
+      toolbarUndoRedoPinned:
+          toolbarUndoRedoPinned ?? this.toolbarUndoRedoPinned,
       toolbarUtilityConfig: toolbarUtilityConfig ?? this.toolbarUtilityConfig,
       vocabularySuggestionsEnabled:
           vocabularySuggestionsEnabled ?? this.vocabularySuggestionsEnabled,
@@ -180,6 +188,7 @@ class EditorSettings extends Equatable {
     previewLinesPerChunk,
     toolbarShortcutRatio,
     toolbarSplitEnabled,
+    toolbarUndoRedoPinned,
     toolbarUtilityConfig,
     vocabularySuggestionsEnabled,
     vocabularyTriggerChar,

@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_theme.dart';
 import '../constants/form_metrics.dart';
@@ -71,12 +70,20 @@ class MarkdownBar extends StatefulWidget {
 
   /// Ratio of toolbar width allocated to the shortcuts section (0.0–1.0).
   /// The utility scroller gets (1 - shortcutRatio); both share what the
-  /// pinned undo and redo leave of the bar.
+  /// pinned undo and redo, when [pinUndoRedo] holds them, leave of the bar.
   final double shortcutRatio;
 
   /// When true, toolbar is split into two independently scrollable sections.
   /// When false, all buttons are in a single horizontally scrollable row.
   final bool splitEnabled;
+
+  /// Whether undo and redo stand outside the utility scroller, where the
+  /// "no lost text" action never scrolls away. The pair costs 96 dp of a
+  /// phone's bar, which the owner may rather give back: off, they are
+  /// utility buttons in the order and visibility the utility config gives
+  /// them, and the pair's 96 dp go back to the strips — shared by the ratio
+  /// in split mode, all of it to the single row.
+  final bool pinUndoRedo;
 
   /// Configuration for utility button visibility and order.
   /// When null, all utility buttons are shown in the default order.
@@ -123,6 +130,7 @@ class MarkdownBar extends StatefulWidget {
     this.showReorder = true,
     this.shortcutRatio = 0.7,
     this.splitEnabled = true,
+    this.pinUndoRedo = true,
     this.utilityConfigs,
     this.suggestions,
     this.suggestionPalette,
@@ -154,8 +162,9 @@ class _MarkdownBarState extends State<MarkdownBar> {
   /// repeatable buttons ([_repeatableUtilityIds]) keep it.
   final ScrollController _utilityScroll = ScrollController();
 
-  /// Undo and redo sit outside the utility scroller (the review's D2): the
-  /// "no lost text" action must never scroll away.
+  /// Undo and redo sit outside the utility scroller (the review's D2) while
+  /// [MarkdownBar.pinUndoRedo] holds: the "no lost text" action must never
+  /// scroll away. The owner may give their width back to the shortcuts.
   static const Set<String> _pinnedUtilityIds = {
     UtilityButtonId.undo,
     UtilityButtonId.redo,
@@ -164,8 +173,11 @@ class _MarkdownBarState extends State<MarkdownBar> {
   /// Buttons tapped several times in a row: the scroller keeps its offset
   /// after them, so the second tap lands on the same button, not on
   /// whichever one the reset slid under the finger. Indent and outdent
-  /// belong here too — nesting a sub-item two levels deep is two taps.
+  /// belong here too — nesting a sub-item two levels deep is two taps —
+  /// and so do undo and redo when they scroll with the rest.
   static const Set<String> _repeatableUtilityIds = {
+    UtilityButtonId.undo,
+    UtilityButtonId.redo,
     UtilityButtonId.decreaseFont,
     UtilityButtonId.increaseFont,
     UtilityButtonId.scrollToTop,
@@ -310,15 +322,17 @@ class _MarkdownBarState extends State<MarkdownBar> {
         .toList();
 
     // Build the utility buttons driven by config (order + visibility). Undo
-    // and redo pin in every mode; only a bar with a utility scroller of its
-    // own puts that scroller back after a tap.
+    // and redo pin in every mode while the setting keeps them pinned, and
+    // otherwise take their config place in the strip; only a bar with a
+    // utility scroller of its own puts that scroller back after a tap.
     final hasUtilityScroller = widget.isPreviewMode || widget.splitEnabled;
     final configs = widget.utilityConfigs ?? UtilityButtonConfig.defaults();
     final pinnedButtons = <Widget>[];
     final utilityButtons = <Widget>[];
     for (final config in configs) {
       if (!config.isVisible) continue;
-      final pinned = _pinnedUtilityIds.contains(config.id);
+      final pinned =
+          widget.pinUndoRedo && _pinnedUtilityIds.contains(config.id);
       final button = _buildUtilityButtonWidget(
         context,
         config.id,
@@ -373,7 +387,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
         .toList();
 
     // Classic mode: one horizontally scrollable row with every button but
-    // undo and redo, which hold the trailing edge past a divider.
+    // pinned undo and redo, which hold the trailing edge past a divider.
     if (!widget.splitEnabled) {
       return Container(
         decoration: decoration,
@@ -460,8 +474,8 @@ class _MarkdownBarState extends State<MarkdownBar> {
             ),
             child: const MarkdownBarDivider(),
           ),
-          // Undo and redo, then the rest of the utility buttons; the ratio
-          // shares out what the pinned pair leaves.
+          // Pinned undo and redo, then the rest of the utility buttons; the
+          // ratio shares out what the pinned pair leaves.
           ...pinnedButtons,
           Expanded(
             flex: ((1.0 - ratio) * 100).round(),
@@ -572,12 +586,11 @@ class _MarkdownBarState extends State<MarkdownBar> {
         insertType: 'header',
       );
 
-  /// Body text and the six levels as the language's choice menu, centred on
-  /// the H button, the caret line's own choice checked. The value is the
-  /// level, 0 for body text.
+  /// Body text and the six levels as the language's choice menu, standing
+  /// on the H button and centred on it, the caret line's own choice
+  /// checked. The value is the level, 0 for body text.
   Future<void> _showHeaderMenu(BuildContext anchor) async {
     final l10n = AppLocalizations.of(anchor)!;
-    final colorScheme = Theme.of(anchor).colorScheme;
     final labels = [
       l10n.headingBodyText,
       l10n.header1,
@@ -593,36 +606,12 @@ class _MarkdownBarState extends State<MarkdownBar> {
     // stays in place disabled.
     final readsLevel = widget.currentHeadingLevel != null;
     final current = widget.currentHeadingLevel?.call();
-    final side = FormMenuSide();
-    // The keyboard stays up under this menu, so it is capped to the room
-    // beside it and scrolls past that. A scaled label wraps beyond any
-    // estimate, so there the menu is placed as if it took the whole cap:
-    // it may stop short of the button, but never covers it.
-    final maxHeight = formMenuMaxHeight(anchor);
-    final placedHeight =
-        maxHeight.isFinite && MediaQuery.textScalerOf(anchor).scale(1) > 1
-        ? maxHeight
-        : math.min(formMenuHeight(labels.length), maxHeight);
-    final selected = await showMenu<int>(
-      context: anchor,
+    // The keyboard stays up under this menu, so it opens above the bar,
+    // capped to the room there; its rows scroll past that.
+    final selected = await showFormMenuAbove<int>(
+      anchor,
       requestFocus: _headingMenuTakesFocus,
-      positionBuilder: (_, constraints) => formMenuPosition(
-        anchor,
-        constraints,
-        menuHeight: placedHeight,
-        alignment: FormMenuAlignment.center,
-        side: side,
-      ),
-      color: colorScheme.menuSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
-      ),
-      menuPadding: FormMetrics.menuPadding,
-      constraints: BoxConstraints(
-        minWidth: FormMetrics.menuWidth,
-        maxWidth: FormMetrics.menuMaxWidth,
-        maxHeight: maxHeight,
-      ),
+      gap: MarkdownBarMetrics.verticalPadding + MarkdownBarMetrics.hairline,
       items: [
         for (var level = 0; level < labels.length; level++)
           FormMenuChoiceItem<int>(
@@ -1375,7 +1364,8 @@ class _BarButton extends StatelessWidget {
 /// menu teaches the syntax, and the check on the caret line's own choice.
 /// Body text is level 0, with no marker. The check's slot is kept on every
 /// row so the markers stand in one column. The marker is decoration to a
-/// screen reader, which hears the level and the checked state alone. A
+/// screen reader, which hears the level and the checked state alone, and
+/// past `FormMetrics.menuMarkerMaxScale` it gives its column to the label. A
 /// disabled label is dimmed here, as `FormMenuItemRow` does, because the
 /// theme's menu label style is state-independent.
 class _HeadingMenuRow extends StatelessWidget {
@@ -1394,6 +1384,10 @@ class _HeadingMenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final showsMarker =
+        level > 0 &&
+        MediaQuery.textScalerOf(context).scale(1) <=
+            FormMetrics.menuMarkerMaxScale;
     return Semantics(
       identifier: SemanticsIds.editorHeadingLevel(level),
       child: Row(
@@ -1410,7 +1404,7 @@ class _HeadingMenuRow extends StatelessWidget {
                     ),
             ),
           ),
-          if (level > 0) ...[
+          if (showsMarker) ...[
             const SizedBox(width: FormMetrics.gap),
             ExcludeSemantics(
               child: Text(

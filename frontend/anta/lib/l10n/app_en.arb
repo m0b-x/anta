@@ -4292,6 +4292,10 @@
   "@splitToolbar": {
     "description": "Toggle label for split toolbar mode"
   },
+  "pinUndoRedo": "Pin undo and redo",
+  "@pinUndoRedo": {
+    "description": "Toggle label: keep Undo and Redo outside the scrolling utility strip"
+  },
   "utilityButtons": "Utility Buttons",
   "@utilityButtons": {
     "description": "Section header for utility button customization"

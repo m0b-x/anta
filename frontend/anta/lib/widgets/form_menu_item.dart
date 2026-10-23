@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/app_theme.dart';
 import '../constants/form_metrics.dart';
 import '../constants/row_metrics.dart';
 
@@ -245,6 +247,357 @@ Future<T?> showFormMenu<T>(
         ),
     ],
   );
+}
+
+/// Opens the language's menu of [items] standing on [anchor] — its bottom
+/// edge [gap] above the anchor's top, centred on the anchor — and completes
+/// with the picked value, null when dismissed.
+///
+/// `showMenu`'s route places a menu by its top edge and reveals it from
+/// that edge, so a menu that must open above its anchor (the markdown bar's
+/// heading menu, the keyboard below it) is placed from an estimate of its
+/// height and grows down from the top of the screen toward the button,
+/// stopping short of it wherever a scaled label wraps past the estimate.
+/// This route's layout knows the menu's real size: the menu meets the
+/// anchor at every text scale and locale, is capped to the room on its side
+/// (its rows scroll past that), and grows out of the anchor as it opens.
+///
+/// Above is the preference because the anchor it was made for is a bar
+/// standing on the keyboard. A host without one may lack the room there —
+/// the settings page's preview bar scrolled up under the app bar — so when
+/// the room above cannot hold the rows at text scale 1 the menu opens on
+/// the roomier side, its top edge [gap] below the anchor's bottom. The side
+/// is decided once per open, so a keyboard closing under the open menu
+/// never flips it; the anchor is followed while the menu is open, so the
+/// menu rides a bar the keyboard lets fall.
+///
+/// [requestFocus] is the caller's choice: on a touch screen a menu that
+/// takes focus closes the keyboard of the editor it was opened from.
+/// [menuWidth] is the floor, widened by a label up to
+/// `FormMetrics.menuMaxWidth`, as [showFormMenu]'s is. [gap] is the space
+/// kept between the menu's edge and the anchor's, for an anchor drawn
+/// inside chrome the menu should not cut. Every other menu still opens
+/// through [showFormMenu] or `showMenu`.
+Future<T?> showFormMenuAbove<T>(
+  BuildContext anchor, {
+  required List<PopupMenuEntry<T>> items,
+  required bool requestFocus,
+  double menuWidth = FormMetrics.menuWidth,
+  double gap = 0,
+}) {
+  final navigator = Navigator.of(anchor);
+  final localizations = MaterialLocalizations.of(anchor);
+  return navigator.push(
+    _FormMenuAboveRoute<T>(
+      anchor: anchor,
+      items: items,
+      menuWidth: menuWidth,
+      gap: gap,
+      barrierLabel: localizations.menuDismissLabel,
+      // As `showMenu`: VoiceOver names a menu by its role alone.
+      menuLabel: switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.macOS => null,
+        TargetPlatform.android ||
+        TargetPlatform.fuchsia ||
+        TargetPlatform.linux ||
+        TargetPlatform.windows => localizations.popupMenuLabel,
+      },
+      capturedThemes: InheritedTheme.capture(
+        from: anchor,
+        to: navigator.context,
+      ),
+      requestFocus: requestFocus,
+    ),
+  );
+}
+
+/// The popup route's own proportions of its animation: the menu fades in
+/// over the first third and grows to its height over the first two, and
+/// closing runs the whole curve within the first two thirds (its private
+/// `_kMenuCloseIntervalEnd`).
+const Curve _menuFadeCurve = Interval(0, 1 / 3);
+const Curve _menuGrowCurve = Interval(0, 2 / 3);
+const Curve _menuCloseCurve = Interval(0, 2 / 3);
+
+class _FormMenuAboveRoute<T> extends PopupRoute<T> {
+  _FormMenuAboveRoute({
+    required this.anchor,
+    required this.items,
+    required this.menuWidth,
+    required this.gap,
+    required this.barrierLabel,
+    required this.menuLabel,
+    required this.capturedThemes,
+    required super.requestFocus,
+  }) : super(traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop);
+
+  final BuildContext anchor;
+  final List<PopupMenuEntry<T>> items;
+  final double menuWidth;
+  final double gap;
+  final String? menuLabel;
+  final CapturedThemes capturedThemes;
+
+  /// The anchor's rect in the overlay at the last read that could reach
+  /// it, kept for the frames after the anchor leaves the tree.
+  Rect? _anchorRect;
+
+  /// The rect the last layout stood the menu on, which the follow compares
+  /// the settled anchor against.
+  Rect? _laidOutRect;
+
+  /// Whether the menu opened below its anchor, decided at the first layout
+  /// that could read the anchor and kept until it closes.
+  bool? _below;
+
+  bool _followScheduled = false;
+
+  /// Bumped to lay the menu out again once the anchor settled somewhere
+  /// the last layout did not see. The overlay lays this route out before
+  /// a deeper dirty node of the page beneath, so on a keyboard frame the
+  /// layout reads the anchor where it was a frame earlier. The page this
+  /// route builds is cached by its scope, so neither `setState` nor
+  /// `changedInternalState` reaches the layout; a listenable inside it does.
+  final ValueNotifier<int> _relayout = ValueNotifier<int>(0);
+
+  CurvedAnimation? _animation;
+
+  @override
+  Animation<double> createAnimation() => _animation ??= CurvedAnimation(
+    parent: super.createAnimation(),
+    curve: Curves.linear,
+    reverseCurve: _menuCloseCurve,
+  );
+
+  @override
+  Duration get transitionDuration => FormMetrics.menuTransition;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  final String barrierLabel;
+
+  Rect? _readAnchorRect() {
+    if (anchor.mounted) {
+      final box = anchor.findRenderObject();
+      final overlayBox = navigator?.overlay?.context.findRenderObject();
+      if (box is RenderBox &&
+          overlayBox is RenderBox &&
+          box.attached &&
+          overlayBox.attached &&
+          box.hasSize) {
+        _anchorRect =
+            box.localToGlobal(Offset.zero, ancestor: overlayBox) & box.size;
+      }
+    }
+    return _anchorRect;
+  }
+
+  /// Above while the room there holds the rows at text scale 1, else the
+  /// roomier side.
+  bool _opensBelow(Rect anchor, Size overlay, EdgeInsets bounds) {
+    final above = anchor.top - gap - bounds.top;
+    if (above >= formMenuHeight(items.length)) return false;
+    final below = overlay.height - bounds.bottom - anchor.bottom - gap;
+    return below > above;
+  }
+
+  /// Once the frame is laid out the anchor is where it settled: a menu laid
+  /// out against an older rect is laid out again, and only then, so the
+  /// follow stops one frame after the anchor does and never loops.
+  void _scheduleFollow() {
+    if (_followScheduled) return;
+    _followScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _followScheduled = false;
+      if (!isActive) return;
+      final laidOut = _laidOutRect;
+      if (_readAnchorRect() != laidOut) _relayout.value++;
+    });
+  }
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    // Subscribed to the whole MediaQuery, as the popup route is: a keyboard
+    // frame moves the anchor without touching the padding, and each one
+    // must lay the menu out again against the anchor's new rect.
+    final media = MediaQuery.of(context);
+    // The screen's padding plus the route's margin, the clearance rule's
+    // bottom inset (the keyboard or the system bar, whichever is taller),
+    // and the language's inset at the sides.
+    final bounds = EdgeInsets.fromLTRB(
+      media.padding.left + RowMetrics.groupInset,
+      media.padding.top + _routeScreenMargin,
+      media.padding.right + RowMetrics.groupInset,
+      math.max(media.viewInsets.bottom, media.viewPadding.bottom) +
+          _routeScreenMargin,
+    );
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      removeBottom: true,
+      removeLeft: true,
+      removeRight: true,
+      child: ValueListenableBuilder<int>(
+        valueListenable: _relayout,
+        builder: (context, _, _) => LayoutBuilder(
+          builder: (context, constraints) {
+            final overlay = constraints.biggest;
+            final read = _readAnchorRect();
+            final anchor =
+                read ?? Rect.fromLTWH(overlay.width / 2, overlay.height, 0, 0);
+            final below = read == null
+                ? false
+                : _below ??= _opensBelow(read, overlay, bounds);
+            _laidOutRect = read;
+            _scheduleFollow();
+            return CustomSingleChildLayout(
+              delegate: _FormMenuAboveLayout(
+                anchor: anchor,
+                bounds: bounds,
+                below: below,
+                gap: gap,
+                menuWidth: menuWidth,
+              ),
+              child: capturedThemes.wrap(
+                _FormMenuAbove<T>(route: this, below: below),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _relayout.dispose();
+    _animation?.dispose();
+    super.dispose();
+  }
+}
+
+/// Stands the menu on its anchor with the size it has this frame, so the
+/// growing menu's edge stays on the anchor while the far edge moves away.
+class _FormMenuAboveLayout extends SingleChildLayoutDelegate {
+  _FormMenuAboveLayout({
+    required this.anchor,
+    required this.bounds,
+    required this.below,
+    required this.gap,
+    required this.menuWidth,
+  });
+
+  final Rect anchor;
+
+  /// How far the menu keeps from each edge of the overlay.
+  final EdgeInsets bounds;
+
+  final bool below;
+  final double gap;
+  final double menuWidth;
+
+  /// The top of a menu below the anchor, kept on screen when the anchor's
+  /// bottom has scrolled under the status bar.
+  double get _belowTop => math.max(bounds.top, anchor.bottom + gap);
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    final maxWidth = math.min(
+      FormMetrics.menuMaxWidth,
+      math.max(0.0, constraints.maxWidth - bounds.horizontal),
+    );
+    final room = below
+        ? constraints.maxHeight - bounds.bottom - _belowTop
+        : anchor.top - gap - bounds.top;
+    return BoxConstraints(
+      minWidth: math.min(menuWidth, maxWidth),
+      maxWidth: maxWidth,
+      maxHeight: math.max(0.0, room),
+    );
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final maxLeft = math.max(
+      bounds.left,
+      size.width - childSize.width - bounds.right,
+    );
+    return Offset(
+      (anchor.center.dx - childSize.width / 2).clamp(bounds.left, maxLeft),
+      below
+          ? _belowTop
+          : math.max(bounds.top, anchor.top - gap - childSize.height),
+    );
+  }
+
+  @override
+  bool shouldRelayout(_FormMenuAboveLayout oldDelegate) =>
+      anchor != oldDelegate.anchor ||
+      bounds != oldDelegate.bounds ||
+      below != oldDelegate.below ||
+      gap != oldDelegate.gap ||
+      menuWidth != oldDelegate.menuWidth;
+}
+
+/// The menu's surface and the reveal: the rows sit where they will settle
+/// and the surface's far edge moves away from the anchor over them, so
+/// nothing slides under a finger on its way to an item.
+class _FormMenuAbove<T> extends StatelessWidget {
+  const _FormMenuAbove({required this.route, required this.below});
+
+  final _FormMenuAboveRoute<T> route;
+  final bool below;
+
+  @override
+  Widget build(BuildContext context) {
+    final animation = route.animation!;
+    return FadeTransition(
+      opacity: animation.drive(CurveTween(curve: _menuFadeCurve)),
+      child: IntrinsicWidth(
+        stepWidth: FormMetrics.menuWidthStep,
+        child: Semantics(
+          role: SemanticsRole.menu,
+          scopesRoute: true,
+          namesRoute: true,
+          explicitChildNodes: true,
+          label: route.menuLabel,
+          child: Material(
+            color: Theme.of(context).colorScheme.menuSurface,
+            elevation: AppTheme.menuElevation,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: AnimatedBuilder(
+              animation: animation,
+              builder: (context, rows) => Align(
+                alignment: below ? Alignment.topCenter : Alignment.bottomCenter,
+                heightFactor: _menuGrowCurve.transform(animation.value),
+                child: rows,
+              ),
+              child: SingleChildScrollView(
+                padding: FormMetrics.menuPadding,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: route.items,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A row in the anatomy of the app's overflow menus: a 20 px glyph in

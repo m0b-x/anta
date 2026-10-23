@@ -604,6 +604,7 @@ class SettingsService {
     SettingsKeys.previewLinesPerChunk,
     SettingsKeys.toolbarShortcutRatio,
     SettingsKeys.toolbarSplitEnabled,
+    SettingsKeys.toolbarUndoRedoPinned,
     SettingsKeys.toolbarUtilityConfig,
     SettingsKeys.vocabularySuggestionsEnabled,
     SettingsKeys.vocabularyTriggerChar,
@@ -688,6 +689,10 @@ class SettingsService {
       toolbarSplitEnabled: _decodeBool(
         values[SettingsKeys.toolbarSplitEnabled],
         SettingsKeys.defaultToolbarSplitEnabled,
+      ),
+      toolbarUndoRedoPinned: _decodeBool(
+        values[SettingsKeys.toolbarUndoRedoPinned],
+        SettingsKeys.defaultToolbarUndoRedoPinned,
       ),
       toolbarUtilityConfig: _decodeUtilityConfig(
         values[SettingsKeys.toolbarUtilityConfig],
@@ -2097,6 +2102,17 @@ class SettingsService {
 
   Future<void> setToolbarSplitEnabled(bool value) async {
     await _setBool(SettingsKeys.toolbarSplitEnabled, value);
+  }
+
+  Future<bool> getToolbarUndoRedoPinned() async {
+    return _getBool(
+      SettingsKeys.toolbarUndoRedoPinned,
+      SettingsKeys.defaultToolbarUndoRedoPinned,
+    );
+  }
+
+  Future<void> setToolbarUndoRedoPinned(bool value) async {
+    await _setBool(SettingsKeys.toolbarUndoRedoPinned, value);
   }
 
   /// Ids of the markdown settings sections the user left folded. An empty

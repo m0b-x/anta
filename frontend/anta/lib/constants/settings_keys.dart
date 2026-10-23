@@ -84,6 +84,12 @@ class SettingsKeys {
   // Toolbar settings
   static const String toolbarShortcutRatio = 'toolbar_shortcut_ratio';
   static const String toolbarSplitEnabled = 'toolbar_split_enabled';
+
+  /// Whether undo and redo stand outside the utility scroller. The pinned
+  /// pair costs 96 dp of a 360 dp bar; off, they are utility buttons like
+  /// the rest and the pair's 96 dp go back to the strips — shared by the
+  /// ratio in split mode, all of it to the single row.
+  static const String toolbarUndoRedoPinned = 'toolbar_undo_redo_pinned';
   static const String toolbarUtilityConfig = 'toolbar_utility_config';
 
   // Preview performance settings
@@ -439,6 +445,10 @@ class SettingsKeys {
   /// Default ratio of shortcuts section width (0.0–1.0). 0.7 = 70% shortcuts.
   static const double defaultToolbarShortcutRatio = 0.7;
   static const bool defaultToolbarSplitEnabled = true;
+
+  /// On, so nobody's bar changes on update: the pinned pair is what every
+  /// install had before the setting existed.
+  static const bool defaultToolbarUndoRedoPinned = true;
 
   // Default values for preview performance
   static const int defaultPreviewLinesPerChunk = 10;

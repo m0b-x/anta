@@ -3477,6 +3477,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get splitToolbar => 'Split toolbar';
 
   @override
+  String get pinUndoRedo => 'Pin undo and redo';
+
+  @override
   String get utilityButtons => 'Utility Buttons';
 
   @override

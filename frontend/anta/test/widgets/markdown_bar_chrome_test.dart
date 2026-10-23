@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/markdown_bar_metrics.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
@@ -497,6 +498,219 @@ void main() {
     });
   });
 
+  // `showMenu` placed this menu by its top edge from an estimate of its
+  // height and revealed it downward from the top of the screen: at 1.15 and
+  // 1.3 it stopped 57 and 41 dp short of the button.
+  group('the heading menu stands on its button', () {
+    void phone(WidgetTester tester) {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+      tester.view.padding = const FakeViewPadding(top: 24);
+      addTearDown(tester.view.reset);
+    }
+
+    // The status bar plus the route's margin.
+    const topLimit = 24.0 + 8.0;
+    // The menu stands on the bar's top edge, its hairline, not on the
+    // button inside the bar's chrome.
+    const barTopEdge =
+        MarkdownBarMetrics.verticalPadding + MarkdownBarMetrics.hairline;
+
+    Future<AppLocalizations> open(
+      WidgetTester tester, {
+      required Locale locale,
+      double textScale = 1.0,
+      ValueChanged<CustomMarkdownShortcut>? onShortcutPressed,
+    }) async {
+      phone(tester);
+      await tester.pumpWidget(
+        _bar(
+          shortcuts: [_header, _bold, _italic],
+          currentHeadingLevel: () => 2,
+          onShortcutPressed: onShortcutPressed,
+          locale: locale,
+          textScale: textScale,
+          asEditorPage: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      return lookupAppLocalizations(locale);
+    }
+
+    Finder menuOf(AppLocalizations l10n) => find
+        .ancestor(
+          of: find.text(l10n.headingBodyText),
+          matching: find.byType(Material),
+        )
+        .first;
+
+    for (final locale in const [Locale('en'), Locale('de')]) {
+      for (final scale in const [1.0, 1.15, 1.3, 2.0]) {
+        testWidgets('${locale.languageCode} at $scale: on the button, rising '
+            'from it, every level reachable', (tester) async {
+          final picked = <CustomMarkdownShortcut>[];
+          final l10n = await open(
+            tester,
+            locale: locale,
+            textScale: scale,
+            onShortcutPressed: picked.add,
+          );
+          final button = find.byTooltip(l10n.headers);
+          final buttonTop = tester.getTopLeft(button).dy - barTopEdge;
+
+          await tester.tap(button);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 80));
+          final rising = tester.getRect(menuOf(l10n));
+          expect(rising.bottom, moreOrLessEquals(buttonTop, epsilon: 1));
+
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          final menu = tester.getRect(menuOf(l10n));
+          expect(menu.bottom, moreOrLessEquals(buttonTop, epsilon: 1));
+          expect(menu.top, greaterThanOrEqualTo(topLimit));
+          expect(menu.left, moreOrLessEquals(RowMetrics.groupInset));
+          expect(rising.height, lessThan(menu.height));
+
+          expect(find.text(l10n.headingBodyText).hitTestable(), findsOneWidget);
+          await tester.scrollUntilVisible(
+            find.text(l10n.header6),
+            50,
+            scrollable: find
+                .ancestor(
+                  of: find.text(l10n.headingBodyText),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
+          expect(find.text(l10n.header6).hitTestable(), findsOneWidget);
+
+          await tester.tap(find.text(l10n.header6));
+          await tester.pumpAndSettle();
+          expect(picked.single.id, 'header_level_6');
+          expect(picked.single.beforeText, '###### ');
+        });
+      }
+    }
+
+    testWidgets('a barrier tap picks nothing', (tester) async {
+      final picked = <CustomMarkdownShortcut>[];
+      final l10n = await open(
+        tester,
+        locale: const Locale('en'),
+        onShortcutPressed: picked.add,
+      );
+
+      await tester.tap(find.byTooltip(l10n.headers));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.headingBodyText), findsNothing);
+      expect(picked, isEmpty);
+    });
+  });
+
+  // At 2.0 the full-width marker squeezed the label until Roboto broke
+  // "Heading 5" and "Überschrift 4" mid-word; the marker is decoration.
+  testWidgets('the heading marker scales up to 1.3 and gives its column to '
+      'the label past it', (tester) async {
+    Future<void> open(double scale) async {
+      await tester.pumpWidget(
+        _bar(
+          shortcuts: [_header],
+          currentHeadingLevel: () => 6,
+          textScale: scale,
+        ),
+      );
+      await tester.tap(find.text('H'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> close() async {
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+    }
+
+    await open(1.0);
+    final atOne = tester.getSize(find.text('######')).width;
+    await close();
+    await open(FormMetrics.menuMarkerMaxScale);
+    expect(tester.getSize(find.text('######')).width, greaterThan(atOne));
+    await close();
+
+    await open(2.0);
+    expect(find.text('######'), findsNothing);
+    expect(find.text('#'), findsNothing);
+    expect(find.text('Heading 6'), findsOneWidget);
+    expect(
+      tester.getCenter(find.byIcon(Icons.check_rounded)).dy,
+      moreOrLessEquals(tester.getCenter(find.text('Heading 6')).dy),
+    );
+  });
+
+  group('accessibility guidelines', () {
+    void phone(WidgetTester tester) {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
+    Future<void> meetsAll(WidgetTester tester) async {
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(textContrastGuideline));
+    }
+
+    for (final brightness in Brightness.values) {
+      for (final split in [true, false]) {
+        for (final pinned in [true, false]) {
+          testWidgets('${brightness.name}, ${split ? 'split' : 'single row'}, '
+              '${pinned ? 'pinned' : 'unpinned'}: the bar', (tester) async {
+            final semantics = tester.ensureSemantics();
+            phone(tester);
+            await tester.pumpWidget(
+              _bar(
+                shortcuts: [_bold, _italic, _header],
+                utilityConfigs: const [
+                  UtilityButtonConfig(id: UtilityButtonId.undo),
+                  UtilityButtonConfig(id: UtilityButtonId.redo),
+                  UtilityButtonConfig(id: UtilityButtonId.settings),
+                ],
+                canUndo: true,
+                splitEnabled: split,
+                pinUndoRedo: pinned,
+                brightness: brightness,
+              ),
+            );
+            await tester.pumpAndSettle();
+
+            await meetsAll(tester);
+            semantics.dispose();
+          });
+        }
+      }
+
+      testWidgets('${brightness.name}: the open heading menu', (tester) async {
+        final semantics = tester.ensureSemantics();
+        phone(tester);
+        await tester.pumpWidget(
+          _bar(
+            shortcuts: [_header],
+            currentHeadingLevel: () => 2,
+            brightness: brightness,
+          ),
+        );
+        await tester.tap(find.text('H'));
+        await tester.pumpAndSettle();
+
+        await meetsAll(tester);
+        semantics.dispose();
+      });
+    }
+  });
+
   group('feedback and labels (E27)', () {
     testWidgets('built-in tooltips follow the app language, custom ones '
         'keep their own label', (tester) async {
@@ -916,6 +1130,139 @@ void main() {
       );
     });
 
+    group('with undo and redo unpinned', () {
+      testWidgets('the split bar scrolls them in their config place, past '
+          'the one divider', (tester) async {
+        phone(tester);
+        await tester.pumpWidget(
+          _bar(
+            shortcuts: [_bold],
+            utilityConfigs: [strip[2], strip[0], strip[1], ...strip.skip(3)],
+            pinUndoRedo: false,
+          ),
+        );
+
+        final undo = find.byTooltip(label(UtilityButtonId.undo));
+        final redo = find.byTooltip(label(UtilityButtonId.redo));
+        final smaller = find.byTooltip(label(UtilityButtonId.decreaseFont));
+        expect(scrollerOf(label(UtilityButtonId.undo)), findsOneWidget);
+        expect(scrollerOf(label(UtilityButtonId.redo)), findsOneWidget);
+        expect(find.byType(MarkdownBarDivider), findsOneWidget);
+        expect(
+          tester.getTopLeft(undo).dx,
+          greaterThan(tester.getTopRight(find.byType(MarkdownBarDivider)).dx),
+        );
+        expect(
+          tester.getTopLeft(smaller).dx,
+          lessThan(tester.getTopLeft(undo).dx),
+        );
+        expect(
+          tester.getTopLeft(undo).dx,
+          lessThan(tester.getTopLeft(redo).dx),
+        );
+      });
+
+      testWidgets('a tap on undo keeps the scroller where it is', (
+        tester,
+      ) async {
+        phone(tester);
+        var undos = 0;
+        await tester.pumpWidget(
+          _bar(
+            shortcuts: [_bold],
+            utilityConfigs: const [
+              UtilityButtonConfig(id: UtilityButtonId.decreaseFont),
+              UtilityButtonConfig(id: UtilityButtonId.increaseFont),
+              UtilityButtonConfig(id: UtilityButtonId.undo),
+              UtilityButtonConfig(id: UtilityButtonId.redo),
+              UtilityButtonConfig(id: UtilityButtonId.settings),
+            ],
+            canUndo: true,
+            onUndo: () => undos++,
+            pinUndoRedo: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final button = find.byTooltip(label(UtilityButtonId.undo));
+        ScrollController controller() => tester
+            .widget<SingleChildScrollView>(
+              scrollerOf(label(UtilityButtonId.undo)),
+            )
+            .controller!;
+
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        if (controller().offset == 0) {
+          controller().jumpTo(8);
+          await tester.pumpAndSettle();
+        }
+        final scrolled = controller().offset;
+        expect(scrolled, greaterThan(0));
+
+        final at = tester.getCenter(button);
+        await tester.tapAt(at);
+        await tester.pumpAndSettle();
+        await tester.tapAt(at);
+        await tester.pumpAndSettle();
+        expect(undos, 2, reason: 'the second tap lands on undo again');
+        expect(controller().offset, scrolled);
+      });
+
+      testWidgets('a config that hides undo hides it', (tester) async {
+        phone(tester);
+        await tester.pumpWidget(
+          _bar(
+            shortcuts: [_bold],
+            utilityConfigs: [
+              const UtilityButtonConfig(
+                id: UtilityButtonId.undo,
+                isVisible: false,
+              ),
+              ...strip.skip(1),
+            ],
+            pinUndoRedo: false,
+          ),
+        );
+
+        expect(find.byTooltip(label(UtilityButtonId.undo)), findsNothing);
+        expect(scrollerOf(label(UtilityButtonId.redo)), findsOneWidget);
+      });
+
+      testWidgets('the single-row bar has no trailing pinned pair', (
+        tester,
+      ) async {
+        phone(tester);
+        await tester.pumpWidget(
+          _bar(
+            shortcuts: [_bold, _italic],
+            utilityConfigs: strip,
+            splitEnabled: false,
+            pinUndoRedo: false,
+          ),
+        );
+
+        expect(scrollerOf(label(UtilityButtonId.undo)), findsOneWidget);
+        expect(scrollerOf(label(UtilityButtonId.redo)), findsOneWidget);
+        // Only the divider inside the row, between shortcuts and utilities.
+        expect(find.byType(MarkdownBarDivider), findsOneWidget);
+      });
+
+      testWidgets('the preview bar scrolls them with the rest', (tester) async {
+        phone(tester);
+        await tester.pumpWidget(
+          _bar(
+            shortcuts: [_bold],
+            utilityConfigs: strip,
+            isPreviewMode: true,
+            pinUndoRedo: false,
+          ),
+        );
+
+        expect(scrollerOf(label(UtilityButtonId.undo)), findsOneWidget);
+        expect(scrollerOf(label(UtilityButtonId.redo)), findsOneWidget);
+      });
+    });
+
     // U1 C16: the fade is the bar's ground painted over a faded edge, never
     // a ShaderMask, whose saveLayer ran per strip on every frame.
     testWidgets('the fade paints the ground over a fading edge only, with '
@@ -1123,6 +1470,33 @@ void main() {
         expect(button.hitTestable(), findsOneWidget, reason: tooltip);
         expect(tester.getSize(button), const Size.square(48), reason: tooltip);
       }
+      expect(tester.getSize(find.byType(MarkdownBar)).height, 55);
+    });
+
+    testWidgets('unpinned, the visible buttons are 48 dp and hit-testable '
+        'and the bar keeps its height', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(
+        _bar(
+          shortcuts: many,
+          utilityConfigs: UtilityButtonConfig.defaults(),
+          canUndo: true,
+          onReorderComplete: (_) {},
+          locale: const Locale('de'),
+          textScale: 2.0,
+          pinUndoRedo: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      for (final tooltip in [de.bold, de.italic, de.headers, de.undo]) {
+        final button = find.byTooltip(tooltip);
+        expect(button.hitTestable(), findsOneWidget, reason: tooltip);
+        expect(tester.getSize(button), const Size.square(48), reason: tooltip);
+      }
+      // Redo scrolls with the rest; it may stand past the strip's edge.
+      expect(tester.getSize(find.byTooltip(de.redo)), const Size.square(48));
       expect(tester.getSize(find.byType(MarkdownBar)).height, 55);
     });
 
@@ -1342,11 +1716,20 @@ void main() {
       expect(find.text(de.header6).hitTestable(), findsOneWidget);
 
       // The keyboard closes while the menu is open: the bar falls with it
-      // and the menu keeps its side, above.
+      // and the menu keeps its side, above, standing on the button where it
+      // lands.
       tester.view.resetViewInsets();
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(menuBottom(), lessThanOrEqualTo(buttonTop()));
+      expect(
+        menuBottom(),
+        moreOrLessEquals(
+          buttonTop() -
+              MarkdownBarMetrics.verticalPadding -
+              MarkdownBarMetrics.hairline,
+          epsilon: 1,
+        ),
+      );
     });
 
     testWidgets('a dragged chip lands where it is dropped, and no chip moves '
@@ -1515,6 +1898,8 @@ Widget _bar({
   bool isPreviewMode = false,
   bool canUndo = false,
   bool hapticsEnabled = true,
+  bool pinUndoRedo = true,
+  VoidCallback? onUndo,
   VoidCallback? onIndent,
   VoidCallback? onOutdent,
   VoidCallback? onPaste,
@@ -1533,6 +1918,7 @@ Widget _bar({
   double shortcutRatio = 0.7,
   bool showBackground = true,
   Color? fadeGround,
+  Brightness brightness = Brightness.light,
 }) {
   final column = Column(
     mainAxisAlignment: MainAxisAlignment.end,
@@ -1546,7 +1932,7 @@ Widget _bar({
         canUndo: canUndo,
         canRedo: false,
         previewFontSize: 14,
-        onUndo: () {},
+        onUndo: onUndo ?? () {},
         onRedo: () {},
         onDecreaseFontSize: onDecreaseFontSize ?? () {},
         onIncreaseFontSize: onIncreaseFontSize ?? () {},
@@ -1562,6 +1948,7 @@ Widget _bar({
         onReorderComplete: onReorderComplete,
         utilityConfigs: utilityConfigs,
         splitEnabled: splitEnabled,
+        pinUndoRedo: pinUndoRedo,
         shortcutRatio: shortcutRatio,
         showBackground: showBackground,
         fadeGround: fadeGround,
@@ -1569,7 +1956,7 @@ Widget _bar({
     ],
   );
   return MaterialApp(
-    theme: AppTheme.light(),
+    theme: brightness == Brightness.light ? AppTheme.light() : AppTheme.dark(),
     locale: locale,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,

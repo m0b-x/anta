@@ -13,6 +13,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 
 /// The shortcut list shows a default by its localized name, and the search
@@ -61,13 +62,17 @@ void main() {
     }
   }
 
-  Future<void> pumpPage(WidgetTester tester) async {
+  Future<void> pumpPage(
+    WidgetTester tester, {
+    Size size = const Size(412, 6000),
+    double textScale = 1.0,
+  }) async {
     // Phone-wide and tall: the width is the larger phone's (412 dp), so the
     // German captions that once overflowed their rows are laid out as a
     // user sees them (an overflow throws here); the height is tall so the
     // whole page is built and the shortcut list below the other sections
     // exists.
-    tester.view.physicalSize = const Size(412, 6000);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -77,6 +82,12 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
           home: MarkdownSettingsPage(
             allShortcuts: DefaultMarkdownShortcuts.shortcuts,
           ),
@@ -126,6 +137,57 @@ void main() {
 
     expect(row(de.bold), findsOneWidget);
     expect(row(de.italic), findsNothing, reason: 'the search still narrows');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the pin switch unpins undo and redo in the preview and '
+      'persists', (tester) async {
+    await pumpPage(tester);
+    final de = lookupAppLocalizations(const Locale('de'));
+    final toggle = find.descendant(
+      of: find
+          .ancestor(of: find.text(de.pinUndoRedo), matching: find.byType(Row))
+          .first,
+      matching: find.byType(Switch),
+    );
+    bool previewPins() =>
+        tester.widget<MarkdownBar>(find.byType(MarkdownBar)).pinUndoRedo;
+
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(previewPins(), isTrue);
+
+    await tester.ensureVisible(toggle);
+    await tester.pump();
+    await tester.tap(toggle);
+    await settle(tester);
+
+    expect(tester.widget<Switch>(toggle).value, isFalse);
+    expect(previewPins(), isFalse);
+    final settings = await SettingsService.getInstance();
+    expect(await tester.runAsync(settings.getToolbarUndoRedoPinned), isFalse);
+
+    await tester.runAsync(() => settings.setToolbarUndoRedoPinned(true));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('at 360 dp and text scale 2.0 the toolbar section and its pin '
+      'switch lay out without overflow', (tester) async {
+    await pumpPage(tester, size: const Size(360, 780), textScale: 2.0);
+    final de = lookupAppLocalizations(const Locale('de'));
+    final page = find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.down,
+        )
+        .first;
+
+    for (final label in [de.toolbarLayout, de.pinUndoRedo]) {
+      await tester.scrollUntilVisible(find.text(label), 100, scrollable: page);
+      await settle(tester);
+      expect(tester.takeException(), isNull, reason: label);
+      expect(find.text(label).hitTestable(), findsOneWidget, reason: label);
+    }
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

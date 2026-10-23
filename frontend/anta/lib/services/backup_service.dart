@@ -244,6 +244,7 @@ class BackupService {
       'show_preview_scrollbar',
       'toolbar_shortcut_ratio',
       'toolbar_split_enabled',
+      'toolbar_undo_redo_pinned',
       'toolbar_utility_config',
       'preview_lines_per_chunk',
       'money_ledger_enabled',

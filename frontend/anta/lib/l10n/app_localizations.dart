@@ -5968,6 +5968,12 @@ abstract class AppLocalizations {
   /// **'Split toolbar'**
   String get splitToolbar;
 
+  /// Toggle label: keep Undo and Redo outside the scrolling utility strip
+  ///
+  /// In en, this message translates to:
+  /// **'Pin undo and redo'**
+  String get pinUndoRedo;
+
   /// Section header for utility button customization
   ///
   /// In en, this message translates to:

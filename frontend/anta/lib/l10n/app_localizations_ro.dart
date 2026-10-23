@@ -3538,6 +3538,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get splitToolbar => 'Împarte bara de instrumente';
 
   @override
+  String get pinUndoRedo => 'Fixează Anulează și Refă';
+
+  @override
   String get utilityButtons => 'Butoane utilitare';
 
   @override

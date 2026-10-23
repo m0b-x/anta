@@ -129,6 +129,35 @@ void main() {
     expect(await restored.getLabelStyle(), LabelStyle.stripe);
   });
 
+  test('unpinned undo and redo survive an export/import round trip', () async {
+    final settings = await SettingsService.getInstance();
+    await settings.setToolbarUndoRedoPinned(false);
+
+    final backup = await BackupService.getInstance();
+    final exported = await backup.exportAllData();
+    final exportedSettings = exported['settings'] as Map<String, dynamic>;
+    expect(
+      exportedSettings[SettingsKeys.toolbarUndoRedoPinned],
+      'false',
+      reason: 'a key outside the allow-list is dropped without a warning',
+    );
+
+    final json = jsonEncode(exported);
+    await settings.setToolbarUndoRedoPinned(true);
+
+    final result = await backup.importFromJson(json);
+    expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+    SettingsService.reset();
+    DatabaseLifecycle.notifyDatabaseSwitching();
+    final restored = await SettingsService.getInstance();
+
+    expect(await restored.getToolbarUndoRedoPinned(), isFalse);
+    await restored.setToolbarUndoRedoPinned(
+      SettingsKeys.defaultToolbarUndoRedoPinned,
+    );
+  });
+
   test('a backup written before these keys existed still imports', () async {
     final backup = await BackupService.getInstance();
     final exported = await backup.exportAllData();

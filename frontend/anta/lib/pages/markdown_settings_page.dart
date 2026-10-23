@@ -45,6 +45,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   String _utilityQuery = '';
   double _toolbarRatio = SettingsKeys.defaultToolbarShortcutRatio;
   bool _toolbarSplitEnabled = SettingsKeys.defaultToolbarSplitEnabled;
+  bool _toolbarUndoRedoPinned = SettingsKeys.defaultToolbarUndoRedoPinned;
   List<UtilityButtonConfig> _utilityConfigs = UtilityButtonConfig.defaults();
   bool _profileExpanded = true;
   bool _utilityExpanded = true;
@@ -287,6 +288,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     final settings = await _getSettingsService();
     final ratio = await settings.getToolbarShortcutRatio();
     final splitEnabled = await settings.getToolbarSplitEnabled();
+    final undoRedoPinned = await settings.getToolbarUndoRedoPinned();
     final utilityConfigs = await settings.getToolbarUtilityConfig();
     final moneyConfig = await settings.getMoneyConfig();
     final vocabularyEnabled = await settings.getVocabularySuggestionsEnabled();
@@ -298,6 +300,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         _swipeEnabled = swipe;
         _toolbarRatio = ratio;
         _toolbarSplitEnabled = splitEnabled;
+        _toolbarUndoRedoPinned = undoRedoPinned;
         _utilityConfigs = utilityConfigs;
         _moneyEnabled = moneyConfig.enabled;
         _moneyStartCents = moneyConfig.startCents;
@@ -327,6 +330,11 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   Future<void> _saveToolbarSplitEnabled(bool value) async {
     final settings = await _getSettingsService();
     await settings.setToolbarSplitEnabled(value);
+  }
+
+  Future<void> _saveToolbarUndoRedoPinned(bool value) async {
+    final settings = await _getSettingsService();
+    await settings.setToolbarUndoRedoPinned(value);
   }
 
   Future<void> _saveUtilityConfigs() async {
@@ -777,14 +785,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.manageBarProfiles,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
+                Expanded(
+                  child: Text(
+                    l10n.manageBarProfiles,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 AnimatedRotation(
                   turns: _profileExpanded ? 0.0 : 0.5,
                   duration: const Duration(milliseconds: 200),
@@ -984,14 +993,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.toolbarLayout,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
+                Expanded(
+                  child: Text(
+                    l10n.toolbarLayout,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 AnimatedRotation(
                   turns: _toolbarExpanded ? 0.0 : 0.5,
                   duration: const Duration(milliseconds: 200),
@@ -1010,8 +1020,12 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                 // Split toolbar toggle row
                 Row(
                   children: [
-                    Text(l10n.splitToolbar, style: theme.textTheme.bodyLarge),
-                    const Spacer(),
+                    Expanded(
+                      child: Text(
+                        l10n.splitToolbar,
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                    ),
                     Transform.scale(
                       scale: 0.8,
                       child: Switch(
@@ -1021,6 +1035,31 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                             _toolbarSplitEnabled = value;
                           });
                           _saveToolbarSplitEnabled(value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    // Wraps rather than overflows: the German label is
+                    // longer than the row beside its switch.
+                    Expanded(
+                      child: Text(
+                        l10n.pinUndoRedo,
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                    ),
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: _toolbarUndoRedoPinned,
+                        onChanged: (value) {
+                          setState(() {
+                            _toolbarUndoRedoPinned = value;
+                          });
+                          _saveToolbarUndoRedoPinned(value);
                         },
                       ),
                     ),
@@ -1044,6 +1083,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                     previewFontSize: 14,
                     shortcutRatio: ratio,
                     splitEnabled: _toolbarSplitEnabled,
+                    pinUndoRedo: _toolbarUndoRedoPinned,
                     utilityConfigs: _utilityConfigs,
                     showBackground: false,
                     showReorder: false,
@@ -1148,14 +1188,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.markdownColorsTitle,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
+                Expanded(
+                  child: Text(
+                    l10n.markdownColorsTitle,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 AnimatedRotation(
                   turns: _colorsExpanded ? 0.0 : 0.5,
                   duration: const Duration(milliseconds: 200),
@@ -1362,14 +1403,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.moneySection,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
+                Expanded(
+                  child: Text(
+                    l10n.moneySection,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 AnimatedRotation(
                   turns: _moneyExpanded ? 0.0 : 0.5,
                   duration: const Duration(milliseconds: 200),
@@ -1660,14 +1702,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
               children: [
                 Icon(Icons.tune, size: 26, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.utilityButtons,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
+                Expanded(
+                  child: Text(
+                    l10n.utilityButtons,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 AnimatedRotation(
                   turns: _utilityExpanded ? 0.0 : 0.5,
                   duration: const Duration(milliseconds: 200),

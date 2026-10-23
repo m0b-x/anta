@@ -241,6 +241,21 @@ abstract final class FormMetrics {
   static const double menuRadius = 12;
   static const EdgeInsets menuPadding = EdgeInsets.symmetric(vertical: 6);
 
+  /// Material's popup menu duration, so a menu on a route of the language's
+  /// own opens and closes at the pace of every other menu.
+  static const Duration menuTransition = Duration(milliseconds: 300);
+
+  /// The step a label-sized menu's width rounds up to — the framework's
+  /// `_kMenuWidthStep`, so a menu on a route of the language's own is as
+  /// wide as its `showMenu` siblings.
+  static const double menuWidthStep = 56;
+
+  /// The largest text scale at which the heading menu's `#` marker is
+  /// shown. Past it the marker's column squeezes the longest label (German
+  /// "Überschrift 6" at 2.0) into mid-word breaks at the menu's 280 cap,
+  /// and a decoration never costs a word (WCAG 1.4.4).
+  static const double menuMarkerMaxScale = 1.3;
+
   /// A short choice menu's floor — the editor's Priority, the filter sheet's
   /// Repeat and Time of day: three to five glyph-and-word rows. Content grows
   /// it up to [menuMaxWidth].

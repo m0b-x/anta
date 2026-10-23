@@ -2234,6 +2234,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             : settings.editorFontSize,
         shortcutRatio: settings.toolbarShortcutRatio,
         splitEnabled: settings.toolbarSplitEnabled,
+        pinUndoRedo: settings.toolbarUndoRedoPinned,
         utilityConfigs: settings.toolbarUtilityConfig,
         onUndo: () => _historyObserver.undo(),
         onRedo: () => _historyObserver.redo(),

@@ -2,7 +2,9 @@
 
 **Status: BUILT 2026-10-20/21, committed `6b46bd6` — U1–U3, the completion
 pass C2 and the last mile L; §5 is the as-built ledger, §3 what stays as
-it is.** The owner asked for a UX/UI
+it is. Follow-up 2026-10-22 (§5, first entry): D2's pinning became the
+setting `toolbar_undo_redo_pinned` (default on) and the heading menu stands
+on the H button through `showFormMenuAbove`.** The owner asked for a UX/UI
 review on top of the quality-of-life pass (`docs/editor-qol-review-2026-10-19.md`)
 and the markdown features audit (`docs/markdown-features-audit-2026-10-19.md`),
 with the code going straight to production. Method: a qa-runner shot a
@@ -101,6 +103,10 @@ names), `markdown-engine` for U3, `flutter-principles`, `verify`, `l10n`.
   suggestion bar aligned. Growth ≈ 8 dp.
 - D2 **Undo and Redo are pinned.** The "no lost text" action never scrolls
   away. The rest of the utility strip keeps the owner's ratio and order.
+  *Amended 2026-10-22:* pinning is the setting `toolbar_undo_redo_pinned`
+  (default on, so no bar changes on update); off, the pair scrolls with
+  the utilities in the owner's order and visibility, and the shortcut
+  strip gets the 96 dp back — the owner's ask (§5, the 2026-10-22 entry).
 - D3 **The editor follows the system text size, clamped at 2.0.** The app
   rule treats text scale 2.0 as part of done; the in-app size stays the
   base; the chrome glyphs stay fixed.
@@ -139,6 +145,152 @@ menu by level; the stable bar height with the suggestion row.
 
 ## 5. Ledger
 
+- **2026-10-22 — D2 became a setting and the heading menu stands on the H
+  button (uncommitted when written; one implementer, one code reviewer,
+  one fix pass, one design reviewer, a device pass — see the end of this
+  entry).** The owner: the pinned pair "takes too much space for the
+  markdown bar", and the heading menu "comes from the top — can't it come
+  from the button?". A probe (360 × 780, keyboard 320, status bar 24)
+  confirmed both: `showMenu`'s route places a menu by its **top** edge
+  (`popup_menu.dart:855`) and reveals it from its top-end corner (`:797`),
+  neither changeable from outside, so the heading menu grew down from the
+  top of the screen toward the button and, because `_showHeaderMenu`
+  passed the whole height cap as the placed height at any text scale
+  above 1, sat at the status-bar cap 57 dp short of the button at 1.15 and
+  41 dp at 1.3 (en); at 1.0 and 2.0 it happened to touch. **Built:**
+  - `SettingsKeys.toolbarUndoRedoPinned` (`toolbar_undo_redo_pinned`,
+    default **on** so no bar changes on update), `SettingsService`
+    get/set, the bulk-read list, `EditorSettings.toolbarUndoRedoPinned`,
+    the backup's exported keys (no archive bump — a missing key decodes to
+    its default); `MarkdownBar.pinUndoRedo` (default true): off, undo and
+    redo are utility buttons at the position and visibility of the owner's
+    config, inside the scroller in split and preview modes, in the single
+    row after the divider, no pinned pair or trailing divider, repeatable
+    (`_repeatableUtilityIds`); the pair's 96 dp go back to the strips —
+    shared by the ratio in split mode (≈ 67 dp to the shortcuts at 0.7),
+    all of it to the single row. The markdown settings page's Toolbar
+    Layout section got the "Pin undo and redo" switch under "Split
+    toolbar" (the page's idiom; `Expanded` label because the German label
+    overflowed) with the live preview following it; the editor page
+    passes the setting; the event description sheet, the event editor
+    sheet and the shortcut editor page keep the default. ARB `pinUndoRedo`
+    en/de/ro.
+  - `showFormMenuAbove` (`lib/widgets/form_menu_item.dart`): a
+    `PopupRoute` whose `SingleChildLayoutDelegate` reads the anchor's live
+    rect and the child's real size, stands the menu's bottom edge on the
+    anchor's top plus a `gap` (the bar passes `verticalPadding +
+    hairline` = 4 dp, so the menu stands on the bar's hairline rather than
+    4 dp into its chrome), centred on the anchor and clamped to
+    `groupInset` plus the screen's side padding, width stepped by
+    `FormMetrics.menuWidthStep` 56 like every `showMenu` menu (224 with
+    Roboto, cap 280), height capped to the room above (rows scroll); the
+    reveal is a fade over the first third and `Align(bottomCenter,
+    heightFactor)` over the first two thirds of `FormMetrics.menuTransition`
+    300 ms inside the clipping `Material`, so the bottom edge stays on the
+    bar while the top rises; the semantics node carries
+    `SemanticsRole.menu` (Flutter's validation requires it over
+    `menuItemRadio` items), `popupMenuLabel` except on iOS/macOS as the
+    framework does; `requestFocus` keeps `_headingMenuTakesFocus`. Side
+    rule, decided once per open: above while the room above holds the rows
+    at scale 1, else the roomier side (below = top edge on the anchor's
+    bottom + gap, revealed downward) — only the settings page's preview
+    bar reaches it. The follow: the overlay lays the route out before a
+    deeper dirty node of the page, so a keyboard frame reads the anchor a
+    frame late; a post-frame re-read bumps a `ValueNotifier` the page's
+    `LayoutBuilder` listens to, and the menu settles one frame after the
+    bar (the old road left it ~320 dp above a one-step-fallen bar).
+    `formMenuMaxHeight` has no `lib/` caller since; `FormMenuSide`,
+    `formMenuPosition` and `showFormMenu` still serve the other menus.
+  - Geometry pinned (test font, 360 × 780, keyboard 320, status bar 24, H
+    button top 409, bar edge 405): menu bottom 405 in every en/de ×
+    1.0/1.15/1.3/2.0 case; top 85 at 1.0, 69 (en 1.3), 78 (de 1.15), 32
+    when capped (373 tall, rows scrolling); left 16; 80 ms after the tap
+    the bottom is already 405 and the height 128–149.
+  - Tests: `markdown_bar_chrome_test.dart` — "the heading menu stands on
+    its button" (8 scale × locale cases + the barrier), "with undo and redo
+    unpinned" (5), the keyboard-closing case now asserts the bottom on the
+    bar within 1 dp; `form_menu_above_test.dart` (15: the edge, the gap,
+    the right-edge and padding clamps, the step width, the side rule, the
+    one-step keyboard follow, pick / barrier / Escape / arrow + Enter, the
+    semantics label per platform); `editor_settings_test.dart`,
+    `backup_service_editor_settings_round_trip_test.dart` and
+    `markdown_settings_page_test.dart` for the setting. Gate after the fix
+    pass: analyze clean, `+9313 ~10 -1` (the Windows-only host_devices
+    case), `untranslated.txt` `{}`.
+  - The code review (eight findings, none a data or must-not-change
+    breach) led to the fix pass above: the one-frame follow (its probe
+    `Expected: 729 ±1, Actual: 409`), the side rule, the 96 dp wording,
+    the padding clamp / iOS label / step width, the 4 dp gap, the
+    primitive's own suite. Left as is: the settings row's `Transform.scale`
+    switch and missing `MergeSemantics` (the page's idiom, for the
+    settings-kit adoption); `_readAnchorRect` on an anchor deactivated in
+    the same frame (no reachable path — the barrier blocks reorder mode,
+    the suggestion session keeps the strip mounted); the other form menus
+    that flip above a bottom-of-sheet row still ride `showMenu`'s
+    top-edge placement (a candidate for `showFormMenuAbove`, not asked).
+  - The design review (fresh context, real-font renders en/de/ro ×
+    1.0/1.3/2.0 × light/dark, the three guideline matchers passing over
+    the bar in both pin states and over the open menu) passed every line
+    of the spec — bottom on the hairline in every case, left 16, width 224
+    with Roboto at 1.0 and 280 at 1.3+/2.0, rows 44, label 13.9:1 light /
+    11.1:1 dark on `menuSurface`, marker 7.6 / 8.4, check 5.3 / 8.4, the
+    hairline visible past the menu's corners, the rows fixed while the top
+    rises — except two, fixed in a second pass (G1–G3): the `#` marker
+    scaled with the text and squeezed the label into mid-word breaks at
+    2.0 ("Headin / g 6", "Übersch / rift 5") — its text scale is now
+    clamped at `FormMetrics.menuMarkerMaxScale` 1.3, the marker being
+    decoration; and the new switch row sat flush under the Split row, now
+    8 dp apart. Also from that review: the page's Toolbar Layout header
+    overflowed at 360 dp de 2.0 (older code, the page suite pumped only at
+    412 — the five bare `Text + Spacer` headers and the Split toolbar
+    label, which overflowed by 187 px there, are wrapped like their
+    siblings, and a 360 de 2.0 case scrolls to the pin switch); the
+    guideline matchers now run in the bar suite (ten cases: the bar split
+    and single row × pinned and unpinned × light and dark, the open menu
+    light and dark) with an unpinned case in the German 2.0 group. Gate
+    after the second pass: analyze clean, `+9326 ~10 -1`.
+  - The device pass (qa-runner, Pixel_9_Pro emulator at 427 × 952 dp,
+    `qa run` then `qa relaunch --fresh --seed
+    tool/qa/fixtures/markdown_corpus.json`, the shots read by the lead:
+    `build/qa/shots/20261022_22*`): the menu settled on the bar's hairline
+    with Body text first and the caret's Heading 2 checked, no gap, the H
+    button clear; Heading 3 picked → `### `, Body text → the marker gone,
+    a tap outside → nothing; the agent dump shows `View "Popup menu"` over
+    the seven rows (`editor-heading-0…6`, radio with checked state, the
+    markers unspoken, Body text enabled in the editor and disabled on the
+    settings preview); the switch section in light and de 2.0 without
+    overlap, the preview with Undo and Redo inside the strip and no pinned
+    pair when off, the single row without a trailing pair; in the note
+    the unpinned strip reads Undo, Redo, Indent, Outdent, Paste in a
+    `HorizontalScrollView`, undo works from inside it, a swipe keeps its
+    offset; the menu opens below the settings preview bar when it sits
+    under the app bar, hanging from its border; `qa errors` clean. **Red
+    once**: de at 2.0 still broke "Überschrift 6" mid-word and wrapped the
+    digits of 3–5 — the clamped marker's column still squeezed the label
+    at the 280 cap — fixed by a third pass that hides the decorative
+    marker above `menuMarkerMaxScale` (the label then has ≈ 228 dp, the
+    longest needs ≈ 200) — re-checked on the emulator: de 2.0 dark and
+    light, all seven rows 132 px (44 dp), "Überschrift 6" on one line, no
+    markers; at en 1.0 the markers are back (`20261022_2256*_g1…g3`);
+    gate after that pass `+9326 ~10 -1`. The emulator offered one size and no IME, so
+    the status-bar cap with scrolling rows and the 360 dp strip were not
+    reached there. **Owed to the phone:** the real IME closing under the
+    open menu (the menu should ride down with the bar), the reveal by
+    eye, TalkBack phrasing ("Popup menu", the radio rows, the unpinned
+    strip), Android's non-linear 200 % scaling, the 360 dp unpinned strip. Left as is, recorded:
+    with the pair unpinned at 360 dp and the 0.7 ratio the split utility
+    strip shows exactly Undo and Redo and its end fade falls on Redo's
+    disabled glyph, so nothing says the strip scrolls until it is swiped
+    (the owner's ratio and config; the pinned bar and 412 dp keep the cue);
+    in single-row mode unpinned Undo is wherever the config puts it, with
+    the default order ≈ 1,150 dp of scrolling away (as asked); the below
+    case lands 1 dp off a plain host's bar bottom (no hairline there) and
+    on the settings preview's border; every menu of the language rests its
+    edge on the elevation-3 shadow alone (1.2:1 against `surface`, weaker
+    in dark; a hairline like the snackbar's is a language question, not
+    this change's). The recipe gained two corrections: a text style with
+    no `fontFamily` (the popup label style) stays in the box font, and
+    `matchesGoldenFile` captures at 1x.
 - **2026-10-21 — the completion pass C2 and the last mile L, committed with
   U1–U3 as `6b46bd6`.** C2 (one implementer, the reviewers and the fix pass
   of the same family) closed the gaps the U-ledger names: the utility

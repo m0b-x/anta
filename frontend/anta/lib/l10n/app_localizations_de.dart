@@ -3498,6 +3498,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get splitToolbar => 'Toolbar teilen';
 
   @override
+  String get pinUndoRedo => 'Rückgängig und Wiederholen anheften';
+
+  @override
   String get utilityButtons => 'Hilfsschaltflächen';
 
   @override

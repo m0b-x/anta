@@ -752,7 +752,10 @@ E35: `getListPrefix` rebuilds the marker with one space
     two runs starts a new pair instead of merging them.
   - E12: the menu is the language's `FormMenuChoiceItem`s, `requestFocus:
     false`, the caret line's level checked; `applyHeader` (cycling) keeps the
-    caret column too.
+    caret column too. Since 2026-10-22 it opens through `showFormMenuAbove`
+    (`docs/editor-ux-review-2026-10-19.md` §5, the 2026-10-22 entry): its
+    bottom edge on the H button at every text scale, rising from it —
+    `showMenu` placed it by its top edge and revealed it downward.
   - E14: the trailing newline is trimmed only when the transform continued
     the list to its last line; the old `'a\n\n'` pin became `'a\n- b\n\n'`.
   - E15: bracket expansion on Enter is off everywhere (the fork cannot see

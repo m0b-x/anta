@@ -26,6 +26,11 @@ abstract final class MarkdownBarMetrics {
   /// which the suggestion row keeps too.
   static const double verticalPadding = AppTheme.editorBarVerticalPadding;
 
+  /// The bar decoration's top border, so a menu opened from a bar button
+  /// stands on the bar's top edge rather than 4 dp into its chrome. Keep it
+  /// equal to `AppTheme.editorBarDecoration`'s border width.
+  static const double hairline = 1;
+
   /// The hairline between the shortcut and the utility sections.
   static const double dividerHeight = 24;
 
