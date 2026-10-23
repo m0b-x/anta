@@ -50,7 +50,7 @@ void main() {
 
   setUp(() async {
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     await service.upsert(
       CalendarEvent(
         id: 'e1',

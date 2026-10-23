@@ -58,7 +58,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - Descriptions and presence bump `occurrenceRevision` (agenda never rescans), presence also `presenceRevision`; skips and reloads `membershipRevision`.
 - A presence default flip bumps nothing: never value-compare `allEvents`. Handlers build fresh `allEvents` / `filters` (compared by identity).
 - Callbacks read `context.read<CalendarBloc>().state` at press time.
-- Only `importData()` / `reset()` bump `CalendarEventService.externalRevision`. Sheets never fire the `RouteObserver`.
+- Only `importData()` / `reset()` / `notifyExternalChange()` bump `CalendarEventService.externalRevision`; the last also fires the static `externalChanges` stream, which `CalendarBloc` turns into `ExternalCalendarChange` (an in-place reload, no loading state). `BackupService.importFromJson` calls it once at the end of a restore, never mid-import. Sheets never fire the `RouteObserver`.
 
 ## Services and facades
 

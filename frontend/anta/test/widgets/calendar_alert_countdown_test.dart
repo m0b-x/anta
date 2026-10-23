@@ -88,7 +88,7 @@ void main() {
     SettingsService.forTesting(testDb);
 
     service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     await (await EventAlertService.getInstance()).deleteAll();
     final now = DateTime.now();
     legDay = CalendarEvent(

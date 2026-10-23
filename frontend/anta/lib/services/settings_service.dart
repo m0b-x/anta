@@ -19,6 +19,7 @@ import '../models/nav_destination.dart';
 import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
 import '../models/restore_location_mode.dart';
+import '../models/sync_binding.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/agenda_day_list_mode.dart';
@@ -1185,10 +1186,11 @@ class SettingsService {
       SettingsKeys.calendarUpcomingRangeDays: filters.rangeDays.toString(),
       SettingsKeys.calendarUpcomingPriorities:
           UpcomingAgendaFilters.encodePriorities(filters.priorities),
-      SettingsKeys.calendarUpcomingCustomRange: UpcomingAgendaFilters.encodeRange(
-        filters.customStart,
-        filters.customEnd,
-      ),
+      SettingsKeys.calendarUpcomingCustomRange:
+          UpcomingAgendaFilters.encodeRange(
+            filters.customStart,
+            filters.customEnd,
+          ),
       SettingsKeys.calendarUpcomingQuery: filters.query,
       SettingsKeys.calendarUpcomingShowHolidays: filters.showHolidays
           .toString(),
@@ -1614,27 +1616,30 @@ class SettingsService {
         values[SettingsKeys.alertDefaultAllDay],
       ),
       sound: values[SettingsKeys.alertSound] ?? SettingsKeys.defaultAlertSound,
-      snoozeMinutes: _decodeInt(
-        values[SettingsKeys.alertSnoozeMinutes],
-        SettingsKeys.defaultAlertSnoozeMinutes,
-      ).clamp(
-        SettingsKeys.minAlertSnoozeMinutes,
-        SettingsKeys.maxAlertSnoozeMinutes,
-      ),
-      silenceAfterMinutes: _decodeInt(
-        values[SettingsKeys.alertSilenceAfterMinutes],
-        SettingsKeys.defaultAlertSilenceAfterMinutes,
-      ).clamp(
-        SettingsKeys.minAlertSilenceAfterMinutes,
-        SettingsKeys.maxAlertSilenceAfterMinutes,
-      ),
-      noticeLeadMinutes: _decodeInt(
-        values[SettingsKeys.alertNoticeLeadMinutes],
-        SettingsKeys.defaultAlertNoticeLeadMinutes,
-      ).clamp(
-        SettingsKeys.minAlertNoticeLeadMinutes,
-        SettingsKeys.maxAlertNoticeLeadMinutes,
-      ),
+      snoozeMinutes:
+          _decodeInt(
+            values[SettingsKeys.alertSnoozeMinutes],
+            SettingsKeys.defaultAlertSnoozeMinutes,
+          ).clamp(
+            SettingsKeys.minAlertSnoozeMinutes,
+            SettingsKeys.maxAlertSnoozeMinutes,
+          ),
+      silenceAfterMinutes:
+          _decodeInt(
+            values[SettingsKeys.alertSilenceAfterMinutes],
+            SettingsKeys.defaultAlertSilenceAfterMinutes,
+          ).clamp(
+            SettingsKeys.minAlertSilenceAfterMinutes,
+            SettingsKeys.maxAlertSilenceAfterMinutes,
+          ),
+      noticeLeadMinutes:
+          _decodeInt(
+            values[SettingsKeys.alertNoticeLeadMinutes],
+            SettingsKeys.defaultAlertNoticeLeadMinutes,
+          ).clamp(
+            SettingsKeys.minAlertNoticeLeadMinutes,
+            SettingsKeys.maxAlertNoticeLeadMinutes,
+          ),
     );
   }
 
@@ -2223,6 +2228,46 @@ class SettingsService {
       await _setBool(
         SettingsKeys.pairingEndedNotice,
         settings.endedNoticePending,
+      );
+    });
+  }
+
+  /// The space this database is bound to, or null unless the space, its
+  /// owner and the binding account are all stored.
+  Future<SyncBinding?> getSyncBinding() async {
+    final spaceId = _nonEmpty(
+      await _db.userSettingsDao.getValue(SettingsKeys.syncSpaceId),
+    );
+    final ownerUid = _nonEmpty(
+      await _db.userSettingsDao.getValue(SettingsKeys.syncSpaceOwnerUid),
+    );
+    final accountUid = _nonEmpty(
+      await _db.userSettingsDao.getValue(SettingsKeys.syncSpaceAccountUid),
+    );
+    if (spaceId == null || ownerUid == null || accountUid == null) return null;
+    final boundAt = int.tryParse(
+      await _db.userSettingsDao.getValue(SettingsKeys.syncSpaceBoundAt) ?? '',
+    );
+    return SyncBinding(
+      spaceId: spaceId,
+      ownerUid: ownerUid,
+      accountUid: accountUid,
+      boundAt: boundAt == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(boundAt, isUtc: true),
+    );
+  }
+
+  /// Transactional for the reason [setPairingSettings] is: the four rows are
+  /// one value. Null clears all four.
+  Future<void> setSyncBinding(SyncBinding? binding) {
+    return _db.transaction(() async {
+      await _write(SettingsKeys.syncSpaceId, binding?.spaceId);
+      await _write(SettingsKeys.syncSpaceOwnerUid, binding?.ownerUid);
+      await _write(SettingsKeys.syncSpaceAccountUid, binding?.accountUid);
+      await _write(
+        SettingsKeys.syncSpaceBoundAt,
+        binding?.boundAt?.toUtc().millisecondsSinceEpoch.toString(),
       );
     });
   }

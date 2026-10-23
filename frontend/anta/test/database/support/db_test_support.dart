@@ -79,7 +79,11 @@ class CapturedStatement {
   final String sql;
   final List<Object?> args;
 
-  const CapturedStatement(this.sql, this.args);
+  /// How many times the statement ran: one, except in a batch, where one
+  /// prepared statement runs once per argument set.
+  final int runs;
+
+  const CapturedStatement(this.sql, this.args, {this.runs = 1});
 
   bool get isSelect => sql.trimLeft().toUpperCase().startsWith('SELECT');
 
@@ -114,6 +118,17 @@ class StatementCounter extends QueryInterceptor {
     for (final c in captured)
       if (c.sql.contains(fragment)) c.sql,
   ];
+
+  /// How many times statements containing [fragment] ran. A batch records
+  /// each distinct statement once in [captured], so [matching] cannot see a
+  /// statement a batch repeated for every row; this can.
+  int executions(String fragment) {
+    var runs = 0;
+    for (final c in captured) {
+      if (c.sql.contains(fragment)) runs += c.runs;
+    }
+    return runs;
+  }
 
   @override
   Future<List<Map<String, Object?>>> runSelect(
@@ -160,8 +175,12 @@ class StatementCounter extends QueryInterceptor {
     QueryExecutor executor,
     BatchedStatements statements_,
   ) {
-    for (final s in statements_.statements) {
-      captured.add(CapturedStatement(s, const []));
+    final runs = List.filled(statements_.statements.length, 0);
+    for (final set in statements_.arguments) {
+      runs[set.statementIndex]++;
+    }
+    for (final (i, s) in statements_.statements.indexed) {
+      captured.add(CapturedStatement(s, const [], runs: runs[i]));
     }
     return super.runBatched(executor, statements_);
   }

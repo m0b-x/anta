@@ -60,7 +60,7 @@ void main() {
 
   setUp(() async {
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     // Inserted in an order that is wrong on every axis the comparator ranks:
     // the lowest-priority event goes in last, and the titles descend. Cache
     // order is insertion order, so an unsorted lookup returns exactly this.

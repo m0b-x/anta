@@ -137,10 +137,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.id.equals(folder.id.value))).getSingle();
   }
 
+  /// [ownerId] is for a backup restore, whose copy keeps the archived
+  /// ownership under its fresh id (D16); every other caller leaves it null.
   Future<Folder> createFolder({
     required String name,
     String? parentId,
     ItemLabel label = ItemLabel.none,
+    String? ownerId,
   }) {
     return transaction(() async {
       final now = DateTime.now();
@@ -167,6 +170,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         position: Value(maxPos + 1),
         createdAt: Value(now),
         updatedAt: Value(now),
+        ownerId: Value(ownerId),
         hlcTimestamp: Value(stamp.hlc),
         deviceId: Value(stamp.deviceId),
         version: const Value(1),

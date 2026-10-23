@@ -90,7 +90,7 @@ void main() {
 
   setUp(() async {
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     noteId = await createNote(r'$+ 10.00 protein');
 
     bloc = CalendarBloc(service: service);
@@ -186,9 +186,7 @@ void main() {
 
     expect(bloc.monthNetFor(month), 0);
 
-    await dispatch(
-      const ChangeCalendarFilters(filters: CalendarGridFilters()),
-    );
+    await dispatch(const ChangeCalendarFilters(filters: CalendarGridFilters()));
 
     expect(bloc.monthNetFor(month), 1000);
   });

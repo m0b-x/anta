@@ -21,6 +21,12 @@ final class SignOutRequested extends SyncEvent {
   const SignOutRequested();
 }
 
+/// Re-reads the sync status while the account stays as it is — after the
+/// outbox or the binding changed.
+final class RefreshSyncStatus extends SyncEvent {
+  const RefreshSyncStatus();
+}
+
 /// Fed from the [AuthService] subscription rather than the UI, so a sign-in
 /// that happens elsewhere (token expiry, sign-out on another screen) still
 /// moves this bloc.

@@ -29,6 +29,7 @@ import '../../services/pairing_gateway.dart';
 import '../../services/permission_gateway.dart';
 import '../../services/permission_service.dart';
 import '../../services/sync_availability.dart';
+import '../../services/sync/sync_status_service.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../../bloc/optimized_note/optimized_note_bloc.dart';
 import '../../bloc/import_export/import_export_bloc.dart';
@@ -238,8 +239,14 @@ void _registerBlocs() {
     () => ImportExportBloc(service: getIt<ImportExportService>()),
   );
 
+  // A thunk, not a started future: on a platform whose page never reads a
+  // status, a future started here would never be awaited, and its error
+  // would reach the zone uncaught.
   getIt.registerFactory<SyncBloc>(
-    () => SyncBloc(authService: getIt<AuthService>()),
+    () => SyncBloc(
+      authService: getIt<AuthService>(),
+      statusReader: SyncStatusService.getInstance,
+    ),
   );
 
   getIt.registerFactory<PairingBloc>(

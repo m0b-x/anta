@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
 import '../constants/event_alerts.dart';
+import '../constants/json_keys.dart';
 import '../database/daos/category_alert_dao.dart';
 import '../database/daos/event_alert_dao.dart';
 import '../database/database.dart';
@@ -318,6 +319,7 @@ class EventAlertService {
           ..._rowToCategoryAlert(row).toJson(),
           EventAlertKeys.createdAtMs: row.createdAt.millisecondsSinceEpoch,
           EventAlertKeys.updatedAtMs: row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) EventAlertKeys.ownerId: row.ownerId,
         },
     ];
   }
@@ -345,7 +347,7 @@ class EventAlertService {
             updatedAt: updatedMs is int
                 ? DateTime.fromMillisecondsSinceEpoch(updatedMs)
                 : now,
-          ),
+          ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(map))),
         );
       } catch (e) {
         debugPrint('[EventAlertService] Category import row error: $e');
@@ -373,6 +375,7 @@ class EventAlertService {
           ..._rowToAlert(row).toJson(),
           EventAlertKeys.createdAtMs: row.createdAt.millisecondsSinceEpoch,
           EventAlertKeys.updatedAtMs: row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) EventAlertKeys.ownerId: row.ownerId,
         },
     ];
   }
@@ -404,7 +407,7 @@ class EventAlertService {
             updatedAt: updatedMs is int
                 ? DateTime.fromMillisecondsSinceEpoch(updatedMs)
                 : now,
-          ),
+          ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(map))),
         );
       } catch (e) {
         debugPrint('[EventAlertService] Import row error: $e');

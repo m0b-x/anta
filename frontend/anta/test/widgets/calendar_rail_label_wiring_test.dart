@@ -92,7 +92,7 @@ void main() {
     SettingsService.forTesting(testDb);
 
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     bloc = CalendarBloc(service: service);
     await dispatch(const LoadCalendarEvents());
     final now = DateTime.now();

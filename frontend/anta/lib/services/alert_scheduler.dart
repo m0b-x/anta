@@ -48,6 +48,10 @@ enum AlertReconcileReason {
   occurrenceChanged,
   backupRestored,
   ringHandled,
+
+  /// A pull merged rows from the space; the sync engine passes it to
+  /// `reconcileAll` once per applied batch.
+  sync,
 }
 
 /// Reconciles one event's alerts. The seam `CalendarBloc` holds, so a bloc
@@ -462,7 +466,9 @@ class AlertScheduler {
     try {
       await (await getInstance()).settleEndedRing(payload, answered: answered);
     } catch (e) {
-      debugPrint('[AlertScheduler] settleEndedRing(${payload.osId}) failed: $e');
+      debugPrint(
+        '[AlertScheduler] settleEndedRing(${payload.osId}) failed: $e',
+      );
     }
   }
 
@@ -574,8 +580,7 @@ class AlertScheduler {
     final AlertSettings settings;
     try {
       eventService = await CalendarEventService.getInstance();
-      settings = await (await SettingsService.getInstance())
-          .getAlertSettings();
+      settings = await (await SettingsService.getInstance()).getAlertSettings();
     } catch (e) {
       debugPrint('[AlertScheduler] hub setup failed: $e');
       return const [];
@@ -792,7 +797,9 @@ class AlertScheduler {
       debugPrint('[AlertScheduler] recent setup failed: $e');
       return const [];
     }
-    final eventsById = {for (final event in eventService.events) event.id: event};
+    final eventsById = {
+      for (final event in eventService.events) event.id: event,
+    };
     final rows = await _dao.recent(
       since: now.subtract(kAlertRegistrationRetention),
     );
@@ -996,7 +1003,10 @@ class AlertScheduler {
   /// Awaits one service's construction, logging rather than rethrowing — the
   /// `CalendarBloc._resolveQuietly` rule, so a single unavailable facade
   /// degrades the plan instead of cancelling the reconcile outright.
-  static Future<void> _resolveQuietly(Future<Object?> init, String label) async {
+  static Future<void> _resolveQuietly(
+    Future<Object?> init,
+    String label,
+  ) async {
     try {
       await init;
     } catch (e) {
@@ -1310,10 +1320,7 @@ class AlertScheduler {
       // A row this pass already settled — delivered, or missed — keeps that
       // verdict; the backend's leftover listing of it is cleared all the same.
       if (!settled.verdicts.contains(entry.osId)) {
-        await _dao.markState(
-          entry.osId,
-          AlertRegistrationState.cancelled.name,
-        );
+        await _dao.markState(entry.osId, AlertRegistrationState.cancelled.name);
       }
       cancelled++;
     }
@@ -1508,7 +1515,12 @@ class AlertScheduler {
       await _dao.markState(row.osId, AlertRegistrationState.missed.name);
       verdicts.add(row.osId);
       await _gateway.showMissed(
-        _payloadForRow(row, event, fireAt: fireAt, snoozeMinutes: snoozeMinutes),
+        _payloadForRow(
+          row,
+          event,
+          fireAt: fireAt,
+          snoozeMinutes: snoozeMinutes,
+        ),
       );
     }
     return (
@@ -1686,7 +1698,10 @@ class AlertScheduler {
     if (!foreign) {
       try {
         await EventAlertService.getInstance();
-        await _resolveQuietly(EventOccurrenceService.getInstance(), 'occurrences');
+        await _resolveQuietly(
+          EventOccurrenceService.getInstance(),
+          'occurrences',
+        );
         await _resolveQuietly(CategoryService.getInstance(), 'categories');
         final eventService = await CalendarEventService.getInstance();
         final alertSettings = await (await SettingsService.getInstance())

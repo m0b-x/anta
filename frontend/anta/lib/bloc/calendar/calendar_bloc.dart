@@ -234,7 +234,23 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<SaveEventDigest>(_onSaveEventDigest);
     on<DeleteEventDigest>(_onDeleteEventDigest);
     on<ToggleEventDigest>(_onToggleEventDigest);
+    on<ExternalCalendarChange>(_onExternalChange);
+    _externalChanges = CalendarEventService.externalChanges.listen((_) {
+      if (!isClosed) add(const ExternalCalendarChange());
+    });
   }
+
+  late final StreamSubscription<void> _externalChanges;
+
+  /// Bumped by every load and external reload; one that finds it moved on
+  /// after its awaits lost the race and emits nothing.
+  int _loadGeneration = 0;
+
+  /// Set by an external change that arrives before the first load has
+  /// emitted; that load may already have read the table, so it reads once
+  /// more before emitting. A flag rather than a generation bump: a bump would
+  /// make the first load lose its race and nothing would ever emit.
+  bool _externalChangeBeforeLoaded = false;
 
   /// Awaits one service's construction, logging rather than rethrowing.
   ///
@@ -657,39 +673,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     Emitter<CalendarPageState> emit,
   ) async {
     final today = _dateOnly(DateTime.now());
-    CalendarEventService? service;
-    final resolving = _resolveService();
-    // Resolved in parallel but independently. `Future.wait` fails fast, so a
-    // single bad service would otherwise reject the whole batch and blank the
-    // calendar; each of these already degrades to an empty published cache on
-    // its own, which is a far smaller lie than showing no events at all.
-    await Future.wait<void>([
-      _resolveQuietly(resolving, 'events'),
-      _resolveQuietly(PublicHolidayService.getInstance(), 'holidays'),
-      _resolveQuietly(CategoryService.getInstance(), 'categories'),
-      _resolveQuietly(EventOccurrenceService.getInstance(), 'descriptions'),
-      _resolveQuietly(EventPresenceService.getInstance(), 'presence'),
-      _resolveQuietly(EventSkipService.getInstance(), 'skips'),
-      _resolveQuietly(EventTemplateService.getInstance(), 'templates'),
-      _resolveQuietly(EventAlertService.getInstance(), 'alerts'),
-      _resolveQuietly(EventDigestService.getInstance(), 'digests'),
-    ]);
-    try {
-      final resolved = await resolving;
-      service = resolved.service;
-      // Constructing the service loaded the table already — on the first load
-      // and again after a database switch. Reloading on top of that would read
-      // `calendar_events` twice on the pre-first-paint path.
-      if (!resolved.freshlyLoaded) await service.reload();
-    } catch (e) {
-      debugPrint('[CalendarBloc] Load error: $e');
-    }
-    _seenExternalRevision = CalendarEventService.externalRevision;
-    final events = service?.events ?? const <CalendarEvent>[];
-    try {
-      await (await NoteMoneyLedgerService.getInstance()).refresh(events);
-    } catch (e) {
-      debugPrint('[CalendarBloc] Money ledger refresh error: $e');
+    final generation = ++_loadGeneration;
+    _externalChangeBeforeLoaded = false;
+    var events = await _resolveAndReload();
+    // A newer load or external reload started meanwhile and will emit a
+    // list read after this one.
+    if (generation != _loadGeneration) return;
+    if (_externalChangeBeforeLoaded) {
+      _externalChangeBeforeLoaded = false;
+      events = await _resolveAndReload();
+      if (generation != _loadGeneration) return;
     }
     // Invalidated in the same turn as the emit, after the last await — the
     // create/update rule: a grid rebuild during the ledger refresh would
@@ -718,6 +711,79 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         membershipRevision: previous.membershipRevision + 1,
       ),
     );
+  }
+
+  /// A re-load in place, for a store changed behind the bloc: what a re-load
+  /// does, and the occurrence revision too — a pull can bring descriptions
+  /// and presence, which the agenda only rescans for on that bump. Before the
+  /// first load has emitted it only raises [_externalChangeBeforeLoaded]: the
+  /// load in flight may have read the table before the change landed, and
+  /// re-reads once before emitting.
+  Future<void> _onExternalChange(
+    ExternalCalendarChange event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    if (state is! CalendarPageLoaded) {
+      _externalChangeBeforeLoaded = true;
+      return;
+    }
+    final generation = ++_loadGeneration;
+    final events = await _resolveAndReload();
+    final latest = state;
+    if (generation != _loadGeneration || latest is! CalendarPageLoaded) return;
+    _invalidateDayCache();
+    emit(
+      latest.copyWith(
+        allEvents: List.unmodifiable(events),
+        filters: _filters,
+        membershipRevision: latest.membershipRevision + 1,
+        occurrenceRevision: latest.occurrenceRevision + 1,
+      ),
+    );
+  }
+
+  /// The resolution every load shares: the nine services, the event store
+  /// re-read, the money ledger refreshed over it. Returns the events.
+  Future<List<CalendarEvent>> _resolveAndReload() async {
+    CalendarEventService? service;
+    final resolving = _resolveService();
+    // Resolved in parallel but independently. `Future.wait` fails fast, so a
+    // single bad service would otherwise reject the whole batch and blank the
+    // calendar; each of these already degrades to an empty published cache on
+    // its own, which is a far smaller lie than showing no events at all.
+    await Future.wait<void>([
+      _resolveQuietly(resolving, 'events'),
+      _resolveQuietly(PublicHolidayService.getInstance(), 'holidays'),
+      _resolveQuietly(CategoryService.getInstance(), 'categories'),
+      _resolveQuietly(EventOccurrenceService.getInstance(), 'descriptions'),
+      _resolveQuietly(EventPresenceService.getInstance(), 'presence'),
+      _resolveQuietly(EventSkipService.getInstance(), 'skips'),
+      _resolveQuietly(EventTemplateService.getInstance(), 'templates'),
+      _resolveQuietly(EventAlertService.getInstance(), 'alerts'),
+      _resolveQuietly(EventDigestService.getInstance(), 'digests'),
+    ]);
+    try {
+      final resolved = await resolving;
+      service = resolved.service;
+      // Constructing the service loaded the table already — on the first load
+      // and again after a database switch. Reloading on top of that would read
+      // `calendar_events` twice on the pre-first-paint path.
+      if (!resolved.freshlyLoaded) await service.reload();
+    } catch (e) {
+      debugPrint('[CalendarBloc] Load error: $e');
+    }
+    _seenExternalRevision = CalendarEventService.externalRevision;
+    try {
+      await (await NoteMoneyLedgerService.getInstance()).refresh(
+        service?.events ?? const <CalendarEvent>[],
+      );
+    } catch (e) {
+      debugPrint('[CalendarBloc] Money ledger refresh error: $e');
+    }
+    // Read after the last await: a create, update or delete that emitted
+    // during the ledger refresh is already in the store, and a list taken
+    // before it would undo that emit.
+    return service?.events ?? const <CalendarEvent>[];
   }
 
   void _onSelectDay(SelectCalendarDay event, Emitter<CalendarPageState> emit) {
@@ -942,7 +1008,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Occurrence write error: $e');
       return;
     }
-    unawaited(_reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged));
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
+    );
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
     emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
@@ -963,7 +1031,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Occurrence clear error: $e');
       return;
     }
-    unawaited(_reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged));
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
+    );
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
     emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
@@ -1205,5 +1275,11 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
     emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
+  }
+
+  @override
+  Future<void> close() async {
+    await _externalChanges.cancel();
+    return super.close();
   }
 }

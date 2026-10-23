@@ -76,7 +76,7 @@ void main() {
     reconciled = [];
 
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     bloc = CalendarBloc(
       service: service,
       alertReconciler: (eventId, reason) async => reconciled.add(eventId),

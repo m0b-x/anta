@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../daos/sync_dao.dart';
 import '../database.dart';
 
 /// The identity a local write stamps on its row: the HLC that orders it and
@@ -116,14 +117,25 @@ extension CrdtWrite on AppDatabase {
     String rowKey,
     String hlc, {
     OutboxOp op = OutboxOp.upsert,
-  }) {
-    return into(syncOutbox).insert(
+  }) async {
+    await _persistClockNow();
+    await into(syncOutbox).insert(
       _entry(table, rowKey, hlc, op, DateTime.now()),
       onConflict: _newerWins,
     );
   }
 
   /// [enqueue] added to a DAO's [batch], so it commits with the batch's rows.
+  ///
+  /// The clock row joins the batch and is claimed as the batch is built:
+  /// this method cannot observe the caller's batch, so a batch that throws
+  /// leaves the claim ahead of the store until the next, higher stamp.
+  ///
+  /// That is safe only because a caller never continues after its batch
+  /// fails: stamps it minted before the batch (S1..Sn of an `importAll`)
+  /// would find the clock covered by a claim that never stored, and commit
+  /// above the stored clock. A failed batch ends the action; a retry mints
+  /// anew.
   void enqueueIn(
     Batch batch,
     TableInfo table,
@@ -131,6 +143,7 @@ extension CrdtWrite on AppDatabase {
     String hlc, {
     OutboxOp op = OutboxOp.upsert,
   }) {
+    _persistClockIn(batch);
     batch.insert(
       syncOutbox,
       _entry(table, rowKey, hlc, op, DateTime.now()),
@@ -154,21 +167,30 @@ extension CrdtWrite on AppDatabase {
   }) async {
     if (rowKeys.isEmpty) return;
     final now = DateTime.now();
+    final clock = this.hlc.last.toString();
+    final persist = !_covered(clock);
     await batch((b) {
+      if (persist) b.insert(syncMetadata, _clockRow(clock), onConflict: _ahead);
       b.insertAll(syncOutbox, [
         for (final key in rowKeys) _entry(table, key, hlc, op, now),
       ], onConflict: _newerWins);
     });
+    // This method owns its batch, so it claims only once the batch has run.
+    if (persist) this.hlc.claimPersisted(clock);
   }
 
   /// Queues, inside a [batch], the rows among [rowKeys] that the batch wrote
   /// under [hlc] — for batched writes whose per-row `WHERE` decides which
   /// rows change, where no row count comes back to say which did.
   ///
-  /// Restricted to [rowKeys] as well as matched on the HLC: until the clock
-  /// is persisted (R5), a clock set back can mint an HLC an older row already
-  /// carries, and the key set keeps such a collision inside the rows this
-  /// action targeted.
+  /// Restricted to [rowKeys] as well as matched on the HLC: a row written
+  /// before the clock was persisted can carry an HLC this clock mints again
+  /// after a clock set back, and the key set keeps such a collision inside
+  /// the rows this action targeted.
+  ///
+  /// The clock is stored only when the batch queued a row under [hlc], so a
+  /// launch whose seeding wrote nothing writes no clock either; nothing is
+  /// claimed, since whether it stored is decided inside SQLite.
   void enqueueWrittenIn(
     Batch batch,
     TableInfo table,
@@ -195,6 +217,91 @@ extension CrdtWrite on AppDatabase {
         ...keys,
       ],
       [TableUpdate.onTable(syncOutbox, kind: UpdateKind.insert)],
+    );
+    final clock = this.hlc.last.toString();
+    if (_covered(clock)) return;
+    batch.customStatement(
+      'INSERT INTO sync_metadata (key, value, updated_at) '
+      'SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM sync_outbox '
+      'WHERE table_name = ? AND hlc = ?) '
+      'ON CONFLICT (key) DO UPDATE SET value = excluded.value, '
+      'updated_at = excluded.updated_at '
+      'WHERE excluded.value > sync_metadata.value',
+      [
+        SyncDao.keyLastHlc,
+        clock,
+        typeMapping.mapToSqlVariable(DateTime.now()),
+        name,
+        hlc,
+      ],
+      [TableUpdate.onTable(syncMetadata, kind: UpdateKind.insert)],
+    );
+  }
+
+  /// Stores the clock's current value as the seed for the next open — for a
+  /// pull that advanced it through the merges, once per applied batch, and
+  /// after a migration's backfill. Local writes need not call it: queueing a
+  /// row persists the clock.
+  Future<void> persistClock() async {
+    final current = hlc.last.toString();
+    await into(syncMetadata).insert(_clockRow(current), onConflict: _ahead);
+    hlc.claimPersisted(current);
+  }
+
+  /// Stores the clock as `last_hlc` in the caller's transaction, unless this
+  /// instance already stored it: so a restart, or a wall clock set back,
+  /// never mints below a row already written.
+  ///
+  /// The clock, not the stamp being queued: it is the highest stamp minted so
+  /// far, so an action that pre-mints one stamp per row — every `importAll` —
+  /// pays one statement at its first queued row and the rest find it covered.
+  ///
+  /// Claimed after the insert lands, so a concurrent action that minted the
+  /// same clock does not skip its own write on a claim that never stored. A
+  /// rolled-back transaction still leaves its claim behind; that is safe
+  /// because no committed row carries a stamp above the stored value, the
+  /// next stamp is higher and stores itself again, and every stamp is minted
+  /// inside its own transaction — a retry mints anew, never reuses one.
+  Future<void> _persistClockNow() async {
+    final clock = hlc.last.toString();
+    if (_covered(clock)) return;
+    await into(syncMetadata).insert(_clockRow(clock), onConflict: _ahead);
+    hlc.claimPersisted(clock);
+  }
+
+  /// [_persistClockNow] added to a [batch], so it commits with the batch's
+  /// rows; claimed as it is added, since the batch belongs to the caller.
+  void _persistClockIn(Batch batch) {
+    final clock = hlc.last.toString();
+    if (_covered(clock)) return;
+    batch.insert(syncMetadata, _clockRow(clock), onConflict: _ahead);
+    hlc.claimPersisted(clock);
+  }
+
+  /// Whether [clock] is at or below what this instance already claimed. The
+  /// encoding is zero-padded hex, so string order is stamp order.
+  bool _covered(String clock) {
+    final persisted = hlc.persistedUpTo;
+    return persisted != null && clock.compareTo(persisted) <= 0;
+  }
+
+  SyncMetadataCompanion _clockRow(String stamp) {
+    return SyncMetadataCompanion.insert(
+      key: SyncDao.keyLastHlc,
+      value: stamp,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  /// The stored clock only moves forward: a write committing after a newer
+  /// one, or a merge's older clock, must not lower the seed.
+  DoUpdate<$SyncMetadataTable, SyncMetadataData> get _ahead {
+    return DoUpdate.withExcluded(
+      (old, excluded) => SyncMetadataCompanion.custom(
+        value: excluded.value,
+        updatedAt: excluded.updatedAt,
+      ),
+      where: (old, excluded) => excluded.value.isBiggerThan(old.value),
     );
   }
 

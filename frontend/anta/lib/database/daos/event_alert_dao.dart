@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../crdt/crdt_write.dart';
+import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/event_alerts_table.dart';
 
@@ -106,9 +107,7 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
           await into(eventAlerts).insert(
             entry.copyWith(
               eventId: Value(eventId),
-              createdAt: entry.createdAt.present
-                  ? entry.createdAt
-                  : Value(now),
+              createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
               updatedAt: Value(now),
               hlcTimestamp: Value(stamp.hlc),
               deviceId: Value(stamp.deviceId),
@@ -203,6 +202,38 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
         op: OutboxOp.tombstone,
       );
     });
+  }
+
+  /// The [tombstoneForEvent] statement over every event, for
+  /// [CalendarEventDao.tombstoneAll]: only the rows [ownedRowsWhere] allows,
+  /// under the wipe's [stamp].
+  Future<void> tombstoneAll({
+    required CrdtStamp stamp,
+    required String? ownerUid,
+  }) async {
+    final owned = ownedRowsWhere(ownerUid);
+    final now = DateTime.now();
+    final tombstoned = await customWriteReturning(
+      'UPDATE calendar_event_alerts SET is_deleted = 1, deleted_at = ?, '
+      'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
+      'version = version + 1 '
+      'WHERE is_deleted = 0 AND ${owned.sql} RETURNING id',
+      variables: [
+        Variable<DateTime>(now),
+        Variable<DateTime>(now),
+        Variable<String>(stamp.hlc),
+        Variable<String>(stamp.deviceId),
+        ...owned.variables,
+      ],
+      updates: {eventAlerts},
+      updateKind: UpdateKind.update,
+    );
+    await db.enqueueMany(
+      eventAlerts,
+      [for (final row in tombstoned) row.read<String>('id')],
+      stamp.hlc,
+      op: OutboxOp.tombstone,
+    );
   }
 
   /// The **hard** cascade, tombstones included — for the wipe paths, where no

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants/json_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_event_dao.dart';
@@ -11,6 +14,7 @@ import 'event_alert_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_skip_service.dart';
+import 'sync/sync_binding_service.dart';
 
 /// Persists custom calendar events via Drift and exposes a synchronous
 /// in-memory cache so `CalendarBloc.eventsForDay` stays O(N) over a
@@ -63,10 +67,25 @@ class CalendarEventService {
   /// re-dispatches when it next appears — the same shape
   /// `PublicHolidays.revision` uses for holidays.
   ///
-  /// Deliberately **not** bumped by [upsert], [deleteById], [deleteAll] or
+  /// Deliberately **not** bumped by [upsert], [deleteById], [tombstoneAll] or
   /// [reload]: the bloc drives those and already emits. Static so it survives
   /// [reset] nulling the instance.
   static int externalRevision = 0;
+
+  static final StreamController<void> _externalChanges =
+      StreamController<void>.broadcast();
+
+  /// Fires when the store changed behind every bloc's back — a restore, or
+  /// rows a pull merged — so a bloc already showing the calendar reloads at
+  /// once instead of waiting for the page to reappear. [reset] does not fire
+  /// it: a switched database is picked up through [externalRevision].
+  static Stream<void> get externalChanges => _externalChanges.stream;
+
+  /// Bumps [externalRevision] and tells [externalChanges]'s listeners.
+  static void notifyExternalChange() {
+    externalRevision++;
+    _externalChanges.add(null);
+  }
 
   static void reset() {
     _instance = null;
@@ -165,19 +184,25 @@ class CalendarEventService {
     await _refreshAlerts();
   }
 
-  /// Removes every custom calendar event, cascading to their occurrence
-  /// overrides and absence marks. Public holidays live in a separate table and
-  /// are untouched.
-  Future<void> deleteAll() async {
+  /// "Delete all events": tombstones every event this device may delete,
+  /// with its absence marks, day descriptions, skips and alerts, under one
+  /// HLC (D13) — the bound account's rows and the unowned ones, never another
+  /// account's. Public holidays live in a separate table and are untouched.
+  ///
+  /// The OS registrations of the tombstoned events are hard deleted, as
+  /// [deleteById]'s are: they describe this phone's scheduler, and the next
+  /// reconcile rebuilds them. A surviving event keeps its own.
+  ///
+  /// The cache is re-read rather than emptied: another account's events
+  /// survive the wipe (a restored archive on an unbound device), and an empty
+  /// cache would hide them until the next load.
+  Future<void> tombstoneAll() async {
+    final binding = await (await SyncBindingService.getInstance()).read();
     await _db.transaction(() async {
-      await _dao.deleteAll();
-      await _db.eventOccurrenceDao.deleteAll();
-      await _db.eventAbsenceDao.deleteAll();
-      await _db.eventSkipDao.deleteAll();
-      await _db.eventAlertDao.deleteAll();
-      await _db.alertRegistrationDao.deleteAll();
+      final ids = await _dao.tombstoneAll(ownerUid: binding?.accountUid);
+      await _db.alertRegistrationDao.deleteForEvents(ids);
     });
-    _cache = const [];
+    await _load();
     await _refreshOccurrences();
     await _refreshPresence();
     await _refreshSkips();
@@ -267,6 +292,7 @@ class CalendarEventService {
           'categoryAlerts': row.categoryAlerts,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -411,6 +437,7 @@ class CalendarEventService {
             updatedAt: Value(
               DateTime.fromMillisecondsSinceEpoch(updatedMs, isUtc: true),
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {
@@ -419,6 +446,8 @@ class CalendarEventService {
     }
     await _dao.importAll(companions);
     await _load();
+    // Only the revision: the restore that called this still has skips,
+    // descriptions and alerts to import, and tells the blocs once it has.
     externalRevision++;
   }
 

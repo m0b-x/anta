@@ -46,6 +46,9 @@ abstract final class EventAlertKeys {
   static const String enabled = 'enabled';
   static const String createdAtMs = 'createdAtMs';
   static const String updatedAtMs = 'updatedAtMs';
+
+  /// Backup-only, and written only for a row someone else owns (D16).
+  static const String ownerId = 'ownerId';
 }
 
 /// Synchronous, in-memory facade over the live rows of

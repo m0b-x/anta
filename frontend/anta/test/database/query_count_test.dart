@@ -271,14 +271,15 @@ void main() {
         isEmpty,
         reason: 'no row is read on the way to writing it',
       );
-      // Three, and only three: the notes update, the chunks update and the
-      // one outbox insert that queues every tombstoned note. The FTS delete
-      // rides on `customStatement`, which this interceptor does not see — the
-      // count below is therefore about the tables it can.
+      // Four, and only four: the notes update, the chunks update, the one
+      // outbox insert that queues every tombstoned note and the one
+      // `last_hlc` write their shared HLC costs. The FTS delete rides on
+      // `customStatement`, which this interceptor does not see — the count
+      // below is therefore about the tables it can.
       expect(counter.matching('sync_outbox'), hasLength(1));
       expect(
         counter.count,
-        3,
+        4,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
     });
@@ -359,8 +360,9 @@ void main() {
           'reorder must not read each row before writing it. Issued:\n'
           '${counter.statements.take(6).join('\n')}',
     );
-    // Plus one batched outbox insert for every row that moved.
-    expect(counter.count, lessThanOrEqualTo(positions.length + 1));
+    // Plus one batched outbox insert for every row that moved, and the one
+    // `last_hlc` write their shared HLC costs.
+    expect(counter.count, lessThanOrEqualTo(positions.length + 2));
   });
 
   test('reordering still bumps the CRDT version of each moved row', () async {
@@ -471,46 +473,52 @@ void main() {
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     // Read + write for the event and its entry, then a returning update and
-    // a batched insert for each of the four child tables.
+    // a batched insert for each of the four child tables, and one `last_hlc`
+    // write for the HLC the whole cascade shares.
+    expect(counter.matching('sync_metadata'), hasLength(1));
     expect(
       counter.count,
-      11,
+      12,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
   });
 
-  test('reassigning a category is two statements whatever the row count', () async {
-    for (var i = 0; i < 20; i++) {
-      await db.calendarEventDao.upsert(_event('e$i'));
-    }
+  test(
+    'reassigning a category is three statements whatever the row count',
+    () async {
+      for (var i = 0; i < 20; i++) {
+        await db.calendarEventDao.upsert(_event('e$i'));
+      }
 
-    counter.reset();
-    final moved = await db.calendarEventDao.reassignCategory('gym', 'other');
+      counter.reset();
+      final moved = await db.calendarEventDao.reassignCategory('gym', 'other');
 
-    expect(moved, 20);
-    // Deleting a category can touch an unbounded number of events, so this one
-    // cannot read-then-write: the version bump has to happen in SQL. Forgetting
-    // the stamping entirely would break nothing visible today and corrupt merge
-    // ordering the moment transport exists — that is what this pins. Since
-    // v43 the update returns the ids it moved and one batched insert queues
-    // them all: two statements, whatever the row count.
-    expect(counter.matching('sync_outbox'), hasLength(1));
-    expect(
-      counter.count,
-      2,
-      reason: 'issued:\n${counter.statements.join('\n')}',
-    );
-  });
+      expect(moved, 20);
+      // Deleting a category can touch an unbounded number of events, so this one
+      // cannot read-then-write: the version bump has to happen in SQL. Forgetting
+      // the stamping entirely would break nothing visible today and corrupt merge
+      // ordering the moment transport exists — that is what this pins. Since
+      // v43 the update returns the ids it moved and one batched insert queues
+      // them all; one `last_hlc` write covers their shared HLC: three
+      // statements, whatever the row count.
+      expect(counter.matching('sync_outbox'), hasLength(1));
+      expect(
+        counter.count,
+        3,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+    },
+  );
 
   test('an upsert reads the row it overwrites exactly once', () async {
     counter.reset();
     await db.calendarEventDao.upsert(_event('e1'));
-    // SELECT (miss) + INSERT, plus the outbox entry (v43). The extra read is
-    // the price of `version 1` vs `version + 1`, paid on a table that writes
-    // at human speed.
+    // SELECT (miss) + INSERT, plus the outbox entry (v43) and the `last_hlc`
+    // write (R5). The extra read is the price of `version 1` vs
+    // `version + 1`, paid on a table that writes at human speed.
     expect(
       counter.count,
-      3,
+      4,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
 
@@ -518,12 +526,12 @@ void main() {
     await db.calendarEventDao.upsert(
       _event('e1').copyWith(title: const Value('Arm day')),
     );
-    // SELECT (hit) + UPDATE + the outbox entry — never a blind
+    // SELECT (hit) + UPDATE + the outbox entry + `last_hlc` — never a blind
     // UPDATE-then-INSERT, which would be two writes and could not compute
     // the version bump.
     expect(
       counter.count,
-      3,
+      4,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     expect(counter.selects, hasLength(1));
@@ -594,32 +602,35 @@ void main() {
     expect(rows.single.title, 'Overwritten');
   });
 
-  test('an occurrence upsert reads the row it overwrites exactly once', () async {
-    counter.reset();
-    await db.eventOccurrenceDao.upsert(_occurrence(1));
-    // SELECT (miss) + INSERT, plus the outbox entry (v43). The extra read is
-    // the price of `version 1` vs `version + 1` and of keeping `created_at`
-    // when a reset day is re-described, paid on a table that writes at human
-    // speed.
-    expect(
-      counter.count,
-      3,
-      reason: 'issued:\n${counter.statements.join('\n')}',
-    );
+  test(
+    'an occurrence upsert reads the row it overwrites exactly once',
+    () async {
+      counter.reset();
+      await db.eventOccurrenceDao.upsert(_occurrence(1));
+      // SELECT (miss) + INSERT, plus the outbox entry (v43) and the `last_hlc`
+      // write (R5). The extra read is the price of `version 1` vs
+      // `version + 1` and of keeping `created_at` when a reset day is
+      // re-described, paid on a table that writes at human speed.
+      expect(
+        counter.count,
+        4,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
 
-    counter.reset();
-    await db.eventOccurrenceDao.upsert(
-      _occurrence(1).copyWith(description: const Value('rest day')),
-    );
-    // SELECT (hit) + UPDATE + the outbox entry — never a blind
-    // UPDATE-then-INSERT, which could not compute the version bump.
-    expect(
-      counter.count,
-      3,
-      reason: 'issued:\n${counter.statements.join('\n')}',
-    );
-    expect(counter.selects, hasLength(1));
-  });
+      counter.reset();
+      await db.eventOccurrenceDao.upsert(
+        _occurrence(1).copyWith(description: const Value('rest day')),
+      );
+      // SELECT (hit) + UPDATE + the outbox entry + `last_hlc` — never a blind
+      // UPDATE-then-INSERT, which could not compute the version bump.
+      expect(
+        counter.count,
+        4,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+      expect(counter.selects, hasLength(1));
+    },
+  );
 
   group('note content batching', () {
     test('loading content for many notes is a single query', () async {
@@ -1104,10 +1115,11 @@ void main() {
             '${counter.statements.take(6).join('\n')}',
       );
       // One UPDATE per row is inherent; a SELECT per row is not. Plus one
-      // batched outbox insert for every row that moved (v43).
+      // batched outbox insert for every row that moved (v43) and one
+      // `last_hlc` write for their shared HLC (R5).
       expect(
         counter.count,
-        lessThanOrEqualTo(ids.length + 1),
+        lessThanOrEqualTo(ids.length + 2),
         reason: 'issued:\n${counter.statements.take(6).join('\n')}',
       );
 
@@ -1169,38 +1181,42 @@ void main() {
       );
     });
 
-    test('replacing an event\'s alerts is one read plus the rows it changes', () async {
-      await seedAlerts(5);
-      counter.reset();
+    test(
+      'replacing an event\'s alerts is one read plus the rows it changes',
+      () async {
+        await seedAlerts(5);
+        counter.reset();
 
-      // Two kept, one dropped: one SELECT for the event, one UPDATE per
-      // changed row — never a SELECT per alert to find its version.
-      await db.eventAlertDao.replaceForEvent('e0', [
-        EventAlertsCompanion.insert(
-          id: 'e0-a0',
-          eventId: 'e0',
-          hlcTimestamp: '0',
-          deviceId: 'test',
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        ),
-        EventAlertsCompanion.insert(
-          id: 'e0-a1',
-          eventId: 'e0',
-          hlcTimestamp: '0',
-          deviceId: 'test',
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        ),
-      ]);
+        // Two kept, one dropped: one SELECT for the event, one UPDATE per
+        // changed row — never a SELECT per alert to find its version.
+        await db.eventAlertDao.replaceForEvent('e0', [
+          EventAlertsCompanion.insert(
+            id: 'e0-a0',
+            eventId: 'e0',
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+          EventAlertsCompanion.insert(
+            id: 'e0-a1',
+            eventId: 'e0',
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        ]);
 
-      expect(
-        counter.selects,
-        hasLength(1),
-        reason: 'one read for the whole event, not one per alert. Issued:\n'
-            '${counter.statements.join('\n')}',
-      );
-    });
+        expect(
+          counter.selects,
+          hasLength(1),
+          reason:
+              'one read for the whole event, not one per alert. Issued:\n'
+              '${counter.statements.join('\n')}',
+        );
+      },
+    );
 
     test('the Recent section is one read whatever settled', () async {
       final dao = db.alertRegistrationDao;
@@ -1213,7 +1229,16 @@ void main() {
             day: Value(DateTime.utc(2026, 9, 20).millisecondsSinceEpoch),
             fireAt: Value(DateTime(2026, 9, 20, 18).millisecondsSinceEpoch),
             kind: const Value('scheduled'),
-            state: Value(['fired', 'stopped', 'missed', 'cancelled', 'pending', 'fired'][i]),
+            state: Value(
+              [
+                'fired',
+                'stopped',
+                'missed',
+                'cancelled',
+                'pending',
+                'fired',
+              ][i],
+            ),
             backend: const Value('fake'),
             createdAt: Value(DateTime(2026, 9, 20)),
             updatedAt: Value(DateTime(2026, 9, 20, 18, i)),
@@ -1225,22 +1250,30 @@ void main() {
       final rows = await dao.recent(since: DateTime(2026, 9, 14));
 
       expect(rows.map((row) => row.osId), [1005, 1002, 1001, 1000]);
-      expect(counter.count, 1, reason: 'Issued:\n${counter.statements.join('\n')}');
+      expect(
+        counter.count,
+        1,
+        reason: 'Issued:\n${counter.statements.join('\n')}',
+      );
     });
 
-    test('the tombstone cascade is two statements for any number of alerts', () async {
-      await seedAlerts(1);
-      counter.reset();
+    test(
+      'the tombstone cascade is three statements for any number of alerts',
+      () async {
+        await seedAlerts(1);
+        counter.reset();
 
-      await db.eventAlertDao.tombstoneForEvent('e0');
+        await db.eventAlertDao.tombstoneForEvent('e0');
 
-      // `version + 1` is arithmetic SQL does itself — the reorder path's old
-      // SELECT-then-UPDATE per row is the failure this file was built on.
-      // Since v43 the update returns its ids and one batched insert queues
-      // them: two statements for any number of alerts.
-      expect(counter.matching('sync_outbox'), hasLength(1));
-      expect(counter.count, 2);
-    });
+        // `version + 1` is arithmetic SQL does itself — the reorder path's old
+        // SELECT-then-UPDATE per row is the failure this file was built on.
+        // Since v43 the update returns its ids and one batched insert queues
+        // them; since R5 one `last_hlc` write covers their shared HLC: three
+        // statements for any number of alerts.
+        expect(counter.matching('sync_outbox'), hasLength(1));
+        expect(counter.count, 3);
+      },
+    );
   });
 }
 

@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
 import '../constants/event_presence.dart';
+import '../constants/json_keys.dart';
 import '../database/daos/event_absence_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -189,6 +190,7 @@ class EventPresenceService {
           'status': row.status,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -237,6 +239,7 @@ class EventPresenceService {
                   ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs)
                   : now,
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {

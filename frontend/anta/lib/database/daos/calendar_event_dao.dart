@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../crdt/crdt_write.dart';
+import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/calendar_events_table.dart';
 
@@ -115,6 +116,60 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// "Delete all events" as a sync can carry it (D13): every live event,
+  /// absence mark, day description, skip and alert this device may delete —
+  /// see [ownedRowsWhere]; [ownerUid] is the bound account, null when unbound
+  /// — tombstones under **one** HLC, each row queued. A hard wipe would leave
+  /// nothing to propagate, and the other device would keep every event.
+  ///
+  /// Already-tombstoned rows are left alone, so a repeat writes nothing.
+  /// A repeat still mints a stamp and runs the five statements, notifying
+  /// every table's streams: a pre-check would cost a statement on every real
+  /// wipe, and the repeat is a user retapping a button that is disabled once
+  /// nothing is left.
+  ///
+  /// Returns the ids of the events it tombstoned, so the service hard deletes
+  /// the `alert_registrations` of those alone — device-local, rebuilt by the
+  /// next reconcile — and an event another account owns keeps its armed
+  /// entries.
+  Future<List<String>> tombstoneAll({required String? ownerUid}) {
+    return transaction(() async {
+      final stamp = db.newStamp();
+      final owned = ownedRowsWhere(ownerUid);
+      final now = DateTime.now();
+      final tombstoned = await customWriteReturning(
+        'UPDATE calendar_events SET is_deleted = 1, deleted_at = ?, '
+        'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
+        'version = version + 1 '
+        'WHERE is_deleted = 0 AND ${owned.sql} RETURNING id',
+        variables: [
+          Variable<DateTime>(now),
+          Variable<DateTime>(now),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
+          ...owned.variables,
+        ],
+        updates: {calendarEvents},
+        updateKind: UpdateKind.update,
+      );
+      final ids = [for (final row in tombstoned) row.read<String>('id')];
+      await db.enqueueMany(
+        calendarEvents,
+        ids,
+        stamp.hlc,
+        op: OutboxOp.tombstone,
+      );
+      await db.eventAbsenceDao.tombstoneAll(stamp: stamp, ownerUid: ownerUid);
+      await db.eventOccurrenceDao.tombstoneAll(
+        stamp: stamp,
+        ownerUid: ownerUid,
+      );
+      await db.eventSkipDao.tombstoneAll(stamp: stamp, ownerUid: ownerUid);
+      await db.eventAlertDao.tombstoneAll(stamp: stamp, ownerUid: ownerUid);
+      return ids;
+    });
+  }
+
   Future<void> _tombstone(String id, CrdtStamp stamp) async {
     final existing = await _byId(id);
     if (existing == null || existing.isDeleted) return;
@@ -209,11 +264,10 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
-  /// Hard wipe, tombstones included. Backs "Delete all events" — whose copy
-  /// promises the removal is permanent — and the backup import's
-  /// replace-everything step. That second use is why it must **stay** hard:
-  /// re-inserting the backed-up ids over tombstones would depend on
-  /// resurrection to be visible at all.
+  /// Hard wipe, tombstones included — the backup import's replace-everything
+  /// step alone ("Delete all events" tombstones through [tombstoneAll]). It
+  /// must **stay** hard: re-inserting the backed-up ids over tombstones would
+  /// depend on resurrection to be visible at all.
   Future<void> deleteAll() {
     return delete(calendarEvents).go();
   }

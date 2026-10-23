@@ -949,9 +949,12 @@ already includes every column above — no migration runs. The recurrence
 
 ### 5.3 [`CalendarEventDao`](../lib/database/daos/calendar_event_dao.dart)
 
-Thin Drift DAO: `getAll`, `upsert`, `deleteById`, `deleteAll`. No
-recurrence-aware queries — recurrence math is always done in Dart against
-the in-memory cache.
+Thin Drift DAO: `getAll`, `upsert`, `tombstoneEventCascade`, `tombstoneAll`
+(since 2026-10-23, readiness R4: "Delete all events" tombstones every live
+own row across the five event tables under one HLC and returns the event ids
+whose alarm registrations the service then drops; `deleteAll` survives for
+the backup import alone). No recurrence-aware queries — recurrence math is
+always done in Dart against the in-memory cache.
 
 ### 5.4 [`CalendarEventService`](../lib/services/calendar_event_service.dart)
 
@@ -1451,7 +1454,8 @@ Nothing pre-rendered is persisted or cached in the database.
     turning it off leaves rows dormant rather than deleting them. Rules that
     change so a day no longer occurs keep their row — a stored delta is the
     only durable record of a deliberate act. Deleting an event cascades
-    (one transaction in `CalendarEventService.deleteById`/`deleteAll`).
+    (one transaction in `CalendarEventService.deleteById`/`tombstoneAll` —
+    the latter is "Delete all events", a tombstoning wipe since readiness R4).
   - **Static facade published by the service, not a page.** `EventOccurrenceService`
     publishes the cache at `getInstance()` — the
     `PublicHolidayService` shape, deliberately not `FastingCalendar`'s, whose

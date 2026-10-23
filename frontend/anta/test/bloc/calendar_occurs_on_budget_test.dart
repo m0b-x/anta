@@ -95,7 +95,7 @@ void main() {
 
   setUp(() async {
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     for (var i = 0; i < eventCount; i++) {
       await service.upsert(
         CalendarEvent(

@@ -14,6 +14,19 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   static const String keyLastNoteHlc = 'last_note_hlc';
   static const String keyLastChunkHlc = 'last_chunk_hlc';
 
+  /// The highest HLC this database has issued, which seeds the clock at the
+  /// next open. Written only by `CrdtWrite`, never through [setValue]: it may
+  /// only move forward.
+  static const String keyLastHlc = 'last_hlc';
+
+  /// The clock of this database when it was last unbound, or when a
+  /// never-bound database binds: at the initial merge a row present on both
+  /// sides takes the space's copy when its local HLC is at or below it (D15).
+  static const String keyBindFloor = 'bind_floor';
+
+  /// When the last push was acknowledged, as epoch milliseconds.
+  static const String keyLastPushAt = 'last_push_at';
+
   Future<String?> getValue(String key) async {
     final result = await (select(
       syncMetadata,

@@ -3,6 +3,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/migrations.dart';
 
@@ -220,15 +221,18 @@ void main() {
       ];
       await counted.calendarCategoryDao.seedMissing(seeds);
       await counted.syncOutboxDao.clear();
+      final clock = await counted.syncDao.getValue(SyncDao.keyLastHlc);
       counter.reset();
 
       await counted.calendarCategoryDao.seedMissing(seeds);
 
       expect(counter.selects, isEmpty);
-      // The batched seed insert and the outbox insert that picks up only
-      // the rows carrying this launch's HLC — none, here.
-      expect(counter.count, 2, reason: counter.statements.join('\n'));
+      // The batched seed insert, the outbox insert that picks up only the
+      // rows carrying this launch's HLC — none, here — and the `last_hlc`
+      // write, which runs but stores only when a row was queued.
+      expect(counter.count, 3, reason: counter.statements.join('\n'));
       expect(await counted.syncOutboxDao.count(), 0);
+      expect(await counted.syncDao.getValue(SyncDao.keyLastHlc), clock);
     });
   });
 

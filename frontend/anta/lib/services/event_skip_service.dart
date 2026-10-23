@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
 import '../constants/event_skips.dart';
+import '../constants/json_keys.dart';
 import '../database/daos/event_skip_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -186,6 +187,7 @@ class EventSkipService {
           'dayMs': row.day.millisecondsSinceEpoch,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -227,6 +229,7 @@ class EventSkipService {
                   ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs)
                   : now,
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {

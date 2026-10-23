@@ -207,7 +207,7 @@ void main() {
       SettingsService.forTesting(testDb);
 
       final service = await CalendarEventService.getInstance();
-      await service.deleteAll();
+      await service.tombstoneAll();
       bloc = CalendarBloc(service: service);
       await dispatch(const LoadCalendarEvents());
       final now = DateTime.now();
@@ -358,7 +358,11 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () async {
                   actions.add(
-                    await EventDetailSheet.show(context, event: event, day: day),
+                    await EventDetailSheet.show(
+                      context,
+                      event: event,
+                      day: day,
+                    ),
                   );
                 },
                 child: const Text('open'),

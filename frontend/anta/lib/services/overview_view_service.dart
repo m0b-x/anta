@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/json_keys.dart';
 import '../database/daos/overview_view_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -193,6 +194,7 @@ class OverviewViewService {
           'sortOrder': row.sortOrder,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -234,6 +236,7 @@ class OverviewViewService {
                   ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs)
                   : now,
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {

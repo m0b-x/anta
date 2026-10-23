@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/json_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/counter_dao.dart';
@@ -381,18 +382,38 @@ class CounterService {
     final noteValuesMap = <String, Map<String, int>>{};
     final noteValueExtras = <String, Map<String, dynamic>>{};
     for (final row in allValues) {
+      // A value's ownership rides its extras entry, global values included
+      // under an empty note id: the value maps hold bare ints an older
+      // importer casts, and its extras loop reads only the keys it knows.
+      if (row.ownerId != null) {
+        noteValueExtras['${row.counterId}::${row.noteId}'] = {
+          'ownerId': row.ownerId,
+        };
+      }
       if (row.noteId.isEmpty) continue;
       noteValuesMap.putIfAbsent(row.noteId, () => {})[row.counterId] =
           row.value;
       if (row.isPinned || row.position != 0) {
-        noteValueExtras['${row.counterId}::${row.noteId}'] = {
-          'isPinned': row.isPinned,
-          'position': row.position,
-        };
+        noteValueExtras.putIfAbsent('${row.counterId}::${row.noteId}', () => {})
+          ..['isPinned'] = row.isPinned
+          ..['position'] = row.position;
       }
     }
+    final counterOwners = {
+      for (final row in await _dao.getAllCounters())
+        if (row.ownerId != null) row.id: row.ownerId,
+    };
     return {
-      'counters': jsonEncode(_counters.map((c) => c.toJson()).toList()),
+      'counters': jsonEncode(
+        _counters
+            .map(
+              (c) => {
+                ...c.toJson(),
+                if (counterOwners[c.id] != null) 'ownerId': counterOwners[c.id],
+              },
+            )
+            .toList(),
+      ),
       'globalValues': jsonEncode(_globalValues),
       'noteValues': jsonEncode(noteValuesMap),
       'noteValueExtras': jsonEncode(noteValueExtras),
@@ -406,16 +427,35 @@ class CounterService {
     _dirtyNoteValues.clear();
     _flushTimer?.cancel();
 
+    final extrasRaw = data['noteValueExtras'] as String?;
+    final valueOwners = <String, String>{};
+    if (extrasRaw != null) {
+      try {
+        final Map<String, dynamic> decoded = jsonDecode(extrasRaw);
+        for (final entry in decoded.entries) {
+          final ownerId = JsonKeys.ownerIdOf(
+            entry.value as Map<String, dynamic>,
+          );
+          if (ownerId != null) valueOwners[entry.key] = ownerId;
+        }
+      } catch (e) {
+        debugPrint('[CounterService] Import value owners error: $e');
+      }
+    }
+
     final countersRaw = data['counters'] as String?;
     if (countersRaw != null) {
       try {
         final List<dynamic> decoded = jsonDecode(countersRaw);
-        final imported = decoded
-            .map((j) => Counter.fromJson(j as Map<String, dynamic>))
-            .toList();
+        final maps = decoded.cast<Map<String, dynamic>>();
         await Future.wait([
-          for (var i = 0; i < imported.length; i++)
-            _dao.insertCounter(_counterToCompanion(imported[i], i)),
+          for (var i = 0; i < maps.length; i++)
+            _dao.insertCounter(
+              _counterToCompanion(
+                Counter.fromJson(maps[i]),
+                i,
+              ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(maps[i]))),
+            ),
         ]);
       } catch (e) {
         debugPrint('[CounterService] Import counters error: $e');
@@ -428,7 +468,12 @@ class CounterService {
         final Map<String, dynamic> decoded = jsonDecode(valuesRaw);
         await Future.wait([
           for (final entry in decoded.entries)
-            _dao.upsertValue(entry.key, '', entry.value as int),
+            _dao.upsertValue(
+              entry.key,
+              '',
+              entry.value as int,
+              ownerId: valueOwners['${entry.key}::'],
+            ),
         ]);
       } catch (e) {
         debugPrint('[CounterService] Import global values error: $e');
@@ -445,7 +490,12 @@ class CounterService {
           final values = noteEntry.value as Map<String, dynamic>;
           for (final valEntry in values.entries) {
             futures.add(
-              _dao.upsertValue(valEntry.key, noteId, valEntry.value as int),
+              _dao.upsertValue(
+                valEntry.key,
+                noteId,
+                valEntry.value as int,
+                ownerId: valueOwners['${valEntry.key}::$noteId'],
+              ),
             );
           }
         }
@@ -455,7 +505,6 @@ class CounterService {
       }
     }
 
-    final extrasRaw = data['noteValueExtras'] as String?;
     if (extrasRaw != null) {
       try {
         final Map<String, dynamic> decoded = jsonDecode(extrasRaw);

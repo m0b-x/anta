@@ -19,6 +19,13 @@ final class LoadCalendarEvents extends CalendarPageEvent {
   const LoadCalendarEvents();
 }
 
+/// The event store changed behind the bloc — a restore, or rows a pull
+/// merged. Fed from `CalendarEventService.externalChanges`; reloads in place
+/// while the calendar is loaded.
+final class ExternalCalendarChange extends CalendarPageEvent {
+  const ExternalCalendarChange();
+}
+
 final class SelectCalendarDay extends CalendarPageEvent {
   final DateTime day;
   final DateTime focusedDay;

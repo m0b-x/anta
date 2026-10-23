@@ -154,9 +154,24 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   /// reset that lands on the stored number stamps no HLC; and nothing under a
   /// tombstoned counter, so a flush still pending when the counter was deleted
   /// cannot bring its values back.
-  Future<void> upsertValue(String counterId, String noteId, int value) {
+  ///
+  /// [ownerId] lands only when the row is created or resurrected: a restore
+  /// carries the archived ownership (D16), and a count never changes whose
+  /// row it is.
+  Future<void> upsertValue(
+    String counterId,
+    String noteId,
+    int value, {
+    String? ownerId,
+  }) {
     return transaction(
-      () => _upsertValue(counterId, noteId, value, db.newStamp()),
+      () => _upsertValue(
+        counterId,
+        noteId,
+        value,
+        db.newStamp(),
+        ownerId: ownerId,
+      ),
     );
   }
 
@@ -164,8 +179,9 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
     String counterId,
     String noteId,
     int value,
-    CrdtStamp stamp,
-  ) async {
+    CrdtStamp stamp, {
+    String? ownerId,
+  }) async {
     final existing = await _valueRow(counterId, noteId);
     if (existing != null && !existing.isDeleted && existing.value == value) {
       return;
@@ -185,6 +201,7 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
           counterId: Value(counterId),
           noteId: Value(noteId),
           value: Value(value),
+          ownerId: Value(ownerId),
           hlcTimestamp: Value(stamp.hlc),
           deviceId: Value(stamp.deviceId),
           version: const Value(1),
@@ -209,6 +226,7 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
             isPinned: existing.isDeleted
                 ? const Value(false)
                 : const Value.absent(),
+            ownerId: existing.isDeleted ? Value(ownerId) : const Value.absent(),
           ),
         );
   }

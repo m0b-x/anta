@@ -118,26 +118,28 @@ void main() {
       );
     });
 
-    test('leaves updated_at alone, so labelling does not say "edited"',
-        () async {
-      final folder = await seedFolder();
-      final note = await seedNote(folder.id);
+    test(
+      'leaves updated_at alone, so labelling does not say "edited"',
+      () async {
+        final folder = await seedFolder();
+        final note = await seedNote(folder.id);
 
-      final updated = await db.noteDao.updateNoteLabel(
-        id: note.id,
-        label: ItemLabel.orange,
-      );
+        final updated = await db.noteDao.updateNoteLabel(
+          id: note.id,
+          label: ItemLabel.orange,
+        );
 
-      expect(
-        updated!.updatedAt,
-        note.updatedAt,
-        reason:
-            'a label edits nothing in the note; carrying it to the top of '
-            'the "last updated" sort is what this write must not do',
-      );
-      final reread = await db.noteDao.getNoteById(note.id);
-      expect(reread!.updatedAt, note.updatedAt);
-    });
+        expect(
+          updated!.updatedAt,
+          note.updatedAt,
+          reason:
+              'a label edits nothing in the note; carrying it to the top of '
+              'the "last updated" sort is what this write must not do',
+        );
+        final reread = await db.noteDao.getNoteById(note.id);
+        expect(reread!.updatedAt, note.updatedAt);
+      },
+    );
 
     test('writing the label it already has is a no-op', () async {
       final folder = await seedFolder();
@@ -219,11 +221,12 @@ void main() {
       );
 
       expect(changed, 20);
-      // The UPDATE, and one outbox insert queueing every row it changed.
+      // The UPDATE, one outbox insert queueing every row it changed, and the
+      // one `last_hlc` write the shared HLC costs.
       expect(counter.matching('sync_outbox'), hasLength(1));
       expect(
         counter.count,
-        2,
+        3,
         reason:
             'updateLabelForNotes must stay one `UPDATE … WHERE id IN (…)`. '
             'SQL does the version + 1 arithmetic itself, so a per-row loop '
@@ -260,7 +263,7 @@ void main() {
       expect(changed, 12);
       expect(
         counter.count,
-        2,
+        3,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
     });

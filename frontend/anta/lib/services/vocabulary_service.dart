@@ -4,6 +4,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/json_keys.dart';
 import '../constants/vocabularies.dart';
 import '../database/daos/vocabulary_dao.dart';
 import '../database/database.dart';
@@ -206,6 +207,7 @@ class VocabularyService {
         'sortOrder': row.sortOrder,
         'createdAtMs': row.createdAt.millisecondsSinceEpoch,
         'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+        if (row.ownerId != null) 'ownerId': row.ownerId,
       });
     }
 
@@ -218,6 +220,7 @@ class VocabularyService {
           'sortOrder': row.sortOrder,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
           'items': itemsByVocabulary[row.id] ?? const <Map<String, dynamic>>[],
         },
     ];
@@ -251,6 +254,7 @@ class VocabularyService {
             ),
             createdAt: Value(_fromMs(createdMs)),
             updatedAt: Value(_fromMs(updatedMs)),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
 
@@ -280,6 +284,7 @@ class VocabularyService {
               ),
               createdAt: Value(_fromMs(itemCreatedMs)),
               updatedAt: Value(_fromMs(itemUpdatedMs)),
+              ownerId: Value(JsonKeys.ownerIdOf(itemMap)),
             ),
           );
         }

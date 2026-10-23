@@ -62,7 +62,7 @@ void main() {
 
   setUp(() async {
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     bloc = CalendarBloc(service: service);
     await dispatch(const LoadCalendarEvents());
     await dispatch(

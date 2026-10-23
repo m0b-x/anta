@@ -397,6 +397,25 @@ class SettingsKeys {
   /// moment available to tell them.
   static const String pairingEndedNotice = 'pairing_ended_notice_pending';
 
+  // Cloud sync binding (readiness R6): the space this database syncs with.
+  // Per database by construction, like the pairing rows — one database is
+  // bound to one space (D3) — and absent from `BackupService._exportSettings`
+  // for the same reason: a restore must not clone a binding onto a database
+  // that never joined the space.
+  static const String syncSpaceId = 'sync_space_id';
+  static const String syncSpaceOwnerUid = 'sync_space_owner_uid';
+
+  /// The account that bound the database, so a different account signing in
+  /// suspends sync rather than re-owning rows (D3 ii).
+  static const String syncSpaceAccountUid = 'sync_space_account_uid';
+  static const String syncSpaceBoundAt = 'sync_space_bound_at';
+
+  /// The prefixes a restore never writes back, whatever the archive's
+  /// settings map carries: a hand-edited or foreign backup must not pair or
+  /// bind the database it is restored onto.
+  static const String pairingPrefix = 'pairing_';
+  static const String syncSpacePrefix = 'sync_space_';
+
   // Default values for control settings
   static const bool defaultFolderSwipeEnabled = true;
   static const bool defaultNoteSwipeEnabled = true;

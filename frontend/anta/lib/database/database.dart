@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:drift/drift.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/common.dart';
@@ -52,6 +52,7 @@ import 'daos/category_alert_dao.dart';
 import 'daos/event_digest_dao.dart';
 import 'daos/vocabulary_dao.dart';
 import 'daos/sync_outbox_dao.dart';
+import 'crdt/crdt_write.dart';
 import 'crdt/hlc.dart';
 import 'database_lifecycle.dart';
 import 'loading_interceptor.dart';
@@ -110,14 +111,17 @@ part 'database.g.dart';
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  static AppDatabase? _instance;
   static String? _currentDatabaseName;
 
   final String _deviceId;
   late final HybridLogicalClock hlc;
 
-  AppDatabase._internal(super.e, this._deviceId) {
-    hlc = HybridLogicalClock(nodeId: _deviceId);
+  AppDatabase._internal(
+    super.e,
+    this._deviceId, {
+    DateTime Function()? wallClock,
+  }) {
+    hlc = HybridLogicalClock(nodeId: _deviceId, wallClock: wallClock);
   }
 
   /// Builds a database over an arbitrary executor, bypassing [getInstance]'s
@@ -126,47 +130,107 @@ class AppDatabase extends _$AppDatabase {
   /// Exists so tests can run the real schema, the real migrations and the real
   /// DAOs against `NativeDatabase.memory()`. Never use it in app code — the
   /// singleton is what the `DatabaseLifecycle` reset contract is built on.
+  /// [wallClock] lets a test put the wall clock behind a stored stamp.
   @visibleForTesting
   factory AppDatabase.forTesting(
     QueryExecutor executor, {
     String deviceId = 'test-device',
+    DateTime Function()? wallClock,
   }) {
-    return AppDatabase._internal(executor, deviceId);
+    return AppDatabase._internal(executor, deviceId, wallClock: wallClock);
   }
+
+  /// The open in flight or done, shared by every caller of [getInstance] for
+  /// [_currentDatabaseName], so two first callers never build two instances
+  /// and none is handed an instance before its clock is seeded.
+  static Future<AppDatabase>? _opening;
 
   static Future<AppDatabase> getInstance({String? databaseName}) async {
     final dbManager = await DatabaseManager.getInstance();
     final activeName = databaseName ?? dbManager.getActiveDatabaseName();
 
-    // If instance exists and we're requesting a different database, close current one.
-    // Notify lifecycle listeners FIRST so any singleton holding a `late AppDatabase`
-    // reference (CounterService, CalendarEventService, etc.) drops it before we
-    // close the underlying connection. Without this, the next access from a stale
-    // singleton would hit a closed database.
-    if (_instance != null && _currentDatabaseName != activeName) {
-      DatabaseLifecycle.notifyDatabaseSwitching();
-      await _instance!.close();
-      _instance = null;
-      _currentDatabaseName = null;
-    }
+    final current = _opening;
+    if (current != null && _currentDatabaseName == activeName) return current;
 
-    if (_instance != null) return _instance!;
-
-    final deviceId = await _getOrCreateDeviceId();
-    _instance = AppDatabase._internal(_openConnection(activeName), deviceId);
+    // Set before the first await, so a concurrent caller joins this open.
+    final opening = _open(activeName, previous: current);
+    _opening = opening;
     _currentDatabaseName = activeName;
-    return _instance!;
+    try {
+      return await opening;
+    } catch (_) {
+      if (identical(_opening, opening)) {
+        _opening = null;
+        _currentDatabaseName = null;
+      }
+      rethrow;
+    }
+  }
+
+  /// Opens [name] once the [previous] database, if any, is closed.
+  ///
+  /// When switching, lifecycle listeners are notified FIRST so any singleton
+  /// holding a `late AppDatabase` reference (CounterService,
+  /// CalendarEventService, etc.) drops it before the underlying connection
+  /// closes; without this, the next access from a stale singleton would hit
+  /// a closed database. The previous open is awaited before the notice, so a
+  /// singleton already waiting on it has received and cached its instance
+  /// by the time the notice tells it to drop that instance.
+  static Future<AppDatabase> _open(
+    String name, {
+    Future<AppDatabase>? previous,
+  }) async {
+    if (previous != null) {
+      try {
+        await previous;
+      } catch (_) {
+        // A failed open left nothing to drop; _closeOpened skips it too.
+      }
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await _closeOpened(previous);
+    }
+    final deviceId = await _getOrCreateDeviceId();
+    final db = AppDatabase._internal(_openConnection(name), deviceId);
+    try {
+      await db.seedClockFromStore();
+    } catch (_) {
+      await db.close();
+      rethrow;
+    }
+    return db;
+  }
+
+  /// Closes what [opening] produced; an open that failed left nothing open.
+  static Future<void> _closeOpened(Future<AppDatabase> opening) async {
+    final AppDatabase db;
+    try {
+      db = await opening;
+    } catch (_) {
+      return;
+    }
+    await db.close();
   }
 
   /// Closes the database and deletes all data files.
   /// After calling this, the app should be restarted.
   static Future<void> deleteAllData() async {
-    // Close the current instance if it exists
-    if (_instance != null) {
+    // Close the current instance if it exists. The memo outlives the close: a
+    // reset singleton asking for the database
+    // meanwhile joins the closing instance instead of opening a fresh one
+    // that would write into the directory being deleted.
+    final opening = _opening;
+    if (opening != null) {
+      try {
+        await opening;
+      } catch (_) {
+        // Nothing was opened; there is nothing to drop.
+      }
       DatabaseLifecycle.notifyDatabaseSwitching();
-      await _instance!.close();
-      _instance = null;
-      _currentDatabaseName = null;
+      await _closeOpened(opening);
+      if (identical(_opening, opening)) {
+        _opening = null;
+        _currentDatabaseName = null;
+      }
     }
 
     // Get the database folder path
@@ -206,10 +270,85 @@ class AppDatabase extends _$AppDatabase {
         await DatabaseIndexes(this).createAllIndexes();
       },
       onUpgrade: (Migrator m, int from, int to) async {
-        await DatabaseMigrations(this).runMigrations(m, from, to);
+        // Before any step, so the stamps a step backfills sort above every
+        // stamp the previous run wrote, as a local write's would. Only the
+        // stored clock: the tables a row scan reads may not exist yet.
+        await _seedFromLastHlc();
+        Object? migrationError;
+        try {
+          await DatabaseMigrations(this).runMigrations(m, from, to);
+          // Every table exists now. An install from before the clock was
+          // stored has no `last_hlc`, so the persist below would store a
+          // wall-based clock and the open's row scan would never run.
+          await _seedFromRows();
+        } catch (e) {
+          migrationError = e;
+          rethrow;
+        } finally {
+          // Each step commits on its own, so a later step that fails must
+          // still leave the stamps the earlier ones backfilled covered. A
+          // failed persist never hides the migration's own error.
+          try {
+            await persistClock();
+          } catch (e) {
+            if (migrationError == null) rethrow;
+            debugPrint(
+              '[AppDatabase] clock not stored after failed upgrade: $e',
+            );
+          }
+        }
       },
     );
   }
+
+  /// Raises the clock to the last stamp a previous run stored, so the first
+  /// stamp of this run sorts above it even when the wall clock is behind.
+  /// For a schema already current: a database whose rows predate the stored
+  /// clock (a v43 install from before it was kept) is seeded once from its
+  /// highest row stamp, which is then stored so the scan never runs again.
+  Future<void> seedClockFromStore() async {
+    if (await _seedFromLastHlc()) return;
+    await _seedFromRows();
+    await persistClock();
+  }
+
+  /// Raises the clock to the highest stamp any synced row carries; every
+  /// synced table must exist.
+  Future<void> _seedFromRows() async {
+    final highest = await syncOutboxDao.maxHlc();
+    if (highest == null) return;
+    try {
+      hlc.seed(HlcTimestamp.parse(highest));
+    } on FormatException catch (e) {
+      debugPrint('[AppDatabase] ignoring unreadable row stamp: $e');
+    }
+  }
+
+  /// Seeds from `last_hlc` and says whether one was stored. An unreadable
+  /// value is deleted: one that sorts above every stamp would otherwise fail
+  /// the forward-only write for good, and the clock would never be stored.
+  Future<bool> _seedFromLastHlc() async {
+    final stored = await syncDao.getValue(SyncDao.keyLastHlc);
+    if (stored == null) return false;
+    try {
+      hlc.seed(HlcTimestamp.parse(stored));
+      return true;
+    } on FormatException catch (e) {
+      debugPrint('[AppDatabase] dropping unreadable last_hlc: $e');
+      await syncDao.deleteValue(SyncDao.keyLastHlc);
+      return false;
+    }
+  }
+
+  /// How far the clock seeded at open was ahead of the wall clock.
+  Duration get clockSeedAhead => hlc.seedAhead;
+
+  /// How many remote stamps the clock held back for running too far ahead.
+  int get clockClampedRemotes => hlc.clampedRemotes;
+
+  /// How far ahead of the wall clock a remote stamp may run before the clock
+  /// holds it back — the line past which a seed is worth reporting.
+  static const Duration clockMaxDrift = HybridLogicalClock.maxDrift;
 
   Future<void> rebuildFtsIndex() async {
     await customStatement("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')");

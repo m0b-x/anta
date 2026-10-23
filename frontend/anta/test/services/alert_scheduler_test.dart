@@ -374,10 +374,7 @@ void main() {
       // included, and the fork's arming shape closes it — see
       // `alertArmSignature`.
       expect(rows.single.backend, 'fake#system:default~clock~10~n120');
-      expect(
-        rows.single.day,
-        DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
-      );
+      expect(rows.single.day, DateTime.utc(2026, 9, 20).millisecondsSinceEpoch);
       expect(gateway.platform, hasLength(1));
     });
 
@@ -394,21 +391,24 @@ void main() {
       expect(await registrations(), hasLength(1));
     });
 
-    test('the platform is asked once per pass what a ring is armed under', () async {
-      // Two alerts, one pass: the alarm stream is one number for the whole
-      // phone, and asking for it per fire would put a channel round trip on
-      // the diff's inner loop.
-      await seed(
-        eventAlerts: [
-          alertOf(id: 'a1'),
-          alertOf(id: 'a2', offsetMinutes: 30),
-        ],
-      );
-      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+    test(
+      'the platform is asked once per pass what a ring is armed under',
+      () async {
+        // Two alerts, one pass: the alarm stream is one number for the whole
+        // phone, and asking for it per fire would put a channel round trip on
+        // the diff's inner loop.
+        await seed(
+          eventAlerts: [
+            alertOf(id: 'a1'),
+            alertOf(id: 'a2', offsetMinutes: 30),
+          ],
+        );
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
 
-      expect(gateway.scheduled, hasLength(2));
-      expect(gateway.armContextReads, 1);
-    });
+        expect(gateway.scheduled, hasLength(2));
+        expect(gateway.armContextReads, 1);
+      },
+    );
 
     test('a moved arm context re-arms standing alarms', () async {
       // The phone's alarm volume crossing the floor while the app was away.
@@ -471,13 +471,13 @@ void main() {
       final scheduler = schedulerOf();
       await scheduler.reconcileAll(AlertReconcileReason.launch);
       final before = (await registrations()).single;
-      await (db.update(db.alertRegistrations)
-            ..where((row) => row.osId.equals(before.osId)))
-          .write(
-            const AlertRegistrationsCompanion(
-              backend: Value('fake#system:default'),
-            ),
-          );
+      await (db.update(
+        db.alertRegistrations,
+      )..where((row) => row.osId.equals(before.osId))).write(
+        const AlertRegistrationsCompanion(
+          backend: Value('fake#system:default'),
+        ),
+      );
       gateway.resetCalls();
 
       await scheduler.reconcileAll(AlertReconcileReason.launch);
@@ -494,29 +494,33 @@ void main() {
       expect(gateway.cancelled, isEmpty);
     });
 
-    test('a changed alarm sound re-arms without anything dispatching', () async {
-      await seed();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      gateway.resetCalls();
+    test(
+      'a changed alarm sound re-arms without anything dispatching',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
 
-      // What the Calendar settings row writes. The event is untouched, so the
-      // fast path is all that stands between the user's choice and an alarm
-      // that still rings the old sound.
-      await (await SettingsService.getInstance())
-          .setAlertSound('content://media/7');
-      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+        // What the Calendar settings row writes. The event is untouched, so the
+        // fast path is all that stands between the user's choice and an alarm
+        // that still rings the old sound.
+        await (await SettingsService.getInstance()).setAlertSound(
+          'content://media/7',
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
 
-      expect(gateway.scheduled, hasLength(1));
-      expect(
-        gateway.scheduled.single.sound,
-        const AlertSoundUri('content://media/7'),
-      );
-      expect(
-        (await registrations()).single.backend,
-        'fake#content://media/7~clock~10~n120',
-      );
-    });
+        expect(gateway.scheduled, hasLength(1));
+        expect(
+          gateway.scheduled.single.sound,
+          const AlertSoundUri('content://media/7'),
+        );
+        expect(
+          (await registrations()).single.backend,
+          'fake#content://media/7~clock~10~n120',
+        );
+      },
+    );
 
     test('a reminder is not re-armed by a sound it cannot play', () async {
       // The reminder tier plays through a notification channel whose sound
@@ -527,8 +531,9 @@ void main() {
       await scheduler.reconcileAll(AlertReconcileReason.launch);
       gateway.resetCalls();
 
-      await (await SettingsService.getInstance())
-          .setAlertSound('system:default');
+      await (await SettingsService.getInstance()).setAlertSound(
+        'system:default',
+      );
       await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
       expect(gateway.scheduled, isEmpty);
@@ -556,9 +561,7 @@ void main() {
       final before = (await registrations()).single;
       gateway.resetCalls();
 
-      await events.upsert(
-        eventOf(time: const EventTime(startMinute: 19 * 60)),
-      );
+      await events.upsert(eventOf(time: const EventTime(startMinute: 19 * 60)));
       await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
 
       expect(gateway.scheduled, hasLength(1));
@@ -593,10 +596,7 @@ void main() {
 
       // Once per planned entry of that event, and nothing for the other one.
       expect(gateway.scheduled, hasLength(2));
-      expect(
-        gateway.scheduled.map((fire) => fire.event.id).toSet(),
-        {'e1'},
-      );
+      expect(gateway.scheduled.map((fire) => fire.event.id).toSet(), {'e1'});
       expect(gateway.cancelled, isEmpty);
       for (final alertId in ['a1', 'a2']) {
         final row = before[alertId]!;
@@ -632,18 +632,20 @@ void main() {
       expect(byEvent['e2'], AlertRegistrationState.pending.name);
     });
 
-    test('a refused schedule records nothing, so the next pass retries',
-        () async {
-      await seed();
-      gateway.accepts = false;
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      expect(await registrations(), isEmpty);
+    test(
+      'a refused schedule records nothing, so the next pass retries',
+      () async {
+        await seed();
+        gateway.accepts = false;
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        expect(await registrations(), isEmpty);
 
-      gateway.accepts = true;
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
-      expect(await registrations(), hasLength(1));
-    });
+        gateway.accepts = true;
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        expect(await registrations(), hasLength(1));
+      },
+    );
 
     test('a deleted event has its registrations cancelled', () async {
       await seed();
@@ -696,35 +698,39 @@ void main() {
       expect(before.state, AlertRegistrationState.pending.name);
     }
 
-    test('is left alone, though everything it was armed under has moved',
-        () async {
-      // The first pass of a build that changed what an entry says, or the
-      // phone's volume across the floor: every token differs.
-      await seed();
-      final scheduler = schedulerOf();
-      final before = await armed(scheduler);
+    test(
+      'is left alone, though everything it was armed under has moved',
+      () async {
+        // The first pass of a build that changed what an entry says, or the
+        // phone's volume across the floor: every token differs.
+        await seed();
+        final scheduler = schedulerOf();
+        final before = await armed(scheduler);
 
-      now = aSecondBefore;
-      gateway.armContext = 'fake@floor';
-      gateway.onArmContextRead = () => now = aSecondAfter;
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        now = aSecondBefore;
+        gateway.armContext = 'fake@floor';
+        gateway.onArmContextRead = () => now = aSecondAfter;
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
-      await expectLeftAlone(before);
-      expect(before.backend, 'fake#system:default~clock~10~n120');
-    });
+        await expectLeftAlone(before);
+        expect(before.backend, 'fake#system:default~clock~10~n120');
+      },
+    );
 
-    test("is left alone by its own event's pass, which arms unconditionally",
-        () async {
-      await seed();
-      final scheduler = schedulerOf();
-      final before = await armed(scheduler);
+    test(
+      "is left alone by its own event's pass, which arms unconditionally",
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        final before = await armed(scheduler);
 
-      now = aSecondBefore;
-      gateway.onArmContextRead = () => now = aSecondAfter;
-      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+        now = aSecondBefore;
+        gateway.onArmContextRead = () => now = aSecondAfter;
+        await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
 
-      await expectLeftAlone(before);
-    });
+        await expectLeftAlone(before);
+      },
+    );
 
     test('is left alone once the binding says it is ringing, whatever the '
         'clock reads', () async {
@@ -755,30 +761,32 @@ void main() {
       expect(row.fireAt, due.millisecondsSinceEpoch);
     });
 
-    test('is armed all the same when an edit has just moved it there',
-        () async {
-      // What stands on the platform is the old instant, half an hour away:
-      // the new one is ringing nowhere, and passing by mid-pass is no reason
-      // to leave the alarm armed for a time the event no longer has.
-      await seed();
-      final scheduler = schedulerOf();
-      final before = await armed(scheduler);
-      final moved = DateTime(2026, 9, 20, 17, 30);
+    test(
+      'is armed all the same when an edit has just moved it there',
+      () async {
+        // What stands on the platform is the old instant, half an hour away:
+        // the new one is ringing nowhere, and passing by mid-pass is no reason
+        // to leave the alarm armed for a time the event no longer has.
+        await seed();
+        final scheduler = schedulerOf();
+        final before = await armed(scheduler);
+        final moved = DateTime(2026, 9, 20, 17, 30);
 
-      now = moved.subtract(const Duration(seconds: 1));
-      await events.upsert(
-        eventOf(time: const EventTime(startMinute: 17 * 60 + 30)),
-      );
-      gateway.onArmContextRead = () {
-        now = moved.add(const Duration(seconds: 1));
-      };
-      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+        now = moved.subtract(const Duration(seconds: 1));
+        await events.upsert(
+          eventOf(time: const EventTime(startMinute: 17 * 60 + 30)),
+        );
+        gateway.onArmContextRead = () {
+          now = moved.add(const Duration(seconds: 1));
+        };
+        await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
 
-      expect(gateway.scheduled.single.fireAt, moved);
-      final row = (await registrations()).single;
-      expect(row.osId, before.osId);
-      expect(row.fireAt, moved.millisecondsSinceEpoch);
-    });
+        expect(gateway.scheduled.single.fireAt, moved);
+        final row = (await registrations()).single;
+        expect(row.osId, before.osId);
+        expect(row.fireAt, moved.millisecondsSinceEpoch);
+      },
+    );
   });
 
   group('an occurrence moved later while it rings', () {
@@ -810,8 +818,7 @@ void main() {
       return armed;
     }
 
-    test('is armed under an id of its own, the ring left as it was',
-        () async {
+    test('is armed under an id of its own, the ring left as it was', () async {
       final scheduler = schedulerOf();
       final armed = await ringingThenMoved(scheduler);
       gateway.ringingNow.add(armed.osId);
@@ -890,31 +897,33 @@ void main() {
   });
 
   group('OS truth', () {
-    test('a registry row the platform forgot is dropped and re-armed',
-        () async {
-      await seed();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final osId = (await registrations()).single.osId;
+    test(
+      'a registry row the platform forgot is dropped and re-armed',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final osId = (await registrations()).single.osId;
 
-      // A force stop: the OS dropped every pending entry and told nobody.
-      gateway.platform.clear();
-      gateway.resetCalls();
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        // A force stop: the OS dropped every pending entry and told nobody.
+        gateway.platform.clear();
+        gateway.resetCalls();
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
-      expect(
-        gateway.scheduled,
-        hasLength(1),
-        reason: 'the row must not be trusted over the platform',
-      );
-      expect(gateway.cancelled, isEmpty);
-      final rows = await registrations();
-      final pending = rows.where(
-        (row) => row.state == AlertRegistrationState.pending.name,
-      );
-      expect(pending, hasLength(1));
-      expect(pending.single.osId, osId);
-    });
+        expect(
+          gateway.scheduled,
+          hasLength(1),
+          reason: 'the row must not be trusted over the platform',
+        );
+        expect(gateway.cancelled, isEmpty);
+        final rows = await registrations();
+        final pending = rows.where(
+          (row) => row.state == AlertRegistrationState.pending.name,
+        );
+        expect(pending, hasLength(1));
+        expect(pending.single.osId, osId);
+      },
+    );
 
     test(
       'a platform entry the registry lost is cancelled (the import wipe)',
@@ -924,11 +933,11 @@ void main() {
         await scheduler.reconcileAll(AlertReconcileReason.launch);
         final osId = (await registrations()).single.osId;
 
-        // `CalendarEventService.deleteAll` — the event-import wipe — empties
-        // the registry while the OS keeps its entries.
+        // The backup import's hard wipe empties the registry while the OS
+        // keeps its entries.
         await db.alertRegistrationDao.deleteAll();
         await alerts.deleteAll();
-        await events.deleteAll();
+        await events.importData(const []);
         gateway.resetCalls();
 
         await scheduler.reconcileAll(AlertReconcileReason.backupRestored);
@@ -993,13 +1002,7 @@ void main() {
       await scheduler.reconcileAll(AlertReconcileReason.launch);
       final armed = (await registrations()).single;
       gateway.resetCalls();
-      now = DateTime(
-        2026,
-        9,
-        20,
-        0,
-        fireAt,
-      ).add(lateness);
+      now = DateTime(2026, 9, 20, 0, fireAt).add(lateness);
       await scheduler.reconcileAll(AlertReconcileReason.resumed);
       return armed;
     }
@@ -1019,8 +1022,10 @@ void main() {
         // Session 3's ring handler is what settles this row. A reconcile that
         // cancelled it would disarm a ring in progress, and one that reported
         // it would post "Missed" over the noise it is still making.
-        expect((await rowOf(armed.osId)).state,
-            AlertRegistrationState.pending.name);
+        expect(
+          (await rowOf(armed.osId)).state,
+          AlertRegistrationState.pending.name,
+        );
         expect(gateway.cancelled, isEmpty);
         expect(gateway.scheduled, isEmpty);
         expect(gateway.missed, isEmpty);
@@ -1080,43 +1085,49 @@ void main() {
 
         final armed = await runLate(scheduler, const Duration(hours: 25));
 
-        expect((await rowOf(armed.osId)).state,
-            AlertRegistrationState.cancelled.name);
+        expect(
+          (await rowOf(armed.osId)).state,
+          AlertRegistrationState.cancelled.name,
+        );
         expect(gateway.missed, isEmpty);
       });
     }
 
-    test('an alarm held back behind another ring is in flight past the grace',
-        () async {
-      // The `alarm` host rings one alarm at a time: this one came due while
-      // another sounded and waits in its queue, silent, for as long as that
-      // ring lasts — which, for a ring sounding natively with no Dart up, has
-      // no end. The host runs in the app's process, so the process was alive
-      // at this alarm's instant, and the delivery evidence alone would read
-      // the row as rung and cancel the entry out of the queue.
-      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
-      gateway.startedAt = DateTime(2026, 9, 20, 17, 59, 58);
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final held = (await registrations()).single;
-      // Another alarm sounding: another event's, or another database's.
-      gateway.ringingNow.add(held.osId + 1);
-      gateway.resetCalls();
+    test(
+      'an alarm held back behind another ring is in flight past the grace',
+      () async {
+        // The `alarm` host rings one alarm at a time: this one came due while
+        // another sounded and waits in its queue, silent, for as long as that
+        // ring lasts — which, for a ring sounding natively with no Dart up, has
+        // no end. The host runs in the app's process, so the process was alive
+        // at this alarm's instant, and the delivery evidence alone would read
+        // the row as rung and cancel the entry out of the queue.
+        await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+        gateway.startedAt = DateTime(2026, 9, 20, 17, 59, 58);
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final held = (await registrations()).single;
+        // Another alarm sounding: another event's, or another database's.
+        gateway.ringingNow.add(held.osId + 1);
+        gateway.resetCalls();
 
-      // The app opened from that ring's heads-up, 31 minutes on.
-      now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(minutes: 31));
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
+        // The app opened from that ring's heads-up, 31 minutes on.
+        now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(minutes: 31));
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
 
-      expect((await rowOf(held.osId)).state,
-          AlertRegistrationState.pending.name);
-      expect(gateway.cancelled, isEmpty);
-      expect(gateway.missed, isEmpty);
-      expect(
-        gateway.platform.containsKey(held.osId),
-        isTrue,
-        reason: 'it rings when the ring in front of it ends',
-      );
-    });
+        expect(
+          (await rowOf(held.osId)).state,
+          AlertRegistrationState.pending.name,
+        );
+        expect(gateway.cancelled, isEmpty);
+        expect(gateway.missed, isEmpty);
+        expect(
+          gateway.platform.containsKey(held.osId),
+          isTrue,
+          reason: 'it rings when the ring in front of it ends',
+        );
+      },
+    );
 
     test('with nothing ringing, the same alarm is settled as before', () async {
       await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
@@ -1124,33 +1135,38 @@ void main() {
 
       final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
 
-      expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.fired.name,
+      );
       expect(gateway.cancelled, [armed.osId]);
       expect(gateway.missed, isEmpty);
     });
 
-    test('a reminder delivered more than a day ago is cleared from the shade',
-        () async {
-      // The notification plugin re-arms every reminder it held when the phone
-      // boots and the OS fires a past one on the spot, so this row's
-      // notification is up — and delivered, so no longer *pending*: the
-      // OS-truth pass cannot see it, and only the settle can take it down.
-      await seed(eventAlerts: [alertOf(mode: AlertMode.notify)]);
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final armed = (await registrations()).single;
-      gateway.platform.remove(armed.osId);
-      gateway.resetCalls();
+    test(
+      'a reminder delivered more than a day ago is cleared from the shade',
+      () async {
+        // The notification plugin re-arms every reminder it held when the phone
+        // boots and the OS fires a past one on the spot, so this row's
+        // notification is up — and delivered, so no longer *pending*: the
+        // OS-truth pass cannot see it, and only the settle can take it down.
+        await seed(eventAlerts: [alertOf(mode: AlertMode.notify)]);
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final armed = (await registrations()).single;
+        gateway.platform.remove(armed.osId);
+        gateway.resetCalls();
 
-      now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(hours: 25));
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(hours: 25));
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
-      expect(gateway.cancelled, [armed.osId]);
-      expect(
-        (await rowOf(armed.osId)).state,
-        AlertRegistrationState.cancelled.name,
-      );
-    });
+        expect(gateway.cancelled, [armed.osId]);
+        expect(
+          (await rowOf(armed.osId)).state,
+          AlertRegistrationState.cancelled.name,
+        );
+      },
+    );
 
     test('a reminder delivered this morning stays in the shade', () async {
       // Under a day late it may still be wanted — the session it announced can
@@ -1173,8 +1189,7 @@ void main() {
       );
     });
 
-    test('a process alive at the fire instant proves the alarm rang',
-        () async {
+    test('a process alive at the fire instant proves the alarm rang', () async {
       // The app's process already running when the alarm came due, kept in
       // the background with no engine: Android shows the ring as a heads-up,
       // the user stops it from there, and no Dart runs to mark the row. A
@@ -1185,7 +1200,10 @@ void main() {
 
       final armed = await runLate(schedulerOf(), const Duration(minutes: 40));
 
-      expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.fired.name,
+      );
       expect(gateway.missed, isEmpty);
     });
 
@@ -1206,31 +1224,36 @@ void main() {
 
       final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
 
-      expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.fired.name,
+      );
       expect(gateway.missed, isEmpty);
     });
 
-    test('a process that came up past the delivery window proves nothing',
-        () async {
-      // The window is the delivery's latency and no more: a second past it
-      // the process is the user's own launch, as the case below.
-      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
-      gateway.startedAt = DateTime(
-        2026,
-        9,
-        20,
-        0,
-        fireAt,
-      ).add(kRingStartGrace + const Duration(seconds: 1));
+    test(
+      'a process that came up past the delivery window proves nothing',
+      () async {
+        // The window is the delivery's latency and no more: a second past it
+        // the process is the user's own launch, as the case below.
+        await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+        gateway.startedAt = DateTime(
+          2026,
+          9,
+          20,
+          0,
+          fireAt,
+        ).add(kRingStartGrace + const Duration(seconds: 1));
 
-      final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
+        final armed = await runLate(schedulerOf(), const Duration(minutes: 31));
 
-      expect(
-        (await rowOf(armed.osId)).state,
-        AlertRegistrationState.missed.name,
-      );
-      expect(gateway.missed, hasLength(1));
-    });
+        expect(
+          (await rowOf(armed.osId)).state,
+          AlertRegistrationState.missed.name,
+        );
+        expect(gateway.missed, hasLength(1));
+      },
+    );
 
     test('a process that started afterwards proves nothing', () async {
       // A force stop or a phone that was off: whatever is running now was
@@ -1267,8 +1290,10 @@ void main() {
       expect(gateway.cancelled, isEmpty);
       expect(gateway.stopped, isEmpty);
       expect(gateway.platform.containsKey(armed.osId), isTrue);
-      expect((await rowOf(armed.osId)).state,
-          AlertRegistrationState.fired.name);
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.fired.name,
+      );
     });
 
     test('an alarm whose alert was deleted is settled quietly', () async {
@@ -1283,36 +1308,43 @@ void main() {
       await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
       expect(gateway.missed, isEmpty);
-      expect((await rowOf(armed.osId)).state,
-          AlertRegistrationState.cancelled.name);
-    });
-
-    test('a recurring event re-arms the next occurrence after a late fire',
-        () async {
-      await seed(
-        event: eventOf(
-          startDate: DateTime.utc(2026, 9, 1),
-          rule: const DailyRecurrence(),
-        ),
-      );
-      final scheduler = schedulerOf(
-        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
-      );
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
       expect(
-        (await registrations()).single.day,
-        DateTime.utc(2026, 9, 15).millisecondsSinceEpoch,
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.cancelled.name,
       );
-
-      now = DateTime(2026, 9, 15, 19);
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
-
-      final pending = (await registrations()).where(
-        (row) => row.state == AlertRegistrationState.pending.name,
-      );
-      expect(pending, hasLength(1));
-      expect(pending.single.day, DateTime.utc(2026, 9, 16).millisecondsSinceEpoch);
     });
+
+    test(
+      'a recurring event re-arms the next occurrence after a late fire',
+      () async {
+        await seed(
+          event: eventOf(
+            startDate: DateTime.utc(2026, 9, 1),
+            rule: const DailyRecurrence(),
+          ),
+        );
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        expect(
+          (await registrations()).single.day,
+          DateTime.utc(2026, 9, 15).millisecondsSinceEpoch,
+        );
+
+        now = DateTime(2026, 9, 15, 19);
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+        final pending = (await registrations()).where(
+          (row) => row.state == AlertRegistrationState.pending.name,
+        );
+        expect(pending, hasLength(1));
+        expect(
+          pending.single.day,
+          DateTime.utc(2026, 9, 16).millisecondsSinceEpoch,
+        );
+      },
+    );
   });
 
   group('snooze', () {
@@ -1423,64 +1455,72 @@ void main() {
       );
 
       expect(
-        (await registrations()).singleWhere((row) => row.osId == armed.osId).state,
+        (await registrations())
+            .singleWhere((row) => row.osId == armed.osId)
+            .state,
         AlertRegistrationState.missed.name,
       );
       expect(gateway.missed, hasLength(1));
     });
 
-    test('recentEntries lists what settled, newest first, cancelled left out',
-        () async {
-      await seed(
-        event: eventOf(
-          rule: const DailyRecurrence(),
-          startDate: DateTime.utc(2026, 9, 14),
-        ),
-      );
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final rows = await registrations();
-      expect(rows, hasLength(2));
-      final first = rows.reduce((a, b) => a.fireAt < b.fireAt ? a : b);
-      final second = rows.firstWhere((row) => row.osId != first.osId);
+    test(
+      'recentEntries lists what settled, newest first, cancelled left out',
+      () async {
+        await seed(
+          event: eventOf(
+            rule: const DailyRecurrence(),
+            startDate: DateTime.utc(2026, 9, 14),
+          ),
+        );
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final rows = await registrations();
+        expect(rows, hasLength(2));
+        final first = rows.reduce((a, b) => a.fireAt < b.fireAt ? a : b);
+        final second = rows.firstWhere((row) => row.osId != first.osId);
 
-      // Stopped from the page at its ring.
-      now = DateTime.fromMillisecondsSinceEpoch(first.fireAt).add(const Duration(seconds: 1));
-      await scheduler.markFired(first.osId);
-      await scheduler.stop(first.osId);
-      // Then a snooze, settled by its own ring being stopped.
-      final after = await registrations();
-      final next = after.firstWhere((row) => row.osId == second.osId);
-      now = DateTime.fromMillisecondsSinceEpoch(next.fireAt).add(const Duration(seconds: 1));
-      await scheduler.markFired(next.osId);
-      await scheduler.snooze(next.osId);
-      final snoozeRow = (await registrations()).singleWhere(
-        (row) => row.kind == AlertKind.snooze.name,
-      );
-      now = now.add(const Duration(minutes: 10, seconds: 1));
-      await scheduler.markFired(snoozeRow.osId);
-      await scheduler.stop(snoozeRow.osId);
-      // And one cancelled outright, which is the plan changing, not history.
-      final pendingNow = (await registrations()).where(
-        (row) => row.state == AlertRegistrationState.pending.name,
-      );
-      await scheduler.cancelSnooze(pendingNow.first.osId);
+        // Stopped from the page at its ring.
+        now = DateTime.fromMillisecondsSinceEpoch(
+          first.fireAt,
+        ).add(const Duration(seconds: 1));
+        await scheduler.markFired(first.osId);
+        await scheduler.stop(first.osId);
+        // Then a snooze, settled by its own ring being stopped.
+        final after = await registrations();
+        final next = after.firstWhere((row) => row.osId == second.osId);
+        now = DateTime.fromMillisecondsSinceEpoch(
+          next.fireAt,
+        ).add(const Duration(seconds: 1));
+        await scheduler.markFired(next.osId);
+        await scheduler.snooze(next.osId);
+        final snoozeRow = (await registrations()).singleWhere(
+          (row) => row.kind == AlertKind.snooze.name,
+        );
+        now = now.add(const Duration(minutes: 10, seconds: 1));
+        await scheduler.markFired(snoozeRow.osId);
+        await scheduler.stop(snoozeRow.osId);
+        // And one cancelled outright, which is the plan changing, not history.
+        final pendingNow = (await registrations()).where(
+          (row) => row.state == AlertRegistrationState.pending.name,
+        );
+        await scheduler.cancelSnooze(pendingNow.first.osId);
 
-      final recent = await scheduler.recentEntries();
+        final recent = await scheduler.recentEntries();
 
-      expect(recent.map((entry) => entry.outcome), [
-        AlertOutcome.snoozed,
-        AlertOutcome.stopped,
-      ]);
-      expect(
-        recent.map((entry) => entry.settledAt).toList(),
-        recent.map((entry) => entry.settledAt).toList()
-          ..sort((a, b) => b.compareTo(a)),
-        reason: 'newest first',
-      );
-      expect(recent.every((entry) => entry.event?.id == 'e1'), isTrue);
-      expect(recent.every((entry) => entry.alert?.id == 'a1'), isTrue);
-    });
+        expect(recent.map((entry) => entry.outcome), [
+          AlertOutcome.snoozed,
+          AlertOutcome.stopped,
+        ]);
+        expect(
+          recent.map((entry) => entry.settledAt).toList(),
+          recent.map((entry) => entry.settledAt).toList()
+            ..sort((a, b) => b.compareTo(a)),
+          reason: 'newest first',
+        );
+        expect(recent.every((entry) => entry.event?.id == 'e1'), isTrue);
+        expect(recent.every((entry) => entry.alert?.id == 'a1'), isTrue);
+      },
+    );
 
     test('recentEntries keeps a row whose event is gone', () async {
       // The shape a tombstone written by another device leaves behind: a
@@ -1510,51 +1550,62 @@ void main() {
       expect(recent.single.outcome, AlertOutcome.missed);
     });
 
-    test('a delivered reminder reads delivered, and a ring in progress is not history', () async {
-      await seed(
-        eventAlerts: [
-          alertOf(id: 'a1'),
-          alertOf(id: 'r1', mode: AlertMode.notify),
-        ],
-      );
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final rows = await registrations();
-      final alarm = rows.singleWhere((row) => row.alertId == 'a1');
-      // The ring handler just marked the alarm: in flight, not settled.
-      now = DateTime.fromMillisecondsSinceEpoch(alarm.fireAt).add(const Duration(seconds: 5));
-      gateway.ringingNow.add(alarm.osId);
-      await scheduler.markFired(alarm.osId);
-      expect(await scheduler.recentEntries(), isEmpty);
+    test(
+      'a delivered reminder reads delivered, and a ring in progress is not history',
+      () async {
+        await seed(
+          eventAlerts: [
+            alertOf(id: 'a1'),
+            alertOf(id: 'r1', mode: AlertMode.notify),
+          ],
+        );
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final rows = await registrations();
+        final alarm = rows.singleWhere((row) => row.alertId == 'a1');
+        // The ring handler just marked the alarm: in flight, not settled.
+        now = DateTime.fromMillisecondsSinceEpoch(
+          alarm.fireAt,
+        ).add(const Duration(seconds: 5));
+        gateway.ringingNow.add(alarm.osId);
+        await scheduler.markFired(alarm.osId);
+        expect(await scheduler.recentEntries(), isEmpty);
 
-      // The process dies mid-ring and the phone ends the ring on its own:
-      // nothing settles the row, and the platform no longer holds the entry.
-      gateway.ringingNow.clear();
-      gateway.platform.remove(alarm.osId);
+        // The process dies mid-ring and the phone ends the ring on its own:
+        // nothing settles the row, and the platform no longer holds the entry.
+        gateway.ringingNow.clear();
+        gateway.platform.remove(alarm.osId);
 
-      // The delivery-evidence band settles the reminder as `fired` — which
-      // for a notification means delivered, not rang — and the alarm's own
-      // `fired` row, past the grace, reads as the ring it was.
-      gateway.startedAt = DateTime(2026, 9, 15);
-      now = DateTime.fromMillisecondsSinceEpoch(alarm.fireAt).add(const Duration(minutes: 31));
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        // The delivery-evidence band settles the reminder as `fired` — which
+        // for a notification means delivered, not rang — and the alarm's own
+        // `fired` row, past the grace, reads as the ring it was.
+        gateway.startedAt = DateTime(2026, 9, 15);
+        now = DateTime.fromMillisecondsSinceEpoch(
+          alarm.fireAt,
+        ).add(const Duration(minutes: 31));
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
-      final recent = await scheduler.recentEntries();
-      expect(
-        recent.map((entry) => (entry.alert?.id, entry.outcome)),
-        containsAll([('r1', AlertOutcome.delivered), ('a1', AlertOutcome.rang)]),
-      );
-    });
+        final recent = await scheduler.recentEntries();
+        expect(
+          recent.map((entry) => (entry.alert?.id, entry.outcome)),
+          containsAll([
+            ('r1', AlertOutcome.delivered),
+            ('a1', AlertOutcome.rang),
+          ]),
+        );
+      },
+    );
 
     test("the excerpt follows the day's own description", () async {
       await seed(
-        event: eventOf(
-          startDate: DateTime.utc(2026, 9, 1),
-          rule: const DailyRecurrence(),
-        ).copyWith(
-          description: '# Squat and bench\n- [ ] warm up first',
-          perOccurrenceDescriptions: true,
-        ),
+        event:
+            eventOf(
+              startDate: DateTime.utc(2026, 9, 1),
+              rule: const DailyRecurrence(),
+            ).copyWith(
+              description: '# Squat and bench\n- [ ] warm up first',
+              perOccurrenceDescriptions: true,
+            ),
       );
       await (await EventOccurrenceService.getInstance()).setDescription(
         'e1',
@@ -1593,25 +1644,28 @@ void main() {
   });
 
   group('upcoming notice (OS-3)', () {
-    test('a notice is asked for a planned alarm-tier fire, lead ahead', () async {
-      await seed(
-        eventAlerts: [
-          alertOf(id: 'a1'),
-          alertOf(id: 'r1', mode: AlertMode.notify),
-        ],
-      );
-      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+    test(
+      'a notice is asked for a planned alarm-tier fire, lead ahead',
+      () async {
+        await seed(
+          eventAlerts: [
+            alertOf(id: 'a1'),
+            alertOf(id: 'r1', mode: AlertMode.notify),
+          ],
+        );
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
 
-      final rows = await registrations();
-      final alarm = rows.singleWhere((row) => row.alertId == 'a1');
-      final reminder = rows.singleWhere((row) => row.alertId == 'r1');
-      // The shipped lead is two hours: 18:00 → 16:00 on the occurrence day.
-      expect(gateway.notices[alarm.osId], DateTime(2026, 9, 20, 16));
-      // A reminder announces nothing: the notice is about an *alarm*.
-      expect(gateway.notices[reminder.osId], isNull);
-      expect(alarm.backend, 'fake#system:default~clock~10~n120');
-      expect(reminder.backend, 'fake');
-    });
+        final rows = await registrations();
+        final alarm = rows.singleWhere((row) => row.alertId == 'a1');
+        final reminder = rows.singleWhere((row) => row.alertId == 'r1');
+        // The shipped lead is two hours: 18:00 → 16:00 on the occurrence day.
+        expect(gateway.notices[alarm.osId], DateTime(2026, 9, 20, 16));
+        // A reminder announces nothing: the notice is about an *alarm*.
+        expect(gateway.notices[reminder.osId], isNull);
+        expect(alarm.backend, 'fake#system:default~clock~10~n120');
+        expect(reminder.backend, 'fake');
+      },
+    );
 
     test('no notice for a snooze or a test ring, ever', () async {
       await seed();
@@ -1634,23 +1688,28 @@ void main() {
       expect(gateway.notices, containsPair(testId, isNull));
     });
 
-    test('a lead of zero asks for none and still moves the signature', () async {
-      await seed();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      gateway.resetCalls();
+    test(
+      'a lead of zero asks for none and still moves the signature',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
 
-      await (await SettingsService.getInstance()).setAlertNoticeLeadMinutes(0);
-      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+        await (await SettingsService.getInstance()).setAlertNoticeLeadMinutes(
+          0,
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
 
-      // Re-armed in place with no notice: the binding takes a standing one
-      // down on exactly this call, which is how turning the setting off
-      // clears the notices of alarms already armed.
-      expect(gateway.scheduled, hasLength(1));
-      final row = (await registrations()).single;
-      expect(gateway.notices, containsPair(row.osId, isNull));
-      expect(row.backend, 'fake#system:default~clock~10~n0');
-    });
+        // Re-armed in place with no notice: the binding takes a standing one
+        // down on exactly this call, which is how turning the setting off
+        // clears the notices of alarms already armed.
+        expect(gateway.scheduled, hasLength(1));
+        final row = (await registrations()).single;
+        expect(gateway.notices, containsPair(row.osId, isNull));
+        expect(row.backend, 'fake#system:default~clock~10~n0');
+      },
+    );
 
     test('a lead already behind now asks for none', () async {
       // now is 2026-09-15 12:00; the fire is 09-20 18:00, lead 1440 → 09-19
@@ -1680,7 +1739,11 @@ void main() {
       );
       expect(noticeInstantFor(fire: fire, leadMinutes: 0, now: at), isNull);
       expect(
-        noticeInstantFor(fire: fire, leadMinutes: 120, now: DateTime(2026, 9, 20, 16)),
+        noticeInstantFor(
+          fire: fire,
+          leadMinutes: 120,
+          now: DateTime(2026, 9, 20, 16),
+        ),
         isNull,
       );
       expect(
@@ -1724,40 +1787,46 @@ void main() {
     /// the ring handler's `fired` mark in place. A native Snooze can only
     /// follow a ring, and a ring only follows its instant — a move applied
     /// with the instant still ahead is a state the platform cannot produce.
-    Future<void> ring(AlertScheduler scheduler, AlertRegistrationRow row) async {
+    Future<void> ring(
+      AlertScheduler scheduler,
+      AlertRegistrationRow row,
+    ) async {
       now = DateTime.fromMillisecondsSinceEpoch(
         row.fireAt,
       ).add(const Duration(seconds: 1));
       await scheduler.markFired(row.osId);
     }
 
-    test('a move turns the armed row into a pending snooze, same os id', () async {
-      await seed();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final armed = (await registrations()).single;
-      // The ring handler marked it; then the user chose the notification's
-      // Snooze, which the plugin recorded as a move.
-      await ring(scheduler, armed);
-      final move = moveOf(armed.osId);
-      gateway.moves.add(move);
-      gateway.resetCalls();
+    test(
+      'a move turns the armed row into a pending snooze, same os id',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final armed = (await registrations()).single;
+        // The ring handler marked it; then the user chose the notification's
+        // Snooze, which the plugin recorded as a move.
+        await ring(scheduler, armed);
+        final move = moveOf(armed.osId);
+        gateway.moves.add(move);
+        gateway.resetCalls();
 
-      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+        await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
 
-      final row = (await registrations()).single;
-      expect(row.osId, armed.osId);
-      expect(row.kind, AlertKind.snooze.name);
-      expect(row.state, AlertRegistrationState.pending.name);
-      expect(row.fireAt, move.nextRingAt.millisecondsSinceEpoch);
-      expect(row.alertId, armed.alertId);
-      expect(row.day, armed.day);
-      expect(gateway.acknowledged, [move]);
-      // The platform holds that entry already (the plugin moved it, not us),
-      // so nothing is scheduled or cancelled for it.
-      expect(gateway.scheduled, isEmpty);
-      expect(gateway.cancelled, isEmpty);
-    });
+        final row = (await registrations()).single;
+        expect(row.osId, armed.osId);
+        expect(row.kind, AlertKind.snooze.name);
+        expect(row.state, AlertRegistrationState.pending.name);
+        expect(row.fireAt, move.nextRingAt.millisecondsSinceEpoch);
+        expect(row.alertId, armed.alertId);
+        expect(row.day, armed.day);
+        expect(gateway.acknowledged, [move]);
+        // The platform holds that entry already (the plugin moved it, not us),
+        // so nothing is scheduled or cancelled for it.
+        expect(gateway.scheduled, isEmpty);
+        expect(gateway.cancelled, isEmpty);
+      },
+    );
 
     test('a Snooze on the heads-up while a pass is out is left to the next '
         'pass, which writes it down', () async {
@@ -1832,19 +1901,22 @@ void main() {
       expect(gateway.acknowledged, hasLength(2));
     });
 
-    test('a move for an unknown os id is acknowledged and writes nothing', () async {
-      await seed();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final before = await registrations();
-      final stranger = moveOf(424242);
-      gateway.moves.add(stranger);
+    test(
+      'a move for an unknown os id is acknowledged and writes nothing',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final before = await registrations();
+        final stranger = moveOf(424242);
+        gateway.moves.add(stranger);
 
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
-      expect(await registrations(), before);
-      expect(gateway.acknowledged, [stranger]);
-    });
+        expect(await registrations(), before);
+        expect(gateway.acknowledged, [stranger]);
+      },
+    );
 
     test('an unrelated reconcile leaves the moved snooze alone', () async {
       await seed();
@@ -1930,29 +2002,32 @@ void main() {
       expect(gateway.acknowledged, hasLength(2));
     });
 
-    test('the arm signature moves with the snooze setting, alarm tier only', () async {
-      await seed(
-        eventAlerts: [
-          alertOf(id: 'a1'),
-          alertOf(id: 'r1', mode: AlertMode.notify, offsetMinutes: 30),
-        ],
-      );
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      gateway.resetCalls();
+    test(
+      'the arm signature moves with the snooze setting, alarm tier only',
+      () async {
+        await seed(
+          eventAlerts: [
+            alertOf(id: 'a1'),
+            alertOf(id: 'r1', mode: AlertMode.notify, offsetMinutes: 30),
+          ],
+        );
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
 
-      await (await SettingsService.getInstance()).setAlertSnoozeMinutes(15);
-      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+        await (await SettingsService.getInstance()).setAlertSnoozeMinutes(15);
+        await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
 
-      expect(gateway.scheduled, hasLength(1));
-      expect(gateway.scheduled.single.alert.id, 'a1');
-      final rows = await registrations();
-      expect(
-        rows.singleWhere((row) => row.alertId == 'a1').backend,
-        'fake#system:default~clock~15~n120',
-      );
-      expect(rows.singleWhere((row) => row.alertId == 'r1').backend, 'fake');
-    });
+        expect(gateway.scheduled, hasLength(1));
+        expect(gateway.scheduled.single.alert.id, 'a1');
+        final rows = await registrations();
+        expect(
+          rows.singleWhere((row) => row.alertId == 'a1').backend,
+          'fake#system:default~clock~15~n120',
+        );
+        expect(rows.singleWhere((row) => row.alertId == 'r1').backend, 'fake');
+      },
+    );
   });
 
   group('a snooze that outlived what it postpones', () {
@@ -2260,31 +2335,33 @@ void main() {
       ),
     );
 
-    test('Stop on the notification settles it like the alarm page\'s Stop',
-        () async {
-      await seedDaily();
-      final scheduler = schedulerOf(
-        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
-      );
-      final payload = await ringing(scheduler);
+    test(
+      'Stop on the notification settles it like the alarm page\'s Stop',
+      () async {
+        await seedDaily();
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+        );
+        final payload = await ringing(scheduler);
 
-      await scheduler.settleEndedRing(payload, answered: true);
+        await scheduler.settleEndedRing(payload, answered: true);
 
-      final rows = await registrations();
-      expect(
-        rows.firstWhere((row) => row.osId == payload.osId).state,
-        AlertRegistrationState.stopped.name,
-      );
-      final pending = rows.where(
-        (row) => row.state == AlertRegistrationState.pending.name,
-      );
-      expect(
-        pending.single.day,
-        DateTime.utc(2026, 9, 16).millisecondsSinceEpoch,
-        reason: 'the next occurrence is re-armed',
-      );
-      expect(gateway.missed, isEmpty);
-    });
+        final rows = await registrations();
+        expect(
+          rows.firstWhere((row) => row.osId == payload.osId).state,
+          AlertRegistrationState.stopped.name,
+        );
+        final pending = rows.where(
+          (row) => row.state == AlertRegistrationState.pending.name,
+        );
+        expect(
+          pending.single.day,
+          DateTime.utc(2026, 9, 16).millisecondsSinceEpoch,
+          reason: 'the next occurrence is re-armed',
+        );
+        expect(gateway.missed, isEmpty);
+      },
+    );
 
     test('an unanswered ring is reported, and still re-arms', () async {
       await seedDaily();
@@ -2327,38 +2404,40 @@ void main() {
   });
 
   group('stop', () {
-    test('marks the registration stopped and arms the next occurrence',
-        () async {
-      await seed(
-        event: eventOf(
-          startDate: DateTime.utc(2026, 9, 1),
-          rule: const DailyRecurrence(),
-        ),
-      );
-      final scheduler = schedulerOf(
-        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
-      );
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final osId = (await registrations()).single.osId;
+    test(
+      'marks the registration stopped and arms the next occurrence',
+      () async {
+        await seed(
+          event: eventOf(
+            startDate: DateTime.utc(2026, 9, 1),
+            rule: const DailyRecurrence(),
+          ),
+        );
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final osId = (await registrations()).single.osId;
 
-      now = DateTime(2026, 9, 15, 18);
-      await scheduler.stop(osId);
+        now = DateTime(2026, 9, 15, 18);
+        await scheduler.stop(osId);
 
-      final rows = await registrations();
-      expect(
-        rows.firstWhere((row) => row.osId == osId).state,
-        AlertRegistrationState.stopped.name,
-      );
-      final pending = rows.where(
-        (row) => row.state == AlertRegistrationState.pending.name,
-      );
-      expect(pending, hasLength(1));
-      expect(
-        pending.single.day,
-        DateTime.utc(2026, 9, 16).millisecondsSinceEpoch,
-      );
-      expect(gateway.stopped, [osId]);
-    });
+        final rows = await registrations();
+        expect(
+          rows.firstWhere((row) => row.osId == osId).state,
+          AlertRegistrationState.stopped.name,
+        );
+        final pending = rows.where(
+          (row) => row.state == AlertRegistrationState.pending.name,
+        );
+        expect(pending, hasLength(1));
+        expect(
+          pending.single.day,
+          DateTime.utc(2026, 9, 16).millisecondsSinceEpoch,
+        );
+        expect(gateway.stopped, [osId]);
+      },
+    );
 
     test('an unknown os id is a no-op, not a crash', () async {
       await seed();
@@ -2383,9 +2462,9 @@ void main() {
 
     test('carries the database, the event and the fire time', () async {
       await seed(event: eventOf(removeAfterAlert: true));
-      await schedulerOf(database: 'work').reconcileAll(
-        AlertReconcileReason.launch,
-      );
+      await schedulerOf(
+        database: 'work',
+      ).reconcileAll(AlertReconcileReason.launch);
 
       final payload = gateway.platform.values.single;
       expect(payload.database, 'work');
@@ -2483,10 +2562,7 @@ void main() {
 
       final payload = gateway.platform.values.single;
       expect(payload.timeLabel, '09:00');
-      expect(
-        payload.fireAtMs,
-        DateTime(2026, 9, 19, 9).millisecondsSinceEpoch,
-      );
+      expect(payload.fireAtMs, DateTime(2026, 9, 19, 9).millisecondsSinceEpoch);
       expect(payload.whenLabel, 'Sun, Sep 20 · All day');
       expect(payload.dayUtc, DateTime.utc(2026, 9, 20));
     });
@@ -2597,35 +2673,37 @@ void main() {
   });
 
   group('a test ring', () {
-    test('is stamped with a tint and a glyph of its own, and no event time',
-        () async {
-      final scheduler = schedulerOf();
-      final osId = await scheduler.scheduleTestAlarm(
-        title: 'Test alarm in 10 s',
-        delay: const Duration(seconds: 10),
-      );
+    test(
+      'is stamped with a tint and a glyph of its own, and no event time',
+      () async {
+        final scheduler = schedulerOf();
+        final osId = await scheduler.scheduleTestAlarm(
+          title: 'Test alarm in 10 s',
+          delay: const Duration(seconds: 10),
+        );
 
-      final payload = gateway.platform[osId]!;
-      expect(payload.isTest, isTrue);
-      // The fallback category's grey is the one avatar that all but vanishes
-      // on the dark ground, so a test ring takes the app's own colour.
-      expect(payload.tintValue, AppTheme.lightScheme.primary.toARGB32());
-      expect(payload.glyphKey, 'alarm');
-      // Its stand-in event has no time, and would otherwise read "All day".
-      expect(payload.whenLabel, '');
-      expect(
-        payload.fireAtMs,
-        now.add(const Duration(seconds: 10)).millisecondsSinceEpoch,
-      );
-      expect(payload.languageCode, 'en');
-      // Nothing an older reader draws from has moved: no colour of its own,
-      // the fallback category, the title it was armed with.
-      expect(payload.colorValue, isNull);
-      expect(payload.iconKey, isNull);
-      expect(payload.categoryId, CalendarCategories.fallback.id);
-      expect(payload.title, 'Test alarm in 10 s');
-      expect(payload.timeLabel, '12:00');
-    });
+        final payload = gateway.platform[osId]!;
+        expect(payload.isTest, isTrue);
+        // The fallback category's grey is the one avatar that all but vanishes
+        // on the dark ground, so a test ring takes the app's own colour.
+        expect(payload.tintValue, AppTheme.lightScheme.primary.toARGB32());
+        expect(payload.glyphKey, 'alarm');
+        // Its stand-in event has no time, and would otherwise read "All day".
+        expect(payload.whenLabel, '');
+        expect(
+          payload.fireAtMs,
+          now.add(const Duration(seconds: 10)).millisecondsSinceEpoch,
+        );
+        expect(payload.languageCode, 'en');
+        // Nothing an older reader draws from has moved: no colour of its own,
+        // the fallback category, the title it was armed with.
+        expect(payload.colorValue, isNull);
+        expect(payload.iconKey, isNull);
+        expect(payload.categoryId, CalendarCategories.fallback.id);
+        expect(payload.title, 'Test alarm in 10 s');
+        expect(payload.timeLabel, '12:00');
+      },
+    );
 
     test('and so is its snooze', () async {
       final scheduler = schedulerOf();
@@ -2657,8 +2735,7 @@ void main() {
   });
 
   group('the sweep', () {
-    test('settled rows older than a week go, the pending plan stays',
-        () async {
+    test('settled rows older than a week go, the pending plan stays', () async {
       await seed();
       final scheduler = schedulerOf();
       await scheduler.reconcileAll(AlertReconcileReason.launch);
@@ -2692,13 +2769,11 @@ void main() {
       final scheduler = schedulerOf();
       await scheduler.reconcileAll(AlertReconcileReason.launch);
       final osId = (await registrations()).single.osId;
-      await (db.update(db.alertRegistrations)
-            ..where((row) => row.osId.equals(osId)))
-          .write(
-            AlertRegistrationsCompanion(
-              updatedAt: Value(DateTime(2026, 1, 1)),
-            ),
-          );
+      await (db.update(
+        db.alertRegistrations,
+      )..where((row) => row.osId.equals(osId))).write(
+        AlertRegistrationsCompanion(updatedAt: Value(DateTime(2026, 1, 1))),
+      );
 
       await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
@@ -2729,64 +2804,68 @@ void main() {
       ),
     );
 
-    test('holds two occurrences, and Stop on the first arms the third',
-        () async {
-      await seedWeekly();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      expect(await pendingDays(), [
-        DateTime.utc(2026, 9, 16),
-        DateTime.utc(2026, 9, 18),
-      ]);
-      final wednesday = (await registrations()).firstWhere(
-        (row) => dayOf(row) == DateTime.utc(2026, 9, 16),
-      );
+    test(
+      'holds two occurrences, and Stop on the first arms the third',
+      () async {
+        await seedWeekly();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        expect(await pendingDays(), [
+          DateTime.utc(2026, 9, 16),
+          DateTime.utc(2026, 9, 18),
+        ]);
+        final wednesday = (await registrations()).firstWhere(
+          (row) => dayOf(row) == DateTime.utc(2026, 9, 16),
+        );
 
-      now = DateTime(2026, 9, 16, 18);
-      await scheduler.markFired(wednesday.osId);
-      await scheduler.stop(wednesday.osId);
+        now = DateTime(2026, 9, 16, 18);
+        await scheduler.markFired(wednesday.osId);
+        await scheduler.stop(wednesday.osId);
 
-      expect(await pendingDays(), [
-        DateTime.utc(2026, 9, 18),
-        DateTime.utc(2026, 9, 21),
-      ]);
-      expect(gateway.platform, hasLength(2));
-    });
+        expect(await pendingDays(), [
+          DateTime.utc(2026, 9, 18),
+          DateTime.utc(2026, 9, 21),
+        ]);
+        expect(gateway.platform, hasLength(2));
+      },
+    );
 
-    test('skipping a day moves its registration on, and unskip brings it back',
-        () async {
-      await seedWeekly();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final friday = (await registrations()).firstWhere(
-        (row) => dayOf(row) == DateTime.utc(2026, 9, 18),
-      );
-      final skips = await EventSkipService.getInstance();
+    test(
+      'skipping a day moves its registration on, and unskip brings it back',
+      () async {
+        await seedWeekly();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final friday = (await registrations()).firstWhere(
+          (row) => dayOf(row) == DateTime.utc(2026, 9, 18),
+        );
+        final skips = await EventSkipService.getInstance();
 
-      await skips.markSkipped('e1', DateTime.utc(2026, 9, 18));
-      await scheduler.reconcileEvent(
-        'e1',
-        AlertReconcileReason.occurrenceChanged,
-      );
+        await skips.markSkipped('e1', DateTime.utc(2026, 9, 18));
+        await scheduler.reconcileEvent(
+          'e1',
+          AlertReconcileReason.occurrenceChanged,
+        );
 
-      expect(gateway.cancelled, contains(friday.osId));
-      expect(gateway.platform.containsKey(friday.osId), isFalse);
-      expect(await pendingDays(), [
-        DateTime.utc(2026, 9, 16),
-        DateTime.utc(2026, 9, 21),
-      ]);
+        expect(gateway.cancelled, contains(friday.osId));
+        expect(gateway.platform.containsKey(friday.osId), isFalse);
+        expect(await pendingDays(), [
+          DateTime.utc(2026, 9, 16),
+          DateTime.utc(2026, 9, 21),
+        ]);
 
-      await skips.unskip('e1', DateTime.utc(2026, 9, 18));
-      await scheduler.reconcileEvent(
-        'e1',
-        AlertReconcileReason.occurrenceChanged,
-      );
+        await skips.unskip('e1', DateTime.utc(2026, 9, 18));
+        await scheduler.reconcileEvent(
+          'e1',
+          AlertReconcileReason.occurrenceChanged,
+        );
 
-      expect(await pendingDays(), [
-        DateTime.utc(2026, 9, 16),
-        DateTime.utc(2026, 9, 18),
-      ]);
-    });
+        expect(await pendingDays(), [
+          DateTime.utc(2026, 9, 16),
+          DateTime.utc(2026, 9, 18),
+        ]);
+      },
+    );
   });
 
   group('the hub', () {
@@ -2810,41 +2889,46 @@ void main() {
       expect(entries.first.day, DateTime.utc(2026, 9, 15));
     });
 
-    test('a disabled alert keeps one row, so its switch stays reachable',
-        () async {
-      await seed(
-        event: eventOf(
-          startDate: DateTime.utc(2026, 9, 1),
-          rule: const DailyRecurrence(),
-        ),
-        eventAlerts: [alertOf().copyWith(enabled: false)],
-      );
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      expect(await registrations(), isEmpty);
+    test(
+      'a disabled alert keeps one row, so its switch stays reachable',
+      () async {
+        await seed(
+          event: eventOf(
+            startDate: DateTime.utc(2026, 9, 1),
+            rule: const DailyRecurrence(),
+          ),
+          eventAlerts: [alertOf().copyWith(enabled: false)],
+        );
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        expect(await registrations(), isEmpty);
 
-      final entries = await scheduler.hubEntries();
+        final entries = await scheduler.hubEntries();
 
-      expect(entries, hasLength(1));
-      expect(entries.single.alert.enabled, isFalse);
-      expect(entries.single.fireAt, DateTime(2026, 9, 15, 18));
-    });
+        expect(entries, hasLength(1));
+        expect(entries.single.alert.enabled, isFalse);
+        expect(entries.single.fireAt, DateTime(2026, 9, 15, 18));
+      },
+    );
 
-    test('an alert switched off before its reconcile lands is listed once',
-        () async {
-      await seed();
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
+    test(
+      'an alert switched off before its reconcile lands is listed once',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
 
-      await alerts.replaceForEvent('e1', [alertOf().copyWith(enabled: false)]);
-      final entries = await scheduler.hubEntries();
+        await alerts.replaceForEvent('e1', [
+          alertOf().copyWith(enabled: false),
+        ]);
+        final entries = await scheduler.hubEntries();
 
-      expect(entries, hasLength(1));
-      expect(entries.single.alert.enabled, isFalse);
-    });
+        expect(entries, hasLength(1));
+        expect(entries.single.alert.enabled, isFalse);
+      },
+    );
 
-    test('a snooze carries both instants and the id that cancels it',
-        () async {
+    test('a snooze carries both instants and the id that cancels it', () async {
       await seed();
       final scheduler = schedulerOf();
       await scheduler.reconcileAll(AlertReconcileReason.launch);
@@ -2909,11 +2993,10 @@ void main() {
         async.elapse(const Duration(seconds: 5));
         async.flushMicrotasks();
 
-        expect(
-          done,
-          ['all', 'event'],
-          reason: 'the chain advanced, in the order the turns were enqueued',
-        );
+        expect(done, [
+          'all',
+          'event',
+        ], reason: 'the chain advanced, in the order the turns were enqueued');
       });
     });
   });
@@ -2971,62 +3054,64 @@ void main() {
       expect(row.source, AlertRegistrationSource.event.name);
     });
 
-    test('a standing snooze a v41 build armed survives a pass untouched',
-        () async {
-      await seed();
-      final day = DateTime.utc(2026, 9, 20);
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final snoozeId = resolveAlertOsId(
-        seed: alertOsIdSeed(
-          database: 'gym_notes',
-          alertId: 'a1',
-          dayUtc: day,
-          kind: AlertKind.snooze,
-        ),
-        isTaken: (_) => false,
-      );
-      final snoozeAt = DateTime(2026, 9, 20, 18, 10);
-      await db.alertRegistrationDao.put(
-        AlertRegistrationsCompanion(
-          osId: Value(snoozeId),
-          alertId: const Value('a1'),
-          eventId: const Value('e1'),
-          day: Value(day.millisecondsSinceEpoch),
-          fireAt: Value(snoozeAt.millisecondsSinceEpoch),
-          kind: Value(AlertKind.snooze.name),
-          state: Value(AlertRegistrationState.pending.name),
-          backend: const Value('fake#system:default~clock~10~n120'),
-          createdAt: Value(now),
-          updatedAt: Value(now),
-        ),
-      );
-      gateway.seedPlatform(
-        AlertPayload(
-          database: 'gym_notes',
-          eventId: 'e1',
-          alertId: 'a1',
-          dayUtcMs: day.millisecondsSinceEpoch,
-          osId: snoozeId,
-          mode: AlertMode.ring,
-          title: 'Leg day',
-          timeLabel: '18:10',
-          categoryId: 'gym',
-          snooze: true,
-        ),
-      );
-      gateway.resetCalls();
+    test(
+      'a standing snooze a v41 build armed survives a pass untouched',
+      () async {
+        await seed();
+        final day = DateTime.utc(2026, 9, 20);
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final snoozeId = resolveAlertOsId(
+          seed: alertOsIdSeed(
+            database: 'gym_notes',
+            alertId: 'a1',
+            dayUtc: day,
+            kind: AlertKind.snooze,
+          ),
+          isTaken: (_) => false,
+        );
+        final snoozeAt = DateTime(2026, 9, 20, 18, 10);
+        await db.alertRegistrationDao.put(
+          AlertRegistrationsCompanion(
+            osId: Value(snoozeId),
+            alertId: const Value('a1'),
+            eventId: const Value('e1'),
+            day: Value(day.millisecondsSinceEpoch),
+            fireAt: Value(snoozeAt.millisecondsSinceEpoch),
+            kind: Value(AlertKind.snooze.name),
+            state: Value(AlertRegistrationState.pending.name),
+            backend: const Value('fake#system:default~clock~10~n120'),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
+        gateway.seedPlatform(
+          AlertPayload(
+            database: 'gym_notes',
+            eventId: 'e1',
+            alertId: 'a1',
+            dayUtcMs: day.millisecondsSinceEpoch,
+            osId: snoozeId,
+            mode: AlertMode.ring,
+            title: 'Leg day',
+            timeLabel: '18:10',
+            categoryId: 'gym',
+            snooze: true,
+          ),
+        );
+        gateway.resetCalls();
 
-      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
-      expect(gateway.scheduled, isEmpty);
-      expect(gateway.cancelled, isEmpty);
-      final row = (await registrations()).firstWhere(
-        (row) => row.osId == snoozeId,
-      );
-      expect(row.state, AlertRegistrationState.pending.name);
-      expect(row.fireAt, snoozeAt.millisecondsSinceEpoch);
-    });
+        expect(gateway.scheduled, isEmpty);
+        expect(gateway.cancelled, isEmpty);
+        final row = (await registrations()).firstWhere(
+          (row) => row.osId == snoozeId,
+        );
+        expect(row.state, AlertRegistrationState.pending.name);
+        expect(row.fireAt, snoozeAt.millisecondsSinceEpoch);
+      },
+    );
   });
 
   group('category alerts (v42)', () {
@@ -3091,52 +3176,54 @@ void main() {
         {for (final row in snoozes) row.eventId: row.osId},
         {'e1': categorySnoozeSeed('e1'), 'e2': categorySnoozeSeed('e2')},
       );
-      expect(
-        snoozes.map((row) => row.state).toSet(),
-        {AlertRegistrationState.pending.name},
-      );
-      expect(
-        snoozes.map((row) => row.source).toSet(),
-        {AlertRegistrationSource.category.name},
-      );
+      expect(snoozes.map((row) => row.state).toSet(), {
+        AlertRegistrationState.pending.name,
+      });
+      expect(snoozes.map((row) => row.source).toSet(), {
+        AlertRegistrationSource.category.name,
+      });
     });
 
-    test("Stop on one event's ring leaves the other's snooze standing",
-        () async {
-      await twoEventsUnderOneAlert(mode: AlertMode.ring);
-      final scheduler = schedulerOf();
-      final armed = await armedByEvent(scheduler);
-      final ringB = gateway.platform[armed['e2']]!;
-      now = DateTime(2026, 9, 20, 18);
-      await scheduler.snooze(armed['e1']!);
+    test(
+      "Stop on one event's ring leaves the other's snooze standing",
+      () async {
+        await twoEventsUnderOneAlert(mode: AlertMode.ring);
+        final scheduler = schedulerOf();
+        final armed = await armedByEvent(scheduler);
+        final ringB = gateway.platform[armed['e2']]!;
+        now = DateTime(2026, 9, 20, 18);
+        await scheduler.snooze(armed['e1']!);
 
-      await scheduler.settleEndedRing(ringB, answered: true);
+        await scheduler.settleEndedRing(ringB, answered: true);
 
-      final snoozeA = snoozesIn(await registrations()).single;
-      expect(snoozeA.eventId, 'e1');
-      expect(snoozeA.state, AlertRegistrationState.pending.name);
-      expect(gateway.cancelled, isNot(contains(snoozeA.osId)));
-    });
+        final snoozeA = snoozesIn(await registrations()).single;
+        expect(snoozeA.eventId, 'e1');
+        expect(snoozeA.state, AlertRegistrationState.pending.name);
+        expect(gateway.cancelled, isNot(contains(snoozeA.osId)));
+      },
+    );
 
-    test('a snooze rebuilt from its payload is still the category\'s',
-        () async {
-      // The registration is gone and so is the alert: the payload alone
-      // says the alert was inherited, which decides the seed and the source.
-      await twoEventsUnderOneAlert(mode: AlertMode.ring);
-      final scheduler = schedulerOf();
-      final armed = await armedByEvent(scheduler);
-      final ringA = gateway.platform[armed['e1']]!;
-      await db.alertRegistrationDao.deleteAll();
-      await alerts.replaceForCategory('gym', const []);
-      now = DateTime(2026, 9, 20, 18);
+    test(
+      'a snooze rebuilt from its payload is still the category\'s',
+      () async {
+        // The registration is gone and so is the alert: the payload alone
+        // says the alert was inherited, which decides the seed and the source.
+        await twoEventsUnderOneAlert(mode: AlertMode.ring);
+        final scheduler = schedulerOf();
+        final armed = await armedByEvent(scheduler);
+        final ringA = gateway.platform[armed['e1']]!;
+        await db.alertRegistrationDao.deleteAll();
+        await alerts.replaceForCategory('gym', const []);
+        now = DateTime(2026, 9, 20, 18);
 
-      await scheduler.snooze(ringA.osId, payload: ringA);
+        await scheduler.snooze(ringA.osId, payload: ringA);
 
-      final snooze = snoozesIn(await registrations()).single;
-      expect(snooze.osId, categorySnoozeSeed('e1'));
-      expect(snooze.source, AlertRegistrationSource.category.name);
-      expect(gateway.platform[snooze.osId]!.inherited, isTrue);
-    });
+        final snooze = snoozesIn(await registrations()).single;
+        expect(snooze.osId, categorySnoozeSeed('e1'));
+        expect(snooze.source, AlertRegistrationSource.category.name);
+        expect(gateway.platform[snooze.osId]!.inherited, isTrue);
+      },
+    );
 
     test('one alert on two events of one day is two entries', () async {
       await twoEventsUnderOneAlert();
@@ -3148,10 +3235,9 @@ void main() {
       expect(rows.map((row) => row.eventId).toSet(), {'e1', 'e2'});
       expect(rows.map((row) => row.alertId).toSet(), {'ca1'});
       expect(rows.map((row) => row.osId).toSet(), hasLength(2));
-      expect(
-        rows.map((row) => row.source).toSet(),
-        {AlertRegistrationSource.category.name},
-      );
+      expect(rows.map((row) => row.source).toSet(), {
+        AlertRegistrationSource.category.name,
+      });
       for (final row in rows) {
         // The category alert's seed names the event; nothing collided.
         expect(
@@ -3186,7 +3272,10 @@ void main() {
       final rows = await registrations();
       expect({for (final row in rows) row.eventId: row.osId}, before);
       for (final row in rows) {
-        expect(row.fireAt, DateTime(2026, 9, 20, 17, 30).millisecondsSinceEpoch);
+        expect(
+          row.fireAt,
+          DateTime(2026, 9, 20, 17, 30).millisecondsSinceEpoch,
+        );
       }
     });
 
@@ -3328,7 +3417,10 @@ void main() {
       expect(payload.categoryIdSet, {'gym'});
       expect(
         payload.title,
-        CalendarCategories.labelOf(gym, lookupAppLocalizations(const Locale('en'))),
+        CalendarCategories.labelOf(
+          gym,
+          lookupAppLocalizations(const Locale('en')),
+        ),
       );
       expect(payload.timeLabel, '09:00');
       expect(payload.digestLines, ['Sun, Oct 4 · Ana', 'Mon, Oct 12 · Mihai']);
@@ -3437,33 +3529,35 @@ void main() {
       expect(pending.single.osId, osId);
     });
 
-    test('a category added to the allowlist re-arms it, words unchanged',
-        () async {
-      // Named, and the new category lists nothing in October: every word
-      // the notification shows is the same, and only what its tap opens
-      // moved.
-      await octoberBirthdays();
-      final digest = await digestOf(name: 'Family');
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
-      final before = (await registrations()).single;
-      gateway.resetCalls();
+    test(
+      'a category added to the allowlist re-arms it, words unchanged',
+      () async {
+        // Named, and the new category lists nothing in October: every word
+        // the notification shows is the same, and only what its tap opens
+        // moved.
+        await octoberBirthdays();
+        final digest = await digestOf(name: 'Family');
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final before = (await registrations()).single;
+        gateway.resetCalls();
 
-      await (await EventDigestService.getInstance()).update(
-        EventDigests.byId(digest.id)!.copyWith(
-          categoryIds: const {'gym', 'travel'},
-        ),
-      );
-      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+        await (await EventDigestService.getInstance()).update(
+          EventDigests.byId(
+            digest.id,
+          )!.copyWith(categoryIds: const {'gym', 'travel'}),
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
 
-      expect(gateway.scheduledDigests, hasLength(1));
-      final after = (await registrations()).single;
-      expect(after.osId, before.osId);
-      expect(after.backend, isNot(before.backend));
-      final payload = gateway.platform[after.osId]!;
-      expect(payload.categoryIdSet, {'gym', 'travel'});
-      expect(payload.digestLines, hasLength(2));
-    });
+        expect(gateway.scheduledDigests, hasLength(1));
+        final after = (await registrations()).single;
+        expect(after.osId, before.osId);
+        expect(after.backend, isNot(before.backend));
+        final payload = gateway.platform[after.osId]!;
+        expect(payload.categoryIdSet, {'gym', 'travel'});
+        expect(payload.digestLines, hasLength(2));
+      },
+    );
 
     test('a disabled digest is cancelled', () async {
       await octoberBirthdays();
@@ -3564,30 +3658,32 @@ void main() {
       });
     });
 
-    test('digestEntries plans every digest; the hub lists no digest row',
-        () async {
-      await octoberBirthdays();
-      final armed = await digestOf();
-      final off = await digestOf(categoryIds: const {}, enabled: false);
-      final scheduler = schedulerOf();
-      await scheduler.reconcileAll(AlertReconcileReason.launch);
+    test(
+      'digestEntries plans every digest; the hub lists no digest row',
+      () async {
+        await octoberBirthdays();
+        final armed = await digestOf();
+        final off = await digestOf(categoryIds: const {}, enabled: false);
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
 
-      final entries = await scheduler.digestEntries();
+        final entries = await scheduler.digestEntries();
 
-      // The armed one and the switched-off one, each at October's fire —
-      // November lists nothing for either.
-      expect(
-        entries.map((entry) => (entry.digest.id, entry.digest.enabled)),
-        unorderedEquals([(armed.id, true), (off.id, false)]),
-      );
-      for (final entry in entries) {
-        expect(entry.fireAt, DateTime(2026, 10, 1, 9));
-        expect(entry.spanStart, october);
-        expect(entry.spanEnd, DateTime.utc(2026, 10, 31));
-        expect(entry.count, 2);
-      }
-      expect(await scheduler.hubEntries(), isEmpty);
-      expect(await scheduler.recentEntries(), isEmpty);
-    });
+        // The armed one and the switched-off one, each at October's fire —
+        // November lists nothing for either.
+        expect(
+          entries.map((entry) => (entry.digest.id, entry.digest.enabled)),
+          unorderedEquals([(armed.id, true), (off.id, false)]),
+        );
+        for (final entry in entries) {
+          expect(entry.fireAt, DateTime(2026, 10, 1, 9));
+          expect(entry.spanStart, october);
+          expect(entry.spanEnd, DateTime.utc(2026, 10, 31));
+          expect(entry.count, 2);
+        }
+        expect(await scheduler.hubEntries(), isEmpty);
+        expect(await scheduler.recentEntries(), isEmpty);
+      },
+    );
   });
 }

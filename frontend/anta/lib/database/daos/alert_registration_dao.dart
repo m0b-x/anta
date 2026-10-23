@@ -82,13 +82,14 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
   /// `missed` or `cancelled`. A row the platform no longer knows about is
   /// simply absent, so a miss is a no-op rather than an error.
   Future<void> markState(int osId, String state) {
-    return (update(alertRegistrations)..where((r) => r.osId.equals(osId)))
-        .write(
-          AlertRegistrationsCompanion(
-            state: Value(state),
-            updatedAt: Value(DateTime.now()),
-          ),
-        );
+    return (update(
+      alertRegistrations,
+    )..where((r) => r.osId.equals(osId))).write(
+      AlertRegistrationsCompanion(
+        state: Value(state),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   /// The settled rows of the last window, newest first — the Alerts hub's
@@ -135,6 +136,24 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
       alertRegistrations,
     )..where((r) => r.eventId.equals(eventId))).go();
   }
+
+  /// [deleteForEvent] for a wipe's tombstoned events: one statement per
+  /// [_idsPerStatement] ids, so a calendar of any size stays under SQLite's
+  /// bound-variable limit (999 on older builds).
+  Future<void> deleteForEvents(Iterable<String> eventIds) async {
+    final ids = eventIds.toList();
+    for (var start = 0; start < ids.length; start += _idsPerStatement) {
+      final end = start + _idsPerStatement < ids.length
+          ? start + _idsPerStatement
+          : ids.length;
+      final chunk = ids.sublist(start, end);
+      await (delete(
+        alertRegistrations,
+      )..where((r) => r.eventId.isIn(chunk))).go();
+    }
+  }
+
+  static const int _idsPerStatement = 500;
 
   Future<void> deleteAll() {
     return delete(alertRegistrations).go();

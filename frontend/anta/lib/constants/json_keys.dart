@@ -18,6 +18,20 @@ class JsonKeys {
   static const String subfolderSortOrder = 'subfolderSortOrder';
 
   static const String label = 'label';
+
+  /// Written only for a row someone else owns, so a backup of a database
+  /// that holds none stays what it was (D16).
+  static const String ownerId = 'ownerId';
+
+  /// The archived [ownerId] of [map], or null when it is anything but a
+  /// string: a hand-edited archive's `42` imports the row unowned instead of
+  /// throwing a cast that would drop the row — or, inside a list literal,
+  /// the whole table.
+  static String? ownerIdOf(Map<String, dynamic> map) {
+    final value = map[ownerId];
+    return value is String ? value : null;
+  }
+
   static const String iconCodePoint = 'iconCodePoint';
   static const String iconFontFamily = 'iconFontFamily';
   static const String beforeText = 'beforeText';

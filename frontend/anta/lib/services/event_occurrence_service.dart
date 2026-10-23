@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
+import '../constants/json_keys.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../database/daos/event_occurrence_dao.dart';
 import '../database/database.dart';
@@ -194,6 +195,7 @@ class EventOccurrenceService {
           'description': row.description,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -239,6 +241,7 @@ class EventOccurrenceService {
                   ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs)
                   : now,
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {

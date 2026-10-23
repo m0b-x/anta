@@ -153,7 +153,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
 
   /// Creates a note, and writes its body when [content] is given, under one
   /// stamp: a note and its body are one document (D14), so they are one
-  /// write and one outbox entry.
+  /// write and one outbox entry. [ownerId] is for a backup restore, whose
+  /// copy keeps the archived ownership under its fresh id (D16).
   Future<Note> createNote({
     required String folderId,
     required String title,
@@ -163,6 +164,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     bool isCompressed = false,
     ItemLabel label = ItemLabel.none,
     String? content,
+    String? ownerId,
   }) {
     return transaction(() async {
       final now = DateTime.now();
@@ -188,6 +190,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         position: Value(maxPos + 1),
         createdAt: Value(now),
         updatedAt: Value(now),
+        ownerId: Value(ownerId),
         hlcTimestamp: Value(stamp.hlc),
         deviceId: Value(stamp.deviceId),
         version: const Value(1),

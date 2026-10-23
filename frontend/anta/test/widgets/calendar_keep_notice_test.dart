@@ -82,7 +82,7 @@ void main() {
     SettingsService.forTesting(testDb);
 
     service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     // Today's, so the day panel the page opens on lists it.
     final now = DateTime.now();
     teaTimer = CalendarEvent(

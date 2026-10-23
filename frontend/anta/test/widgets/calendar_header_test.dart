@@ -76,7 +76,7 @@ void main() {
     SettingsService.forTesting(testDb);
 
     final service = await CalendarEventService.getInstance();
-    await service.deleteAll();
+    await service.tombstoneAll();
     bloc = CalendarBloc(service: service);
     await dispatch(const LoadCalendarEvents());
     final now = DateTime.now();
@@ -191,8 +191,10 @@ void main() {
     expect(inBar(find.byType(IconButton)), findsNWidgets(3));
     // The route is named by the labelled title node, not by an empty header
     // annotation around it.
-    expect(tester.widget<AppBar>(find.byType(AppBar)).excludeHeaderSemantics,
-        isTrue);
+    expect(
+      tester.widget<AppBar>(find.byType(AppBar)).excludeHeaderSemantics,
+      isTrue,
+    );
     expect(
       tester
           .getSemantics(id(SemanticsIds.calendarViewMenu))
@@ -253,7 +255,9 @@ void main() {
   testWidgets('the filter sheet no longer carries the format', (tester) async {
     await pumpCalendar(tester);
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.filter_alt_outlined));
+    await tester.tap(
+      find.widgetWithIcon(IconButton, Icons.filter_alt_outlined),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -303,7 +307,10 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.text('1 event exported'), findsOneWidget);
-    expect(importExportBloc.recorded.whereType<ImportExportReset>(), hasLength(1));
+    expect(
+      importExportBloc.recorded.whereType<ImportExportReset>(),
+      hasLength(1),
+    );
   });
 
   testWidgets('the bar has the overview\'s geometry: 48 dp, 22 px glyphs on '

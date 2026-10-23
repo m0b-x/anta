@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../constants/alert_constants.dart';
 import '../constants/event_digests.dart';
+import '../constants/json_keys.dart';
 import '../database/daos/event_digest_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -185,6 +186,7 @@ class EventDigestService implements DigestWriter {
           'sortOrder': row.sortOrder,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -228,6 +230,7 @@ class EventDigestService implements DigestWriter {
                   ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs)
                   : now,
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {

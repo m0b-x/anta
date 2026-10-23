@@ -426,7 +426,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   /// The widest a profile's name is in the dropdown's own style — which is
   /// how wide the button is, whichever profile is set: it lays out every
   /// name so it never resizes on a change.
-  double _widestProfileName(BuildContext context, Map<HolidayProfile, String> names) {
+  double _widestProfileName(
+    BuildContext context,
+    Map<HolidayProfile, String> names,
+  ) {
     var style = Theme.of(context).textTheme.titleMedium ?? const TextStyle();
     if (MediaQuery.boldTextOf(context)) {
       style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
@@ -871,10 +874,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           builder: (context, title, description) {
             final value = _describeDefault(l10n, allDay: false);
             return _YieldingTile(
-              leading: Icon(
-                Icons.schedule_rounded,
-                color: colorScheme.primary,
-              ),
+              leading: Icon(Icons.schedule_rounded, color: colorScheme.primary),
               title: title,
               subtitle: description,
               value: value,
@@ -1253,9 +1253,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
     if (!confirmed || !mounted) return;
 
-    await _eventService?.deleteAll();
+    await _eventService?.tombstoneAll();
     if (!mounted) return;
-    setState(() => _eventCount = 0);
+    // Another account's events survive the wipe, so the count is re-read.
+    setState(() => _eventCount = _eventService?.events.length ?? 0);
     CustomSnackbar.showSuccess(context, l10n.allEventsDeleted);
   }
 

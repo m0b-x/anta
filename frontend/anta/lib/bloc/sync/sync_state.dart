@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
+import '../../services/sync/sync_status.dart';
 import '../../utils/auth_error.dart';
 
 sealed class SyncState extends Equatable {
@@ -21,7 +22,12 @@ final class SyncUnavailable extends SyncState {
 }
 
 final class SyncSignedOut extends SyncState {
-  const SyncSignedOut();
+  final SyncStatus status;
+
+  const SyncSignedOut({this.status = SyncStatus.empty});
+
+  @override
+  List<Object?> get props => [status];
 }
 
 final class SyncSigningIn extends SyncState {
@@ -30,11 +36,12 @@ final class SyncSigningIn extends SyncState {
 
 final class SyncSignedIn extends SyncState {
   final AppUser user;
+  final SyncStatus status;
 
-  const SyncSignedIn(this.user);
+  const SyncSignedIn(this.user, {this.status = SyncStatus.empty});
 
   @override
-  List<Object?> get props => [user];
+  List<Object?> get props => [user, status];
 }
 
 final class SyncFailure extends SyncState {

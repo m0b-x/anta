@@ -1,8 +1,13 @@
 # Cloud Sync Readiness Roadmap — ANTA
 
-**Status: R1, R2, R3a and R3b built, reviewed and committed on 2026-10-23
-(R1 `729a25f`, R2 `14c9250`, R3a `596998d`, R3b `4fd26aa`); every decision
-D1–D19 taken on 2026-10-23 (§2); R4–R7 planned.** Each built slice has an "As built" block under its section — that
+**Status: DONE 2026-10-23 — every slice built and reviewed.** R1, R2, R3a
+and R3b committed (`729a25f`, `14c9250`, `596998d`, `4fd26aa`); R5, R6 and
+R4 built the same day, each with one implementer and one independent
+reviewer (fixes folded into the next slice's run), uncommitted when this line
+was written — the owner commits; R7's gate is green (9,584 tests) and the
+emulator pass saw no regression (R7 as built). Every decision D1–D19 is
+taken (§2; D15 amended: the bind floor is the clock at unbind). Each built
+slice has an "As built" block under its section — that
 block, not the plan above it, is the truth. The phase between Phase 01
 (pairing, shipped 2026-08-17) and Phase 02 (transport) of
 `docs/cloud-sync-roadmap.md`. It owns migration **v43** (schema is at v42,
@@ -260,7 +265,14 @@ Decided 2026-10-23, found missing by the decision memo:
   local-only rows upload (the outbox is re-seeded from every live row and
   tombstone — `SyncOutboxDao.requeueAll`, R6); remote-only rows download.
   `bind_floor` = the maximum HLC in the database at every unbind (manual or
-  restore, written by R4) or, for a never-bound database, at bind time. A
+  restore, written by R4) or, for a never-bound database, at bind time.
+  **Amended 2026-10-23 (R6 review): the floor is the clock at unbind —
+  `persistClock()` then `last_hlc` — not the row maximum.** Merges store a
+  remote stamp verbatim while the drift guard (R5) holds the clock below a
+  far-ahead one, so a row-maximum floor could sit above every later local
+  edit and this rule would hand them to the space; the clock is ≥ every stamp
+  this device minted and < every later one, and a held row meets its remote
+  twin as an equal. A
   never-synced database collides only on fixed ids (built-in categories),
   where the space should win; a restored database yields its snapshot but
   keeps the edits made after the restore. **B:** plain last-writer-wins —
@@ -464,6 +476,71 @@ Deviations from the plan above, each sound and reversible on its own:
 - Small enough for the implementing session's main thread or an
   `implementer` at `medium`.
 
+**As built (2026-10-23, uncommitted when written; one implementer, one
+independent reviewer — 17 findings, none high — a fix pass carried at the
+head of the R6 run, a second review that confirmed the fixes and found four
+more, fixed at the head of the R4 run; gate: analyze clean, whole suite
+green, the one failure the known Windows-only `host_devices_test`).**
+Deviations from the plan above, each sound and reversible on its own:
+
+- **The "existing drift guard" did not exist** — `receive()`/`update()` had
+  no bound at all. R5 added `HybridLogicalClock.maxDrift` (one hour): a
+  remote further ahead than `wall + maxDrift` *and* above the local clock is
+  held at `max(local, wall + maxDrift)` and counted in `clampedRemotes`; a
+  remote at or below the local clock passes unchanged. The price: after a
+  held far-future remote, local stamps stay below that row's HLC until the
+  wall catches up, so an edit to that row loses last-writer-wins — accepted
+  over letting one wrong clock drag every device (§8).
+- The logical counter is clamped at `0xFFFF` in every incrementing branch and
+  wherever a counter is adopted (`seed`, `update`, `initialCounter`): one more
+  tick advances the millisecond and resets, so the four-hex-digit encoding
+  never breaks order.
+- `seed(stored)` only raises the clock and records `seedAhead`; the seed is
+  **never capped**. `AppDatabase.clockSeedAhead`, `clockClampedRemotes` and
+  `clockMaxDrift` expose the facts to `SyncStatus` (R6) without naming the
+  clock outside its owners (the guard test's allow-list is unchanged).
+- Persistence rides the outbox write. The four `enqueue*` helpers persist
+  **`hlc.last`** — the highest stamp minted so far, so an `importAll` that
+  pre-mints N stamps persists once — through a forward-only upsert
+  (`WHERE excluded.value > sync_metadata.value`), deduped in-process by
+  `persistedUpTo` (a *claim*, forward-only, `claimPersisted` its only
+  writer). `enqueue` and `persistClock()` claim after their statement lands,
+  `enqueueMany` after its own batch, `enqueueIn` at build time (a caller
+  never continues after a failed batch). `enqueueWrittenIn` (`seedMissing`,
+  category `reorder`) writes the clock only `WHERE EXISTS` its outbox row, so
+  an idle launch stores nothing. The three merges do not persist — dormant;
+  **the Phase 02 engine calls `persistClock()` once per applied pull batch**
+  (§7).
+- Seeding: `seedClockFromStore()` runs in `getInstance` before the instance
+  is handed out and at the start of `onUpgrade`; when `last_hlc` is absent (a
+  v43 database from before R5) the clock seeds from the rows
+  (`SyncOutboxDao.maxHlc()`, R6) and persists at once — in `onUpgrade` after
+  the steps succeed, in `getInstance` after open. `onUpgrade` persists in a
+  `finally`, so backfill stamps are covered even when a later step fails; a
+  persist failure is rethrown only when the migration itself succeeded. A
+  malformed stored value is deleted so persistence resumes. The
+  `sqlite_master` guard was dropped: `sync_metadata` has had the same shape
+  since v1.
+- `getInstance` memoises the opening `Future` (`_instance` is gone):
+  concurrent callers share one open; a switch awaits the in-flight open,
+  notifies the lifecycle, then closes; a failed open clears the memo; a
+  failed seed closes the half-open database; `deleteAllData` clears the memo
+  only after the close. This also closed the pre-existing two-instances race
+  at startup.
+- Tests: `test/database/hlc_test.dart` (+12), `clock_persistence_test.dart`
+  (store per write, once per action, the batch paths, rollback, a restart
+  with the wall behind on a temp file, an upgrade seeds before its first step
+  and from the rows when nothing is stored, a malformed value),
+  `database_instance_test.dart` (the memo, an in-flight switch, a failed
+  open). `StatementCounter.executions` now counts batched argument sets —
+  the old `matching` count saw one SQL string per batch and would have
+  passed with fifty upserts. Pins: one `sync_metadata` statement more on the
+  first write of each new HLC (`query_count_test`, `counter_crdt_test`,
+  `item_label_dao_test`, `calendar_category_crdt_test`).
+- Recorded in §8: a whole-file database restore brings back an older
+  `last_hlc`; `migrationBackfillHlc()` stamps are covered by the `finally`,
+  not stored per stamp.
+
 ### R3a — The write helper and the outbox, browser-side tables
 
 - **Helper** on `AppDatabase` (`lib/database/crdt/`): `stampLocal(table,
@@ -640,6 +717,84 @@ and reversible on its own:
   that happens at bind (D17, Phase 02).
 - Skills: `anta-context`, `calendar-events`.
 
+**As built (2026-10-23, uncommitted when written; two implementer runs — the
+wipe, the suspension and the unbind in one, which also carried R6's fix
+pass; `owner_id` in backups in a second at medium effort — one independent
+reviewer over both, 9 findings, none high, F1–F5 and F8 fixed in a third
+short run, F6 and F7 recorded in §8; gate after each run: analyze clean,
+whole suite green — 9,584 tests after the last run — the one Windows-only
+failure).** Deviations from the plan above, each sound and reversible on its
+own:
+
+- **The wipe.** `CalendarEventService.deleteAll()` is `tombstoneAll()`: it
+  reads the bound account (`SyncBindingService.read()?.accountUid`, null
+  when unbound) and calls `CalendarEventDao.tombstoneAll(ownerUid:)` — one
+  transaction, one `newStamp()`, `UPDATE … RETURNING` per table on live rows
+  only under `ownedRowsWhere(ownerUid)` (`owner_id IS NULL` when unbound,
+  `owner_id IS NULL OR owner_id = ?` when bound — D13/D17), every row
+  enqueued as a tombstone, the four child DAOs' `tombstoneAll(stamp:,
+  ownerUid:)` next to their `tombstoneForEvent`; the DAO returns the
+  tombstoned event ids and only *their* `alert_registrations` are
+  hard-deleted (`AlertRegistrationDao.deleteForEvents`, 500 ids per
+  statement — device-local rows, rebuilt by the next reconcile); a surviving
+  foreign event keeps its registration. The service **reloads** its cache
+  (`_load()`) instead of blanking it, so a surviving foreign event stays
+  shown and exported, and the page re-reads the count from the service.
+  `CalendarEventDao.deleteAll()` survives for `importData` alone. Dialog
+  copy, snackbar and count unchanged. A repeat on an empty calendar still
+  mints one stamp and runs its five statements (F7, accepted — a pre-check
+  would tax every real wipe).
+- **The suspension** lives at `lib/services/sync/sync_suspension.dart` (not
+  `lib/services/`): `SyncSuspension.isSuspended` / `run()`, depth-counted,
+  re-entrant, released in `finally`. Nothing consults it yet — the engine
+  checks it before every push, pull and bind (§7).
+- **The restore.** `importFromJson` = `SyncSuspension.run(() =>
+  _importFromJson(...))`; `unbind()` runs before the first write (keys,
+  outbox, floor); today's wipes and inserts are unchanged; after the
+  reconcile: `syncOutboxDao.clear()` (the inserts enqueued) →
+  `writeBindFloor()` (the clock, D15 amended — it covers every stamp the
+  import minted) → `notifyExternalChange()` once — **on success and on
+  failure alike**: once the unbind has run, the wrapper clears, floors and
+  notifies even when a row-level throw ended the restore half-written (a
+  half-restored database is unbound, unqueued and floored above every
+  partial row, so a later bind cannot push it over the space); a malformed
+  file fails at the parse and never unbinds. The settings write-back
+  skips every `pairing_` / `sync_space_` key (`SettingsKeys.pairingPrefix`,
+  `syncSpacePrefix`): a hand-edited or foreign archive can neither pair nor
+  bind the database it lands on — the export pin alone (R6) only covered
+  archives this app wrote. The folder-archive import appends copies and does
+  not unbind. The suspension is proven in the test through a
+  `NoOpAlertGateway` subclass that records `isSuspended` during the
+  restore's reconcile — no production seam.
+- **`owner_id` in backups (D16).** Key `ownerId`, **emitted only when
+  non-null** (today's exports stay byte-identical) and imported verbatim as
+  `Value(null)` when absent; format 7. `JsonKeys.ownerId` /
+  `EventAlertKeys.ownerId`; `createFolder` / `createNote` gained `ownerId`
+  (the copies keep the archived ownership under their fresh ids);
+  `CounterDao.upsertValue(..., ownerId:)` writes it on insert and resurrect
+  only; every `importAll` already stamps with `entry.copyWith(...)`, so the
+  field passes through unchanged. **Counter values deviate:** `globalValues`
+  / `noteValues` hold bare ints that older importers read with `as int`, so
+  a value's ownership rides `noteValueExtras` under the existing
+  `counterId::noteId` key (`counterId::` for the global value) as
+  `{'ownerId': …}` beside `isPinned` / `position`; an older app's extras loop
+  reads only those two and writes nothing for an owner-only entry.
+  `JsonKeys.ownerIdOf(map)` is the one reader — the key counts only when it
+  is a string, so a hand-edited `42` imports as NULL and drops nothing.
+- Tests: `test/database/tombstone_all_test.dart` (one HLC, one tombstone
+  row per key, earlier tombstones untouched, unbound vs bound predicates,
+  foreign rows kept and never queued, a repeat writes nothing, the service
+  leaves no event / export / registration), `test/services/sync/
+  sync_suspension_test.dart`, `backup_service_restore_unbind_test.dart`
+  (unbound, unqueued, floored, suspended during the reconcile; a pairing or
+  binding key in an archive's settings stays absent while an ordinary key is
+  written), `backup_service_owner_id_round_trip_test.dart` (all seventeen
+  exported tables round-trip `'them'` and keep NULL, a pre-D16 archive
+  restores every row as mine, a clean database's archive carries no key);
+  23 test call sites renamed `deleteAll` → `tombstoneAll`.
+- Found and left (pre-existing, §8): `CounterService.importData` restores
+  per-note values under the archived note ids while notes get fresh ids.
+
 ### R6 — Engine seams, no network
 
 - `lib/services/sync/sync_gateway.dart`: `SyncGateway` interface
@@ -662,6 +817,75 @@ and reversible on its own:
   table for the initial merge at bind (D15).
 - Skills: `anta-context`, `calendar-events`, `flutter-principles`.
 
+**As built (2026-10-23, uncommitted when written; one implementer — the run
+that also carried R5's fix pass — one independent reviewer, 14 findings,
+none high, fixed at the head of the R4 run; gate: analyze clean, whole suite
+green, the one Windows-only failure).** Deviations from the plan above, each
+sound and reversible on its own:
+
+- **Registry.** `lib/database/crdt/synced_tables.dart` lists the eighteen
+  tables with the SQL that reproduces each outbox key byte for byte (`id`;
+  `counter_id || '|' || note_id`; `event_id || '|' || (day * 1000)` — drift
+  stores `day` as unix seconds) and `travelsWithParent` for
+  `content_chunks` (never queued under D14, counted in `maxHlc`);
+  `ownedRowsWhere(ownerUid)` builds the "mine" predicate of D17.
+  `SyncOutboxDao.requeueAll({required String boundUid})` (non-nullable — a
+  bind always has a uid; `owner_id = NULL` is never true) re-seeds the outbox
+  with one `INSERT … SELECT` per table, foreign rows excluded, never lowering
+  a newer entry, minting nothing; `maxHlc()` is the highest stamp across all
+  eighteen.
+- **Binding.** `SettingsKeys.syncSpaceId` / `syncSpaceOwnerUid` /
+  `syncSpaceAccountUid` / `syncSpaceBoundAt` (`sync_space_*`) plus
+  `pairingPrefix` / `syncSpacePrefix`; `SyncBinding` in `lib/models/`;
+  `SettingsService.getSyncBinding` / `setSyncBinding` (transactional, null
+  clears all four); `SyncBindingService` (`lib/services/sync/`, on the
+  lifecycle) with `read`, `bindFloor`, `writeBindFloor`, `unbind` (keys →
+  outbox clear → floor, one transaction). **D15 amended: the floor is the
+  clock** — `writeBindFloor()` = `persistClock()` then `bind_floor :=
+  last_hlc` (see D15 for why the row maximum was wrong). The export pin
+  (`test/services/backup_service_sync_keys_test.dart`) proves no pairing or
+  binding key leaves in a backup; R4 makes the import refuse them too.
+- **Status.** `SyncStatus` (`pendingCount`, `lastPushAt`, `pause` ∈
+  {`none`, `quotaExhausted`, `accountMismatch`}, `clockAhead`,
+  `clampedRemotes`, `binding`), `SyncStatusReader`, `SyncStatusService`
+  (`accountMismatch` only when a user is signed in and differs from the
+  bound account; `quotaExhausted` is reserved for Phase 02). `SyncBloc`
+  takes a lazy `statusReader` thunk (an eager future would be an unawaited
+  error on unsupported platforms), emits the account state at once and the
+  status as a second emit skipped when the state has moved on, with a 3 s
+  timeout to `SyncStatus.empty`; the first emit carries the previous status
+  only for the same account (`pause` is per account — a mismatch must not
+  linger over the bound account's sign-in); `SyncSignedIn` / `SyncSignedOut`
+  carry `status`; `RefreshSyncStatus`.
+- **Calendar seam.** `CalendarEventService.externalChanges` (static
+  broadcast) and `notifyExternalChange()` (also bumps `externalRevision`);
+  `ExternalCalendarChange` → `_onExternalChange`, which re-runs `_onLoad`'s
+  resolution (`_resolveAndReload`, snapshots read after the last await)
+  without a loading state, under a load generation that drops a reload that
+  lost the race, bumping `occurrenceRevision` and `membershipRevision`; a
+  change that arrives while the *first* load is still in flight sets a
+  pending flag the load honours with one more read, so the first loaded
+  state already carries it (the generation is never bumped before the
+  calendar is loaded, or the first load would never emit).
+  `importData` keeps the bare revision bump; **`BackupService.importFromJson`
+  notifies once at the end** — a mid-restore notify had reloaded the bloc
+  before skips and alerts were imported and marked it fresh, so the page's
+  `_reloadIfStale` would never have fired. `AlertReconcileReason.sync`.
+- **Gateway.** `SyncSpaceRef`; `SyncEnvelope` (table, rowKey, hlc,
+  deviceId, version, op, ownerId, `data` = the backup serializer's map, null
+  for a tombstone); `SyncGatewayFailure` / `SyncGatewayException`;
+  `SyncGateway.pushBatch` (≤ `maxBatch` = 500, D19), `pullSince(space, table,
+  {sinceHlc, sinceRowKey, limit})` ordered by **`(hlc, rowKey)`** strictly
+  after the cursor — one HLC stamps many rows, so a bare-hlc cursor dropped
+  rows at a page boundary — and `ack(space, table, throughHlc,
+  throughRowKey)`; `FakeSyncGateway` under `test/support/` with
+  `failNextWith`. No Firestore type outside `pairing_gateway.dart` (grep).
+- Tests: `sync_outbox_requeue_test`, `sync_binding_service_test`,
+  `sync_status_service_test`, `backup_service_sync_keys_test`,
+  `calendar_bloc_external_change_test`, `fake_sync_gateway_test`,
+  `sync_bloc_test` (+8). `restartable()` was not used (no `bloc_concurrency`
+  dependency; the generation guard covers bursts).
+
 ### R7 — Gate and device pass
 
 - The full gate; then `qa-runner` on the emulator's QA database: folder and
@@ -669,6 +893,52 @@ and reversible on its own:
   hide, delete; "Delete all events"; backup export → import round trip;
   vocabulary; `qa errors` clean. Nothing visible should have changed — the
   pass proves it.
+
+**As built (2026-10-23; the gate after the last fix pass: `dart analyze lib`
+clean, `flutter test` 9,584 green with the known Windows-only
+`host_devices_test` the only failure, no ARB touched; the device pass by
+`qa-runner` on `Pixel_9_Pro`, shots under `build/qa/shots/`).** No app
+regression was seen; the pass was partial on the harness side:
+
+- **Existing database first:** `qa run` without `--fresh` opened the QA
+  database left by earlier passes (pre-v43, no stored clock) — the new build
+  migrated and seeded it with `qa errors` clean and nothing on
+  `migrat|sync_metadata|last_hlc` in the log; folder list, calendar, Calendar
+  settings and the Sync page ("Not available on this platform" on a QA
+  build) opened. That database held no rows, so data survival across the
+  migration rests on the upgrade-chain and clock-persistence suites.
+- **Saved calendar flows:** 24 of 26 green; `19_fasting_schedule` red at its
+  `expect id:fasting-extra-days` because the row sits below the tall
+  emulator's 2856 px fold and the flow scrolls only to `fasting-days-off`
+  (green by hand with two more swipes — a flow fault); `23_overview_list`
+  red once on counts after other flows had added events on the same seed,
+  green alone on a fresh seed (state dependence in the flow). Both are
+  harness items, not app ones.
+- **Browser and counters** (basic seed): folder create / label / rename,
+  note create with three typed lines that survive reopening, note label,
+  reorder in Select mode (the `drag` verb selects the row; `swipe --via
+  native` on the handle reorders — the known trap), note and folder delete,
+  a global counter +1 +1 −1 and pin, a per-note value through "Values per
+  Note" — all green, `qa errors` clean.
+- **Categories:** create, hide and un-hide a built-in, delete — green.
+- **Delete all events** (calendar seed): the row reads "Permanently remove
+  every event you created. Holidays are kept." before and "No events to
+  delete" (disabled) after, the "All events deleted" snackbar shows, the day
+  panel's three rows are gone, and after a `relaunch` without `--fresh` the
+  row still reads "No events to delete" — the tombstones persisted. `qa
+  errors` clean. (The page shows no numeric count; the plan's "count 0" is
+  that disabled row.)
+- **Not run:** vocabulary (the "Manage vocabularies" button sits inside a
+  folded section of the Markdown settings page the runner did not open —
+  the vocabulary write paths are covered by `sync_outbox_test` and the
+  backup suites); the backup export → import round trip (the export goes
+  through the system share sheet, invisible to the harness — covered by the
+  four backup round-trip suites and `backup_service_restore_unbind_test`);
+  the matrix shots (nothing visual changed; the per-step shots stand in).
+- Seen and judged not a regression: a new note with body text keeps the
+  title "Untitled Note" — that string is the display fallback for an empty
+  explicit title everywhere in the tree and no code derives a title from the
+  body.
 
 ---
 
@@ -745,8 +1015,21 @@ and reversible on its own:
   through filtered listeners (`hlc > last`), `HybridLogicalClock.receive()`
   on every pulled row, merge, then the invalidation hooks listed in §1 and
   `AlertScheduler.reconcileAll(sync)`.
-- Space binding UI on the Sharing page; `owner_id` backfill on first
-  sign-in; the conflict copy (D7) from the merge method's returned loser.
+- **Engine contracts the built seams impose (R5/R6/R4 as built):** check
+  `SyncSuspension.isSuspended` before every push, pull and bind (a restore
+  runs inside it); call `persistClock()` once after each applied pull batch
+  (the merges do not persist the clock); the pull cursor is the pair
+  `(hlc, rowKey)` — one HLC stamps many rows, so a bare-hlc cursor drops
+  rows at a page boundary; `requeueAll(boundUid:)` takes the bound account's
+  uid and queues only `owner_id IS NULL OR owner_id = uid`; the initial merge
+  compares against `bind_floor` = the clock at unbind (D15 amended), and a
+  bind writes a floor the same way when none exists; call
+  `CalendarEventService.notifyExternalChange()` and the repositories'
+  `invalidateAll()` after each applied batch; `SyncStatus.quotaExhausted` is
+  the engine's to set, `accountMismatch` is computed by the status service.
+- Space binding UI on the Sharing page; `owner_id` backfill at **bind**
+  (D17, inside the bind transaction, `WHERE owner_id IS NULL`); the conflict
+  copy (D7) from the merge method's returned loser.
 - The Phase 02/03 docs' migration numbers: Phase 02 may need **no** migration
   once `owner_id` ships in v43; Phase 03's `share_pair_id` becomes a grant on
   the space (v44). Renumber when those docs are revised.
@@ -788,6 +1071,48 @@ and reversible on its own:
   day's presence through a second service call — one user action, two HLCs
   in both cases. Harmless for the engine (two outbox rows, both pushed); a
   single stamp would need the facades' write order to change.
+- Found by the R5 reviews, recorded as designed or left as found: after a
+  held far-future remote (`maxDrift`, one hour) local stamps stay below that
+  row's HLC until the wall catches up, so an edit to that row loses
+  last-writer-wins — the engine may want to flag a pulled row more than an
+  hour ahead; a whole-file database restore (not the in-app backup) brings
+  back an older `last_hlc`, so stamps this device already pushed can sit
+  above the restored seed — the in-app restore unbinds and is safe; the three
+  merges never persist the clock (the engine persists once per batch);
+  `enqueueIn` claims at build time and a caller may not continue after a
+  failed batch; the memo test cannot force every failure of `getInstance`
+  (the retry after a failed seed is reasoned, not tested).
+- Found by the R6/R4 reviews, left as found: nothing consults
+  `SyncSuspension` yet (the engine will); if `importFromJson` fails part-way
+  the database stays unbound with the floor written at the unbind, the
+  outbox not cleared and no end-of-restore notify — a later bind's
+  `requeueAll` re-seeds the queue regardless; the folder-archive import
+  (`ImportExportService`) appends copies and deliberately does not unbind;
+  `restartable()` is not available (no `bloc_concurrency` dependency), the
+  load generation stands in; `content_chunks.owner_id` stays NULL because a
+  note's chunks travel inside the note (D14) and never carry ownership of
+  their own.
+- **Pre-existing restore defect, found by the R4 `owner_id` run, not this
+  phase's to fix:** `CounterService.importData` keeps per-note counter
+  values under the archived note ids, but `BackupService` restores notes as
+  copies with fresh ids (`noteIdMap`) and never remaps `noteValues` /
+  `noteValueExtras`, so after a restore every per-note value points at a
+  note that no longer exists (the global values are unaffected). Fix: apply
+  `noteIdMap` to both maps in the counter import, with a round-trip test.
+- **D16 consequence for Phase 03 (R4 review F6):** folders and notes restore
+  as copies with fresh ids, so a foreign-owned copy can never meet its
+  original in the space, is never requeued at bind (`requeueAll` and the
+  wipe both exclude foreign rows) and stays local-only for good; an own note
+  restored into a foreign folder is pushed with a `folder_id` the space never
+  receives and is orphaned on the other device; `createNote` writes the
+  body's `content_chunks` with `owner_id` NULL under a foreign note (never
+  queued, but inconsistent). Consistent with D16 as written; Phase 03 decides
+  whether a restore keeps foreign rows as read-only copies, re-homes them
+  under the restoring account, or drops them.
+- Accepted in the R4 fix pass (F7): an empty second "Delete all events"
+  still mints one stamp, runs its five `UPDATE … RETURNING` and notifies the
+  tables' streams — a pre-check would cost a statement on every real wipe
+  and the repeat is a retap of a button the page disables.
 
 ---
 
@@ -815,16 +1140,29 @@ and reversible on its own:
 
 ## 10. Definition of done
 
+Checked 2026-10-23, each against the as-built blocks:
+
 - All eighteen synced tables carry the five CRDT columns and `owner_id`;
   parity test green at v43; the three new tables have `*_crdt_test` suites.
+  **Done (R2).**
 - Every write to a synced table goes through the helper and leaves exactly
   one coalesced outbox row; remote-origin merges leave none; the usage probe
-  holds.
+  holds. **Done (R3a/R3b; the guard test fences it).**
 - No hard delete on a synced table outside the import path, which runs
-  suspended and unbound.
-- The clock survives a restart and a wall-clock rollback.
+  suspended and unbound. **Done (R4): "Delete all events" tombstones; the
+  restore runs in `SyncSuspension.run`, unbinds first and floors after.**
+- The clock survives a restart and a wall-clock rollback. **Done (R5):
+  persisted per action, seeded before the instance is handed out and before
+  any migration step, never capped; counter and drift bounded.**
 - `SyncGateway`, `FakeSyncGateway`, `SyncStatus`, the external-change event
   and the binding keys exist with tests; no Firestore type outside the
-  pairing gateway.
+  pairing gateway. **Done (R6), plus `requeueAll`, `maxHlc`, the registry,
+  `SyncBindingService.unbind`, `AlertReconcileReason.sync`.**
 - `dart analyze lib` clean, the whole suite green, the device pass green with
-  no visible change, the master roadmap and the feature doc updated.
+  no visible change, the master roadmap and the feature doc updated. **Done
+  (R7): 9,584 tests; the emulator pass saw no regression (two saved-flow
+  faults on the tall emulator, vocabulary and the share-sheet backup round
+  trip not driven — covered by suites); master roadmap, the sync reference,
+  the persistence rules and the `calendar-events` skill updated in the same
+  change.** Left for the owner: the commit, and the pre-existing per-note
+  counter restore defect in §8.

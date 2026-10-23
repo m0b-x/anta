@@ -27,6 +27,8 @@ import 'category_service.dart';
 import 'counter_service.dart';
 import 'markdown_bar_service.dart';
 import 'public_holiday_service.dart';
+import 'sync/sync_binding_service.dart';
+import 'sync/sync_suspension.dart';
 
 class BackupService {
   static BackupService? _instance;
@@ -66,6 +68,7 @@ class BackupService {
         JsonKeys.createdAt: note.createdAt.toIso8601String(),
         JsonKeys.updatedAt: note.updatedAt.toIso8601String(),
         JsonKeys.label: ItemLabel.fromStorage(note.label).storageName,
+        if (note.ownerId != null) JsonKeys.ownerId: note.ownerId,
       });
     }
 
@@ -81,6 +84,7 @@ class BackupService {
             JsonKeys.noteSortOrder: f.noteSortOrder,
             JsonKeys.subfolderSortOrder: f.subfolderSortOrder,
             JsonKeys.label: ItemLabel.fromStorage(f.label).storageName,
+            if (f.ownerId != null) JsonKeys.ownerId: f.ownerId,
           },
         )
         .toList();
@@ -328,7 +332,47 @@ class BackupService {
     }
   }
 
-  Future<ImportResult> importFromJson(String jsonString) async {
+  /// Restores a backup suspended and unbound (D9): a restore re-creates rows
+  /// under fresh stamps, so a database that kept its binding would push them
+  /// as new and duplicate the other device's copies. The floor written at
+  /// the end covers every stamp the import minted, so a later bind lets the
+  /// space win every restored row (D15).
+  ///
+  /// Once the unbind has run, the queue is cleared, the floor written and the
+  /// calendar told whether the restore succeeded or not: a row-level throw
+  /// halfway leaves a half-restored database, and its partial rows must
+  /// neither sit queued nor stand above the floor, or they would win over
+  /// the space's twins at the next bind.
+  Future<ImportResult> importFromJson(String jsonString) {
+    return SyncSuspension.run(() async {
+      SyncBindingService? unbound;
+      final result = await _importFromJson(
+        jsonString,
+        onUnbound: (binding) => unbound = binding,
+      );
+      final binding = unbound;
+      if (binding == null) return result;
+      try {
+        // Every insert queued itself; an unbound database pushes nothing.
+        await _db.syncOutboxDao.clear();
+        await binding.writeBindFloor();
+      } catch (e) {
+        if (result.success) {
+          return ImportResult(success: false, error: e.toString());
+        }
+      } finally {
+        // Once, after the last calendar import: a bloc told earlier would
+        // reload a half-restored store and never reload again.
+        CalendarEventService.notifyExternalChange();
+      }
+      return result;
+    });
+  }
+
+  Future<ImportResult> _importFromJson(
+    String jsonString, {
+    required void Function(SyncBindingService binding) onUnbound,
+  }) async {
     try {
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
 
@@ -349,6 +393,10 @@ class BackupService {
       final folderIdMap = <String, String>{};
       final noteIdMap = <String, String>{};
 
+      final binding = await SyncBindingService.getInstance();
+      await binding.unbind();
+      onUnbound(binding);
+
       for (final map in _foldersParentsFirst(folders)) {
         final archivedParent = map[JsonKeys.parentId] as String?;
         final folder = await _db.folderDao.createFolder(
@@ -357,6 +405,7 @@ class BackupService {
               ? null
               : folderIdMap[archivedParent] ?? archivedParent,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
+          ownerId: JsonKeys.ownerIdOf(map),
         );
         final archivedId = map[JsonKeys.id];
         if (archivedId is String) folderIdMap[archivedId] = folder.id;
@@ -377,6 +426,7 @@ class BackupService {
           chunkCount: 1,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
           content: content,
+          ownerId: JsonKeys.ownerIdOf(map),
         );
         final archivedNoteId = map[JsonKeys.id];
         if (archivedNoteId is String) noteIdMap[archivedNoteId] = note.id;
@@ -384,6 +434,10 @@ class BackupService {
       }
 
       for (final entry in settings.entries) {
+        if (entry.key.startsWith(SettingsKeys.pairingPrefix) ||
+            entry.key.startsWith(SettingsKeys.syncSpacePrefix)) {
+          continue;
+        }
         await _db.userSettingsDao.setValue(entry.key, entry.value.toString());
       }
 

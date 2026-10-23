@@ -1,11 +1,72 @@
 class HybridLogicalClock {
   final String nodeId;
+  final DateTime Function() _wallClock;
   int _logicalCounter;
   DateTime _lastPhysicalTime;
+  Duration _seedAhead = Duration.zero;
+  int _clampedRemotes = 0;
 
-  HybridLogicalClock({required this.nodeId, int initialCounter = 0})
-    : _logicalCounter = initialCounter,
-      _lastPhysicalTime = _wallMillis();
+  /// How far a remote stamp's wall time may run ahead of this device's wall
+  /// clock before [receive] and [update] stop following it.
+  ///
+  /// Every stamp after a merge is above what was merged, so one device with a
+  /// clock set years ahead would otherwise drag every device it syncs with
+  /// years ahead too, for good. An hour absorbs ordinary skew between phones.
+  static const Duration maxDrift = Duration(hours: 1);
+
+  /// The largest counter the string encoding's four hex digits can carry;
+  /// one more would sort below its predecessor as a string.
+  static const int _maxCounter = 0xFFFF;
+
+  /// [wallClock] stands in for `DateTime.now` so a test can put the wall
+  /// behind a stored stamp.
+  HybridLogicalClock({
+    required this.nodeId,
+    int initialCounter = 0,
+    DateTime Function()? wallClock,
+  }) : _wallClock = wallClock ?? DateTime.now,
+       _logicalCounter = 0,
+       _lastPhysicalTime = _toMillis((wallClock ?? DateTime.now)()) {
+    _setCounter(initialCounter);
+  }
+
+  String? _persistedUpTo;
+
+  /// The highest clock value this instance has claimed as stored, or null
+  /// before its first claim. A claim, not proof of a write: a batch that
+  /// carries the clock row claims when the batch is built, and a transaction
+  /// that rolls back afterwards leaves the claim ahead of the store. That is
+  /// safe because every later stamp is higher and stores itself again.
+  ///
+  /// `CrdtWrite` alone reads it and claims through [claimPersisted]; a value
+  /// at or below it is already covered, so a multi-row action persists the
+  /// clock once.
+  String? get persistedUpTo => _persistedUpTo;
+
+  /// Records [value] as stored — for `CrdtWrite` only. Never lowers the
+  /// claim: a write that commits after a newer one does not undo it.
+  void claimPersisted(String value) {
+    final claimed = _persistedUpTo;
+    if (claimed == null || value.compareTo(claimed) > 0) {
+      _persistedUpTo = value;
+    }
+  }
+
+  /// How far the last [seed] was ahead of the wall clock, zero when it was
+  /// not. Reported rather than acted on: the seed is honoured however far
+  /// ahead it is, since a capped seed would mint stamps below rows already
+  /// written — the rollback persisting the clock exists to prevent.
+  Duration get seedAhead => _seedAhead;
+
+  /// How many remote stamps [receive] and [update] held to [maxDrift].
+  int get clampedRemotes => _clampedRemotes;
+
+  /// The current state without advancing it — what is persisted after a merge.
+  HlcTimestamp get last => HlcTimestamp(
+    wallTime: _lastPhysicalTime.millisecondsSinceEpoch,
+    logicalCounter: _logicalCounter,
+    nodeId: nodeId,
+  );
 
   /// The wall clock at the precision a timestamp carries.
   ///
@@ -15,9 +76,22 @@ class HybridLogicalClock {
   /// reset the counter and come out equal. Every comparison here is made on
   /// the truncated instant, which is what keeps a node's stamps strictly
   /// increasing.
-  static DateTime _wallMillis() => DateTime.fromMillisecondsSinceEpoch(
-    DateTime.now().millisecondsSinceEpoch,
-  );
+  DateTime _wallMillis() => _toMillis(_wallClock());
+
+  static DateTime _toMillis(DateTime instant) =>
+      DateTime.fromMillisecondsSinceEpoch(instant.millisecondsSinceEpoch);
+
+  /// Raises the clock to [stored], the last stamp a previous run wrote, so
+  /// no stamp of this run can sort below it even when the wall clock is
+  /// behind. Never lowers the clock; any node's stamp is accepted.
+  void seed(HlcTimestamp stored) {
+    final storedPhysical = DateTime.fromMillisecondsSinceEpoch(stored.wallTime);
+    final wall = _wallMillis();
+    _seedAhead = storedPhysical.isAfter(wall)
+        ? storedPhysical.difference(wall)
+        : Duration.zero;
+    _raiseTo(storedPhysical, stored.logicalCounter);
+  }
 
   HlcTimestamp now() {
     final physicalTime = _wallMillis();
@@ -26,19 +100,18 @@ class HybridLogicalClock {
       _lastPhysicalTime = physicalTime;
       _logicalCounter = 0;
     } else {
-      _logicalCounter++;
+      _setCounter(_logicalCounter + 1);
     }
 
-    return HlcTimestamp(
-      wallTime: _lastPhysicalTime.millisecondsSinceEpoch,
-      logicalCounter: _logicalCounter,
-      nodeId: nodeId,
-    );
+    return last;
   }
 
   HlcTimestamp receive(HlcTimestamp remote) {
     final physicalTime = _wallMillis();
-    final remotePhysical = DateTime.fromMillisecondsSinceEpoch(remote.wallTime);
+    final guarded = _guard(remote, physicalTime);
+    final remotePhysical = DateTime.fromMillisecondsSinceEpoch(
+      guarded.wallTime,
+    );
 
     if (physicalTime.isAfter(_lastPhysicalTime) &&
         physicalTime.isAfter(remotePhysical)) {
@@ -46,36 +119,68 @@ class HybridLogicalClock {
       _logicalCounter = 0;
     } else if (remotePhysical.isAfter(_lastPhysicalTime)) {
       _lastPhysicalTime = remotePhysical;
-      _logicalCounter = remote.logicalCounter + 1;
+      _setCounter(guarded.logicalCounter + 1);
     } else if (_lastPhysicalTime == remotePhysical) {
-      _logicalCounter =
-          (_logicalCounter > remote.logicalCounter
-              ? _logicalCounter
-              : remote.logicalCounter) +
-          1;
+      _setCounter(
+        (_logicalCounter > guarded.logicalCounter
+                ? _logicalCounter
+                : guarded.logicalCounter) +
+            1,
+      );
     } else {
-      _logicalCounter++;
+      _setCounter(_logicalCounter + 1);
     }
 
-    return HlcTimestamp(
-      wallTime: _lastPhysicalTime.millisecondsSinceEpoch,
-      logicalCounter: _logicalCounter,
-      nodeId: nodeId,
-    );
+    return last;
   }
 
   void update(HlcTimestamp timestamp) {
-    final remotePhysical = DateTime.fromMillisecondsSinceEpoch(
-      timestamp.wallTime,
+    final guarded = _guard(timestamp, _wallMillis());
+    _raiseTo(
+      DateTime.fromMillisecondsSinceEpoch(guarded.wallTime),
+      guarded.logicalCounter,
     );
+  }
 
-    if (remotePhysical.isAfter(_lastPhysicalTime)) {
-      _lastPhysicalTime = remotePhysical;
-      _logicalCounter = timestamp.logicalCounter;
-    } else if (remotePhysical == _lastPhysicalTime &&
-        timestamp.logicalCounter > _logicalCounter) {
-      _logicalCounter = timestamp.logicalCounter;
+  void _raiseTo(DateTime physical, int counter) {
+    if (physical.isAfter(_lastPhysicalTime)) {
+      _lastPhysicalTime = physical;
+      _setCounter(counter);
+    } else if (physical == _lastPhysicalTime && counter > _logicalCounter) {
+      _setCounter(counter);
     }
+  }
+
+  /// A counter past [_maxCounter] moves to the next millisecond instead, so
+  /// the stamp still sorts after its predecessor as a string.
+  void _setCounter(int counter) {
+    if (counter > _maxCounter) {
+      _lastPhysicalTime = _lastPhysicalTime.add(
+        const Duration(milliseconds: 1),
+      );
+      _logicalCounter = 0;
+    } else {
+      _logicalCounter = counter;
+    }
+  }
+
+  /// [remote] held to [maxDrift] past [wall], or never below where this clock
+  /// already is, so a clamp cannot lower a seed that was itself far ahead.
+  ///
+  /// A remote at or below the clock passes unchanged and is not counted: it
+  /// cannot pull the clock anywhere, so holding it would only lower what
+  /// [receive] returns below the remote. A held stamp takes counter zero: its
+  /// own counter ordered events at a wall time this clock does not adopt.
+  HlcTimestamp _guard(HlcTimestamp remote, DateTime wall) {
+    final limit = wall.add(maxDrift);
+    final held = _lastPhysicalTime.isAfter(limit) ? _lastPhysicalTime : limit;
+    if (remote.wallTime <= held.millisecondsSinceEpoch) return remote;
+    _clampedRemotes++;
+    return HlcTimestamp(
+      wallTime: held.millisecondsSinceEpoch,
+      logicalCounter: 0,
+      nodeId: remote.nodeId,
+    );
   }
 }
 

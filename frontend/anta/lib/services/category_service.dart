@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../constants/calendar_categories.dart';
+import '../constants/json_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_category_dao.dart';
@@ -380,6 +381,7 @@ class CategoryService {
           'isHidden': row.isHidden,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+          if (row.ownerId != null) 'ownerId': row.ownerId,
         },
     ];
   }
@@ -456,6 +458,7 @@ class CategoryService {
             updatedAt: Value(
               DateTime.fromMillisecondsSinceEpoch(updatedMs, isUtc: true),
             ),
+            ownerId: Value(JsonKeys.ownerIdOf(map)),
           ),
         );
       } catch (e) {
