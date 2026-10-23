@@ -73,6 +73,14 @@ bool? fabExtendedFor(Notification notification) {
   }
 }
 
+/// The text scale, measured at the label's own size, from which the add button
+/// drops its label and stays the `+` circle — Material's documented
+/// degradation of an extended FAB. Past it the labelled button on a phone
+/// covered most of the day panel's first entry, its text included; the
+/// tooltip still names the button, and the selected day is the one ringed in
+/// the grid above.
+const double fabLabelMaxTextScale = 1.5;
+
 bool _atTop(ScrollMetrics metrics) =>
     !metrics.hasPixels ||
     metrics.pixels <= metrics.minScrollExtent + fabTopSlack;
@@ -249,6 +257,13 @@ class CalendarAddFab extends StatelessWidget {
     );
     final day = selectedDay;
     final longPress = onLongPressed;
+    // Read at the label's size: Android's non-linear scaling grows small text
+    // more than large, so the scaler's factor depends on the size it scales.
+    final labelSize = Theme.of(context).textTheme.labelLarge?.fontSize;
+    final labelFits =
+        labelSize == null ||
+        MediaQuery.textScalerOf(context).scale(labelSize) / labelSize <
+            fabLabelMaxTextScale;
 
     final button = ValueListenableBuilder<bool>(
       valueListenable: extended,
@@ -282,7 +297,7 @@ class CalendarAddFab extends StatelessWidget {
                 // would be worse than a circle. `FloatingActionButton.extended`
                 // animates between the two itself — there is no custom
                 // transition here.
-                isExtended: isExtended && day != null,
+                isExtended: isExtended && day != null && labelFits,
                 icon: const Icon(Icons.add_rounded),
                 label: Text(
                   day == null

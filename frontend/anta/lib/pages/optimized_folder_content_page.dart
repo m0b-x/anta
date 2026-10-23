@@ -222,7 +222,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// default toolbar, and against this page's own expanded height, which the
   /// root and a nested folder do not share.
   double get _barSwapShift =>
-      FolderSliverAppBar.expandedHeightFor(widget.folderId == null) -
+      FolderSliverAppBar.expandedHeightFor(
+        widget.folderId == null,
+        MediaQuery.textScalerOf(context),
+      ) -
       SelectionAppBar.height;
 
   /// Search runs on a bloc of this page's own, so results never touch the
@@ -1042,7 +1045,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         edgeOffset: isSelecting || _searching
             ? 0
             : MediaQuery.paddingOf(context).top +
-                  FolderSliverAppBar.expandedHeightFor(isRootPage),
+                  FolderSliverAppBar.expandedHeightFor(
+                    isRootPage,
+                    MediaQuery.textScalerOf(context),
+                  ),
         notificationPredicate: (notification) =>
             !_searching && defaultScrollNotificationPredicate(notification),
         onRefresh: () async {

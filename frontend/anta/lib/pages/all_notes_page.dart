@@ -334,7 +334,10 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
         edgeOffset: _searching
             ? 0
             : MediaQuery.paddingOf(context).top +
-                  FolderSliverAppBar.expandedHeightFor(false),
+                  FolderSliverAppBar.expandedHeightFor(
+                    false,
+                    MediaQuery.textScalerOf(context),
+                  ),
         notificationPredicate: (notification) =>
             !_searching && defaultScrollNotificationPredicate(notification),
         onRefresh: () async {

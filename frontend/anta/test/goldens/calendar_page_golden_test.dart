@@ -4,6 +4,8 @@ library;
 import 'dart:io';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,9 +13,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_panel_mode.dart';
 import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/calendar_page.dart';
@@ -25,6 +29,7 @@ import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/calendar_day_bars.dart';
+import 'package:anta/widgets/day_summary_panel.dart';
 
 import '../database/support/db_test_support.dart';
 import '../widgets/support/layout_errors.dart';
@@ -145,6 +150,59 @@ void main() {
     await testDb.close();
   });
 
+  /// What the large-text cell broke before (`docs/qa-pass-rework.md` §6),
+  /// pinned in the real font the image is drawn in: no panel mode label cut
+  /// (in German at 2.0 the segments show icons, each named by its tooltip),
+  /// and the add button over none of the first day entry's text and glyphs,
+  /// with a tap on the entry's action still reaching it. The entry's card
+  /// itself cannot clear a 56 dp button in a panel this short, and the
+  /// action's 48 dp box loses a sliver of its corner to it.
+  void expectLargeTextReadable(WidgetTester tester) {
+    for (final mode in CalendarPanelMode.values) {
+      final segment = find.bySemanticsIdentifier(
+        SemanticsIds.panelMode(mode.name),
+      );
+      final label = find.descendant(of: segment, matching: find.byType(Text));
+      if (label.evaluate().isEmpty) {
+        expect(
+          find.ancestor(of: segment, matching: find.byType(Tooltip)),
+          findsOneWidget,
+          reason: mode.name,
+        );
+        continue;
+      }
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: label, matching: find.byType(RichText)),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse, reason: mode.name);
+    }
+
+    final fab = tester.getRect(find.byType(FloatingActionButton));
+    final entry = find
+        .descendant(
+          of: find.byType(DaySummaryPanel),
+          matching: find.byType(Card),
+        )
+        .first;
+    final parts = find
+        .descendant(of: entry, matching: find.byType(RichText))
+        .evaluate();
+    expect(parts, isNotEmpty);
+    for (final part in parts) {
+      final box = part.renderObject! as RenderBox;
+      final rect = box.localToGlobal(Offset.zero) & box.size;
+      expect(rect.overlaps(fab), isFalse, reason: '$rect under $fab');
+    }
+
+    final action = find.descendant(
+      of: entry,
+      matching: find.byType(IconButton),
+    );
+    final hit = tester.hitTestOnBinding(tester.getCenter(action));
+    final actionBox = tester.renderObject(action);
+    expect(hit.path.any((entry) => entry.target == actionBox), isTrue);
+  }
+
   for (final cell in goldenCells) {
     testWidgets('calendar page, ${cell.label}', (tester) async {
       setGoldenSurface(tester, cell);
@@ -170,6 +228,7 @@ void main() {
       });
 
       expect(errors, isEmpty);
+      if (cell.textScale >= 2.0) expectLargeTextReadable(tester);
       await expectGolden('calendar_page', cell);
     });
   }

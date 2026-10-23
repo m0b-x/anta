@@ -2084,14 +2084,21 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final rightInset = showPreviewToggle
         ? FormMetrics.trailingButtonSize * 2
         : FormMetrics.trailingButtonSize;
+    // The empty box's floor is one line of the placeholder, which follows the
+    // system text size: at the unscaled 22 px a large-scale placeholder hung
+    // past the box into the cell's bottom padding and sat on the card's edge.
+    final minLine =
+        MediaQuery.textScalerOf(
+          context,
+        ).scale(FormMetrics.descriptionFontSize) *
+        FormMetrics.descriptionLineHeight /
+        FormMetrics.descriptionFontSize;
+    const maxBox = FormMetrics.descriptionLineHeight * _descriptionMaxLines;
     final Widget surface;
     if (previewing) {
       final text = _descriptionController.text;
       surface = ConstrainedBox(
-        constraints: const BoxConstraints(
-          minHeight: FormMetrics.descriptionLineHeight,
-          maxHeight: FormMetrics.descriptionLineHeight * _descriptionMaxLines,
-        ),
+        constraints: BoxConstraints(minHeight: minLine, maxHeight: maxBox),
         child: text.trim().isEmpty
             ? const SizedBox.shrink()
             : SimpleMarkdownPreview(
@@ -2105,8 +2112,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       surface = _DescriptionBox(
         revision: _descriptionRevision,
         measure: () => _descriptionScroll.contentHeight,
-        minHeight: FormMetrics.descriptionLineHeight,
-        maxHeight: FormMetrics.descriptionLineHeight * _descriptionMaxLines,
+        minHeight: minLine,
+        maxHeight: maxBox,
         child: ModernEditorWrapper(
           controller: _descriptionController,
           focusNode: _descriptionFocus,
@@ -2800,6 +2807,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             onLeading: _leave,
             leadingIdentifier: SemanticsIds.eventClose,
             title: _isEditing ? l10n.editEvent : l10n.addEvent,
+            stackTitleAtLargeText: true,
             scrolled: _headerScrolled,
             trailing: ListenableBuilder(
               listenable: Listenable.merge([

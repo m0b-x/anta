@@ -3792,6 +3792,144 @@ void main() {
     });
   });
 
+  group('header layout', () {
+    // The test font draws every glyph a full em wide, so "Add event" fits
+    // beside the controls at 1.0 on 360 and the German pair never does; the
+    // real font's fit is pinned by the editor's goldens.
+    const german = 'Ereignis hinzufügen';
+
+    Future<void> pumpHeader(
+      WidgetTester tester,
+      double textScale, {
+      bool stack = true,
+      String title = 'Add event',
+      String action = 'Save',
+      double width = 360,
+    }) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = Size(width, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
+          home: Material(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: FormSheetHeader(
+                leadingIcon: Icons.close_rounded,
+                leadingTooltip: 'Cancel',
+                onLeading: () {},
+                title: title,
+                stackTitleAtLargeText: stack,
+                trailing: FilledButton(onPressed: () {}, child: Text(action)),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('a header that does not opt in stays one 48 dp row at 2.0', (
+      tester,
+    ) async {
+      await pumpHeader(tester, 2.0, stack: false);
+
+      expect(
+        tester.getSize(find.byType(FormSheetHeader)).height,
+        FormMetrics.headerHeight,
+      );
+      expect(tester.widget<Text>(find.text('Add event')).maxLines, 1);
+    });
+
+    Finder titleText(String title) => find.descendant(
+      of: find.byType(FormSheetHeader),
+      matching: find.text(title),
+    );
+
+    void expectWhole(WidgetTester tester, String title) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: titleText(title), matching: find.byType(RichText)),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse);
+    }
+
+    testWidgets('a title that fits beside the controls keeps one 48 dp row', (
+      tester,
+    ) async {
+      await pumpHeader(tester, 1.0);
+
+      expect(
+        tester.getSize(find.byType(FormSheetHeader)).height,
+        FormMetrics.headerHeight,
+      );
+      final close = tester.getRect(find.byType(IconButton));
+      final title = tester.getRect(titleText('Add event'));
+      expect(title.left, greaterThan(close.right));
+      expect(title.bottom, lessThanOrEqualTo(FormMetrics.headerHeight));
+      expectWhole(tester, 'Add event');
+    });
+
+    for (final scale in const [1.0, 1.3, 1.5]) {
+      testWidgets('a title that does not fit takes its own line under the '
+          'controls at $scale', (tester) async {
+        await pumpHeader(tester, scale, title: german, action: 'Speichern');
+
+        final close = tester.getRect(find.byType(IconButton));
+        final save = tester.getRect(find.byType(FilledButton));
+        final title = tester.getRect(titleText(german));
+        // The controls keep their row; the title starts at the form's inset
+        // under both and the header grows to hold it.
+        expect(close.height, FormMetrics.headerHeight);
+        expect(title.top, greaterThanOrEqualTo(close.bottom));
+        expect(title.top, greaterThanOrEqualTo(save.bottom));
+        expect(title.left, RowMetrics.groupInset);
+        expect(
+          tester.getSize(find.byType(FormSheetHeader)).height,
+          FormMetrics.headerHeight +
+              title.height +
+              FormMetrics.headerStackedTitleBottomPadding,
+        );
+        expectWhole(tester, german);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('the fit decides, not the scale: a wide sheet keeps the same '
+        'title beside the controls', (tester) async {
+      await pumpHeader(
+        tester,
+        1.3,
+        title: german,
+        action: 'Speichern',
+        width: 800,
+      );
+
+      expect(
+        tester.getSize(find.byType(FormSheetHeader)).height,
+        FormMetrics.headerHeight,
+      );
+      expectWhole(tester, german);
+    });
+
+    testWidgets('a stacked header still reads ✕, title, action', (
+      tester,
+    ) async {
+      await pumpHeader(tester, 1.5, title: german, action: 'Speichern');
+
+      final read = [
+        for (final node in tester.semantics.simulatedAccessibilityTraversal())
+          if (node.getSemanticsData() case final data)
+            data.label.isNotEmpty ? data.label : data.tooltip,
+      ].where({'Cancel', german, 'Speichern'}.contains).toList();
+      expect(read, ['Cancel', german, 'Speichern']);
+    });
+  });
+
   group('header hairline', () {
     Future<void> pumpSheet(
       WidgetTester tester,

@@ -39,6 +39,11 @@ class AppBarMetrics {
   static const double eyebrowHeight = 22.0;
   static const double eyebrowFontSize = 13.0;
 
+  /// The largest text scale the large title and the eyebrow follow. Past it a
+  /// 28 px headline would take the screen's first third; the expanded bar
+  /// grows with both lines up to here, and these numbers are the band at 1.0.
+  static const double largeTitleMaxTextScale = 1.34;
+
   /// The save-status slot in the editor's bar. Fixed so the title never
   /// reflows when an 8 dp dot becomes a 14 dp cloud.
   static const double saveStatusSlotSize = 14.0;

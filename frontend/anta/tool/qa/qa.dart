@@ -4302,10 +4302,12 @@ abstract class FleetSubcommand extends QaCommand {
   }
 
   /// Recycles each ready one of [members] past the health threshold
-  /// ([planRecycle]) — `fleet stop`, then a `fleet boot` child, in parallel
-  /// — and returns the whole fleet read again, or null when nothing was
-  /// recycled; with [enabled] false it only warns. A recycle that fails
-  /// leaves that guest out of the `ready` set, which callers already handle.
+  /// ([planRecycle]) — `fleet stop`, then a `fleet boot` child, strictly
+  /// one guest at a time — and returns the whole fleet read again, or null
+  /// when nothing was recycled; with [enabled] false it only warns. A
+  /// recycle that fails leaves that guest out of the `ready` set, which
+  /// callers already handle, and stops the sequence: a host that cannot
+  /// boot one guest will not boot the next either.
   Future<List<FleetMember>?> recycleWorn(
     QaContext ctx,
     FleetHost host,
@@ -4318,18 +4320,22 @@ abstract class FleetSubcommand extends QaCommand {
       line.startsWith('warning: ') ? warn(line) : out(line);
     }
     if (plan.recycle.isEmpty) return null;
-    // One guest first, the rest only once it came back: on 2026-10-23 two
-    // guests recycled at once both hung in their boot (a hung qemu was
-    // still on the host), which left no fleet at all.
-    final first = plan.recycle.first;
-    if (await _recycle(ctx, host, first)) {
-      await Future.wait([
-        for (final member in plan.recycle.skip(1)) _recycle(ctx, host, member),
-      ]);
-    } else if (plan.recycle.length > 1) {
-      warn('recycle: ${first.name} did not come back, so '
-          '${plan.recycle.skip(1).map((m) => m.name).join(', ')} '
-          '${plan.recycle.length == 2 ? 'is' : 'are'} left running as they are');
+    // Strictly one at a time, each boot complete before the next stop: on
+    // 2026-10-23 two worn guests (60 and 99 GB of GPU accounting) were
+    // recycled together, the display driver reset under the load (Windows
+    // Error Reporting LiveKernelEvent 117/193), and every emulator on the
+    // host hung until a reboot. A guest that does not come back ends the
+    // sequence, because the next one would not boot either.
+    for (var index = 0; index < plan.recycle.length; index++) {
+      final member = plan.recycle[index];
+      if (await _recycle(ctx, host, member)) continue;
+      final rest = plan.recycle.skip(index + 1).map((m) => m.name).toList();
+      if (rest.isNotEmpty) {
+        warn('recycle: ${member.name} did not come back, so '
+            '${rest.join(', ')} ${rest.length == 1 ? 'is' : 'are'} left running '
+            'as they are');
+      }
+      break;
     }
     return host.members(upTo: capacity, paths: ctx.paths);
   }

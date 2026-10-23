@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/label_appearance.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
@@ -9,6 +11,7 @@ import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/label_style.dart';
+import 'package:anta/models/restore_location_mode.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/drawer_host_registry.dart';
@@ -65,8 +68,13 @@ void main() {
     }
   }
 
-  Future<void> pumpPage(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1000, 2400);
+  Future<void> pumpPage(
+    WidgetTester tester, {
+    Size size = const Size(1000, 2400),
+    Locale locale = const Locale('en'),
+    double textScale = 1.0,
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -74,7 +82,13 @@ void main() {
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
+        locale: locale,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: const SettingsPage(),
       ),
     );
@@ -179,5 +193,84 @@ void main() {
     expect(segmented.selected, {LabelStyle.stripe});
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('the Start choices', () {
+    final start = find.byType(SegmentedButton<RestoreLocationMode>);
+
+    testWidgets('sit side by side while their words fit', (tester) async {
+      await pumpPage(tester);
+
+      final button = tester.widget<SegmentedButton<RestoreLocationMode>>(start);
+      expect(button.direction, Axis.horizontal);
+      // The theme's stadium, untouched.
+      expect(button.style?.shape, isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('stack at 2.0 in German on a phone and break no word', (
+      tester,
+    ) async {
+      await pumpPage(
+        tester,
+        size: const Size(360, 780),
+        locale: const Locale('de'),
+        textScale: 2.0,
+      );
+
+      final button = tester.widget<SegmentedButton<RestoreLocationMode>>(start);
+      expect(button.direction, Axis.vertical);
+      // Stacked, the group has the menu's corners, not a tall pill.
+      expect(
+        button.style?.shape?.resolve(const {}),
+        const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(
+            Radius.circular(FormMetrics.menuRadius),
+          ),
+        ),
+      );
+      final labels = find.descendant(
+        of: start,
+        matching: find.byType(RichText),
+      );
+      expect(labels, findsNWidgets(RestoreLocationMode.values.length));
+      for (final segment
+          in find
+              .descendant(of: start, matching: find.byType(TextButton))
+              .evaluate()) {
+        expect(
+          (segment.renderObject! as RenderBox).size.height,
+          greaterThanOrEqualTo(kMinInteractiveDimension),
+        );
+      }
+      for (final element in labels.evaluate()) {
+        final paragraph = element.renderObject! as RenderParagraph;
+        final text = paragraph.text.toPlainText();
+        // The label laid out again as the paragraph laid it out, for its
+        // line boundaries; every line must end at a space or the label's end.
+        final painter = TextPainter(
+          text: paragraph.text,
+          textAlign: paragraph.textAlign,
+          textDirection: paragraph.textDirection,
+          textScaler: paragraph.textScaler,
+        )..layout(maxWidth: paragraph.constraints.maxWidth);
+        addTearDown(painter.dispose);
+        var offset = 0;
+        while (offset < text.length) {
+          final line = painter.getLineBoundary(TextPosition(offset: offset));
+          final end = line.end;
+          final atSpace =
+              end >= text.length ||
+              text[end - 1].trim().isEmpty ||
+              text[end].trim().isEmpty;
+          expect(atSpace, isTrue, reason: '"$text" broke at $end');
+          offset = end > offset ? end : offset + 1;
+        }
+      }
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 }

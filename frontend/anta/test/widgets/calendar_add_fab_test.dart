@@ -30,11 +30,16 @@ void main() {
     ValueChanged<DateTime>? onLongPressed,
     ValueListenable<String?>? trace,
     ThemeData? theme,
+    TextScaler textScaler = TextScaler.noScaling,
   }) async {
     final notifier = ValueNotifier(extended);
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: child!,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('en'),
@@ -108,6 +113,49 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Today'), findsOneWidget);
+    });
+  });
+
+  group('large text', () {
+    testWidgets('below the threshold the label stays', (tester) async {
+      await pumpFab(
+        tester,
+        selectedDay: today(),
+        textScaler: const TextScaler.linear(1.3),
+      );
+
+      expect(fab(tester).isExtended, isTrue);
+      expect(find.text('Today'), findsOneWidget);
+    });
+
+    testWidgets('at the threshold the button is the bare circle', (
+      tester,
+    ) async {
+      await pumpFab(
+        tester,
+        selectedDay: today(),
+        textScaler: const TextScaler.linear(fabLabelMaxTextScale),
+      );
+
+      expect(fab(tester).isExtended, isFalse);
+      expect(find.text('Today'), findsNothing);
+      // Still the action, still enabled.
+      expect(fab(tester).onPressed, isNotNull);
+      expect(find.byIcon(Icons.add_rounded), findsOneWidget);
+    });
+
+    testWidgets('at 2.0 it stays a circle even while extended', (tester) async {
+      final notifier = await pumpFab(
+        tester,
+        selectedDay: today(),
+        extended: false,
+        textScaler: const TextScaler.linear(2.0),
+      );
+      notifier.value = true;
+      await tester.pumpAndSettle();
+
+      expect(fab(tester).isExtended, isFalse);
+      expect(find.text('Today'), findsNothing);
     });
   });
 

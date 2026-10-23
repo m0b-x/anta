@@ -761,10 +761,15 @@ int megabytes(int bytes) => bytes ~/ (1024 * 1024);
 const int fleetRecycleLaunches = 40;
 
 /// The qemu GPU counter above which a guest is recycled however many
-/// launches were counted: about what [fleetRecycleLaunches] grows it to,
-/// and the guard for a guest whose launches nobody counted (booted before
-/// the counter existed, or driven by hand).
-const int fleetRecycleGpuBytes = 16 * 1024 * 1024 * 1024;
+/// launches were counted: about half of what [fleetRecycleLaunches] grows
+/// it to, and the guard for a guest whose launches nobody counted (booted
+/// before the counter existed, or driven by hand). 8 GiB, not 16: on
+/// 2026-10-23 two guests at 60 and 99 GB of this accounting were recycled
+/// together on a card with 12 GB of real memory and the display driver reset
+/// (Windows Error Reporting `LiveKernelEvent` 117 and 193 at 23:46), after
+/// which no emulator on the host — the owner's included — booted again
+/// until a reboot. The accounting is virtual, the driver's limit is not.
+const int fleetRecycleGpuBytes = 8 * 1024 * 1024 * 1024;
 
 /// The app launches a fleet guest has served: since `fleet boot` started
 /// it ([sinceBoot]), or since the first one counted for a guest booted

@@ -25,6 +25,15 @@ abstract final class FormMetrics {
   static const double headerHeight = 48;
   static const double headerTitleSize = 17;
 
+  /// The lines the title may take once a header that opts in
+  /// (`FormSheetHeader.stackTitleAtLargeText`) has set it on a line of its
+  /// own under the ✕ and the action, because it did not fit beside them.
+  static const int headerTitleMaxLines = 2;
+
+  /// The air under a title on its own line before the body, so the body's
+  /// first row does not read as the title's second line.
+  static const double headerStackedTitleBottomPadding = 8;
+
   /// The header's text action — a sub-sheet's Done, the detail sheet's Edit.
   /// The trailing inset is tighter than the editor's 12 because a text
   /// button carries its own horizontal padding where a filled one does not.

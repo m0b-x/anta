@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -131,6 +132,20 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   Timer? _queryPersistTimer;
   static const Duration _queryPersistDelay = Duration(milliseconds: 500);
 
+  /// Whether the user has set the value since [initState], so the restore in
+  /// [_load] — several settings reads, up to ~1.5 s on a cold start — never
+  /// snaps a fresh pick back to the stored one.
+  bool _modePicked = false;
+  bool _filtersPicked = false;
+  bool _dayListModePicked = false;
+
+  /// Whether [_load] has applied the stored agenda filters. A change before
+  /// that was made on the defaults and is not written: the write would
+  /// replace the stored categories, range and query with defaults the user
+  /// never chose. The restore replays it on the stored value instead
+  /// ([_replayOnto]) and writes the result.
+  bool _filtersRestored = false;
+
   @override
   void initState() {
     super.initState();
@@ -194,19 +209,70 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
     if (!mounted) return;
     final now = DateTime.now();
     setState(() {
-      _mode = mode;
-      _dayListMode = dayListMode;
+      if (!_modePicked) _mode = mode;
+      if (!_dayListModePicked) _dayListMode = dayListMode;
       _hapticFeedback = haptics;
-      _filters = filters.withoutElapsedRange(
+      final stored = filters.withoutElapsedRange(
         DateTime.utc(now.year, now.month, now.day),
       );
+      _filters = _filtersPicked
+          ? _replayOnto(stored, picked: _filters)
+          : stored;
+      _filtersRestored = true;
       // The restored filters decide whether the window follows the selection,
       // so the anchor can only be resolved once they are in.
       _syncAnchor();
     });
+    // A pick the restore yielded to may never have been written — a tap on
+    // the shown segment writes nothing, an early filter change waited for
+    // this — so the stored values follow what the panel now shows.
+    if (_modePicked && _mode != mode) {
+      unawaited(settings.setCalendarPanelMode(_mode));
+    }
+    if (_dayListModePicked && _dayListMode != dayListMode) {
+      _persistDayListMode(_dayListMode);
+    }
+    if (_filtersPicked) _persist(_filters);
+  }
+
+  /// [stored] with every field the user changed before the restore landed
+  /// taken from [picked]. Those changes were made on the defaults, so a field
+  /// still at its default was not touched and the stored value stands; the
+  /// custom range moves as one pair.
+  static UpcomingAgendaFilters _replayOnto(
+    UpcomingAgendaFilters stored, {
+    required UpcomingAgendaFilters picked,
+  }) {
+    const base = UpcomingAgendaFilters();
+    T pick<T>(T Function(UpcomingAgendaFilters filters) field) =>
+        field(picked) == field(base) ? field(stored) : field(picked);
+    Set<E> pickSet<E>(Set<E> Function(UpcomingAgendaFilters filters) field) =>
+        setEquals(field(picked), field(base)) ? field(stored) : field(picked);
+    final range =
+        picked.customStart != base.customStart ||
+            picked.customEnd != base.customEnd
+        ? picked
+        : stored;
+    return UpcomingAgendaFilters(
+      periodMode: pick((f) => f.periodMode),
+      rangeDays: pick((f) => f.rangeDays),
+      priorities: pickSet((f) => f.priorities),
+      customStart: range.customStart,
+      customEnd: range.customEnd,
+      query: pick((f) => f.query),
+      showHolidays: pick((f) => f.showHolidays),
+      showFasting: pick((f) => f.showFasting),
+      eventDisplay: pick((f) => f.eventDisplay),
+      fastingDisplay: pick((f) => f.fastingDisplay),
+      holidayDisplay: pick((f) => f.holidayDisplay),
+      followSelectedDay: pick((f) => f.followSelectedDay),
+      eventType: pick((f) => f.eventType),
+      categoryIds: pickSet((f) => f.categoryIds),
+    );
   }
 
   Future<void> _setMode(CalendarPanelMode mode) async {
+    _modePicked = true;
     if (mode == _mode) return;
     setState(() => _mode = mode);
     final settings = await SettingsService.getInstance();
@@ -225,6 +291,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
         next.query != _filters.query;
     final followingChanged =
         next.followSelectedDay != _filters.followSelectedDay;
+    _filtersPicked = true;
     setState(() {
       _filters = next;
       // Turning following off returns the window to today; turning it on
@@ -233,6 +300,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       if (followingChanged) _syncAnchor();
     });
     _queryPersistTimer?.cancel();
+    if (!_filtersRestored) return;
     if (queryOnly) {
       _queryPersistTimer = Timer(_queryPersistDelay, () => _persist(next));
       return;
@@ -259,6 +327,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   /// sheet is still open when this runs, so the write is fire-and-forget like
   /// the filter writes above.
   void _onDayListModeChanged(AgendaDayListMode mode) {
+    _dayListModePicked = true;
     if (mode == _dayListMode) return;
     setState(() => _dayListMode = mode);
     _persistDayListMode(mode);
@@ -284,6 +353,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           _PanelModeBar(
             mode: _mode,
             onChanged: _setMode,
+            onTouched: () => _modePicked = true,
             expanded: widget.expanded,
             onToggleExpanded: widget.onToggleExpanded,
           ),
@@ -418,18 +488,34 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
 /// Compact switch selecting what the bottom panel shows, plus the toggle
 /// that expands the panel over the calendar grid. Sits between the grid and
 /// the panel so the panel's own header stays free for the mode's content.
+///
+/// The three labelled segments share the row while every label fits its
+/// third; from the text scale where one would not (German from about 1.1:
+/// "Demnächst"), each segment shows only its icon and keeps the mode's name
+/// as its tooltip and semantics label. Never a scrolling row: a scrolled bar
+/// hid a mode off screen and slid under the finger on every switch.
 class _PanelModeBar extends StatelessWidget {
   final CalendarPanelMode mode;
   final ValueChanged<CalendarPanelMode> onChanged;
+
+  /// Called on every touch of a segment, the shown one included: the
+  /// segmented button reports only a change of selection, while before the
+  /// panel's restore lands a tap on the shown segment is a choice too.
+  final VoidCallback onTouched;
   final bool expanded;
   final VoidCallback onToggleExpanded;
 
   const _PanelModeBar({
     required this.mode,
     required this.onChanged,
+    required this.onTouched,
     required this.expanded,
     required this.onToggleExpanded,
   });
+
+  /// Room left so a label measured to fit exactly is not cut by the
+  /// engine's own rounding.
+  static const double _fitMargin = 0.5;
 
   String _labelFor(AppLocalizations l10n, CalendarPanelMode mode) {
     return switch (mode) {
@@ -439,52 +525,144 @@ class _PanelModeBar extends StatelessWidget {
     };
   }
 
+  static IconData _iconFor(CalendarPanelMode mode) {
+    return switch (mode) {
+      CalendarPanelMode.day => Icons.today_outlined,
+      CalendarPanelMode.timeline => Icons.view_timeline_outlined,
+      CalendarPanelMode.upcoming => Icons.upcoming_outlined,
+    };
+  }
+
+  /// Whether every label fits its third of [width] on one line, measured as
+  /// a label-only segment draws it: the theme's `labelLarge` under the
+  /// current scaler, inside the text button padding Material scales with the
+  /// text size (12 → 8 → 4 dp a side over scale 1 → 2 → 3).
+  bool _labelsFit(BuildContext context, Iterable<String> labels, double width) {
+    final style = Theme.of(context).textTheme.labelLarge;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final padding = ButtonStyleButton.scaledPadding(
+      const EdgeInsets.symmetric(horizontal: 12),
+      const EdgeInsets.symmetric(horizontal: 8),
+      const EdgeInsets.symmetric(horizontal: 4),
+      textScaler.scale(style?.fontSize ?? 14) / 14,
+    ).resolve(direction);
+    final room = width / labels.length - padding.horizontal;
+    final painter = TextPainter(
+      textDirection: direction,
+      textScaler: textScaler,
+      maxLines: 1,
+    );
+    try {
+      for (final label in labels) {
+        painter
+          ..text = TextSpan(text: label, style: style)
+          ..layout();
+        if (painter.width + _fitMargin > room) return false;
+      }
+      return true;
+    } finally {
+      painter.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: SegmentedButton<CalendarPanelMode>(
-              segments: [
-                // Labels only: three icon+label segments overflow a narrow
-                // phone once the labels are translated.
-                for (final value in CalendarPanelMode.values)
-                  ButtonSegment<CalendarPanelMode>(
-                    value: value,
-                    // A segment takes no id of its own; the label's merges
-                    // into the segment's node.
-                    label: Semantics(
-                      identifier: SemanticsIds.panelMode(value.name),
-                      child: Text(
-                        _labelFor(l10n, value),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
+    const insets = EdgeInsets.fromLTRB(16, 8, 8, 0);
+    final labels = {
+      for (final value in CalendarPanelMode.values)
+        value: _labelFor(l10n, value),
+    };
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The segments get the row less its insets and the compact expand
+        // button beside them.
+        final expandExtent =
+            kMinInteractiveDimension +
+            VisualDensity.compact.baseSizeAdjustment.dx;
+        final iconsOnly = !_labelsFit(
+          context,
+          labels.values,
+          constraints.maxWidth - insets.horizontal - expandExtent,
+        );
+        return Padding(
+          // An icon segment's 48 dp target takes the top inset, so the bar
+          // keeps the labelled bar's height and the panel under it does not
+          // move when the segments switch.
+          padding: iconsOnly ? insets.copyWith(top: 0) : insets,
+          child: Row(
+            children: [
+              Expanded(
+                child: Listener(
+                  onPointerDown: (_) => onTouched(),
+                  child: SegmentedButton<CalendarPanelMode>(
+                    segments: [
+                      // Labels only while they fit: three icon+label segments
+                      // overflow a narrow phone once the labels are
+                      // translated.
+                      for (final value in CalendarPanelMode.values)
+                        ButtonSegment<CalendarPanelMode>(
+                          value: value,
+                          tooltip: iconsOnly ? labels[value] : null,
+                          // A segment takes no id of its own; its child's
+                          // merges into the segment's node.
+                          label: iconsOnly
+                              ? null
+                              : Semantics(
+                                  identifier: SemanticsIds.panelMode(
+                                    value.name,
+                                  ),
+                                  child: Text(
+                                    labels[value]!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                          icon: iconsOnly
+                              ? Semantics(
+                                  identifier: SemanticsIds.panelMode(
+                                    value.name,
+                                  ),
+                                  label: labels[value],
+                                  child: Icon(_iconFor(value)),
+                                )
+                              : null,
+                        ),
+                    ],
+                    selected: {mode},
+                    showSelectedIcon: false,
+                    // The icon segments are reached at large text, where a
+                    // 48 dp target matters most; the labelled ones keep the
+                    // compact row the panel was laid out on.
+                    style: iconsOnly
+                        ? const ButtonStyle(
+                            visualDensity: VisualDensity.standard,
+                            tapTargetSize: MaterialTapTargetSize.padded,
+                          )
+                        : const ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                    onSelectionChanged: (selection) =>
+                        onChanged(selection.first),
                   ),
-              ],
-              selected: {mode},
-              showSelectedIcon: false,
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
-              onSelectionChanged: (selection) => onChanged(selection.first),
-            ),
+              IconButton(
+                tooltip: expanded ? l10n.panelShowCalendar : l10n.panelExpand,
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  expanded
+                      ? Icons.unfold_less_rounded
+                      : Icons.unfold_more_rounded,
+                ),
+                onPressed: onToggleExpanded,
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: expanded ? l10n.panelShowCalendar : l10n.panelExpand,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              expanded ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
-            ),
-            onPressed: onToggleExpanded,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

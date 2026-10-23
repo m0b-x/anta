@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../constants/form_metrics.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/label_style.dart';
@@ -677,24 +678,99 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 4),
           ?description,
           const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: SegmentedButton<T>(
-              showSelectedIcon: false,
-              segments: [
-                for (final entry in labels.entries)
-                  ButtonSegment<T>(
-                    value: entry.key,
-                    label: Text(entry.value, textAlign: TextAlign.center),
-                  ),
-              ],
-              selected: {value},
-              onSelectionChanged: (selection) => onChanged(selection.first),
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Side by side while every word fits its segment; a segmented
+              // button never moves a word to another segment, so a word
+              // wider than its third ("Ordner und Notizen" at 200 %) broke
+              // mid-word. Stacked, each choice has the row's full width.
+              final horizontal = _choiceWordsFit(
+                context,
+                labels.values,
+                constraints.maxWidth / labels.length,
+              );
+              return SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<T>(
+                  direction: horizontal ? Axis.horizontal : Axis.vertical,
+                  // A stadium as tall as three stacked choices reads as one
+                  // big pill; stacked, the group takes the menu's corners.
+                  style: horizontal
+                      ? null
+                      : const ButtonStyle(
+                          shape: WidgetStatePropertyAll(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(FormMetrics.menuRadius),
+                              ),
+                            ),
+                          ),
+                        ),
+                  showSelectedIcon: false,
+                  segments: [
+                    for (final entry in labels.entries)
+                      ButtonSegment<T>(
+                        value: entry.key,
+                        label: Text(entry.value, textAlign: TextAlign.center),
+                      ),
+                  ],
+                  selected: {value},
+                  onSelectionChanged: (selection) => onChanged(selection.first),
+                ),
+              );
+            },
           ),
         ],
       ),
     );
+  }
+
+  /// The spaces the line breaker breaks at: the no-break ones (U+00A0,
+  /// U+2007, U+202F) hold their words together, so a word is measured with
+  /// them.
+  static final RegExp _breakingSpaces = RegExp(
+    '[ \\t\\n\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u205F\\u3000]+',
+  );
+
+  /// Whether every word of [labels] fits a segment [segmentWidth] wide on
+  /// one line, measured as a label-only segment draws it: the theme's
+  /// `labelLarge` inside the text button padding Material scales with the
+  /// text size.
+  bool _choiceWordsFit(
+    BuildContext context,
+    Iterable<String> labels,
+    double segmentWidth,
+  ) {
+    final style = Theme.of(context).textTheme.labelLarge;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final fontSize = style?.fontSize ?? 14;
+    final padding = ButtonStyleButton.scaledPadding(
+      const EdgeInsets.symmetric(horizontal: 12),
+      const EdgeInsets.symmetric(horizontal: 8),
+      const EdgeInsets.symmetric(horizontal: 4),
+      textScaler.scale(fontSize) / 14,
+    ).resolve(Directionality.of(context));
+    final room = segmentWidth - padding.horizontal;
+    final painter = TextPainter(
+      textDirection: Directionality.of(context),
+      textScaler: textScaler,
+      maxLines: 1,
+    );
+    try {
+      for (final label in labels) {
+        for (final word in label.split(_breakingSpaces)) {
+          painter
+            ..text = TextSpan(text: word, style: style)
+            ..layout();
+          // An exact fit can still wrap in the engine, so a word needs half
+          // a pixel to spare.
+          if (room - painter.width < 0.5) return false;
+        }
+      }
+      return true;
+    } finally {
+      painter.dispose();
+    }
   }
 
   Widget _sliderRow({

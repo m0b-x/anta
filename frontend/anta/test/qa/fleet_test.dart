@@ -981,7 +981,7 @@ void main() {
   group('health', () {
     const gb = 1024 * 1024 * 1024;
 
-    test('a guest past 40 launches or 16 GB of GPU memory is due a recycle', () {
+    test('a guest past 40 launches or 8 GiB of GPU memory is due a recycle', () {
       expect(recycleReason(_member(1)), isNull);
       expect(
         recycleReason(_member(1, launches: const FleetLaunches(count: 40, sinceBoot: true))),
@@ -995,9 +995,9 @@ void main() {
         recycleReason(_member(1, launches: const FleetLaunches(count: 41, sinceBoot: false))),
         startsWith('41+ app launches'),
       );
-      expect(recycleReason(_member(1, gpuBytes: 16 * gb)), isNull);
-      expect(recycleReason(_member(1, gpuBytes: 17 * gb)),
-          'its qemu holds 17408 MB of GPU memory (over 16384 MB)');
+      expect(recycleReason(_member(1, gpuBytes: 8 * gb)), isNull);
+      expect(recycleReason(_member(1, gpuBytes: 9 * gb)),
+          'its qemu holds 9216 MB of GPU memory (over 8192 MB)');
     });
 
     test('--no-recycle only warns; recycling lists the worn guests', () {

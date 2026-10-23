@@ -119,9 +119,38 @@ class FolderSliverAppBar extends StatelessWidget {
 
   /// The status bar is added on top of this by the framework; every caller
   /// that reasons about the bar's extent — the swap compensation and the
-  /// refresh indicator's inset — measures from here.
-  static double expandedHeightFor(bool isRootPage) =>
-      isRootPage ? expandedHeightRoot : expandedHeightNested;
+  /// refresh indicator's inset — measures from here, with the page's
+  /// [textScaler]: the two constants above are the bar at 1.0, and at a
+  /// larger scale it grows by what the large title's line and the eyebrow's
+  /// band gain, or the bottom-aligned headline pushes the eyebrow up under
+  /// the toolbar.
+  static double expandedHeightFor(
+    bool isRootPage, [
+    TextScaler textScaler = TextScaler.noScaling,
+  ]) {
+    final scaler = _largeTitleScaler(textScaler);
+    const titleLine =
+        AppBarMetrics.largeTitleFontSize * AppBarMetrics.largeTitleHeight;
+    final titleGrowth =
+        scaler.scale(AppBarMetrics.largeTitleFontSize) *
+            AppBarMetrics.largeTitleHeight -
+        titleLine;
+    if (isRootPage) return expandedHeightRoot + titleGrowth;
+    return expandedHeightNested +
+        titleGrowth +
+        eyebrowHeightFor(scaler) -
+        AppBarMetrics.eyebrowHeight;
+  }
+
+  /// The eyebrow's band at [textScaler]: [AppBarMetrics.eyebrowHeight] scaled
+  /// with the eyebrow's text, so its line is never cut by the toolbar above.
+  static double eyebrowHeightFor(TextScaler textScaler) =>
+      AppBarMetrics.eyebrowHeight *
+      _largeTitleScaler(textScaler).scale(AppBarMetrics.eyebrowFontSize) /
+      AppBarMetrics.eyebrowFontSize;
+
+  static TextScaler _largeTitleScaler(TextScaler textScaler) =>
+      textScaler.clamp(maxScaleFactor: AppBarMetrics.largeTitleMaxTextScale);
 
   /// The height the bar shares with every other bar in the app once
   /// collapsed, status bar excluded.
@@ -154,7 +183,10 @@ class FolderSliverAppBar extends StatelessWidget {
     return SliverAppBar.large(
       pinned: true,
       automaticallyImplyLeading: false,
-      expandedHeight: expandedHeightFor(isRootPage),
+      expandedHeight: expandedHeightFor(
+        isRootPage,
+        MediaQuery.textScalerOf(context),
+      ),
       toolbarHeight: AppBarMetrics.toolbarHeight,
       collapsedHeight:
           MediaQuery.paddingOf(context).top + AppBarMetrics.toolbarHeight,
@@ -245,7 +277,7 @@ class _FolderFlexibleSpace extends StatelessWidget {
     final parent = eyebrow;
 
     return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: 1.34,
+      maxScaleFactor: AppBarMetrics.largeTitleMaxTextScale,
       child: Column(
         children: [
           SizedBox(height: settings.minExtent),
@@ -319,9 +351,12 @@ class _Eyebrow extends StatelessWidget {
       style: TextStyle(color: color, fontSize: AppBarMetrics.eyebrowFontSize),
     );
     final tap = onTap;
+    final height = FolderSliverAppBar.eyebrowHeightFor(
+      MediaQuery.textScalerOf(context),
+    );
     if (tap == null) {
       return SizedBox(
-        height: AppBarMetrics.eyebrowHeight,
+        height: height,
         child: Align(
           alignment: AlignmentDirectional.centerStart,
           child: Padding(
@@ -335,7 +370,7 @@ class _Eyebrow extends StatelessWidget {
     }
     return Builder(
       builder: (anchorContext) => SizedBox(
-        height: AppBarMetrics.eyebrowHeight,
+        height: height,
         child: Align(
           alignment: AlignmentDirectional.centerStart,
           child: InkWell(

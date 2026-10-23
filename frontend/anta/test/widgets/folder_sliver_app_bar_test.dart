@@ -36,10 +36,15 @@ void main() {
     required bool isRootPage,
     String? eyebrow,
     ScrollController? controller,
+    TextScaler textScaler = TextScaler.noScaling,
   }) {
     return MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+        child: child!,
+      ),
       home: Scaffold(
         body: CustomScrollView(
           controller: controller,
@@ -141,6 +146,69 @@ void main() {
     expect(largeStyle.fontWeight, FontWeight.w500);
     expect(largeStyle.height, AppBarMetrics.largeTitleHeight);
     expect(largeStyle.letterSpacing, AppBarMetrics.largeTitleLetterSpacing);
+  });
+
+  group('at text scale 2.0', () {
+    const scaler = TextScaler.linear(2.0);
+
+    testWidgets('the eyebrow sits whole between the toolbar and the title', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          title: 'Winter block',
+          isRootPage: false,
+          eyebrow: 'Training',
+          textScaler: scaler,
+        ),
+      );
+
+      final toolbar = tester.getRect(find.byType(NavigationToolbar).first);
+      final eyebrow = tester.getRect(find.text('Training'));
+      final large = tester.getRect(largeTitle('Winter block'));
+      final barBottom = barHeight(tester);
+
+      expect(eyebrow.top, greaterThanOrEqualTo(toolbar.bottom));
+      expect(eyebrow.bottom, lessThanOrEqualTo(large.top));
+      expect(large.bottom, lessThanOrEqualTo(barBottom));
+      expect(barBottom, FolderSliverAppBar.expandedHeightFor(false, scaler));
+      // The band grew with its text; the 1.0 band could not hold it.
+      expect(
+        FolderSliverAppBar.eyebrowHeightFor(scaler),
+        greaterThan(AppBarMetrics.eyebrowHeight),
+      );
+    });
+
+    testWidgets('the root title stays inside the bar', (tester) async {
+      await tester.pumpWidget(
+        host(title: 'Folders', isRootPage: true, textScaler: scaler),
+      );
+
+      final toolbar = tester.getRect(find.byType(NavigationToolbar).first);
+      final large = tester.getRect(largeTitle('Folders'));
+
+      expect(large.top, greaterThanOrEqualTo(toolbar.bottom));
+      expect(large.bottom, lessThanOrEqualTo(barHeight(tester)));
+      expect(
+        barHeight(tester),
+        FolderSliverAppBar.expandedHeightFor(true, scaler),
+      );
+    });
+
+    testWidgets('at 1.0 the heights are the constants', (tester) async {
+      expect(
+        FolderSliverAppBar.expandedHeightFor(false),
+        FolderSliverAppBar.expandedHeightNested,
+      );
+      expect(
+        FolderSliverAppBar.expandedHeightFor(true),
+        FolderSliverAppBar.expandedHeightRoot,
+      );
+      expect(
+        FolderSliverAppBar.eyebrowHeightFor(TextScaler.noScaling),
+        AppBarMetrics.eyebrowHeight,
+      );
+    });
   });
 
   testWidgets('a 40-character folder name truncates rather than overflows in '

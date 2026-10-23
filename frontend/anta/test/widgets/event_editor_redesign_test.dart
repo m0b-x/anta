@@ -15,6 +15,7 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_skips.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -1319,6 +1320,73 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('at text scale 2.0 in German the header title is whole and the '
+        'description keeps its bottom padding', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        BlocProvider<MarkdownBarBloc>.value(
+          value: barBloc,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('de'),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2.0)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () =>
+                      EventEditorSheet.show(context, defaultDate: startDate),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      // The title has the sheet's width on a line of its own under the ✕;
+      // that it is not cut is pinned in Roboto by the editor's golden, the
+      // test font drawing every glyph a full em wide.
+      final header = find.byType(FormSheetHeader);
+      final title = find.descendant(
+        of: header,
+        matching: find.text('Ereignis hinzufügen'),
+      );
+      final close = tester.getRect(
+        find.descendant(of: header, matching: find.byType(IconButton)),
+      );
+      expect(tester.getRect(title).top, greaterThanOrEqualTo(close.bottom));
+      expect(tester.getRect(title).left, RowMetrics.groupInset);
+      expect(
+        tester.widget<Text>(title).maxLines,
+        FormMetrics.headerTitleMaxLines,
+      );
+
+      final placeholder = tester.getRect(find.text('Beschreibung hinzufügen'));
+      final cell = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('Beschreibung hinzufügen'),
+              matching: find.byType(FormIndentedRow),
+            )
+            .first,
+      );
+      expect(
+        cell.bottom - placeholder.bottom,
+        moreOrLessEquals(FormMetrics.descriptionCellPadding, epsilon: 0.5),
+      );
     });
 
     testWidgets('on a 360 × 780 phone everything through Priority is above '

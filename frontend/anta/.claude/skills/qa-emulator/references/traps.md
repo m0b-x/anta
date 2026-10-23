@@ -224,11 +224,25 @@ shortcut` under the package.
   crash reporter) that blocked `fleet boot`. The guest itself stays flat
   (shell loop, RAM, `/data`, the WAL, processes, pending alarms). A sharded
   calendar pass is ≈ 10 launches per device. So: `fleet pass` and `fleet
-  install` recycle a guest over 40 launches since boot or over 16 GB on the
-  counter (`--no-recycle` skips), `fleet status` shows `launches=` and the
-  counter, `doctor` warns, `fleet stop <name> --force` kills a hung fleet
-  qemu that is not on adb (the one process kill the fleet does, guarded by
-  the AVD name on its command line). Measure on freshly booted guests.
+  install` recycle a guest over 40 launches since boot or over 8 GiB on the
+  counter, one guest at a time (`--no-recycle` skips), `fleet status` shows
+  `launches=` and the counter, `doctor` warns, `fleet stop <name> --force`
+  kills a hung fleet qemu that is not on adb (the one process kill the
+  fleet does, guarded by the AVD name on its command line). Measure on
+  freshly booted guests.
+- **A display-driver reset (TDR) kills every emulator on the host, and no
+  new one boots until the host reboots.** 2026-10-23 23:46: two
+  `LiveKernelEvent`s (P1 `117` = video TDR timeout, P1 `193` = a DirectX
+  kernel live dump) while two fleet guests with 60–99 GB of GPU accounting
+  were recycled at once; from then on every emulator — fleet or the
+  owner's, host GPU or `swiftshader_indirect`, windowed or not — showed
+  all vCPU threads and the main loop "no response" from the first second,
+  the guest never executing, WHPX still "usable" and the partition count
+  at 1. `fleet stop <name> --force` clears the hung qemus and their
+  `crashpad_handler`s; nothing short of a reboot brings boots back. Keep
+  the GPU accounting low (the recycle threshold), recycle one guest at a
+  time, and read the Application log's `Windows Error Reporting` 1001
+  events when every boot hangs.
 - **`-no-window` makes a qemu spin.** A windowless emulator keeps one host
   thread at 100 % while the guest is 97 % idle — 1.2 cores 25 s after boot,
   two spinners and 2.2 cores after hours of passes — whatever the GPU,

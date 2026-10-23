@@ -152,9 +152,10 @@ Host load during a three-device pass: 32–52 % CPU, ≈ 4 GB per qemu.
 Fleet health (slice 5): the harness counts app launches per fleet serial
 since boot (`launches_<serial>.json`; `fleet status` shows `launches=N` and,
 on Windows, the qemu's GPU counter), and `fleet pass` / `fleet install`
-recycle a guest over 40 launches or 16 GB before starting (≈ 20 s; the
-emulator's host-GPU allocation grows ≈ 400 MB per launch and never comes
-back — `traps.md`); `fleet stop <name> --force` is for a hung fleet qemu
+recycle a guest over 40 launches or 8 GiB of GPU accounting before starting,
+strictly one guest at a time (≈ 20 s each; the emulator's host-GPU allocation
+grows ≈ 400 MB per launch and never comes back, and two worn guests recycled
+together reset the display driver on 2026-10-23 — `traps.md`); `fleet stop <name> --force` is for a hung fleet qemu
 that is no longer on adb. A launch also removes the device's previous `adb
 forward` (one per relaunch otherwise piles up for the adb server's life).
 

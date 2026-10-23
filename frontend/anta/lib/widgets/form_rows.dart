@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -368,6 +370,16 @@ class FormSheetHeader extends StatelessWidget {
 
   final String? leadingIdentifier;
 
+  /// Whether the title takes a line of its own under the ✕ and the action
+  /// whenever it would not fit whole beside them, instead of ellipsizing.
+  /// Decided by measuring, not by a scale threshold: Android grows the
+  /// 17 px title less than the setting says (1.23× at "1.3"), and a German
+  /// title was already cut at the common settings. Opt-in: the language's
+  /// header is one 48 dp row at every scale, which the sub-sheets'
+  /// large-text suites pin; the event editor opts in because its two-word
+  /// title was cut to "Ereigni…".
+  final bool stackTitleAtLargeText;
+
   const FormSheetHeader({
     super.key,
     required this.leadingIcon,
@@ -378,6 +390,7 @@ class FormSheetHeader extends StatelessWidget {
     this.trailingInset = 12,
     this.scrolled,
     this.leadingIdentifier,
+    this.stackTitleAtLargeText = false,
   });
 
   @override
@@ -393,39 +406,67 @@ class FormSheetHeader extends StatelessWidget {
     if (leadingIdentifier case final id?) {
       leading = AutomationId(identifier: id, child: leading);
     }
-    final row = SizedBox(
-      height: FormMetrics.headerHeight,
-      child: Padding(
-        padding: EdgeInsets.only(left: 4, right: trailingInset),
-        child: LayoutBuilder(
-          builder: (context, constraints) => Row(
-            children: [
-              leading,
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontSize: FormMetrics.headerTitleSize,
-                    fontWeight: FontWeight.w500,
-                    color: colorScheme.onSurface,
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      fontSize: FormMetrics.headerTitleSize,
+      fontWeight: FontWeight.w500,
+      color: colorScheme.onSurface,
+    );
+    final Widget row;
+    if (!stackTitleAtLargeText) {
+      row = SizedBox(
+        height: FormMetrics.headerHeight,
+        child: Padding(
+          padding: EdgeInsets.only(left: 4, right: trailingInset),
+          child: LayoutBuilder(
+            builder: (context, constraints) => Row(
+              children: [
+                leading,
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: titleStyle,
                   ),
                 ),
-              ),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth:
-                      constraints.maxWidth * FormMetrics.headerActionMaxShare,
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth:
+                        constraints.maxWidth * FormMetrics.headerActionMaxShare,
+                  ),
+                  child: trailing,
                 ),
-                child: trailing,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } else {
+      // The stacked layout puts the action above the title, so the reading
+      // order is set rather than left to geometry: ✕, title, action, as in
+      // the one-row header. Each piece is one node, its key on that node.
+      row = _StackingHeaderLayout(
+        trailingInset: trailingInset,
+        textDirection: Directionality.of(context),
+        leading: MergeSemantics(
+          child: Semantics(sortKey: const OrdinalSortKey(0), child: leading),
+        ),
+        title: Semantics(
+          container: true,
+          sortKey: const OrdinalSortKey(1),
+          child: Text(
+            title,
+            maxLines: FormMetrics.headerTitleMaxLines,
+            overflow: TextOverflow.ellipsis,
+            style: titleStyle,
+          ),
+        ),
+        action: MergeSemantics(
+          child: Semantics(sortKey: const OrdinalSortKey(2), child: trailing),
+        ),
+      );
+    }
     final listenable = scrolled;
     if (listenable == null) return row;
     return Stack(
@@ -447,6 +488,212 @@ class FormSheetHeader extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+enum _HeaderSlot { leading, title, action }
+
+/// The opted-in header's layout (`FormSheetHeader.stackTitleAtLargeText`):
+/// ✕, title and action on one 48 dp row while the title fits whole in the
+/// room the ✕ and the action leave it; otherwise the ✕ and the action alone
+/// on that row and the title under them at the form's inset, the way
+/// Material's large top app bar sets its headline under the actions.
+///
+/// A render object rather than widgets because the decision needs the
+/// action's laid-out width, and making it here costs no second frame.
+class _StackingHeaderLayout
+    extends SlottedMultiChildRenderObjectWidget<_HeaderSlot, RenderBox> {
+  final Widget leading;
+  final Widget title;
+  final Widget action;
+  final double trailingInset;
+  final TextDirection textDirection;
+
+  const _StackingHeaderLayout({
+    required this.leading,
+    required this.title,
+    required this.action,
+    required this.trailingInset,
+    required this.textDirection,
+  });
+
+  @override
+  Iterable<_HeaderSlot> get slots => _HeaderSlot.values;
+
+  @override
+  Widget childForSlot(_HeaderSlot slot) => switch (slot) {
+    _HeaderSlot.leading => leading,
+    _HeaderSlot.title => title,
+    _HeaderSlot.action => action,
+  };
+
+  @override
+  _RenderStackingHeader createRenderObject(BuildContext context) {
+    return _RenderStackingHeader(
+      trailingInset: trailingInset,
+      textDirection: textDirection,
+    );
+  }
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderStackingHeader renderObject,
+  ) {
+    renderObject
+      ..trailingInset = trailingInset
+      ..textDirection = textDirection;
+  }
+}
+
+class _RenderStackingHeader extends RenderBox
+    with SlottedContainerRenderObjectMixin<_HeaderSlot, RenderBox> {
+  /// The one-row header's insets: 4 before the ✕ and 4 between it and the
+  /// title.
+  static const double _leadingInset = 4;
+  static const double _gap = 4;
+
+  /// Room left so a title measured to fit exactly is not cut by the
+  /// engine's own rounding.
+  static const double _fitMargin = 0.5;
+
+  double _trailingInset;
+  TextDirection _textDirection;
+
+  _RenderStackingHeader({
+    required double trailingInset,
+    required TextDirection textDirection,
+  }) : _trailingInset = trailingInset,
+       _textDirection = textDirection;
+
+  set trailingInset(double value) {
+    if (value == _trailingInset) return;
+    _trailingInset = value;
+    markNeedsLayout();
+  }
+
+  set textDirection(TextDirection value) {
+    if (value == _textDirection) return;
+    _textDirection = value;
+    markNeedsLayout();
+  }
+
+  RenderBox get _leading => childForSlot(_HeaderSlot.leading)!;
+  RenderBox get _title => childForSlot(_HeaderSlot.title)!;
+  RenderBox get _action => childForSlot(_HeaderSlot.action)!;
+
+  /// Lays the three pieces out for [width] through [layoutChild] and
+  /// returns the header's height with each piece's start-edge offset; the
+  /// dry and the real layout share it.
+  ({double height, Offset leading, Offset title, Offset action}) _arrange(
+    double width,
+    Size Function(RenderBox child, BoxConstraints constraints) layoutChild,
+  ) {
+    const rowHeight = FormMetrics.headerHeight;
+    final inner = math.max(0.0, width - _leadingInset - _trailingInset);
+    final leading = layoutChild(
+      _leading,
+      const BoxConstraints(maxHeight: rowHeight),
+    );
+    final action = layoutChild(
+      _action,
+      BoxConstraints(
+        maxWidth: inner * FormMetrics.headerActionMaxShare,
+        maxHeight: rowHeight,
+      ),
+    );
+    final slot = inner - leading.width - _gap - action.width;
+    final leadingAt = Offset(_leadingInset, (rowHeight - leading.height) / 2);
+    final actionAt = Offset(
+      width - _trailingInset - action.width,
+      (rowHeight - action.height) / 2,
+    );
+    if (_title.getMaxIntrinsicWidth(double.infinity) + _fitMargin <= slot) {
+      final title = layoutChild(
+        _title,
+        BoxConstraints(minWidth: slot, maxWidth: slot, maxHeight: rowHeight),
+      );
+      return (
+        height: rowHeight,
+        leading: leadingAt,
+        title: Offset(
+          _leadingInset + leading.width + _gap,
+          (rowHeight - title.height) / 2,
+        ),
+        action: actionAt,
+      );
+    }
+    final titleWidth = math.max(
+      0.0,
+      width - RowMetrics.groupInset - _trailingInset,
+    );
+    final title = layoutChild(
+      _title,
+      BoxConstraints(minWidth: titleWidth, maxWidth: titleWidth),
+    );
+    return (
+      height:
+          rowHeight +
+          title.height +
+          FormMetrics.headerStackedTitleBottomPadding,
+      leading: leadingAt,
+      title: const Offset(RowMetrics.groupInset, rowHeight),
+      action: actionAt,
+    );
+  }
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) {
+    final width = constraints.maxWidth;
+    final arranged = _arrange(
+      width,
+      (child, childConstraints) => child.getDryLayout(childConstraints),
+    );
+    return constraints.constrain(Size(width, arranged.height));
+  }
+
+  @override
+  void performLayout() {
+    final width = constraints.maxWidth;
+    final arranged = _arrange(width, (child, childConstraints) {
+      child.layout(childConstraints, parentUsesSize: true);
+      return child.size;
+    });
+    void place(RenderBox child, Offset start) {
+      final x = switch (_textDirection) {
+        TextDirection.ltr => start.dx,
+        TextDirection.rtl => width - start.dx - child.size.width,
+      };
+      (child.parentData! as BoxParentData).offset = Offset(x, start.dy);
+    }
+
+    place(_leading, arranged.leading);
+    place(_title, arranged.title);
+    place(_action, arranged.action);
+    size = constraints.constrain(Size(width, arranged.height));
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    for (final child in children) {
+      final parentData = child.parentData! as BoxParentData;
+      context.paintChild(child, offset + parentData.offset);
+    }
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    for (final child in children) {
+      final parentData = child.parentData! as BoxParentData;
+      final hit = result.addWithPaintOffset(
+        offset: parentData.offset,
+        position: position,
+        hitTest: (result, transformed) =>
+            child.hitTest(result, position: transformed),
+      );
+      if (hit) return true;
+    }
+    return false;
   }
 }
 
