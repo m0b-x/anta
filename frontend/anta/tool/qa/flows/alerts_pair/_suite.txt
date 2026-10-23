@@ -1,0 +1,5 @@
+# The two-alarms-in-a-minute pass for `qa pass alerts_pair`: the fixture
+# is minute-relative, so it is seeded once straight before the flow.
+fixture=tool/qa/fixtures/alerts_pair.json
+reseed=suite
+shard=no

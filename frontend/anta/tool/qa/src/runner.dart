@@ -512,8 +512,8 @@ Future<List<int>> reapOrphanedServices(ProcessRunner runner) async {
 String readRunLog(QaPaths paths) => readLogPair(paths.runLog, paths.runErr);
 
 /// The emulator's own output, captured the same way for the same reason.
-String readEmulatorLog(QaPaths paths) =>
-    readLogPair(paths.emulatorLog, paths.emulatorErr);
+String readEmulatorLog(QaPaths paths, [String? avd]) =>
+    readLogPair(paths.emulatorLogFor(avd), paths.emulatorErrFor(avd));
 
 /// Both halves of a captured process log, joined; a missing or unreadable
 /// half is simply absent.

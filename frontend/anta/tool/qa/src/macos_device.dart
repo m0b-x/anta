@@ -220,7 +220,7 @@ class MacosDevice implements Device {
       readLogPair(paths.appLog, paths.appErr);
 
   @override
-  Future<String> qaLogText({String? stamp}) async =>
+  Future<String> qaLogText({String? stamp, String? since}) async =>
       readLogPair(paths.appLog, paths.appErr);
 
   @override

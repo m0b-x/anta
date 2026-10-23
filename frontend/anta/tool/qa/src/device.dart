@@ -203,9 +203,31 @@ bool? _boolFrom(String output, RegExp pattern, String trueValue) {
   return match.group(1) == trueValue;
 }
 
-/// Which see-and-act layer the verbs use: `auto` is the native one where a
-/// platform has it (adb on Android) and the agent everywhere else.
+/// Which see-and-act layer the verbs use: `auto` is whatever [chooseDriver]
+/// picks.
 enum ViaMode { auto, agent, native }
+
+/// The layer `--via auto` drives: the agent wherever there is no native
+/// layer, and on Android too once a launch recorded a VM URI and the agent
+/// answers on it. The adb path is several times slower, types ASCII only
+/// and cannot reveal a scrolled-out row, so it is only the fallback for an
+/// app the tool cannot reach.
+ViaMode chooseDriver({
+  required bool hasNative,
+  required bool vmRecorded,
+  required bool agentAnswers,
+}) =>
+    !hasNative || (vmRecorded && agentAnswers) ? ViaMode.agent : ViaMode.native;
+
+/// What a verb says when `auto` settles on adb: a pass that silently ran
+/// on the slower layer, unable to reveal a scrolled-out row, read as
+/// flaky flows instead of a missing agent.
+String autoFallbackNote({required bool vmRecorded, required String deviceId}) =>
+    vmRecorded
+        ? 'note: driver auto → adb (the agent did not answer within 2 s; '
+            '`qa relaunch` brings it back)'
+        : 'note: driver auto → adb (no VM URI is recorded for $deviceId; '
+            '`qa relaunch` brings the agent back)';
 
 ViaMode parseViaMode(String? raw) => switch ((raw ?? '').trim().toLowerCase()) {
       '' || 'auto' => ViaMode.auto,
@@ -315,7 +337,10 @@ abstract class Device {
 
   Future<String> readLog({String? sinceStamp});
 
-  Future<String> qaLogText({String? stamp});
+  /// The app's own log lines. [stamp] narrows them only when the process
+  /// is unknown; [since] always does, for a caller that wants one stretch
+  /// of a process that outlives it (a pass flow on a suite-wide seed).
+  Future<String> qaLogText({String? stamp, String? since});
 
   /// The VM service URI an app started outside this tool announced in the
   /// platform log, made reachable from the host; null when there is none.
@@ -561,7 +586,7 @@ class AndroidDevice implements Device {
   /// force-stop, so a previous launch's lines cannot be mistaken for this
   /// one's, and nothing depends on the host and the guest agreeing on the time.
   @override
-  Future<String> qaLogText({String? stamp}) async {
+  Future<String> qaLogText({String? stamp, String? since}) async {
     final pid = await appPid();
     lastQaLogPid = pid;
     final result = await adb.raw(
@@ -570,10 +595,11 @@ class AndroidDevice implements Device {
         '-d',
         '-v',
         'time',
-        if (pid != null)
-          '--pid=$pid'
-        else if (stamp != null)
-          ...['-T', stamp, '-s', 'flutter:V']
+        if (pid != null) ...[
+          '--pid=$pid',
+          if (since != null) ...['-T', since],
+        ] else if ((since ?? stamp) case final from?)
+          ...['-T', from, '-s', 'flutter:V']
         else
           ...['-s', 'flutter:V'],
       ],

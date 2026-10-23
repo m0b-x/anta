@@ -285,5 +285,19 @@ class AgentClient implements UiDriver {
     await op(AgentOps.settle, {AgentKeys.ms: ms});
   }
 
+  /// Scrolls semantics node [n] into view and waits for the scroll to end.
+  Future<void> reveal(int n) async {
+    await requireCurrentProtocol();
+    await op(AgentOps.reveal, {AgentNodeKeys.semanticsId: n});
+  }
+
+  /// Fails with the rebuild hint when the agent in the installed APK is
+  /// older than this tool: an unknown op would otherwise read as a usage
+  /// error in the flow.
+  Future<void> requireCurrentProtocol() async {
+    final mismatch = agentVersionMismatch((await info()).protocolVersion);
+    if (mismatch != null) throw DeviceFailure(mismatch);
+  }
+
   Future<void> close() => vm.close();
 }

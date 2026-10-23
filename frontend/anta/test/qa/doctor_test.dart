@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/qa/src/adb.dart';
+import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/doctor.dart';
 
@@ -513,6 +514,32 @@ void _newPlatformChecks() {
       );
       expect(result.status, CheckStatus.ok);
       expect(result.detail, 'answered in 19 ms  iOS 1320x2868');
+    });
+
+    test('an agent older than the tool warns with the rebuild', () {
+      final result = checkAgent(
+        vmUri: 'http://127.0.0.1:1/',
+        failure: null,
+        roundTripMs: 19,
+        summary: 'android',
+        qaMode: true,
+        protocolVersion: 1,
+      );
+      expect(result.status, CheckStatus.warn);
+      expect(result.detail, contains('the installed agent is v1'));
+      expect(result.fix, '`qa build` then `qa install`');
+    });
+
+    test('a current agent is ok', () {
+      final result = checkAgent(
+        vmUri: 'http://127.0.0.1:1/',
+        failure: null,
+        roundTripMs: 19,
+        summary: 'android',
+        qaMode: true,
+        protocolVersion: agentProtocolVersion,
+      );
+      expect(result.status, CheckStatus.ok);
     });
   });
 }

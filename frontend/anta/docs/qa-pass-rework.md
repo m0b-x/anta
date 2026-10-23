@@ -1,0 +1,114 @@
+# QA pass rework — one call, a fleet, goldens (2026-10-23)
+
+**Status: IN PROGRESS 2026-10-23 — decisions A–N taken; slices building.** This record owns the device-QA rework: the one-call pass runner, the emulator fleet, the golden visual matrix, the semantics-id sweep of the flows, the permission rules, and the rewritten `qa-runner` agent and `qa-emulator` skill. Each slice gets an "As built" block under §4 when it lands — that block, not the plan, is the truth. The architecture of the harness itself stays in `docs/qa-harness.md`; this record changes how a pass is run and what it reports.
+
+## Contents
+
+1. [The problem, measured](#1-the-problem-measured)
+2. [Decisions](#2-decisions)
+3. [Measurements](#3-measurements)
+4. [Slices and what was built](#4-slices-and-what-was-built)
+5. [How to run a pass now](#5-how-to-run-a-pass-now)
+6. [Deferred](#6-deferred)
+7. [Change log](#7-change-log)
+
+## 1. The problem, measured
+
+The device pass of 2026-10-23 (qa-runner on the Windows emulator, Sonnet 5.5) took about twenty minutes and more than a hundred agent turns, and the agent hit its turn cap before reporting. Every red that day was a harness fault, not an app fault:
+
+- `19_fasting_schedule` expected `id:fasting-extra-days`, a row the sheet had scrolled out of view; `expect` counted a node that is in the semantics tree but scrolled away as missing.
+- Flow 19 left its sheet open, so `20`–`25` died at step 1 ("no node matches id:calendar-more") — one failure cascaded into six.
+- `23_overview_list` reads per-category totals ("Gym 4 · Other …") that earlier flows on the same seed had changed.
+- Lone flows failed at step 1 because a relaunched app starts on the folder root, not the calendar.
+- `drag` on a browser row selected it instead of reordering: reorder lives on the row's drag handle in selection mode, and the handle had no id.
+- Agents stalled on permission prompts around `adb`, the emulator and the wrapper spelled with a `cd` prefix.
+
+Re-run the same morning as one call (`qa flows calendar --keep-going`, agent path, idle host): **166 s, 19/26 green**, the single fold failure plus its six-flow cascade. The machine time was never the problem; the per-verb agent turns, the shared state and the fold were.
+
+## 2. Decisions
+
+Taken by the lead on Fable 5.1 on 2026-10-23 after the measurements in §3; the owner asked for the design to be decided, not proposed.
+
+- **A. One call per pass — `qa pass <suite>`.** Reseeds (`relaunch --fresh --seed`) before every flow, runs a per-suite `_prelude.txt` (the calendar's lands on the calendar page), keeps going after a red, and writes `report.json` with per-flow and per-step milliseconds, the failing step, and an automatic screenshot, dump and `errors` capture at the failure. A per-suite `_suite.txt` names the fixture and the reseed policy: `flow` for the calendar, `suite` (once) for the clock-relative alerts suites whose flows consume one seed in order. `--shard i/n` and `--only <flow>` select flows; `qa pass --summary <report.json>` reprints any report; `--merge` joins shard reports.
+- **B. Fold-proof in the harness, not in flows.** A node present in the semantics tree but scrolled out counts as present for `expect`/`wait` (Flutter keeps such nodes with `isHidden` inside the cache extent, and `RenderSingleChildViewport.describeSemanticsClip` keeps a sheet's whole content). `tap`, `longpress`, `drag`, `text` and `scroll-to` first ask the agent to bring the node on screen (the semantics `showOnScreen` action, a new agent op keyed by the node id now carried in the dump), then act. Swiping stays as `scroll-to`'s fallback for list rows beyond the cache extent.
+- **C. The agent is the default driver on Android** whenever the installed QA build answers (a recorded VM URI from a launch or relaunch); `--via native` stays for the shade and native UI. The `ANTA_QA_VIA=agent` session trap goes away.
+- **D. Fleet — `qa fleet create|boot|status|stop|install|pass`.** AVDs `anta_qa_N` on console port 5554 + 2N (serial `emulator-5556` for N = 1), the Pixel 9 Pro profile and screen (1280 × 2856 @ 480, so every coordinate in a flow holds), the installed `android-36 google_apis_playstore x86_64` image, 2 GB RAM, 4 vCPU, 6 GB data partition, headless `-gpu host -no-window -no-audio -no-boot-anim -no-snapshot` (cold boot 13 s, no quick-boot snapshot to degrade). The headless qemu is pinned to the P-cores at boot (§3: Windows schedules a windowless emulator onto E-cores, 1.65× slower). Count by the capacity rule `max(1, (threads − 8 for flutter test − the owner's 4 vCPU) ÷ 4 vCPU)` — three on this machine, which is also the cap unless `--force`. `fleet stop` refuses any AVD not named `anta_qa_*`; no verb deletes an AVD, wipes data, clears or uninstalls the app.
+- **E. Build once, install everywhere — `qa build` and `qa install`.** `build` runs `flutter build apk --debug` with the driver target and the QA defines and stamps `build/qa/apk.json` with the git hash; `install` does `adb install -r -t` plus one launch (the markers need the app's documents directory) and records what each device carries. Passes then need no `flutter run`, which is what lets `flutter test` run beside a fleet pass; `pass` warns when `lib/` moved after the installed build.
+- **F. `qa fleet pass <suite>`** shards over the booted fleet devices in one call, runs one `pass` process per device, merges the reports and prints one table.
+- **G. Per-device state files.** The dump cache (`#N` targets), the resolved seed, the emulator pid/log and the pass output directory are keyed by device, so two `qa` processes driving two devices never read each other's files. The one `flutter run` slot (`run.pid`, `run.log`, `device.txt`) stays single.
+- **H. The visual matrix moves to goldens.** `test/goldens/` renders the main surfaces at three cells — light · en · 1.0 · 360 × 780, dark · de · 2.0 · 360 × 780, light · ro · 1.3 · 412 × 915 — with Roboto and MaterialIcons loaded from the Flutter SDK cache (`bin/cache/artifacts/material_fonts`, identical on both machines for one Flutter version) and a comparator tolerant of anti-aliasing noise (a pixel counts as changed only above a small per-channel delta, and a golden fails only above a small fraction of changed pixels). Tagged `golden`, included in the default `flutter test` run so the gate catches a layout regression. The device matrix flow (`06_matrix`) shrinks to a smoke test of the runtime `set` path.
+- **I. `integration_test` is not adopted as the device layer.** Measured: a gradle rebuild is 32 s warm per change and the runner launches the app once per test file, against 0 s for a step-file edit and about 2 s per flow on the agent, which already gives in-process finders, frame-synced waits and `TestTextInput`. Phase C of `docs/qa-harness.md` stays unshipped on purpose.
+- **J. Semantics ids on every control target.** The ~25 labelled controls the flows still tap or wait for by text get `SemanticsIds` entries (identifier only — no copy change; `SettingsEntry` gains an identifier field so settings rows can carry one), the flows switch to `id:`, and `test/qa/flows_lint_test.dart` rejects a label target that is not seeded content listed in the suite's `_labels.txt`. Content assertions (`expect "Lifting session"`) stay text.
+- **K. Reorder by drag.** The browser's drag handle gets an id and a small `browser` suite proves `drag` on it with no hold; the 2026-10-23 failure was the row's long-press selection winning because the row, not the handle, was the target.
+- **L. Permissions in `.claude/settings.json`.** Allow the wrapper in every spelling (`./tool/qa/qa`, `tool/qa/qa.cmd`, `.\tool\qa\qa.cmd`, `dart run tool/qa/qa.dart`), `cd`, `flutter build`, read-only `adb`/`emulator`/`avdmanager` queries and `magick`; deny `adb uninstall`, `pm clear`, `pm uninstall`, `shell rm`, `emu kill`, `reboot`, `kill-server`, `avdmanager delete`, `emulator -wipe-data`, `taskkill`/`Stop-Process` on qemu or the emulator, and `rm`/`Remove-Item` under `.android/avd` or anything named `Pixel_9_Pro`. Deny wins over allow, so a QA agent cannot be talked into any of them.
+- **M. The device is reserved for what only a device proves:** alarm rings and the alarm page, the notification shade and its actions, the keyguard, the IME inset, real scroll physics and touch slop, the back gesture, platform channels (share, permissions). Layout, strings, theme and text scale go to goldens and widget tests.
+- **N. `qa-runner` and `qa-emulator` rewritten around the result.** The agent boots or adopts a fleet device, runs `qa fleet pass` (or `qa pass -d <serial>`), triages `report.json`, re-runs each red once with `--only`, and reports from the JSON; its turn cap drops from 100 to 40. The skill's canonical loop becomes fleet boot → build → install → pass, with the per-device file layout, the hidden-node semantics and the retired traps.
+
+## 3. Measurements
+
+All on the Windows machine (i7-13700K, 16 cores / 24 threads, 64 GB, RTX 4070; Android emulator 36.3.10; Flutter 3.44.2), 2026-10-23.
+
+### Before
+
+| What | Measured |
+| --- | ---: |
+| qa-runner device pass (2026-10-23 morning) | ~20 min, 100+ turns, turn cap hit before the report |
+| `qa flows calendar --keep-going`, one call, agent path | 166 s, 19/26 green (1 fold fault + 6 cascade) |
+| Sum of the 19 green flows' own time | 154 s (2.1 s to 14.9 s each) |
+| `qa relaunch --fresh --seed calendar.json` (reseed) | 3.7–4.4 s (first frame ≈ 3.1 s of it) |
+| `flutter build apk --debug` (driver target, QA defines), warm gradle | 36 s (gradle 32.4 s); 257 MB APK |
+| `adb install -r -t` | 1.2 s |
+| New AVD `anta_qa_1`, headless, `-no-snapshot`: first boot / second boot to `sys.boot_completed` | 36 s / 13 s |
+| Headless with `-gpu auto` (falls back to swiftshader): `00_open` / `09_filters` | 2.6 s / 15.9 s; ≈ 6 host cores busy during the flows |
+| Headless with `-gpu host`: `00_open` / `09_filters` | 2.1 s / 14.7 s — parity with the owner's windowed emulator (2.1 / 14.8); ≈ 1.5 host cores |
+| Fleet emulator footprint (qemu headless) | ≈ 4.0–4.7 GB working set |
+| Owner's windowed `Pixel_9_Pro` footprint | ≈ 4.3 GB working set, 4 vCPU |
+| App first frame after `relaunch --fresh --seed`: owner's emulator / fleet headless as started | 3.7 s / 8.5–9.0 s — every startup stage ≈ 2.5× slower in the fleet guest; a pure shell loop 514 ms vs 851 ms |
+| Fleet qemu pinned to the P-cores (`ProcessorAffinity` 0xFFFF on the 8P + 8E i7-13700K) | shell loop 518 ms (parity); first frame 5.1 s; reseed ≈ 5.5 s. Priority class alone: no effect. `pm compile -m speed` on the debuggable APK: no effect (stays `verify`) |
+| Slice 1a's first `qa pass calendar` on the fleet device (unpinned, host busy with the gate) | 701 s, 24/26, reseed p50 9.0 s, tap p50 550 ms; `--shard 1/3` 230 s for 9 flows |
+
+### After
+
+Filled in when the slices land (§4): the whole calendar pass on one fleet device, sharded over three, the per-verb p50/p95 from `report.json`, and the qa-runner's turn count.
+
+## 4. Slices and what was built
+
+One implementer and one `flutter test` at a time (two Flutter processes race on `build/native_assets`), so the slices ran in sequence: 1a (pass runner, report, manifests, build/install, per-device files) → 1b (fold-proof targets, agent default) → review → 2 (fleet) → 3 (flows, ids, lint, browser suite) → review → 4 (goldens) → review → 5 (permissions, agent, skill, record).
+
+### Slice 1a — as built (2026-10-23, Opus 5.5 implementer)
+
+- **Verbs.** `qa pass <suite>[/<flow>] [--only <flow>]… [--shard i/n] [--no-reseed] [--stop-on-fail] [--json <path>] [--label <text>]`, `qa pass --summary <report.json>`, `qa pass --merge <a.json> <b.json>…`; `qa build [--define K=V]… [--no-driver]`; `qa install [--apk <path>]`. `flows` skips `_*.txt` and runs the suite's prelude once before a whole-directory run (so `qa flows calendar` still works from the folder root); a single `flows <dir>/<flow>` does not.
+- **Files.** `tool/qa/src/suite.dart` (manifest, `isFlowFileName`, `parseShard`, `shardOf`, `selectFlows`), `tool/qa/src/pass_report.dart` (the JSON contract, nearest-rank percentiles, `headline`, `summaryLines`, `mergeReports`), `tool/qa/src/apk_build.dart` (`buildApkArgs`, `installApkArgs`, `ApkRecord`, `newestSource`, `staleBuildWarning`); in `qa.dart` the step loop became the `StepLoop` mixin with a `StepRun` record, `QaCommandRunner.lineSink` tees every printed line (stderr lines marked `! `), `QaContext.shotsDirOverride` puts a pass's shots in its own directory, `adoptAgent` swaps a cached agent driver after a reseed. `paths.dart`: `lastDumpFor`, `seedResolvedFor`, `emulator{Log,Err,Pid}For(avd)`, `passRoot`, `passDirFor`, `latestPassFor`, `apkJson`, `installedJsonFor`, `debugApk`; `dump_cache.dart` and `seed.dart` keyed by device (the shared `last_dump.txt` is read once as a fallback, then deleted). Manifests: `flows/calendar/_suite.txt` + `_prelude.txt` (drawer → calendar → `tap "Day" --settle 2000`, see the race below), `flows/alerts/_suite.txt` and `flows/alerts_pair/_suite.txt` (`reseed=suite`, `shard=no`); `00_open.txt` is its expectations only. Tests: `test/qa/suite_test.dart`, `pass_report_test.dart`, `apk_build_test.dart` new; `dump_cache_test`, `seed_test`, `runner_test` updated.
+- **Defaults chosen by the implementer** (all reversible): reseed/prelude failures are recorded as `failure.step: 0`; exit 3 only when a reseed failed and nothing ran; the pass stops and marks the rest `skipped` on `--stop-on-fail`, on a `reseed=suite` seed failure, or after two reseed failures in a row; a flow's `durationMs` includes its reseed and prelude, not the evidence capture; `verbStats` counts each reseed as `relaunch` and leaves prelude steps out so `--merge` can recompute it; `--merge` writes `<suite>_<stamp>_merged.json`, sets `device: null`, adds `devices`, sorts flows by name and repoints `latest_<suite>.txt`; `boot` writes `emulator_<avd>.*` whenever the AVD name is known; `build` needs no device and refuses a non-Android `-d`; `install` without `--apk` requires `apk.json`.
+- **Live (emulator-5556, agent path, before the P-core pin, host busy with the gate):** 24/26 in 701 s; red: 19 (the fold, slice 1b) and 22_palette (stale against the current appearance page: it taps "of your own", a row that no longer exists — slice 3). `--shard 1/3`: 9 flows, 9/9 in 230 s. `qa build` 7 s incremental; `qa install` 2 s.
+- **Found on the way — an app race, not fixed here (lib/ is out of this rework's scope):** `lib/widgets/calendar_bottom_panel.dart` starts an async `_load()` in `initState` (four settings reads) and then `setState`s `_mode`, overwriting a mode the user picked in the meantime: a tap on "Upcoming" within ~1.5 s of landing on the calendar snaps back to Day (1 of 2 runs, 4 of 4 when the day-panel row was waited for first). Flows 10 and 17 hit it under the fresh-seed-per-flow regime; the prelude's `tap "Day" --settle 2000` masks it (Day is already selected, so `_setMode` returns early and nothing is persisted). The fix belongs in `_load()`: never overwrite `_mode` once `_setMode` has run. See §6.
+
+### Slice 1b — as built (2026-10-23, Opus 5.5 implementer)
+
+- **Agent protocol v2.** Every dumped node carries `n` (its `SemanticsNode.id`); the new `reveal` op performs `SemanticsAction.showOnScreen` on that node and settles for up to 1.5 s. `agentVersionMismatch` tells an old install to `qa build` then `qa install`; `doctor` warns on it.
+- **Presence.** `expectMisses` and `wait` count a node that resolves but is hidden (scrolled out) as present and print `(scrolled out of view)`; `--absent`/`--gone` mean no node matches at all. `resolveRevealing` (target.dart) is the resolve → reveal → re-resolve step every acting verb uses on the agent path (`tap`, `longpress`, `text`, both ends of `drag`); `scroll-to` reveals once (`found after reveal:`) before its swipe loop. `#N` and `x,y` targets are never revealed.
+- **Agent by default on Android.** `chooseDriver(hasNative, vmRecorded, agentAnswers)`: `auto` is the agent when a VM URI is recorded for the device and a 2 s probe answers, adb otherwise; `state` and `doctor` print `driver=agent (auto)`; `adoptAgent` switches a pass over after its first reseed. A step's own `--via` now holds for that step only (`QaContext.stepVia`), which is what keeps `23_overview_list`'s `swipe … --via native` a real touch now that `auto` means the agent.
+- **Evidence scoping.** A failed flow's `errors` capture includes `run.log` only when `device.txt` names the pass's device (`runLogSkipNote`).
+- **Live (emulator-5556, P-cores pinned, no `ANTA_QA_VIA`):** `--only 19_fasting_schedule` green (step 17 `ok  present  "id:fasting-extra-days"  (scrolled out of view)`); whole pass **25/26 in 604 s**, only 22_palette red (stale flow); `scroll-to` printed `found after reveal` seven times. Split of the 604 s from `report.json`: reseeds 182 s (26 × 5.3–8 s, one 30 s outlier), prelude 108 s (26 × ≈ 4 s, half of it the race-masking settle), the flows' own steps 313 s. Per-verb p50/p95: tap 539/665 ms (338 taps — the agent's 500 ms post-tap settle cap, paid even though every flow then waits explicitly), shot 816/1034 ms (104 shots), key 377/697, wait 51/178, expect 18/162, scroll-to 29/3303. Those two verbs are the tuning targets of slice 3.
+
+### Slice 2 — as built (2026-10-23, Opus 5.5 implementer)
+
+- **Verbs.** `qa fleet create [--count N] [--force] [--retune]`, `qa fleet boot <anta_qa_N|N>… | --all [--no-affinity]`, `qa fleet status [--json]`, `qa fleet stop <anta_qa_N|N>… | --all`, `qa fleet install [--build]`, `qa fleet pass <suite> [--devices a,b,…] [--label <text>] [--stop-on-fail]`; `doctor` gained a `fleet` line. All in `tool/qa/src/fleet.dart` (pure parts: names/ports/serials, the capacity rule, the affinity mask, `tuneConfig`/`configDrift`, the image choice, every argument vector, the stop guard, status parsing, `pickPassDevices`; `FleetHost` for the AVD home, the SDK tools, adb and qemu; `runQaChild`/`qaSelfCommand` to spawn the tool itself per device). `ProcessRunner.run` gained an optional `stdin` (avdmanager's custom-profile prompt is answered `no`). `BootCommand._awaitBoot` became the top-level `awaitEmulatorBoot(serial, pid, fatalLogLines)`.
+- **Rules as built.** Names `anta_qa_1..64` → console port 5554 + 2N → serial `emulator-<port>`; capacity `max(1, (threads − 8 − 4) ~/ 4)` = 3 here (`--force` above it); the affinity mask from `Win32_Processor` cores/threads summed over sockets (`ANTA_QA_FLEET_AFFINITY` overrides, `--no-affinity` skips, never on macOS); the image from `Pixel_9_Pro/config.ini`, else the single installed `google_apis_playstore/x86_64`; AVD home from `ANDROID_AVD_HOME` → `ANDROID_USER_HOME/avd` → `ANDROID_SDK_HOME/.android/avd` → `~/.android/avd`; SDK root from `sdkRoots()`, else the grandparent of the adb on PATH. `fleet stop` acts only after `adb emu avd name` returns the fleet name; `Pixel_9_Pro` and `emulator-5554` are refused at argument parsing. A pinned boot pins the qemu the moment it appears (the unpinned parallel first boots of two AVDs took 80–113 s; the pinned re-boot 16 s) and ignores the emulator log's "fatal" lines (the `WHPX … detected` false refusal) in favour of process exit and adb. `fleet pass` spawns `qa -d <serial> pass <suite> --shard i/n --json=<fleet dir>/shard-i.json` per ready device with a current install (stale → warning, none → left out), streams `=== flow` lines prefixed by serial, merges into `build/qa/pass/<suite>_<stamp>_fleet/report.json`, exit 3 when a shard produced no report, 2 on any red.
+- **Live.** `fleet create` reported 1 and 2 existing and created `anta_qa_3` (config identical to 2's); `fleet install` 10.9 s for two devices; **`fleet pass calendar`: 25/26 in 268 s wall** (shards 267.7 / 196.5 / 195.6 s; the long shard carries `23_overview_list` at 54 s), only `22_palette` red; host CPU 32–52 % during the pass, each headless qemu ≈ 4.0–4.2 GB (the idle one 1.9 GB), all three pinned; the stop guard refused `Pixel_9_Pro` and `emulator-5554` without an adb call. Noticed: the emulator's own `adb -e shell settings put system screen_off_timeout …` fails with more than one emulator, so fleet guests may sleep between passes (slice 1c sets it per serial); `SdkTools.findEmulator()` found nothing with `ANDROID_HOME` unset (slice 1c derives the SDK root from adb).
+
+### Review 1 (slices 1a + 1b; Opus 5.5 reviewer, read-only, 2026-10-23) — what it found and where each went
+
+Confirmed, fixed in slice 1c: (1) a malformed step line (`splitShellWords` throwing `UsageFailure`) aborted the whole pass with no `report.json`, and a kill late in a pass lost everything because the report was written only at the end; (2) after a reveal, `--nth` re-resolved by position among the now-visible matches and could act on a different row (probe: three hidden "Walk" rows, `--nth 1` tapped row 2); (3) a hidden duplicate of a visible label was unreachable and `#N` targets were never revealed; (4) `wait --gone` and `--absent` treated an ambiguous all-hidden match as gone; (5) `qa flows calendar/00_open` alone no longer reached the calendar; (6) `dump --cached` with no resolvable device read only the legacy shared file; (8) a failed `launchInstalled` left a closed agent client cached as the driver; (9) `--merge` wrote next to the inputs, outside `build/qa`, and checked neither shard completeness nor duplicates; (10) `installed_<device>.json` was written only by `qa install`, so a later `qa run` produced a false stale-build warning and a wrong `build` block, `qa build` had no guard against a live `flutter run`, and `apkSourceRoots` ignored `android/`, `pubspec.*` and assets; (11a/d) `boot` shared one `emulator_cmd` script across AVDs and could wait on another AVD's pid; (12) `text`, a read verb, scrolled the app; (14) a failed flow's `errors` evidence carried earlier flows' errors under `reseed=suite`. Plausible, fixed: (7) the `auto` probe fell back to adb silently and re-probed per step; (13) a node of a sheet still sliding in satisfied `wait` because the agent merged "scrolled out" (`isHidden`) and "outside the screen rect" into one flag — slice 1c separates them: only the flagged kind counts as present. Accepted as is, documented in the skill: `latest_<suite>.txt` is last-writer-wins until `--merge`; the legacy shared dump resolves one old `#N` once; a v1 agent fails a hidden-target tap with the rebuild message instead of tapping off screen. Observations: slice 2's new files were LF (fixed in slice 2); `potent_verbs_test.dart` never scanned the sources for destructive commands (slice 1c adds that scan); a `PassCommand` run against a fake driver is the missing test (slice 1c).
+
+## 5. How to run a pass now
+
+Written when §4 is complete.
+
+## 6. Deferred
+
+Written when §4 is complete.
+
+## 7. Change log
+
+- 2026-10-23 — record opened; decisions A–N; before-measurements; slice 1a dispatched.

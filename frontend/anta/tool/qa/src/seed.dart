@@ -51,10 +51,12 @@ class PreparedSeed {
 }
 
 /// Reads [sourcePath], resolves placeholders, applies [settings] and writes
-/// the result to [QaPaths.seedResolved].
+/// the result to [QaPaths.seedResolvedFor] the device it is meant for
+/// ([QaPaths.seedResolved] when none is named).
 PreparedSeed prepareSeed(
   QaPaths paths,
   String sourcePath, {
+  String? deviceId,
   List<String> settings = const [],
   DateTime? now,
 }) {
@@ -85,7 +87,9 @@ PreparedSeed prepareSeed(
     decoded['settings'] = map;
     text = const JsonEncoder.withIndent('  ').convert(decoded);
   }
-  final out = File(paths.seedResolved);
+  final out = File(
+    deviceId == null ? paths.seedResolved : paths.seedResolvedFor(deviceId),
+  );
   out.parent.createSync(recursive: true);
   out.writeAsStringSync(text);
   return PreparedSeed(

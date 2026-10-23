@@ -1,0 +1,6 @@
+# The alerts suite for `qa pass alerts`: the fixture is minute-relative and
+# the flows consume its rings in order, so it is seeded once, straight
+# before the first flow, and never split across devices.
+fixture=tool/qa/fixtures/alerts.json
+reseed=suite
+shard=no

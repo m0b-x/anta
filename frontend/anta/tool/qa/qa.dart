@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,16 +7,19 @@ import 'package:args/command_runner.dart';
 
 import 'src/adb.dart';
 import 'src/agent_client.dart';
+import 'src/apk_build.dart';
 import 'src/app_ids.dart';
 import 'src/device.dart';
 import 'src/device_select.dart';
 import 'src/doctor.dart';
 import 'src/dump_cache.dart';
 import 'src/errors.dart';
+import 'src/fleet.dart';
 import 'src/gestures.dart';
 import 'src/ios_device.dart';
 import 'src/log_parse.dart';
 import 'src/macos_device.dart';
+import 'src/pass_report.dart';
 import 'src/paths.dart';
 import 'src/agent_protocol.dart';
 import 'src/placeholders.dart';
@@ -28,6 +32,7 @@ import 'src/shell_batch.dart';
 import 'src/shell_words.dart';
 import 'src/shots.dart';
 import 'src/simctl.dart';
+import 'src/suite.dart';
 import 'src/target.dart';
 import 'src/ui_tree.dart';
 import 'src/vm_service_client.dart';
@@ -74,8 +79,14 @@ Future<void> _refreshSelf(List<String> arguments) async {
 }
 
 class QaCommandRunner extends CommandRunner<int> {
-  QaCommandRunner()
-      : super(
+  /// [contextFactory] and [commands] are the test seam: a suite runs `pass`
+  /// or `steps` over scripted verbs and a context with a fake device,
+  /// instead of the full verb set against whatever is attached.
+  QaCommandRunner({
+    QaContext Function(ArgResults globals)? contextFactory,
+    List<Command<int>>? commands,
+  })  : _contextFactory = contextFactory ?? QaContext.new,
+        super(
           'qa',
           'Drive the ANTA app on an Android emulator, an iOS simulator or the '
               'macOS desktop build from the command line.\n'
@@ -95,11 +106,17 @@ class QaCommandRunner extends CommandRunner<int> {
         'via',
         allowed: ['auto', 'agent', 'native'],
         help: 'See-and-act layer: the in-app agent over the VM service, or '
-            'the native one (adb + uiautomator, Android only). `auto` is '
-            'native on Android and the agent elsewhere; ANTA_QA_VIA overrides.',
+            'the native one (adb + uiautomator, Android only). `auto` is the '
+            'agent wherever it answers on the VM URI a launch recorded, and '
+            'adb on Android when it does not; ANTA_QA_VIA overrides. Given '
+            'on one step of `steps` or `pass`, it holds for that step only.',
       )
       ..addFlag('verbose', help: 'Echo every process invocation to stderr.');
 
+    if (commands != null) {
+      commands.forEach(addCommand);
+      return;
+    }
     addCommand(DevicesCommand());
     addCommand(StateCommand());
     addCommand(DoctorCommand());
@@ -129,6 +146,10 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(ExpectCommand());
     addCommand(StepsCommand());
     addCommand(FlowsCommand());
+    addCommand(PassCommand());
+    addCommand(BuildCommand());
+    addCommand(InstallCommand());
+    addCommand(FleetCommand());
     addCommand(ReloadCommand());
     addCommand(RestartCommand());
     addCommand(PerfCommand());
@@ -139,18 +160,25 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(BuildExeCommand());
   }
 
+  final QaContext Function(ArgResults globals) _contextFactory;
   QaContext? _context;
 
   /// Prefix put in front of every output line, so `steps` can indent the
   /// verbs it dispatches without each verb knowing about it.
   String outputPrefix = '';
 
+  /// When set, sees every line a verb prints, with the indent it was printed
+  /// under kept apart, so `pass` can keep a log and attribute output to the
+  /// step that printed it.
+  void Function(String line, {required String prefix, required bool isError})?
+      lineSink;
+
   /// The single context every verb in this process shares.
   ///
   /// One device resolution, one `Device`, one agent connection, one
   /// screen-size cache, one dump cache — which is the whole point of running
   /// several verbs per process.
-  QaContext contextFor(ArgResults globals) => _context ??= QaContext(globals);
+  QaContext contextFor(ArgResults globals) => _context ??= _contextFactory(globals);
 
   Future<void> dispose() async => _context?.dispose();
 }
@@ -161,9 +189,18 @@ class TargetLookup {
     required this.resolved,
     this.tree,
     this.provenance,
+    this.revealed = false,
+    this.revealNote,
   });
 
   final ResolvedTarget resolved;
+
+  /// Whether the app scrolled the node into view before [resolved] was read.
+  final bool revealed;
+
+  /// [RevealOutcome.note]: the revealed node was found again by its label,
+  /// not by its id.
+  final String? revealNote;
 
   /// Null for a raw coordinate, which needs no tree at all.
   final UiTree? tree;
@@ -186,11 +223,14 @@ class WaitOutcome {
 }
 
 class QaContext {
-  QaContext(this.globalResults);
+  /// [paths] roots the harness somewhere other than the package it runs
+  /// from: a test's temporary tree.
+  QaContext(this.globalResults, {QaPaths? paths}) : _paths = paths;
 
   final ArgResults globalResults;
 
-  late final QaPaths paths = QaPaths.locate();
+  final QaPaths? _paths;
+  late final QaPaths paths = _paths ?? QaPaths.locate();
   late final bool verbose = globalResults['verbose'] as bool? ?? false;
   late final ProcessRunner runner = RealProcessRunner(verbose: verbose);
   late final SdkTools sdk = SdkTools();
@@ -199,6 +239,28 @@ class QaContext {
   late final ViaMode via = parseViaMode(
     globalResults['via'] as String? ?? Platform.environment['ANTA_QA_VIA'],
   );
+
+  /// A `--via` written on the verb being dispatched, which differs from
+  /// [via] only for one step of `steps` or `pass` (`swipe … --via native`,
+  /// a real touch where the agent's synthetic one is not enough): the
+  /// context is shared by every step, so without this the step's own
+  /// choice would be silently dropped.
+  ViaMode? stepVia;
+
+  /// Set by `pass` while it gathers a failed flow's evidence: `errors` then
+  /// reads `run.log` only when the one `flutter run` slot belongs to this
+  /// device, so another device's crash is never filed against the flow.
+  bool runLogForThisDeviceOnly = false;
+
+  /// Set by `pass` while it gathers a failed flow's evidence: the logcat
+  /// stamp the flow started at, so `errors` reports what this flow
+  /// printed rather than what earlier flows on the same app did.
+  String? errorsSinceStamp;
+
+  /// Where the context says something about a choice it made on its own
+  /// (the `auto` driver falling back); every verb points it at its own
+  /// stderr, so a note lands under the step that caused it.
+  void Function(String line)? notice;
 
   List<AdbDevice>? _adbDevices;
   String? adbFailure;
@@ -209,6 +271,11 @@ class QaContext {
   Adb? _adb;
   AgentClient? _agent;
   UiDriver? _driver;
+
+  /// The `auto` choice on a device with a native layer, made once per
+  /// process: a `pass` or `steps` with `--via auto` on some steps would
+  /// otherwise pay the 2 s probe on every one of them.
+  UiDriver? _autoDriver;
 
   /// Every adb row, or an empty list when adb is missing or not answering
   /// (which [adbFailure] then explains).
@@ -437,7 +504,44 @@ class QaContext {
   Future<AgentClient> adoptAgent(VmServiceClient vm) async {
     await _agent?.close();
     final dev = await device();
-    return _agent = AgentClient(vm, appPackage: dev.packageId);
+    final adopted = AgentClient(vm, appPackage: dev.packageId);
+    // A relaunch inside one process (`pass` reseeding between flows) would
+    // otherwise leave the cached driver on the client just closed, and an
+    // `auto` choice made before any URI was recorded on adb for good. The
+    // app was just launched with this agent, so `auto` takes it unprobed.
+    if (_driver is AgentClient) {
+      _driver = adopted;
+    } else if (via == ViaMode.auto) {
+      _driver = null;
+    }
+    if (dev.nativeDriver != null) _autoDriver = adopted;
+    return _agent = adopted;
+  }
+
+  /// Drops the agent a launch could not bring up, so the next step does
+  /// not talk to a closed client: `auto` decides again (and, with no VM
+  /// recorded any more, falls back to adb at once), `agent` fails with the
+  /// relaunch hint.
+  Future<void> forgetAgent() async {
+    await _agent?.close();
+    _agent = null;
+    if (_driver is AgentClient) _driver = null;
+    if (_autoDriver is AgentClient) _autoDriver = null;
+  }
+
+  /// Empties the agent's error buffer when an agent is already connected;
+  /// `pass` does this at each flow's start so a failure's evidence holds
+  /// only that flow's errors. Never connects just for this.
+  Future<void> clearAgentErrors() async {
+    final agent = _agent;
+    if (agent == null || agent.vm.isClosed) return;
+    try {
+      await agent.errors(clear: true).timeout(const Duration(seconds: 3));
+    } on QaException {
+      return;
+    } on TimeoutException {
+      return;
+    }
   }
 
   Future<AgentClient?> agentOrNull() async {
@@ -467,10 +571,16 @@ class QaContext {
   }
 
   Future<UiDriver> driver() async {
+    final step = stepVia;
+    if (step != null && step != via) return _driverFor(step);
     final existing = _driver;
     if (existing != null) return existing;
+    return _driver = await _driverFor(via);
+  }
+
+  Future<UiDriver> _driverFor(ViaMode mode) async {
     final dev = await device();
-    switch (via) {
+    switch (mode) {
       case ViaMode.native:
         final native = dev.nativeDriver;
         if (native == null) {
@@ -481,12 +591,80 @@ class QaContext {
                 'the only layer here',
           );
         }
-        return _driver = native;
+        return native;
       case ViaMode.agent:
-        return _driver = await agent();
+        return agent();
       case ViaMode.auto:
-        return _driver = dev.nativeDriver ?? await agent();
+        final native = dev.nativeDriver;
+        if (native == null) return agent();
+        final decided = _autoDriver;
+        if (decided != null) return decided;
+        final recorded = await recordedVmUri();
+        final answering = recorded == null ? null : await _agentIfAnswering(recorded);
+        final choice = chooseDriver(
+          hasNative: true,
+          vmRecorded: recorded != null,
+          agentAnswers: answering != null,
+        );
+        if (choice == ViaMode.agent) return _autoDriver = answering!;
+        notice?.call(autoFallbackNote(vmRecorded: recorded != null, deviceId: dev.id));
+        return _autoDriver = native;
     }
+  }
+
+  /// Settles the `auto` choice from an `info` round trip a verb already made
+  /// (`doctor` asks the agent for its own check), so it is not probed twice.
+  Future<void> decideAutoFrom({required bool agentAnswered}) async {
+    final native = (await device()).nativeDriver;
+    if (native == null || _autoDriver != null) return;
+    final agent = _agent;
+    _autoDriver = agentAnswered && agent != null && !agent.vm.isClosed ? agent : native;
+  }
+
+  /// The agent when it answers `info` within [_autoProbe] on the [recorded]
+  /// VM URI, else null: the `auto` choice must not hang a verb on an app
+  /// that has gone away. Unlike [agent] it never searches the platform log
+  /// for another URI, and a connection it gives up on is closed, so nothing
+  /// it started finishes (or prints) in the middle of a later verb.
+  Future<AgentClient?> _agentIfAnswering(String recorded) async {
+    final deadline = DateTime.now().add(_autoProbe);
+    Duration left() {
+      final remaining = deadline.difference(DateTime.now());
+      return remaining.isNegative ? Duration.zero : remaining;
+    }
+
+    final existing = _agent;
+    VmServiceClient? opened;
+    try {
+      final AgentClient client;
+      if (existing != null && !existing.vm.isClosed) {
+        client = existing;
+      } else {
+        opened = await VmServiceClient.connect(recorded, timeout: _autoProbe);
+        client = AgentClient(opened, appPackage: (await device()).packageId);
+      }
+      await client.info().timeout(left());
+      return _agent = client;
+    } on QaException {
+      await opened?.close();
+      return null;
+    } on TimeoutException {
+      await opened?.close();
+      return null;
+    }
+  }
+
+  static const Duration _autoProbe = Duration(seconds: 2);
+
+  /// The `driver=` word `state` and `doctor` print.
+  Future<String> driverLabel() async {
+    final dev = await device();
+    if (dev.nativeDriver == null) return 'agent';
+    return switch (via) {
+      ViaMode.native => 'adb',
+      ViaMode.agent => 'agent',
+      ViaMode.auto => '${await driver() is AgentClient ? 'agent' : 'adb'} (auto)',
+    };
   }
 
   Future<DeviceProbe> probe() async {
@@ -499,9 +677,24 @@ class QaContext {
   /// iterations of a poll) so later `#N` targets mean this tree.
   Future<UiTree> dump({bool cache = true}) async {
     final captured = await (await driver()).dump();
-    if (cache) writeDumpCache(paths, captured.raw);
+    if (cache) writeDumpCache(paths, (await ref()).id, captured.raw);
     return captured.tree;
   }
+
+  /// The device id when one resolves, for a verb that can still work from
+  /// the shared files without a device (`dump --cached`).
+  Future<String?> deviceIdOrNull() async {
+    try {
+      return (await ref()).id;
+    } on QaException {
+      return null;
+    }
+  }
+
+  /// Where screenshots land when a verb is not told otherwise: `qa pass`
+  /// points this at its own run directory so a flow's `--shot` stays with
+  /// the report it belongs to.
+  String? shotsDirOverride;
 
   /// A screenshot from the layer that has one: the device's own capture
   /// where the platform offers it, the agent's render of the Flutter view
@@ -515,36 +708,94 @@ class QaContext {
     return native ? dev.screencapPng() : (await agent()).screenshotPng();
   }
 
-  /// Resolves a target, dumping only when the target form needs a tree.
-  Future<TargetLookup> lookup(String target, {int? nth}) async {
+  /// Resolves a target for a verb that acts on it, dumping only when the
+  /// target form needs a tree; a match out of view — a label, an `id:`, or
+  /// a `#N` whose dump carries its semantics id — is brought in first on
+  /// the agent path (see [resolveOnScreen]). [reveal] off is for a verb
+  /// that only reads (`text`), which must not scroll the app.
+  Future<TargetLookup> lookup(String target, {int? nth, bool reveal = true}) async {
     if (isPointTarget(target)) {
       return TargetLookup(
         resolved: const TargetResolver(UiTree([])).resolve(target),
       );
     }
     if (isIndexTarget(target)) {
-      final cached = readDumpCache(paths);
+      final cached = readDumpCache(paths, await deviceIdOrNull());
       if (cached == null) {
         throw TargetFailure(
           'no previous dump — run `dump` first or target by label',
         );
       }
       final tree = cached.tree;
+      final provenance = '($target from the dump '
+          '${describeAge(cached.ageFrom(DateTime.now()))})';
+      if (!reveal) {
+        return TargetLookup(
+          resolved: TargetResolver(tree).resolve(target, nth: nth),
+          tree: tree,
+          provenance: provenance,
+        );
+      }
+      // The new dump stays out of the cache: the `#N` numbers the reader
+      // holds mean the dump they read.
+      final outcome = await resolveOnScreen(target, tree,
+          nth: nth, redump: () => dump(cache: false));
+      if (outcome.revealed && !outcome.onScreen) {
+        throw TargetFailure(offScreenAfterReveal(target));
+      }
       return TargetLookup(
-        resolved: TargetResolver(tree).resolve(target, nth: nth),
-        tree: tree,
-        provenance: '($target from the dump '
-            '${describeAge(cached.ageFrom(DateTime.now()))})',
+        resolved: outcome.resolved,
+        tree: outcome.tree,
+        provenance: provenance,
+        revealed: outcome.revealed,
       );
     }
     final tree = await dump();
+    if (!reveal) {
+      return TargetLookup(resolved: TargetResolver(tree).resolve(target, nth: nth), tree: tree);
+    }
+    final outcome = await resolveOnScreen(target, tree, nth: nth);
+    if (outcome.revealed && !outcome.onScreen) {
+      throw TargetFailure(offScreenAfterReveal(target));
+    }
     return TargetLookup(
-      resolved: TargetResolver(tree).resolve(target, nth: nth),
-      tree: tree,
+      resolved: outcome.resolved,
+      tree: outcome.tree,
+      revealed: outcome.revealed,
+      revealNote: outcome.note,
     );
   }
 
-  /// Polls the screen until [wanted] appears (or disappears) or time runs out.
+  /// [resolveRevealing] with the reveal step the current driver has: the
+  /// agent's `reveal` op, or none on the adb path.
+  Future<RevealOutcome> resolveOnScreen(
+    String target,
+    UiTree tree, {
+    int? nth,
+    Future<UiTree> Function()? redump,
+  }) async {
+    final current = await driver();
+    return resolveRevealing(
+      target,
+      tree,
+      nth: nth,
+      reveal: current is AgentClient ? (node) => _reveal(current, node) : null,
+      redump: redump ?? dump,
+    );
+  }
+
+  static Future<void> _reveal(AgentClient agent, UiNode node) async {
+    await agent.requireCurrentProtocol();
+    final id = node.semanticsId;
+    if (id == null) {
+      throw DeviceFailure('the dump names no semantics id for '
+          '${node.describe()}, so the app cannot be asked to show it');
+    }
+    await agent.reveal(id);
+  }
+
+  /// Polls the screen until [wanted] appears (or disappears) or time runs
+  /// out, by the presence rule of [presentMatch].
   Future<WaitOutcome> pollFor(
     String wanted, {
     required bool gone,
@@ -555,26 +806,13 @@ class QaContext {
     final deadline = DateTime.now().add(timeout);
     while (true) {
       final tree = await dump(cache: false);
-      ResolvedTarget? found;
-      try {
-        found = TargetResolver(tree).resolve(wanted, nth: nth);
-        if (found.node?.hidden ?? false) found = null;
-      } on TargetFailure catch (e) {
-        if (!gone && e.message.contains('ambiguous')) {
-          throw TargetFailure(
-            'wait cannot settle on "$wanted": ${e.message}\n'
-            'Waiting would never resolve this — pick one match with --nth, '
-            'or target by id:',
-          );
-        }
-        found = null;
-      }
+      final found = presentMatch(tree, wanted, gone: gone, nth: nth);
       final done = (gone && found == null) ||
           (!gone && found != null) ||
           !DateTime.now().isBefore(deadline);
       if (done) {
         final captured = await (await driver()).dump();
-        writeDumpCache(paths, captured.raw);
+        writeDumpCache(paths, (await ref()).id, captured.raw);
         ResolvedTarget? settled = found;
         if (found != null) {
           try {
@@ -599,8 +837,14 @@ class QaContext {
 }
 
 abstract class QaCommand extends Command<int> {
-  QaContext get context =>
-      (runner! as QaCommandRunner).contextFor(globalResults!);
+  QaContext get context {
+    final globals = globalResults!;
+    final ctx = (runner! as QaCommandRunner).contextFor(globals);
+    ctx.stepVia =
+        globals.wasParsed('via') ? parseViaMode(globals['via'] as String?) : null;
+    ctx.notice = warn;
+    return ctx;
+  }
 
   String get _prefix => (runner! as QaCommandRunner).outputPrefix;
 
@@ -609,6 +853,12 @@ abstract class QaCommand extends Command<int> {
   void warn(String line) => _write(stderr, line);
 
   void _write(IOSink sink, String line) {
+    final tee = (runner! as QaCommandRunner).lineSink;
+    if (tee != null) {
+      for (final part in line.split('\n')) {
+        tee(part, prefix: _prefix, isError: identical(sink, stderr));
+      }
+    }
     if (_prefix.isEmpty) {
       sink.writeln(line);
       return;
@@ -686,7 +936,7 @@ mixin PostActions on QaCommand {
         timeout: Duration(seconds: seconds),
       );
       if (outcome.satisfied) {
-        out(gone ? 'gone: "$wanted"' : 'found: ${outcome.found!.description}');
+        out(gone ? 'gone: "$wanted"' : 'found: ${describeFound(outcome.found!)}');
       } else {
         warnIfForeign(outcome.lastTree);
         waitFailure = waitTimeoutMessage(
@@ -711,6 +961,7 @@ mixin PostActions on QaCommand {
         ctx.screenshotPng,
         ctx.paths,
         name: shotName,
+        outDir: ctx.shotsDirOverride,
       ));
       tookShot = true;
     }
@@ -731,6 +982,45 @@ mixin PostActions on QaCommand {
     }
   }
 }
+
+/// The node `wait` (or, with [gone], `wait --gone`) counts as present in one
+/// poll, or null. A node the framework holds scrolled out of view is
+/// present: it is on the page, and an acting verb brings it in. One that is
+/// only outside the screen (a route still sliding in) is not yet, so a wait
+/// keeps polling. Gone means no node matches at all: an ambiguous label is
+/// still there, whichever of its matches is meant.
+ResolvedTarget? presentMatch(
+  UiTree tree,
+  String wanted, {
+  required bool gone,
+  int? nth,
+}) {
+  final resolver = TargetResolver(tree);
+  try {
+    final found = resolver.resolve(wanted, nth: nth);
+    final node = found.node;
+    if (!gone && node != null && !node.countsAsPresent) return null;
+    return found;
+  } on TargetFailure catch (e) {
+    if (!e.message.contains('ambiguous')) return null;
+    if (gone) return resolver.fromNode(resolver.matchingNodes(wanted).first);
+    throw TargetFailure(
+      'wait cannot settle on "$wanted": ${e.message}\n'
+      'Waiting would never resolve this — pick one match with --nth, '
+      'or target by id:',
+    );
+  }
+}
+
+/// A present match as `wait` and `--wait` report it, saying so when it is
+/// only in the tree, scrolled out of view.
+String describeFound(ResolvedTarget found) =>
+    '${found.description}${scrolledOutNote(found.node)}';
+
+/// The suffix every presence report puts after a match that is in the tree
+/// but not on screen, so a passing check still says where the node was.
+String scrolledOutNote(UiNode? node) =>
+    (node?.hidden ?? false) ? '  (scrolled out of view)' : '';
 
 /// What a timed-out wait says, with the screen it gave up on.
 String waitTimeoutMessage({
@@ -817,9 +1107,7 @@ class StateCommand extends QaCommand {
     final dtd = await ctx.recordedDtdUri() ?? '';
     final vm = await ctx.recordedVmUri() ?? '';
     final logExists = File(ctx.paths.runLog).existsSync();
-    final driverName = device.nativeDriver == null || ctx.via == ViaMode.agent
-        ? 'agent'
-        : (ctx.via == ViaMode.native ? 'adb' : 'adb (auto)');
+    final driverName = await ctx.driverLabel();
 
     if (argResults!['json'] as bool) {
       out(const JsonEncoder.withIndent('  ').convert({
@@ -956,7 +1244,7 @@ class BootCommand extends QaCommand {
       out('emulator already up: ${usable.map((d) => d.serial).join(', ')} '
           '(never killed or restarted by this tool)');
     } else if (attached.isNotEmpty) {
-      final booting = await _emulatorStartedHere(ctx);
+      final booting = await _emulatorStartedHere(ctx, avd);
       if (booting == null) {
         throw DeviceFailure(
           '${attached.map((d) => unusableDeviceMessage(d.serial, d.state)).join('; ')}. '
@@ -964,11 +1252,11 @@ class BootCommand extends QaCommand {
           'the emulator window and cold-boot it.',
         );
       }
-      out('emulator pid $booting (started by this tool) is still booting — waiting');
-      await _awaitBoot(ctx, bare, booting);
+      out('emulator pid ${booting.pid} (started by this tool) is still booting — waiting');
+      await awaitEmulatorBoot(ctx, bare, booting.pid, booting.avd, progress: warn);
     } else {
-      final pid = await _startEmulator(ctx, avd);
-      await _awaitBoot(ctx, bare, pid);
+      final started = await _startEmulator(ctx, avd);
+      await awaitEmulatorBoot(ctx, bare, started.pid, started.avd, progress: warn);
     }
     final adb = await ctx.adb();
     if (argResults!['phone'] as bool) {
@@ -981,17 +1269,32 @@ class BootCommand extends QaCommand {
   }
 
   /// The pid recorded by a previous `boot`, when that emulator is still alive.
-  Future<int?> _emulatorStartedHere(QaContext ctx) async {
-    final file = File(ctx.paths.emulatorPid);
+  ///
+  /// Without `--avd` only `emulator.pid` counts — the owner's path, where
+  /// the AVD was never named — never a fleet emulator's pid file: waiting
+  /// on another AVD's boot would report the wrong device as ready.
+  Future<({int pid, String? avd})?> _emulatorStartedHere(
+    QaContext ctx,
+    String? avd,
+  ) async {
+    final file = File(bootPidPath(ctx.paths, avd));
     if (!file.existsSync()) return null;
     final pid = int.tryParse(file.readAsStringSync().trim());
     if (pid == null || !await isProcessAlive(pid, ctx.runner)) return null;
-    return pid;
+    return (pid: pid, avd: avd == null || avd.isEmpty ? null : avd);
   }
 
   /// Starts the emulator through the same wrapper machinery `run` uses, so its
   /// output lands in a file this tool can read back when the boot fails.
-  Future<int> _startEmulator(QaContext ctx, String? requested) async {
+  ///
+  /// Its log and pid are keyed the way it was asked for — by AVD with
+  /// `--avd`, under the plain `emulator.*` names without — so a second
+  /// `boot` asked the same way finds the one still coming up; the wrapper
+  /// script is always per AVD, so two boots never rewrite each other's.
+  Future<({int pid, String? avd})> _startEmulator(
+    QaContext ctx,
+    String? requested,
+  ) async {
     final emulator = ctx.sdk.requireEmulator();
     var avd = requested;
     if (avd == null || avd.isEmpty) {
@@ -1012,77 +1315,107 @@ class BootCommand extends QaCommand {
       }
       avd = names.single;
     }
+    final keyed = requested == null || requested.isEmpty ? null : avd;
     ctx.paths.ensureBuildQa();
-    File(ctx.paths.emulatorLog).writeAsStringSync('');
-    File(ctx.paths.emulatorErr).writeAsStringSync('');
+    final logPath = ctx.paths.emulatorLogFor(keyed);
+    final errPath = ctx.paths.emulatorErrFor(keyed);
+    File(logPath).writeAsStringSync('');
+    File(errPath).writeAsStringSync('');
     final wrapper = writeWrapperScript(
       paths: ctx.paths,
-      baseName: 'emulator_cmd',
+      baseName: emulatorWrapperName(avd),
       executable: emulator,
       arguments: [
         '-avd',
         avd,
         if (argResults!['cold'] as bool) '-no-snapshot-load',
       ],
-      posixLogPath: ctx.paths.emulatorLog,
+      posixLogPath: logPath,
     );
     final pid = await startWrapperDetached(
       paths: ctx.paths,
       wrapper: wrapper,
-      logPath: ctx.paths.emulatorLog,
-      errPath: ctx.paths.emulatorErr,
-      pidPath: ctx.paths.emulatorPid,
+      logPath: logPath,
+      errPath: errPath,
+      pidPath: bootPidPath(ctx.paths, keyed),
     );
-    out('starting emulator $avd (pid $pid, log ${ctx.paths.emulatorLog})');
-    return pid;
+    out('starting emulator $avd (pid $pid, log $logPath)');
+    return (pid: pid, avd: keyed);
   }
+}
 
-  /// Waits for the guest, failing the moment the emulator says it will not
-  /// come up or its process disappears.
-  Future<void> _awaitBoot(QaContext ctx, Adb bare, int pid) async {
-    final started = DateTime.now();
-    final deadline = started.add(const Duration(minutes: 6));
-    var lastProgress = started;
-    while (DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(seconds: 3));
-      final log = readEmulatorLog(ctx.paths);
-      final fatal = emulatorFatalLine(log);
-      if (fatal != null) {
-        throw DeviceFailure(
-          'the emulator refused to start: $fatal\n${tailLines(log, lines: 15)}',
-        );
-      }
-      if (!await isProcessAlive(pid, ctx.runner)) {
-        throw DeviceFailure(
-          'the emulator process (pid $pid) exited before the device came up.\n'
-          '${tailLines(log, lines: 15)}',
-        );
-      }
-      final devices = await bare.devices();
-      final usable = devices.where((d) => d.usable).toList();
-      final state = usable.isNotEmpty
-          ? 'device up, waiting for boot_completed'
-          : (devices.isEmpty
-              ? 'device offline, still waiting'
-              : 'device ${devices.first.state}, still waiting');
-      if (DateTime.now().difference(lastProgress).inSeconds >= 15) {
-        lastProgress = DateTime.now();
-        warn('boot: ${DateTime.now().difference(started).inSeconds} s — $state');
-      }
-      if (usable.isEmpty) continue;
-      final adb = bare.withSerial(usable.first.serial);
-      final props = await adb.shellBatch(const [
-        ShellCommand(['getprop', 'sys.boot_completed']),
-        ShellCommand(['settings', 'get', 'global', 'device_provisioned']),
-      ]);
-      if (props[0].trim() != '1') continue;
-      if (props[1].trim() == '1') return;
+/// The pid file `boot` records and waits on: the AVD's own with `--avd`,
+/// the plain `emulator.pid` without — never another AVD's, so a plain
+/// `boot` cannot mistake a fleet emulator coming up for the owner's.
+String bootPidPath(QaPaths paths, String? avd) =>
+    paths.emulatorPidFor(avd == null || avd.isEmpty ? null : avd);
+
+/// The wrapper script one AVD boots through, shared by `boot` and
+/// `fleet boot`: one per AVD, so two boots never rewrite each other's.
+String emulatorWrapperName(String avd) => 'emulator_cmd_${QaPaths.safeId(avd)}';
+
+/// Waits for the guest, failing the moment the emulator says it will not
+/// come up or its process disappears.
+///
+/// With [serial] only that device counts, so one fleet boot is not
+/// satisfied by another emulator that is already up. [fatalLogLines] off
+/// leaves the verdict to the process: several emulators starting at once
+/// log hypervisor lines that look fatal and are not (the WHPX trap), and
+/// one that really will not come up exits. [pid] null skips the process
+/// check for an emulator this tool did not start.
+Future<void> awaitEmulatorBoot(
+  QaContext ctx,
+  Adb bare,
+  int? pid,
+  String? avd, {
+  String? serial,
+  bool fatalLogLines = true,
+  required void Function(String line) progress,
+}) async {
+  final started = DateTime.now();
+  final deadline = started.add(const Duration(minutes: 6));
+  var lastProgress = started;
+  while (DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final log = readEmulatorLog(ctx.paths, avd);
+    final fatal = fatalLogLines ? emulatorFatalLine(log) : null;
+    if (fatal != null) {
+      throw DeviceFailure(
+        'the emulator refused to start: $fatal\n${tailLines(log, lines: 15)}',
+      );
     }
-    throw DeviceFailure(
-      'emulator did not finish booting within 6 minutes.\n'
-      '${tailLines(readEmulatorLog(ctx.paths), lines: 15)}',
-    );
+    if (pid != null && !await isProcessAlive(pid, ctx.runner)) {
+      throw DeviceFailure(
+        'the emulator process (pid $pid) exited before the device came up.\n'
+        '${tailLines(log, lines: 15)}',
+      );
+    }
+    final all = await bare.devices();
+    final devices =
+        serial == null ? all : all.where((d) => d.serial == serial).toList();
+    final usable = devices.where((d) => d.usable).toList();
+    final state = usable.isNotEmpty
+        ? 'device up, waiting for boot_completed'
+        : (devices.isEmpty
+            ? 'device offline, still waiting'
+            : 'device ${devices.first.state}, still waiting');
+    if (DateTime.now().difference(lastProgress).inSeconds >= 15) {
+      lastProgress = DateTime.now();
+      progress('boot: ${DateTime.now().difference(started).inSeconds} s — $state');
+    }
+    if (usable.isEmpty) continue;
+    final adb = bare.withSerial(usable.first.serial);
+    final props = await adb.shellBatch(const [
+      ShellCommand(['getprop', 'sys.boot_completed']),
+      ShellCommand(['settings', 'get', 'global', 'device_provisioned']),
+    ]);
+    if (props[0].trim() != '1') continue;
+    if (props[1].trim() == '1') return;
   }
+  throw DeviceFailure(
+    'emulator did not finish booting within 6 minutes.\n'
+    '${tailLines(readEmulatorLog(ctx.paths, avd), lines: 15)}',
+  );
 }
 
 class WakeCommand extends QaCommand {
@@ -1269,6 +1602,7 @@ mixin QaMarkers on QaCommand {
       final prepared = prepareSeed(
         ctx.paths,
         path,
+        deviceId: device.id,
         settings: argResults!['setting'] as List<String>,
       );
       await device.pushSeed(prepared.path);
@@ -1378,6 +1712,9 @@ mixin InstalledLaunch on QaCommand {
       );
     } on DeviceFailure catch (e) {
       await ctx.recordUris(vm: null, dtd: null);
+      // The client of the app just stopped is closed; left cached as the
+      // driver it would fail every later step of this process.
+      await ctx.forgetAgent();
       if (device.nativeDriver != null) {
         warn('warning: the VM service never answered on port $port (${e.message}) '
             '— not a debug build? The adb path still works; `qa run` installs '
@@ -1435,6 +1772,7 @@ mixin InstalledLaunch on QaCommand {
       }
       warn('warning: no QA agent in the running build (${e.message}) — the adb '
           'path still works; `qa run` installs the driver build');
+      await ctx.forgetAgent();
       return null;
     }
   }
@@ -1460,13 +1798,29 @@ class RunAppCommand extends LaunchingCommand with QaMarkers {
     final device = await ctx.device();
     await applyMarkers(ctx, device);
     await device.forceStop();
+    final started = DateTime.now();
     final code = await launch('run');
+    if (device is AndroidDevice) await _recordInstalled(ctx, device, started);
     await reportQaMarkers(
       ctx: ctx,
       stamp: File(ctx.paths.runStamp).readAsStringSync().trim(),
       includeRunLog: true,
     );
     return code;
+  }
+
+  /// `flutter run` built and installed the debug APK, so the device now
+  /// carries this tree, not whatever `qa install` put there before: without
+  /// this record a later `pass` warned about a stale build that was not.
+  Future<void> _recordInstalled(QaContext ctx, Device device, DateTime started) async {
+    final extra = argResults!['define'] as List<String>;
+    installedRecordForRun(
+      paths: ctx.paths,
+      git: await gitBuildState(ctx.runner, ctx.paths.projectRoot),
+      runStarted: started,
+      defines: [if (argResults!['qa'] as bool) ...qaDefines, ...extra],
+      installedAt: DateTime.now(),
+    ).write(ctx.paths.installedJsonFor(device.id));
   }
 }
 
@@ -1717,7 +2071,7 @@ class ShotCommand extends QaCommand {
       ctx.paths,
       name: rest.isEmpty ? 'shot' : rest.first,
       scale: scale,
-      outDir: argResults!['out'] as String?,
+      outDir: argResults!['out'] as String? ?? ctx.shotsDirOverride,
     );
     out(path);
     return 0;
@@ -1732,8 +2086,8 @@ class DumpCommand extends QaCommand {
       ..addFlag('json', negatable: false, help: 'Emit the nodes as JSON.')
       ..addFlag('cached',
           negatable: false,
-          help: 'Print the last dump from build/qa/last_dump.txt without '
-              'touching the device.');
+          help: "Print the device's last dump from "
+              'build/qa/last_dump_<device>.txt without touching the device.');
   }
 
   @override
@@ -1749,7 +2103,7 @@ class DumpCommand extends QaCommand {
     final UiTree tree;
     String? age;
     if (argResults!['cached'] as bool) {
-      final cached = readDumpCache(ctx.paths);
+      final cached = readDumpCache(ctx.paths, await ctx.deviceIdOrNull());
       if (cached == null) {
         throw TargetFailure(
           'no previous dump — run `dump` first or target by label',
@@ -1771,7 +2125,7 @@ class DumpCommand extends QaCommand {
     for (final node in nodes) {
       out(node.describe());
     }
-    final hidden = tree.nodes.where((n) => n.hidden).length;
+    final hidden = tree.nodes.where((n) => n.outOfView).length;
     out('${nodes.length} node(s) of ${tree.nodes.length}'
         '${all ? '' : ' (pass --all for the rest${hidden == 0 ? '' : ', $hidden off screen'})'}'
         '${age == null ? '' : '  [cached, taken $age]'}'
@@ -1786,8 +2140,14 @@ abstract class TargetCommand extends QaCommand {
         help: 'Pick the Nth match (0-based) when a label is ambiguous.');
   }
 
-  Future<TargetLookup> target() async =>
-      context.lookup(requireRest('a target'), nth: intOption('nth'));
+  Future<TargetLookup> target({bool reveal = true}) async {
+    final lookup = await context.lookup(requireRest('a target'),
+        nth: intOption('nth'), reveal: reveal);
+    if (lookup.revealed) out('revealed: ${lookup.resolved.description}');
+    final note = lookup.revealNote;
+    if (note != null) warn('note: $note');
+    return lookup;
+  }
 }
 
 class TapCommand extends TargetCommand with PostActions {
@@ -1811,7 +2171,7 @@ class TapCommand extends TargetCommand with PostActions {
     var point = (lookup.resolved.x, lookup.resolved.y);
     var description = lookup.description;
     final tree = lookup.tree;
-    if (node != null && node.hidden) {
+    if (node != null && node.outOfView) {
       throw TargetFailure(
         '${node.describe()} is off screen — `scroll-to` it first',
       );
@@ -1862,11 +2222,13 @@ class TextCommand extends TargetCommand {
   String get name => 'text';
 
   @override
-  String get description => 'Print the text of a target node.';
+  String get description =>
+      'Print the text of a target node, scrolled out of view or not; it '
+      'never scrolls the app.';
 
   @override
   Future<int> run() async {
-    final lookup = await target();
+    final lookup = await target(reveal: false);
     warnIfForeign(lookup.tree);
     final node = lookup.resolved.node;
     if (node == null) throw TargetFailure('a coordinate target has no text');
@@ -1886,7 +2248,9 @@ class WaitCommand extends TargetCommand {
   String get name => 'wait';
 
   @override
-  String get description => 'Poll the accessibility tree until a target appears.';
+  String get description =>
+      'Poll the accessibility tree until a target appears (a row scrolled '
+      'out of view counts), or with --gone until no node matches at all.';
 
   @override
   Future<int> run() async {
@@ -1902,7 +2266,7 @@ class WaitCommand extends TargetCommand {
     );
     warnIfForeign(outcome.lastTree);
     if (outcome.satisfied) {
-      out(gone ? 'gone: "$wanted"' : 'found: ${outcome.found!.description}');
+      out(gone ? 'gone: "$wanted"' : 'found: ${describeFound(outcome.found!)}');
       return 0;
     }
     throw TargetFailure(waitTimeoutMessage(
@@ -1932,7 +2296,10 @@ class ScrollToCommand extends TargetCommand {
   String get name => 'scroll-to';
 
   @override
-  String get description => 'Swipe inside a scrollable until a target shows up on screen.';
+  String get description =>
+      'Bring a target on screen: on the agent path the app is first asked to '
+      'scroll it into view, then (or on adb) swipes inside a scrollable '
+      'until it shows up.';
 
   @override
   Future<int> run() async {
@@ -1946,22 +2313,40 @@ class ScrollToCommand extends TargetCommand {
     final nth = intOption('nth');
 
     UiTree? tree;
+    var revealTried = false;
     for (var attempt = 0; attempt <= maxSwipes; attempt++) {
-      tree = await ctx.dump();
-      if (attempt == 0) warnIfForeign(tree);
+      var screen = tree = await ctx.dump();
+      if (attempt == 0) warnIfForeign(screen);
       try {
-        final found = TargetResolver(tree).resolve(wanted, nth: nth);
-        if (found.node == null || !found.node!.hidden) {
+        final found = TargetResolver(screen).resolve(wanted, nth: nth);
+        if (found.node == null || !found.node!.outOfView) {
           out('found after $attempt swipe(s): ${found.description}');
           return 0;
+        }
+        // A row the tree already holds is one `reveal` away; only a row
+        // beyond the cache extent, absent from the tree, needs the swipes.
+        if (!revealTried && driver is AgentClient) {
+          revealTried = true;
+          try {
+            final outcome = await ctx.resolveOnScreen(wanted, screen, nth: nth);
+            screen = tree = outcome.tree;
+            final note = outcome.note;
+            if (note != null) warn('note: $note');
+            if (outcome.onScreen) {
+              out('found after reveal: ${outcome.resolved.description}');
+              return 0;
+            }
+          } on DeviceFailure catch (e) {
+            warn('scroll-to: ${e.message}; swiping instead');
+          }
         }
       } on TargetFailure catch (e) {
         if (e.message.contains('ambiguous')) rethrow;
       }
       if (attempt == maxSwipes) break;
       final scrollable = container == null
-          ? tree.firstScrollable
-          : TargetResolver(tree).resolve(container).node;
+          ? screen.firstScrollable
+          : TargetResolver(screen).resolve(container).node;
       final bounds = scrollable?.bounds;
       final size = await driver.screenSize();
       final path = buildSwipe(
@@ -2141,14 +2526,27 @@ class DragCommand extends QaCommand with PostActions {
       throw UsageFailure('drag needs exactly two targets: <from> <to>');
     }
     final driver = await ctx.driver();
-    final from = await ctx.lookup(rest[0], nth: intOption('nth'));
+    final nth = intOption('nth');
+    var from = await ctx.lookup(rest[0], nth: nth);
+    if (from.revealed) out('revealed: ${from.resolved.description}');
+    final fromNote = from.revealNote;
+    if (fromNote != null) warn('note: $fromNote');
     warnIfForeign(from.tree);
-    final to = isPointTarget(rest[1]) || isIndexTarget(rest[1])
-        ? await ctx.lookup(rest[1])
-        : TargetLookup(
-            resolved: TargetResolver(from.tree ?? await ctx.dump()).resolve(rest[1]),
-            tree: from.tree,
-          );
+    final TargetLookup to;
+    if (isPointTarget(rest[1]) || isIndexTarget(rest[1])) {
+      to = await ctx.lookup(rest[1]);
+    } else {
+      final outcome =
+          await ctx.resolveOnScreen(rest[1], from.tree ?? await ctx.dump());
+      if (outcome.revealed) {
+        if (!outcome.onScreen) throw TargetFailure(offScreenAfterReveal(rest[1]));
+        out('revealed: ${outcome.resolved.description}');
+        final toNote = outcome.note;
+        if (toNote != null) warn('note: $toNote');
+        from = afterDropReveal(rest[0], from, outcome.tree, nth, note: (line) => warn('note: $line'));
+      }
+      to = TargetLookup(resolved: outcome.resolved, tree: outcome.tree);
+    }
     await driver.drag(
       from.resolved.x,
       from.resolved.y,
@@ -2162,6 +2560,43 @@ class DragCommand extends QaCommand with PostActions {
         '${to.resolved.description}');
     await runPostActions();
     return 0;
+  }
+
+  /// Bringing the drop target into view scrolled the screen under the
+  /// dragged row, so its point is read again from the tree after the scroll:
+  /// by the row's semantics id, which the scroll cannot reassign the way it
+  /// reshuffles which duplicate a label and `--nth` land on. Only a row
+  /// whose id is gone (or a uiautomator row, which has none) falls back to
+  /// its label, once, and [note] says so.
+  static TargetLookup afterDropReveal(
+    String target,
+    TargetLookup before,
+    UiTree tree,
+    int? nth, {
+    required void Function(String line) note,
+  }) {
+    if (isPointTarget(target)) return before;
+    final id = before.resolved.node?.semanticsId;
+    final byId = id == null ? null : tree.bySemanticsId(id);
+    final ResolvedTarget again;
+    if (byId != null) {
+      again = TargetResolver(tree).fromNode(byId);
+    } else if (isIndexTarget(target)) {
+      throw TargetFailure('revealing the drop target scrolled the screen, so '
+          '$target from the earlier dump no longer names a row — name the '
+          'dragged row by label or id');
+    } else {
+      if (id != null) {
+        note('the dragged row (semantics id $id) is not in the new dump; '
+            '"$target" was resolved again by its label');
+      }
+      again = TargetResolver(tree).resolve(target, nth: nth);
+    }
+    if (again.node?.outOfView ?? false) {
+      throw TargetFailure('"$target" and the drop target do not fit on '
+          'screen together — drag in two steps');
+    }
+    return TargetLookup(resolved: again, tree: tree);
   }
 }
 
@@ -2228,7 +2663,7 @@ class LookCommand extends QaCommand {
       name: rest.isEmpty ? 'look' : rest.first,
       scale: scale,
       all: all,
-      outDir: argResults!['out'] as String?,
+      outDir: argResults!['out'] as String? ?? ctx.shotsDirOverride,
     );
     out(path);
     final nodes = all ? tree.nodes : tree.nodes.where((n) => n.interesting).toList();
@@ -2244,7 +2679,9 @@ class LookCommand extends QaCommand {
 class ExpectCommand extends QaCommand {
   ExpectCommand() {
     argParser
-      ..addMultiOption('absent', help: 'A target that must NOT be on screen. Repeatable.')
+      ..addMultiOption('absent',
+          help: 'A target no node may match, scrolled out of view included. '
+              'Repeatable.')
       ..addOption('timeout', defaultsTo: '5', help: 'Seconds to keep re-checking.');
   }
 
@@ -2253,8 +2690,9 @@ class ExpectCommand extends QaCommand {
 
   @override
   String get description =>
-      'Assert several targets are on screen (and --absent ones are not) in '
-      'one call; exits 2 listing every miss.';
+      'Assert several targets are present (a row scrolled out of view '
+      'counts) and --absent ones match nothing, in one call; exits 2 listing '
+      'every miss.';
 
   @override
   Future<int> run() async {
@@ -2278,7 +2716,7 @@ class ExpectCommand extends QaCommand {
     warnIfForeign(tree);
     for (final target in present) {
       if (!misses.any((m) => m.startsWith('missing "$target"'))) {
-        out('ok  present  "$target"');
+        out('ok  present  "$target"${scrolledOutNote(_matchOf(tree, target))}');
       }
     }
     for (final target in absent) {
@@ -2292,9 +2730,25 @@ class ExpectCommand extends QaCommand {
       '${misses.join('\n  ')}\n${TargetResolver(tree).onScreenListing()}',
     );
   }
+
+  /// The one node [target] names, or null when it is ambiguous or missing.
+  static UiNode? _matchOf(UiTree tree, String target) {
+    try {
+      return TargetResolver(tree).resolve(target).node;
+    } on TargetFailure {
+      return null;
+    }
+  }
 }
 
 /// Which expectations a tree does not satisfy, worded for the failure line.
+///
+/// Presence is "some match counts as present" (see [UiNode.countsAsPresent]),
+/// scrolled out of view or not: Flutter keeps a row the sheet has scrolled
+/// past in the tree, and a check that counted it missing made flows fail on
+/// the fold. An ambiguous label is present when any of its matches is. So
+/// `--absent` means no node matches at all, not merely off screen, and an
+/// ambiguous label is never absent.
 List<String> expectMisses(
   UiTree tree, {
   required List<String> present,
@@ -2302,19 +2756,18 @@ List<String> expectMisses(
 }) {
   final resolver = TargetResolver(tree);
   final misses = <String>[];
-  bool found(String target) {
-    try {
-      return !(resolver.resolve(target).node?.hidden ?? false);
-    } on TargetFailure catch (e) {
-      return e.message.contains('ambiguous');
+  for (final target in present) {
+    if (isPointTarget(target)) continue;
+    if (!resolver.matchingNodes(target).any((n) => n.countsAsPresent)) {
+      misses.add('missing "$target"');
     }
   }
-
-  for (final target in present) {
-    if (!found(target)) misses.add('missing "$target"');
-  }
   for (final target in absent) {
-    if (found(target)) misses.add('unexpected "$target" is on screen');
+    final matches = resolver.matchingNodes(target);
+    if (matches.isEmpty) continue;
+    misses.add(matches.every((n) => n.outOfView)
+        ? 'unexpected "$target" is present (scrolled out of view)'
+        : 'unexpected "$target" is on screen');
   }
   return misses;
 }
@@ -2459,7 +2912,124 @@ String describePerf(Map<String, dynamic> result) {
       '  ${phase('build')}\n  ${phase('raster')}\n  ${phase('total')}';
 }
 
-class StepsCommand extends QaCommand {
+/// What one step of a step file did, for a caller that keeps a record.
+class StepRun {
+  const StepRun({
+    required this.n,
+    required this.line,
+    required this.code,
+    required this.elapsed,
+    this.message,
+  });
+
+  /// 1-based position among the step lines.
+  final int n;
+
+  /// The line as run, placeholders resolved.
+  final String line;
+  final int code;
+  final Duration elapsed;
+
+  /// The failure's own message, when the verb threw one.
+  final String? message;
+}
+
+/// The step loop `steps` runs, shared with `pass` so a pass flow behaves
+/// exactly like `steps --file` while its caller times and records each step.
+mixin StepLoop on QaCommand {
+  /// Runs [steps] in order, printing `[n/N] line` before each and stopping
+  /// at the first failure unless [keepGoing]; returns the first non-zero
+  /// code. [onStepStart] fires after the header line, [onStepEnd] after the
+  /// verb returned or failed.
+  Future<int> runStepLines(
+    List<String> steps, {
+    required bool keepGoing,
+    void Function(int n, String line)? onStepStart,
+    void Function(StepRun run)? onStepEnd,
+  }) async {
+    final qaRunner = runner! as QaCommandRunner;
+    var firstFailure = 0;
+    for (var index = 0; index < steps.length; index++) {
+      var line = steps[index];
+      List<String> words;
+      QaException? malformed;
+      try {
+        line = resolvePlaceholders(line);
+        words = splitShellWords(line);
+        if (words.isNotEmpty && words.first == 'steps') {
+          throw UsageFailure('a step cannot itself be `steps`');
+        }
+      } on QaException catch (e) {
+        // A line that cannot be run is that step failing, not the run
+        // ending: a pass must still reach its other flows and its report.
+        words = const [];
+        malformed = e;
+      }
+      if (words.isEmpty && malformed == null) continue;
+      out('[${index + 1}/${steps.length}] $line');
+      onStepStart?.call(index + 1, line);
+      final started = DateTime.now();
+      final (code, message) = malformed == null
+          ? await runOneStep(qaRunner, words)
+          : _malformedStep(qaRunner, malformed);
+      onStepEnd?.call(StepRun(
+        n: index + 1,
+        line: line,
+        code: code,
+        elapsed: DateTime.now().difference(started),
+        message: message,
+      ));
+      if (code == 0) continue;
+      if (firstFailure == 0) firstFailure = code;
+      if (!keepGoing) {
+        out('steps: stopped at ${index + 1}/${steps.length}');
+        return code;
+      }
+      out('steps: step ${index + 1}/${steps.length} failed, continuing');
+    }
+    return firstFailure;
+  }
+
+  /// Dispatches one verb indented under its step line; a failure becomes
+  /// its exit code and message instead of ending the process.
+  Future<(int, String?)> runOneStep(
+    QaCommandRunner qaRunner,
+    List<String> words,
+  ) async {
+    final previous = qaRunner.outputPrefix;
+    qaRunner.outputPrefix = '$previous  ';
+    try {
+      return (await qaRunner.run(words) ?? 0, null);
+    } on UsageException catch (e) {
+      warn('qa: ${e.message}');
+      return (exitUsage, e.message);
+    } on QaException catch (e) {
+      warn('qa: ${e.message}');
+      return (e.code, e.message);
+    } on Exception catch (e) {
+      // A socket or file error a verb did not translate is still one
+      // step's failure; ending the process here would lose a pass's report.
+      warn('qa: $e');
+      return (exitDevice, '$e');
+    } finally {
+      qaRunner.outputPrefix = previous;
+    }
+  }
+
+  /// Reports a step line that never reached a verb, indented like one.
+  (int, String?) _malformedStep(QaCommandRunner qaRunner, QaException e) {
+    final previous = qaRunner.outputPrefix;
+    qaRunner.outputPrefix = '$previous  ';
+    try {
+      warn('qa: ${e.message}');
+    } finally {
+      qaRunner.outputPrefix = previous;
+    }
+    return (e.code, e.message);
+  }
+}
+
+class StepsCommand extends QaCommand with StepLoop {
   StepsCommand() {
     argParser
       ..addOption('file',
@@ -2491,42 +3061,10 @@ class StepsCommand extends QaCommand {
     }
     if (steps.isEmpty) throw UsageFailure('steps needs at least one step');
 
-    final qaRunner = runner! as QaCommandRunner;
-    final keepGoing = argResults!['keep-going'] as bool;
-    var firstFailure = 0;
-    for (var index = 0; index < steps.length; index++) {
-      final line = resolvePlaceholders(steps[index]);
-      final words = splitShellWords(line);
-      if (words.isEmpty) continue;
-      if (words.first == 'steps') {
-        throw UsageFailure('a step cannot itself be `steps`');
-      }
-      out('[${index + 1}/${steps.length}] $line');
-      final code = await _runStep(qaRunner, words);
-      if (code == 0) continue;
-      if (firstFailure == 0) firstFailure = code;
-      if (!keepGoing) {
-        out('steps: stopped at ${index + 1}/${steps.length}');
-        return code;
-      }
-      out('steps: step ${index + 1}/${steps.length} failed, continuing');
-    }
-    return firstFailure;
-  }
-
-  Future<int> _runStep(QaCommandRunner qaRunner, List<String> words) async {
-    qaRunner.outputPrefix = '  ';
-    try {
-      return await qaRunner.run(words) ?? 0;
-    } on UsageException catch (e) {
-      warn('qa: ${e.message}');
-      return exitUsage;
-    } on QaException catch (e) {
-      warn('qa: ${e.message}');
-      return e.code;
-    } finally {
-      qaRunner.outputPrefix = '';
-    }
+    return runStepLines(
+      steps,
+      keepGoing: argResults!['keep-going'] as bool,
+    );
   }
 
   static String _readStepFile(String path) {
@@ -2548,8 +3086,9 @@ class StepsCommand extends QaCommand {
   }
 }
 
-/// `qa flows calendar` — every `*.txt` under `tool/qa/flows/calendar/`, in
-/// name order, each as its own `steps --file`. One command is a device pass.
+/// `qa flows calendar` — every `*.txt` under `tool/qa/flows/calendar/` but
+/// the suite's own `_*.txt`, in name order, each as its own `steps --file`.
+/// It runs them on one shared state; `qa pass` is the reseeding runner.
 class FlowsCommand extends QaCommand {
   FlowsCommand() {
     argParser
@@ -2558,7 +3097,11 @@ class FlowsCommand extends QaCommand {
           help: 'Run every flow even after one fails; exit with the first '
               'non-zero code.')
       ..addFlag('list',
-          negatable: false, help: 'List the flows without running them.');
+          negatable: false, help: 'List the flows without running them.')
+      ..addFlag('prelude',
+          negatable: false,
+          help: "Run the suite's prelude before a single flow too (it runs "
+              'by itself for a whole directory and for the first flow).');
   }
 
   @override
@@ -2571,7 +3114,7 @@ class FlowsCommand extends QaCommand {
       '(`qa flows calendar/03_dates`).';
 
   @override
-  String get invocation => 'qa flows <directory>[/<flow>] [--keep-going]';
+  String get invocation => 'qa flows <directory>[/<flow>] [--keep-going] [--prelude]';
 
   /// The step files a flow argument names, in name order.
   static List<File> resolveFlows(String flowsDir, String argument) {
@@ -2596,7 +3139,7 @@ class FlowsCommand extends QaCommand {
     final files = dir
         .listSync()
         .whereType<File>()
-        .where((f) => f.path.endsWith('.txt'))
+        .where((f) => isFlowFileName(f.uri.pathSegments.last))
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
     if (flowName == null) {
@@ -2614,6 +3157,34 @@ class FlowsCommand extends QaCommand {
     return match.toList();
   }
 
+  /// The suite's prelude when [argument] names a whole directory or the
+  /// suite's first flow (in name order), or any single flow with [force]:
+  /// the first flow starts where the prelude ends, so the documented
+  /// `relaunch --fresh --seed …` then `flows calendar/00_open` still lands
+  /// on the calendar. Any other single flow runs from wherever the app is.
+  static File? preludeFor(String flowsDir, String argument, {bool force = false}) {
+    final normalized = argument.replaceAll('\\', '/');
+    final slash = normalized.indexOf('/');
+    final suite = slash < 0 ? normalized : normalized.substring(0, slash);
+    final manifest = File(joinPath(flowsDir, [suite, SuiteManifest.fileName]));
+    if (!manifest.existsSync()) return null;
+    final prelude = SuiteManifest.parse(manifest.readAsStringSync(), suite: suite).prelude;
+    if (prelude == null) return null;
+    if (slash >= 0 && !force) {
+      final flow = flowNameOf(normalized.substring(slash + 1));
+      final names = Directory(joinPath(flowsDir, [suite]))
+          .listSync()
+          .whereType<File>()
+          .map((f) => f.uri.pathSegments.last)
+          .where(isFlowFileName)
+          .map(flowNameOf)
+          .toList()
+        ..sort();
+      if (names.isEmpty || names.first != flow) return null;
+    }
+    return File(joinPath(flowsDir, [suite, prelude]));
+  }
+
   @override
   Future<int> run() async {
     final ctx = context;
@@ -2629,6 +3200,16 @@ class FlowsCommand extends QaCommand {
       return 0;
     }
     final qaRunner = runner! as QaCommandRunner;
+    final prelude = preludeFor(ctx.paths.flowsDir, rest.single,
+        force: argResults!['prelude'] as bool);
+    if (prelude != null) {
+      out('=== prelude: ${prelude.uri.pathSegments.last}');
+      final code = await qaRunner.run(['steps', '--file', prelude.path]) ?? 0;
+      if (code != 0) {
+        out('flows: the prelude failed (exit $code), no flow ran');
+        return code;
+      }
+    }
     final keepGoing = argResults!['keep-going'] as bool;
     var firstFailure = 0;
     final failed = <String>[];
@@ -2654,6 +3235,1271 @@ class FlowsCommand extends QaCommand {
       out('flows: all ${files.length} passed');
     }
     return firstFailure;
+  }
+}
+
+/// `qa pass calendar` — a whole suite in one call, every flow from the
+/// state its `_suite.txt` names, with a `report.json` an agent can triage
+/// and `--shard i/n` to spread one suite over several devices.
+class PassCommand extends QaCommand with StepLoop {
+  PassCommand() {
+    argParser
+      ..addMultiOption('only',
+          splitCommas: false,
+          help: 'Run only this flow (its file name, with or without .txt). '
+              'Repeatable.')
+      ..addOption('shard',
+          help: 'i/n: run the flows whose 0-based index mod n is i-1, for one '
+              'of n devices. Refused when the suite says shard=no.')
+      ..addFlag('reseed',
+          defaultsTo: true,
+          help: 'Put the fixture back as the manifest says; --no-reseed runs '
+              'every flow on what the app holds now.')
+      ..addFlag('stop-on-fail',
+          negatable: false, help: 'Skip the remaining flows after a failure.')
+      ..addOption('json', help: 'Also write the report to this path.')
+      ..addOption('label', help: 'Free text stored in the report.')
+      ..addOption('summary',
+          help: 'Print the summary of an existing report.json and exit.')
+      ..addFlag('merge',
+          negatable: false,
+          help: 'Merge the report.json files given as arguments (the shards '
+              'of one suite) into one report under build/qa/pass and print '
+              'it; warns about missing or repeated flows.');
+  }
+
+  @override
+  String get name => 'pass';
+
+  @override
+  String get description =>
+      'Run a flow suite under tool/qa/flows/ as one device pass: reseed per '
+      'its _suite.txt, run its prelude, keep going past a failure, and write '
+      'build/qa/pass/<suite>_<stamp>_<device>/report.json.';
+
+  @override
+  String get invocation =>
+      'qa pass <suite>[/<flow>] [--only <flow>]… [--shard i/n] [--no-reseed] '
+      '[--stop-on-fail] [--json <path>] [--label <text>]\n'
+      '       qa pass --summary <report.json>\n'
+      '       qa pass --merge <a.json> <b.json>…';
+
+  /// Lines a step printed, while one is running; stderr lines marked `! `.
+  List<String>? _capture;
+
+  /// How far before its start a flow's logcat window opens: enough for the
+  /// emulator's clock running a couple of seconds behind the host, far
+  /// less than [logcatStampMargin], which would reach back into the
+  /// previous flow on a suite that keeps one app.
+  static const Duration _flowStampMargin = Duration(seconds: 3);
+
+  @override
+  Future<int> run() async {
+    final summary = argResults!['summary'] as String?;
+    if (summary != null && summary.isNotEmpty) return _printSummary(summary);
+    if (argResults!['merge'] as bool) return _merge(argResults!.rest);
+    final rest = argResults!.rest;
+    if (rest.length != 1) {
+      throw UsageFailure('pass takes exactly one argument, the suite '
+          '(e.g. `qa pass calendar`)');
+    }
+    return _runPass(rest.single);
+  }
+
+  int _printSummary(String path) {
+    final file = File(context.paths.resolve(path));
+    if (!file.existsSync()) throw UsageFailure('no report at ${file.path}');
+    final report = PassReport.decode(file.readAsStringSync());
+    summaryLines(report, reportPath: file.absolute.path).forEach(out);
+    return report.allPassed ? 0 : exitTarget;
+  }
+
+  int _merge(List<String> inputs) {
+    if (inputs.isEmpty) throw UsageFailure('--merge needs the report.json files to merge');
+    final paths = context.paths;
+    final files = [for (final input in inputs) File(paths.resolve(input))];
+    for (final file in files) {
+      if (!file.existsSync()) throw UsageFailure('no report at ${file.path}');
+    }
+    final reports = [
+      for (final file in files) PassReport.decode(file.readAsStringSync()),
+    ];
+    final merged = mergeReports(reports);
+    final repeated = duplicateFlowNames(reports);
+    if (repeated.isNotEmpty) {
+      warn('warning: ${repeated.length} flow(s) appear in more than one '
+          'report; kept the one given last: ${repeated.join(', ')}');
+    }
+    final missing = _missingFromSuite(merged);
+    if (missing != null && missing.isNotEmpty) {
+      warn('warning: the merged reports do not cover "${merged.suite}": '
+          '${missing.length} flow(s) missing: ${missing.join(', ')}');
+    }
+    final target = File(joinPath(paths.passRoot, [
+      '${QaPaths.safeId(merged.suite)}_${shotStamp(DateTime.now())}_merged.json',
+    ]))
+      ..parent.createSync(recursive: true);
+    target.writeAsStringSync(merged.encode());
+    File(paths.latestPassFor(merged.suite)).writeAsStringSync(target.absolute.path);
+    summaryLines(merged, reportPath: target.absolute.path).forEach(out);
+    return merged.allPassed ? 0 : exitTarget;
+  }
+
+  /// The suite's flows [merged] lacks, against every flow a whole-suite
+  /// pass would run; null when the suite is not under the flows directory
+  /// (reports from another checkout), which leaves nothing to compare.
+  List<String>? _missingFromSuite(PassReport merged) {
+    final List<String> expected;
+    try {
+      final paths = context.paths;
+      final manifest = SuiteManifest.load(paths.flowsDir, merged.suite);
+      expected = selectFlows(_flowNames(paths.flowsDir, merged.suite), manifest: manifest);
+    } on UsageFailure {
+      return null;
+    } on FileSystemException {
+      return null;
+    }
+    final have = {for (final flow in merged.flows) flow.name};
+    return [for (final name in expected) if (!have.contains(name)) name];
+  }
+
+  static List<String> _flowNames(String flowsDir, String suite) =>
+      Directory(joinPath(flowsDir, [suite]))
+          .listSync()
+          .whereType<File>()
+          .map((f) => f.uri.pathSegments.last)
+          .where(isFlowFileName)
+          .map(flowNameOf)
+          .toList();
+
+  Future<int> _runPass(String argument) async {
+    final ctx = context;
+    final paths = ctx.paths;
+    final normalized = argument.replaceAll('\\', '/');
+    final slash = normalized.indexOf('/');
+    final suite = slash < 0 ? normalized : normalized.substring(0, slash);
+    final manifest = SuiteManifest.load(paths.flowsDir, suite);
+    final fixture = manifest.fixture;
+    if (fixture == null) {
+      throw UsageFailure('${SuiteManifest.fileName} of "$suite" names no '
+          'fixture= — `qa pass` needs one');
+    }
+    final suiteDir = joinPath(paths.flowsDir, [suite]);
+    final available = _flowNames(paths.flowsDir, suite);
+    final shardArg = argResults!['shard'] as String?;
+    final shard = shardArg == null || shardArg.isEmpty ? null : parseShard(shardArg);
+    final selected = selectFlows(
+      available,
+      manifest: manifest,
+      wanted: [
+        if (slash >= 0) normalized.substring(slash + 1),
+        ...argResults!['only'] as List<String>,
+      ],
+      shard: shard,
+    );
+    if (selected.isEmpty) {
+      throw UsageFailure('nothing to run: shard ${shardArg ?? ''} of '
+          '${available.length} flow(s) in "$suite" is empty');
+    }
+    final preludeName = manifest.prelude;
+    List<String>? prelude;
+    if (preludeName != null) {
+      final file = File(joinPath(suiteDir, [preludeName]));
+      if (!file.existsSync()) {
+        throw UsageFailure('${SuiteManifest.fileName} of "$suite" names '
+            'prelude=$preludeName, which is not in $suiteDir');
+      }
+      prelude = parseStepLines(file.readAsStringSync());
+    }
+    final reseed = (argResults!['reseed'] as bool) ? manifest.reseed : ReseedMode.none;
+
+    final device = await ctx.device();
+    final started = DateTime.now();
+    final passDir = Directory(paths.passDirFor(suite, shotStamp(started), device.id))
+      ..createSync(recursive: true);
+    final log = File(joinPath(passDir.path, ['pass.log'])).openWrite();
+    final qaRunner = runner! as QaCommandRunner;
+    qaRunner.lineSink = (line, {required prefix, required isError}) {
+      log.writeln('$prefix$line');
+      _capture?.add(isError ? '! $line' : line);
+    };
+    ctx.shotsDirOverride = passDir.path;
+    try {
+      final installed = ApkRecord.read(paths.installedJsonFor(device.id));
+      if (installed != null) {
+        final stale = staleBuildWarning(
+          installed,
+          newestSource(apkSourceRoots(paths)),
+          projectRoot: paths.projectRoot,
+        );
+        if (stale != null) warn(stale);
+      }
+      out('pass: $suite — ${selected.length} flow(s)'
+          '${shard == null ? '' : ' (shard ${shard.$1}/${shard.$2})'} on '
+          '${device.id}, reseed ${reseed.name} — ${passDir.path}');
+
+      final reportFile = File(joinPath(passDir.path, ['report.json']));
+      final copy = argResults!['json'] as String?;
+      // Written after every flow and once more at the end, so a pass that
+      // is killed (or whose host dies) late still leaves what it finished.
+      PassReport writeReport(List<FlowRecord> flows, {required bool partial}) {
+        final report = PassReport(
+          suite: suite,
+          label: argResults!['label'] as String?,
+          device: PassDevice(id: device.id, label: device.label, platform: device.kind.label),
+          host: Platform.operatingSystem,
+          started: started,
+          finished: DateTime.now(),
+          shard: shard,
+          reseed: reseed.name,
+          fixture: fixture,
+          prelude: preludeName,
+          build: installed?.toJson(),
+          flows: flows,
+          partial: partial,
+        );
+        final encoded = report.encode();
+        reportFile.writeAsStringSync(encoded);
+        File(paths.latestPassFor(suite)).writeAsStringSync(reportFile.absolute.path);
+        if (copy != null && copy.isNotEmpty) {
+          File(paths.resolve(copy))
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync(encoded);
+        }
+        return report;
+      }
+
+      final flows = await _runFlows(
+        qaRunner,
+        suite: suite,
+        selected: selected,
+        manifest: manifest,
+        reseed: reseed,
+        prelude: prelude,
+        passDir: passDir.path,
+        onFlowDone: (done) => writeReport(done, partial: true),
+      );
+      final report = writeReport(flows, partial: false);
+      summaryLines(report, reportPath: reportFile.absolute.path).forEach(out);
+      if (report.allPassed) return 0;
+      final reseedBroke = flows.any((f) =>
+          f.failure != null && f.failure!.step == 0 && f.failure!.line.startsWith('relaunch '));
+      final nothingRan = flows.every((f) => f.steps.isEmpty);
+      return reseedBroke && nothingRan ? exitDevice : exitTarget;
+    } finally {
+      qaRunner.lineSink = null;
+      ctx.shotsDirOverride = null;
+      await log.flush();
+      await log.close();
+    }
+  }
+
+  Future<List<FlowRecord>> _runFlows(
+    QaCommandRunner qaRunner, {
+    required String suite,
+    required List<String> selected,
+    required SuiteManifest manifest,
+    required ReseedMode reseed,
+    required List<String>? prelude,
+    required String passDir,
+    void Function(List<FlowRecord> done)? onFlowDone,
+  }) async {
+    final ctx = context;
+    final suiteDir = joinPath(ctx.paths.flowsDir, [suite]);
+    final stopOnFail = argResults!['stop-on-fail'] as bool;
+    final records = <FlowRecord>[];
+    var stopReason = '';
+    var reseedFailures = 0;
+    for (var index = 0; index < selected.length; index++) {
+      final name = selected[index];
+      if (stopReason.isNotEmpty) {
+        records.add(FlowRecord(name: name, status: FlowStatus.skipped));
+        continue;
+      }
+      out('=== flow ${index + 1}/${selected.length}: $name');
+      final flowStarted = DateTime.now();
+      // What this flow's failure evidence may blame on it starts here: under
+      // reseed=suite the app (and its error buffer) outlives earlier flows.
+      final errorsStamp = rawLogcatStamp(flowStarted.subtract(_flowStampMargin));
+      await ctx.clearAgentErrors();
+      int? reseedMs;
+      int? preludeMs;
+      FlowFailure? failure;
+      final steps = <StepRecord>[];
+
+      final reseeds = reseed == ReseedMode.flow || (reseed == ReseedMode.suite && index == 0);
+      if (reseeds) {
+        final words = [
+          'relaunch',
+          '--fresh',
+          '--seed',
+          manifest.fixture!,
+          for (final setting in manifest.settings) ...['--setting', setting],
+        ];
+        final line = words.join(' ');
+        out('[reseed] $line');
+        _capture = [];
+        final at = DateTime.now();
+        final (code, message) = await runOneStep(qaRunner, words);
+        reseedMs = DateTime.now().difference(at).inMilliseconds;
+        final printed = _takeCapture();
+        if (code != 0) {
+          failure = FlowFailure(
+            step: 0,
+            line: line,
+            exitCode: code,
+            message: message ?? _lastLine(printed) ?? 'exit $code',
+          );
+        }
+      }
+
+      final runsPrelude = prelude != null &&
+          failure == null &&
+          (reseeds || (reseed == ReseedMode.none && index == 0));
+      if (runsPrelude) {
+        final at = DateTime.now();
+        StepRun? failed;
+        await runStepLines(
+          prelude,
+          keepGoing: false,
+          onStepStart: (_, _) => _capture = [],
+          onStepEnd: (step) {
+            final printed = _takeCapture();
+            if (step.code != 0) {
+              failed = step;
+              failure = FlowFailure(
+                step: 0,
+                line: '${manifest.prelude}: ${step.line}',
+                exitCode: step.code,
+                message: step.message ?? _lastLine(printed) ?? 'exit ${step.code}',
+              );
+            }
+          },
+        );
+        preludeMs = DateTime.now().difference(at).inMilliseconds;
+        if (failed != null) out('prelude: stopped at ${failed!.n}');
+      }
+
+      if (failure == null) {
+        final file = File(joinPath(suiteDir, ['$name.txt']));
+        await runStepLines(
+          parseStepLines(file.readAsStringSync()),
+          keepGoing: false,
+          onStepStart: (_, _) => _capture = [],
+          onStepEnd: (step) {
+            final printed = _takeCapture();
+            steps.add(StepRecord(
+              n: step.n,
+              line: step.line,
+              ms: step.elapsed.inMilliseconds,
+              ok: step.code == 0,
+              output: printed.join('\n').trim(),
+            ));
+            if (step.code != 0) {
+              failure = FlowFailure(
+                step: step.n,
+                line: step.line,
+                exitCode: step.code,
+                message: step.message ?? _lastLine(printed) ?? 'exit ${step.code}',
+              );
+            }
+          },
+        );
+      }
+
+      final took = DateTime.now().difference(flowStarted).inMilliseconds;
+      final failed = failure;
+      out('=== $name: ${failed == null ? 'ok' : 'FAILED (exit ${failed.exitCode})'} in $took ms');
+      records.add(FlowRecord(
+        name: name,
+        status: failed == null ? FlowStatus.passed : FlowStatus.failed,
+        durationMs: took,
+        reseedMs: reseedMs,
+        preludeMs: preludeMs,
+        steps: steps,
+        failure: failed == null
+            ? null
+            : await _evidence(qaRunner, failed, name, passDir, errorsStamp: errorsStamp),
+      ));
+      onFlowDone?.call(List.unmodifiable(records));
+      if (failed == null) {
+        reseedFailures = 0;
+        continue;
+      }
+      final reseedFailed = failed.step == 0 && reseeds && preludeMs == null;
+      reseedFailures = reseedFailed ? reseedFailures + 1 : 0;
+      if (stopOnFail) {
+        stopReason = '--stop-on-fail';
+      } else if (reseedFailed && reseed == ReseedMode.suite) {
+        stopReason = 'the suite seed did not go in';
+      } else if (reseedFailures >= 2) {
+        stopReason = 'two reseeds in a row failed';
+      }
+      if (stopReason.isNotEmpty) {
+        out('pass: skipping the remaining ${selected.length - index - 1} flow(s) — $stopReason');
+      }
+    }
+    return records;
+  }
+
+  /// The screen, its nodes and the error sources at the moment a flow
+  /// failed, next to the report; each part that cannot be had is left null.
+  Future<FlowFailure> _evidence(
+    QaCommandRunner qaRunner,
+    FlowFailure failure,
+    String name,
+    String passDir, {
+    required String errorsStamp,
+  }) async {
+    final ctx = context;
+    final base = 'fail_${sanitiseName(name)}';
+    out('[failure] the screen, its nodes and the errors into $passDir');
+    String? shot;
+    String? dump;
+    String? errors;
+    try {
+      final taken = await captureShot(ctx.screenshotPng, ctx.paths, name: base, outDir: passDir);
+      shot = File(taken).renameSync(joinPath(passDir, ['$base.png'])).absolute.path;
+    } on Object catch (e) {
+      warn('pass: no failure screenshot ($e)');
+    }
+    try {
+      final tree = await ctx.dump();
+      final file = File(joinPath(passDir, ['${base}_dump.txt']))
+        ..writeAsStringSync(
+          tree.nodes.where((n) => n.interesting).map((n) => n.describe()).join('\n'),
+        );
+      dump = file.absolute.path;
+    } on Object catch (e) {
+      warn('pass: no failure dump ($e)');
+    }
+    _capture = [];
+    ctx.runLogForThisDeviceOnly = true;
+    ctx.errorsSinceStamp = errorsStamp;
+    final int code;
+    try {
+      (code, _) = await runOneStep(qaRunner, ['errors']);
+    } finally {
+      ctx.runLogForThisDeviceOnly = false;
+      ctx.errorsSinceStamp = null;
+    }
+    final printed = _takeCapture();
+    if (code == 0 || printed.isNotEmpty) {
+      final file = File(joinPath(passDir, ['${base}_errors.txt']))
+        ..writeAsStringSync(printed.join('\n'));
+      errors = file.absolute.path;
+    }
+    return failure.withEvidence(shot: shot, dump: dump, errors: errors);
+  }
+
+  List<String> _takeCapture() {
+    final printed = _capture ?? const <String>[];
+    _capture = null;
+    return printed;
+  }
+
+  static String? _lastLine(List<String> printed) {
+    for (final line in printed.reversed) {
+      final trimmed = line.replaceFirst(RegExp(r'^! '), '').trim();
+      if (trimmed.isNotEmpty) return trimmed;
+    }
+    return null;
+  }
+}
+
+/// Refuses a verb that only makes sense for an Android device when `-d`
+/// names something else; with no `-d` there is nothing to refuse.
+Future<void> requireAndroidTarget(QaContext ctx, String verb) async {
+  final hint = ctx.explicitDevice;
+  if (hint == null) return;
+  final (adb, sims) = QaContext.probesFor(hint);
+  if (adb && !sims) return;
+  final ref = adb ? await ctx.ref() : null;
+  if (ref != null && ref.kind == DeviceKind.android) return;
+  throw UnsupportedOnPlatform(
+    verb,
+    ref?.label ?? hint,
+    instead: 'it builds the Android APK; `qa run -d macos/ios` builds and '
+        'starts the app there',
+  );
+}
+
+/// `qa build` — the QA driver APK, built once for every emulator to install.
+class BuildCommand extends QaCommand {
+  BuildCommand() {
+    argParser
+      ..addMultiOption('define',
+          help: 'Extra --dart-define, as K=V. Repeatable.')
+      ..addFlag('driver',
+          defaultsTo: true,
+          help: 'Build $driverTarget so the QA agent and Flutter Driver work.')
+      ..addFlag('force',
+          negatable: false,
+          help: 'Build even while the `flutter run` behind run.pid is up.');
+  }
+
+  @override
+  String get name => 'build';
+
+  @override
+  String get description =>
+      'Build the QA debug APK (flutter build apk --debug with the ANTA_QA '
+      'defines and the driver entry point) and record it in build/qa/apk.json '
+      'for `qa install`. Android only; never starts `flutter run`.';
+
+  @override
+  String get invocation => 'qa build [--define K=V]… [--no-driver] [--force]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    await requireAndroidTarget(ctx, 'build');
+    final refusal = await buildRefusal(ctx.paths, ctx.runner,
+        force: argResults!['force'] as bool);
+    if (refusal != null) throw UsageFailure(refusal);
+    final extra = argResults!['define'] as List<String>;
+    final args = buildApkArgs(driver: argResults!['driver'] as bool, extraDefines: extra);
+    final flutter = findFlutter();
+    out('flutter ${args.join(' ')}');
+    final started = DateTime.now();
+    final heartbeat = Timer.periodic(const Duration(seconds: 20), (_) {
+      warn('still building (${DateTime.now().difference(started).inSeconds} s)');
+    });
+    final RunOutcome result;
+    try {
+      result = await ctx.runner.run(
+        flutter,
+        args,
+        timeout: const Duration(minutes: 20),
+        workingDirectory: ctx.paths.projectRoot,
+      );
+    } finally {
+      heartbeat.cancel();
+    }
+    final seconds = DateTime.now().difference(started).inSeconds;
+    if (!result.ok) {
+      throw DeviceFailure('flutter build apk failed (exit ${result.exitCode}) '
+          'after $seconds s:\n${tailLines(result.combined)}');
+    }
+    final apk = File(ctx.paths.debugApk);
+    if (!apk.existsSync()) {
+      throw DeviceFailure('flutter build apk succeeded but ${apk.path} is not there');
+    }
+    final git = await gitBuildState(ctx.runner, ctx.paths.projectRoot);
+    final record = ApkRecord(
+      apk: apk.absolute.path,
+      gitHash: git.hash,
+      dirty: git.dirty,
+      builtAt: started,
+      defines: [...qaDefines, ...extra],
+    )..write(ctx.paths.apkJson);
+    final mb = (apk.lengthSync() / (1024 * 1024)).toStringAsFixed(0);
+    out('built ${record.apk} ($mb MB) in $seconds s at '
+        '${record.gitHash ?? 'no git hash'}${record.dirty ? ' (dirty tree)' : ''}');
+    out('recorded ${ctx.paths.apkJson} — `qa -d <serial> install` puts it on a device');
+    return 0;
+  }
+}
+
+/// `qa install` — puts the built APK on one device without building, so
+/// a fleet of emulators shares one build.
+class InstallCommand extends QaCommand with StepLoop {
+  InstallCommand() {
+    argParser.addOption('apk',
+        help: 'The APK to install; defaults to the one build/qa/apk.json records.');
+  }
+
+  @override
+  String get name => 'install';
+
+  @override
+  String get description =>
+      'Install the APK `qa build` made on the selected Android device '
+      '(adb install -r -t: the app data stays), launch it once so its '
+      'documents directory exists for the markers, and stop it.';
+
+  @override
+  String get invocation => 'qa install [--apk <path>]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final device = await ctx.device();
+    if (device is! AndroidDevice) {
+      throw UnsupportedOnPlatform('install', device.label,
+          instead: '`qa run -d macos/ios` builds and installs there');
+    }
+    final apkOption = argResults!['apk'] as String?;
+    final ApkRecord record;
+    if (apkOption != null && apkOption.isNotEmpty) {
+      final file = File(ctx.paths.resolve(apkOption));
+      if (!file.existsSync()) throw UsageFailure('no APK at ${file.path}');
+      final recorded = ApkRecord.read(ctx.paths.apkJson);
+      record = recorded != null && File(recorded.apk).absolute.path == file.absolute.path
+          ? recorded
+          : ApkRecord(
+              apk: file.absolute.path,
+              gitHash: null,
+              dirty: false,
+              builtAt: file.lastModifiedSync(),
+              defines: const [],
+            );
+    } else {
+      record = ApkRecord.require(ctx.paths.apkJson);
+      if (!File(record.apk).existsSync()) {
+        throw UsageFailure('${ctx.paths.apkJson} names ${record.apk}, which is '
+            'gone — run `qa build` again');
+      }
+    }
+    final args = installApkArgs(record.apk);
+    out('adb -s ${device.id} ${args.join(' ')}');
+    final started = DateTime.now();
+    final result = await device.adb.raw(args, timeout: const Duration(minutes: 5));
+    if (!result.ok || !result.stdout.contains('Success')) {
+      throw DeviceFailure('adb install failed on ${device.id}: ${result.combined}');
+    }
+    out('installed in ${DateTime.now().difference(started).inMilliseconds} ms');
+    final qaRunner = runner! as QaCommandRunner;
+    final (code, message) = await runOneStep(qaRunner, ['launch']);
+    if (code != 0) {
+      throw DeviceFailure('installed, but the first launch failed: ${message ?? 'exit $code'}');
+    }
+    await device.forceStop();
+    out('stopped ${device.packageId} on ${device.label}');
+    final installed = record.installed(DateTime.now())
+      ..write(ctx.paths.installedJsonFor(device.id));
+    out('recorded ${ctx.paths.installedJsonFor(device.id)} '
+        '(${installed.gitHash ?? 'no git hash'}, built ${installed.builtAt.toIso8601String()})');
+    return 0;
+  }
+}
+
+/// The fleet's view of this host, from the SDK and AVD directory this
+/// context sees.
+FleetHost fleetHostFor(QaContext ctx) => FleetHost(
+      runner: ctx.runner,
+      adb: Adb(executable: ctx.sdk.requireAdb(), runner: ctx.runner),
+      avdHome: fleetAvdHome(Platform.environment, windows: Platform.isWindows),
+      sdkRoot: fleetSdkRoot(ctx.sdk),
+      windows: Platform.isWindows,
+    );
+
+/// `qa fleet` — headless emulators named `anta_qa_<N>`, each on its own
+/// port, so several agents can each own one and a pass can be sharded
+/// across them in one call. The owner's own AVDs are listed, never acted on.
+class FleetCommand extends QaCommand {
+  FleetCommand() {
+    addSubcommand(FleetCreateCommand());
+    addSubcommand(FleetBootCommand());
+    addSubcommand(FleetStatusCommand());
+    addSubcommand(FleetStopCommand());
+    addSubcommand(FleetInstallCommand());
+    addSubcommand(FleetPassCommand());
+  }
+
+  @override
+  String get name => 'fleet';
+
+  @override
+  String get description =>
+      'Headless emulators anta_qa_<N> on console port 5554+2N for several '
+      'agents at once: create, boot, status, stop, install, pass.';
+}
+
+/// What every fleet verb shares: the host view and the child `qa` launcher.
+abstract class FleetSubcommand extends QaCommand {
+  int get capacity => fleetCapacity(Platform.numberOfProcessors);
+
+  String? get _parentVia =>
+      globalResults!.wasParsed('via') ? globalResults!['via'] as String? : null;
+
+  bool get _parentVerbose => globalResults!['verbose'] as bool? ?? false;
+
+  /// Runs this tool again with [arguments], printing the lines [echo]
+  /// accepts (all of them without it) under `[tag]`.
+  Future<ChildOutcome> runChild(
+    QaContext ctx,
+    List<String> arguments, {
+    required String tag,
+    String? logPath,
+    bool Function(String line, bool isError)? echo,
+  }) {
+    final self = qaSelfCommand(
+      resolvedExecutable: Platform.resolvedExecutable,
+      qaExe: ctx.paths.qaExe,
+      qaExeExists: File(ctx.paths.qaExe).existsSync(),
+      script: joinPath(ctx.paths.toolQaDir, ['qa.dart']),
+    );
+    return runQaChild(
+      executable: self.executable,
+      arguments: [...self.leading, ...arguments],
+      workingDirectory: ctx.paths.projectRoot,
+      logPath: logPath,
+      onLine: (line, isError) {
+        if (echo != null && !echo(line, isError)) return;
+        isError ? warn('[$tag] $line') : out('[$tag] $line');
+      },
+    );
+  }
+
+  /// The fleet indices the verb's arguments name, or every created one
+  /// with `--all`.
+  List<int> namedIndices(FleetHost host, {required String verb}) {
+    final rest = argResults!.rest;
+    final all = argResults!['all'] as bool;
+    if (all && rest.isNotEmpty) {
+      throw UsageFailure('fleet $verb takes AVD names or --all, not both');
+    }
+    if (!all && rest.isEmpty) {
+      throw UsageFailure('fleet $verb needs AVD names (anta_qa_2, or 2) or --all');
+    }
+    final indices = all
+        ? host.createdIndices()
+        : ({for (final argument in rest) parseFleetArgument(argument)}.toList()
+          ..sort());
+    if (indices.isEmpty) {
+      throw UsageFailure('no fleet AVD exists yet — `qa fleet create` makes them');
+    }
+    return indices;
+  }
+}
+
+class FleetCreateCommand extends FleetSubcommand {
+  FleetCreateCommand() {
+    argParser
+      ..addOption('count',
+          help: 'How many fleet AVDs (anta_qa_1..N). Defaults to what this '
+              'host runs at once: (threads - $fleetReservedThreads for flutter '
+              'test - $ownerEmulatorThreads for the owner\'s emulator) / '
+              '$fleetVcpus.')
+      ..addFlag('force',
+          negatable: false, help: 'Allow --count above that capacity.')
+      ..addFlag('retune',
+          negatable: false,
+          help: 'Rewrite the fleet keys of an existing AVD whose config.ini '
+              'drifted from the spec (it takes effect on its next boot).');
+  }
+
+  @override
+  String get name => 'create';
+
+  @override
+  String get description =>
+      'Make the missing fleet AVDs with avdmanager: the image $ownerReferenceAvd '
+      'uses, the $fleetDeviceProfile profile, 2 GB, 4 vCPU, 6 GB data, cold '
+      'boot. Existing AVDs are reported (and with --retune retuned), never '
+      'replaced or removed.';
+
+  @override
+  String get invocation => 'qa fleet create [--count N] [--force] [--retune]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final host = fleetHostFor(ctx);
+    final threads = Platform.numberOfProcessors;
+    final count = fleetCount(
+      requested: intOption('count'),
+      threads: threads,
+      force: argResults!['force'] as bool,
+    );
+    out('fleet: $count AVD(s) in ${host.avdHome} (this host runs '
+        '${fleetCapacity(threads)} at once on $threads threads)');
+    String? image;
+    var imageChosen = false;
+    String? chooseImage() {
+      if (imageChosen) return image;
+      imageChosen = true;
+      final owner = File(host.configPath(ownerReferenceAvd));
+      return image = chooseFleetImage(
+        ownerConfig:
+            owner.existsSync() ? splitConfig(owner.readAsStringSync()) : null,
+        installedApis: host.installedImageApis(),
+      );
+    }
+
+    var failed = false;
+    for (var index = 1; index <= count; index++) {
+      try {
+        out(await host.create(
+          index,
+          retune: argResults!['retune'] as bool,
+          image: chooseImage,
+        ));
+      } on QaException catch (e) {
+        failed = true;
+        warn('failed: ${fleetName(index)} — ${e.message}');
+      }
+    }
+    return failed ? exitDevice : 0;
+  }
+}
+
+class FleetBootCommand extends FleetSubcommand {
+  FleetBootCommand() {
+    argParser
+      ..addFlag('all', negatable: false, help: 'Every fleet AVD that exists.')
+      ..addFlag('affinity',
+          defaultsTo: true,
+          help: 'Windows: pin each fleet qemu to the P-cores of a hybrid CPU '
+              '($fleetAffinityEnv=<hex> sets the mask). --no-affinity leaves '
+              'the scheduler alone.');
+  }
+
+  @override
+  String get name => 'boot';
+
+  @override
+  String get description =>
+      'Boot fleet AVDs headless on their own ports, in parallel; wait until '
+      'each is booted and provisioned, then pin it to the P-cores. One that '
+      'is already up is left running (and pinned).';
+
+  @override
+  String get invocation => 'qa fleet boot <anta_qa_N|N>… | --all [--no-affinity]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final host = fleetHostFor(ctx);
+    final indices = namedIndices(host, verb: 'boot');
+    for (final index in indices) {
+      if (!host.isCreated(fleetName(index))) {
+        throw UsageFailure('${fleetName(index)} does not exist — '
+            '`qa fleet create --count $index` makes it');
+      }
+    }
+    final emulator = host.emulatorPath ??
+        (throw DeviceFailure('emulator binary not found under '
+            '${host.sdkRoot ?? 'the Android SDK'}'));
+    final topology = await host.cpuTopology();
+    final affinity = fleetAffinity(
+      windows: Platform.isWindows,
+      disabled: !(argResults!['affinity'] as bool),
+      override: Platform.environment[fleetAffinityEnv],
+      cores: topology?.cores,
+      threads: topology?.threads,
+    );
+    out(affinity.mask == null
+        ? 'affinity: not pinning — ${affinity.reason}'
+        : 'affinity: pinning to ${hexMask(affinity.mask!)} — ${affinity.reason}');
+    final devices = await host.adb.devices();
+    final qemus = await host.qemuProcesses();
+    final booted = await Future.wait([
+      for (final index in indices)
+        _bootOne(ctx, host, emulator, index, devices, qemus, affinity.mask),
+    ]);
+    return booted.every((ok) => ok) ? 0 : exitDevice;
+  }
+
+  Future<bool> _bootOne(
+    QaContext ctx,
+    FleetHost host,
+    String emulator,
+    int index,
+    List<AdbDevice> devices,
+    List<QemuProcess> qemus,
+    int? mask,
+  ) async {
+    final name = fleetName(index);
+    final serial = fleetSerial(index);
+    final port = fleetPort(index);
+    final started = DateTime.now();
+    void progress(String line) => warn('[$name] $line');
+    String took() =>
+        '${(DateTime.now().difference(started).inMilliseconds / 1000).toStringAsFixed(1)} s';
+    try {
+      final row = devices.where((d) => d.serial == serial).firstOrNull;
+      final running = qemus.where((q) => q.avd == name).firstOrNull;
+      final String how;
+      if (row != null) {
+        final reported = await host.avdNameOn(serial);
+        if (reported != name) {
+          throw DeviceFailure('$serial (port $port) is held by '
+              '${reported == null ? 'an emulator that does not name its AVD' : '"$reported"'}, '
+              'not $name — left alone');
+        }
+        await awaitEmulatorBoot(ctx, host.adb, running?.pid, name,
+            serial: serial, fatalLogLines: false, progress: progress);
+        how = 'already up';
+      } else if (running != null) {
+        if (running.port != null && running.port != port) {
+          throw DeviceFailure('$name already runs on port ${running.port} '
+              '(qemu ${running.pid}), not its fleet port $port — left alone');
+        }
+        out('[$name] qemu ${running.pid} is already coming up — waiting');
+        await awaitEmulatorBoot(ctx, host.adb, running.pid, name,
+            serial: serial, fatalLogLines: false, progress: progress);
+        how = 'up after ${took()}';
+      } else {
+        ctx.paths.ensureBuildQa();
+        final logPath = ctx.paths.emulatorLogFor(name);
+        final errPath = ctx.paths.emulatorErrFor(name);
+        File(logPath).writeAsStringSync('');
+        File(errPath).writeAsStringSync('');
+        final wrapper = writeWrapperScript(
+          paths: ctx.paths,
+          baseName: emulatorWrapperName(name),
+          executable: emulator,
+          arguments: fleetEmulatorArgs(index),
+          posixLogPath: logPath,
+        );
+        final pid = await startWrapperDetached(
+          paths: ctx.paths,
+          wrapper: wrapper,
+          logPath: logPath,
+          errPath: errPath,
+          pidPath: ctx.paths.emulatorPidFor(name),
+        );
+        out('[$name] starting on $serial (pid $pid, log $logPath)');
+        final early = mask == null ? null : _pinOnceUp(host, name, mask);
+        await awaitEmulatorBoot(ctx, host.adb, pid, name,
+            serial: serial, fatalLogLines: false, progress: progress);
+        await early;
+        how = 'booted in ${took()}';
+      }
+      try {
+        await host.keepAwake(serial);
+      } on QaException catch (e) {
+        progress('the screen may still time out: ${e.message}');
+      }
+      final pinned = await _pin(host, name, mask);
+      out('ready: $name $serial pinned=$pinned ($how)');
+      return true;
+    } on QaException catch (e) {
+      warn('failed: $name $serial — ${e.message}');
+      return false;
+    }
+  }
+
+  /// Pins a just-started qemu the moment it shows up, so the boot itself
+  /// runs on the P-cores too; [_pin] confirms it once the guest is up.
+  Future<void> _pinOnceUp(FleetHost host, String name, int mask) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (DateTime.now().isBefore(deadline)) {
+      final qemu =
+          (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
+      if (qemu != null) {
+        await host.pin(qemu.pid, mask);
+        return;
+      }
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
+  }
+
+  Future<String> _pin(FleetHost host, String name, int? mask) async {
+    if (mask == null) return 'no';
+    final qemu =
+        (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
+    if (qemu == null) return 'no (its qemu was not found)';
+    if (qemu.affinity == mask) return hexMask(mask);
+    final read = await host.pin(qemu.pid, mask);
+    if (read == mask) return hexMask(mask);
+    return 'no (Windows kept ${read == null ? 'its own mask' : hexMask(read)})';
+  }
+}
+
+class FleetStatusCommand extends FleetSubcommand {
+  FleetStatusCommand() {
+    argParser.addFlag('json', negatable: false, help: 'Emit the fleet as JSON.');
+  }
+
+  @override
+  String get name => 'status';
+
+  @override
+  String get description =>
+      'One line per fleet AVD: serial, state, the installed build (stale '
+      'when apk.json is newer), its qemu and that qemu\'s affinity; the '
+      'owner\'s AVDs follow as `owner`, never acted on.';
+
+  @override
+  String get invocation => 'qa fleet status [--json]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final host = fleetHostFor(ctx);
+    final qemus = await host.qemuProcesses();
+    final members =
+        await host.members(upTo: capacity, paths: ctx.paths, qemus: qemus);
+    final built = ApkRecord.read(ctx.paths.apkJson);
+    final owners = host.avdNames().where((n) => fleetIndexOf(n) == null).toList();
+    QemuProcess? qemuOf(String avd) =>
+        qemus.where((q) => q.avd == avd).firstOrNull;
+    if (argResults!['json'] as bool) {
+      out(const JsonEncoder.withIndent('  ').convert({
+        'fleet': [for (final member in members) member.toJson(built)],
+        'owner': [
+          for (final avd in owners)
+            {
+              'name': avd,
+              'running': qemuOf(avd) != null,
+              'qemuPid': qemuOf(avd)?.pid,
+              'port': qemuOf(avd)?.port,
+            },
+        ],
+        'build': built?.toJson(),
+      }));
+      return 0;
+    }
+    for (final member in members) {
+      out(fleetStatusLine(member, built, showAffinity: Platform.isWindows));
+    }
+    for (final avd in owners) {
+      out(ownerStatusLine(avd, qemuOf(avd)));
+    }
+    out(built == null
+        ? 'build: none recorded — `qa fleet install --build` makes one'
+        : 'build: ${built.gitHash ?? 'no git hash'}${built.dirty ? ' (dirty tree)' : ''} '
+            'built ${built.builtAt.toLocal().toIso8601String()} — ${ctx.paths.apkJson}');
+    return 0;
+  }
+}
+
+class FleetStopCommand extends FleetSubcommand {
+  FleetStopCommand() {
+    argParser.addFlag('all', negatable: false, help: 'Every fleet AVD that exists.');
+  }
+
+  @override
+  String get name => 'stop';
+
+  @override
+  String get description =>
+      'Shut fleet AVDs down through their console (adb emu kill), each only '
+      'after its console names that fleet AVD, and wait until it is gone. '
+      'Any other emulator is refused.';
+
+  @override
+  String get invocation => 'qa fleet stop <anta_qa_N|N>… | --all';
+
+  @override
+  Future<int> run() async {
+    final host = fleetHostFor(context);
+    var failed = false;
+    for (final index in namedIndices(host, verb: 'stop')) {
+      try {
+        out(await host.stop(index));
+      } on QaException catch (e) {
+        failed = true;
+        warn('refused: ${fleetName(index)} — ${e.message}');
+      }
+    }
+    return failed ? exitDevice : 0;
+  }
+}
+
+class FleetInstallCommand extends FleetSubcommand {
+  FleetInstallCommand() {
+    argParser.addFlag('build',
+        negatable: false,
+        help: 'Run `qa build` first (also done when build/qa/apk.json is missing).');
+  }
+
+  @override
+  String get name => 'install';
+
+  @override
+  String get description =>
+      'Put the recorded QA build on every booted fleet device at once '
+      '(`qa -d <serial> install` each); a device that already carries it '
+      'is skipped.';
+
+  @override
+  String get invocation => 'qa fleet install [--build]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final host = fleetHostFor(ctx);
+    final members = await host.members(upTo: capacity, paths: ctx.paths);
+    final ready = members.where((m) => m.ready).toList();
+    if (ready.isEmpty) {
+      throw DeviceFailure('no fleet device is up — `qa fleet boot --all` first');
+    }
+    var built = ApkRecord.read(ctx.paths.apkJson);
+    if (argResults!['build'] as bool || built == null) {
+      out(built == null ? 'no build/qa/apk.json — building first' : 'building first');
+      final outcome = await runChild(
+        ctx,
+        fleetBuildChildArgs(via: _parentVia, verbose: _parentVerbose),
+        tag: 'build',
+      );
+      if (outcome.exitCode != 0) {
+        throw DeviceFailure('qa build failed (exit ${outcome.exitCode}) — nothing installed');
+      }
+      built = ApkRecord.read(ctx.paths.apkJson) ??
+          (throw DeviceFailure('qa build recorded no ${ctx.paths.apkJson}'));
+    }
+    final targets = <FleetMember>[];
+    for (final member in ready) {
+      if (isCurrentInstall(member.installed, built)) {
+        out('${member.serial}  ${member.name}  current: '
+            '${appStatus(member.installed, built)}');
+      } else {
+        targets.add(member);
+      }
+    }
+    if (targets.isEmpty) return 0;
+    final outcomes = await Future.wait([
+      for (final member in targets)
+        runChild(
+          ctx,
+          fleetInstallChildArgs(member.serial,
+              via: _parentVia, verbose: _parentVerbose),
+          tag: member.serial,
+        ),
+    ]);
+    var failed = false;
+    for (var i = 0; i < targets.length; i++) {
+      final outcome = outcomes[i];
+      final seconds = (outcome.took.inMilliseconds / 1000).toStringAsFixed(1);
+      if (outcome.exitCode != 0) failed = true;
+      out('${targets[i].serial}  ${targets[i].name}  '
+          '${outcome.exitCode == 0 ? 'installed' : 'FAILED (exit ${outcome.exitCode})'} '
+          'in $seconds s');
+    }
+    return failed ? exitDevice : 0;
+  }
+}
+
+class FleetPassCommand extends FleetSubcommand {
+  FleetPassCommand() {
+    argParser
+      ..addOption('devices',
+          help: 'Comma-separated fleet AVDs to use (anta_qa_1,2 or '
+              'emulator-5556); default every booted one.')
+      ..addOption('label', help: 'Free text stored in every report.')
+      ..addFlag('stop-on-fail',
+          negatable: false,
+          help: 'Each shard skips its remaining flows after a failure.');
+  }
+
+  @override
+  String get name => 'pass';
+
+  @override
+  String get description =>
+      'Shard a flow suite over the booted fleet devices in one call: one '
+      '`qa -d <serial> pass <suite> --shard i/n` per device, each flow\'s '
+      'verdict live, one merged report.';
+
+  @override
+  String get invocation =>
+      'qa fleet pass <suite> [--devices a,b,…] [--label <text>] [--stop-on-fail]';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final rest = argResults!.rest;
+    if (rest.length != 1 || rest.single.contains('/') || rest.single.contains('\\')) {
+      throw UsageFailure('fleet pass takes exactly one suite (e.g. `qa fleet '
+          'pass calendar`); `qa -d <serial> pass <suite>/<flow>` runs one flow');
+    }
+    final suite = rest.single;
+    final manifest = SuiteManifest.load(ctx.paths.flowsDir, suite);
+    final devicesArg = argResults!['devices'] as String?;
+    final wanted = devicesArg == null || devicesArg.trim().isEmpty
+        ? null
+        : [
+            for (final part in devicesArg.split(','))
+              if (part.trim().isNotEmpty) parseFleetArgument(part, serials: true),
+          ];
+    final host = fleetHostFor(ctx);
+    final members = await host.members(upTo: capacity, paths: ctx.paths);
+    final pick = pickPassDevices(
+      members: members,
+      built: ApkRecord.read(ctx.paths.apkJson),
+      suite: suite,
+      shardable: manifest.shard,
+      wanted: wanted,
+    );
+    pick.warnings.forEach(warn);
+    for (final reason in pick.refused) {
+      warn('left out: $reason');
+    }
+    if (pick.members.isEmpty) {
+      throw DeviceFailure('no fleet device to run "$suite" on — '
+          '`qa fleet boot --all`, then `qa fleet install`');
+    }
+    if (pick.note != null) out(pick.note!);
+    final dir = Directory(
+      ctx.paths.passDirFor(suite, shotStamp(DateTime.now()), 'fleet'),
+    )..createSync(recursive: true);
+    final count = pick.members.length;
+    out('fleet pass: $suite over $count device(s) '
+        '(${pick.members.map((m) => m.serial).join(', ')}) — ${dir.path}');
+    final shards = [
+      for (var i = 0; i < count; i++)
+        (
+          member: pick.members[i],
+          shard: count > 1 ? (i + 1, count) : null,
+          json: joinPath(dir.path, ['shard-${i + 1}.json']),
+          log: joinPath(dir.path, ['shard-${i + 1}.log']),
+        ),
+    ];
+    final outcomes = await Future.wait([
+      for (final shard in shards)
+        runChild(
+          ctx,
+          fleetPassChildArgs(
+            serial: shard.member.serial,
+            suite: suite,
+            shard: shard.shard,
+            jsonPath: shard.json,
+            label: argResults!['label'] as String?,
+            stopOnFail: argResults!['stop-on-fail'] as bool,
+            via: _parentVia,
+            verbose: _parentVerbose,
+          ),
+          tag: shard.member.serial,
+          logPath: shard.log,
+          echo: (line, isError) =>
+              isPassProgressLine(line) || (isError && line.startsWith('qa: ')),
+        ),
+    ]);
+    final reports = <PassReport?>[];
+    final couldNotRun = <String>[];
+    for (var i = 0; i < shards.length; i++) {
+      final file = File(shards[i].json);
+      PassReport? report;
+      if (file.existsSync()) {
+        try {
+          report = PassReport.decode(file.readAsStringSync());
+        } on QaException {
+          report = null;
+        }
+      }
+      if (report == null) {
+        couldNotRun.add('${shards[i].member.serial} (exit '
+            '${outcomes[i].exitCode}, log ${shards[i].log})');
+      }
+      reports.add(report);
+    }
+    final ran = reports.nonNulls.toList();
+    PassReport? merged;
+    if (ran.isNotEmpty) {
+      merged = mergeReports(ran);
+      final reportFile = File(joinPath(dir.path, ['report.json']))
+        ..writeAsStringSync(merged.encode());
+      File(ctx.paths.latestPassFor(suite)).writeAsStringSync(reportFile.absolute.path);
+      summaryLines(merged, reportPath: reportFile.absolute.path).forEach(out);
+    }
+    out('per device:');
+    for (var i = 0; i < shards.length; i++) {
+      final shard = shards[i];
+      final seconds = (outcomes[i].took.inMilliseconds / 1000).toStringAsFixed(1);
+      final flows = reports[i]?.flows.length;
+      out('  ${shard.member.serial}  ${shard.member.name}  '
+          '${shard.shard == null ? 'whole suite' : 'shard ${shard.shard!.$1}/${shard.shard!.$2}'}  '
+          '${flows ?? '-'} flow(s)  $seconds s  exit ${outcomes[i].exitCode}');
+    }
+    if (couldNotRun.isNotEmpty) {
+      warn('could not run: ${couldNotRun.join('; ')}');
+      return exitDevice;
+    }
+    return merged!.allPassed ? 0 : exitTarget;
   }
 }
 
@@ -2732,12 +4578,26 @@ class ErrorsCommand extends QaCommand {
     final limit = intOption('lines') ?? 50;
     final showAll = argResults!['all'] as bool;
     final sources = <String, List<String>>{};
-    if (File(ctx.paths.runLog).existsSync()) {
-      sources[ctx.paths.runLog] = errorLines(readRunLog(ctx.paths), limit: limit);
-    }
     final device = await ctx.device();
+    if (File(ctx.paths.runLog).existsSync()) {
+      final deviceFile = File(ctx.paths.deviceTxt);
+      final skip = ctx.runLogForThisDeviceOnly
+          ? runLogSkipNote(
+              runDevice: deviceFile.existsSync()
+                  ? deviceFile.readAsStringSync().trim()
+                  : null,
+              deviceId: device.id,
+            )
+          : null;
+      if (skip != null) {
+        out(skip);
+      } else {
+        sources[ctx.paths.runLog] = errorLines(readRunLog(ctx.paths), limit: limit);
+      }
+    }
+    final since = ctx.errorsSinceStamp;
     final platformLog = device.kind == DeviceKind.android
-        ? await device.qaLogText()
+        ? await device.qaLogText(since: since)
         : await device.readLog();
     sources[device.logName] = errorLines(platformLog, limit: limit);
     final agent = await ctx.agentOrNull();
@@ -2771,6 +4631,17 @@ class ErrorsCommand extends QaCommand {
     });
     return 0;
   }
+}
+
+/// Null when `run.log` belongs to [deviceId] — `device.txt` ([runDevice])
+/// names the device the one `flutter run` slot serves — otherwise the line
+/// that says why it was left out of a pass's evidence.
+String? runLogSkipNote({required String? runDevice, required String deviceId}) {
+  if (runDevice == deviceId) return null;
+  if (runDevice == null || runDevice.isEmpty) {
+    return 'run.log: belongs to no recorded run, skipped';
+  }
+  return 'run.log: belongs to $runDevice, skipped';
 }
 
 class AgentCommand extends QaCommand {
@@ -2812,6 +4683,8 @@ class AgentCommand extends QaCommand {
     out('${info.describe()}  ($took ms round trip, protocol v${info.protocolVersion}, '
         'up ${(info.uptimeMs / 1000).toStringAsFixed(1)} s)');
     out('documents: ${info.documentsPath ?? '?'}');
+    final mismatch = agentVersionMismatch(info.protocolVersion);
+    if (mismatch != null) warn('warning: $mismatch');
     if (info.qaLog.isEmpty) {
       out('[qa] lines: none this launch');
     } else {
@@ -2962,6 +4835,14 @@ class DoctorCommand extends QaCommand {
     return anyFailed(results) ? exitDevice : 0;
   }
 
+  ({AgentInfo? info, String? failure, int ms})? _agentFetched;
+
+  /// The agent's `info`, asked once per run: `--fix` collects twice, and
+  /// none of its repairs touches the app, so a second probe could only
+  /// cost another wait on an agent that is not there.
+  Future<({AgentInfo? info, String? failure, int ms})> _agentInfo(QaContext ctx) async =>
+      _agentFetched ??= await ctx.agentInfoOrFailure(refresh: true);
+
   Future<List<CheckResult>> _collect() async {
     final ctx = context;
     final results = <CheckResult>[];
@@ -3045,12 +4926,15 @@ class DoctorCommand extends QaCommand {
     ));
     results.add(checkDataSpace(outputs[5]));
     final vmUri = await ctx.recordedVmUri();
+    final fetched = vmUri == null
+        ? (info: null, failure: null, ms: 0)
+        : await _agentInfo(ctx);
+    await ctx.decideAutoFrom(agentAnswered: fetched.info != null);
     results.add(_agentCheck(
       vmUri,
-      vmUri == null
-          ? (info: null, failure: null, ms: 0)
-          : await ctx.agentInfoOrFailure(refresh: true),
+      fetched,
       required: ctx.via == ViaMode.agent,
+      driver: await ctx.driverLabel(),
     ));
     results.add(await _markersCheck(device));
     return results;
@@ -3082,7 +4966,7 @@ class DoctorCommand extends QaCommand {
       platform: 'simulator ${device.sim.name}',
       fix: device.installHint,
     ));
-    final fetched = await ctx.agentInfoOrFailure(refresh: true);
+    final fetched = await _agentInfo(ctx);
     results.add(checkAppRunning(await device.probe(fetched.info), device.packageId));
     results.add(_agentCheck(await ctx.recordedVmUri(), fetched, required: true));
     results.add(await _markersCheck(device));
@@ -3097,17 +4981,20 @@ class DoctorCommand extends QaCommand {
       platform: 'macOS desktop build',
       fix: device.installHint,
     ));
-    final fetched = await ctx.agentInfoOrFailure(refresh: true);
+    final fetched = await _agentInfo(ctx);
     results.add(checkAppRunning(await device.probe(fetched.info), device.packageId));
     results.add(_agentCheck(await ctx.recordedVmUri(), fetched, required: true));
     if (await device.isInstalled()) results.add(await _markersCheck(device));
     return results;
   }
 
+  /// [driver] is the `driver=` word on a platform with a native layer,
+  /// where the agent line also says which layer the verbs will use.
   CheckResult _agentCheck(
     String? vmUri,
     ({AgentInfo? info, String? failure, int ms}) fetched, {
     required bool required,
+    String? driver,
   }) {
     if (vmUri == null) {
       final result = checkAgent(
@@ -3119,7 +5006,8 @@ class DoctorCommand extends QaCommand {
       );
       return required
           ? result
-          : CheckResult.ok('agent', 'not in use (adb path); `--via agent` needs `qa run`/`qa relaunch`');
+          : CheckResult.ok('agent', 'not in use (driver=${driver ?? 'adb'}); '
+              '`qa relaunch` or `qa run` records a VM URI the agent answers on');
     }
     final info = fetched.info;
     if (info != null) {
@@ -3127,9 +5015,10 @@ class DoctorCommand extends QaCommand {
         vmUri: vmUri,
         failure: null,
         roundTripMs: fetched.ms,
-        summary: info.describe(),
+        summary: '${info.describe()}${driver == null ? '' : '  driver=$driver'}',
         qaMode: info.qaMode,
         cloud: info.cloud,
+        protocolVersion: info.protocolVersion,
       );
     }
     final result = checkAgent(
@@ -3145,7 +5034,7 @@ class DoctorCommand extends QaCommand {
             name: 'agent',
             status: CheckStatus.warn,
             detail: result.detail,
-            fix: 'only matters with `--via agent`; ${result.fix}',
+            fix: 'driver=${driver ?? 'adb'} meanwhile; ${result.fix}',
           );
   }
 
@@ -3179,7 +5068,38 @@ class DoctorCommand extends QaCommand {
       stale: decision.rebuild,
       staleSource: decision.reason,
     ));
+    final fleet = await _fleetCheck(ctx);
+    if (fleet != null) results.add(fleet);
     return results;
+  }
+
+  /// The `fleet` line, or null on a host with no Android SDK or AVDs.
+  Future<CheckResult?> _fleetCheck(QaContext ctx) async {
+    if (ctx.sdk.findAdb() == null) return null;
+    try {
+      final host = fleetHostFor(ctx);
+      if (host.avdNames().isEmpty) return null;
+      final topology = await host.cpuTopology();
+      final affinity = fleetAffinity(
+        windows: Platform.isWindows,
+        disabled: false,
+        override: Platform.environment[fleetAffinityEnv],
+        cores: topology?.cores,
+        threads: topology?.threads,
+      );
+      final members = await host.members(
+        upTo: fleetCapacity(Platform.numberOfProcessors),
+        paths: ctx.paths,
+        devices: await ctx.adbDevices(),
+      );
+      return checkFleet(members, pinMask: affinity.mask);
+    } on QaException catch (e) {
+      return CheckResult(
+        name: 'fleet',
+        status: CheckStatus.warn,
+        detail: 'could not read the fleet: ${e.message}',
+      );
+    }
   }
 
   Future<List<String>> _applyFixes(List<CheckResult> results) async {

@@ -1,4 +1,5 @@
 import 'adb.dart';
+import 'agent_protocol.dart';
 import 'device.dart';
 
 /// How a single check came out.
@@ -425,6 +426,7 @@ CheckResult checkAgent({
   required String? summary,
   required bool? qaMode,
   bool? cloud,
+  int? protocolVersion,
 }) {
   if (vmUri == null || vmUri.isEmpty) {
     return const CheckResult(
@@ -458,6 +460,16 @@ CheckResult checkAgent({
       detail: 'answered, and this QA build can reach Firebase: $summary',
       fix: 'it acts as whoever is signed in on this install — rebuild '
           'without ANTA_QA_CLOUD unless sync itself is under test',
+    );
+  }
+  if (protocolVersion != null && protocolVersion < agentProtocolVersion) {
+    return CheckResult(
+      name: 'agent',
+      status: CheckStatus.warn,
+      detail: 'answered, but the installed agent is v$protocolVersion and this '
+          'tool needs v$agentProtocolVersion (off-screen rows are not '
+          'revealed): $summary',
+      fix: '`qa build` then `qa install`',
     );
   }
   return CheckResult.ok(

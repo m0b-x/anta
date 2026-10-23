@@ -130,6 +130,19 @@ void main() {
       expect(off.flags, 'long,selected,disabled');
     });
 
+    test('reads the semantics id a reveal names the node by', () {
+      final entry = _node(1, label: 'Row')..[AgentNodeKeys.semanticsId] = 417;
+      final tree = UiTree.fromAgentJson(_dump([entry]), appPackage: 'x');
+      expect(tree.byIndex(1)!.semanticsId, 417);
+      expect(tree.byIndex(1)!.toJson()['semanticsId'], 417);
+    });
+
+    test('an agent dump without ids (a v1 agent) leaves them null', () {
+      final tree = UiTree.fromAgentJson(_dump([_node(1, label: 'Row')]), appPackage: 'x');
+      expect(tree.byIndex(1)!.semanticsId, isNull);
+      expect(tree.byIndex(1)!.toJson().containsKey('semanticsId'), isFalse);
+    });
+
     test('rejects a payload without nodes', () {
       expect(
         () => UiTree.fromAgentJson('{"ok": true}', appPackage: 'x'),
@@ -166,6 +179,38 @@ void main() {
       final tree = parseDumpText(xml, appPackage: 'pkg');
       expect(tree.source, UiTreeSource.uiautomator);
       expect(tree.foregroundPackage, 'com.alexzamfir.anta');
+      expect(tree.nodes.single.semanticsId, isNull);
+    });
+  });
+
+  group('protocol', () {
+    test('v2 names nodes by n and reveals them', () {
+      expect(agentProtocolVersion, 2);
+      expect(AgentNodeKeys.semanticsId, 'n');
+      expect(AgentOps.reveal, 'reveal');
+      final keys = [
+        AgentNodeKeys.index,
+        AgentNodeKeys.parent,
+        AgentNodeKeys.depth,
+        AgentNodeKeys.label,
+        AgentNodeKeys.value,
+        AgentNodeKeys.hint,
+        AgentNodeKeys.tooltip,
+        AgentNodeKeys.identifier,
+        AgentNodeKeys.rect,
+        AgentNodeKeys.flags,
+        AgentNodeKeys.semanticsId,
+      ];
+      expect(keys.toSet(), hasLength(keys.length));
+    });
+
+    test('an older agent is told to rebuild, a current one is not', () {
+      expect(
+        agentVersionMismatch(1),
+        'installed agent is v1, this tool needs v2 — `qa build` then `qa install`',
+      );
+      expect(agentVersionMismatch(agentProtocolVersion), isNull);
+      expect(agentVersionMismatch(0), contains('v0'));
     });
   });
 }

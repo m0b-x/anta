@@ -7,11 +7,14 @@ import 'errors.dart';
 import 'paths.dart';
 import 'ui_tree.dart';
 
-/// Timestamp prefix used for screenshot file names.
+/// Timestamp prefix used for screenshot file names, down to the
+/// millisecond: a fleet pass shoots on several devices at once, and two
+/// shots of one name in one second would otherwise overwrite each other.
 String shotStamp(DateTime now) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${now.year}${two(now.month)}${two(now.day)}_'
-      '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+      '${two(now.hour)}${two(now.minute)}${two(now.second)}_'
+      '${now.millisecond.toString().padLeft(3, '0')}';
 }
 
 String sanitiseName(String name) {
@@ -101,7 +104,7 @@ List<ShotBadge> badgesFor(
 }) {
   final badges = <ShotBadge>[];
   for (final node in tree.nodes) {
-    if (node.hidden) continue;
+    if (node.outOfView) continue;
     if (!all && !node.interesting) continue;
     if (node.parentIndex == -1) continue;
     final left = (node.bounds.left * scale).round().clamp(0, imageWidth);

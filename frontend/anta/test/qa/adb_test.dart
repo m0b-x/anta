@@ -271,6 +271,33 @@ void main() {
       expect(tools.findAdb(), startsWith(bin));
     });
 
+    test('with no SDK variable, the SDK above the adb on PATH is the root', () {
+      final separator = Platform.isWindows ? ';' : ':';
+      final sep = Platform.pathSeparator;
+      final sdk = Platform.isWindows ? r'D:\SDKs\Android\Sdk' : '/opt/android/sdk';
+      final tools = '$sdk${sep}platform-tools';
+      final adb = Platform.isWindows ? 'adb.exe' : 'adb';
+      final emulator = Platform.isWindows ? 'emulator.exe' : 'emulator';
+      final present = {'$tools$sep$adb', '$sdk${sep}emulator$sep$emulator'};
+      final sdkTools = SdkTools(
+        environment: {'PATH': '/usr/bin$separator$tools$sep'},
+        exists: present.contains,
+      );
+      expect(sdkTools.sdkRoots().first, sdk);
+      expect(sdkTools.findEmulator(), '$sdk${sep}emulator$sep$emulator');
+    });
+
+    test('an SDK variable still wins over the adb on PATH', () {
+      final sep = Platform.pathSeparator;
+      final adb = Platform.isWindows ? 'adb.exe' : 'adb';
+      final tools = SdkTools(
+        environment: {'ANDROID_SDK_ROOT': 'home-sdk', 'PATH': 'path-sdk${sep}platform-tools'},
+        exists: (p) => p == 'path-sdk${sep}platform-tools$sep$adb',
+      );
+      expect(tools.sdkRoots(), isNot(contains('path-sdk')));
+      expect(tools.sdkRoots().first, 'home-sdk');
+    });
+
     test('looks for the emulator next to platform-tools', () {
       final tools = SdkTools(
         environment: {'ANDROID_SDK_ROOT': r'C:\sdk', 'PATH': ''},

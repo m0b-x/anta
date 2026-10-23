@@ -61,11 +61,20 @@ class SdkTools {
   }
 
   /// Candidate SDK roots, from the environment and the usual install spots.
+  ///
+  /// With neither variable set, the SDK an `adb` on PATH lives in comes
+  /// first (`<sdk>/platform-tools/adb`): on a machine whose SDK sits
+  /// outside the usual spots that is the only trace of it, and without it
+  /// `boot` cannot find the emulator binary next door.
   List<String> sdkRoots() {
     final roots = <String>[];
     for (final key in const ['ANDROID_HOME', 'ANDROID_SDK_ROOT']) {
       final value = _env[key];
       if (value != null && value.isNotEmpty) roots.add(value);
+    }
+    if (roots.isEmpty) {
+      final fromPath = _sdkRootOfAdbOnPath();
+      if (fromPath != null) roots.add(fromPath);
     }
     final home = _env['LOCALAPPDATA'] ?? _env['HOME'] ?? _env['USERPROFILE'];
     if (home != null && home.isNotEmpty) {
@@ -73,6 +82,19 @@ class SdkTools {
       roots.add([home, 'Library', 'Android', 'sdk'].join(Platform.pathSeparator));
     }
     return roots;
+  }
+
+  String? _sdkRootOfAdbOnPath() {
+    final adb = _exe('adb');
+    for (final dir in _pathEntries()) {
+      final trimmed = dir.replaceAll(RegExp(r'[\\/]+$'), '');
+      if (trimmed.isEmpty) continue;
+      if (!_exists([trimmed, adb].join(Platform.pathSeparator))) continue;
+      final cut = trimmed.lastIndexOf(RegExp(r'[\\/]'));
+      if (cut <= 0) continue;
+      return trimmed.substring(0, cut);
+    }
+    return null;
   }
 
   List<String> _pathEntries() {

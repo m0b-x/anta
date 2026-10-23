@@ -67,7 +67,9 @@ class UiNode {
     required this.selected,
     required this.scrollable,
     this.hidden = false,
+    this.offscreen = false,
     this.hint = '',
+    this.semanticsId,
   });
 
   final int index;
@@ -89,11 +91,30 @@ class UiNode {
   final bool selected;
   final bool scrollable;
 
-  /// Off screen: scrolled out of a list, or flagged hidden by the app. Such a
-  /// node is real but cannot be tapped until `scroll-to` brings it in.
+  /// Flagged hidden by the framework: a row scrolled out of a viewport (or
+  /// a sheet's content past its fold) that the tree keeps. Such a node is
+  /// on the page and cannot be tapped until it is brought into view. A
+  /// protocol-2 agent that predates [offscreen] sets this for both kinds.
   final bool hidden;
 
+  /// Its rect lies outside the screen without the framework hiding it: a
+  /// route still sliding in, which is not on the page yet.
+  final bool offscreen;
+
+  /// Not tappable where it stands, for either reason; an acting verb asks
+  /// the app to bring it into view first.
+  bool get outOfView => hidden || offscreen;
+
+  /// The presence rule `expect`, `wait` and `--wait` share: a node counts
+  /// once it is on screen or the framework holds it scrolled out, but not
+  /// while it is only outside the screen, so a wait outlasts a transition.
+  bool get countsAsPresent => !offscreen || hidden;
+
   final String hint;
+
+  /// The Flutter semantics node id an agent dump carries, which the agent's
+  /// `reveal` op takes; null in a uiautomator tree and from a v1 agent.
+  final int? semanticsId;
 
   /// The short class name, e.g. `Button` for `android.widget.Button`.
   String get shortClass {
@@ -115,7 +136,7 @@ class UiNode {
   bool get hasLabel =>
       contentDesc.isNotEmpty || text.isNotEmpty || resourceId.isNotEmpty;
 
-  bool get interesting => !hidden && (hasLabel || clickable || scrollable);
+  bool get interesting => !outOfView && (hasLabel || clickable || scrollable);
 
   String get flags {
     final on = <String>[
@@ -127,6 +148,7 @@ class UiNode {
       if (selected) 'selected',
       if (!enabled) 'disabled',
       if (hidden) 'hidden',
+      if (offscreen) 'offscreen',
     ];
     return on.join(',');
   }
@@ -165,6 +187,8 @@ class UiNode {
         'selected': selected,
         'scrollable': scrollable,
         'hidden': hidden,
+        'offscreen': offscreen,
+        if (semanticsId != null) 'semanticsId': semanticsId,
       };
 }
 
@@ -181,6 +205,15 @@ class UiTree {
   UiNode? byIndex(int index) {
     for (final node in nodes) {
       if (node.index == index) return node;
+    }
+    return null;
+  }
+
+  /// The node an agent dump names by [id], which survives a scroll that
+  /// renumbers every flat index.
+  UiNode? bySemanticsId(int id) {
+    for (final node in nodes) {
+      if (node.semanticsId == id) return node;
     }
     return null;
   }
@@ -204,7 +237,7 @@ class UiTree {
   UiNode? scrollableAt(int x, int y) {
     UiNode? best;
     for (final node in nodes) {
-      if (!node.scrollable || node.hidden) continue;
+      if (!node.scrollable || node.outOfView) continue;
       final b = node.bounds;
       if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
       if (best == null ||
@@ -217,7 +250,7 @@ class UiTree {
 
   UiNode? get firstScrollable {
     for (final node in nodes) {
-      if (node.scrollable && !node.hidden) return node;
+      if (node.scrollable && !node.outOfView) return node;
     }
     return null;
   }
@@ -416,7 +449,9 @@ class UiTree {
         selected: flags.contains(AgentFlags.selected),
         scrollable: flags.contains(AgentFlags.scroll),
         hidden: flags.contains(AgentFlags.hidden),
+        offscreen: flags.contains(AgentFlags.offscreen),
         hint: '${entry[AgentNodeKeys.hint] ?? ''}',
+        semanticsId: (entry[AgentNodeKeys.semanticsId] as num?)?.toInt(),
       ));
     }
     return UiTree(nodes, source: UiTreeSource.agent);

@@ -26,8 +26,15 @@ void main() {
 
   group('shotStamp and sanitiseName', () {
     test('the stamp sorts chronologically as a file name', () {
-      expect(shotStamp(DateTime(2026, 9, 13, 17, 4, 5)), '20260913_170405');
-      expect(shotStamp(DateTime(2026, 1, 2, 3, 4, 5)), '20260102_030405');
+      expect(shotStamp(DateTime(2026, 9, 13, 17, 4, 5)), '20260913_170405_000');
+      expect(shotStamp(DateTime(2026, 1, 2, 3, 4, 5, 7)), '20260102_030405_007');
+    });
+
+    test('two shots in one second do not share a stamp', () {
+      expect(
+        shotStamp(DateTime(2026, 10, 23, 12, 0, 0, 120)),
+        isNot(shotStamp(DateTime(2026, 10, 23, 12, 0, 0, 480))),
+      );
     });
 
     test('a name is reduced to safe file characters', () {
@@ -47,7 +54,7 @@ void main() {
         now: DateTime(2026, 9, 13, 17, 37, 44),
       );
       expect(File(path).isAbsolute, isTrue);
-      expect(path, endsWith('20260913_173744_home.png'));
+      expect(path, endsWith('20260913_173744_000_home.png'));
       final decoded = img.decodePng(File(path).readAsBytesSync())!;
       expect(decoded.width, 640);
       expect(decoded.height, 1428);

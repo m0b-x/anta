@@ -15,6 +15,11 @@ abstract final class AgentOps {
 
   /// Run-time overrides on a driver build: text scale, locale, theme.
   static const String set = 'set';
+
+  /// Scrolls the semantics node [AgentNodeKeys.semanticsId] names into view
+  /// with `SemanticsAction.showOnScreen`, the action TalkBack uses, so a row
+  /// a sheet has scrolled past is reached without a flow-authored swipe.
+  static const String reveal = 'reveal';
 }
 
 abstract final class AgentKeys {
@@ -103,6 +108,10 @@ abstract final class AgentNodeKeys {
   static const String identifier = 'id';
   static const String rect = 'r';
   static const String flags = 'f';
+
+  /// `SemanticsNode.id`: what `reveal` names a node by, since the flat
+  /// index `i` is only an order within one dump.
+  static const String semanticsId = 'n';
 }
 
 abstract final class AgentFlags {
@@ -115,7 +124,13 @@ abstract final class AgentFlags {
   static const String checked = 'checked';
   static const String toggle = 'toggle';
   static const String selected = 'selected';
+  /// The framework's `isHidden`: kept in the tree while scrolled out.
   static const String hidden = 'hidden';
+
+  /// The rect lies outside the screen without the framework hiding it (a
+  /// route sliding in). Additive within protocol 2: a dump without it reads
+  /// as before, with `hidden` covering both kinds.
+  static const String offscreen = 'offscreen';
   static const String button = 'button';
   static const String textField = 'textfield';
   static const String header = 'header';
@@ -134,7 +149,17 @@ abstract final class AgentErrorKinds {
   static const String device = 'device';
 }
 
-const int agentProtocolVersion = 1;
+/// The agent's protocol, compiled into the APK: v2 added node ids to the
+/// dump and the `reveal` op.
+const int agentProtocolVersion = 2;
+
+/// What to say when the installed agent is older than this tool, or null
+/// when it is current. The agent ships inside the driver build, so a tool
+/// change alone never updates it.
+String? agentVersionMismatch(int installed) => installed >= agentProtocolVersion
+    ? null
+    : 'installed agent is v$installed, this tool needs v$agentProtocolVersion '
+        '— `qa build` then `qa install`';
 
 const String driverExtensionMethod = 'ext.flutter.driver';
 

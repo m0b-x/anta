@@ -213,6 +213,25 @@ void main() {
       expect(paths.fixturesDir, contains('fixtures'));
     });
 
+    test('what two devices could collide on is named per device', () {
+      final paths = QaPaths('/repo');
+      String name(String path) => path.split(RegExp(r'[\\/]')).last;
+      expect(name(paths.lastDumpFor('emulator-5556')), 'last_dump_emulator-5556.txt');
+      expect(name(paths.seedResolvedFor('emulator-5556')), 'seed_resolved_emulator-5556.json');
+      expect(name(paths.installedJsonFor('192.168.1.5:5555')), 'installed_192.168.1.5_5555.json');
+      expect(name(paths.emulatorPidFor('anta_qa_1')), 'emulator_anta_qa_1.pid');
+      expect(name(paths.emulatorLogFor('anta_qa_1')), 'emulator_anta_qa_1.log');
+      expect(name(paths.emulatorErrFor('anta_qa_1')), 'emulator_anta_qa_1.err');
+      expect(name(paths.emulatorLogFor(null)), 'emulator.log');
+      expect(paths.emulatorPid, paths.emulatorPidFor(null));
+      expect(
+        name(paths.passDirFor('calendar', '20261023_101500', 'emulator-5556')),
+        'calendar_20261023_101500_emulator-5556',
+      );
+      expect(paths.passDirFor('calendar', 's', 'd'), startsWith(paths.passRoot));
+      expect(name(paths.latestPassFor('calendar')), 'latest_calendar.txt');
+    });
+
     test('locate walks up to the package root from a subdirectory', () {
       final paths = QaPaths.locate(Directory('test/qa'));
       expect(File('${paths.projectRoot}/pubspec.yaml').existsSync(), isTrue);

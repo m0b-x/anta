@@ -19,8 +19,10 @@ class FakeProcessRunner implements ProcessRunner {
     Duration timeout = const Duration(seconds: 30),
     bool binary = false,
     String? workingDirectory,
+    String? stdin,
   }) async {
-    final request = RunRequest(executable, arguments, binary: binary);
+    final request =
+        RunRequest(executable, arguments, binary: binary, stdin: stdin);
     calls.add(request);
     return scripted[request.line] ?? defaultOutcome;
   }

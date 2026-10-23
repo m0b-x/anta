@@ -1,0 +1,13 @@
+# From the root a fresh launch lands on to the calendar through the drawer;
+# `qa pass calendar` runs this after every reseed, before the flow's steps.
+# - The bottom panel restores its mode (Day / Timeline / Upcoming) from the
+#   settings after it is on screen, and that restore overwrites a mode
+#   tapped before it lands: a flow whose first step is `tap "Upcoming"` was
+#   put back on Day. Nothing on screen marks the restore, so the last step
+#   taps the already selected Day (which changes and persists nothing) and
+#   holds 2 s; measured 2026-10-23, 1.5 s was always enough.
+tap "Open navigation menu"
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap "Day" --settle 2000

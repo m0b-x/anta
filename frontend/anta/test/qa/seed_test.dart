@@ -56,6 +56,25 @@ void main() {
     expect(prepared.describe(), ' (settings: locale=de, theme_mode=dark)');
   });
 
+  test('a seed meant for one device is resolved into its own file', () {
+    final source = fixture('{"calendarEvents":[{"startDateMs":"{{today}}"}]}');
+    final first = prepareSeed(paths, source.path, deviceId: 'emulator-5554', now: now);
+    final second = prepareSeed(
+      paths,
+      source.path,
+      deviceId: 'emulator-5556',
+      now: now.add(const Duration(days: 1)),
+    );
+    expect(first.path, paths.seedResolvedFor('emulator-5554'));
+    expect(second.path, endsWith('seed_resolved_emulator-5556.json'));
+    expect(first.path, isNot(second.path));
+    final kept = jsonDecode(File(first.path).readAsStringSync()) as Map;
+    expect(
+      ((kept['calendarEvents'] as List).first as Map)['startDateMs'],
+      DateTime.utc(2026, 9, 26).millisecondsSinceEpoch,
+    );
+  });
+
   test('a seed without a settings map gains one', () {
     final source = fixture('{"folders":[]}');
     final prepared = prepareSeed(paths, source.path, settings: const ['locale=ro']);

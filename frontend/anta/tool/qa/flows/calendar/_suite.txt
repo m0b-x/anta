@@ -1,0 +1,7 @@
+# The calendar suite for `qa pass calendar`: every flow starts from a fresh
+# calendar.json seed and the prelude's landing on the calendar, so no flow
+# sees what an earlier one left open or changed, and the suite shards.
+fixture=tool/qa/fixtures/calendar.json
+reseed=flow
+shard=yes
+prelude=_prelude.txt

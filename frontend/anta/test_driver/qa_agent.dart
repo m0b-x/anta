@@ -48,6 +48,10 @@ class QaAgent {
   static const Duration _settleCap = Duration(milliseconds: 500);
   static const Duration _frameCap = Duration(milliseconds: 400);
 
+  /// `showOnScreen` jumps, but a scrollable that animates its offset runs
+  /// about 300 ms and a fling it interrupts settles later still.
+  static const Duration _revealSettleCap = Duration(milliseconds: 1500);
+
   static const Map<String, LogicalKeyboardKey> _logicalKeys = {
     'enter': LogicalKeyboardKey.enter,
     'tab': LogicalKeyboardKey.tab,
@@ -156,6 +160,8 @@ class QaAgent {
         return _perf(_string(request, AgentKeys.action));
       case AgentOps.set:
         return _set(request);
+      case AgentOps.reveal:
+        return _reveal(_int(request, AgentNodeKeys.semanticsId, -1));
     }
     throw QaAgentException(
       'unknown op "$op"',
@@ -355,6 +361,7 @@ class QaAgent {
         childDepth = depth + 1;
         nodes.add({
           AgentNodeKeys.index: myIndex,
+          AgentNodeKeys.semanticsId: node.id,
           AgentNodeKeys.parent: parentIndex,
           AgentNodeKeys.depth: depth,
           AgentNodeKeys.label: data.label,
@@ -409,7 +416,11 @@ class QaAgent {
         AgentFlags.checked,
       if (f.isToggled != ui.Tristate.none) AgentFlags.toggle,
       if (f.isSelected == ui.Tristate.isTrue) AgentFlags.selected,
-      if (offscreen || f.isHidden) AgentFlags.hidden,
+      // Kept apart: a hidden row is on the page, a node outside the
+      // screen may be a route still sliding in, and the tool's presence
+      // rule counts only the first.
+      if (f.isHidden) AgentFlags.hidden,
+      if (offscreen) AgentFlags.offscreen,
       if (f.isButton) AgentFlags.button,
       if (f.isTextField) AgentFlags.textField,
       if (f.isHeader) AgentFlags.header,
@@ -421,6 +432,34 @@ class QaAgent {
       if (f.isObscured) AgentFlags.obscured,
       if (f.scopesRoute) AgentFlags.route,
     ];
+  }
+
+  /// Asks the node to show itself the way TalkBack does: every scrollable
+  /// above it scrolls just far enough, which also reaches a row inside a
+  /// sheet's own scroll view that a screen-sized swipe would overshoot.
+  Future<Map<String, Object?>> _reveal(int id) async {
+    await _awaitView();
+    final owner = _renderView.owner?.semanticsOwner;
+    final root = owner?.rootSemanticsNode;
+    if (owner == null || root == null || !_hasSemanticsNode(root, id)) {
+      throw QaAgentException(
+        'no semantics node n=$id (the screen changed since the dump?)',
+        kind: AgentErrorKinds.target,
+      );
+    }
+    owner.performAction(id, SemanticsAction.showOnScreen);
+    await _settle(max: _revealSettleCap);
+    return const {};
+  }
+
+  static bool _hasSemanticsNode(SemanticsNode node, int id) {
+    if (node.id == id) return true;
+    var found = false;
+    node.visitChildren((child) {
+      found = _hasSemanticsNode(child, id);
+      return !found;
+    });
+    return found;
   }
 
   Future<Map<String, Object?>> _tap(Offset at) async {

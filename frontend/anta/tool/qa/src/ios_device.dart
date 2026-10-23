@@ -120,7 +120,7 @@ class IosDevice implements Device {
   /// Scoped to the running process where there is one, so a previous
   /// launch's `[qa]` lines cannot be mistaken for this one's.
   @override
-  Future<String> qaLogText({String? stamp}) async {
+  Future<String> qaLogText({String? stamp, String? since}) async {
     final pid = await appPid();
     return simctl.logShow(
       sim.udid,

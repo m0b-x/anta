@@ -27,25 +27,40 @@ String describeAge(Duration age) {
   return '${age.inHours} h ago';
 }
 
-/// Writes the newest dump so `#N` targets keep meaning what the agent read.
-void writeDumpCache(QaPaths paths, String xml) {
+/// Writes the newest dump of [deviceId] so `#N` targets keep meaning what
+/// the agent read on that device.
+///
+/// The shared caches older tool versions wrote are dropped here: once a
+/// device has its own dump, a stale shared one would only mislead.
+void writeDumpCache(QaPaths paths, String deviceId, String xml) {
   paths.ensureBuildQa();
-  File(paths.lastDump).writeAsStringSync(xml);
-  final legacy = File(paths.legacyLastDump);
-  if (legacy.existsSync()) {
+  File(paths.lastDumpFor(deviceId)).writeAsStringSync(xml);
+  for (final legacyPath in [paths.lastDump, paths.legacyLastDump]) {
+    final legacy = File(legacyPath);
+    if (!legacy.existsSync()) continue;
     try {
       legacy.deleteSync();
     } on FileSystemException {
-      return;
+      continue;
     }
   }
 }
 
-/// The last dump, or null when nothing has been dumped in this project yet.
-/// A cache left by the previous tool version (`last_dump.xml`) still counts.
-CachedDump? readDumpCache(QaPaths paths) {
-  var file = File(paths.lastDump);
-  if (!file.existsSync()) file = File(paths.legacyLastDump);
+/// The last dump of [deviceId], or null when nothing has been dumped there
+/// yet. A shared cache left by an older tool version (`last_dump.txt`,
+/// `last_dump.xml`) still counts until the device writes its own. With no
+/// [deviceId] (`dump --cached` while no device resolves) the newest
+/// per-device dump is the one the reader most likely just took.
+CachedDump? readDumpCache(QaPaths paths, String? deviceId) {
+  final candidates = [
+    if (deviceId != null) paths.lastDumpFor(deviceId) else ?_newestDeviceDump(paths),
+    paths.lastDump,
+    paths.legacyLastDump,
+  ];
+  final file = candidates.map(File.new).firstWhere(
+        (f) => f.existsSync(),
+        orElse: () => File(candidates.last),
+      );
   if (!file.existsSync()) return null;
   final String xml;
   try {
@@ -55,4 +70,22 @@ CachedDump? readDumpCache(QaPaths paths) {
   }
   if (xml.trim().isEmpty) return null;
   return CachedDump(xml: xml, capturedAt: file.statSync().modified);
+}
+
+/// The most recently written `last_dump_<device>.txt`, or null.
+String? _newestDeviceDump(QaPaths paths) {
+  final dir = Directory(paths.buildQa);
+  if (!dir.existsSync()) return null;
+  final named = RegExp(r'^last_dump_.+\.txt$');
+  File? newest;
+  DateTime? newestAt;
+  for (final file in dir.listSync().whereType<File>()) {
+    if (!named.hasMatch(file.uri.pathSegments.last)) continue;
+    final modified = file.statSync().modified;
+    if (newestAt == null || modified.isAfter(newestAt)) {
+      newest = file;
+      newestAt = modified;
+    }
+  }
+  return newest?.path;
 }

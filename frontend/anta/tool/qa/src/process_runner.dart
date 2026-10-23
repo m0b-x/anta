@@ -19,11 +19,17 @@ class RunOutcome {
 
 /// A record of one invocation, kept so tests can assert on command shape.
 class RunRequest {
-  const RunRequest(this.executable, this.arguments, {this.binary = false});
+  const RunRequest(
+    this.executable,
+    this.arguments, {
+    this.binary = false,
+    this.stdin,
+  });
 
   final String executable;
   final List<String> arguments;
   final bool binary;
+  final String? stdin;
 
   String get line => ([executable, ...arguments]).join(' ');
 
@@ -33,12 +39,16 @@ class RunRequest {
 
 /// Abstraction over process execution so verbs can be unit tested.
 abstract class ProcessRunner {
+  /// [stdin], when given, is written to the process and its input closed —
+  /// the answer to a prompt a tool asks even when every flag is passed
+  /// (`avdmanager create avd` and its custom hardware profile).
   Future<RunOutcome> run(
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 30),
     bool binary = false,
     String? workingDirectory,
+    String? stdin,
   });
 }
 
@@ -54,6 +64,7 @@ class RealProcessRunner implements ProcessRunner {
     Duration timeout = const Duration(seconds: 30),
     bool binary = false,
     String? workingDirectory,
+    String? stdin,
   }) async {
     if (verbose) {
       stderr.writeln('+ $executable ${arguments.join(' ')}');
@@ -67,6 +78,10 @@ class RealProcessRunner implements ProcessRunner {
       );
     } on ProcessException catch (e) {
       throw DeviceFailure('cannot run "$executable": ${e.message}');
+    }
+    if (stdin != null) {
+      process.stdin.write(stdin);
+      await process.stdin.close();
     }
     final outChunks = <int>[];
     final errChunks = <int>[];
