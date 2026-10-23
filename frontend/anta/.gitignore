@@ -69,3 +69,6 @@ app.*.map.json
 packages/alarm/build/
 packages/alarm/pubspec.lock
 packages/alarm/example/pubspec.lock
+
+# A failed golden leaves its master, test image and diff here (test/goldens/support/tolerant_comparator.dart).
+test/goldens/failures/

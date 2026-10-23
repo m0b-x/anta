@@ -18,3 +18,12 @@ tags:
   #   flutter test --tags firestore-rules --run-skipped
   firestore-rules:
     skip: "needs the Firestore emulator; see dart_test.yaml for the command"
+
+  # The visual matrix (test/goldens/): the main surfaces drawn with real fonts
+  # at three cells of theme x locale x text scale x phone size, compared with
+  # an anti-aliasing-tolerant comparator. Part of the default run, so a layout
+  # regression fails the gate with a pixel diff (test/goldens/failures/).
+  # After an intended visual change, rewrite the masters and review the PNGs:
+  #
+  #   flutter test test/goldens --update-goldens
+  golden: {}
