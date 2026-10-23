@@ -36,7 +36,7 @@ type "line 11"
 key enter
 type "line 12"
 shot 12_description_cell
-tap "Open full editor"
+tap id:event-description-expand
 wait id:description-done
 shot 12_description_sheet
 tap id:description-done

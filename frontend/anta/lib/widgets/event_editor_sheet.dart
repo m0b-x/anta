@@ -2282,6 +2282,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     FormTrailingButton(
                       icon: Icons.open_in_full_rounded,
                       tooltip: l10n.eventDescriptionExpand,
+                      identifier: SemanticsIds.eventDescriptionExpand,
                       onPressed: _openDescriptionSheet,
                     ),
                   ],
@@ -2650,7 +2651,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       l10n,
     );
     return [
-      for (final alert in _alerts)
+      for (final (index, alert) in _alerts.indexed)
         FormPickerRow(
           glyph: alert.isAlarm
               ? Icons.alarm_outlined
@@ -2663,6 +2664,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           trailingButton: FormTrailingButton(
             icon: Icons.close_rounded,
             tooltip: l10n.eventAlertRemove,
+            identifier: SemanticsIds.eventAlertRemove(index),
             onPressed: () => _removeAlert(alert),
           ),
         ),

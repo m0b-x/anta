@@ -57,7 +57,7 @@ Hot reload with `r`, hot restart with `R` in the run console.
 
 **The Windows build needs the Visual Studio component "C++ ATL for latest v145 build tools (x86 & x64)"** (`Microsoft.VisualStudio.Component.VC.ATL`), installed once on that machine. `flutter_local_notifications_windows` is an FFI plugin CMake compiles regardless of any Dart-side platform guard, and its `plugin.cpp` includes `atlbase.h`; without the component the build fails with `error C1083: Cannot open include file: 'atlbase.h'`.
 
-**A device pass is not optional for UI work that changes layout, gestures or navigation, and it goes through the `qa-emulator` skill** — never `adb` or `xcrun simctl` by hand. It covers booting a simulator or emulator, running against an isolated QA database (`./tool/qa/qa run --fresh --seed …`, `-d macos` for the desktop build), screenshots, tapping and typing by label through the in-app agent, the Dart MCP / Flutter Driver layer, and the trap list.
+**A device pass is not optional for UI work that changes layout, gestures or navigation, and it goes through the `qa-emulator` skill** — never `adb` or `xcrun simctl` by hand. It covers booting the headless emulator fleet or a simulator, building and installing the QA app once (`qa fleet install --build`), running a whole suite in one call against an isolated QA database (`qa fleet pass calendar`, `qa pass alerts -d …`; `qa run --fresh --seed …` with `-d macos` for the desktop build), reading the JSON report, screenshots, tapping and typing by semantics id through the in-app agent, the Dart MCP / Flutter Driver layer, and the trap list.
 
 Release pipeline (`./tool/release/release` on macOS, `tool\release\release.cmd` on Windows):
 
@@ -74,7 +74,7 @@ Release builds are refused without the gitignored `android/key.properties` + `an
 ## What to check per feature area
 
 - **Editor/preview changes**: type in a note, toggle preview/split, confirm no lost text, search highlighting alignment, and editor↔preview scroll mapping on toggle.
-- **UI changes on the language** (any sheet, form, row, menu or dialog): the `ui-language` skill's test list — light and dark, en / de / ro, text scale 2.0, both phone sizes, the bottom-clearance test. For the calendar, also the saved device pass in `calendar-ui`. For the alarm page and the alert notifications, the alerts pass in `qa-emulator` ("The alerts pass": `qa flows alerts`, `qa flows alerts_pair` — seeded with `qa relaunch`, never `qa run`).
+- **UI changes on the language** (any sheet, form, row, menu or dialog): the `ui-language` skill's test list — light and dark, en / de / ro, text scale 2.0, both phone sizes, the bottom-clearance test. For the calendar, also the saved device pass in `calendar-ui`. For the alarm page and the alert notifications, the alerts pass in `qa-emulator` ("The alerts pass": `qa pass alerts -d emulator-5556`, `qa pass alerts_pair -d emulator-5556` — the pass seeds through `relaunch`, never `qa run`).
 - **Drift/migration changes**: launch with an existing database (never a wiped one) to prove the migration path; then create/edit data and hot-restart to prove persistence.
 - **l10n changes**: switch app language between English, German, Romanian in settings and confirm the new strings render (no raw keys, plurals correct in Romanian).
 - **Backup/import-export changes**: export, then re-import, and confirm timestamps/sort orders round-trip; verify an old-version backup still imports.

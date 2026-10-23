@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/calendar_palette.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
@@ -222,6 +223,7 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
       entries: [
         SettingsEntry(
           title: l10n.calendarTodayStyleTitle,
+          identifier: SemanticsIds.appearanceTodayStyle,
           builder: (context, title, description) => Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Column(
@@ -533,15 +535,23 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
                 const SizedBox(height: 8),
                 SegmentedButton<CalendarMissedDisplay>(
                   segments: [
+                    // A segment takes no id of its own; the label's merges
+                    // into the segment's node.
                     ButtonSegment(
                       value: CalendarMissedDisplay.faded,
                       icon: const Icon(Icons.opacity_rounded),
-                      label: Text(l10n.calendarMissedDisplayFaded),
+                      label: Semantics(
+                        identifier: SemanticsIds.missedDisplayFaded,
+                        child: Text(l10n.calendarMissedDisplayFaded),
+                      ),
                     ),
                     ButtonSegment(
                       value: CalendarMissedDisplay.hidden,
                       icon: const Icon(Icons.visibility_off_outlined),
-                      label: Text(l10n.calendarMissedDisplayHidden),
+                      label: Semantics(
+                        identifier: SemanticsIds.missedDisplayHidden,
+                        child: Text(l10n.calendarMissedDisplayHidden),
+                      ),
                     ),
                   ],
                   selected: {_appearance.missedDisplay},
@@ -783,6 +793,7 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
         SettingsEntry(
           title: l10n.calendarAccentColor,
           description: l10n.calendarAccentColorDesc,
+          identifier: SemanticsIds.appearanceAccentColor,
           builder: (context, title, description) => Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Column(

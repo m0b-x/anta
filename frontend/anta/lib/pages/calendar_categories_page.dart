@@ -6,6 +6,7 @@ import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_alerts.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/calendar_event_service.dart';
@@ -15,6 +16,7 @@ import '../utils/category_search.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/category_editor_sheet.dart';
 import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
@@ -268,10 +270,13 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
           // A filled *icon* button rather than a labelled one: the localized
           // page title plus a text action overflows the bar. The bar is
           // pinned, so unlike the FAB this never scrolls away.
-          IconButton.filledTonal(
-            onPressed: _create,
-            icon: const Icon(Icons.add_rounded),
-            tooltip: l10n.createCategory,
+          AutomationId(
+            identifier: SemanticsIds.categoryAdd,
+            child: IconButton.filledTonal(
+              onPressed: _create,
+              icon: const Icon(Icons.add_rounded),
+              tooltip: l10n.createCategory,
+            ),
           ),
           PopupMenuButton<void>(
             icon: const Icon(Icons.more_vert),
@@ -371,18 +376,23 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   }
 
   Widget _rowFor(CalendarCategory category, {required int? dragIndex}) {
-    final row = _CategoryRow(
-      category: category,
-      eventCount: _counts[category.id] ?? 0,
-      // Read per build from the facade, which the editor republishes before
-      // it pops — and [_refresh] rebuilds the rows when it does.
-      hasAlerts: EventAlerts.categoryAlertsFor(
-        category.id,
-      ).any((alert) => alert.enabled),
-      dragIndex: dragIndex,
-      onToggleHidden: () => _setHidden(category, !category.isHidden),
-      onAction: (action) => _onCategoryAction(action, category),
-      onTap: () => _edit(category),
+    // A container, not a merge: the row's eye and ⋮ stay nodes of their own.
+    final row = Semantics(
+      container: true,
+      identifier: SemanticsIds.categoryRow(category.id),
+      child: _CategoryRow(
+        category: category,
+        eventCount: _counts[category.id] ?? 0,
+        // Read per build from the facade, which the editor republishes before
+        // it pops — and [_refresh] rebuilds the rows when it does.
+        hasAlerts: EventAlerts.categoryAlertsFor(
+          category.id,
+        ).any((alert) => alert.enabled),
+        dragIndex: dragIndex,
+        onToggleHidden: () => _setHidden(category, !category.isHidden),
+        onAction: (action) => _onCategoryAction(action, category),
+        onTap: () => _edit(category),
+      ),
     );
     // The reorderable list keys its own wrapper; the filtered one has to.
     return dragIndex == null

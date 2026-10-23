@@ -18,12 +18,11 @@
 # - The first press marks today's Lifting missed (the seed leaves it kept),
 #   the second marks it present — which reads as the seed's unmarked day —
 #   so the seed is left as found once Faded is back.
-# - "Appearance" is both a section header and the appearance page's row on
-#   Calendar settings, so the row is named by its own second line (as 22
-#   does); the appearance page has a "Search settings" field of its own, so
-#   it is waited for by its Today highlight group. The Missed days segments
-#   sit under a two-line description and the pinned preview shortens the
-#   page, so each segment is scrolled to itself before its tap.
+# - The appearance page has a search field of its own, so it is waited for
+#   by its Today highlight row and the settings page by the row that opened
+#   it (as 22 does). The Missed days segments sit under a two-line
+#   description and the pinned preview shortens the page, so each segment
+#   is scrolled to itself before its tap.
 # - On a workday the Standup row sits above Lifting under the nav, the
 #   totals and the grid, so every check of the Lifting row scrolls to its
 #   button first, and the picked day's ✕ is scrolled back to before its tap.
@@ -50,14 +49,14 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to "Preview and tune how the grid looks"
-tap "Preview and tune how the grid looks"
-wait "Today highlight"
-scroll-to "Hidden"
-tap "Hidden"
+scroll-to id:calendar-appearance-open
+tap id:calendar-appearance-open
+wait id:appearance-today-style
+scroll-to id:missed-display-hidden
+tap id:missed-display-hidden
 shot 25_overview_presence_hidden_setting
 key back
-wait "Search settings"
+wait id:calendar-appearance-open
 key back
 wait id:calendar-add-event
 tap id:calendar-view-menu
@@ -89,13 +88,13 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to "Preview and tune how the grid looks"
-tap "Preview and tune how the grid looks"
-wait "Today highlight"
-scroll-to "Faded"
-tap "Faded"
+scroll-to id:calendar-appearance-open
+tap id:calendar-appearance-open
+wait id:appearance-today-style
+scroll-to id:missed-display-faded
+tap id:missed-display-faded
 key back
-wait "Search settings"
+wait id:calendar-appearance-open
 key back
 wait id:calendar-add-event
 errors

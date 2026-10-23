@@ -9,9 +9,9 @@ wait id:event-dates
 tap id:event-dates
 wait id:date-picker-save
 shot 03_dates_list
-tap "Year"
+tap id:date-picker-view-year
 shot 03_dates_year
-tap "Month"
+tap id:date-picker-view-month
 shot 03_dates_month
 tap id:date-picker-cancel
 wait id:event-close

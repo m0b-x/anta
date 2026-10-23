@@ -576,10 +576,15 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                 for (final view in views)
                   ButtonSegment<CalendarDatePickerView>(
                     value: view,
-                    label: Text(
-                      _viewLabel(l10n, view),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    // A segment takes no id of its own; the label's merges
+                    // into the segment's node.
+                    label: Semantics(
+                      identifier: SemanticsIds.datePickerView(view.name),
+                      child: Text(
+                        _viewLabel(l10n, view),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
               ],

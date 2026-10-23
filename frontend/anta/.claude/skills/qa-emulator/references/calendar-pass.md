@@ -8,10 +8,23 @@ One command is a device pass of the calendar, against a seed that puts every
 calendar state around today:
 
 ```bash
-./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
-./tool/qa/qa flows calendar                                           # twenty-three flows since Tier 3 (the seventeen of Tier 2 took about 90 s on the Windows emulator; ANTA_QA_VIA=agent there)
-./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
+./tool/qa/qa fleet pass calendar                                      # since 2026-10-23: 26 flows, a reseed and the prelude before each, sharded over the fleet — ≈ 4.5 min wall, one report
+./tool/qa/qa pass calendar -d emulator-5556                           # the same on one device (≈ 10 min)
+./tool/qa/qa pass calendar --only 03_dates -d emulator-5558           # one flow, reseeded, after the prelude
+./tool/qa/qa pass --summary build/qa/pass/<dir>/report.json           # reprint the table of any report
+
+./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # the hand-driven way: ≈ 4 s on the owner's emulator; `qa fleet install --build` after a lib change
+./tool/qa/qa flows calendar                                           # the old runner: one seed for all flows, the prelude once, no report
 ```
+
+`tool/qa/flows/calendar/_suite.txt` names the fixture, `reseed=flow` and
+`shard=yes`; `_prelude.txt` opens the calendar from the drawer (`id:nav-menu`
+→ `id:drawer-calendar` → `id:calendar-add-event`) and ends with `tap
+id:panel-mode-day --settle 2000` to ride out the bottom panel's mode restore
+(an app race, `traps.md`); `_labels.txt` lists the seeded content the flows
+may still target by text. Every flow starts on the calendar page and leaves
+it anywhere — the next flow gets a fresh seed. `test/qa/flows_lint_test.dart`
+keeps every control target an `id:`.
 
 `tool/qa/fixtures/calendar.json` is written with **relative dates** —
 `"startDateMs": "{{today-28}}"`, `"dayMs": "{{today+7}}"` — that the tool

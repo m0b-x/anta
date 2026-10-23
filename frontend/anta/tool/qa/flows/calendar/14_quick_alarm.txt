@@ -32,11 +32,11 @@ shot 14_quick_alarm_reminder
 tap id:quick-alarm-type-alarm
 expect "Plays on the alarm stream until you stop or snooze it."
 tap id:quick-alarm-save
-wait "UNDO"
+wait id:snackbar-undo
 expect "Tea timer set for"
 shot 14_quick_alarm_set
-tap "UNDO"
-wait "UNDO" --gone
+tap id:snackbar-undo
+wait id:snackbar-undo --gone
 tap id:calendar-more
 wait id:calendar-alerts-open
 tap id:calendar-alerts-open

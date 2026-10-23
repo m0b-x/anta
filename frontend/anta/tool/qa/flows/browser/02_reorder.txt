@@ -1,0 +1,32 @@
+# A reorder by drag (docs/qa-pass-rework.md decision K): Training, the last
+# of the three root folders (Inbox, Money, Training by name), dragged by its
+# handle onto Inbox, the first, with no hold.
+# - The row's long press opens its action sheet, whose Select is the way
+#   into selection; only selection shows the drag handles.
+# - A handle is keyed by its row's position in the list, the FOLDERS header
+#   being 0: an import gives every folder a fresh id no step can spell.
+# - The handle starts the drag on touch (ReorderableDragStartListener), so
+#   the drag holds for 0 ms; a hold on the row would be its long press.
+# - The drag itself goes by points (the fleet's 1280 × 2856 screen): in
+#   selection mode the list's semantics rects sit one app bar (216 px)
+#   above the rows drawn (seen 2026-10-23, an app bug left to the owner),
+#   so `drag id:browser-drag-handle-3 "Inbox"` presses Money's handle and
+#   moves nothing. The handle ids are checked present; the points are
+#   Training's handle and Inbox's row on screen.
+# - No step reads an order: the two dumps around the drag are the evidence,
+#   Training's row first in the second one.
+wait "Training"
+longpress "Training"
+wait id:row-action-select
+tap id:row-action-select
+wait id:browser-drag-handle-3
+wait id:row-action-select --gone
+expect id:browser-drag-handle-1 id:browser-drag-handle-2
+dump
+drag 1162,994 640,700 --hold 0
+dump
+look 02_reordered
+key back
+wait id:browser-drag-handle-3 --gone
+expect "Training" "Inbox" id:create-folder
+errors

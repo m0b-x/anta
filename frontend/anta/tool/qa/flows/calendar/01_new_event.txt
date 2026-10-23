@@ -4,8 +4,8 @@ tap id:calendar-add-event
 wait id:event-title
 type "Sauna"
 tap id:event-category
-wait "Strength"
-tap "Strength"
+wait id:category-pick-qa-cal-strength
+tap id:category-pick-qa-cal-strength
 wait id:event-save
 tap id:event-save
 wait id:calendar-add-event

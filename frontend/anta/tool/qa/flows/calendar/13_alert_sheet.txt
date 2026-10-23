@@ -60,10 +60,10 @@ wait id:alert-sheet-save
 tap id:alert-sheet-save
 wait id:event-close
 scroll-to id:event-alert-remove-after --in id:event-form
-expect "6 h before" "Remove alert" id:event-alert-add id:event-alert-remove-after
+expect "6 h before" id:event-alert-remove-0 id:event-alert-add id:event-alert-remove-after
 shot 13_alert_in_editor
 tap id:event-close
-wait "Unsaved changes"
-tap "Discard changes"
+wait id:unsaved-dialog
+tap id:unsaved-discard
 wait id:calendar-add-event
 errors

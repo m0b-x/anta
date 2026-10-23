@@ -1,0 +1,11 @@
+# The labels the alerts flows may still target, one per line: seeded
+# content and the captions a flow waits on, never a control's own words —
+# a control gets a SemanticsIds entry instead (test/qa/flows_lint_test.dart).
+# A comment is "# " and its text, so a label may start with "#".
+# 02_remove_after: the alarm page's caption after Keep.
+The event will be kept
+# 03_category_alerts: Ana's hub row, found by its caption.
+From Birthday
+# 04_digests: the fire rows, whose ids carry an instant no step can spell.
+1 event from
+this month

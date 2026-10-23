@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
@@ -453,10 +454,15 @@ class _PanelModeBar extends StatelessWidget {
                 for (final value in CalendarPanelMode.values)
                   ButtonSegment<CalendarPanelMode>(
                     value: value,
-                    label: Text(
-                      _labelFor(l10n, value),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    // A segment takes no id of its own; the label's merges
+                    // into the segment's node.
+                    label: Semantics(
+                      identifier: SemanticsIds.panelMode(value.name),
+                      child: Text(
+                        _labelFor(l10n, value),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
               ],

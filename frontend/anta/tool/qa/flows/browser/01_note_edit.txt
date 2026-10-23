@@ -1,0 +1,24 @@
+# A seeded note edited and reopened: Money → January (the ledger note), a
+# line typed into the editor, back to the folder (back saves), the note
+# opened again and the typed text read back.
+# - An import gives every folder and note a fresh id, so the seeded rows
+#   are tapped by their names (the suite's _labels.txt).
+# - The editor's title also reads "January", and a wait on an ambiguous
+#   label fails at once: the folder is waited for by the editor going.
+wait "Money"
+tap "Money"
+wait "January"
+tap "January"
+wait id:editor-body
+tap id:editor-body
+type "QA typed words"
+key back
+wait id:editor-body --gone
+tap "January"
+wait id:editor-body
+expect "QA typed words"
+shot 01_note_reopened
+key back
+wait id:editor-body --gone
+expect "January"
+errors

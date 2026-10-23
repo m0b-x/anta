@@ -30,6 +30,13 @@ class SettingsEntry {
   final TextStyle? titleStyle;
   final TextStyle? descriptionStyle;
 
+  /// A `SemanticsIds` value for a row a device flow targets, so neither a
+  /// copy change nor the locale moves it. The row becomes a container node
+  /// rather than a merged one: a tile's tap and text still land on that one
+  /// node, while a row holding several controls (a segmented button, a
+  /// swatch strip) keeps each control as its own node.
+  final String? identifier;
+
   const SettingsEntry({
     required this.title,
     required this.builder,
@@ -37,6 +44,7 @@ class SettingsEntry {
     this.keywords = const [],
     this.titleStyle,
     this.descriptionStyle,
+    this.identifier,
   });
 }
 
@@ -401,7 +409,11 @@ class _SectionCard extends StatelessWidget {
             spans: visible.match.descriptionSpans,
             style: baseDescriptionStyle.merge(entry.descriptionStyle),
           );
-    return entry.builder(context, title, description);
+    final row = entry.builder(context, title, description);
+    final identifier = entry.identifier;
+    return identifier == null
+        ? row
+        : Semantics(container: true, identifier: identifier, child: row);
   }
 }
 

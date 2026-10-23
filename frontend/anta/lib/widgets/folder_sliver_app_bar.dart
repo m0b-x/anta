@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_theme.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
+import 'automation_id.dart';
 import 'leading_nav_pair.dart';
 
 /// Opens the ancestor breadcrumb under [anchorContext]'s widget.
@@ -186,11 +188,14 @@ class FolderSliverAppBar extends StatelessWidget {
 
   Widget _menuButton() {
     return Builder(
-      builder: (context) => IconButton(
-        icon: const Icon(Icons.menu_rounded),
-        iconSize: AppBarMetrics.glyphSize,
-        tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
-        onPressed: onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
+      builder: (context) => AutomationId(
+        identifier: SemanticsIds.navMenu,
+        child: IconButton(
+          icon: const Icon(Icons.menu_rounded),
+          iconSize: AppBarMetrics.glyphSize,
+          tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
+          onPressed: onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
+        ),
       ),
     );
   }

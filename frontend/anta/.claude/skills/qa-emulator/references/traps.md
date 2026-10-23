@@ -9,6 +9,9 @@ Contents:
 - macOS — `shot`, the sandbox container, `app.log`
 - Android — edge swipes, ASCII-only `input text`, `uiautomator`, `pgrep`, Firebase noise, the logcat clock, `qa type` on adb, the keyboard-inset recipe, emulator warnings, forwarded ports, the Windows launcher, PowerShell quotes
 - Notification-shade actions and the Quick Settings tile (Android, 2026-09-23)
+- The pass and the fleet (2026-10-23) — the stale-build warning, E-cores, the panel race, `--nth` over hidden matches, `--absent` beyond the cache extent, a v1 agent, `latest_<suite>.txt`, a lone flow without its prelude, `qa build` beside a run
+
+Retired on 2026-10-23 (fixed in the harness, kept here so an old flow comment makes sense): "`ANTA_QA_VIA=agent` on the Windows emulator" — `auto` is the agent wherever it answers; "scroll before an `--absent` check so absence means gone, not off-screen" — a node in the tree but scrolled out counts as present and `--absent` means no node matches at all, except beyond a lazy list's cache extent (below); "an `expect` below the fold fails" — `expect` and `wait` count the scrolled-out node, and `tap` scrolls it into view first.
 
 Pointers: "see Targets" means `verbs.md`; "the read-only alarm queries" are in `alarm-evidence.md`. Eight of these traps are also copied verbatim into SKILL.md's "Top traps" — change both copies together.
 
@@ -36,10 +39,13 @@ Shared:
   com.alexzamfir.anta`.
 - **A `wait` on an ambiguous label fails at once** (see Targets). Prefer
   `id:` targets in step files.
-- **Off-screen nodes never win a label.** The agent's tree includes rows a
-  list has cached beyond the viewport (flagged `hidden`); a visible match is
-  preferred over a hidden duplicate, `wait`/`expect` treat a hidden node as
-  absent, and `tap` on one says `scroll-to it first`.
+- **Off-screen nodes never win a label without `--nth`.** The agent's tree
+  includes rows a list has cached beyond the viewport (flagged `hidden`) and,
+  separately, nodes outside the screen rect (`offscreen`, a route still
+  sliding in); without `--nth` a visible match is preferred over a hidden
+  duplicate. Since 2026-10-23 `wait`/`expect` count a `hidden` node as
+  present (not an `offscreen`-only one), `tap`/`longpress`/`drag` reveal it
+  first (`revealed: …`), and `--nth` numbers every match in traversal order.
 - **A refused reset fails the launch.** `[qa] reset refused: ANTA_QA_DB is
   "gym_notes"` means the build points at the owner database; `run`/`relaunch`
   exit 3 on it (the outcome is typed, not matched on wording) instead of
@@ -190,3 +196,57 @@ sheet it opened. A launcher shortcut is checked from the app drawer (`key
 home` on the native path, `swipe up`, `longpress` the app icon, the
 bubble's long label is the target) and, read-only, in `adb shell dumpsys
 shortcut` under the package.
+
+## The pass and the fleet (2026-10-23)
+
+- **A stale-build warning at the top of a pass** (`warning: a source of the
+  APK changed after the installed build …`) means the APK on the device
+  predates a source change under `lib/`, `test_driver/`, `android/`,
+  `pubspec.*`, `assets/` or a fork's `android/`: nothing the pass says is
+  evidence about the current code. `qa fleet install --build`, then run
+  again. `qa run` records what it installed too, so a device last served by
+  `run` is not falsely stale.
+- **A headless emulator that is uniformly slow** — first frame 9 s instead
+  of 5, every tap half a second, a pure shell loop 1.65× slower — has its
+  qemu on the E-cores of the hybrid i7 (Windows prefers them for a process
+  without a window). `fleet boot` pins the qemu to the P-cores the moment it
+  appears; `fleet status` shows `affinity=0xFFFF`; an unpinned one is a
+  `doctor` warn. Priority class changes nothing; `pm compile` on the
+  debuggable APK changes nothing. The remaining gap to the owner's
+  long-running windowed emulator (5.1 s vs 3.7 s to first frame) is not
+  explained.
+- **The calendar's bottom panel restores its mode about a second after the
+  page opens** (`lib/widgets/calendar_bottom_panel.dart`'s `_load()`
+  overwrites `_mode` after its four settings reads), so a `tap "Upcoming"`
+  within ~1.5 s of landing snaps back to Day. The calendar prelude ends with
+  `tap id:panel-mode-day --settle 2000`, which rides it out (Day is already
+  selected, so nothing is persisted). An app fix is the owner's call
+  (`docs/qa-pass-rework.md` §6).
+- **`--nth` numbers every match in traversal order, hidden ones included**,
+  so a duplicate scrolled above the viewport counts before the visible one.
+  Four calendar flows use `--nth`; a new one should name the row by id.
+- **`--absent` beyond a lazy list's cache extent passes** because a
+  `ListView.builder` row that far away is not in the semantics tree at all;
+  `scroll-to` it into the cache extent first when absence must mean gone.
+  Inside a sheet or a `SingleChildScrollView` the whole content is in the
+  tree, so `--absent` there means gone.
+- **A v1 agent in the installed APK** fails a `tap` on a scrolled-out node
+  with `installed agent is v1, this tool needs v2 — qa build then qa
+  install` (`scroll-to` warns and swipes instead); `doctor`'s agent line
+  warns on it.
+- **`latest_<suite>.txt` after a hand-sharded pass** (two `qa pass --shard`
+  calls) points at the shard that finished last until `qa pass --merge`;
+  `fleet pass` merges itself.
+- **A lone flow run with `qa flows <dir>/<flow>` gets no reseed** and the
+  prelude only when it is the suite's first flow (or with `--prelude`);
+  `qa pass <suite> --only <flow>` is the self-contained way to run one.
+- **`qa build` is refused while a `qa run` is alive** (`--force` overrides)
+  because both write `build/app` and race on `build/native_assets`; never
+  run it beside a `flutter test` either.
+- **Two first boots of new AVDs in parallel took 80–113 s unpinned**; a
+  pinned re-boot takes 16 s. Create the fleet once, boot it as often as you
+  like.
+- **The emulator's own `adb -e` keep-awake fails with more than one emulator**
+  (`more than one emulator`), so `fleet boot` sets `screen_off_timeout` and
+  `svc power stayon` per serial itself; a guest that still sleeps between
+  passes gets `qa wake`.

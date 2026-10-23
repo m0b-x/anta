@@ -409,6 +409,7 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
                     icon: Icons.more_horiz_rounded,
                     tooltip: l10n.colorShowAll(palette.length - shown.length),
                     selected: false,
+                    identifier: SemanticsIds.swatchShowAll,
                     onTap: () => setState(() => _expanded = true),
                   ),
                 ...trailing,

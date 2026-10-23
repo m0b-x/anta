@@ -1,0 +1,10 @@
+# The labels the browser flows may still target, one per line: seeded
+# content only, never a control's own words — a control gets a SemanticsIds
+# entry instead (test/qa/flows_lint_test.dart). A comment is "# " and its
+# text, so a label may start with "#".
+# basic.json's root folders and its ledger note: an import gives every
+# folder and note a fresh id, so a seeded row is named by its title.
+Training
+Money
+Inbox
+January

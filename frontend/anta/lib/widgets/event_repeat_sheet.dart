@@ -11,6 +11,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../services/recurrence_formatter.dart';
+import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'form_rows.dart';
 
@@ -241,6 +242,7 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
         FormSheetHeader(
           leadingIcon: Icons.close_rounded,
           leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.repeatClose,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.eventRepeat,
           trailingInset: FormMetrics.headerActionInset,
@@ -280,10 +282,18 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
         ),
         for (final kind in RepeatKind.values)
           if (!widget.forTemplate || kind != RepeatKind.holidays)
-            FormRadioRow(
-              label: EventRepeatSheet.kindLabel(kind, l10n),
-              selected: _draft.recurring && _draft.kind == kind,
-              onTap: () => _select(kind),
+            // The group reads the hairline indent off its direct child, so
+            // the id's wrapper carries the radio row's own indent.
+            FormIndentedRow(
+              dividerIndent: FormMetrics.dividerIndentPlain,
+              child: AutomationId(
+                identifier: SemanticsIds.repeatKind(kind.name),
+                child: FormRadioRow(
+                  label: EventRepeatSheet.kindLabel(kind, l10n),
+                  selected: _draft.recurring && _draft.kind == kind,
+                  onTap: () => _select(kind),
+                ),
+              ),
             ),
       ],
     );

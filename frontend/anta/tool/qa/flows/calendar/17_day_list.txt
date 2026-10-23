@@ -12,7 +12,7 @@
 #   year is the current month's (--nth 0 picks it when two tiles match).
 # - The scope chips are the year body's first row: waiting for
 #   id:day-list-scope-calendar-year is waiting for year mode.
-tap "Upcoming"
+tap id:panel-mode-upcoming
 wait id:agenda-filter-open
 tap id:agenda-filter-open
 wait id:agenda-filter-apply
@@ -64,6 +64,6 @@ wait id:agenda-filter-reset
 tap id:agenda-filter-reset
 tap id:agenda-filter-apply
 wait id:agenda-filter-open
-tap "Day"
+tap id:panel-mode-day
 wait id:calendar-add-event
 errors

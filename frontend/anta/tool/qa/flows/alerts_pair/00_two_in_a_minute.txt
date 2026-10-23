@@ -47,5 +47,5 @@ expect id:alarm-stop id:alarm-snooze id:alarm-open-event "Squat"
 shot 00_pair_second
 tap id:alarm-stop
 wait id:alarm-stop --gone
-expect "Open navigation menu"
+expect id:nav-menu
 errors

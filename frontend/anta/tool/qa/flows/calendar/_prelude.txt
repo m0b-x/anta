@@ -6,8 +6,8 @@
 #   put back on Day. Nothing on screen marks the restore, so the last step
 #   taps the already selected Day (which changes and persists nothing) and
 #   holds 2 s; measured 2026-10-23, 1.5 s was always enough.
-tap "Open navigation menu"
+tap id:nav-menu
 wait id:drawer-calendar
 tap id:drawer-calendar
 wait id:calendar-add-event
-tap "Day" --settle 2000
+tap id:panel-mode-day --settle 2000

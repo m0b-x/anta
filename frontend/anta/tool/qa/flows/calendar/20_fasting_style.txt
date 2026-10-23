@@ -3,17 +3,17 @@
 # Show on the grid menu with its four items (Subtle tint picked back, so
 # the seed's style is kept), the Custom title row into its dialog and out
 # through Cancel, then the sheet's ✕ — every write is live.
-# - "Appearance" is both a section header and the appearance page's row on
-#   this page; the fasting row is named by its own second line, which reads
-#   the current style and placement back.
+# - The fasting row is keyed by its tradition; its second line reads the
+#   current style and placement back.
 # - The title dialog's hint is the computed period name of the preview's
 #   sample period ("Great Lent" for Orthodox); its Cancel writes nothing.
 tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to "Subtle tint · After holidays"
-tap "Subtle tint · After holidays"
+scroll-to id:calendar-fasting-style-open-orthodox
+expect "Subtle tint · After holidays"
+tap id:calendar-fasting-style-open-orthodox
 wait id:fasting-style-close
 expect id:fasting-style-grid id:fasting-style-placement id:fasting-style-icon id:swatch-row id:swatch-default id:swatch-add id:swatch-manage "Great Lent" "PREVIEW"
 shot 20_fasting_style
@@ -34,7 +34,7 @@ shot 20_fasting_style_title_dialog
 tap id:sheet-cancel
 wait id:fasting-style-close
 tap id:fasting-style-close
-wait "Search settings"
+wait id:settings-search
 key back
 wait id:calendar-add-event
 errors

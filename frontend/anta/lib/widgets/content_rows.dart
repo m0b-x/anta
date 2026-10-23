@@ -250,11 +250,16 @@ class RowAction {
   final bool isDestructive;
   final VoidCallback onSelected;
 
+  /// A `SemanticsIds` value for an action a device flow takes — Select is
+  /// the only road into the browser's selection, and its word is translated.
+  final String? identifier;
+
   const RowAction({
     required this.icon,
     required this.label,
     required this.onSelected,
     this.isDestructive = false,
+    this.identifier,
   });
 }
 
@@ -320,21 +325,25 @@ Future<void> showRowActionSheet(
               const Divider(),
             ],
             for (final action in actions)
-              ListTile(
-                leading: Icon(
-                  action.icon,
-                  color: action.isDestructive ? colorScheme.error : null,
+              Semantics(
+                container: action.identifier != null,
+                identifier: action.identifier,
+                child: ListTile(
+                  leading: Icon(
+                    action.icon,
+                    color: action.isDestructive ? colorScheme.error : null,
+                  ),
+                  title: Text(
+                    action.label,
+                    style: action.isDestructive
+                        ? TextStyle(color: colorScheme.error)
+                        : null,
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    action.onSelected();
+                  },
                 ),
-                title: Text(
-                  action.label,
-                  style: action.isDestructive
-                      ? TextStyle(color: colorScheme.error)
-                      : null,
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  action.onSelected();
-                },
               ),
             const SizedBox(height: 8),
           ],

@@ -9,8 +9,11 @@
 #   open the calendar first. It rings nothing: the inherited reminder is due
 #   tomorrow at 09:00 whatever the hour the seed went in — Ana sits two days
 #   out so that it is, and so the hub has it to list.
-# - "Birthday" is the built-in's label, singular. A built-in's name is a read
-#   row, so the editor is waited for on its alert row, not the name field.
+# - Birthday is the built-in `birthday`, its row id:category-row-birthday.
+#   A built-in's name is a read row, so the editor is waited for on its
+#   alert row, not the name field.
+# - The Categories page has a search field of its own, so the settings page
+#   is waited for by the row that opened the Categories page.
 #   The row reads the all-day wording as its label and the timed one in its
 #   caption, "Timed events: 30 min before · Reminder"; the all-day label
 #   carries a clock time in the device's own format and is not read.
@@ -37,10 +40,10 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-tap "Create and customize event categories"
-wait "Create category"
-scroll-to "Birthday"
-tap "Birthday"
+tap id:calendar-categories-open
+wait id:category-add
+scroll-to id:category-row-birthday
+tap id:category-row-birthday
 wait id:category-alert-0
 expect id:category-editor-close id:category-editor-save id:category-alert-0 id:category-alert-switch-0 id:category-alert-add "Edit category" "Timed events: 30 min before · Reminder" "Every event in this category gets these alerts."
 shot 03_category_alerts_group
@@ -53,9 +56,9 @@ tap id:alert-sheet-close
 wait id:alert-sheet-save --gone
 wait id:category-alert-add
 tap id:category-editor-close
-wait "Create category"
+wait id:category-add
 key back
-wait "Search settings"
+wait id:calendar-categories-open
 key back
 wait id:calendar-add-event
 tap id:calendar-more

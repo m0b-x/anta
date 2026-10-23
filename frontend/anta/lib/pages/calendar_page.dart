@@ -1369,6 +1369,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
               AgendaListView.shortDayLabel(l10n, draft.day, today),
             ),
       actionLabel: l10n.undo,
+      actionIdentifier: SemanticsIds.snackbarUndo,
       onAction: () => bloc.add(DeleteCalendarEvent(eventId: eventId)),
     );
   }
@@ -1889,34 +1890,37 @@ class _CalendarTable extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.xs),
               Flexible(
-                child: Tooltip(
-                  message: l10n.monthYearPickerTitle,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppSpacing.sm),
-                    onTap: () => _openMonthYearPicker(context),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xs,
-                        vertical: AppSpacing.xs,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              title,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
+                child: AutomationId(
+                  identifier: SemanticsIds.calendarMonthTitle,
+                  child: Tooltip(
+                    message: l10n.monthYearPickerTitle,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(AppSpacing.sm),
+                      onTap: () => _openMonthYearPicker(context),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.xs,
+                          vertical: AppSpacing.xs,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          Icon(
-                            Icons.arrow_drop_down_rounded,
-                            size: AppIconSizes.small,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ],
+                            Icon(
+                              Icons.arrow_drop_down_rounded,
+                              size: AppIconSizes.small,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

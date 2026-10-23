@@ -406,6 +406,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         ),
         SettingsEntry(
           title: l10n.removedHolidays,
+          identifier: SemanticsIds.calendarRemovedHolidaysOpen,
           builder: (context, title, description) => ListTile(
             leading: Icon(Icons.restore_rounded, color: colorScheme.primary),
             title: title,
@@ -555,6 +556,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             l10n.calendarWeekStartTitle,
             l10n.calendarShowRecurrenceLabels,
           ],
+          identifier: SemanticsIds.calendarAppearanceOpen,
           builder: (context, title, description) => ListTile(
             leading: Icon(Icons.palette_rounded, color: colorScheme.primary),
             title: title,
@@ -624,6 +626,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.calendarCategories,
           description: l10n.calendarCategoriesDesc,
+          identifier: SemanticsIds.calendarCategoriesOpen,
           builder: (context, title, description) => ListTile(
             leading: Icon(Icons.palette_outlined, color: colorScheme.primary),
             title: title,
@@ -674,6 +677,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             // Searchable by the tradition it belongs to, since the visible
             // title is the same word for every one of them.
             keywords: [traditionName],
+            identifier: SemanticsIds.calendarFastingStyleOpen(tradition.name),
             builder: (context, title, description) => Padding(
               padding: const EdgeInsets.only(left: 32),
               child: ListTile(
@@ -728,6 +732,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             l10n.fastingMonthsTitle,
             l10n.fastingExceptionsSkipTitle,
           ],
+          identifier: SemanticsIds.calendarFastingScheduleOpen,
           builder: (context, title, description) => ListTile(
             leading: Icon(
               Icons.event_repeat_rounded,
@@ -777,6 +782,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           // long-pressing a day — declare that word so settings search finds
           // it either way.
           keywords: [l10n.addFromTemplate],
+          identifier: SemanticsIds.calendarEventTemplatesOpen,
           builder: (context, title, description) => ListTile(
             leading: Icon(
               Icons.bookmark_border_rounded,
@@ -871,6 +877,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.alertsDefaultTimed,
           description: l10n.alertsDefaultTimedDesc,
+          identifier: SemanticsIds.alertsDefaultTimed,
           builder: (context, title, description) {
             final value = _describeDefault(l10n, allDay: false);
             return _YieldingTile(
@@ -887,6 +894,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.alertsDefaultAllDay,
           description: l10n.alertsDefaultAllDayDesc,
+          identifier: SemanticsIds.alertsDefaultAllDay,
           builder: (context, title, description) {
             final value = _describeDefault(l10n, allDay: true);
             return _YieldingTile(

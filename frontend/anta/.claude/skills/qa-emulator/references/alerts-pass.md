@@ -9,11 +9,17 @@ The alarm page and the alert notifications have a device pass of their own
 events ring **minutes after the seed is resolved**:
 
 ```bash
-./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/alerts.json
-./tool/qa/qa flows alerts            # three flows, about five minutes — most of it waiting for the clock
-./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/alerts_pair.json
-./tool/qa/qa flows alerts_pair       # one flow, about two minutes
+./tool/qa/qa pass alerts -d emulator-5556        # since 2026-10-23: the seed goes in once (reseed=suite), the five flows run in order on one device (shard=no), about five minutes, one report
+./tool/qa/qa pass alerts_pair -d emulator-5556   # one flow, about two minutes
+./tool/qa/qa pass alerts --only 00_test_alarm -d emulator-5556   # the one flow that rings within seconds
+
+./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/alerts.json   # the hand-driven way, then `flows alerts`
 ```
+
+The suites' `_suite.txt` say `reseed=suite` and `shard=no` because the
+fixtures' events sit minutes ahead of the one seed and the flows consume
+them in order; `fleet pass alerts` therefore runs on its first device only
+and says so. Never interrupt the wait for a ring.
 
 - **`alerts.json`** seeds three events with `{{minute+N}}` /
   `{{minuteday+N}}`, the upcoming notice off (`alert_notice_lead_minutes`

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/snackbar_metrics.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/overlay_snackbar.dart';
 
 class CustomSnackbar {
@@ -59,6 +60,7 @@ class CustomSnackbar {
     required VoidCallback onAction,
     Duration? duration,
     bool withToolbarOffset = false,
+    String? actionIdentifier,
   }) {
     // Cap so an action prompt (e.g. Undo) never lingers indefinitely: a
     // duration past the max collapses down to it; a shorter one is honoured.
@@ -81,6 +83,7 @@ class CustomSnackbar {
       content: _ActionContent(
         message: message,
         actionLabel: actionLabel,
+        actionIdentifier: actionIdentifier,
         onAction: onAction,
         dismiss: () => hide(context),
       ),
@@ -206,6 +209,10 @@ class _ActionContent extends StatelessWidget {
   final String actionLabel;
   final VoidCallback onAction;
 
+  /// A `SemanticsIds` value on the action button for a device flow that
+  /// waits for or taps it; its label is a translated word.
+  final String? actionIdentifier;
+
   /// Takes the bar down on whichever road raised it; the confirming tap must
   /// not leave the bar lingering.
   final VoidCallback dismiss;
@@ -215,6 +222,7 @@ class _ActionContent extends StatelessWidget {
     required this.actionLabel,
     required this.onAction,
     required this.dismiss,
+    this.actionIdentifier,
   });
 
   @override
@@ -224,6 +232,31 @@ class _ActionContent extends StatelessWidget {
     // menu would use on it: `primary` reads on `menuSurface` in both themes.
     final actionColor =
         theme.snackBarTheme.actionTextColor ?? theme.colorScheme.primary;
+
+    Widget action = TextButton(
+      onPressed: () {
+        dismiss();
+        onAction();
+      },
+      style: TextButton.styleFrom(
+        foregroundColor: actionColor,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        // A full touch target, in the label's own sentence case: the
+        // 32 dp uppercase button was Material 2's.
+        minimumSize: const Size(
+          kMinInteractiveDimension,
+          kMinInteractiveDimension,
+        ),
+        tapTargetSize: MaterialTapTargetSize.padded,
+      ),
+      child: Text(
+        actionLabel,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    );
+    if (actionIdentifier case final id?) {
+      action = AutomationId(identifier: id, child: action);
+    }
 
     return Row(
       children: [
@@ -240,27 +273,7 @@ class _ActionContent extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        TextButton(
-          onPressed: () {
-            dismiss();
-            onAction();
-          },
-          style: TextButton.styleFrom(
-            foregroundColor: actionColor,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            // A full touch target, in the label's own sentence case: the
-            // 32 dp uppercase button was Material 2's.
-            minimumSize: const Size(
-              kMinInteractiveDimension,
-              kMinInteractiveDimension,
-            ),
-            tapTargetSize: MaterialTapTargetSize.padded,
-          ),
-          child: Text(
-            actionLabel,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
+        action,
       ],
     );
   }

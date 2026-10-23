@@ -11,7 +11,7 @@
 # - The editor stays clean throughout (Look's Done returns an equal draft),
 #   so its ✕ returns to the detail sheet without asking.
 # - The grid title's label is the month and year, which no placeholder
-#   renders; its tooltip "Pick a date" is the date-independent handle.
+#   renders; it is reached by id:calendar-month-title.
 tap id:event-row-qa-cal-lift
 wait id:event-detail-edit
 tap id:event-detail-edit
@@ -21,7 +21,7 @@ wait id:time-pad-done
 shot 11_time_pad
 tap id:time-pad-cancel
 wait id:event-close
-tap "Open full editor"
+tap id:event-description-expand
 wait id:description-done
 shot 11_description
 tap id:description-close
@@ -56,7 +56,7 @@ wait id:quick-alarm-row
 shot 11_template_picker
 tap id:template-pick-close
 wait id:calendar-add-event
-tap "Pick a date"
+tap id:calendar-month-title
 wait id:month-year-apply
 shot 11_month_year
 tap id:month-year-close

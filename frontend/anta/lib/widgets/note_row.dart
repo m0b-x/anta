@@ -9,6 +9,7 @@ import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/label_style.dart';
@@ -209,12 +210,16 @@ class NoteRow extends StatelessWidget {
                 ],
                 if (isReorderMode) ...[
                   const SizedBox(width: RowMetrics.gap),
-                  ReorderableDragStartListener(
-                    index: index ?? 0,
-                    child: Icon(
-                      Icons.drag_handle,
-                      size: RowMetrics.glyphSize,
-                      color: colorScheme.onSurfaceVariant,
+                  Semantics(
+                    container: true,
+                    identifier: SemanticsIds.browserDragHandle(index ?? 0),
+                    child: ReorderableDragStartListener(
+                      index: index ?? 0,
+                      child: Icon(
+                        Icons.drag_handle,
+                        size: RowMetrics.glyphSize,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ],
@@ -251,7 +256,12 @@ class NoteRow extends StatelessWidget {
       );
     }
 
-    return result;
+    // A container, not a merge: the drag handle stays a node of its own.
+    return Semantics(
+      container: true,
+      identifier: SemanticsIds.browserRow(metadata.id),
+      child: result,
+    );
   }
 
   /// The date, then the preview it introduces. One [Text.rich] rather than
@@ -323,6 +333,7 @@ class NoteRow extends StatelessWidget {
           RowAction(
             icon: Icons.check_circle_outline,
             label: l10n.select,
+            identifier: SemanticsIds.rowActionSelect,
             onSelected: () => enterSelection(ref),
           ),
         RowAction(

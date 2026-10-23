@@ -14,8 +14,8 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to "My practice"
-tap "My practice"
+scroll-to id:calendar-fasting-schedule-open
+tap id:calendar-fasting-schedule-open
 wait id:fasting-schedule-close
 expect id:fasting-weekday-1 id:fasting-weekday-7 id:fasting-weekdays-all id:fasting-weekdays-none id:fasting-weekday-scope-weekly id:fasting-weekday-scope-all id:fasting-month-1 id:fasting-month-12 id:fasting-months-all id:fasting-months-none "Multi-day fasts still mark every one of their days"
 shot 19_fasting_schedule
@@ -34,7 +34,7 @@ shot 19_fasting_days_off_picker
 tap id:date-picker-cancel
 wait id:fasting-schedule-close
 tap id:fasting-schedule-close
-wait "Search settings"
+wait id:settings-search
 key back
 wait id:calendar-add-event
 errors

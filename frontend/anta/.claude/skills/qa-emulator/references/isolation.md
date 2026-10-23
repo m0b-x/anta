@@ -45,5 +45,15 @@ after four QA runs) and on 2026-09-16 on the iOS simulator and macOS.
 
   `--fresh` drops an empty `qa_reset`; `--seed <file>` copies a full-backup
   JSON as `qa_seed.json`. Fixtures live in `tool/qa/fixtures/*.json`.
+- **Per-device files under `build/qa/` (2026-10-23)**: `vm_<device>.txt`,
+  `dtd_<device>.txt`, `documents_<device>.txt`, `last_dump_<device>.txt`,
+  `seed_resolved_<device>.json`, `installed_<device>.json`,
+  `emulator_<avd>.{log,err,pid}` and `emulator_cmd_<avd>.bat|.sh`, plus one
+  `pass/<suite>_<stamp>_<device>/` directory per pass — so a fleet of
+  emulators driven by several `qa` processes never share a file. Shared on
+  purpose: `apk.json` (the one QA build), `latest_<suite>.txt`, and the one
+  `flutter run` slot (`run.pid`, `run.log`, `run.err`, `run.started`,
+  `run.vm`, `device.txt`). Every fleet device has its own app sandbox, so
+  the QA database, the markers and the alarm store are per device as well.
 - **Caveat**: while a QA build is installed, the app icon opens the *QA*
   database. The owner gets their data back on the next normal `flutter run`.

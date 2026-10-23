@@ -1,0 +1,17 @@
+# The labels the calendar flows may still target, one per line: seeded or
+# typed content and the messages a flow waits on, never a control's own
+# words — a control gets a SemanticsIds entry instead
+# (test/qa/flows_lint_test.dart). A comment is "# " and its text, so a
+# label may start with "#".
+# 15_templates: the seeded template's row, and the delete's message.
+Leg day
+Template deleted
+# 21_removed_holidays: the restore's message.
+Holiday restored
+# 22_palette: a swatch is found by the hex it announces.
+#3F51B5
+# 24_overview_views: the save's message, the view's name, and its ⋮ —
+# a view's ids carry its UUID, which a flow cannot spell.
+Saved as
+Ninety days
+Saved view options

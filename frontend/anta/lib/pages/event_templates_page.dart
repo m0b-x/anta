@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_templates.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/event_template.dart';
 import '../services/event_template_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/event_template_summary.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/event_template_editor_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 
@@ -88,10 +90,13 @@ class _EventTemplatesPageState extends State<EventTemplatesPage> {
 
     return Scaffold(
       appBar: SettingsAppBar(title: l10n.eventTemplates, showMenuButton: false),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add_rounded),
-        label: Text(l10n.createTemplate),
+      floatingActionButton: AutomationId(
+        identifier: SemanticsIds.templatesCreate,
+        child: FloatingActionButton.extended(
+          onPressed: _create,
+          icon: const Icon(Icons.add_rounded),
+          label: Text(l10n.createTemplate),
+        ),
       ),
       body: SafeArea(
         top: false,
@@ -130,13 +135,16 @@ class _EventTemplatesPageState extends State<EventTemplatesPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       isThreeLine: false,
-                      trailing: IconButton(
-                        tooltip: l10n.deleteTemplate,
-                        icon: Icon(
-                          Icons.delete_outline_rounded,
-                          color: theme.colorScheme.error,
+                      trailing: AutomationId(
+                        identifier: SemanticsIds.templateDelete(index),
+                        child: IconButton(
+                          tooltip: l10n.deleteTemplate,
+                          icon: Icon(
+                            Icons.delete_outline_rounded,
+                            color: theme.colorScheme.error,
+                          ),
+                          onPressed: () => _delete(template),
                         ),
-                        onPressed: () => _delete(template),
                       ),
                       onTap: () => _edit(template),
                     ),

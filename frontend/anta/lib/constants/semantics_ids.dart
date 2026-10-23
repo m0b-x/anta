@@ -9,7 +9,9 @@
 /// that touches that control stops finding it. Add rather than rename, and
 /// keep them kebab-case.
 abstract final class SemanticsIds {
-  /// The two halves of [LeadingNavPair], on every nested screen.
+  /// The two halves of [LeadingNavPair], on every nested screen. The root
+  /// browser's lone menu button carries [navMenu] too, so a flow opens the
+  /// drawer by one id wherever it starts.
   static const String navBack = 'nav-back';
   static const String navMenu = 'nav-menu';
 
@@ -17,6 +19,19 @@ abstract final class SemanticsIds {
   /// note cannot live at the database root, where that half is the importer.
   static const String createNote = 'create-note';
   static const String createFolder = 'create-folder';
+
+  /// A browser row — a folder or a note — keyed by the item's id, and the
+  /// drag handle it shows in selection mode, keyed by the row's position in
+  /// the reorderable list (section headers count): an imported item gets a
+  /// fresh id, so a flow over a seed can only spell the position. The row's
+  /// long press opens its sheet; only the handle starts a reorder.
+  static String browserRow(String id) => 'browser-row-$id';
+  static String browserDragHandle(int position) =>
+      'browser-drag-handle-$position';
+
+  /// Select in a browser row's long-press sheet — the way into selection,
+  /// and so into the drag handles.
+  static const String rowActionSelect = 'row-action-select';
 
   /// The browser bar's magnifier, and the query field it raises — the same
   /// field on the browser, the note lists and the search page.
@@ -50,13 +65,33 @@ abstract final class SemanticsIds {
   static const String sheetConfirm = 'sheet-confirm';
   static const String sheetCancel = 'sheet-cancel';
 
+  /// The form sheets' leave guard (`AppDialogs.confirmDiscard`): its title,
+  /// which a flow waits for, and its two buttons.
+  static const String unsavedDialog = 'unsaved-dialog';
+  static const String unsavedKeepEditing = 'unsaved-keep-editing';
+  static const String unsavedDiscard = 'unsaved-discard';
+
+  /// The Undo of an action snackbar a flow waits for or taps; the bar's
+  /// message stays an assertion, its action word is translated.
+  static const String snackbarUndo = 'snackbar-undo';
+
   /// Settings entry points, which live as drawer rows.
   static const String settingsAppearance = 'settings-appearance';
   static const String settingsDatabases = 'settings-databases';
 
-  /// The calendar's controls that are not a day cell.
+  /// The search field of every settings page that has one; its hint says
+  /// which list it filters, so a flow tells the pages apart by their rows.
+  static const String settingsSearch = 'settings-search';
+
+  /// The calendar's controls that are not a day cell. The month title opens
+  /// the month/year picker; its label is the month itself.
   static const String calendarToday = 'calendar-today';
   static const String calendarAddEvent = 'calendar-add-event';
+  static const String calendarMonthTitle = 'calendar-month-title';
+
+  /// The bottom panel's mode segments (`day`, `timeline`, `upcoming`), keyed
+  /// by `CalendarPanelMode.name`.
+  static String panelMode(String mode) => 'panel-mode-$mode';
 
   /// The view menu behind the app-bar title of the calendar and the overview,
   /// and its rows. The Overview row keeps the id the app-bar button it
@@ -74,6 +109,31 @@ abstract final class SemanticsIds {
   static const String calendarAlertsOpen = 'calendar-alerts-open';
   static const String calendarExport = 'calendar-export';
   static const String calendarSettingsOpen = 'calendar-settings-open';
+
+  /// Calendar settings' rows that open a page or a sheet, and the two
+  /// default-alert rows: a section header shares some of their words, and
+  /// the rest read back a value. A fasting style row exists per enabled
+  /// tradition, so it is keyed by `FastingTradition.name`.
+  static const String calendarAppearanceOpen = 'calendar-appearance-open';
+  static const String calendarCategoriesOpen = 'calendar-categories-open';
+  static const String calendarRemovedHolidaysOpen =
+      'calendar-removed-holidays-open';
+  static const String calendarFastingScheduleOpen =
+      'calendar-fasting-schedule-open';
+  static String calendarFastingStyleOpen(String tradition) =>
+      'calendar-fasting-style-open-$tradition';
+  static const String calendarEventTemplatesOpen =
+      'calendar-event-templates-open';
+  static const String alertsDefaultTimed = 'alerts-default-timed';
+  static const String alertsDefaultAllDay = 'alerts-default-all-day';
+
+  /// The appearance page's Today highlight and Highlight color rows —
+  /// containers above their own segments and swatches — and the Missed days
+  /// segments.
+  static const String appearanceTodayStyle = 'appearance-today-style';
+  static const String appearanceAccentColor = 'appearance-accent-color';
+  static const String missedDisplayFaded = 'missed-display-faded';
+  static const String missedDisplayHidden = 'missed-display-hidden';
 
   /// The calendar's two filter buttons in the app bar and the Filters sheet
   /// behind them (2026-09-27, `docs/calendar-filters-redesign-roadmap.md`):
@@ -196,6 +256,10 @@ abstract final class SemanticsIds {
   /// a flow reaches it by id like [datePickerSave].
   static const String datePickerToday = 'date-picker-today';
 
+  /// The Dates sheet's view segments (`month`, `year`, `list`), keyed by
+  /// `CalendarDatePickerView.name`: their words are the day list's too.
+  static String datePickerView(String view) => 'date-picker-view-$view';
+
   /// The month/year picker's chrome (Tier 1, D13) and the two rows under its
   /// wheels — Today and the "Type the date" switch.
   static const String monthYearClose = 'month-year-close';
@@ -242,6 +306,9 @@ abstract final class SemanticsIds {
   /// editor's own text-field node, like [editorBody]: the field carries no
   /// label once it holds text, and the placeholder is not a tap target.
   static const String eventDescription = 'event-description';
+
+  /// The description cell's Open full editor button.
+  static const String eventDescriptionExpand = 'event-description-expand';
   static const String eventDate = 'event-date';
   static const String eventDates = 'event-dates';
   static const String eventAddDate = 'event-add-date';
@@ -257,6 +324,11 @@ abstract final class SemanticsIds {
   static const String eventDelete = 'event-delete';
   static const String repeatDone = 'repeat-done';
   static const String lookDone = 'look-done';
+
+  /// The Repeat sheet's ✕ and its kind rows, keyed by `RepeatKind.name`
+  /// (`repeat-kind-daily` …); "Does not repeat" has none.
+  static const String repeatClose = 'repeat-close';
+  static String repeatKind(String kind) => 'repeat-kind-$kind';
 
   /// The Look sheet's ✕ and its two rows (fix round of Tier 1, 2026-09-27):
   /// "Icon" is a substring of three nodes there — the sheet's title, the row
@@ -317,6 +389,10 @@ abstract final class SemanticsIds {
   static const String eventAlertAdd = 'event-alert-add';
   static const String alertSheetSave = 'alert-sheet-save';
   static const String eventAlertRemoveAfter = 'event-alert-remove-after';
+
+  /// The ✕ on the editor's own alert rows, by the row's position: the rows
+  /// share one tooltip and an alert's id is not something a flow can spell.
+  static String eventAlertRemove(int index) => 'event-alert-remove-$index';
 
   /// The alert sheet's ✕ and rows (Tier 2,
   /// `docs/calendar-language-tier-2-roadmap.md`); its header action keeps
@@ -408,6 +484,12 @@ abstract final class SemanticsIds {
   static const String quickAlarmPresetTonight = 'quick-alarm-preset-tonight';
   static const String quickAlarmTypeReminder = 'quick-alarm-type-reminder';
   static const String quickAlarmTypeAlarm = 'quick-alarm-type-alarm';
+
+  /// The Event templates page's create button and each row's delete, by the
+  /// row's position: a template a flow has just created has an id it cannot
+  /// spell.
+  static const String templatesCreate = 'templates-create';
+  static String templateDelete(int index) => 'template-delete-$index';
 
   /// The template form (Tier 2): its ✕ and Save and every row. The form is
   /// the event editor's twin and wears the editor's labels, so its rows are
@@ -537,6 +619,11 @@ abstract final class SemanticsIds {
   static const String categoryEditorName = 'category-editor-name';
   static const String categoryEditorIcon = 'category-editor-icon';
 
+  /// The Categories page's create button and each category's row, keyed by
+  /// the category's id — a container above the row's own buttons.
+  static const String categoryAdd = 'category-add';
+  static String categoryRow(String id) => 'category-row-$id';
+
   /// The colour strip wherever a sheet embeds it: the row as a container
   /// above the swatches' own nodes (the Look sheet's keeps [lookColor]), the
   /// three dots whose tooltips change with the locale, and the three items
@@ -546,6 +633,10 @@ abstract final class SemanticsIds {
   static const String swatchDefault = 'swatch-default';
   static const String swatchAdd = 'swatch-add';
   static const String swatchManage = 'swatch-manage';
+
+  /// The collapsed strip's "Show N more colors" dot, whose count changes
+  /// with the palette and the width.
+  static const String swatchShowAll = 'swatch-show-all';
   static const String swatchMenuEdit = 'swatch-menu-edit';
   static const String swatchMenuDelete = 'swatch-menu-delete';
   static const String swatchMenuManage = 'swatch-menu-manage';

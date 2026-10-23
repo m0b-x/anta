@@ -3,7 +3,7 @@
 # dimming the event rows, Apply, then Reset; the panel back on Day. The
 # applied draft is read back from the agenda's chips ("90 days", "Highest")
 # and the reset from their absence.
-tap "Upcoming"
+tap id:panel-mode-upcoming
 wait id:agenda-filter-open
 tap id:agenda-filter-open
 wait id:agenda-filter-apply
@@ -43,6 +43,6 @@ tap id:agenda-filter-reset
 tap id:agenda-filter-apply
 wait id:agenda-filter-open
 expect id:agenda-filter-open --absent "Remove filter"
-tap "Day"
+tap id:panel-mode-day
 wait id:calendar-add-event
 errors

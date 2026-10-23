@@ -17,8 +17,10 @@
 # - The save's message, Saved as "Ninety days", can still be up when the
 #   sheet reopens, and a tap on "Ninety days" then matches it as well as the
 #   row: the flow waits for "Saved as" to go first.
-# - The delete confirmation's button is "Delete"; the menu that also says
-#   "Delete" has closed by then.
+# - The ⋮'s tooltip is the one control label left in this flow, in the
+#   suite's _labels.txt: its id carries the UUID too.
+# - The delete confirmation is the shared confirm dialog, its button
+#   id:sheet-confirm.
 tap id:calendar-view-menu
 wait id:calendar-overview-open
 tap id:calendar-overview-open
@@ -71,9 +73,10 @@ shot 24_overview_views_renamed
 tap "Saved view options"
 wait id:overview-views-delete
 tap id:overview-views-delete
-wait "Delete saved view"
-tap "Delete"
-wait "Delete saved view" --gone
+wait id:sheet-confirm
+expect "Delete saved view"
+tap id:sheet-confirm
+wait id:sheet-confirm --gone
 expect id:overview-views-save --absent "Last ninety"
 shot 24_overview_views_deleted
 tap id:overview-views-close

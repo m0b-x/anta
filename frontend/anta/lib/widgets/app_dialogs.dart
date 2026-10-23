@@ -106,15 +106,26 @@ class AppDialogs {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: Text(l10n.unsavedChanges),
+          // The title merges into the dialog's own title node, so the id
+          // marks the question a flow waits for.
+          title: Semantics(
+            identifier: SemanticsIds.unsavedDialog,
+            child: Text(l10n.unsavedChanges),
+          ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(l10n.keepEditing),
+            AutomationId(
+              identifier: SemanticsIds.unsavedKeepEditing,
+              child: TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text(l10n.keepEditing),
+              ),
             ),
-            FilledButton.tonal(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(l10n.discardChanges),
+            AutomationId(
+              identifier: SemanticsIds.unsavedDiscard,
+              child: FilledButton.tonal(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text(l10n.discardChanges),
+              ),
             ),
           ],
         );

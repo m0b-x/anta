@@ -7,7 +7,12 @@ end to end on the iPhone 17 Pro Max simulator (iOS 26.2) and on macOS 26.0.1.
 Android completed on the same Mac 2026-09-17 against an API 36 AVD: both the
 adb path and the agent path (`--via agent`), plus the cloud-isolation and
 output-redaction guards. Phase C (on-device `integration_test` suites)
-possible, not shipped.**
+possible, not shipped — judged against the step files and declined on
+2026-10-23 (decision I of `docs/qa-pass-rework.md`). The 2026-10-23 rework
+added the one-call `qa pass` with its JSON report, the fold-proof reveal path
+(agent protocol v2), the agent as the default driver on Android, `qa build` /
+`qa install`, the headless `qa fleet` and the golden visual matrix; that
+record, not this file, owns how a pass is run and what it reports.**
 
 The device-driving half of the QA automation: one command-line tool an agent
 can use to boot a device, run ANTA against an isolated database, look at the
@@ -295,7 +300,8 @@ remaining floor is process startup (~30 ms) plus the WebSocket connect.
 behaviours each break a detached `flutter run` silently, and the launcher has
 to dodge all three at once. `boot` reuses the same machinery for the emulator
 and `MacosDevice.launchApp` for the desktop app, which is what gives
-`build/qa/emulator.log` and `build/qa/app.log`:
+`build/qa/emulator_<avd>.log` (`emulator.log` when the AVD is not named)
+and `build/qa/app.log`:
 
 | Behaviour | Symptom | Answer |
 | --- | --- | --- |
@@ -444,5 +450,10 @@ label.
 
 `flutter_driver` and `integration_test` are both dev dependencies, the driver
 entry point compiles and runs on all three platforms, and the agent's ops are
-the primitives an `integration_test/` suite would need. Nothing is written
-yet; the planner decides scope.
+the primitives an `integration_test/` suite would need. Nothing is written,
+and on 2026-10-23 the question was settled against it (decision I of
+`docs/qa-pass-rework.md`): a gradle rebuild is 32 s warm per change and the
+runner launches the app once per test file, against 0 s for a step-file edit
+and about 2 s per flow on the agent, which already gives in-process finders,
+frame-synced waits and `TestTextInput`. The device is reserved for what only
+a device proves; the layout matrix moved to `flutter test` goldens.

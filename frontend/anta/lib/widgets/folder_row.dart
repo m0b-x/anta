@@ -9,6 +9,7 @@ import '../bloc/optimized_folder/optimized_folder_event.dart';
 import '../constants/app_colors.dart';
 import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
@@ -200,17 +201,26 @@ class FolderRow extends StatelessWidget {
       );
     }
 
-    return result;
+    // A container, not a merge: the drag handle stays a node of its own.
+    return Semantics(
+      container: true,
+      identifier: SemanticsIds.browserRow(folder.id),
+      child: result,
+    );
   }
 
   Widget _buildTrailing(BuildContext context, LabelRowDecoration decoration) {
     final trailing = isReorderMode
-        ? ReorderableDragStartListener(
-            index: index ?? 0,
-            child: Icon(
-              Icons.drag_handle,
-              size: RowMetrics.glyphSize,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ? Semantics(
+            container: true,
+            identifier: SemanticsIds.browserDragHandle(index ?? 0),
+            child: ReorderableDragStartListener(
+              index: index ?? 0,
+              child: Icon(
+                Icons.drag_handle,
+                size: RowMetrics.glyphSize,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           )
         : RowCountChevron(count: noteCount);
@@ -251,6 +261,7 @@ class FolderRow extends StatelessWidget {
           RowAction(
             icon: Icons.check_circle_outline,
             label: l10n.select,
+            identifier: SemanticsIds.rowActionSelect,
             onSelected: () => enterSelection(_ref),
           ),
         RowAction(

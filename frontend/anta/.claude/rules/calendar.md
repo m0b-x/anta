@@ -29,5 +29,5 @@ paths:
 - Load the `calendar-events` skill (the rulebook and file map); for anything visual also `ui-language` and `calendar-ui`. Read the skill's `references/` and `docs/calendar-events-feature.md` **by section**, never whole.
 - Alerts are opt-in: seed defaults ship as `none`; never arm an alert the owner did not ask for. Only the Alarm tier reaches `packages/alarm/`; the Reminder tier stays on `flutter_local_notifications`.
 - Recurrence, holidays and fasting are pure Dart over UTC date-only values; a local-midnight `add(Duration)` is an hour off on DST days — construct `DateTime(y, m, d, 0, minutes)` instead.
-- The saved device passes must stay green: `qa flows calendar` and `qa flows alerts`, each after `qa relaunch --fresh --seed tool/qa/fixtures/<area>.json` (the alerts seed is clock-relative and must never go in through `qa run`); a slice that changes a screen updates its flow in the same slice.
+- The saved device passes must stay green: `qa fleet pass calendar` (26 flows, a fresh seed before each) and `qa pass alerts -d emulator-5556` (one clock-relative seed, in order, never through `qa run`); a slice that changes a screen updates its flow in the same slice, and a new control a flow targets gets a `SemanticsIds` entry.
 - A change in persisted event data is a migration plus backup/import coverage (the `database` rule applies).

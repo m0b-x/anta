@@ -1,0 +1,6 @@
+# The browser suite for `qa pass browser`: every flow starts from a fresh
+# basic.json seed on the folder root a launch lands on, so it needs no
+# prelude, no flow sees what an earlier one changed, and the suite shards.
+fixture=tool/qa/fixtures/basic.json
+reseed=flow
+shard=yes

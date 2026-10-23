@@ -11,7 +11,7 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-tap "Removed holidays"
+tap id:calendar-removed-holidays-open
 wait id:holiday-restore-christmasDay-{{day+60}}
 expect id:removed-holidays-close "Christmas Day" --absent "No holidays removed"
 shot 21_removed_holidays
@@ -21,7 +21,7 @@ expect "No holidays removed" --absent "Christmas Day"
 shot 21_removed_holidays_empty
 wait "Holiday restored" --gone
 tap id:removed-holidays-close
-wait "Search settings"
+wait id:settings-search
 key back
 wait id:calendar-add-event
 errors

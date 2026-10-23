@@ -1,0 +1,2 @@
+# The labels the alerts_pair flow may still target, one per line; none —
+# every target is an id (test/qa/flows_lint_test.dart).

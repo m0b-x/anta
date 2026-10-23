@@ -10,7 +10,7 @@ tap id:event-detail-edit
 wait id:event-repeat
 tap id:event-repeat
 wait id:repeat-done
-tap "Daily"
+tap id:repeat-kind-daily
 tap id:repeat-done
 wait id:event-look
 tap id:event-look
@@ -24,8 +24,8 @@ key escape
 wait id:event-close
 shot 02_editor_dirty
 tap id:event-close
-wait "Unsaved changes"
-tap "Discard changes"
+wait id:unsaved-dialog
+tap id:unsaved-discard
 wait id:event-detail-close
 tap id:event-detail-close
 wait id:calendar-add-event

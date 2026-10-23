@@ -37,7 +37,7 @@
 #   heads-up in the shot lands on bare ground.
 # - Stop pops the page onto Calendar settings; back from there is the
 #   calendar, where the next flow starts.
-tap "Open navigation menu"
+tap id:nav-menu
 wait id:drawer-calendar
 tap id:drawer-calendar
 wait id:calendar-add-event

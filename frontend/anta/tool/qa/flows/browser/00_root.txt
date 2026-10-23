@@ -1,0 +1,9 @@
+# The folder root a fresh basic.json seed lands on: the three seeded root
+# folders, the create bar's folder half (the note half exists only below
+# the root) and the bar's menu and search.
+# - An import gives every folder a fresh id, so the seeded rows are read by
+#   their names; each is a browser-row-<id> node in the dump.
+wait id:create-folder
+expect "Training" "Money" "Inbox" id:nav-menu id:search-open id:drawer-all-notes --absent id:create-note
+look 00_root
+errors

@@ -1,25 +1,35 @@
 # The palette (docs/calendar-language-tier-3-roadmap.md §3.7) from the
-# appearance page's Colors row: the seeded custom colour's row by id, Add
-# color into the colour picker (§3.9: ✕ · Custom color · Select, the mode
-# chips), the picker and the palette left through their ✕; then the swatch
-# strip's long-press menu (§3.8) on the Look sheet of a new event, left
-# through back, and the clean event closed without a question.
-# - "Appearance" is the settings page's section header and "Colors" is a
-#   substring of four nodes on the appearance page: both rows are named by
-#   their own second lines.
-# - The appearance page has a "Search settings" field of its own, so the
-#   page is waited for by its Today highlight group.
+# appearance page's Highlight color row: the row's collapsed swatch strip
+# opened whole through its "Show N more colors" dot, which brings the
+# seeded custom colour into the strip; the strip's manage dot into the
+# palette sheet, the custom colour's row by id, Add color into the colour
+# picker (§3.9: ✕ · Custom color · Select, the mode chips), the picker and
+# the palette left through their ✕; then the swatch strip's long-press menu
+# (§3.8) on the Look sheet of a new event, left through back, and the clean
+# event closed without a question.
+# - The appearance page has a search field of its own, so it is waited for
+#   by its Today highlight row and the settings page by the row that opened
+#   the appearance page.
+# - The strip's N follows the palette and the screen's width; the dot is
+#   reached by id:swatch-show-all. No swatch on the page is tapped, so the
+#   highlight colour stays the seed's.
 # - The built-in strip's dots are read rows named by their hex; the picker's
 #   Select is never tapped, so the palette keeps its one custom colour.
 tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to "Preview and tune how the grid looks"
-tap "Preview and tune how the grid looks"
-wait "Today highlight"
-scroll-to "Highlight color"
-tap "of your own"
+scroll-to id:calendar-appearance-open
+tap id:calendar-appearance-open
+wait id:appearance-today-style
+scroll-to id:appearance-accent-color
+expect id:swatch-default id:swatch-add id:swatch-manage id:swatch-show-all
+shot 22_highlight_strip
+tap id:swatch-show-all
+wait id:swatch-show-all --gone
+expect "#3F51B5" id:swatch-manage
+shot 22_highlight_strip_whole
+tap id:swatch-manage
 wait id:palette-close
 expect id:palette-row-3f51b5 id:palette-handle-3f51b5 id:palette-delete-3f51b5 id:palette-add id:palette-reset "YOUR COLORS" "BUILT-IN COLORS" "#1E88E5"
 shot 22_palette
@@ -37,9 +47,9 @@ expect "Hue"
 tap id:color-picker-close
 wait id:palette-close
 tap id:palette-close
-wait "Highlight color"
+wait id:appearance-accent-color
 key back
-wait "Search settings"
+wait id:calendar-appearance-open
 key back
 wait id:calendar-add-event
 tap id:calendar-add-event

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../constants/semantics_ids.dart';
+import 'automation_id.dart';
+
 /// Compact search field used to filter long lists on settings pages.
 ///
 /// Styled to match the note editor's search bar so search looks the same
@@ -48,61 +51,64 @@ class _SettingsSearchFieldState extends State<SettingsSearchField> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: colors.outline.withValues(alpha: 0.2)),
       ),
-      child: TextField(
-        controller: widget.controller,
-        focusNode: _focusNode,
-        onTapOutside: (_) => _focusNode.unfocus(),
-        style: TextStyle(fontSize: 14, color: colors.onSurface),
-        decoration: InputDecoration(
-          hintText: widget.hint,
-          hintStyle: TextStyle(
-            color: colors.onSurfaceVariant.withValues(alpha: 0.6),
-            fontSize: 14,
-          ),
-          prefixIcon: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 8),
-            child: Icon(
-              Icons.search_rounded,
-              size: 20,
-              color: colors.onSurfaceVariant,
+      child: AutomationId(
+        identifier: SemanticsIds.settingsSearch,
+        child: TextField(
+          controller: widget.controller,
+          focusNode: _focusNode,
+          onTapOutside: (_) => _focusNode.unfocus(),
+          style: TextStyle(fontSize: 14, color: colors.onSurface),
+          decoration: InputDecoration(
+            hintText: widget.hint,
+            hintStyle: TextStyle(
+              color: colors.onSurfaceVariant.withValues(alpha: 0.6),
+              fontSize: 14,
             ),
-          ),
-          prefixIconConstraints: const BoxConstraints(
-            minWidth: 40,
-            minHeight: 40,
-          ),
-          suffixIcon: hasText
-              ? GestureDetector(
-                  onTap: () {
-                    widget.controller.clear();
-                    widget.onChanged('');
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: colors.onSurfaceVariant,
+            prefixIcon: Padding(
+              padding: const EdgeInsets.only(left: 12, right: 8),
+              child: Icon(
+                Icons.search_rounded,
+                size: 20,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: 40,
+              minHeight: 40,
+            ),
+            suffixIcon: hasText
+                ? GestureDetector(
+                    onTap: () {
+                      widget.controller.clear();
+                      widget.onChanged('');
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: colors.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-                )
-              : null,
-          suffixIconConstraints: const BoxConstraints(
-            minWidth: 32,
-            minHeight: 32,
+                  )
+                : null,
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 32,
+              minHeight: 32,
+            ),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          onChanged: (value) {
+            setState(() {});
+            widget.onChanged(value);
+          },
+          textInputAction: TextInputAction.search,
+          autocorrect: false,
+          enableSuggestions: false,
+          smartDashesType: SmartDashesType.disabled,
+          smartQuotesType: SmartQuotesType.disabled,
         ),
-        onChanged: (value) {
-          setState(() {});
-          widget.onChanged(value);
-        },
-        textInputAction: TextInputAction.search,
-        autocorrect: false,
-        enableSuggestions: false,
-        smartDashesType: SmartDashesType.disabled,
-        smartQuotesType: SmartQuotesType.disabled,
       ),
     );
   }
