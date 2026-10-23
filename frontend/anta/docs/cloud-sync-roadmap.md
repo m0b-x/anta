@@ -53,7 +53,7 @@ D1–D3 decide where a row lives remotely for that.
 | --- | --- | --- | --- |
 | 00 | Firebase foundations, platform gate, Google Sign-In, Sharing page | none | **Shipped 2026-08-16** |
 | 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | **Shipped 2026-08-17** |
-| R | Readiness — CRDT columns on categories and counters, `owner_id`, the outbox, clock persistence, tombstoned wipes, engine seams (`cloud-sync-readiness-roadmap.md`) | v43 | **R1–R3 built 2026-10-23** (`729a25f`, `14c9250`, `596998d`, R3b next); R4–R7 planned |
+| R | Readiness — CRDT columns on categories and counters, `owner_id`, the outbox, clock persistence, tombstoned wipes, engine seams (`cloud-sync-readiness-roadmap.md`) | v43 | **R1–R3 committed 2026-10-23** (`729a25f`, `14c9250`, `596998d`, `4fd26aa`); R4–R7 planned |
 | 02 | Calendar sync + ownership + consent | likely none after v43 (its doc's v29 is stale) | Planned |
 | 03 | Shared folders (folder → note → chunks) | v44 (its doc's v27 is stale) | Planned |
 | 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Planned |

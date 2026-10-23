@@ -1,7 +1,7 @@
 # Cloud Sync Readiness Roadmap — ANTA
 
-**Status: R1, R2, R3a and R3b built and reviewed on 2026-10-23 (R1
-`729a25f`, R2 `14c9250`, R3a `596998d`, R3b the next commit); R4–R7
+**Status: R1, R2, R3a and R3b built, reviewed and committed on 2026-10-23
+(R1 `729a25f`, R2 `14c9250`, R3a `596998d`, R3b `4fd26aa`); R4–R7
 planned.** Each built slice has an "As built" block under its section — that
 block, not the plan above it, is the truth. The phase between Phase 01
 (pairing, shipped 2026-08-17) and Phase 02 (transport) of
@@ -449,9 +449,10 @@ above, each sound and reversible on its own:
   (`calendar_event_service.dart:155-159`) enqueue one row per affected row.
 - Skills: `anta-context`, `calendar-events` (invariants of the event tables).
 
-**As built (2026-10-23; one implementer, one independent reviewer, one fix
-pass; the review found no data loss and judged the no-op comparison sound
-against every column type).** Deviations from the plan above, each sound
+**As built (2026-10-23, committed `4fd26aa`; one implementer, one independent
+reviewer, one fix pass; the review found no data loss and judged the no-op
+comparison sound against every column type; gate: analyze clean, 9,493
+tests green, the one failure the known Windows-only `host_devices_test`).** Deviations from the plan above, each sound
 and reversible on its own:
 
 - All ten calendar-side tables go through `CrdtWrite`; `dayRowKey(eventId,
