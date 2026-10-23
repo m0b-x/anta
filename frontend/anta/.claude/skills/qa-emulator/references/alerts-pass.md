@@ -19,7 +19,13 @@ events ring **minutes after the seed is resolved**:
 The suites' `_suite.txt` say `reseed=suite` and `shard=no` because the
 fixtures' events sit minutes ahead of the one seed and the flows consume
 them in order; `fleet pass alerts` therefore runs on its first device only
-and says so. Never interrupt the wait for a ring.
+and says so. Never interrupt the wait for a ring. A fleet guest rings only
+once `fleet install` (or `install --grant`) has granted
+`POST_NOTIFICATIONS` — a fresh guest has the app's notifications blocked
+(`importance=NONE`), which is how `00_test_alarm` waited 30 s for a ring
+that never surfaced on 2026-10-23; the owner's emulator had the grant by
+hand. Measured after the grant: `pass alerts` 5/5 in 265 s, `alerts_pair`
+1/1 in 104 s on `emulator-5558`.
 
 - **`alerts.json`** seeds three events with `{{minute+N}}` /
   `{{minuteday+N}}`, the upcoming notice off (`alert_notice_lead_minutes`

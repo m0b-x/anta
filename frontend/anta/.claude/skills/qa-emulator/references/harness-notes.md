@@ -60,7 +60,16 @@ A red flow stops at its failing step, gets `fail_<flow>.png`,
 `fail_<flow>_dump.txt` and `fail_<flow>_errors.txt` (the app's error buffer
 cleared and logcat stamped at the flow's start, so earlier flows' errors never
 leak in), and the pass goes on. Two reseed failures in a row, a failed
-`reseed=suite` seed or `--stop-on-fail` mark the rest `skipped`.
+`reseed=suite` seed or `--stop-on-fail` mark the rest `skipped`. After the
+last flow the pass **leaves the device quiet**: a `relaunch --fresh` with no
+seed, so the app's launch reconcile cancels every alarm the seeds armed (ten
+per calendar seed; a seeded guest otherwise rings between passes), then a
+count of the app's rows in `dumpsys alarm`'s *pending* list, retried for up
+to 10 s — `device left quiet (0 alarms armed) in 4.7 s`. A plain `grep -c
+com.alexzamfir.anta` on that dump never reaches zero: cancelled alarms stay
+in its "Removal history". `--keep-state` skips the quiet step (to look at a
+red flow's screen by hand); `quietMs`, `quietAlarms` and `quietFailure` are
+in the report, and a failed quiet relaunch never changes the exit code.
 
 The run lives in `build/qa/pass/<suite>_<yyyyMMdd_HHmmss_SSS>_<device>/`:
 `report.json` (rewritten after every flow with `"partial": true` until the
@@ -107,22 +116,32 @@ cold boots. `fleet create [--count N] [--force] [--retune]` makes the missing
 ones (the capacity rule `max(1, (threads − 8 for flutter test − the owner's 4
 vCPU) ÷ 4)` is 3 on the 24-thread machine and is the cap unless `--force`;
 drift from the spec is listed and rewritten only with `--retune`).
-`fleet boot <name|N>… | --all [--no-affinity]` starts them detached with
-`-no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu host`,
-pins the qemu child to the P-cores the moment it appears (Windows, hybrid
-CPUs only: `2 × (threads − cores)` logical CPUs; `ANTA_QA_FLEET_AFFINITY`
-overrides), waits for `sys.boot_completed` and `device_provisioned`, then
-keeps the guest awake (`screen_off_timeout`, `svc power stayon`). Measured:
-13–16 s per boot once an AVD has booted before, 36 s the first time, 80–113 s
-when two first boots ran unpinned in parallel. `fleet status [--json]` lists
+`fleet boot <name|N>… | --all [--no-affinity] [--visible]` starts them
+detached with `-no-audio -no-boot-anim -no-snapshot -no-metrics -gpu host`
+**and a window, which it minimizes** once it appears (`--visible` leaves it
+up): a qemu started with `-no-window` keeps one host thread spinning at
+100 % while the guest idles (1.2 cores right after boot, two spinners and
+2.2 cores after hours of passes — the same for host GPU, swiftshader, audio
+on or the snapshot on; measured 2026-10-23), while a windowed one idles at
+0.2 cores and a minimized one at 0.14, still relaunching the app in 4 s and
+rendering for the agent. It pins the qemu child to the P-cores the moment it
+appears (Windows, hybrid CPUs only: `2 × (threads − cores)` logical CPUs;
+`ANTA_QA_FLEET_AFFINITY` overrides), waits for `sys.boot_completed` and
+`device_provisioned`, then keeps the guest awake (`screen_off_timeout`,
+`svc power stayon`). Measured: 13–18 s per boot once an AVD has booted
+before, 36 s the first time, 80–113 s when two first boots ran unpinned in
+parallel. `fleet status [--json]` lists
 name, serial, state (`not created`, `stopped`, `booting`, `device`, `offline`,
 `port held by X`), the installed build (`installed <hash> <time>`, `stale`,
 `not installed`), the qemu pid and its affinity, and the owner's AVDs marked
 `owner — never acted on`. `fleet stop <name>… | --all` sends `emu kill` only
 after `adb emu avd name` returns that fleet name — `Pixel_9_Pro` and
 `emulator-5554` are refused at argument parsing. `fleet install [--build]`
-runs `qa build` when asked or when `apk.json` is missing and installs on every
-booted fleet device in parallel; `fleet pass <suite> [--devices a,b] [--label]
+runs `qa build` when asked or when `apk.json` is missing, installs on every
+booted fleet device in parallel and grants `POST_NOTIFICATIONS` on each
+guest (`pm grant`; the one permission the owner's emulator had by hand and a
+fresh guest lacks — without it the alerts suites never ring; `install
+--grant` does the same for one device, refused on a non-fleet serial); `fleet pass <suite> [--devices a,b] [--label]
 [--stop-on-fail]` spawns one `qa -d <serial> pass <suite> --shard i/n` child
 per ready device with a current install (a stale one is used with a warning,
 one without an install is left out), streams each child's `=== flow` lines
@@ -130,6 +149,14 @@ prefixed by serial into `build/qa/pass/<suite>_<stamp>_fleet/shard-i.log`,
 merges the shard reports into `report.json` there and prints the summary
 and the per-device wall times; exit 3 when a shard produced no report.
 Host load during a three-device pass: 32–52 % CPU, ≈ 4 GB per qemu.
+Fleet health (slice 5): the harness counts app launches per fleet serial
+since boot (`launches_<serial>.json`; `fleet status` shows `launches=N` and,
+on Windows, the qemu's GPU counter), and `fleet pass` / `fleet install`
+recycle a guest over 40 launches or 16 GB before starting (≈ 20 s; the
+emulator's host-GPU allocation grows ≈ 400 MB per launch and never comes
+back — `traps.md`); `fleet stop <name> --force` is for a hung fleet qemu
+that is no longer on adb. A launch also removes the device's previous `adb
+forward` (one per relaunch otherwise piles up for the adb server's life).
 
 ## The `auto` driver choice (2026-10-23)
 

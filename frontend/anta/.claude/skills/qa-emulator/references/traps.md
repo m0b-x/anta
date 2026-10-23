@@ -206,15 +206,40 @@ shortcut` under the package.
   evidence about the current code. `qa fleet install --build`, then run
   again. `qa run` records what it installed too, so a device last served by
   `run` is not falsely stale.
-- **A headless emulator that is uniformly slow** — first frame 9 s instead
+- **A fleet emulator that is uniformly slow** — first frame 9 s instead
   of 5, every tap half a second, a pure shell loop 1.65× slower — has its
   qemu on the E-cores of the hybrid i7 (Windows prefers them for a process
   without a window). `fleet boot` pins the qemu to the P-cores the moment it
   appears; `fleet status` shows `affinity=0xFFFF`; an unpinned one is a
   `doctor` warn. Priority class changes nothing; `pm compile` on the
-  debuggable APK changes nothing. The remaining gap to the owner's
-  long-running windowed emulator (5.1 s vs 3.7 s to first frame) is not
-  explained.
+  debuggable APK changes nothing.
+- **Every app launch leaves ≈ 400 MB in the emulator's host-GPU accounting
+  and never gives it back.** `\GPU Process Memory\Dedicated Usage` per qemu
+  grows 370–445 MB per launch (a fresh qemu shows 3 MB; one guest reached
+  93 GB of virtual accounting after a pass), every verb slows with it
+  (reseed p50 5.6 s a minute after boot → 10 s two hours later; a pure adb
+  screencap 228 → 340 ms; the alerts suite 265 → 394 s), idle CPU creeps up,
+  and at ≈ 130 launches (58.7 GB) `anta_qa_2` hung with `detected a hanging
+  thread 'QEMU2 main loop'` and a window titled only "Android Emulator" (its
+  crash reporter) that blocked `fleet boot`. The guest itself stays flat
+  (shell loop, RAM, `/data`, the WAL, processes, pending alarms). A sharded
+  calendar pass is ≈ 10 launches per device. So: `fleet pass` and `fleet
+  install` recycle a guest over 40 launches since boot or over 16 GB on the
+  counter (`--no-recycle` skips), `fleet status` shows `launches=` and the
+  counter, `doctor` warns, `fleet stop <name> --force` kills a hung fleet
+  qemu that is not on adb (the one process kill the fleet does, guarded by
+  the AVD name on its command line). Measure on freshly booted guests.
+- **`-no-window` makes a qemu spin.** A windowless emulator keeps one host
+  thread at 100 % while the guest is 97 % idle — 1.2 cores 25 s after boot,
+  two spinners and 2.2 cores after hours of passes — whatever the GPU,
+  audio or snapshot flags; it doubled a sharded pass's wall time (654 s
+  against 268 s). A windowed qemu idles at 0.2 cores; minimized, 0.14, and
+  it still relaunches the app (first frame 4.1 s) and renders screenshots.
+  `fleet boot` therefore opens a window and minimizes it; `fleet status`
+  shows `window=minimized`; `doctor` warns on a headless fleet qemu
+  (`qemu-system-x86_64-headless.exe`). The owner's windowed emulator was
+  at 1.8 cores "idle" the same evening with the app rendering no frames —
+  not explained; re-measured after the fleet went windowed.
 - **The calendar's bottom panel restores its mode about a second after the
   page opens** (`lib/widgets/calendar_bottom_panel.dart`'s `_load()`
   overwrites `_mode` after its four settings reads), so a `tap "Upcoming"`

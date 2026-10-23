@@ -1,6 +1,6 @@
 ---
 name: qa-emulator
-description: Drive the ANTA app on the Android emulator fleet, the iOS simulator or the macOS desktop build through the `tool/qa/qa` CLI, against an isolated QA database that never touches the owner's data. Load it for any device pass (`qa fleet pass <suite>` runs a whole suite in one call and writes a JSON report); for running the app to see a change working on a device; for screenshots and the accessibility dump; for tapping, typing, scrolling or waiting by semantics id; for reading runtime errors and device logs; for the saved calendar, browser and alerts passes with their seeds and flows; for booting, installing on and stopping the headless fleet AVDs; and for proving an alarm is armed on Android. The wrapper is `./tool/qa/qa` on macOS and Git Bash, `tool\qa\qa.cmd` in PowerShell. Load together with anta-context, and with verify when the pass is part of a change's gate.
+description: Drive the ANTA app on the Android emulator fleet, the iOS simulator or the macOS desktop build through the `tool/qa/qa` CLI, against an isolated QA database that never touches the owner's data. Load it for any device pass (`qa fleet pass <suite>` runs a whole suite in one call and writes a JSON report); for running the app to see a change working on a device; for screenshots and the accessibility dump; for tapping, typing, scrolling or waiting by semantics id; for reading runtime errors and device logs; for the saved calendar, browser and alerts passes with their seeds and flows; for booting, installing on and stopping the minimized fleet AVDs; and for proving an alarm is armed on Android. The wrapper is `./tool/qa/qa` on macOS and Git Bash, `tool\qa\qa.cmd` in PowerShell. Load together with anta-context, and with verify when the pass is part of a change's gate.
 ---
 
 # QA device harness
@@ -37,16 +37,16 @@ The wrapper's self-rebuild, the exit codes, the pass report and the fleet in det
 ```bash
 q=./tool/qa/qa
 $q fleet status                        # what is up, what carries which build
-$q fleet boot --all                    # headless, P-core pinned; ≈ 15 s each once booted before
+$q fleet boot --all                    # windowed but minimized, P-core pinned; ≈ 15 s each once booted before
 $q fleet install --build               # build the QA driver APK once (≈ 10–40 s), install everywhere (≈ 3 s each)
 $q fleet pass calendar                 # 26 flows sharded over the fleet: ≈ 4.5 min wall, one summary, one report
 $q fleet pass browser                  # the browser suite the same way
 $q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no)
-$q pass calendar --only 19_fasting_schedule -d emulator-5558   # one flow: reseed, prelude, the flow
+$q pass calendar --only 19_fasting_schedule -d emulator-5558   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
 ```
 
-`pass` reseeds (`relaunch --fresh --seed <fixture>`) before every flow, runs the suite's `_prelude.txt` (the calendar's lands on the calendar page), keeps going after a red, captures a screenshot, the dump and the errors at a red flow's failing step, and writes `report.json` after every flow (`"partial": true` until the end). Exit 0 all green, 2 any red, 3 the device or the reseed failed before anything ran. The report's keys and the directory layout: `references/harness-notes.md` "The pass and its report". A stale-build warning in the output means the installed APK predates a source change: `fleet install --build`, then run again.
+`pass` reseeds (`relaunch --fresh --seed <fixture>`) before every flow, runs the suite's `_prelude.txt` (the calendar's lands on the calendar page), keeps going after a red, captures a screenshot, the dump and the errors at a red flow's failing step, writes `report.json` after every flow (`"partial": true` until the end), and ends by leaving the device quiet — a seedless `relaunch --fresh` that cancels every alarm the seeds armed (`device left quiet (0 alarms armed)`; `--keep-state` skips it when you want the red flow's screen). Exit 0 all green, 2 any red, 3 the device or the reseed failed before anything ran. The report's keys and the directory layout: `references/harness-notes.md` "The pass and its report". A stale-build warning in the output means the installed APK predates a source change: `fleet install --build`, then run again.
 
 A suite is a directory under `tool/qa/flows/`: `_suite.txt` (`fixture=`, `reseed=flow|suite|none`, `shard=yes|no`, `prelude=`), `_prelude.txt`, `_labels.txt` (the content labels its flows may still target by text) and the `NN_name.txt` flows. `test/qa/flows_lint_test.dart` rejects a `tap`/`wait`/`scroll-to`/`longpress`/`drag` target that is not an `id:`, `#N`, `x,y`, a `{{placeholder}}` label or an allow-listed content label, so every control a flow touches carries a `SemanticsIds` entry.
 
@@ -81,7 +81,8 @@ The wall clock is not the expensive part; **your round trips are**. A whole suit
 - **`steps` runs several verbs in one process**, sharing one device resolution, one agent connection and one dump cache; the first failure stops it (`--keep-going` runs on); a line that fails to parse is one failed step, not an abort. `steps --file flow.txt` is one flow; `pass` is the whole suite with the reseed and the report.
 - **`look` is see-everything in one call**: dump + screenshot with every interesting node boxed and `#N`-tagged; then `tap "#14"`.
 - **`expect` is a checklist in one call**; it re-checks for `--timeout` seconds and exits 2 listing every miss plus the screen it saw.
-- **Act and verify in one call**: every acting verb takes `--wait`, `--wait-gone`, `--wait-timeout`, `--shot` and `--dump`.
+- **Act and verify in one call**: every acting verb takes `--wait`, `--wait-gone`, `--wait-timeout`, `--shot` and `--dump`. On the agent path an action settles for at most 150 ms (`agentSettleCapMs`, tuned from a pass's percentiles on 2026-10-23: 500 ms paid ≈ 180 s per pass for nothing), plus up to 800 ms more only while a route is still closing or a scrollable is still animating — so always follow an action with the `wait`/`expect` that names what you need; the explicit wait is the contract, the settle is not.
+- **Shots inside a pass are stored full size** (a native capture, 228 ms) and `qa shot` alone at 0.5× (562 ms: the Dart-side resize is the cost; the smaller file reads back cheaper); `--scale`/`--full` always win.
 - **`relaunch` is the reset** (≈ 4 s on the owner's emulator, ≈ 5.5 s on a pinned fleet device); `run` is the minute-long path with a DTD.
 - **`reload`/`restart`** work on the `flutter run` behind `qa run` (POSIX only); on Windows use the Dart MCP.
 - **`perf start|stop|read`** brackets a flow with frame timing from inside the app.
@@ -92,10 +93,10 @@ The wall clock is not the expensive part; **your round trips are**. A whole suit
 
 Flags, an example and the real output of each: `references/verbs.md`. Every acting verb also takes `--wait`, `--wait-gone`, `--wait-timeout`, `--settle`, `--shot` and `--dump`.
 
-- `pass <suite>[/<flow>] [--only F]… [--shard i/n] [--no-reseed] [--stop-on-fail] [--json P] [--label T]` — a suite in one call with a report; `--summary R`, `--merge A B…`.
-- `build [--define K=V]… [--no-driver]` — the QA driver APK once (`build/qa/apk.json`); refused beside a live `qa run`.
-- `install [--apk P]` — `adb install` + one launch on the selected device (`installed_<device>.json`).
-- `fleet create|boot|status|stop|install|pass` — the headless AVDs `anta_qa_N` (`references/harness-notes.md` "The fleet").
+- `pass <suite>[/<flow>] [--only F]… [--shard i/n] [--no-reseed] [--stop-on-fail] [--keep-state] [--json P] [--label T]` — a suite in one call with a report; `--summary R`, `--merge A B…`.
+- `build [--define K=V]… [--no-driver] [--force]` — the QA driver APK once (`build/qa/apk.json`); refused beside a live `qa run`.
+- `install [--apk P] [--grant]` — `adb install` + one launch on the selected device (`installed_<device>.json`); `--grant` adds the notification permission a pass needs.
+- `fleet create|boot|status|stop|install|pass` — the minimized AVDs `anta_qa_N` (`references/harness-notes.md` "The fleet"); `boot --visible`, `pass --keep-state`.
 - `devices`, `state`, `doctor [--fix]`, `boot [--avd N | --sim N] [--cold]` — the owner's emulator or a simulator, never the fleet.
 - `run [--fresh] [--seed F] [--setting K=V] [--define K=V]`, `relaunch [--fresh] [--seed F] [--setting K=V]`, `launch`, `attach`, `stop`, `kill-run`, `dtd`, `agent [info|<op>]`.
 - `shot`, `dump [--all] [--json] [--cached]`, `look`, `expect`, `wait [--gone] [--timeout S]`, `text`.
@@ -114,7 +115,9 @@ Flags, an example and the real output of each: `references/verbs.md`. Every acti
 The ones a pass hits most; all of them in `references/traps.md`.
 
 - **A stale-build warning** at the top of a pass: the APK on the device predates a source change. `fleet install --build`, run again.
-- **A headless emulator that is uniformly slow** (first frame 9 s instead of 5, every tap half a second): its qemu is on the E-cores. `fleet boot` pins it; `fleet status` shows `affinity=0xFFFF`; an unpinned one is a `doctor` warn.
+- **A fleet emulator that is uniformly slow** (first frame 9 s instead of 5, every tap half a second): its qemu is on the E-cores. `fleet boot` pins it; `fleet status` shows `affinity=0xFFFF`; an unpinned one is a `doctor` warn.
+- **A fleet guest degrades with every app launch** (the emulator's host-GPU allocation grows ≈ 400 MB per launch; reseeds go from 5.6 s to 10 s in two hours; a guest hung at ≈ 130 launches with "detected a hanging thread 'QEMU2 main loop'" and a crash dialog that blocks its reboot). `fleet pass` and `fleet install` recycle a guest over 40 launches since boot (`fleet status` shows `launches=`), `doctor` warns on it, and `fleet stop <name> --force` clears a hung fleet qemu that is no longer on adb. Measure on freshly booted guests, never on a fleet that has run for hours.
+- **Never boot a fleet AVD with `-no-window`:** a windowless qemu keeps a host thread spinning at 100 % while the guest idles (1.2 cores at boot, 2.2 after hours), which doubled a pass's wall time; `fleet boot` opens a window and minimizes it (0.14 cores idle), `fleet status` says `window=minimized`, and `doctor` warns on a headless fleet qemu.
 - **The calendar's bottom panel restores its mode about a second after the page opens**, overwriting a tap on "Upcoming" (an app race, `lib/widgets/calendar_bottom_panel.dart`): the calendar prelude ends with `tap id:panel-mode-day --settle 2000` to ride it out. A flow that taps a panel mode right after landing without that settle is flaky by design until the app fixes it.
 - **`doctor` warns about markers left pending** (`qa_seed.json pending in the documents directory`): a non-QA build ignores them and the next QA launch would silently apply a stale seed.
 - **One `flutter run` at a time.** `run` on a second device kills the first run's tool process. The fleet never needs `run`.
