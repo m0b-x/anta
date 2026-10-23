@@ -81,7 +81,7 @@ class IosDevice implements Device {
   }
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort}) async {
+  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) async {
     final pid = await simctl.launch(
       sim.udid,
       packageId,

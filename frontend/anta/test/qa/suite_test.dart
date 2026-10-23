@@ -101,7 +101,7 @@ void main() {
 
     test('parseShard takes 1-based i/n', () {
       expect(parseShard('2/3'), (2, 3));
-      for (final bad in ['0/3', '4/3', '1/0', '3', 'a/b', '1/3/1']) {
+      for (final bad in ['0/3', '4/3', '1/0', '3', 'a/b', '1/3/1', '${'9' * 40}/3', '1/${'9' * 40}']) {
         expect(() => parseShard(bad), throwsA(isA<UsageFailure>()), reason: bad);
       }
     });

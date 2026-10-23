@@ -40,7 +40,9 @@ class GoldenDiff {
 /// a shade differently from one host to the other; a byte-exact compare
 /// would fail every golden on the machine that did not write it. A layout
 /// regression moves whole glyphs and rows, so it changes far more pixels,
-/// by far more than a shade, than that noise ever does.
+/// by far more than a shade, than that noise ever does. If the Mac's noise
+/// ever exceeds [maxChangedFraction], the fallback is per-OS master images,
+/// not a looser limit.
 class TolerantGoldenComparator extends LocalFileComparator {
   TolerantGoldenComparator(super.testFile);
 
@@ -48,8 +50,10 @@ class TolerantGoldenComparator extends LocalFileComparator {
   /// than this, out of 255.
   static const int channelTolerance = 16;
 
-  /// A golden fails only when more than this share of its pixels changed.
-  static const double maxChangedFraction = 0.005;
+  /// A golden fails only when more than this share of its pixels changed:
+  /// 0.1 % is 281 px of a 360 × 780 cell; the 0.5 % first chosen (1,404 px)
+  /// could let an ellipsized word through.
+  static const double maxChangedFraction = 0.001;
 
   @override
   Future<bool> compare(Uint8List imageBytes, Uri golden) async {

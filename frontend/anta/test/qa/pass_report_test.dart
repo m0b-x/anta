@@ -78,7 +78,8 @@ void main() {
       expect(json.keys, [
         'schema', 'suite', 'label', 'device', 'host', 'started', 'finished',
         'durationMs', 'partial', 'shard', 'reseed', 'fixture', 'prelude', 'build',
-        'quietMs', 'quietAlarms', 'quietFailure', 'summary', 'flows', 'verbStats',
+        'quietMs', 'quietAlarms', 'quietFailure', 'quietSkipped', 'quietDevices',
+        'quietUncounted', 'summary', 'flows', 'verbStats',
       ]);
       expect(json['quietMs'], isNull, reason: 'a pass that did not end quiet says so by null');
       expect(json['partial'], isFalse);
@@ -193,8 +194,36 @@ void main() {
       expect(quietLine(quiet(ms: 900)), 'device left quiet in 0.9 s (alarms not counted)');
       expect(quietLine(quiet(ms: 900, failure: 'relaunch --fresh: the reset was refused\nmore')),
           'device not left quiet: relaunch --fresh: the reset was refused');
-      expect(quietLine(quiet()), isNull, reason: '--keep-state');
+      expect(quietLine(quiet()), isNull, reason: 'a report from before the quiet step');
       expect(PassReport.decode(quiet(ms: 5400, alarms: 0).encode()).quietAlarms, 0);
+    });
+
+    test('a skipped quiet step says why', () {
+      final skipped = PassReport.decode(_report().encode().replaceFirst(
+            '"quietSkipped": null',
+            '"quietSkipped": "--no-reseed ran on the app\'s own state, which stays"',
+          ));
+      expect(quietLine(skipped),
+          "quiet relaunch skipped: --no-reseed ran on the app's own state, which stays");
+      expect(summaryLines(skipped, reportPath: 'r.json'),
+          contains(startsWith('quiet relaunch skipped: ')));
+      expect(mergeReports([skipped, skipped]).quietSkipped, skipped.quietSkipped);
+    });
+
+    test('a partial report is never green and says so under the verdict', () {
+      final green = _report(flows: [
+        const FlowRecord(name: '00_open', status: FlowStatus.passed, durationMs: 5),
+      ]);
+      expect(green.allPassed, isTrue);
+      final killed = PassReport.decode(
+        green.encode().replaceFirst('"partial": false', '"partial": true'),
+      );
+      expect(killed.allPassed, isFalse);
+      final lines = summaryLines(killed, reportPath: 'r.json');
+      expect(lines[1], startsWith('pass: 1/1 green'));
+      expect(lines[2], partialLine);
+      expect(lines[2], 'PARTIAL — the pass did not finish');
+      expect(summaryLines(green, reportPath: 'r.json'), isNot(contains(partialLine)));
     });
   });
 
@@ -295,6 +324,24 @@ void main() {
       final failed = _report(quietMs: 900, quietFailure: 'relaunch --fresh: exit 3');
       expect(mergeReports([a, failed]).quietFailure, 'relaunch --fresh: exit 3');
       expect(mergeReports([_report()]).quietMs, isNull);
+    });
+
+    test('quiet: a device whose count failed is counted as such, never as 0', () {
+      final a = _report(quietMs: 5200, quietAlarms: 0);
+      final b = _report(device: 'emulator-5558', quietMs: 6100, quietAlarms: 0);
+      final c = _report(device: 'emulator-5560', quietMs: 4000);
+      final merged = mergeReports([a, b, c]);
+      expect(merged.quietDevices, 2);
+      expect(merged.quietUncounted, 1);
+      expect(quietLine(merged), '2 devices quiet, 1 not counted in 6.1 s');
+      final armed = _report(device: 'emulator-5562', quietMs: 3000, quietAlarms: 2);
+      expect(quietLine(mergeReports([a, c, armed])),
+          'devices not left quiet: 2 alarm(s) of the app still armed after '
+          'relaunch --fresh, 1 not counted (5.2 s)');
+      expect(quietLine(mergeReports([c, c])), 'devices left quiet in 4.0 s (alarms not counted)');
+      final again = mergeReports([merged, _report(device: 'emulator-5562', quietMs: 100, quietAlarms: 0)]);
+      expect((again.quietDevices, again.quietUncounted), (3, 1),
+          reason: 'a merged report merged again keeps its own counts');
     });
 
     test('refuses reports of two suites, or none', () {

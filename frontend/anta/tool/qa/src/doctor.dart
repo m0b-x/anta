@@ -296,6 +296,24 @@ CheckResult checkDataSpace(String dfOutput) {
   );
 }
 
+/// More adb forwards to one device than this is a leak: a launch keeps
+/// one, and a `qa run` beside it one more.
+const int maxDeviceForwards = 3;
+
+/// The device's adb forwards: one per launch used to stay forever (179 on
+/// one guest after a day), each an open host listener.
+CheckResult checkForwards(String serial, int count) {
+  final detail = '$count for $serial';
+  if (count <= maxDeviceForwards) return CheckResult.ok('adb forwards', detail);
+  return CheckResult(
+    name: 'adb forwards',
+    status: CheckStatus.warn,
+    detail: detail,
+    fix: 'a `qa pass` on $serial removes the stale ones when it leaves the '
+        'device quiet',
+  );
+}
+
 /// The host side: a stale `run.pid`, and orphaned development services.
 CheckResult checkHostRun({
   required int? recordedPid,

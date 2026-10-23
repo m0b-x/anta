@@ -36,6 +36,8 @@ class ApkRecord {
     required this.builtAt,
     required this.defines,
     this.installedAt,
+    this.driver,
+    this.qa,
   });
 
   factory ApkRecord.fromJson(Map<String, dynamic> json) => ApkRecord(
@@ -47,6 +49,8 @@ class ApkRecord {
         installedAt: json['installedAt'] == null
             ? null
             : DateTime.parse(json['installedAt'] as String),
+        driver: json['driver'] as bool?,
+        qa: json['qa'] as bool?,
       );
 
   final String apk;
@@ -60,6 +64,18 @@ class ApkRecord {
   final List<String> defines;
   final DateTime? installedAt;
 
+  /// Whether the build's entry point is the driver (`--no-driver` makes it
+  /// false), and whether it carries the ANTA_QA defines (`qa run --no-qa`
+  /// makes it false); null in a record written before either was kept, or
+  /// for an APK `install --apk` cannot vouch for.
+  final bool? driver;
+  final bool? qa;
+
+  /// What a pass needs installed: the agent lives in the driver entry
+  /// point, and only a QA build keeps off the owner's database. A record
+  /// that cannot say both is not trusted.
+  bool get isQaDriverBuild => driver == true && qa == true;
+
   ApkRecord installed(DateTime at) => ApkRecord(
         apk: apk,
         gitHash: gitHash,
@@ -67,6 +83,8 @@ class ApkRecord {
         builtAt: builtAt,
         defines: defines,
         installedAt: at,
+        driver: driver,
+        qa: qa,
       );
 
   Map<String, dynamic> toJson() => {
@@ -76,6 +94,8 @@ class ApkRecord {
         'builtAt': builtAt.toUtc().toIso8601String(),
         'defines': defines,
         if (installedAt != null) 'installedAt': installedAt!.toUtc().toIso8601String(),
+        'driver': driver,
+        'qa': qa,
       };
 
   void write(String path) {
@@ -209,6 +229,8 @@ ApkRecord installedRecordForRun({
   required DateTime runStarted,
   required List<String> defines,
   required DateTime installedAt,
+  required bool driver,
+  required bool qa,
 }) =>
     ApkRecord(
       apk: File(paths.debugApk).absolute.path,
@@ -217,6 +239,8 @@ ApkRecord installedRecordForRun({
       builtAt: runStarted,
       defines: defines,
       installedAt: installedAt,
+      driver: driver,
+      qa: qa,
     );
 
 /// Why `qa build` must not start now, or null: the `flutter run` behind

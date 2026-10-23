@@ -82,6 +82,11 @@ class QaPaths {
   String installedJsonFor(String deviceId) =>
       _join(buildQa, ['installed_${safeId(deviceId)}.json']);
 
+  /// How many times the app was launched on a fleet guest since its boot:
+  /// the health count `fleet pass` recycles a guest by.
+  String launchesJsonFor(String deviceId) =>
+      _join(buildQa, ['launches_${safeId(deviceId)}.json']);
+
   /// The APK `flutter build apk --debug` writes.
   String get debugApk => _join(
         projectRoot,

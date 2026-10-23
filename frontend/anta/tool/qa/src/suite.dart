@@ -151,8 +151,9 @@ String flowNameOf(String fileName) => fileName.endsWith('.txt')
 /// Parses `--shard i/n` into its 1-based index and count.
 (int, int) parseShard(String raw) {
   final match = RegExp(r'^(\d+)/(\d+)$').firstMatch(raw.trim());
-  final index = match == null ? null : int.parse(match.group(1)!);
-  final count = match == null ? null : int.parse(match.group(2)!);
+  // tryParse: a digit run past 64 bits is a typo to refuse, not a crash.
+  final index = match == null ? null : int.tryParse(match.group(1)!);
+  final count = match == null ? null : int.tryParse(match.group(2)!);
   if (index == null || count == null || count < 1 || index < 1 || index > count) {
     throw UsageFailure('--shard takes i/n with 1 <= i <= n (got "$raw"), e.g. --shard 2/3');
   }

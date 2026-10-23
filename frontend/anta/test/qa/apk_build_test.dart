@@ -65,6 +65,8 @@ void main() {
       dirty: true,
       builtAt: DateTime.utc(2026, 10, 23, 9),
       defines: const ['ANTA_QA=true', 'ANTA_QA_DB=qa'],
+      driver: true,
+      qa: true,
     );
 
     test('apk.json has the documented keys and reads back', () {
@@ -76,7 +78,10 @@ void main() {
         'dirty': true,
         'builtAt': '2026-10-23T09:00:00.000Z',
         'defines': ['ANTA_QA=true', 'ANTA_QA_DB=qa'],
+        'driver': true,
+        'qa': true,
       });
+      expect(read.installed(DateTime.utc(2026, 10, 23, 10)).isQaDriverBuild, isTrue);
     });
 
     test('the per-device copy adds installedAt', () {
@@ -218,14 +223,31 @@ void main() {
         runStarted: started,
         defines: const ['ANTA_QA=true'],
         installedAt: installedAt,
+        driver: true,
+        qa: true,
       );
       expect(record.apk, File(paths.debugApk).absolute.path);
       expect(record.builtAt, started);
       expect(record.installedAt, installedAt);
       expect(record.gitHash, 'abc1234');
       expect(record.dirty, isTrue);
+      expect(record.isQaDriverBuild, isTrue);
       expect(record.toJson().keys,
-          ['apk', 'gitHash', 'dirty', 'builtAt', 'defines', 'installedAt']);
+          ['apk', 'gitHash', 'dirty', 'builtAt', 'defines', 'installedAt', 'driver', 'qa']);
+      final noDriver = installedRecordForRun(
+        paths: paths,
+        git: (hash: 'abc1234', dirty: false),
+        runStarted: started,
+        defines: const [],
+        installedAt: installedAt,
+        driver: false,
+        qa: false,
+      );
+      expect(noDriver.isQaDriverBuild, isFalse, reason: '`qa run --no-driver --no-qa`');
+      expect(ApkRecord.fromJson(noDriver.toJson()).isQaDriverBuild, isFalse);
+      final legacy = noDriver.toJson()..remove('driver')..remove('qa');
+      expect(ApkRecord.fromJson(legacy).isQaDriverBuild, isFalse,
+          reason: 'a record that cannot say both is not trusted');
       expect(
         staleBuildWarning(record, (path: 'lib/a.dart', modified: started.subtract(const Duration(seconds: 1)))),
         isNull,

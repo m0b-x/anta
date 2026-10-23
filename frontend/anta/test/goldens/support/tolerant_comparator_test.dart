@@ -7,7 +7,7 @@ import 'package:image/image.dart' as img;
 import 'tolerant_comparator.dart';
 
 /// The comparator's rule on images small enough to reason about pixel by
-/// pixel: 100 × 100, so one pixel is 0.01 % and the 0.5 % limit is 50.
+/// pixel: 100 × 100, so one pixel is 0.01 % and the 0.1 % limit is 10.
 void main() {
   const side = 100;
 
@@ -47,18 +47,30 @@ void main() {
     expect(result.changedPixels, 0);
   });
 
-  test('anti-aliasing noise on 0.2 % of the pixels passes', () {
+  test('anti-aliasing noise on 0.08 % of the pixels passes', () {
     final noisy = block();
-    // 20 edge pixels of the block, each well past the tolerance.
-    for (var x = 10; x < 30; x++) {
+    // 8 edge pixels of the block, each well past the tolerance.
+    for (var x = 10; x < 18; x++) {
       noisy.setPixelRgba(x, 9, 120, 120, 170, 255);
     }
 
     final result = TolerantGoldenComparator.diff(png(block()), png(noisy));
 
-    expect(result.changedPixels, 20);
-    expect(result.changedFraction, closeTo(0.002, 1e-9));
+    expect(result.changedPixels, 8);
+    expect(result.changedFraction, closeTo(0.0008, 1e-9));
     expect(result.passes, isTrue);
+  });
+
+  test('a change on 0.2 % of the pixels fails (a clipped word)', () {
+    final clipped = block();
+    for (var x = 10; x < 30; x++) {
+      clipped.setPixelRgba(x, 9, 120, 120, 170, 255);
+    }
+
+    final result = TolerantGoldenComparator.diff(png(block()), png(clipped));
+
+    expect(result.changedPixels, 20);
+    expect(result.passes, isFalse);
   });
 
   test('a block moved by 15 px fails, and the diff marks it in red', () {

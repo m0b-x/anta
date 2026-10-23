@@ -257,6 +257,10 @@ class QaContext {
   /// printed rather than what earlier flows on the same app did.
   String? errorsSinceStamp;
 
+  /// Set by `pass` with it: `run.log` and `run.err`'s lengths when the flow
+  /// started, so `errors` reads only what the `flutter run` printed since.
+  ({int out, int err})? runLogOffsets;
+
   /// Where the context says something about a choice it made on its own
   /// (the `auto` driver falling back); every verb points it at its own
   /// stderr, so a note lands under the step that caused it.
@@ -581,8 +585,15 @@ class QaContext {
   Future<UiDriver> driver() async {
     final step = stepVia;
     if (step != null && step != via) return _driverFor(step);
+    // A cached agent whose client closed (the app it spoke to was stopped
+    // by a relaunch that then failed) is resolved again, never returned.
+    if (_autoDriver case final AgentClient auto when auto.vm.isClosed) {
+      _autoDriver = null;
+    }
     final existing = _driver;
-    if (existing != null) return existing;
+    if (existing != null && !(existing is AgentClient && existing.vm.isClosed)) {
+      return existing;
+    }
     return _driver = await _driverFor(via);
   }
 
@@ -1280,6 +1291,13 @@ class BootCommand extends QaCommand {
     final bare = Adb(executable: ctx.sdk.requireAdb(), runner: ctx.runner);
     final attached = await bare.devices();
     final usable = attached.where((d) => d.usable).toList();
+    if (avd != null && avd.isNotEmpty && fleetIndexOf(avd) != null) {
+      throw UsageFailure('$avd is a fleet AVD — `qa fleet boot $avd` boots it '
+          'on its own port, pinned and minimized');
+    }
+    if (avd != null && avd.isNotEmpty && attached.isNotEmpty) {
+      return _bootNamedBeside(ctx, bare, avd, attached);
+    }
     if (usable.isNotEmpty) {
       out('emulator already up: ${usable.map((d) => d.serial).join(', ')} '
           '(never killed or restarted by this tool)');
@@ -1308,6 +1326,60 @@ class BootCommand extends QaCommand {
     return 0;
   }
 
+  /// `boot --avd X` while other emulators are up: each one's console is
+  /// asked which AVD it runs, so X already up is refused by name and a
+  /// device that is not X is never reported as X; otherwise X boots on the
+  /// first console port nothing holds, and only that serial is waited on.
+  Future<int> _bootNamedBeside(
+    QaContext ctx,
+    Adb bare,
+    String avd,
+    List<AdbDevice> attached,
+  ) async {
+    final taken = <int>{};
+    for (final device in attached) {
+      final port = emulatorConsolePort(device.serial);
+      if (port == null) continue;
+      taken.add(port);
+      final named = parseEmuAvdName(
+        (await bare.withSerial(device.serial).raw(emuAvdNameArgs)).stdout,
+      );
+      if (named == avd) {
+        throw UsageFailure('$avd is already up on ${device.serial} — `boot` '
+            'never restarts an emulator; drive it with -d ${device.serial}');
+      }
+    }
+    final host = fleetHostFor(ctx);
+    final qemus = await host.qemuProcesses();
+    final running = qemus.where((q) => q.avd == avd).firstOrNull;
+    if (running != null) {
+      throw DeviceFailure('$avd has a qemu (pid ${running.pid}) that is not on '
+          'adb — still booting, or hung; it is the owner\'s to close');
+    }
+    taken.addAll(qemus.map((q) => q.port).nonNulls);
+    final reserved = {for (final index in host.createdIndices()) fleetPort(index)};
+    final port = freeConsolePort(taken: taken, reserved: reserved) ??
+        (throw DeviceFailure('no free emulator console port for $avd'));
+    final serial = 'emulator-$port';
+    final started = await _startEmulator(ctx, avd, port: port);
+    // Beside other emulators the hypervisor lines that look fatal are not
+    // (the WHPX trap); the process exiting is the verdict.
+    await awaitEmulatorBoot(ctx, bare, started.pid, started.avd,
+        serial: serial, fatalLogLines: false, progress: warn);
+    final named = parseEmuAvdName((await bare.withSerial(serial).raw(emuAvdNameArgs)).stdout);
+    if (named != avd) {
+      throw DeviceFailure('$serial came up as ${named ?? 'an emulator that '
+          'does not name its AVD'}, not $avd');
+    }
+    final device = AndroidDevice(bare.withSerial(serial));
+    if (argResults!['phone'] as bool) {
+      await device.adb.shellLenient(['wm', 'size', '1080x2400']);
+      out('wm size set to 1080x2400 (360x800 dp) — run `unphone` before you finish');
+    }
+    out('ready: $serial  ${await device.screenSize()}');
+    return 0;
+  }
+
   /// The pid recorded by a previous `boot`, when that emulator is still alive.
   ///
   /// Without `--avd` only `emulator.pid` counts — the owner's path, where
@@ -1333,8 +1405,9 @@ class BootCommand extends QaCommand {
   /// script is always per AVD, so two boots never rewrite each other's.
   Future<({int pid, String? avd})> _startEmulator(
     QaContext ctx,
-    String? requested,
-  ) async {
+    String? requested, {
+    int? port,
+  }) async {
     final emulator = ctx.sdk.requireEmulator();
     var avd = requested;
     if (avd == null || avd.isEmpty) {
@@ -1368,6 +1441,7 @@ class BootCommand extends QaCommand {
       arguments: [
         '-avd',
         avd,
+        if (port != null) ...['-port', '$port'],
         if (argResults!['cold'] as bool) '-no-snapshot-load',
       ],
       posixLogPath: logPath,
@@ -1382,6 +1456,23 @@ class BootCommand extends QaCommand {
     out('starting emulator $avd (pid $pid, log $logPath)');
     return (pid: pid, avd: keyed);
   }
+}
+
+/// The console port in an emulator serial (`emulator-5554` is 5554), or
+/// null for anything else, an overlong digit run included.
+int? emulatorConsolePort(String serial) {
+  final match = RegExp(r'^emulator-(\d+)$').firstMatch(serial);
+  return match == null ? null : int.tryParse(match.group(1)!);
+}
+
+/// The first even console port from 5554 that neither [taken] (attached
+/// devices, running qemus) nor [reserved] (the fleet's ports) holds, so
+/// `boot --avd` lands its emulator where it can name the serial in advance.
+int? freeConsolePort({required Set<int> taken, required Set<int> reserved}) {
+  for (var port = ownerConsolePort; port <= 5682; port += 2) {
+    if (!taken.contains(port) && !reserved.contains(port)) return port;
+  }
+  return null;
 }
 
 /// The pid file `boot` records and waits on: the AVD's own with `--avd`,
@@ -1733,9 +1824,37 @@ mixin InstalledLaunch on QaCommand {
     QaContext ctx, {
     Duration vmTimeout = const Duration(seconds: 45),
   }) async {
+    // Whatever ends this launch early — the launch itself throwing after the
+    // force-stop included — must not leave the old app's closed client
+    // cached as the agent or the driver for the next step.
+    var adopted = false;
+    try {
+      final agent = await _launchInstalled(ctx, vmTimeout: vmTimeout);
+      adopted = agent != null;
+      return agent;
+    } finally {
+      if (!adopted) await ctx.forgetAgent();
+    }
+  }
+
+  Future<AgentClient?> _launchInstalled(
+    QaContext ctx, {
+    required Duration vmTimeout,
+  }) async {
     final device = await ctx.device();
     final port = await pickFreePort();
-    final launch = await device.launchApp(vmServicePort: port);
+    final previous = Uri.tryParse(await ctx.recordedVmUri() ?? '')?.port;
+    final launch = await device.launchApp(
+      vmServicePort: port,
+      previousVmServicePort: previous == null || previous == 0 ? null : previous,
+    );
+    if (fleetIndexOfSerial(device.id) != null) {
+      final count = FleetLaunches.record(ctx.paths.launchesJsonFor(device.id), DateTime.now());
+      if (count.count == fleetRecycleLaunches + 1) {
+        warn('warning: ${count.label} app launches on ${device.id} since its '
+            'boot — the guest slows with every one; `qa fleet pass` recycles it');
+      }
+    }
     out('launched: ${launch.description}');
     final startedAt = DateTime.now();
     final VmServiceClient vm;
@@ -1860,6 +1979,8 @@ class RunAppCommand extends LaunchingCommand with QaMarkers {
       runStarted: started,
       defines: [if (argResults!['qa'] as bool) ...qaDefines, ...extra],
       installedAt: DateTime.now(),
+      driver: argResults!['driver'] as bool,
+      qa: argResults!['qa'] as bool,
     ).write(ctx.paths.installedJsonFor(device.id));
   }
 }
@@ -2726,7 +2847,12 @@ class ExpectCommand extends QaCommand {
       ..addMultiOption('absent',
           help: 'A target no node may match, scrolled out of view included. '
               'Repeatable.')
-      ..addOption('timeout', defaultsTo: '5', help: 'Seconds to keep re-checking.');
+      ..addOption('timeout', defaultsTo: '5', help: 'Seconds to keep re-checking.')
+      ..addFlag('ordered',
+          negatable: false,
+          help: 'The present targets must also come in this order in the '
+              'dump (its traversal order, top to bottom): a list\'s rows '
+              'after a reorder.');
   }
 
   @override
@@ -2747,13 +2873,17 @@ class ExpectCommand extends QaCommand {
       throw UsageFailure('expect needs at least one target or --absent');
     }
     final seconds = intOption('timeout') ?? 5;
+    final ordered = argResults!['ordered'] as bool;
+    if (ordered && present.length < 2) {
+      throw UsageFailure('--ordered needs at least two present targets');
+    }
     final deadline = DateTime.now().add(Duration(seconds: seconds));
     final interval = (await ctx.driver()).pollInterval;
     UiTree tree;
     List<String> misses;
     while (true) {
       tree = (await ctx.dumpWhileStarting(until: deadline, cache: true)).tree;
-      misses = expectMisses(tree, present: present, absent: absent);
+      misses = expectMisses(tree, present: present, absent: absent, ordered: ordered);
       if (misses.isEmpty || !DateTime.now().isBefore(deadline)) break;
       await Future<void>.delayed(interval);
     }
@@ -2767,6 +2897,9 @@ class ExpectCommand extends QaCommand {
       if (!misses.any((m) => m.startsWith('unexpected "$target"'))) {
         out('ok  absent   "$target"');
       }
+    }
+    if (ordered && !misses.any((m) => m.startsWith('out of order'))) {
+      out('ok  ordered  ${present.map((t) => '"$t"').join(' < ')}');
     }
     if (misses.isEmpty) return 0;
     throw TargetFailure(
@@ -2793,17 +2926,37 @@ class ExpectCommand extends QaCommand {
 /// the fold. An ambiguous label is present when any of its matches is. So
 /// `--absent` means no node matches at all, not merely off screen, and an
 /// ambiguous label is never absent.
+///
+/// With [ordered], each present target's first present match must come
+/// after the previous one's in the dump's traversal order; a list's rows
+/// keep their order there even where their rects do not (the browser's
+/// selection mode draws the rows an app bar below their semantics).
 List<String> expectMisses(
   UiTree tree, {
   required List<String> present,
   required List<String> absent,
+  bool ordered = false,
 }) {
   final resolver = TargetResolver(tree);
   final misses = <String>[];
+  final positions = <(String, int)>[];
   for (final target in present) {
     if (isPointTarget(target)) continue;
-    if (!resolver.matchingNodes(target).any((n) => n.countsAsPresent)) {
+    final first = resolver.matchingNodes(target).where((n) => n.countsAsPresent).firstOrNull;
+    if (first == null) {
       misses.add('missing "$target"');
+    } else {
+      positions.add((target, tree.nodes.indexOf(first)));
+    }
+  }
+  if (ordered) {
+    for (var i = 1; i < positions.length; i++) {
+      final (before, at) = positions[i - 1];
+      final (after, next) = positions[i];
+      if (next <= at) {
+        misses.add('out of order: "$after" (node $next) comes before '
+            '"$before" (node $at), not after it');
+      }
     }
   }
   for (final target in absent) {
@@ -3055,6 +3208,11 @@ mixin StepLoop on QaCommand {
       // step's failure; ending the process here would lose a pass's report.
       warn('qa: $e');
       return (exitDevice, '$e');
+    } on Error catch (e) {
+      // So is a bug in a verb (a bad cast, a range error): the step fails
+      // and the shard still writes the report the fleet merge reads.
+      warn('qa: internal error: $e');
+      return (exitDevice, 'internal error: $e');
     } finally {
       qaRunner.outputPrefix = previous;
     }
@@ -3282,13 +3440,13 @@ class FlowsCommand extends QaCommand {
   }
 }
 
-/// `qa pass calendar` — a whole suite in one call, every flow from the
-/// state its `_suite.txt` names, with a `report.json` an agent can triage
-/// and `--shard i/n` to spread one suite over several devices.
 /// How `pass` left its device: the closing relaunch's time, the app's
 /// alarms still armed (null when not counted), and why it failed, if it did.
 typedef _Quiet = ({int ms, int? alarms, String? failure});
 
+/// `qa pass calendar` — a whole suite in one call, every flow from the
+/// state its `_suite.txt` names, with a `report.json` an agent can triage
+/// and `--shard i/n` to spread one suite over several devices.
 class PassCommand extends QaCommand with StepLoop {
   PassCommand() {
     argParser
@@ -3365,7 +3523,7 @@ class PassCommand extends QaCommand with StepLoop {
     if (!file.existsSync()) throw UsageFailure('no report at ${file.path}');
     final report = PassReport.decode(file.readAsStringSync());
     summaryLines(report, reportPath: file.absolute.path).forEach(out);
-    return report.allPassed ? 0 : exitTarget;
+    return passExitCode(report);
   }
 
   int _merge(List<String> inputs) {
@@ -3384,10 +3542,9 @@ class PassCommand extends QaCommand with StepLoop {
       warn('warning: ${repeated.length} flow(s) appear in more than one '
           'report; kept the one given last: ${repeated.join(', ')}');
     }
-    final missing = _missingFromSuite(merged);
+    final missing = missingFromSuite(paths, merged);
     if (missing != null && missing.isNotEmpty) {
-      warn('warning: the merged reports do not cover "${merged.suite}": '
-          '${missing.length} flow(s) missing: ${missing.join(', ')}');
+      warn(coverageWarning(merged.suite, missing));
     }
     final target = File(joinPath(paths.passRoot, [
       '${QaPaths.safeId(merged.suite)}_${shotStamp(DateTime.now())}_merged.json',
@@ -3396,35 +3553,8 @@ class PassCommand extends QaCommand with StepLoop {
     target.writeAsStringSync(merged.encode());
     File(paths.latestPassFor(merged.suite)).writeAsStringSync(target.absolute.path);
     summaryLines(merged, reportPath: target.absolute.path).forEach(out);
-    return merged.allPassed ? 0 : exitTarget;
+    return passExitCode(merged);
   }
-
-  /// The suite's flows [merged] lacks, against every flow a whole-suite
-  /// pass would run; null when the suite is not under the flows directory
-  /// (reports from another checkout), which leaves nothing to compare.
-  List<String>? _missingFromSuite(PassReport merged) {
-    final List<String> expected;
-    try {
-      final paths = context.paths;
-      final manifest = SuiteManifest.load(paths.flowsDir, merged.suite);
-      expected = selectFlows(_flowNames(paths.flowsDir, merged.suite), manifest: manifest);
-    } on UsageFailure {
-      return null;
-    } on FileSystemException {
-      return null;
-    }
-    final have = {for (final flow in merged.flows) flow.name};
-    return [for (final name in expected) if (!have.contains(name)) name];
-  }
-
-  static List<String> _flowNames(String flowsDir, String suite) =>
-      Directory(joinPath(flowsDir, [suite]))
-          .listSync()
-          .whereType<File>()
-          .map((f) => f.uri.pathSegments.last)
-          .where(isFlowFileName)
-          .map(flowNameOf)
-          .toList();
 
   Future<int> _runPass(String argument) async {
     final ctx = context;
@@ -3439,7 +3569,7 @@ class PassCommand extends QaCommand with StepLoop {
           'fixture= — `qa pass` needs one');
     }
     final suiteDir = joinPath(paths.flowsDir, [suite]);
-    final available = _flowNames(paths.flowsDir, suite);
+    final available = suiteFlowNames(paths.flowsDir, suite);
     final shardArg = argResults!['shard'] as String?;
     final shard = shardArg == null || shardArg.isEmpty ? null : parseShard(shardArg);
     final selected = selectFlows(
@@ -3480,7 +3610,13 @@ class PassCommand extends QaCommand with StepLoop {
     ctx.shotsDirOverride = passDir.path;
     ctx.shotScaleOverride = passShotScale;
     try {
-      final installed = ApkRecord.read(paths.installedJsonFor(device.id));
+      var installed = ApkRecord.read(paths.installedJsonFor(device.id));
+      if (installed != null && !installed.isQaDriverBuild) {
+        warn('$notDriverBuildWarning (${paths.installedJsonFor(device.id)} '
+            'says driver=${installed.driver}, qa=${installed.qa}) — '
+            '`qa build` then `qa install`');
+        installed = null;
+      }
       if (installed != null) {
         final stale = staleBuildWarning(
           installed,
@@ -3501,6 +3637,7 @@ class PassCommand extends QaCommand with StepLoop {
         List<FlowRecord> flows, {
         required bool partial,
         _Quiet? quiet,
+        String? quietSkipped,
       }) {
         final report = PassReport(
           suite: suite,
@@ -3519,6 +3656,7 @@ class PassCommand extends QaCommand with StepLoop {
           quietMs: quiet?.ms,
           quietAlarms: quiet?.alarms,
           quietFailure: quiet?.failure,
+          quietSkipped: quietSkipped,
         );
         final encoded = report.encode();
         reportFile.writeAsStringSync(encoded);
@@ -3541,8 +3679,19 @@ class PassCommand extends QaCommand with StepLoop {
         passDir: passDir.path,
         onFlowDone: (done) => writeReport(done, partial: true),
       );
-      final quiet = argResults!['keep-state'] as bool ? null : await _leaveQuiet(qaRunner);
-      final report = writeReport(flows, partial: false, quiet: quiet);
+      final quietSkipped = quietSkipReason(
+        keepState: argResults!['keep-state'] as bool,
+        noReseed: !(argResults!['reseed'] as bool),
+        stoppedOnFail: argResults!['stop-on-fail'] as bool &&
+            flows.any((f) => f.status == FlowStatus.failed),
+      );
+      final quiet = quietSkipped != null ? null : await _leaveQuiet(qaRunner);
+      final report = writeReport(
+        flows,
+        partial: false,
+        quiet: quiet,
+        quietSkipped: quietSkipped,
+      );
       summaryLines(report, reportPath: reportFile.absolute.path).forEach(out);
       if (report.allPassed) return 0;
       final reseedBroke = flows.any((f) =>
@@ -3593,6 +3742,18 @@ class PassCommand extends QaCommand with StepLoop {
       warn('quiet: the armed alarms could not be counted: ${e.message}');
       alarms = null;
     }
+    // A launch drops the forward before it, but a device used by an older
+    // harness carries hundreds; the live launch's stays for the verbs after.
+    final device = await ctx.device();
+    if (device is AndroidDevice) {
+      try {
+        final keep = Uri.tryParse(await ctx.recordedVmUri() ?? '')?.port;
+        final removed = await device.removeForwards(keep: keep == 0 ? null : keep);
+        if (removed > 0) out('[quiet] removed $removed stale adb forward(s)');
+      } on QaException catch (e) {
+        warn('quiet: the stale adb forwards were not removed: ${e.message}');
+      }
+    }
     return (ms: took(), alarms: alarms, failure: null);
   }
 
@@ -3623,6 +3784,10 @@ class PassCommand extends QaCommand with StepLoop {
       // What this flow's failure evidence may blame on it starts here: under
       // reseed=suite the app (and its error buffer) outlives earlier flows.
       final errorsStamp = rawLogcatStamp(flowStarted.subtract(_flowStampMargin));
+      final runLogOffsets = (
+        out: _lengthOf(ctx.paths.runLog),
+        err: _lengthOf(ctx.paths.runErr),
+      );
       await ctx.clearAgentErrors();
       int? reseedMs;
       int? preludeMs;
@@ -3721,7 +3886,14 @@ class PassCommand extends QaCommand with StepLoop {
         steps: steps,
         failure: failed == null
             ? null
-            : await _evidence(qaRunner, failed, name, passDir, errorsStamp: errorsStamp),
+            : await _evidence(
+                qaRunner,
+                failed,
+                name,
+                passDir,
+                errorsStamp: errorsStamp,
+                runLogOffsets: runLogOffsets,
+              ),
       ));
       onFlowDone?.call(List.unmodifiable(records));
       if (failed == null) {
@@ -3752,6 +3924,7 @@ class PassCommand extends QaCommand with StepLoop {
     String name,
     String passDir, {
     required String errorsStamp,
+    required ({int out, int err}) runLogOffsets,
   }) async {
     final ctx = context;
     final base = 'fail_${sanitiseName(name)}';
@@ -3784,12 +3957,14 @@ class PassCommand extends QaCommand with StepLoop {
     _capture = [];
     ctx.runLogForThisDeviceOnly = true;
     ctx.errorsSinceStamp = errorsStamp;
+    ctx.runLogOffsets = runLogOffsets;
     final int code;
     try {
       (code, _) = await runOneStep(qaRunner, ['errors']);
     } finally {
       ctx.runLogForThisDeviceOnly = false;
       ctx.errorsSinceStamp = null;
+      ctx.runLogOffsets = null;
     }
     final printed = _takeCapture();
     if (code == 0 || printed.isNotEmpty) {
@@ -3798,6 +3973,11 @@ class PassCommand extends QaCommand with StepLoop {
       errors = file.absolute.path;
     }
     return failure.withEvidence(shot: shot, dump: dump, errors: errors);
+  }
+
+  static int _lengthOf(String path) {
+    final file = File(path);
+    return file.existsSync() ? file.lengthSync() : 0;
   }
 
   List<String> _takeCapture() {
@@ -3814,6 +3994,62 @@ class PassCommand extends QaCommand with StepLoop {
     return null;
   }
 }
+
+/// What `pass`, `--summary`, `--merge` and `fleet pass` exit with: 0 all
+/// green, 2 any red, and 3 for a report still marked partial — its process
+/// never finished, so what it lacks is neither green nor red.
+int passExitCode(PassReport report) {
+  if (report.partial) return exitDevice;
+  return report.allPassed ? 0 : exitTarget;
+}
+
+/// Why `pass` must not end with its quiet relaunch, or null when it should:
+/// the relaunch empties the QA database, which would wipe the state a
+/// `--no-reseed` pass ran on and the red screen a `--stop-on-fail` pass
+/// stopped at.
+String? quietSkipReason({
+  required bool keepState,
+  required bool noReseed,
+  required bool stoppedOnFail,
+}) {
+  if (keepState) return '--keep-state leaves the app as the last flow left it';
+  if (noReseed) return '--no-reseed ran on the app\'s own state, which stays';
+  if (stoppedOnFail) {
+    return 'the pass stopped on --stop-on-fail; the red flow\'s screen stays';
+  }
+  return null;
+}
+
+/// Every flow of [suite] under [flowsDir], by name.
+List<String> suiteFlowNames(String flowsDir, String suite) =>
+    Directory(joinPath(flowsDir, [suite]))
+        .listSync()
+        .whereType<File>()
+        .map((f) => f.uri.pathSegments.last)
+        .where(isFlowFileName)
+        .map(flowNameOf)
+        .toList();
+
+/// The suite's flows [merged] lacks, against every flow a whole-suite
+/// pass would run; null when the suite is not under the flows directory
+/// (reports from another checkout), which leaves nothing to compare.
+List<String>? missingFromSuite(QaPaths paths, PassReport merged) {
+  final List<String> expected;
+  try {
+    final manifest = SuiteManifest.load(paths.flowsDir, merged.suite);
+    expected = selectFlows(suiteFlowNames(paths.flowsDir, merged.suite), manifest: manifest);
+  } on UsageFailure {
+    return null;
+  } on FileSystemException {
+    return null;
+  }
+  final have = {for (final flow in merged.flows) flow.name};
+  return [for (final name in expected) if (!have.contains(name)) name];
+}
+
+String coverageWarning(String suite, List<String> missing) =>
+    'warning: the merged reports do not cover "$suite": '
+    '${missing.length} flow(s) missing: ${missing.join(', ')}';
 
 /// Refuses a verb that only makes sense for an Android device when `-d`
 /// names something else; with no `-d` there is nothing to refuse.
@@ -3900,6 +4136,8 @@ class BuildCommand extends QaCommand {
       dirty: git.dirty,
       builtAt: started,
       defines: [...qaDefines, ...extra],
+      driver: argResults!['driver'] as bool,
+      qa: true,
     )..write(ctx.paths.apkJson);
     final mb = (apk.lengthSync() / (1024 * 1024)).toStringAsFixed(0);
     out('built ${record.apk} ($mb MB) in $seconds s at '
@@ -3973,7 +4211,11 @@ class InstallCommand extends QaCommand with StepLoop {
       throw DeviceFailure('adb install failed on ${device.id}: ${result.combined}');
     }
     out('installed in ${DateTime.now().difference(started).inMilliseconds} ms');
-    if (grantsPassPermissions(device.id, asked: argResults!['grant'] as bool)) {
+    final asked = argResults!['grant'] as bool;
+    final consoleAvd = asked || !device.id.startsWith('emulator-')
+        ? null
+        : parseEmuAvdName((await device.adb.raw(emuAvdNameArgs)).stdout);
+    if (grantsPassPermissions(asked: asked, consoleAvd: consoleAvd)) {
       (await applyPassGrants(device.adb, device.id)).forEach(out);
     }
     final qaRunner = runner! as QaCommandRunner;
@@ -4057,6 +4299,64 @@ abstract class FleetSubcommand extends QaCommand {
         isError ? warn('[$tag] $line') : out('[$tag] $line');
       },
     );
+  }
+
+  /// Recycles each ready one of [members] past the health threshold
+  /// ([planRecycle]) — `fleet stop`, then a `fleet boot` child, in parallel
+  /// — and returns the whole fleet read again, or null when nothing was
+  /// recycled; with [enabled] false it only warns. A recycle that fails
+  /// leaves that guest out of the `ready` set, which callers already handle.
+  Future<List<FleetMember>?> recycleWorn(
+    QaContext ctx,
+    FleetHost host,
+    List<FleetMember> members, {
+    required bool enabled,
+  }) async {
+    final measured = await host.withGpu(members);
+    final plan = planRecycle(measured.where((m) => m.ready).toList(), enabled: enabled);
+    for (final line in plan.lines) {
+      line.startsWith('warning: ') ? warn(line) : out(line);
+    }
+    if (plan.recycle.isEmpty) return null;
+    // One guest first, the rest only once it came back: on 2026-10-23 two
+    // guests recycled at once both hung in their boot (a hung qemu was
+    // still on the host), which left no fleet at all.
+    final first = plan.recycle.first;
+    if (await _recycle(ctx, host, first)) {
+      await Future.wait([
+        for (final member in plan.recycle.skip(1)) _recycle(ctx, host, member),
+      ]);
+    } else if (plan.recycle.length > 1) {
+      warn('recycle: ${first.name} did not come back, so '
+          '${plan.recycle.skip(1).map((m) => m.name).join(', ')} '
+          '${plan.recycle.length == 2 ? 'is' : 'are'} left running as they are');
+    }
+    return host.members(upTo: capacity, paths: ctx.paths);
+  }
+
+  /// Whether [member] was stopped and booted again.
+  Future<bool> _recycle(QaContext ctx, FleetHost host, FleetMember member) async {
+    final started = DateTime.now();
+    try {
+      out('[${member.name}] ${await host.stop(member.index)}');
+    } on QaException catch (e) {
+      warn('recycle: ${member.name} was not stopped — ${e.message}');
+      return false;
+    }
+    final outcome = await runChild(
+      ctx,
+      fleetBootChildArgs(member.name, verbose: _parentVerbose),
+      tag: member.name,
+    );
+    final seconds = (DateTime.now().difference(started).inMilliseconds / 1000)
+        .toStringAsFixed(1);
+    if (outcome.exitCode == 0) {
+      out('recycled ${member.name} (${member.serial}) in $seconds s');
+      return true;
+    }
+    warn('recycle: ${member.name} did not boot again (exit ${outcome.exitCode}) '
+        '— `qa fleet boot ${member.name}`');
+    return false;
   }
 
   /// The fleet indices the verb's arguments name, or every created one
@@ -4252,6 +4552,16 @@ class FleetBootCommand extends FleetSubcommand {
           throw DeviceFailure('$name already runs on port ${running.port} '
               '(qemu ${running.pid}), not its fleet port $port — left alone');
         }
+        final before = await host.cpuSeconds(running.pid);
+        if (before != null) {
+          await Future<void>.delayed(staleQemuSample);
+          if (isIdleQemu(before, await host.cpuSeconds(running.pid))) {
+            throw DeviceFailure('qemu ${running.pid} of $name is not on adb '
+                'and idle — a hung guest, whose crash window keeps it from '
+                'booting again: `qa fleet stop $name --force`, then '
+                '`qa fleet boot $name`');
+          }
+        }
         out('[$name] qemu ${running.pid} is already coming up — waiting');
         await awaitEmulatorBoot(ctx, host.adb, running.pid, name,
             serial: serial, fatalLogLines: false, progress: progress);
@@ -4282,6 +4592,17 @@ class FleetBootCommand extends FleetSubcommand {
             serial: serial, fatalLogLines: false, progress: progress);
         await early;
         how = 'booted in ${took()}';
+      }
+      // The serial is only a port convention: whatever came up on it must
+      // name this AVD before its display settings are touched.
+      final reported = await host.avdNameOn(serial);
+      if (reported != name) {
+        throw DeviceFailure('$serial came up as '
+            '${reported == null ? 'an emulator that does not name its AVD' : '"$reported"'}, '
+            'not $name — left alone');
+      }
+      if (how != 'already up') {
+        FleetLaunches.reset(ctx.paths.launchesJsonFor(serial), DateTime.now());
       }
       try {
         await host.keepAwake(serial);
@@ -4366,7 +4687,8 @@ class FleetStatusCommand extends FleetSubcommand {
   String get description =>
       'One line per fleet AVD: serial, state, the installed build (stale '
       'when apk.json is newer), its qemu, that qemu\'s affinity and window '
-      '(minimized, visible or headless); the owner\'s AVDs follow as '
+      '(minimized, visible or headless), the app launches since its boot '
+      'and (Windows) its host-GPU memory; the owner\'s AVDs follow as '
       '`owner`, never acted on.';
 
   @override
@@ -4377,8 +4699,9 @@ class FleetStatusCommand extends FleetSubcommand {
     final ctx = context;
     final host = fleetHostFor(ctx);
     final qemus = await host.qemuProcesses(windowStates: true);
-    final members =
-        await host.members(upTo: capacity, paths: ctx.paths, qemus: qemus);
+    final members = await host.withGpu(
+      await host.members(upTo: capacity, paths: ctx.paths, qemus: qemus),
+    );
     final built = ApkRecord.read(ctx.paths.apkJson);
     final owners = host.avdNames().where((n) => fleetIndexOf(n) == null).toList();
     QemuProcess? qemuOf(String avd) =>
@@ -4415,7 +4738,13 @@ class FleetStatusCommand extends FleetSubcommand {
 
 class FleetStopCommand extends FleetSubcommand {
   FleetStopCommand() {
-    argParser.addFlag('all', negatable: false, help: 'Every fleet AVD that exists.');
+    argParser
+      ..addFlag('all', negatable: false, help: 'Every fleet AVD that exists.')
+      ..addFlag('force',
+          negatable: false,
+          help: 'A hung guest (off adb, its console silent): kill its qemu, '
+              'only when the process\'s command line names that fleet AVD '
+              'on its fleet port. A guest on adb still stops gracefully.');
   }
 
   @override
@@ -4428,15 +4757,16 @@ class FleetStopCommand extends FleetSubcommand {
       'Any other emulator is refused.';
 
   @override
-  String get invocation => 'qa fleet stop <anta_qa_N|N>… | --all';
+  String get invocation => 'qa fleet stop <anta_qa_N|N>… | --all [--force]';
 
   @override
   Future<int> run() async {
     final host = fleetHostFor(context);
+    final force = argResults!['force'] as bool;
     var failed = false;
     for (final index in namedIndices(host, verb: 'stop')) {
       try {
-        out(await host.stop(index));
+        out(force ? await host.forceStop(index) : await host.stop(index));
       } on QaException catch (e) {
         failed = true;
         warn('refused: ${fleetName(index)} — ${e.message}');
@@ -4448,9 +4778,15 @@ class FleetStopCommand extends FleetSubcommand {
 
 class FleetInstallCommand extends FleetSubcommand {
   FleetInstallCommand() {
-    argParser.addFlag('build',
-        negatable: false,
-        help: 'Run `qa build` first (also done when build/qa/apk.json is missing).');
+    argParser
+      ..addFlag('build',
+          negatable: false,
+          help: 'Run `qa build` first (also done when build/qa/apk.json is missing).')
+      ..addFlag('recycle',
+          defaultsTo: true,
+          help: 'Restart a guest past $fleetRecycleLaunches app launches or '
+              '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory before '
+              'installing (fleet stop + fleet boot, ≈ 20 s).');
   }
 
   @override
@@ -4464,13 +4800,20 @@ class FleetInstallCommand extends FleetSubcommand {
       '(POST_NOTIFICATIONS).';
 
   @override
-  String get invocation => 'qa fleet install [--build]';
+  String get invocation => 'qa fleet install [--build] [--no-recycle]';
 
   @override
   Future<int> run() async {
     final ctx = context;
     final host = fleetHostFor(ctx);
-    final members = await host.members(upTo: capacity, paths: ctx.paths);
+    final found = await host.members(upTo: capacity, paths: ctx.paths);
+    final members = await recycleWorn(
+          ctx,
+          host,
+          found,
+          enabled: argResults!['recycle'] as bool,
+        ) ??
+        found;
     final ready = members.where((m) => m.ready).toList();
     if (ready.isEmpty) {
       throw DeviceFailure('no fleet device is up — `qa fleet boot --all` first');
@@ -4538,7 +4881,13 @@ class FleetPassCommand extends FleetSubcommand {
       ..addFlag('keep-state',
           negatable: false,
           help: 'Each shard leaves its app as its last flow left it instead '
-              'of ending on an empty QA database.');
+              'of ending on an empty QA database.')
+      ..addFlag('recycle',
+          defaultsTo: true,
+          help: 'Restart a guest past $fleetRecycleLaunches app launches or '
+              '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory before the '
+              'pass (fleet stop + fleet boot, ≈ 20 s): a worn guest slows '
+              'every verb and heads for a hang.');
   }
 
   @override
@@ -4553,7 +4902,7 @@ class FleetPassCommand extends FleetSubcommand {
   @override
   String get invocation =>
       'qa fleet pass <suite> [--devices a,b,…] [--label <text>] [--stop-on-fail] '
-      '[--keep-state]';
+      '[--keep-state] [--no-recycle]';
 
   @override
   Future<int> run() async {
@@ -4573,14 +4922,24 @@ class FleetPassCommand extends FleetSubcommand {
               if (part.trim().isNotEmpty) parseFleetArgument(part, serials: true),
           ];
     final host = fleetHostFor(ctx);
-    final members = await host.members(upTo: capacity, paths: ctx.paths);
-    final pick = pickPassDevices(
-      members: members,
-      built: ApkRecord.read(ctx.paths.apkJson),
-      suite: suite,
-      shardable: manifest.shard,
-      wanted: wanted,
+    final built = ApkRecord.read(ctx.paths.apkJson);
+    FleetPick pickFrom(List<FleetMember> members) => pickPassDevices(
+          members: members,
+          built: built,
+          suite: suite,
+          shardable: manifest.shard,
+          wanted: wanted,
+        );
+    var pick = pickFrom(await host.members(upTo: capacity, paths: ctx.paths));
+    // Only the guests the pass runs on are recycled; after a recycle the
+    // pick is made again from what came back up.
+    final recycled = await recycleWorn(
+      ctx,
+      host,
+      pick.members,
+      enabled: argResults!['recycle'] as bool,
     );
+    if (recycled != null) pick = pickFrom(recycled);
     pick.warnings.forEach(warn);
     for (final reason in pick.refused) {
       warn('left out: $reason');
@@ -4628,6 +4987,8 @@ class FleetPassCommand extends FleetSubcommand {
     ]);
     final reports = <PassReport?>[];
     final couldNotRun = <String>[];
+    final incomplete = <String>[];
+    final available = suiteFlowNames(ctx.paths.flowsDir, suite);
     for (var i = 0; i < shards.length; i++) {
       final file = File(shards[i].json);
       PassReport? report;
@@ -4641,17 +5002,27 @@ class FleetPassCommand extends FleetSubcommand {
       if (report == null) {
         couldNotRun.add('${shards[i].member.serial} (exit '
             '${outcomes[i].exitCode}, log ${shards[i].log})');
+      } else {
+        final expected = selectFlows(available, manifest: manifest, shard: shards[i].shard).length;
+        final why = shardIncompleteness(report, exitCode: outcomes[i].exitCode, expected: expected);
+        if (why != null) {
+          incomplete.add('INCOMPLETE ${shards[i].member.serial}: $why '
+              '(log ${shards[i].log})');
+        }
       }
       reports.add(report);
     }
     final ran = reports.nonNulls.toList();
     PassReport? merged;
+    List<String>? missing;
     if (ran.isNotEmpty) {
       merged = mergeReports(ran);
       final reportFile = File(joinPath(dir.path, ['report.json']))
         ..writeAsStringSync(merged.encode());
       File(ctx.paths.latestPassFor(suite)).writeAsStringSync(reportFile.absolute.path);
       summaryLines(merged, reportPath: reportFile.absolute.path).forEach(out);
+      missing = missingFromSuite(ctx.paths, merged);
+      if (missing != null && missing.isNotEmpty) warn(coverageWarning(suite, missing));
     }
     out('per device:');
     for (var i = 0; i < shards.length; i++) {
@@ -4662,12 +5033,38 @@ class FleetPassCommand extends FleetSubcommand {
           '${shard.shard == null ? 'whole suite' : 'shard ${shard.shard!.$1}/${shard.shard!.$2}'}  '
           '${flows ?? '-'} flow(s)  $seconds s  exit ${outcomes[i].exitCode}');
     }
+    incomplete.forEach(out);
     if (couldNotRun.isNotEmpty) {
       warn('could not run: ${couldNotRun.join('; ')}');
       return exitDevice;
     }
-    return merged!.allPassed ? 0 : exitTarget;
+    if (incomplete.isNotEmpty || (missing?.isNotEmpty ?? false)) return exitDevice;
+    return passExitCode(merged!);
   }
+}
+
+/// Why a fleet shard's [report] cannot stand as its share of the suite, or
+/// null when it can: still partial (its process died between flows), fewer
+/// flows than its shard holds, or a child exit code a finished pass never
+/// gives (`pass` exits 0, 2 or 3; 0 only when all is green) — a shard that
+/// crashed after its last write would otherwise pass for a finished one.
+String? shardIncompleteness(
+  PassReport report, {
+  required int exitCode,
+  required int expected,
+}) {
+  final ran = report.flows.length;
+  if (report.partial || ran < expected) {
+    return 'shard stopped after $ran of $expected flows';
+  }
+  final consistent = exitCode == 0
+      ? report.allPassed
+      : (exitCode == exitTarget || exitCode == exitDevice) && !report.allPassed;
+  if (!consistent) {
+    return 'shard exited $exitCode over a report that says '
+        '${report.count(FlowStatus.passed)}/$ran green';
+  }
+  return null;
 }
 
 class LogCommand extends QaCommand {
@@ -4756,8 +5153,15 @@ class ErrorsCommand extends QaCommand {
               deviceId: device.id,
             )
           : null;
+      final offsets = ctx.runLogOffsets;
       if (skip != null) {
         out(skip);
+      } else if (offsets != null) {
+        final since = [
+          readAppended(ctx.paths.runLog, offsets.out),
+          readAppended(ctx.paths.runErr, offsets.err),
+        ].where((text) => text.isNotEmpty).join('\n');
+        sources[ctx.paths.runLog] = errorLines(since, limit: limit);
       } else {
         sources[ctx.paths.runLog] = errorLines(readRunLog(ctx.paths), limit: limit);
       }
@@ -5092,6 +5496,7 @@ class DoctorCommand extends QaCommand {
       leftoverPids: outputs[4],
     ));
     results.add(checkDataSpace(outputs[5]));
+    results.add(checkForwards(device.id, (await device.forwardedPorts()).length));
     final vmUri = await ctx.recordedVmUri();
     final fetched = vmUri == null
         ? (info: null, failure: null, ms: 0)
@@ -5254,11 +5659,11 @@ class DoctorCommand extends QaCommand {
         cores: topology?.cores,
         threads: topology?.threads,
       );
-      final members = await host.members(
+      final members = await host.withGpu(await host.members(
         upTo: fleetCapacity(Platform.numberOfProcessors),
         paths: ctx.paths,
         devices: await ctx.adbDevices(),
-      );
+      ));
       return checkFleet(members, pinMask: affinity.mask);
     } on QaException catch (e) {
       return CheckResult(

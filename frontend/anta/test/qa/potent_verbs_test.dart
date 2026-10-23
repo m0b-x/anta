@@ -115,6 +115,48 @@ void main() {
         ['unexpected "id:search-open" is on screen'],
       );
     });
+
+    group('--ordered', () {
+      // Three rows in traversal order, their rects deliberately not: the
+      // order is the tree's, as the browser's selection mode needs.
+      final rows = UiTree([
+        _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
+        _node(1, desc: 'Inbox\n2 notes', bounds: const UiRect(0, 900, 1000, 1000)),
+        _node(2, desc: 'Money', bounds: const UiRect(0, 100, 1000, 200)),
+        _node(3, desc: 'Training', hidden: true),
+      ]);
+
+      test('passes when the targets come in traversal order', () {
+        expect(
+          expectMisses(rows,
+              present: ['Inbox', 'Money', 'Training'], absent: [], ordered: true),
+          isEmpty,
+        );
+      });
+
+      test('names the pair that is out of order', () {
+        expect(
+          expectMisses(rows,
+              present: ['Training', 'Inbox', 'Money'], absent: [], ordered: true),
+          ['out of order: "Inbox" (node 1) comes before "Training" (node 3), '
+              'not after it'],
+        );
+      });
+
+      test('a missing target is reported once, not as an order miss', () {
+        expect(
+          expectMisses(rows, present: ['Inbox', 'Gym', 'Money'], absent: [], ordered: true),
+          ['missing "Gym"'],
+        );
+      });
+
+      test('without --ordered the order is not checked', () {
+        expect(
+          expectMisses(rows, present: ['Money', 'Inbox'], absent: []),
+          isEmpty,
+        );
+      });
+    });
   });
 
   group('describePerf', () {
@@ -318,6 +360,8 @@ void main() {
         expectHarmless(grant.command, 'the ${grant.what} grant');
       }
       expectHarmless(fleetBuildChildArgs(verbose: true), 'the build child');
+      expectHarmless(fleetBootChildArgs(fleetName(1), verbose: true), 'the boot child');
+      expectHarmless([gpuMemoryScript([1, 2]), cpuSecondsScript(1)], 'the health scripts');
       expectHarmless(emuAvdNameArgs, 'emu avd name');
       expectHarmless(emuKillArgs, 'emu kill');
       expectHarmless(
@@ -327,11 +371,17 @@ void main() {
       expect(avdCreateArgs('anta_qa_1', 'image'), isNot(contains('--force')));
     });
 
-    test('fleet.dart spells no destructive command outside its comments', () {
-      final code = File('tool/qa/src/fleet.dart')
-          .readAsLinesSync()
-          .where((line) => !line.trimLeft().startsWith('//'));
-      expectHarmless(code, 'tool/qa/src/fleet.dart');
+    test('fleet.dart spells a destructive command only in its two guarded '
+        'stops', () {
+      const path = 'tool/qa/src/fleet.dart';
+      expect(scanHarnessSources({path: File(path).readAsStringSync()}), {
+        path: {
+          'emuKillArgs': {'emu kill'},
+          'FleetHost.stop': {'emu kill'},
+          'forceStopScript': {'Stop-Process'},
+          'FleetHost.forceStop': {'Process.killPid'},
+        },
+      });
     });
   });
 }
@@ -893,32 +943,32 @@ void _reviewProbeTests() {
 /// something is the verb's whole job and a guard sits in front of it.
 void _harnessSourceScan() {
   group('the harness spells no destructive command', () {
-    final forbidden = <String, RegExp>{
-      'pm clear': RegExp('pm clear', caseSensitive: false),
-      'uninstall': RegExp('uninstall', caseSensitive: false),
-      '-wipe-data': RegExp('-wipe-data', caseSensitive: false),
-      'delete avd': RegExp(r'delete\s+avd|avdmanager\b.*\bdelete', caseSensitive: false),
-      'Remove-Item': RegExp('remove-item', caseSensitive: false),
-      'taskkill': RegExp('taskkill', caseSensitive: false),
-      'emu kill': RegExp(r"emu kill|'emu',\s*'kill'", caseSensitive: false),
+    // Where a stop is the job, each guarded, keyed by file and declaration:
+    // `kill-run` ends the tool's own recorded `flutter run`
+    // (killRecordedRun); `doctor --fix` reaps only orphaned DDS processes
+    // (_orphanedDdsScript, run by reapOrphanedServices); `fleet stop` asks
+    // a fleet console only after it names its AVD (emuKillArgs,
+    // FleetHost.stop, the verb's help line);
+    // `fleet stop --force` kills a qemu only while its command line names
+    // that fleet AVD on its port (forceStopScript, FleetHost.forceStop); hot
+    // reload signals the recorded `flutter run` (HotCodeCommand.run).
+    const sanctioned = <String, Map<String, Set<String>>>{
+      'tool/qa/qa.dart': {
+        'FleetStopCommand.description': {'emu kill'},
+        'HotCodeCommand.run': {'Process.killPid'},
+      },
+      'tool/qa/src/fleet.dart': {
+        'emuKillArgs': {'emu kill'},
+        'FleetHost.stop': {'emu kill'},
+        'forceStopScript': {'Stop-Process'},
+        'FleetHost.forceStop': {'Process.killPid'},
+      },
+      'tool/qa/src/runner.dart': {
+        'killRecordedRun': {'taskkill', 'Process.killPid'},
+        '_orphanedDdsScript': {'Stop-Process'},
+        'reapOrphanedServices': {'Stop-Process'},
+      },
     };
-    // Where a stop is the job, each guarded: `kill-run` ends the tool's own
-    // recorded `flutter run` (runner.dart's killRecordedRun), and `fleet
-    // stop` asks a fleet console only after it names its AVD (fleet.dart;
-    // its vector, its failure message, and the verb's help line in qa.dart).
-    const sanctioned = <String, Map<String, int>>{
-      'tool/qa/src/runner.dart': {'taskkill': 1},
-      'tool/qa/src/fleet.dart': {'emu kill': 2},
-      'tool/qa/qa.dart': {'emu kill': 1},
-    };
-
-    bool isComment(String line) {
-      final trimmed = line.trimLeft();
-      return trimmed.startsWith('//') ||
-          trimmed.startsWith('#') ||
-          trimmed.toUpperCase().startsWith('REM ') ||
-          trimmed.startsWith('::');
-    }
 
     test('every hit under tool/qa and test_driver is a sanctioned one', () {
       final files = [
@@ -926,19 +976,395 @@ void _harnessSourceScan() {
           ...Directory(root).listSync(recursive: true).whereType<File>(),
       ];
       expect(files.length, greaterThan(40));
-      final found = <String, Map<String, int>>{};
-      for (final file in files) {
-        final relative = file.path.replaceAll(r'\', '/');
-        for (final line in file.readAsLinesSync()) {
-          if (isComment(line)) continue;
-          forbidden.forEach((name, pattern) {
-            if (!pattern.hasMatch(line)) return;
-            final counts = found.putIfAbsent(relative, () => {});
-            counts[name] = (counts[name] ?? 0) + 1;
-          });
-        }
-      }
-      expect(found, sanctioned);
+      final sources = {
+        for (final file in files)
+          file.path.replaceAll(r'\', '/'): file.readAsStringSync(),
+      };
+      expect(scanHarnessSources(sources), sanctioned);
+    });
+
+    group('the scanner', () {
+      Map<String, Map<String, Set<String>>> scan(String source) =>
+          scanHarnessSources({'tool/qa/src/x.dart': source});
+
+      test('flags the one-string and the argv-list spelling alike', () {
+        expect(scan('''
+Future<void> wipe(Adb adb) async {
+  await adb.shell(['pm', 'clear', antaPackage]);
+  await adb.raw(['emu', 'kill']);
+  await run('adb shell pm clear com.x');
+  await run('rm', ['-rf', '/data/x']);
+  await run('powershell', ['Stop-Process -Id 1']);
+  await run('avdmanager', ['delete', 'avd', '-n', 'x']);
+  await run('emulator', ['-avd', 'x', '-wipe-data']);
+  await run('adb', ['uninstall', 'com.x']);
+  await run('taskkill', ['/PID', '1']);
+}
+'''), {
+          'tool/qa/src/x.dart': {
+            'wipe': {
+              'pm clear',
+              'emu kill',
+              'rm -rf',
+              'Stop-Process',
+              'delete avd',
+              '-wipe-data',
+              'uninstall',
+              'taskkill',
+            },
+          },
+        });
+      });
+
+      test('follows a constant that holds a vector to where it is used', () {
+        expect(scan('''
+const List<String> killArgs = ['emu', 'kill'];
+
+class Host {
+  Future<void> stop() => adb.raw(killArgs);
+
+  Future<void> list() => adb.raw(['devices']);
+}
+'''), {
+          'tool/qa/src/x.dart': {
+            'killArgs': {'emu kill'},
+            'Host.stop': {'emu kill'},
+          },
+        });
+      });
+
+      test('flags Process.killPid in code, never in a comment or a string', () {
+        expect(scan('''
+// Process.killPid(1) is how not to do it.
+void reap(int pid) {
+  final note = 'Process.killPid is refused';
+  Process.killPid(pid, ProcessSignal.sigkill);
+}
+'''), {
+          'tool/qa/src/x.dart': {
+            'reap': {'Process.killPid'},
+          },
+        });
+      });
+
+      test('ignores comments, unrelated words and interpolated code', () {
+        expect(scan('''
+/// Never `pm clear` and never `emu kill` by hand.
+String clearLine(String pm) => '\${pm} cleared, killed nothing';
+const List<String> grant = ['pm', 'grant', 'x'];
+'''), isEmpty);
+      });
     });
   });
+}
+
+/// The destructive commands the harness must never spell outside a
+/// guarded stop, matched against each string literal and against each run
+/// of literals only commas separate (an argument list: `['pm', 'clear']`).
+final Map<String, RegExp> _destructive = {
+  'pm clear': RegExp(r'\bpm\s+clear\b', caseSensitive: false),
+  'uninstall': RegExp('uninstall', caseSensitive: false),
+  '-wipe-data': RegExp('-wipe-data', caseSensitive: false),
+  'delete avd': RegExp(r'\bdelete\s+avd\b|\bavdmanager\b.*\bdelete\b',
+      caseSensitive: false),
+  'rm -rf': RegExp(r'\brm\s+(?:-\w*r\w*f|-\w*f\w*r|-r\s+-f|-f\s+-r)',
+      caseSensitive: false),
+  'emu kill': RegExp(r'\bemu\s+kill\b', caseSensitive: false),
+  'Stop-Process': RegExp('stop-process', caseSensitive: false),
+  'taskkill': RegExp('taskkill', caseSensitive: false),
+  'Remove-Item': RegExp('remove-item', caseSensitive: false),
+};
+
+/// A process killed by pid, in code.
+final RegExp _killPid = RegExp(r'\bProcess\s*\.\s*killPid\b');
+
+/// Every destructive spelling in [sources] (path → text), by file, then by
+/// the declaration it sits in (`Class.member` or a top-level name), then
+/// by rule. A Dart file is lexed — comments dropped, string literals and
+/// argument lists read — and a top-level or static constant found holding
+/// a vector is followed to every declaration that names it; any other file
+/// (the wrappers, the flows) is read line by line.
+Map<String, Map<String, Set<String>>> scanHarnessSources(
+  Map<String, String> sources,
+) {
+  final found = <String, Map<String, Set<String>>>{};
+  void add(String file, String owner, String rule) => found
+      .putIfAbsent(file, () => {})
+      .putIfAbsent(owner, () => {})
+      .add(rule);
+
+  final lexed = <String, _Lexed>{};
+  final constants = <String, Set<String>>{};
+  sources.forEach((path, text) {
+    if (!path.endsWith('.dart')) {
+      for (final line in text.split('\n')) {
+        final trimmed = line.trimLeft();
+        if (trimmed.startsWith('#') ||
+            trimmed.startsWith('::') ||
+            trimmed.toUpperCase().startsWith('REM ')) {
+          continue;
+        }
+        _destructive.forEach((rule, pattern) {
+          if (pattern.hasMatch(line)) add(path, '(file)', rule);
+        });
+      }
+      return;
+    }
+    final lex = lexed[path] = _Lexed(text);
+    for (final hit in lex.hits()) {
+      add(path, hit.owner, hit.rule);
+      if (lex.isConstant(hit.owner)) {
+        constants.putIfAbsent(hit.owner, () => {}).add(hit.rule);
+      }
+    }
+  });
+  constants.forEach((name, rules) {
+    final use = RegExp('\\b${RegExp.escape(name)}\\b');
+    lexed.forEach((path, lex) {
+      for (final match in use.allMatches(lex.code)) {
+        final owner = lex.ownerAt(match.start);
+        if (owner == null || owner == name) continue;
+        for (final rule in rules) {
+          add(path, owner, rule);
+        }
+      }
+    });
+  });
+  return found;
+}
+
+/// One Dart source as the scan reads it: [code] with every comment and
+/// string literal blanked (offsets and newlines kept), the literals
+/// themselves, and the declaration each line belongs to, from the layout
+/// `dart format` gives (top level at column 0, class members at 2).
+class _Lexed {
+  _Lexed(this.source) {
+    _codeUnits = source.codeUnits.toList();
+    _inside = List.filled(source.length, false);
+    var i = 0;
+    while (i < source.length) {
+      if (source.startsWith('//', i)) {
+        final end = source.indexOf('\n', i);
+        i = _blank(i, end < 0 ? source.length : end);
+      } else if (source.startsWith('/*', i)) {
+        final end = source.indexOf('*/', i + 2);
+        i = _blank(i, end < 0 ? source.length : end + 2);
+      } else if (_stringStartsAt(i)) {
+        i = _string(i);
+      } else {
+        i++;
+      }
+    }
+    code = String.fromCharCodes(_codeUnits);
+    _readOwners();
+  }
+
+  final String source;
+  late final String code;
+  late final List<int> _codeUnits;
+  late final List<bool> _inside;
+  /// Every literal; a [nested] one sits inside another's interpolation.
+  final List<({int start, int end, String text, bool nested})> strings = [];
+  var _nesting = 0;
+  final List<int> _lineStarts = [];
+  final List<String?> _owners = [];
+  final Set<String> _constants = {};
+
+  bool isConstant(String owner) => _constants.contains(owner);
+
+  int _blank(int from, int to) {
+    for (var k = from; k < to; k++) {
+      _inside[k] = true;
+      if (_codeUnits[k] != 0x0A && _codeUnits[k] != 0x0D) _codeUnits[k] = 0x20;
+    }
+    return to;
+  }
+
+  bool _isIdentifierChar(int unit) =>
+      (unit >= 0x30 && unit <= 0x39) ||
+      (unit >= 0x41 && unit <= 0x5A) ||
+      (unit >= 0x61 && unit <= 0x7A) ||
+      unit == 0x5F ||
+      unit == 0x24;
+
+  bool _stringStartsAt(int i) {
+    final c = source[i];
+    if (c == "'" || c == '"') return true;
+    return c == 'r' &&
+        i + 1 < source.length &&
+        (source[i + 1] == "'" || source[i + 1] == '"') &&
+        (i == 0 || !_isIdentifierChar(source.codeUnitAt(i - 1)));
+  }
+
+  /// Reads the literal at [start] into [strings] and returns where it
+  /// ends; an interpolation's code counts as one blank, so no command can
+  /// be assembled from a variable's name.
+  int _string(int start) {
+    var j = start;
+    final raw = source[j] == 'r';
+    if (raw) j++;
+    final quote = source[j];
+    final triple = source.startsWith(quote * 3, j);
+    final delimiter = triple ? quote * 3 : quote;
+    j += delimiter.length;
+    final text = StringBuffer();
+    while (j < source.length) {
+      if (source.startsWith(delimiter, j)) {
+        j += delimiter.length;
+        break;
+      }
+      final c = source[j];
+      if (!triple && c == '\n') break;
+      if (!raw && c == r'\' && j + 1 < source.length) {
+        text.write(source[j + 1]);
+        j += 2;
+      } else if (!raw && c == r'$' && j + 1 < source.length && source[j + 1] == '{') {
+        _nesting++;
+        j = _interpolation(j + 2);
+        _nesting--;
+        text.write(' ');
+      } else {
+        text.write(c);
+        j++;
+      }
+    }
+    strings.add((start: start, end: j, text: text.toString(), nested: _nesting > 0));
+    return _blank(start, j);
+  }
+
+  int _interpolation(int from) {
+    var depth = 1;
+    var j = from;
+    while (j < source.length) {
+      final c = source[j];
+      if (_stringStartsAt(j)) {
+        j = _string(j);
+        continue;
+      }
+      if (c == '{') depth++;
+      if (c == '}' && --depth == 0) return j + 1;
+      j++;
+    }
+    return j;
+  }
+
+  void _readOwners() {
+    String? currentClass;
+    String? owner;
+    var offset = 0;
+    for (final line in source.split('\n')) {
+      _lineStarts.add(offset);
+      final inCode = offset >= source.length || !_inside[offset];
+      offset += line.length + 1;
+      final trimmed = line.trim();
+      final indent = line.length - line.trimLeft().length;
+      if (!inCode ||
+          trimmed.isEmpty ||
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('@') ||
+          trimmed.startsWith(')') ||
+          trimmed.startsWith(']')) {
+        _owners.add(owner);
+        continue;
+      }
+      if (trimmed.startsWith('}')) {
+        if (indent == 0) currentClass = null;
+        _owners.add(owner);
+        continue;
+      }
+      if (indent == 0) {
+        final type = RegExp(
+          r'^(?:(?:abstract|sealed|final|base|interface)\s+)*'
+          r'(?:class|mixin|extension|enum)\s+(\w+)',
+        ).firstMatch(trimmed);
+        if (type != null) {
+          owner = currentClass = type.group(1);
+        } else if (!RegExp(r'^(?:import|export|part|library)\b').hasMatch(trimmed)) {
+          final name = _declarationName(trimmed);
+          if (name != null) {
+            currentClass = null;
+            owner = name;
+            if (RegExp(r'^(?:const|final)\b').hasMatch(trimmed)) _constants.add(name);
+          }
+        }
+      } else if (indent == 2 && currentClass != null) {
+        final name = _declarationName(trimmed);
+        if (name != null) {
+          owner = '$currentClass.$name';
+          if (RegExp(r'^static\s+(?:const|final)\b').hasMatch(trimmed)) {
+            _constants.add(owner);
+          }
+        }
+      }
+      _owners.add(owner);
+    }
+  }
+
+  static const Set<String> _keywords = {
+    'if', 'for', 'while', 'switch', 'return', 'catch', 'assert', 'await',
+  };
+
+  static String? _declarationName(String line) {
+    final typedef = RegExp(r'^typedef\s+(\w+)').firstMatch(line);
+    if (typedef != null) return typedef.group(1);
+    final accessor = RegExp(r'\b(?:get|set)\s+(\w+)').firstMatch(line);
+    if (accessor != null) return accessor.group(1);
+    final variable = RegExp(
+      r'^(?:static\s+)?(?:const|final|var|late)\b.*?(\w+)\s*=(?![=>])',
+    ).firstMatch(line);
+    if (variable != null) return variable.group(1);
+    for (final match in RegExp(r'(\w+)\s*(?:<[^()]*>)?\s*\(').allMatches(line)) {
+      final name = match.group(1)!;
+      if (!_keywords.contains(name)) return name;
+    }
+    return null;
+  }
+
+  /// The declaration the line holding [offset] belongs to.
+  String? ownerAt(int offset) {
+    var low = 0;
+    var high = _lineStarts.length - 1;
+    while (low < high) {
+      final mid = (low + high + 1) ~/ 2;
+      if (_lineStarts[mid] <= offset) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return _owners[low];
+  }
+
+  /// Every destructive spelling: in one literal, across a run of literals
+  /// only commas, blanks and an opening bracket separate (`run('rm',
+  /// ['-rf', …])`), and `Process.killPid` in code.
+  Iterable<({String owner, String rule})> hits() sync* {
+    for (final nested in strings.where((s) => s.nested)) {
+      for (final entry in _destructive.entries) {
+        if (entry.value.hasMatch(nested.text)) {
+          yield (owner: ownerAt(nested.start) ?? '(top)', rule: entry.key);
+        }
+      }
+    }
+    final ordered = strings.where((s) => !s.nested).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    var runStart = 0;
+    for (var k = 0; k <= ordered.length; k++) {
+      final joins = k > 0 &&
+          k < ordered.length &&
+          RegExp(r'^[\s,\[(]*$').hasMatch(code.substring(ordered[k - 1].end, ordered[k].start));
+      if (k > 0 && !joins) {
+        final run = ordered.sublist(runStart, k);
+        final owner = ownerAt(run.first.start) ?? '(top)';
+        final joined = run.map((s) => s.text).join(' ');
+        for (final entry in _destructive.entries) {
+          if (entry.value.hasMatch(joined)) yield (owner: owner, rule: entry.key);
+        }
+        runStart = k;
+      }
+    }
+    for (final match in _killPid.allMatches(code)) {
+      yield (owner: ownerAt(match.start) ?? '(top)', rule: 'Process.killPid');
+    }
+  }
 }

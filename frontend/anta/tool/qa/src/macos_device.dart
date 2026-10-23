@@ -148,7 +148,7 @@ class MacosDevice implements Device {
   }
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort}) async {
+  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) async {
     if (!await isInstalled()) {
       throw DeviceFailure(
         '$bundlePath is not built — $installHint (a `flutter run -d macos` '

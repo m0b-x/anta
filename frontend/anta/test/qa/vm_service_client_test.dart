@@ -3,9 +3,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../tool/qa/qa.dart'
+    show InstalledLaunch, QaCommand, QaCommandRunner, QaContext;
 import '../../tool/qa/src/agent_client.dart';
 import '../../tool/qa/src/agent_protocol.dart';
+import '../../tool/qa/src/device.dart';
+import '../../tool/qa/src/device_select.dart';
 import '../../tool/qa/src/errors.dart';
+import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/vm_service_client.dart';
 
 /// A stand-in VM service: answers `getVM`, `getIsolate` and the driver
@@ -246,5 +251,111 @@ void main() {
       expect(await client.driverIsolateId(), 'isolates/main');
       await client.close();
     });
+
+    group('a closed agent is never handed out', () {
+      late Directory root;
+      late _NativeDriver native;
+      late _LaunchContext ctx;
+
+      setUp(() {
+        root = Directory.systemTemp.createTempSync('anta_qa_closed_agent_');
+        native = _NativeDriver();
+        final globals = QaCommandRunner().argParser.parse(['-d', 'emulator-5556']);
+        ctx = _LaunchContext(globals,
+            paths: QaPaths(root.path), dev: _FailingLaunchDevice(native));
+      });
+
+      tearDown(() => root.deleteSync(recursive: true));
+
+      test('driver() resolves again once the cached client closed', () async {
+        final vm = await VmServiceClient.connect(service.httpUri);
+        final adopted = await ctx.adoptAgent(vm);
+        expect(await ctx.driver(), same(adopted));
+        await vm.close();
+        expect(await ctx.driver(), same(native),
+            reason: 'no VM recorded, so auto falls back to the native layer');
+      });
+
+      test('a launch that throws after the force-stop forgets the agent', () async {
+        final vm = await VmServiceClient.connect(service.httpUri);
+        final command = _Launch(vm);
+        await expectLater(
+          QaCommandRunner(contextFactory: (_) => ctx, commands: [command])
+              .run(['-d', 'emulator-5556', 'launch-test']),
+          throwsA(isA<DeviceFailure>()),
+        );
+        expect(command.adopted, isNotNull);
+        expect(vm.isClosed, isTrue);
+        expect(await ctx.driver(), same(native));
+      });
+    });
   });
+}
+
+class _NativeDriver implements UiDriver {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// An Android device whose launch fails after the force-stop, the way an
+/// `am start` that errors does.
+class _FailingLaunchDevice implements Device {
+  _FailingLaunchDevice(this.native);
+
+  final UiDriver native;
+
+  @override
+  DeviceKind get kind => DeviceKind.android;
+
+  @override
+  String get id => 'emulator-5556';
+
+  @override
+  String get label => 'Android emulator-5556';
+
+  @override
+  String get packageId => 'com.alexzamfir.anta';
+
+  @override
+  UiDriver? get nativeDriver => native;
+
+  @override
+  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) =>
+      throw DeviceFailure('am start failed');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _LaunchContext extends QaContext {
+  _LaunchContext(super.globalResults, {required super.paths, required this.dev});
+
+  final Device dev;
+
+  @override
+  Future<DeviceRef> ref() async =>
+      DeviceRef(kind: DeviceKind.android, id: dev.id, label: dev.label);
+
+  @override
+  Future<Device> device() async => dev;
+}
+
+class _Launch extends QaCommand with InstalledLaunch {
+  _Launch(this.vm);
+
+  final VmServiceClient vm;
+  AgentClient? adopted;
+
+  @override
+  String get name => 'launch-test';
+
+  @override
+  String get description => 'adopts an agent, then launches';
+
+  @override
+  Future<int> run() async {
+    adopted = await context.adoptAgent(vm);
+    await launchInstalled(context);
+    return 0;
+  }
 }

@@ -140,14 +140,21 @@ void main() {
   });
 
   /// The database answers in real time on its own isolate, the tree advances
-  /// only on `pump`: both are interleaved until the page has loaded.
+  /// only on `pump`: both are interleaved until the subfolder's and the first
+  /// note's rows are drawn — at least twelve rounds, which the counts and
+  /// previews after the rows also need, at most four hundred, so a slow host
+  /// waits longer and a page that never loads fails here, not as a golden.
   Future<void> settle(WidgetTester tester) async {
-    for (var i = 0; i < 12; i++) {
+    bool loaded() =>
+        find.text('Week 1').evaluate().isNotEmpty &&
+        find.text('Session 1').evaluate().isNotEmpty;
+    for (var i = 0; i < 400 && (i < 12 || !loaded()); i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 5)),
       );
       await tester.pump(const Duration(milliseconds: 5));
     }
+    expect(loaded(), isTrue, reason: 'the folder never drew its rows');
   }
 
   for (final cell in goldenCells) {

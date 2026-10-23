@@ -119,6 +119,8 @@ class FlowFailure {
       };
 }
 
+/// A flow's verdict; `skipped` is a flow the pass never started, after
+/// `--stop-on-fail` or a seed that would not go in.
 enum FlowStatus { passed, failed, skipped }
 
 /// One flow of a pass.
@@ -242,6 +244,9 @@ class PassReport {
     this.quietMs,
     this.quietAlarms,
     this.quietFailure,
+    this.quietSkipped,
+    this.quietDevices,
+    this.quietUncounted,
   });
 
   factory PassReport.fromJson(Map<String, dynamic> json) {
@@ -279,6 +284,9 @@ class PassReport {
       quietMs: json['quietMs'] as int?,
       quietAlarms: json['quietAlarms'] as int?,
       quietFailure: json['quietFailure'] as String?,
+      quietSkipped: json['quietSkipped'] as String?,
+      quietDevices: json['quietDevices'] as int?,
+      quietUncounted: json['quietUncounted'] as int?,
     );
   }
 
@@ -328,11 +336,24 @@ class PassReport {
   /// Why the device could not be left quiet, when it could not.
   final String? quietFailure;
 
+  /// Why the closing relaunch was not run at all: `--keep-state`, a
+  /// `--no-reseed` pass (whose state is the point), or a pass that stopped
+  /// on `--stop-on-fail` and keeps the red flow's screen.
+  final String? quietSkipped;
+
+  /// On a merged report, the devices whose count came back 0 and those
+  /// whose count failed: a sum alone would print "0 alarms armed" over a
+  /// device nobody counted. Null on a single device's report.
+  final int? quietDevices;
+  final int? quietUncounted;
+
   int get durationMs => finished.difference(started).inMilliseconds;
 
   int count(FlowStatus status) => flows.where((f) => f.status == status).length;
 
-  bool get allPassed => flows.isNotEmpty && count(FlowStatus.passed) == flows.length;
+  /// A partial report is never green: the flows it lacks did not pass.
+  bool get allPassed =>
+      !partial && flows.isNotEmpty && count(FlowStatus.passed) == flows.length;
 
   Map<String, dynamic> toJson() => {
         'schema': schemaVersion,
@@ -353,6 +374,9 @@ class PassReport {
         'quietMs': quietMs,
         'quietAlarms': quietAlarms,
         'quietFailure': quietFailure,
+        'quietSkipped': quietSkipped,
+        'quietDevices': quietDevices,
+        'quietUncounted': quietUncounted,
         'summary': {
           'flows': flows.length,
           'passed': count(FlowStatus.passed),
@@ -417,6 +441,12 @@ PassReport mergeReports(List<PassReport> reports) {
       for (final flow in report.flows) flow.name: flow,
   };
   final quietFailures = reports.map((r) => r.quietFailure).nonNulls.toList();
+  final skipped = reports.map((r) => r.quietSkipped).nonNulls.toSet();
+  // A device's quiet ran when it has a time and no failure; one whose
+  // count failed is told apart from one that counted nothing.
+  final ran = reports.where((r) => r.quietMs != null && r.quietFailure == null);
+  final anyRan = ran.isNotEmpty;
+  int deviceCount(PassReport r) => r.devices?.length ?? 1;
   return PassReport(
     suite: first.suite,
     label: reports.map((r) => r.label).nonNulls.firstOrNull,
@@ -437,23 +467,45 @@ PassReport mergeReports(List<PassReport> reports) {
     quietAlarms: reports.map((r) => r.quietAlarms).nonNulls.fold<int?>(
         null, (sum, count) => (sum ?? 0) + count),
     quietFailure: quietFailures.isEmpty ? null : quietFailures.join('; '),
+    quietSkipped: skipped.isEmpty ? null : skipped.join('; '),
+    quietDevices: !anyRan
+        ? null
+        : ran.fold<int>(0, (sum, r) => sum + (r.quietDevices ??
+            (r.quietAlarms == 0 ? deviceCount(r) : 0))),
+    quietUncounted: !anyRan
+        ? null
+        : ran.fold<int>(0, (sum, r) => sum + (r.quietUncounted ??
+            (r.quietAlarms == null ? deviceCount(r) : 0))),
   );
 }
 
 /// The line that says whether a pass left its device (or, merged, its
-/// devices) quiet, or null when the pass did not try.
+/// devices) quiet, or why it did not try; null for a report from before
+/// the closing relaunch existed.
 String? quietLine(PassReport report) {
   final who = report.device == null ? 'devices' : 'device';
   final failure = report.quietFailure;
   if (failure != null) return '$who not left quiet: ${headline(failure)}';
   final ms = report.quietMs;
-  if (ms == null) return null;
+  if (ms == null) {
+    final skipped = report.quietSkipped;
+    return skipped == null ? null : 'quiet relaunch skipped: $skipped';
+  }
   final took = '${(ms / 1000).toStringAsFixed(1)} s';
   final alarms = report.quietAlarms;
-  if (alarms == null) return '$who left quiet in $took (alarms not counted)';
-  if (alarms == 0) return '$who left quiet (0 alarms armed) in $took';
+  final uncounted = report.quietUncounted ?? 0;
+  final quiet = report.quietDevices ?? 0;
+  if (alarms == null || (uncounted > 0 && quiet == 0 && alarms == 0)) {
+    return '$who left quiet in $took (alarms not counted)';
+  }
+  final notCounted = uncounted == 0 ? '' : ', $uncounted not counted';
+  if (alarms == 0) {
+    return uncounted == 0
+        ? '$who left quiet (0 alarms armed) in $took'
+        : '$quiet device${quiet == 1 ? '' : 's'} quiet$notCounted in $took';
+  }
   return '$who not left quiet: $alarms alarm(s) of the app still armed '
-      'after relaunch --fresh ($took)';
+      'after relaunch --fresh$notCounted ($took)';
 }
 
 /// A failure message cut to one summary line: its first line, joined with
@@ -467,6 +519,11 @@ String headline(String message, {int max = 160}) {
   if (text.endsWith(':') && lines.length > 1) text = '$text ${lines[1]}';
   return text.length <= max ? text : '${text.substring(0, max - 1)}…';
 }
+
+/// What the summary of a report still marked partial says: its process
+/// ended (killed, crashed, its host gone) before the last write, so the
+/// flows it lists are not the suite.
+const String partialLine = 'PARTIAL — the pass did not finish';
 
 /// What `qa pass` prints at the end, and what `--summary` and `--merge`
 /// print: one line per flow, the verdict line, then the verb table.
@@ -492,6 +549,7 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
   final seconds = (report.durationMs / 1000).toStringAsFixed(1);
   lines.add('pass: ${report.count(FlowStatus.passed)}/${report.flows.length} '
       'green in $seconds s on $ids — report $reportPath');
+  if (report.partial) lines.add(partialLine);
   final quiet = quietLine(report);
   if (quiet != null) lines.add(quiet);
   final stats = computeVerbStats(report.flows);

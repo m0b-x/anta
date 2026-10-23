@@ -253,6 +253,41 @@ void main() {
       expect(fake.lines.single, 'adb -s e shell input keyevent KEYCODE_BACK');
     });
 
+    test('forwardedPortsOf reads only this serial\'s tcp forwards', () {
+      const listing = 'emulator-5554 tcp:51000 tcp:51000\r\n'
+          'emulator-5556 tcp:52000 tcp:52000\r\n'
+          'emulator-5556 tcp:52010 tcp:52010\r\n'
+          'emulator-5556 localabstract:x tcp:1\r\n';
+      expect(forwardedPortsOf(listing, 'emulator-5556'), [52000, 52010]);
+      expect(forwardedPortsOf(listing, 'emulator-5554'), [51000]);
+    });
+
+    test('a launch removes the previous forward only when it is this device\'s',
+        () async {
+      final fake = FakeProcessRunner();
+      fake.script('adb -s e forward --list',
+          const RunOutcome(0, 'e tcp:40000 tcp:40000\nother tcp:41000 tcp:41000', ''));
+      final device = AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      await device.launchApp(vmServicePort: 42000, previousVmServicePort: 40000);
+      expect(fake.lines, contains('adb -s e forward --remove tcp:40000'));
+      expect(fake.lines.last, 'adb -s e forward tcp:42000 tcp:42000');
+      fake.calls.clear();
+      await device.launchApp(vmServicePort: 43000, previousVmServicePort: 41000);
+      expect(fake.lines.where((l) => l.contains('--remove')), isEmpty,
+          reason: 'tcp:41000 is another device\'s listener');
+    });
+
+    test('removeForwards keeps the live one and never uses --remove-all', () async {
+      final fake = FakeProcessRunner();
+      fake.script('adb -s e forward --list',
+          const RunOutcome(0, 'e tcp:1 tcp:1\ne tcp:2 tcp:2\ne tcp:3 tcp:3', ''));
+      final device = AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      expect(await device.removeForwards(keep: 2), 2);
+      expect(fake.lines.where((l) => l.contains('--remove')),
+          ['adb -s e forward --remove tcp:1', 'adb -s e forward --remove tcp:3']);
+      expect(fake.lines.any((l) => l.contains('--remove-all')), isFalse);
+    });
+
     test('appPid returns null when the app is not running', () async {
       final fake = FakeProcessRunner();
       final pid =

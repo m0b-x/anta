@@ -325,7 +325,10 @@ abstract class Device {
   /// Stops the app and returns once its process is gone (or the wait ran out).
   Future<void> forceStop();
 
-  Future<AppLaunch> launchApp({required int vmServicePort});
+  /// Starts the app with its VM service on [vmServicePort];
+  /// [previousVmServicePort] is the port the last launch recorded, whose
+  /// host forward (Android) this launch no longer needs.
+  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort});
 
   Future<void> bringToFront();
 
@@ -537,7 +540,15 @@ class AndroidDevice implements Device {
   }
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort}) async {
+  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) async {
+    // Every launch forwards a new port; left alone, each one stayed (179
+    // on one guest after a day of passes). Only a port adb lists for this
+    // serial is removed: a host port is one listener for every device.
+    if (previousVmServicePort != null && previousVmServicePort != vmServicePort) {
+      if ((await forwardedPorts()).contains(previousVmServicePort)) {
+        await removeForward(previousVmServicePort);
+      }
+    }
     await launchActivity(antaActivity, extras: androidLaunchExtras(vmServicePort));
     final forward = await adb.raw(
       ['forward', 'tcp:$vmServicePort', 'tcp:$vmServicePort'],
@@ -553,6 +564,34 @@ class AndroidDevice implements Device {
       description: 'am start -n $antaActivity (vm-service-port $vmServicePort, '
           'forwarded to the host)',
     );
+  }
+
+  /// The host ports adb forwards to this device. `adb forward --list`
+  /// lists every device's forwards whatever `-s` says, so the serial
+  /// column picks this one's.
+  Future<List<int>> forwardedPorts() async {
+    final result = await adb.raw(['forward', '--list'], timeout: const Duration(seconds: 20));
+    return result.ok ? forwardedPortsOf(result.stdout, id) : const [];
+  }
+
+  Future<void> removeForward(int port) => adb.raw(
+        ['forward', '--remove', 'tcp:$port'],
+        timeout: const Duration(seconds: 20),
+      );
+
+  /// Removes this device's forwards but [keep] (the live launch's), one
+  /// port at a time, and returns how many went. Never `forward
+  /// --remove-all`: adb drops every device's listeners on it, the owner's
+  /// emulator's included, whatever `-s` says.
+  Future<int> removeForwards({int? keep}) async {
+    final stale = [
+      for (final port in await forwardedPorts())
+        if (port != keep) port,
+    ];
+    for (final port in stale) {
+      await removeForward(port);
+    }
+    return stale.length;
   }
 
   @override
@@ -645,6 +684,15 @@ class AndroidDevice implements Device {
   @override
   UiDriver? get nativeDriver => AdbUiDriver(this);
 }
+
+/// The host ports of [serial]'s `tcp:` forwards in `adb forward --list`
+/// output (`<serial> tcp:<host> tcp:<device>` per line).
+List<int> forwardedPortsOf(String listing, String serial) => [
+      for (final line in listing.split('\n'))
+        if (RegExp(r'^(\S+)\s+tcp:(\d+)(?:\s|$)').firstMatch(line.trim())
+            case final match? when match.group(1) == serial)
+          ?int.tryParse(match.group(2)!),
+    ];
 
 /// The `uiautomator` + `input` layer, which works on any Android build.
 class AdbUiDriver implements UiDriver {

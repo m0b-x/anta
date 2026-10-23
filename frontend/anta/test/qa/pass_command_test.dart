@@ -15,7 +15,9 @@ import '../../tool/qa/qa.dart'
         ScrollToCommand,
         ShotCommand,
         StepsCommand,
-        WaitCommand;
+        WaitCommand,
+        passExitCode,
+        shardIncompleteness;
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/device_select.dart';
 import '../../tool/qa/src/errors.dart';
@@ -46,6 +48,7 @@ class _FakeContext extends QaContext {
 
   int errorClears = 0;
   final List<String?> errorStamps = [];
+  final List<({int out, int err})?> runLogOffsetsSeen = [];
 
   /// What each `dumpsys alarm` count answers, in order; the last repeats.
   List<int> armed = const [0];
@@ -174,7 +177,13 @@ class _World {
           }),
           _Verb('errors', (verb, _) async {
             context!.errorStamps.add(context!.errorsSinceStamp);
+            context!.runLogOffsetsSeen.add(context!.runLogOffsets);
             verb.out('agent: boom in this flow');
+            return 0;
+          }),
+          _Verb('crash', (verb, _) async => throw StateError('a bug in a verb')),
+          _Verb('grow', (verb, _) async {
+            File(paths.runLog).writeAsStringSync('this flow\n', mode: FileMode.append);
             return 0;
           }),
         ],
@@ -414,6 +423,88 @@ void main() {
       expect(code, exitTarget);
       expect(report.flows.map((f) => f.status),
           [FlowStatus.failed, FlowStatus.skipped, FlowStatus.skipped]);
+      expect(world.quiets, 0, reason: 'the red flow\'s screen is what it stopped for');
+      expect(report.quietMs, isNull);
+      expect(report.quietSkipped, contains('--stop-on-fail'));
+      expect(quietLine(report), startsWith('quiet relaunch skipped: the pass stopped'));
+    });
+
+    test('--stop-on-fail with nothing red still ends quiet', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'});
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--stop-on-fail']);
+      expect(code, 0);
+      expect(world.quiets, 1);
+      expect(report.quietSkipped, isNull);
+    });
+
+    test('--no-reseed runs on the app as it is and leaves it so', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n', '02_b': 'tap "B"\n'});
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--no-reseed']);
+      expect(code, 0);
+      expect(world.reseeds, 0);
+      expect(world.quiets, 0);
+      expect(report.reseed, 'none');
+      expect(report.quietSkipped, contains('--no-reseed'));
+    });
+
+    test('a verb that throws an Error fails its step, and the pass goes on', () async {
+      final world = _World(flows: {'01_bug': 'tap "A"\ncrash\ntap "never"\n', '02_b': 'tap "B"\n'});
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, exitTarget);
+      expect(report.partial, isFalse);
+      final bug = report.flows.first;
+      expect(bug.status, FlowStatus.failed);
+      expect(bug.failure!.step, 2);
+      expect(bug.failure!.exitCode, exitDevice);
+      expect(bug.failure!.message, contains('internal error: Bad state: a bug in a verb'));
+      expect(report.flows.last.status, FlowStatus.passed);
+      expect(world.taps, isNot(contains('"never"')));
+    });
+
+    test("a red flow's run.log evidence starts at the flow's own offset", () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n', '02_red': 'grow\nexpect "missing"\n'});
+      addTearDown(world.dispose);
+      world.paths.ensureBuildQa();
+      File(world.paths.runLog).writeAsStringSync('an earlier crash\n');
+      final (code, _) = await world.pass();
+      expect(code, exitTarget);
+      expect(world.context!.runLogOffsetsSeen.single,
+          (out: 'an earlier crash\n'.length, err: 0));
+      expect(world.context!.runLogOffsets, isNull, reason: 'cleared after the evidence');
+    });
+
+    test('--summary of a report still marked partial prints PARTIAL and exits 3', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'});
+      addTearDown(world.dispose);
+      final (_, report) = await world.pass();
+      final killed = joinPath(world.root.path, ['killed.json']);
+      File(killed).writeAsStringSync(
+        report.encode().replaceFirst('"partial": false', '"partial": true'),
+      );
+      expect(await world.runner().run(['pass', '--summary', killed]), exitDevice);
+      expect(passExitCode(PassReport.decode(File(killed).readAsStringSync())), exitDevice);
+      expect(passExitCode(report), 0);
+    });
+
+    test('a fleet shard is incomplete when partial, short, or its exit disagrees', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n', '02_red': 'expect "missing"\n'});
+      addTearDown(world.dispose);
+      final (_, report) = await world.pass();
+      final partial = PassReport.decode(
+        report.encode().replaceFirst('"partial": false', '"partial": true'),
+      );
+      expect(shardIncompleteness(report, exitCode: exitTarget, expected: 2), isNull);
+      expect(shardIncompleteness(partial, exitCode: exitTarget, expected: 2),
+          'shard stopped after 2 of 2 flows');
+      expect(shardIncompleteness(report, exitCode: exitTarget, expected: 3),
+          'shard stopped after 2 of 3 flows');
+      expect(shardIncompleteness(report, exitCode: 255, expected: 2),
+          'shard exited 255 over a report that says 1/2 green');
+      expect(shardIncompleteness(report, exitCode: 0, expected: 2), isNotNull,
+          reason: 'exit 0 over a red report');
     });
 
     test('--json keeps a copy current after every flow', () async {

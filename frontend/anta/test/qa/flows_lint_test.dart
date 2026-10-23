@@ -50,7 +50,7 @@ void main() {
         for (final flow in flows) {
           final steps = parseStepLines(flow.readAsStringSync());
           expect(
-            steps.isEmpty ? null : splitShellWords(steps.last).first,
+            steps.isEmpty ? null : stepVerb(splitShellWords(steps.last)),
             'errors',
             reason: '${_nameOf(flow)} must end with `errors`',
           );
@@ -128,6 +128,53 @@ void main() {
       expect(actingTargets(splitShellWords('key back')), isEmpty);
     });
 
+    test('--wait, --wait-gone and --in targets are linted too', () {
+      expect(
+        actingTargets(
+          splitShellWords('tap id:a --wait "Sheet" --wait-gone=Menu --shot s'),
+        ),
+        ['id:a', 'Sheet', 'Menu'],
+      );
+      expect(
+        actingTargets(splitShellWords('scroll-to id:row --in "List" --up')),
+        ['id:row', 'List'],
+      );
+      expect(
+        actingTargets(splitShellWords('key back --wait-gone "Dialog"')),
+        ['Dialog'],
+      );
+      expect(isAllowedTarget('Sheet', const {}), isFalse);
+    });
+
+    test('a leading global option does not hide the verb', () {
+      expect(
+        actingTargets(
+          splitShellWords('--via native tap "Day" --wait id:x'),
+        ),
+        ['Day', 'id:x'],
+      );
+      expect(
+        actingTargets(splitShellWords('-d emulator-5556 --verbose wait "Row"')),
+        ['Row'],
+      );
+      expect(
+        actingTargets(splitShellWords('--via=native swipe up --wait "Row"')),
+        ['Row'],
+      );
+      expect(
+        expectTargets(splitShellWords('--via=agent expect "A" --absent B')),
+        ['A', 'B'],
+      );
+      expect(stepVerb(splitShellWords('--via native errors')), 'errors');
+    });
+
+    test('--ordered is a bare flag, not a value-taking one', () {
+      expect(
+        expectTargets(splitShellWords('expect --ordered "A" "B" --timeout 3')),
+        ['A', 'B'],
+      );
+    });
+
     test('expect hands back its targets and its --absent ones', () {
       expect(
         expectTargets(
@@ -173,25 +220,62 @@ bool isAllowedTarget(String target, Set<String> labels) {
       labels.contains(target);
 }
 
-/// The first positional word after the verb — both for `drag`.
+/// The global options a step may lead with (`--via native tap …`), each
+/// with whether it takes a value.
+const Map<String, bool> _globalOptions = {
+  '-d': true,
+  '--device': true,
+  '--via': true,
+  '--verbose': false,
+  '--no-verbose': false,
+};
+
+/// [words] without the global options in front of the verb.
+List<String> _withoutGlobals(List<String> words) {
+  var i = 0;
+  while (i < words.length) {
+    final word = words[i];
+    final name = word.contains('=') ? word.substring(0, word.indexOf('=')) : word;
+    final takesValue = _globalOptions[name];
+    if (takesValue == null) break;
+    i += takesValue && !word.contains('=') ? 2 : 1;
+  }
+  return words.sublist(i.clamp(0, words.length));
+}
+
+/// The verb a step runs, past any leading global option.
+String? stepVerb(List<String> words) => _withoutGlobals(words).firstOrNull;
+
+/// The options whose value is a target: what an acting verb waits for
+/// afterwards, and the container `scroll-to` swipes in.
+const Set<String> _targetOptions = {'--wait', '--wait-gone', '--in'};
+
+/// The first positional word after the verb — both for `drag` — then the
+/// targets of `--wait`, `--wait-gone` and `--in`, which any verb with
+/// post-actions takes (`key back --wait-gone …` included).
 List<String> actingTargets(List<String> words) {
-  if (words.isEmpty || !_actingVerbs.contains(words.first)) return const [];
-  final positional = _positional(words);
-  return words.first == 'drag'
-      ? positional.take(2).toList()
-      : positional.take(1).toList();
+  final step = _withoutGlobals(words);
+  if (step.isEmpty) return const [];
+  final options = _targetOptionValues(step);
+  if (!_actingVerbs.contains(step.first)) return options;
+  final positional = _positional(step);
+  return [
+    ...(step.first == 'drag' ? positional.take(2) : positional.take(1)),
+    ...options,
+  ];
 }
 
 /// An `expect`'s present and `--absent` targets.
 List<String> expectTargets(List<String> words) {
-  if (words.isEmpty || words.first != 'expect') return const [];
+  final step = _withoutGlobals(words);
+  if (step.isEmpty || step.first != 'expect') return const [];
   final targets = <String>[];
-  for (var i = 1; i < words.length; i++) {
-    final word = words[i];
-    if (word == '--absent' && i + 1 < words.length) {
-      targets.add(words[++i]);
+  for (var i = 1; i < step.length; i++) {
+    final word = step[i];
+    if (word == '--absent' && i + 1 < step.length) {
+      targets.add(step[++i]);
     } else if (word.startsWith('--')) {
-      if (!word.contains('=')) i++;
+      if (!word.contains('=') && !_bareFlags.contains(word)) i++;
     } else {
       targets.add(word);
     }
@@ -199,16 +283,37 @@ List<String> expectTargets(List<String> words) {
   return targets;
 }
 
-/// The words after the verb that are not a flag or a flag's value. Every
-/// flag a flow's acting step takes has a value except `--gone`, `--up` and
-/// `--dump`.
+/// The flags a flow's step may carry that take no value.
+const Set<String> _bareFlags = {'--gone', '--up', '--dump', '--ordered', '--enter', '--replace'};
+
+/// The values of [_targetOptions] in [step], `--wait=X` and `--wait X` alike.
+List<String> _targetOptionValues(List<String> step) {
+  final values = <String>[];
+  for (var i = 1; i < step.length; i++) {
+    final word = step[i];
+    if (!word.startsWith('--')) continue;
+    final eq = word.indexOf('=');
+    final name = eq < 0 ? word : word.substring(0, eq);
+    if (_targetOptions.contains(name)) {
+      if (eq >= 0) {
+        values.add(word.substring(eq + 1));
+      } else if (i + 1 < step.length) {
+        values.add(step[++i]);
+      }
+    } else if (eq < 0 && !_bareFlags.contains(word)) {
+      i++;
+    }
+  }
+  return values;
+}
+
+/// The words after the verb that are not a flag or a flag's value.
 List<String> _positional(List<String> words) {
-  const bare = {'--gone', '--up', '--dump', '--wait-gone'};
   final positional = <String>[];
   for (var i = 1; i < words.length; i++) {
     final word = words[i];
     if (word.startsWith('--')) {
-      if (!bare.contains(word) && !word.contains('=')) i++;
+      if (!_bareFlags.contains(word) && !word.contains('=')) i++;
       continue;
     }
     positional.add(word);

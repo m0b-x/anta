@@ -26,7 +26,10 @@ import 'support/golden_matrix.dart';
 void main() {
   late CalendarBloc bloc;
 
-  final tomorrow = DateTime.now().add(const Duration(days: 1));
+  // The date constructor, not `add(1 day)`: on a DST day a local midnight
+  // plus 24 h lands an hour off, and near midnight on the wrong date.
+  final now = DateTime.now();
+  final tomorrow = DateTime(now.year, now.month, now.day + 1);
   final fireDay = DateTime.utc(tomorrow.year, tomorrow.month, tomorrow.day);
 
   final event = CalendarEvent(

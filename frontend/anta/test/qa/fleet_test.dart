@@ -41,7 +41,13 @@ const _qemuWindows =
     '19584\tFFFFFF\tD:\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe '
     '-avd Pixel_9_Pro -no-snapshot-load\r\n';
 
-ApkRecord _record(DateTime builtAt, {String hash = 'abc1234', DateTime? installedAt}) =>
+ApkRecord _record(
+  DateTime builtAt, {
+  String hash = 'abc1234',
+  DateTime? installedAt,
+  bool? driver = true,
+  bool? qa = true,
+}) =>
     ApkRecord(
       apk: 'app-debug.apk',
       gitHash: hash,
@@ -49,6 +55,8 @@ ApkRecord _record(DateTime builtAt, {String hash = 'abc1234', DateTime? installe
       builtAt: builtAt,
       defines: const [],
       installedAt: installedAt,
+      driver: driver,
+      qa: qa,
     );
 
 FleetMember _member(
@@ -57,6 +65,8 @@ FleetMember _member(
   ApkRecord? installed,
   String? heldBy,
   QemuProcess? qemu,
+  FleetLaunches? launches,
+  int? gpuBytes,
 }) =>
     FleetMember(
       index: index,
@@ -65,6 +75,8 @@ FleetMember _member(
       installed: installed,
       heldBy: heldBy,
       qemu: qemu,
+      launches: launches,
+      gpuBytes: gpuBytes,
     );
 
 void _writeAvd(Directory home, String name, String config) {
@@ -432,12 +444,13 @@ void main() {
           'not granted: POST_NOTIFICATIONS on emulator-5556 — Exception occurred while executing grant');
     });
 
-    test('only fleet serials are granted unasked; anything else needs --grant', () {
-      expect(grantsPassPermissions('emulator-5556', asked: false), isTrue);
-      expect(grantsPassPermissions('emulator-5560', asked: false), isTrue);
-      for (final serial in ['emulator-5554', 'emulator-5557', 'R58M123ABC']) {
-        expect(grantsPassPermissions(serial, asked: false), isFalse, reason: serial);
-        expect(grantsPassPermissions(serial, asked: true), isTrue, reason: serial);
+    test('only a console that names a fleet AVD is granted unasked', () {
+      expect(grantsPassPermissions(asked: false, consoleAvd: 'anta_qa_1'), isTrue);
+      expect(grantsPassPermissions(asked: false, consoleAvd: 'anta_qa_3'), isTrue);
+      // The owner's AVD on a fleet port is still the owner's.
+      for (final avd in ['Pixel_9_Pro', 'anta_qa_x', null]) {
+        expect(grantsPassPermissions(asked: false, consoleAvd: avd), isFalse, reason: avd);
+        expect(grantsPassPermissions(asked: true, consoleAvd: avd), isTrue, reason: avd);
       }
     });
   });
@@ -888,6 +901,23 @@ void main() {
       expect(pick.note, isNull);
     });
 
+    test('a device whose record is not a QA driver build is left out', () {
+      final at = DateTime.utc(2026, 10, 23, 12);
+      final pick = pickPassDevices(
+        members: [
+          _member(1, installed: _record(at, driver: false)),
+          _member(2, installed: _record(at, qa: false)),
+          _member(3, installed: _record(at, driver: null, qa: null)),
+        ],
+        built: _record(at),
+        suite: 'calendar',
+        shardable: true,
+      );
+      expect(pick.members, isEmpty);
+      expect(pick.refused, everyElement(contains('not a QA driver build')));
+      expect(isCurrentInstall(_record(at, driver: false), _record(at)), isFalse);
+    });
+
     test('a device with nothing installed is left out', () {
       final pick = pickPassDevices(
         members: [_member(1, installed: current), _member(2)],
@@ -946,5 +976,139 @@ void main() {
       expect(pick.members, hasLength(1));
       expect(pick.warnings.single, contains('no build/qa/apk.json'));
     });
+  });
+
+  group('health', () {
+    const gb = 1024 * 1024 * 1024;
+
+    test('a guest past 40 launches or 16 GB of GPU memory is due a recycle', () {
+      expect(recycleReason(_member(1)), isNull);
+      expect(
+        recycleReason(_member(1, launches: const FleetLaunches(count: 40, sinceBoot: true))),
+        isNull,
+      );
+      expect(
+        recycleReason(_member(1, launches: const FleetLaunches(count: 41, sinceBoot: true))),
+        '41 app launches since boot (over 40)',
+      );
+      expect(
+        recycleReason(_member(1, launches: const FleetLaunches(count: 41, sinceBoot: false))),
+        startsWith('41+ app launches'),
+      );
+      expect(recycleReason(_member(1, gpuBytes: 16 * gb)), isNull);
+      expect(recycleReason(_member(1, gpuBytes: 17 * gb)),
+          'its qemu holds 17408 MB of GPU memory (over 16384 MB)');
+    });
+
+    test('--no-recycle only warns; recycling lists the worn guests', () {
+      final members = [
+        _member(1, launches: const FleetLaunches(count: 52, sinceBoot: true)),
+        _member(2, gpuBytes: 2 * gb),
+        _member(3, gpuBytes: 40 * gb),
+      ];
+      final on = planRecycle(members, enabled: true);
+      expect(on.recycle.map((m) => m.index), [1, 3]);
+      expect(on.lines.first, startsWith('recycling anta_qa_1 (emulator-5556): 52 app launches'));
+      final off = planRecycle(members, enabled: false);
+      expect(off.recycle, isEmpty);
+      expect(off.lines, everyElement(startsWith('warning: ')));
+      expect(off.lines.last, contains('--no-recycle keeps it running'));
+    });
+
+    test('the launch count resets at boot and counts each launch', () {
+      final dir = Directory.systemTemp.createTempSync('anta_fleet_launches_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = joinPath(dir.path, ['launches_emulator-5556.json']);
+      expect(FleetLaunches.read(path), isNull);
+      expect(FleetLaunches.record(path, DateTime.now()).label, '1+',
+          reason: 'a guest booted before the counter existed');
+      FleetLaunches.reset(path, DateTime.now());
+      FleetLaunches.record(path, DateTime.now());
+      final after = FleetLaunches.record(path, DateTime.now());
+      expect((after.count, after.sinceBoot, after.label), (2, true, '2'));
+    });
+
+    test('status and doctor show launches and GPU memory; doctor warns when worn', () {
+      const qemu = QemuProcess(pid: 1, avd: 'anta_qa_1', port: 5556, window: QemuWindow.minimized);
+      final worn = _member(1,
+          qemu: qemu,
+          launches: const FleetLaunches(count: 45, sinceBoot: true),
+          gpuBytes: 3 * gb);
+      expect(fleetStatusLine(worn, null, showAffinity: false),
+          endsWith('qemu 1 window=minimized  launches=45 gpu=3072 MB'));
+      final check = checkFleet([worn]);
+      expect(check.status, CheckStatus.warn);
+      expect(check.detail, contains('due a recycle'));
+      expect(check.fix, contains('`qa fleet stop anta_qa_1`, `qa fleet boot anta_qa_1`'));
+      expect(checkFleet([_member(1, qemu: qemu)]).status, CheckStatus.ok);
+    });
+
+    test('the GPU counter is summed per pid over its adapters', () {
+      expect(
+        parseGpuMemory('pid_25460_luid_0x0_0x13f7c_phys_0 104013160448\r\n'
+            'pid_25460_luid_0x0_0x15426_phys_0 5\r\n'
+            'pid_25764_luid_0x0_0x13f7c_phys_0 3000000\r\nnoise\n'),
+        {25460: 104013160453, 25764: 3000000},
+      );
+      expect(gpuMemoryScript([12]), contains(r'pid_12_*'));
+    });
+
+    test('a qemu that burns no CPU while off adb is hung; unread is not', () {
+      expect(isIdleQemu(0.5, 0.5), isTrue);
+      expect(isIdleQemu(10.0, 13.2), isFalse);
+      expect(isIdleQemu(null, 0.5), isFalse);
+    });
+  });
+
+  group('fleet stop --force', () {
+    test('kills only a qemu whose command line names that AVD on its port', () {
+      const hung = QemuProcess(pid: 27548, avd: 'anta_qa_2', port: 5558);
+      expect(forceStopRefusal(hung, 2), isNull);
+      expect(forceStopRefusal(hung, 3), contains('not anta_qa_3'));
+      expect(forceStopRefusal(const QemuProcess(pid: 1, avd: 'Pixel_9_Pro', port: 5558), 2),
+          contains('runs "Pixel_9_Pro"'));
+      expect(forceStopRefusal(const QemuProcess(pid: 1, avd: 'anta_qa_2', port: 5554), 2),
+          contains('not its fleet port 5558'));
+      expect(forceStopRefusal(const QemuProcess(pid: 1, avd: 'anta_qa_2'), 2),
+          contains('no -port'));
+    });
+
+    test('the kill script re-reads the command line and matches the name whole', () {
+      final script = forceStopScript(27548, 'anta_qa_2');
+      expect(script, contains("-Filter 'ProcessId=27548'"));
+      expect(script, contains(r"-match '-avd\s+\W?anta_qa_2\b'"));
+      expect(script, contains('Stop-Process -Id 27548 -Force'));
+      expect(script, isNot(contains('"')), reason: '-Command mangles double quotes');
+      final pattern = RegExp(r'-avd\s+\W?anta_qa_2\b');
+      expect(pattern.hasMatch('qemu.exe -avd anta_qa_2 -port 5558'), isTrue);
+      expect(pattern.hasMatch('qemu.exe -avd "anta_qa_2" -port 5558'), isTrue);
+      expect(pattern.hasMatch('qemu.exe -avd anta_qa_23 -port 5600'), isFalse);
+    });
+
+    test('off adb and refused, nothing is killed; on adb it stops through the console',
+        () async {
+      final runner = FakeProcessRunner();
+      runner.script('adb devices -l', const RunOutcome(0, 'List of devices attached\n', ''));
+      runner.script(
+        'powershell.exe -NoProfile -NonInteractive -Command $qemuListScript',
+        const RunOutcome(0, '27548\tFFFF\tqemu-system-x86_64.exe -avd anta_qa_2 -port 5600', ''),
+      );
+      final host = FleetHost(
+        runner: runner,
+        adb: Adb(executable: 'adb', runner: runner),
+        avdHome: '.',
+        sdkRoot: null,
+        windows: true,
+        pollEvery: Duration.zero,
+      );
+      await expectLater(host.forceStop(2), throwsA(isA<DeviceFailure>()));
+      expect(runner.lines.where((l) => l.contains('Stop-Process')), isEmpty);
+    });
+  });
+
+  test('overlong digit runs are refused as usage, not a crash', () {
+    expect(fleetIndexOfSerial('emulator-${'9' * 40}'), isNull);
+    expect(() => parseFleetArgument('emulator-${'5' * 40}', serials: true),
+        throwsA(isA<UsageFailure>()));
   });
 }

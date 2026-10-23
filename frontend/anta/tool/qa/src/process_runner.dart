@@ -79,14 +79,17 @@ class RealProcessRunner implements ProcessRunner {
     } on ProcessException catch (e) {
       throw DeviceFailure('cannot run "$executable": ${e.message}');
     }
-    if (stdin != null) {
-      process.stdin.write(stdin);
-      await process.stdin.close();
-    }
+    // Drained before stdin is written: a child that prints more than a pipe
+    // holds before it reads would otherwise block on its stdout while this
+    // side waits for stdin to close.
     final outChunks = <int>[];
     final errChunks = <int>[];
     final outDone = process.stdout.listen(outChunks.addAll).asFuture<void>();
     final errDone = process.stderr.listen(errChunks.addAll).asFuture<void>();
+    if (stdin != null) {
+      process.stdin.write(stdin);
+      await process.stdin.close();
+    }
     final int code;
     try {
       code = await process.exitCode.timeout(timeout);
