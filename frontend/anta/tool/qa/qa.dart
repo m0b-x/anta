@@ -544,6 +544,14 @@ class QaContext {
     }
   }
 
+  /// The app's alarms Android holds armed on this device (`dumpsys alarm`,
+  /// read-only), or null on a platform without that list.
+  Future<int?> armedAppAlarms() async {
+    final dev = await device();
+    if (dev is! AndroidDevice) return null;
+    return countArmedAlarms(await dev.adb.shell(['dumpsys', 'alarm']), dev.packageId);
+  }
+
   Future<AgentClient?> agentOrNull() async {
     try {
       return await agent();
@@ -805,14 +813,16 @@ class QaContext {
     final interval = (await driver()).pollInterval;
     final deadline = DateTime.now().add(timeout);
     while (true) {
-      final tree = await dump(cache: false);
+      final tree = (await dumpWhileStarting(until: deadline)).tree;
       final found = presentMatch(tree, wanted, gone: gone, nth: nth);
       final done = (gone && found == null) ||
           (!gone && found != null) ||
           !DateTime.now().isBefore(deadline);
       if (done) {
-        final captured = await (await driver()).dump();
-        writeDumpCache(paths, (await ref()).id, captured.raw);
+        final captured = await dumpWhileStarting(
+          until: DateTime.now().add(startingGrace),
+          cache: true,
+        );
         ResolvedTarget? settled = found;
         if (found != null) {
           try {
@@ -830,6 +840,31 @@ class QaContext {
       await Future<void>.delayed(interval);
     }
   }
+
+  /// A fresh dump from the driver that reads an app still starting
+  /// ([isAppStartingUp]: no semantics tree yet, no first frame yet) as
+  /// "not yet" and asks again until [until]; past it, that failure stands.
+  /// A `wait` right after a relaunch otherwise failed at once instead of
+  /// polling for its timeout. [cache] keeps it as the dump later `#N`
+  /// targets mean, as [dump] does.
+  Future<UiDump> dumpWhileStarting({required DateTime until, bool cache = false}) async {
+    while (true) {
+      try {
+        final captured = await (await driver()).dump();
+        if (cache) writeDumpCache(paths, (await ref()).id, captured.raw);
+        return captured;
+      } on QaException catch (e) {
+        if (!isAppStartingUp(e) || !DateTime.now().isBefore(until)) rethrow;
+      }
+      await Future<void>.delayed(_startingRetry);
+    }
+  }
+
+  static const Duration _startingRetry = Duration(milliseconds: 250);
+
+  /// How long a verb with no timeout of its own (`scroll-to`), or a
+  /// poll's closing dump, rides out an app still starting.
+  static const Duration startingGrace = Duration(seconds: 10);
 
   Future<void> dispose() async {
     await _agent?.close();
@@ -2314,8 +2349,10 @@ class ScrollToCommand extends TargetCommand {
 
     UiTree? tree;
     var revealTried = false;
+    final starting = DateTime.now().add(QaContext.startingGrace);
     for (var attempt = 0; attempt <= maxSwipes; attempt++) {
-      var screen = tree = await ctx.dump();
+      var screen = tree =
+          (await ctx.dumpWhileStarting(until: starting, cache: true)).tree;
       if (attempt == 0) warnIfForeign(screen);
       try {
         final found = TargetResolver(screen).resolve(wanted, nth: nth);
@@ -2708,7 +2745,7 @@ class ExpectCommand extends QaCommand {
     UiTree tree;
     List<String> misses;
     while (true) {
-      tree = await ctx.dump();
+      tree = (await ctx.dumpWhileStarting(until: deadline, cache: true)).tree;
       misses = expectMisses(tree, present: present, absent: absent);
       if (misses.isEmpty || !DateTime.now().isBefore(deadline)) break;
       await Future<void>.delayed(interval);
@@ -3241,6 +3278,10 @@ class FlowsCommand extends QaCommand {
 /// `qa pass calendar` — a whole suite in one call, every flow from the
 /// state its `_suite.txt` names, with a `report.json` an agent can triage
 /// and `--shard i/n` to spread one suite over several devices.
+/// How `pass` left its device: the closing relaunch's time, the app's
+/// alarms still armed (null when not counted), and why it failed, if it did.
+typedef _Quiet = ({int ms, int? alarms, String? failure});
+
 class PassCommand extends QaCommand with StepLoop {
   PassCommand() {
     argParser
@@ -3257,6 +3298,11 @@ class PassCommand extends QaCommand with StepLoop {
               'every flow on what the app holds now.')
       ..addFlag('stop-on-fail',
           negatable: false, help: 'Skip the remaining flows after a failure.')
+      ..addFlag('keep-state',
+          negatable: false,
+          help: 'Leave the app as the last flow left it, seed and armed '
+              'alarms included (to look at a red flow by hand), instead of '
+              'ending with `relaunch --fresh`.')
       ..addOption('json', help: 'Also write the report to this path.')
       ..addOption('label', help: 'Free text stored in the report.')
       ..addOption('summary',
@@ -3274,13 +3320,14 @@ class PassCommand extends QaCommand with StepLoop {
   @override
   String get description =>
       'Run a flow suite under tool/qa/flows/ as one device pass: reseed per '
-      'its _suite.txt, run its prelude, keep going past a failure, and write '
-      'build/qa/pass/<suite>_<stamp>_<device>/report.json.';
+      'its _suite.txt, run its prelude, keep going past a failure, end with '
+      'the app on an empty QA database so no seeded alarm rings afterwards, '
+      'and write build/qa/pass/<suite>_<stamp>_<device>/report.json.';
 
   @override
   String get invocation =>
       'qa pass <suite>[/<flow>] [--only <flow>]… [--shard i/n] [--no-reseed] '
-      '[--stop-on-fail] [--json <path>] [--label <text>]\n'
+      '[--stop-on-fail] [--keep-state] [--json <path>] [--label <text>]\n'
       '       qa pass --summary <report.json>\n'
       '       qa pass --merge <a.json> <b.json>…';
 
@@ -3442,7 +3489,11 @@ class PassCommand extends QaCommand with StepLoop {
       final copy = argResults!['json'] as String?;
       // Written after every flow and once more at the end, so a pass that
       // is killed (or whose host dies) late still leaves what it finished.
-      PassReport writeReport(List<FlowRecord> flows, {required bool partial}) {
+      PassReport writeReport(
+        List<FlowRecord> flows, {
+        required bool partial,
+        _Quiet? quiet,
+      }) {
         final report = PassReport(
           suite: suite,
           label: argResults!['label'] as String?,
@@ -3457,6 +3508,9 @@ class PassCommand extends QaCommand with StepLoop {
           build: installed?.toJson(),
           flows: flows,
           partial: partial,
+          quietMs: quiet?.ms,
+          quietAlarms: quiet?.alarms,
+          quietFailure: quiet?.failure,
         );
         final encoded = report.encode();
         reportFile.writeAsStringSync(encoded);
@@ -3479,7 +3533,8 @@ class PassCommand extends QaCommand with StepLoop {
         passDir: passDir.path,
         onFlowDone: (done) => writeReport(done, partial: true),
       );
-      final report = writeReport(flows, partial: false);
+      final quiet = argResults!['keep-state'] as bool ? null : await _leaveQuiet(qaRunner);
+      final report = writeReport(flows, partial: false, quiet: quiet);
       summaryLines(report, reportPath: reportFile.absolute.path).forEach(out);
       if (report.allPassed) return 0;
       final reseedBroke = flows.any((f) =>
@@ -3492,6 +3547,44 @@ class PassCommand extends QaCommand with StepLoop {
       await log.flush();
       await log.close();
     }
+  }
+
+  /// How long the app's launch reconcile gets to cancel what the last seed
+  /// armed before the count stands.
+  static const Duration _quietWait = Duration(seconds: 10);
+
+  /// Starts the app once more on an empty QA database, so its launch
+  /// reconcile cancels every alarm the fixture armed and nothing rings
+  /// between passes (a seeded guest rang "Leg day" under the next suite on
+  /// 2026-10-23), then counts what the device still holds armed.
+  Future<_Quiet> _leaveQuiet(QaCommandRunner qaRunner) async {
+    final ctx = context;
+    const words = ['relaunch', '--fresh'];
+    out('[quiet] ${words.join(' ')}');
+    final at = DateTime.now();
+    int took() => DateTime.now().difference(at).inMilliseconds;
+    _capture = [];
+    final (code, message) = await runOneStep(qaRunner, words);
+    final printed = _takeCapture();
+    if (code != 0) {
+      return (
+        ms: took(),
+        alarms: null,
+        failure: '${words.join(' ')}: ${message ?? _lastLine(printed) ?? 'exit $code'}',
+      );
+    }
+    int? alarms;
+    try {
+      alarms = await ctx.armedAppAlarms();
+      while (alarms != null && alarms > 0 && DateTime.now().difference(at) < _quietWait) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        alarms = await ctx.armedAppAlarms();
+      }
+    } on QaException catch (e) {
+      warn('quiet: the armed alarms could not be counted: ${e.message}');
+      alarms = null;
+    }
+    return (ms: took(), alarms: alarms, failure: null);
   }
 
   Future<List<FlowRecord>> _runFlows(
@@ -3805,8 +3898,13 @@ class BuildCommand extends QaCommand {
 /// a fleet of emulators shares one build.
 class InstallCommand extends QaCommand with StepLoop {
   InstallCommand() {
-    argParser.addOption('apk',
-        help: 'The APK to install; defaults to the one build/qa/apk.json records.');
+    argParser
+      ..addOption('apk',
+          help: 'The APK to install; defaults to the one build/qa/apk.json records.')
+      ..addFlag('grant',
+          negatable: false,
+          help: 'Grant what a pass needs (POST_NOTIFICATIONS) on a device '
+              'outside the fleet too; a fleet guest always gets it.');
   }
 
   @override
@@ -3815,11 +3913,12 @@ class InstallCommand extends QaCommand with StepLoop {
   @override
   String get description =>
       'Install the APK `qa build` made on the selected Android device '
-      '(adb install -r -t: the app data stays), launch it once so its '
-      'documents directory exists for the markers, and stop it.';
+      '(adb install -r -t: the app data stays), grant a fleet guest what a '
+      'pass needs, launch it once so its documents directory exists for '
+      'the markers, and stop it.';
 
   @override
-  String get invocation => 'qa install [--apk <path>]';
+  String get invocation => 'qa install [--apk <path>] [--grant]';
 
   @override
   Future<int> run() async {
@@ -3859,6 +3958,9 @@ class InstallCommand extends QaCommand with StepLoop {
       throw DeviceFailure('adb install failed on ${device.id}: ${result.combined}');
     }
     out('installed in ${DateTime.now().difference(started).inMilliseconds} ms');
+    if (grantsPassPermissions(device.id, asked: argResults!['grant'] as bool)) {
+      (await applyPassGrants(device.adb, device.id)).forEach(out);
+    }
     final qaRunner = runner! as QaCommandRunner;
     final (code, message) = await runOneStep(qaRunner, ['launch']);
     if (code != 0) {
@@ -3884,7 +3986,7 @@ FleetHost fleetHostFor(QaContext ctx) => FleetHost(
       windows: Platform.isWindows,
     );
 
-/// `qa fleet` — headless emulators named `anta_qa_<N>`, each on its own
+/// `qa fleet` — minimized emulators named `anta_qa_<N>`, each on its own
 /// port, so several agents can each own one and a pass can be sharded
 /// across them in one call. The owner's own AVDs are listed, never acted on.
 class FleetCommand extends QaCommand {
@@ -3902,7 +4004,7 @@ class FleetCommand extends QaCommand {
 
   @override
   String get description =>
-      'Headless emulators anta_qa_<N> on console port 5554+2N for several '
+      'Minimized emulators anta_qa_<N> on console port 5554+2N for several '
       'agents at once: create, boot, status, stop, install, pass.';
 }
 
@@ -4043,7 +4145,10 @@ class FleetBootCommand extends FleetSubcommand {
           defaultsTo: true,
           help: 'Windows: pin each fleet qemu to the P-cores of a hybrid CPU '
               '($fleetAffinityEnv=<hex> sets the mask). --no-affinity leaves '
-              'the scheduler alone.');
+              'the scheduler alone.')
+      ..addFlag('visible',
+          negatable: false,
+          help: 'Windows: leave the emulator window up instead of minimizing it.');
   }
 
   @override
@@ -4051,12 +4156,14 @@ class FleetBootCommand extends FleetSubcommand {
 
   @override
   String get description =>
-      'Boot fleet AVDs headless on their own ports, in parallel; wait until '
-      'each is booted and provisioned, then pin it to the P-cores. One that '
-      'is already up is left running (and pinned).';
+      'Boot fleet AVDs on their own ports, in parallel, each in a window '
+      'that is minimized at once (a -no-window qemu spins a host core while '
+      'idle); wait until each is booted and provisioned, then pin it to the '
+      'P-cores. One that is already up is left running (pinned, minimized).';
 
   @override
-  String get invocation => 'qa fleet boot <anta_qa_N|N>… | --all [--no-affinity]';
+  String get invocation =>
+      'qa fleet boot <anta_qa_N|N>… | --all [--no-affinity] [--visible]';
 
   @override
   Future<int> run() async {
@@ -4085,9 +4192,11 @@ class FleetBootCommand extends FleetSubcommand {
         : 'affinity: pinning to ${hexMask(affinity.mask!)} — ${affinity.reason}');
     final devices = await host.adb.devices();
     final qemus = await host.qemuProcesses();
+    final minimize = !(argResults!['visible'] as bool);
     final booted = await Future.wait([
       for (final index in indices)
-        _bootOne(ctx, host, emulator, index, devices, qemus, affinity.mask),
+        _bootOne(ctx, host, emulator, index, devices, qemus, affinity.mask,
+            minimize: minimize),
     ]);
     return booted.every((ok) => ok) ? 0 : exitDevice;
   }
@@ -4099,8 +4208,9 @@ class FleetBootCommand extends FleetSubcommand {
     int index,
     List<AdbDevice> devices,
     List<QemuProcess> qemus,
-    int? mask,
-  ) async {
+    int? mask, {
+    required bool minimize,
+  }) async {
     final name = fleetName(index);
     final serial = fleetSerial(index);
     final port = fleetPort(index);
@@ -4152,7 +4262,7 @@ class FleetBootCommand extends FleetSubcommand {
           pidPath: ctx.paths.emulatorPidFor(name),
         );
         out('[$name] starting on $serial (pid $pid, log $logPath)');
-        final early = mask == null ? null : _pinOnceUp(host, name, mask);
+        final early = _onceUp(host, name, mask: mask, minimize: minimize);
         await awaitEmulatorBoot(ctx, host.adb, pid, name,
             serial: serial, fatalLogLines: false, progress: progress);
         await early;
@@ -4163,8 +4273,9 @@ class FleetBootCommand extends FleetSubcommand {
       } on QaException catch (e) {
         progress('the screen may still time out: ${e.message}');
       }
+      final window = await _window(host, name, minimize: minimize);
       final pinned = await _pin(host, name, mask);
-      out('ready: $name $serial pinned=$pinned ($how)');
+      out('ready: $name $serial window=$window pinned=$pinned ($how)');
       return true;
     } on QaException catch (e) {
       warn('failed: $name $serial — ${e.message}');
@@ -4173,18 +4284,47 @@ class FleetBootCommand extends FleetSubcommand {
   }
 
   /// Pins a just-started qemu the moment it shows up, so the boot itself
-  /// runs on the P-cores too; [_pin] confirms it once the guest is up.
-  Future<void> _pinOnceUp(FleetHost host, String name, int mask) async {
+  /// runs on the P-cores too, and minimizes its window as soon as it opens,
+  /// so it does not sit on the owner's desktop for the boot; [_pin] and
+  /// [_window] confirm both once the guest is up.
+  Future<void> _onceUp(
+    FleetHost host,
+    String name, {
+    required int? mask,
+    required bool minimize,
+  }) async {
+    if (mask == null && (!minimize || !host.windows)) return;
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (DateTime.now().isBefore(deadline)) {
       final qemu =
           (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
       if (qemu != null) {
-        await host.pin(qemu.pid, mask);
+        if (mask != null) await host.pin(qemu.pid, mask);
+        if (minimize) await host.minimize(qemu.pid);
         return;
       }
       await Future<void>.delayed(const Duration(seconds: 1));
     }
+  }
+
+  /// The `window=` word of the ready line: minimizes the window when asked
+  /// (again, since the emulator can bring it back while it boots), and
+  /// says what the window is; a headless qemu stays headless until it is
+  /// stopped and booted again.
+  Future<String> _window(FleetHost host, String name, {required bool minimize}) async {
+    if (!host.windows) return 'n/a';
+    final qemu = (await host.qemuProcesses(windowStates: true))
+        .where((q) => q.avd == name)
+        .firstOrNull;
+    if (qemu == null) return '? (its qemu was not found)';
+    if (qemu.window == QemuWindow.headless) {
+      return 'headless (started -no-window; `qa fleet stop $name` then '
+          '`qa fleet boot $name` opens it windowed)';
+    }
+    if (!minimize || qemu.window == QemuWindow.minimized) {
+      return qemu.window?.name ?? '?';
+    }
+    return (await host.minimize(qemu.pid))?.name ?? '?';
   }
 
   Future<String> _pin(FleetHost host, String name, int? mask) async {
@@ -4210,8 +4350,9 @@ class FleetStatusCommand extends FleetSubcommand {
   @override
   String get description =>
       'One line per fleet AVD: serial, state, the installed build (stale '
-      'when apk.json is newer), its qemu and that qemu\'s affinity; the '
-      'owner\'s AVDs follow as `owner`, never acted on.';
+      'when apk.json is newer), its qemu, that qemu\'s affinity and window '
+      '(minimized, visible or headless); the owner\'s AVDs follow as '
+      '`owner`, never acted on.';
 
   @override
   String get invocation => 'qa fleet status [--json]';
@@ -4220,7 +4361,7 @@ class FleetStatusCommand extends FleetSubcommand {
   Future<int> run() async {
     final ctx = context;
     final host = fleetHostFor(ctx);
-    final qemus = await host.qemuProcesses();
+    final qemus = await host.qemuProcesses(windowStates: true);
     final members =
         await host.members(upTo: capacity, paths: ctx.paths, qemus: qemus);
     final built = ApkRecord.read(ctx.paths.apkJson);
@@ -4304,7 +4445,8 @@ class FleetInstallCommand extends FleetSubcommand {
   String get description =>
       'Put the recorded QA build on every booted fleet device at once '
       '(`qa -d <serial> install` each); a device that already carries it '
-      'is skipped.';
+      'is skipped. Every one gets what a pass needs granted '
+      '(POST_NOTIFICATIONS).';
 
   @override
   String get invocation => 'qa fleet install [--build]';
@@ -4337,6 +4479,10 @@ class FleetInstallCommand extends FleetSubcommand {
       if (isCurrentInstall(member.installed, built)) {
         out('${member.serial}  ${member.name}  current: '
             '${appStatus(member.installed, built)}');
+        // A guest that already carries the build still needs what a pass
+        // needs granted; the install children grant on their own.
+        (await applyPassGrants(host.adb.withSerial(member.serial), member.serial))
+            .forEach(out);
       } else {
         targets.add(member);
       }
@@ -4373,7 +4519,11 @@ class FleetPassCommand extends FleetSubcommand {
       ..addOption('label', help: 'Free text stored in every report.')
       ..addFlag('stop-on-fail',
           negatable: false,
-          help: 'Each shard skips its remaining flows after a failure.');
+          help: 'Each shard skips its remaining flows after a failure.')
+      ..addFlag('keep-state',
+          negatable: false,
+          help: 'Each shard leaves its app as its last flow left it instead '
+              'of ending on an empty QA database.');
   }
 
   @override
@@ -4387,7 +4537,8 @@ class FleetPassCommand extends FleetSubcommand {
 
   @override
   String get invocation =>
-      'qa fleet pass <suite> [--devices a,b,…] [--label <text>] [--stop-on-fail]';
+      'qa fleet pass <suite> [--devices a,b,…] [--label <text>] [--stop-on-fail] '
+      '[--keep-state]';
 
   @override
   Future<int> run() async {
@@ -4450,6 +4601,7 @@ class FleetPassCommand extends FleetSubcommand {
             jsonPath: shard.json,
             label: argResults!['label'] as String?,
             stopOnFail: argResults!['stop-on-fail'] as bool,
+            keepState: argResults!['keep-state'] as bool,
             via: _parentVia,
             verbose: _parentVerbose,
           ),

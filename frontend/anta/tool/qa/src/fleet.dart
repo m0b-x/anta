@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'adb.dart';
 import 'apk_build.dart';
+import 'app_ids.dart';
 import 'doctor.dart';
 import 'errors.dart';
 import 'paths.dart';
@@ -243,16 +244,18 @@ List<String> avdCreateArgs(String name, String image) => [
       fleetDeviceProfile,
     ];
 
-/// The emulator vector for fleet AVD [index]: headless on its own port,
-/// with no snapshot to load or save. `-gpu host` keeps the frame times of
-/// the windowed emulator; `-gpu auto` headless falls back to swiftshader
-/// and burns about six host cores.
+/// The emulator vector for fleet AVD [index]: on its own port, with no
+/// snapshot to load or save. `-gpu host` keeps the frame times of the
+/// owner's emulator; `-gpu auto` without a window falls back to
+/// swiftshader and burns about six host cores. It opens a window, which
+/// `fleet boot` minimizes: a `-no-window` qemu keeps one host thread
+/// spinning at 100 % while the guest idles (1.2 cores at boot, 2.2 after
+/// hours of passes, against 0.14 minimized), whatever the other flags.
 List<String> fleetEmulatorArgs(int index) => [
       '-avd',
       fleetName(index),
       '-port',
       '${fleetPort(index)}',
-      '-no-window',
       '-no-audio',
       '-no-boot-anim',
       '-no-snapshot',
@@ -275,6 +278,39 @@ const List<List<String>> fleetKeepAwakeCommands = [
   ['settings', 'put', 'system', 'screen_off_timeout', '2147483647'],
   ['svc', 'power', 'stayon', 'true'],
 ];
+
+/// What a pass needs granted that a freshly created guest lacks, by the
+/// comparison with the owner's emulator (2026-10-23): POST_NOTIFICATIONS,
+/// without which the app's notifications are blocked (`importance=NONE`)
+/// and an alarm's full-screen ring never shows. Exact alarms
+/// (`USE_EXACT_ALARM`), the full-screen intent op and the doze allowlist
+/// were the same on both.
+const List<({String what, List<String> command})> passGrants = [
+  (
+    what: 'POST_NOTIFICATIONS',
+    command: ['pm', 'grant', antaPackage, 'android.permission.POST_NOTIFICATIONS'],
+  ),
+];
+
+/// Whether `install` grants [passGrants] on [serial]: on a fleet guest
+/// always, on any other device only when asked with `--grant`, so the
+/// owner's emulator and phone keep the permissions their owner chose.
+bool grantsPassPermissions(String serial, {required bool asked}) =>
+    asked || fleetIndexOfSerial(serial) != null;
+
+/// Applies [passGrants] on [device] (an [Adb] narrowed to [serial]) and
+/// returns one `granted: …` or `not granted: …` line per grant.
+Future<List<String>> applyPassGrants(Adb device, String serial) async {
+  final lines = <String>[];
+  for (final grant in passGrants) {
+    final result = await device.raw(['shell', ...grant.command]);
+    final said = result.combined.trim();
+    lines.add(result.ok && said.isEmpty
+        ? 'granted: ${grant.what} on $serial'
+        : 'not granted: ${grant.what} on $serial — ${said.isEmpty ? 'exit ${result.exitCode}' : said}');
+  }
+  return lines;
+}
 
 /// The AVD name in `adb emu avd name` output, or null when the console
 /// did not say.
@@ -373,6 +409,65 @@ String pinScript(int pid, int mask) =>
     '\$p.ProcessorAffinity = [IntPtr][int64]$mask; \$p.Refresh(); '
     "'{0:X}' -f [int64]\$p.ProcessorAffinity";
 
+/// The `user32` calls the window scripts need. It holds double quotes, so
+/// those scripts go to PowerShell encoded ([encodePowerShell]).
+const String _user32Type =
+    "\$ProgressPreference = 'SilentlyContinue'\n"
+    "Add-Type -Namespace AntaQa -Name Win32 -MemberDefinition '"
+    '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); '
+    '[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);'
+    "'\n";
+
+/// PowerShell that prints every running qemu as its pid and its window:
+/// `headless` for the `-headless` binary, `minimized` or `visible` for a
+/// window, `pending` while a windowed one has not opened it yet.
+const String qemuWindowScript = '$_user32Type'
+    r"Get-Process -Name 'qemu-system*' -ErrorAction SilentlyContinue | ForEach-Object { "
+    r"$h = $_.MainWindowHandle; $w = 'pending'; "
+    r"if ($_.ProcessName -like '*headless*') { $w = 'headless' } "
+    r"elseif ($h -ne [IntPtr]::Zero) { if ([AntaQa.Win32]::IsIconic($h)) { $w = 'minimized' } else { $w = 'visible' } }; "
+    r"'{0} {1}' -f $_.Id, $w }";
+
+/// PowerShell that minimizes [pid]'s window (`SW_MINIMIZE`) once it exists
+/// and prints what the window then is: `minimized`, `visible` when Windows
+/// kept it up, `pending` when no window opened within 20 s, `gone` when
+/// the process ended. A minimized qemu stays minimized across relaunches
+/// of the app inside it.
+String minimizeWindowScript(int pid) => '$_user32Type'
+    '\$deadline = (Get-Date).AddSeconds(20); \$h = [IntPtr]::Zero\n'
+    'while ((Get-Date) -lt \$deadline) { '
+    '\$p = Get-Process -Id $pid -ErrorAction SilentlyContinue; '
+    "if (\$null -eq \$p) { 'gone'; exit 0 }; "
+    '\$h = \$p.MainWindowHandle; if (\$h -ne [IntPtr]::Zero) { break }; '
+    'Start-Sleep -Milliseconds 250 }\n'
+    "if (\$h -eq [IntPtr]::Zero) { 'pending'; exit 0 }\n"
+    '[void][AntaQa.Win32]::ShowWindow(\$h, 6); Start-Sleep -Milliseconds 200\n'
+    "if ([AntaQa.Win32]::IsIconic(\$h)) { 'minimized' } else { 'visible' }";
+
+/// [script] as `powershell -EncodedCommand` takes it (base64 of UTF-16LE),
+/// which carries double quotes that `-Command` would get mangled on Windows.
+String encodePowerShell(String script) => base64.encode([
+      for (final unit in script.codeUnits) ...[unit & 0xFF, unit >> 8],
+    ]);
+
+/// What a fleet qemu shows on the host desktop.
+enum QemuWindow {
+  headless,
+  minimized,
+  visible,
+  pending;
+
+  static QemuWindow? parse(String word) =>
+      values.where((w) => w.name == word.trim()).firstOrNull;
+}
+
+/// The windows [qemuWindowScript] printed, by pid.
+Map<int, QemuWindow> parseQemuWindows(String output) => {
+      for (final line in output.split('\n'))
+        if (RegExp(r'^\s*(\d+)\s+(\w+)\s*$').firstMatch(line) case final match?)
+          int.parse(match.group(1)!): ?QemuWindow.parse(match.group(2)!),
+    };
+
 /// One running emulator's qemu, found by its command line.
 class QemuProcess {
   const QemuProcess({
@@ -380,6 +475,7 @@ class QemuProcess {
     required this.avd,
     this.port,
     this.affinity,
+    this.window,
   });
 
   final int pid;
@@ -389,6 +485,19 @@ class QemuProcess {
   /// The process affinity mask; null off Windows or when it was not
   /// readable.
   final int? affinity;
+
+  /// [QemuWindow.headless] from the command line alone; whether a
+  /// windowed one is minimized only once [FleetHost.qemuProcesses] was
+  /// asked for the windows, else null.
+  final QemuWindow? window;
+
+  QemuProcess withWindow(QemuWindow? value) => QemuProcess(
+        pid: pid,
+        avd: avd,
+        port: port,
+        affinity: affinity,
+        window: value ?? window,
+      );
 }
 
 QemuProcess? _qemuFrom(int pid, String commandLine, int? affinity) {
@@ -396,11 +505,14 @@ QemuProcess? _qemuFrom(int pid, String commandLine, int? affinity) {
   final avd = RegExp(r'-avd\s+"?([^\s"]+)').firstMatch(commandLine)?.group(1);
   if (avd == null) return null;
   final port = RegExp(r'-port\s+(\d+)').firstMatch(commandLine)?.group(1);
+  final headless = RegExp(r'qemu-system-[\w]+-headless|\s-no-window\b')
+      .hasMatch(commandLine);
   return QemuProcess(
     pid: pid,
     avd: avd,
     port: port == null ? null : int.parse(port),
     affinity: affinity,
+    window: headless ? QemuWindow.headless : null,
   );
 }
 
@@ -513,6 +625,7 @@ class FleetMember {
         'installed': installed?.toJson(),
         'qemuPid': qemu?.pid,
         'affinity': qemu?.affinity == null ? null : hexMask(qemu!.affinity!),
+        'window': qemu?.window?.name,
       };
 }
 
@@ -555,12 +668,13 @@ String fleetStatusLine(
   final affinity = !showAffinity || qemu == null
       ? ''
       : ' affinity=${qemu.affinity == null ? '?' : hexMask(qemu.affinity!)}';
+  final window = qemu?.window == null ? '' : ' window=${qemu!.window!.name}';
   return [
     member.name.padRight(10),
     member.serial.padRight(14),
     member.stateText.padRight(12),
     member.created ? 'app ${appStatus(member.installed, built)}' : 'app -',
-    qemu == null ? '' : 'qemu ${qemu.pid}$affinity',
+    qemu == null ? '' : 'qemu ${qemu.pid}$affinity$window',
   ].join('  ').trimRight();
 }
 
@@ -571,7 +685,8 @@ String ownerStatusLine(String avd, QemuProcess? qemu) =>
     '  — not the fleet\'s; never acted on';
 
 /// The `fleet` line of `qa doctor`. A booted fleet qemu off [pinMask] on a
-/// hybrid host warns: its guest runs on the E-cores.
+/// hybrid host warns: its guest runs on the E-cores. A headless one warns
+/// too: it keeps a host thread spinning while the guest idles.
 CheckResult checkFleet(List<FleetMember> members, {int? pinMask}) {
   if (!members.any((m) => m.created)) {
     return CheckResult.ok(
@@ -580,6 +695,7 @@ CheckResult checkFleet(List<FleetMember> members, {int? pinMask}) {
     );
   }
   final unpinned = <String>[];
+  final headless = <String>[];
   final parts = <String>[];
   for (final member in members) {
     var text = '${member.name} ${member.stateText}';
@@ -589,16 +705,29 @@ CheckResult checkFleet(List<FleetMember> members, {int? pinMask}) {
       text += pinned ? ' pinned' : ' unpinned';
       if (!pinned) unpinned.add(member.name);
     }
+    if (qemu?.window == QemuWindow.headless) {
+      text += ' headless';
+      headless.add(member.name);
+    }
     parts.add(text);
   }
   final detail = '${members.length} AVDs: ${parts.join(', ')}';
-  if (unpinned.isEmpty) return CheckResult.ok('fleet', detail);
+  if (unpinned.isEmpty && headless.isEmpty) return CheckResult.ok('fleet', detail);
   return CheckResult(
     name: 'fleet',
     status: CheckStatus.warn,
     detail: detail,
-    fix: '`qa fleet boot ${unpinned.join(' ')}` pins a running fleet AVD to '
-        'the P-cores (${hexMask(pinMask!)}) without restarting it',
+    fix: [
+      if (headless.isNotEmpty)
+        '${headless.join(', ')} ${headless.length == 1 ? 'runs' : 'run'} '
+            'headless, which spins a host core while idle — re-boot it '
+            'windowed: ${[
+          for (final name in headless) '`qa fleet stop $name`, `qa fleet boot $name`',
+        ].join('; ')}',
+      if (unpinned.isNotEmpty)
+        '`qa fleet boot ${unpinned.join(' ')}` pins a running fleet AVD to '
+            'the P-cores (${hexMask(pinMask!)}) without restarting it',
+    ].join('; '),
   );
 }
 
@@ -708,6 +837,7 @@ List<String> fleetPassChildArgs({
   required String jsonPath,
   String? label,
   bool stopOnFail = false,
+  bool keepState = false,
   String? via,
   bool verbose = false,
 }) =>
@@ -719,13 +849,15 @@ List<String> fleetPassChildArgs({
       '--json=$jsonPath',
       if (label != null && label.isNotEmpty) '--label=$label',
       if (stopOnFail) '--stop-on-fail',
+      if (keepState) '--keep-state',
     ];
 
-/// The lines of a child pass worth echoing live: each flow's verdict and
-/// the shard's own verdict line.
+/// The lines of a child pass worth echoing live: each flow's verdict, the
+/// shard's own verdict line and whether it left its device quiet.
 bool isPassProgressLine(String line) =>
     RegExp(r'^=== .+: (?:ok|FAILED)').hasMatch(line) ||
-    RegExp(r'^pass: \d+/\d+ green').hasMatch(line);
+    RegExp(r'^pass: \d+/\d+ green').hasMatch(line) ||
+    RegExp(r'^devices? (?:left|not left) ').hasMatch(line);
 
 /// How to start this tool again as a child: the compiled exe when this
 /// process is one, `dart run tool/qa/qa.dart` under `dart run`.
@@ -947,11 +1079,35 @@ class FleetHost {
         timeout: const Duration(seconds: 30),
       );
 
-  Future<List<QemuProcess>> qemuProcesses() async {
+  Future<RunOutcome> _powershellEncoded(String script) => runner.run(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodePowerShell(script)],
+        timeout: const Duration(seconds: 40),
+      );
+
+  /// Every running qemu; with [windowStates] on Windows, each windowed
+  /// one also says whether it is minimized (one more PowerShell call, so
+  /// only `fleet status` asks).
+  Future<List<QemuProcess>> qemuProcesses({bool windowStates = false}) async {
     final result = windows
         ? await _powershell(qemuListScript)
         : await runner.run('/bin/ps', ['-axww', '-o', 'pid=,command=']);
-    return result.ok ? parseQemuList(result.stdout) : const [];
+    final found = result.ok ? parseQemuList(result.stdout) : const <QemuProcess>[];
+    if (!windowStates || !windows || found.isEmpty) return found;
+    final states = await _powershellEncoded(qemuWindowScript);
+    if (!states.ok) return found;
+    final byPid = parseQemuWindows(states.stdout);
+    return [for (final qemu in found) qemu.withWindow(byPid[qemu.pid])];
+  }
+
+  /// Minimizes [pid]'s window once it opens and returns what it then is,
+  /// or null when PowerShell could not tell (and off Windows).
+  Future<QemuWindow?> minimize(int pid) async {
+    if (!windows) return null;
+    final result = await _powershellEncoded(minimizeWindowScript(pid));
+    if (!result.ok) return null;
+    final lines = result.stdout.trim().split('\n');
+    return QemuWindow.parse(lines.last);
   }
 
   Future<({int cores, int threads})?> cpuTopology() async {

@@ -13,6 +13,9 @@ PassReport _report({
   (int, int)? shard,
   List<FlowRecord>? flows,
   DateTime? started,
+  int? quietMs,
+  int? quietAlarms,
+  String? quietFailure,
 }) {
   final start = started ?? DateTime.utc(2026, 10, 23, 10);
   return PassReport(
@@ -62,6 +65,9 @@ PassReport _report({
           ),
           const FlowRecord(name: '20_fasting_style', status: FlowStatus.skipped),
         ],
+    quietMs: quietMs,
+    quietAlarms: quietAlarms,
+    quietFailure: quietFailure,
   );
 }
 
@@ -72,8 +78,9 @@ void main() {
       expect(json.keys, [
         'schema', 'suite', 'label', 'device', 'host', 'started', 'finished',
         'durationMs', 'partial', 'shard', 'reseed', 'fixture', 'prelude', 'build',
-        'summary', 'flows', 'verbStats',
+        'quietMs', 'quietAlarms', 'quietFailure', 'summary', 'flows', 'verbStats',
       ]);
+      expect(json['quietMs'], isNull, reason: 'a pass that did not end quiet says so by null');
       expect(json['partial'], isFalse);
       expect(json['schema'], 1);
       expect(json['device'], {'id': 'emulator-5556', 'label': 'Android emulator-5556', 'platform': 'android'});
@@ -174,6 +181,21 @@ void main() {
       expect(lines[5], 'expect        1    120    120    120');
       expect(lines.length, 9);
     });
+
+    test('the quiet line follows the verdict: armed count, failure, or nothing', () {
+      PassReport quiet({int? ms, int? alarms, String? failure}) =>
+          _report(quietMs: ms, quietAlarms: alarms, quietFailure: failure);
+
+      final lines = summaryLines(quiet(ms: 5400, alarms: 0), reportPath: 'r.json');
+      expect(lines[4], 'device left quiet (0 alarms armed) in 5.4 s');
+      expect(quietLine(quiet(ms: 5400, alarms: 2)),
+          'device not left quiet: 2 alarm(s) of the app still armed after relaunch --fresh (5.4 s)');
+      expect(quietLine(quiet(ms: 900)), 'device left quiet in 0.9 s (alarms not counted)');
+      expect(quietLine(quiet(ms: 900, failure: 'relaunch --fresh: the reset was refused\nmore')),
+          'device not left quiet: relaunch --fresh: the reset was refused');
+      expect(quietLine(quiet()), isNull, reason: '--keep-state');
+      expect(PassReport.decode(quiet(ms: 5400, alarms: 0).encode()).quietAlarms, 0);
+    });
   });
 
   group('headline', () {
@@ -259,6 +281,20 @@ void main() {
         _report().encode().replaceFirst('"partial": false,', ''),
       );
       expect(old.partial, isFalse);
+    });
+
+    test('quiet: the slowest device, the alarms summed, failures joined', () {
+      final a = _report(quietMs: 5200, quietAlarms: 0);
+      final b = _report(device: 'emulator-5558', quietMs: 6100, quietAlarms: 1);
+      final merged = mergeReports([a, b]);
+      expect(merged.quietMs, 6100);
+      expect(merged.quietAlarms, 1);
+      expect(merged.quietFailure, isNull);
+      expect(quietLine(merged), startsWith('devices not left quiet: 1 alarm(s)'));
+      expect(quietLine(mergeReports([a, a])), 'devices left quiet (0 alarms armed) in 5.2 s');
+      final failed = _report(quietMs: 900, quietFailure: 'relaunch --fresh: exit 3');
+      expect(mergeReports([a, failed]).quietFailure, 'relaunch --fresh: exit 3');
+      expect(mergeReports([_report()]).quietMs, isNull);
     });
 
     test('refuses reports of two suites, or none', () {

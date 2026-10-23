@@ -112,6 +112,21 @@ class QaOutcome {
   final String message;
 }
 
+/// Whether [failure] only says the app is still starting: the agent
+/// answers before the first frame, the navigator or the semantics tree
+/// exist, and the VM service can refuse a socket for a moment after a
+/// launch. A verb that polls until a timeout reads these as "not yet",
+/// never as a verdict.
+bool isAppStartingUp(QaException failure) {
+  if (failure is! DeviceFailure) return false;
+  final message = failure.message;
+  return message.contains('no semantics tree yet') ||
+      message.contains('has no view yet') ||
+      message.contains('has no navigator yet') ||
+      message.contains('has not drawn its first frame yet') ||
+      message.contains('is not answering yet');
+}
+
 /// Typed client for the in-app agent, reached through the Driver extension's
 /// `request_data` command over the VM service.
 class AgentClient implements UiDriver {

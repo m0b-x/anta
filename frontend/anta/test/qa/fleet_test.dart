@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -270,13 +271,16 @@ void main() {
       expect(avdCreateStdin, 'no\n');
     });
 
-    test('the emulator boots headless on its own port with the host GPU', () {
+    test('the emulator boots windowed on its own port with the host GPU', () {
+      for (var index = 1; index <= fleetMaxIndex; index++) {
+        expect(fleetEmulatorArgs(index), isNot(contains('-no-window')),
+            reason: 'a windowless qemu spins a host core while the guest idles');
+      }
       expect(fleetEmulatorArgs(2), [
         '-avd',
         'anta_qa_2',
         '-port',
         '5558',
-        '-no-window',
         '-no-audio',
         '-no-boot-anim',
         '-no-snapshot',
@@ -304,6 +308,7 @@ void main() {
           jsonPath: 'out/shard-2.json',
           label: 'nightly',
           stopOnFail: true,
+          keepState: true,
           via: 'agent',
         ),
         [
@@ -316,6 +321,7 @@ void main() {
           '--json=out/shard-2.json',
           '--label=nightly',
           '--stop-on-fail',
+          '--keep-state',
         ],
       );
       expect(
@@ -350,10 +356,13 @@ void main() {
       expect(dart.leading, ['run', r'C:\anta\tool\qa\qa.dart']);
     });
 
-    test('only flow and shard verdicts are echoed live', () {
+    test('only flow and shard verdicts, and the quiet line, are echoed live', () {
       expect(isPassProgressLine('=== 00_open: ok in 2104 ms'), isTrue);
       expect(isPassProgressLine('=== 22_palette: FAILED (exit 2) in 9000 ms'), isTrue);
       expect(isPassProgressLine('pass: 9/9 green in 230.0 s on emulator-5556 — report x'), isTrue);
+      expect(isPassProgressLine('device left quiet (0 alarms armed) in 5.4 s'), isTrue);
+      expect(isPassProgressLine('device not left quiet: relaunch --fresh: exit 3'), isTrue);
+      expect(isPassProgressLine('[quiet] relaunch --fresh'), isFalse);
       expect(isPassProgressLine('=== flow 3/9: 06_matrix'), isFalse);
       expect(isPassProgressLine('[2/5] tap "Day"'), isFalse);
     });
@@ -395,6 +404,152 @@ void main() {
         await expectLater(hostOn(runner).keepAwake(serial), throwsA(isA<UsageFailure>()));
       }
       expect(runner.lines, isEmpty);
+    });
+  });
+
+  group('pass grants', () {
+    test('a fleet guest is granted POST_NOTIFICATIONS, each grant logged', () async {
+      final runner = FakeProcessRunner();
+      final lines = await applyPassGrants(
+        Adb(executable: 'adb', runner: runner, serial: 'emulator-5558'),
+        'emulator-5558',
+      );
+      expect(runner.lines, [
+        'adb -s emulator-5558 shell pm grant com.alexzamfir.anta android.permission.POST_NOTIFICATIONS',
+      ]);
+      expect(lines, ['granted: POST_NOTIFICATIONS on emulator-5558']);
+    });
+
+    test('a refused grant says so with what pm printed', () async {
+      final runner = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(255, '', 'Exception occurred while executing grant'),
+      );
+      final lines = await applyPassGrants(
+        Adb(executable: 'adb', runner: runner, serial: 'emulator-5556'),
+        'emulator-5556',
+      );
+      expect(lines.single,
+          'not granted: POST_NOTIFICATIONS on emulator-5556 — Exception occurred while executing grant');
+    });
+
+    test('only fleet serials are granted unasked; anything else needs --grant', () {
+      expect(grantsPassPermissions('emulator-5556', asked: false), isTrue);
+      expect(grantsPassPermissions('emulator-5560', asked: false), isTrue);
+      for (final serial in ['emulator-5554', 'emulator-5557', 'R58M123ABC']) {
+        expect(grantsPassPermissions(serial, asked: false), isFalse, reason: serial);
+        expect(grantsPassPermissions(serial, asked: true), isTrue, reason: serial);
+      }
+    });
+  });
+
+  group('windows', () {
+    const windowed =
+        '25780\tFFFF\tD:\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe '
+        '-avd anta_qa_3 -port 5560 -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu host\r\n';
+
+    test('a fleet qemu is found under either binary; -no-window marks it headless', () {
+      final found = parseQemuList(_qemuWindows + windowed);
+      expect(found.map((q) => (q.avd, q.port, q.window)), [
+        ('anta_qa_1', 5556, QemuWindow.headless),
+        ('Pixel_9_Pro', null, null),
+        ('anta_qa_3', 5560, null),
+      ]);
+      expect(
+        parseQemuList('  412 /sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless '
+                '-avd anta_qa_2 -port 5558\n')
+            .single
+            .window,
+        QemuWindow.headless,
+      );
+    });
+
+    test('the window list parses by pid and ignores noise', () {
+      expect(
+        parseQemuWindows('19584 visible\r\n25780 minimized\r\n11712 headless\r\n'
+            '30000 pending\r\n#< CLIXML\r\n31000 sideways\r\n'),
+        {
+          19584: QemuWindow.visible,
+          25780: QemuWindow.minimized,
+          11712: QemuWindow.headless,
+          30000: QemuWindow.pending,
+        },
+      );
+    });
+
+    test('the window scripts minimize with SW_MINIMIZE and confirm with IsIconic', () {
+      final script = minimizeWindowScript(25780);
+      expect(script, contains('Get-Process -Id 25780'));
+      expect(script, contains('MainWindowHandle'));
+      expect(script, contains('ShowWindow(\$h, 6)'));
+      expect(script, contains('IsIconic(\$h)'));
+      expect(script, contains('AddSeconds(20)'));
+      expect(qemuWindowScript, contains("Get-Process -Name 'qemu-system*'"));
+      expect(qemuWindowScript, contains("-like '*headless*'"));
+      final encoded = encodePowerShell(script);
+      expect(encoded, isNot(contains('"')));
+      final bytes = base64.decode(encoded);
+      expect(
+        String.fromCharCodes([
+          for (var i = 0; i < bytes.length; i += 2) bytes[i] | (bytes[i + 1] << 8),
+        ]),
+        script,
+      );
+    });
+
+    test('the host minimizes over -EncodedCommand and reads the windows', () async {
+      final runner = _RespondingRunner((r) {
+        if (r.executable != 'powershell.exe') return null;
+        if (r.arguments.last == qemuListScript) {
+          return const RunOutcome(0, _qemuWindows + windowed, '');
+        }
+        if (r.arguments.last == encodePowerShell(qemuWindowScript)) {
+          return const RunOutcome(0, '11712 headless\r\n19584 visible\r\n25780 minimized\r\n', '');
+        }
+        if (r.arguments.last == encodePowerShell(minimizeWindowScript(25780))) {
+          return const RunOutcome(0, 'minimized\r\n', '');
+        }
+        return null;
+      });
+      final host = FleetHost(
+        runner: runner,
+        adb: Adb(executable: 'adb', runner: runner),
+        avdHome: '.',
+        sdkRoot: null,
+        windows: true,
+      );
+      expect(await host.minimize(25780), QemuWindow.minimized);
+      expect(runner.calls.last.arguments, contains('-EncodedCommand'));
+      final plain = await host.qemuProcesses();
+      expect(plain.map((q) => q.window), [QemuWindow.headless, null, null]);
+      final known = await host.qemuProcesses(windowStates: true);
+      expect(known.map((q) => q.window),
+          [QemuWindow.headless, QemuWindow.visible, QemuWindow.minimized]);
+
+      final mac = FleetHost(
+        runner: FakeProcessRunner(),
+        adb: Adb(executable: 'adb', runner: FakeProcessRunner()),
+        avdHome: '.',
+        sdkRoot: null,
+        windows: false,
+      );
+      expect(await mac.minimize(1), isNull);
+    });
+
+    test('status shows the window; doctor warns on a headless fleet qemu', () {
+      const minimized = QemuProcess(
+          pid: 25780, avd: 'anta_qa_3', affinity: 0xFFFF, window: QemuWindow.minimized);
+      const headless = QemuProcess(
+          pid: 11712, avd: 'anta_qa_1', affinity: 0xFFFF, window: QemuWindow.headless);
+      final line = fleetStatusLine(_member(3, qemu: minimized), null, showAffinity: true);
+      expect(line, endsWith('qemu 25780 affinity=0xFFFF window=minimized'));
+      expect(_member(3, qemu: minimized).toJson(null)['window'], 'minimized');
+
+      expect(checkFleet([_member(3, qemu: minimized)], pinMask: 0xFFFF).status, CheckStatus.ok);
+      final warn = checkFleet([_member(1, qemu: headless), _member(3, qemu: minimized)],
+          pinMask: 0xFFFF);
+      expect(warn.status, CheckStatus.warn);
+      expect(warn.detail, contains('anta_qa_1 device pinned headless'));
+      expect(warn.fix, contains('re-boot it windowed: `qa fleet stop anta_qa_1`, `qa fleet boot anta_qa_1`'));
     });
   });
 
@@ -563,7 +718,7 @@ void main() {
       final line = fleetStatusLine(members.first, _record(built), showAffinity: true);
       expect(line, startsWith('anta_qa_1   emulator-5556   device'));
       expect(line, contains('app installed abc1234'));
-      expect(line, endsWith('qemu 11712 affinity=0xFFFF'));
+      expect(line, endsWith('qemu 11712 affinity=0xFFFF window=headless'));
       expect(fleetStatusLine(members[1], null, showAffinity: true), contains('app not installed'));
       expect(fleetStatusLine(members[2], null, showAffinity: true), contains('not created'));
       expect(ownerStatusLine('Pixel_9_Pro', parseQemuList(_qemuWindows).last),

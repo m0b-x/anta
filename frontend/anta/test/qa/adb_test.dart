@@ -41,6 +41,27 @@ void main() {
     });
   });
 
+  group('countArmedAlarms', () {
+    test('counts the pending rows, not the removal history or the stats', () {
+      const dumpsys = '''
+  42 pending alarms:
+    RTC_WAKEUP #31: Alarm{edf8eb6 type 0 origWhen 1792803600000 whenElapsed 107671144 com.alexzamfir.anta}
+      tag=*walarm*:com.alexzamfir.anta/com.gdelataillade.alarm.alarm.AlarmReceiver
+    RTC_WAKEUP #32: Alarm{6bfb68d type 0 origWhen 1792806600000 whenElapsed 110671144 com.alexzamfir.anta}
+    ELAPSED_WAKEUP #2: Alarm{a4384a2 type 2 origWhen 8487259 whenElapsed 8487259 com.google.android.gms}
+    RTC #4: Alarm{1a2b3c4 type 1 origWhen 1 whenElapsed 1 com.alexzamfir.anta.other}
+  Removal history:
+    u0a217:
+      #1: Reason=alarm_cancelled elapsed=-38m27s665ms rtc=2026-10-23 19:08:52.916
+          type=RTC_WAKEUP tag=*walarm*:com.alexzamfir.anta/com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver
+  Alarm Stats:
+    u0a217:com.alexzamfir.anta +12ms running, 3 wakeups, 3 alarms: 0 fgs
+''';
+      expect(countArmedAlarms(dumpsys, 'com.alexzamfir.anta'), 2);
+      expect(countArmedAlarms(dumpsys.replaceAll('RTC_WAKEUP #3', 'gone'), 'com.alexzamfir.anta'), 0);
+    });
+  });
+
   group('selectSerial', () {
     final one = parseDevices(_devicesOutput);
     final two = parseDevices('List of devices attached\n'

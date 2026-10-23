@@ -6,8 +6,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
 import '../../tool/qa/qa.dart'
-    show PassCommand, QaCommand, QaCommandRunner, QaContext, StepsCommand;
+    show
+        ExpectCommand,
+        PassCommand,
+        QaCommand,
+        QaCommandRunner,
+        QaContext,
+        ScrollToCommand,
+        StepsCommand,
+        WaitCommand;
 import '../../tool/qa/src/device.dart';
+import '../../tool/qa/src/device_select.dart';
 import '../../tool/qa/src/errors.dart';
 import '../../tool/qa/src/pass_report.dart';
 import '../../tool/qa/src/paths.dart';
@@ -37,6 +46,10 @@ class _FakeContext extends QaContext {
   int errorClears = 0;
   final List<String?> errorStamps = [];
 
+  /// What each `dumpsys alarm` count answers, in order; the last repeats.
+  List<int> armed = const [0];
+  int alarmCounts = 0;
+
   static final List<int> _png = img.encodePng(img.Image(width: 8, height: 8));
 
   @override
@@ -50,6 +63,10 @@ class _FakeContext extends QaContext {
 
   @override
   Future<void> clearAgentErrors() async => errorClears++;
+
+  @override
+  Future<int?> armedAppAlarms() async =>
+      armed[(alarmCounts++).clamp(0, armed.length - 1)];
 }
 
 /// A verb whose outcome the test scripts: it prints through the same
@@ -102,6 +119,11 @@ class _World {
   Set<int> failingReseeds = {};
   bool preludeFails = false;
   int reseeds = 0;
+
+  /// `relaunch --fresh` with no seed: the pass leaving its device quiet.
+  int quiets = 0;
+  bool quietFails = false;
+  List<int> armed = const [0];
   final List<String> taps = [];
 
   /// `report.json` as a `peek` step found it, mid-pass.
@@ -109,11 +131,17 @@ class _World {
 
   QaCommandRunner runner() => QaCommandRunner(
         contextFactory: (ArgResults globals) =>
-            context = _FakeContext(globals, paths: paths),
+            context = _FakeContext(globals, paths: paths)..armed = armed,
         commands: [
           PassCommand(),
           StepsCommand(),
           _Verb('relaunch', (verb, _) async {
+            if ((verb.argResults!['seed'] as List<String>).isEmpty) {
+              quiets++;
+              if (quietFails) throw DeviceFailure('the reset was refused');
+              verb.out('[qa] reset: ok');
+              return 0;
+            }
             reseeds++;
             if (failingReseeds.contains(reseeds)) {
               throw DeviceFailure('the seed was not imported');
@@ -158,6 +186,79 @@ class _World {
   }
 
   void dispose() => root.deleteSync(recursive: true);
+}
+
+/// An agent on an app that has just been relaunched: its first [notYet]
+/// dumps fail the way the real agent's do before the semantics tree
+/// exists, then it answers with one node, `id:ready`.
+class _StartingAgent implements UiDriver {
+  _StartingAgent(this.notYet, {this.failure = 'no semantics tree yet (semantics enabled: true)'});
+
+  int notYet;
+  final String failure;
+  int dumps = 0;
+
+  @override
+  String get name => 'agent';
+
+  @override
+  Duration get pollInterval => const Duration(milliseconds: 10);
+
+  @override
+  Future<UiDump> dump() async {
+    dumps++;
+    if (notYet > 0) {
+      notYet--;
+      throw DeviceFailure('agent dump: $failure');
+    }
+    return const UiDump(
+      raw: '{}',
+      tree: UiTree([
+        UiNode(
+          index: 0,
+          parentIndex: -1,
+          depth: 0,
+          className: 'button',
+          text: 'Ready',
+          contentDesc: '',
+          resourceId: 'ready',
+          packageName: 'com.alexzamfir.anta',
+          bounds: UiRect(0, 0, 100, 100),
+          clickable: true,
+          longClickable: false,
+          enabled: true,
+          focused: false,
+          focusable: true,
+          checked: false,
+          checkable: false,
+          selected: false,
+          scrollable: false,
+        ),
+      ], source: UiTreeSource.agent),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _StartingContext extends QaContext {
+  _StartingContext(super.globalResults, {required super.paths, required this.starting});
+
+  final _StartingAgent starting;
+
+  @override
+  Future<DeviceRef> ref() async => const DeviceRef(
+        kind: DeviceKind.android,
+        id: 'emulator-5556',
+        label: 'Android emulator-5556',
+      );
+
+  @override
+  Future<Device> device() async => _FakeDevice();
+
+  @override
+  Future<UiDriver> driver() async => starting;
 }
 
 void main() {
@@ -304,6 +405,96 @@ void main() {
       final written = PassReport.decode(File(copy).readAsStringSync());
       expect(written.partial, isFalse);
       expect(written.flows, hasLength(2));
+    });
+
+    test('the pass ends with relaunch --fresh and no seed, then counts the armed alarms',
+        () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n', '02_red': 'expect "missing"\n'})
+        ..armed = const [2, 0];
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, exitTarget, reason: 'leaving the device quiet does not change the verdict');
+      expect(world.reseeds, 2);
+      expect(world.quiets, 1);
+      expect(world.context!.alarmCounts, 2, reason: 'counted again until the reconcile ran');
+      expect(report.quietMs, isNotNull);
+      expect(report.quietAlarms, 0);
+      expect(report.quietFailure, isNull);
+      final reportPath = File(world.paths.latestPassFor('demo')).readAsStringSync().trim();
+      final log = File(joinPath(File(reportPath).parent.path, ['pass.log'])).readAsStringSync();
+      expect(log, contains('[quiet] relaunch --fresh'));
+      expect(log, contains('device left quiet (0 alarms armed) in '));
+    });
+
+    test('--keep-state leaves the app as the last flow had it', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'});
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--keep-state']);
+      expect(code, 0);
+      expect(world.quiets, 0);
+      expect(world.context!.alarmCounts, 0);
+      expect(report.quietMs, isNull);
+      expect(report.quietAlarms, isNull);
+    });
+
+    test('a quiet relaunch that fails is reported, not counted, and keeps exit 0', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..quietFails = true;
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0);
+      expect(world.quiets, 1);
+      expect(world.context!.alarmCounts, 0);
+      expect(report.quietFailure, 'relaunch --fresh: the reset was refused');
+      expect(report.quietAlarms, isNull);
+    });
+  });
+
+  group('an app still starting is "not yet", within the timeout', () {
+    late Directory root;
+    late QaPaths paths;
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('anta_qa_starting_');
+      paths = QaPaths(root.path);
+    });
+    tearDown(() => root.deleteSync(recursive: true));
+
+    Future<int> run(_StartingAgent agent, List<String> verb) async =>
+        await QaCommandRunner(
+          contextFactory: (globals) =>
+              _StartingContext(globals, paths: paths, starting: agent),
+          commands: [WaitCommand(), ExpectCommand(), ScrollToCommand()],
+        ).run(['-d', 'emulator-5556', ...verb]) ??
+        0;
+
+    test('wait polls past two "no semantics tree yet" answers to the tree', () async {
+      final agent = _StartingAgent(2);
+      expect(await run(agent, ['wait', 'id:ready', '--timeout', '5']), 0);
+      expect(agent.dumps, greaterThanOrEqualTo(3));
+      expect(File(paths.lastDumpFor('emulator-5556')).existsSync(), isTrue);
+    });
+
+    test('expect and scroll-to ride it out the same way', () async {
+      final expecting = _StartingAgent(2);
+      expect(await run(expecting, ['expect', 'id:ready', '--timeout', '5']), 0);
+      expect(expecting.dumps, 3);
+      final scrolling = _StartingAgent(2, failure: 'the app has not drawn its first frame yet (still starting?)');
+      expect(await run(scrolling, ['scroll-to', 'id:ready']), 0);
+      expect(scrolling.dumps, 3);
+    });
+
+    test('past the timeout the failure stands, and any other failure at once', () async {
+      final never = _StartingAgent(1 << 20);
+      await expectLater(
+        run(never, ['wait', 'id:ready', '--timeout', '1']),
+        throwsA(isA<DeviceFailure>().having(
+            (e) => e.message, 'message', contains('no semantics tree yet'))),
+      );
+      final broken = _StartingAgent(1, failure: 'the inspector produced no image');
+      await expectLater(
+        run(broken, ['wait', 'id:ready', '--timeout', '5']),
+        throwsA(isA<DeviceFailure>()),
+      );
+      expect(broken.dumps, 1);
     });
   });
 

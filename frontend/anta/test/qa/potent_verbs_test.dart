@@ -311,6 +311,11 @@ void main() {
         );
         expectHarmless(fleetInstallChildArgs(fleetSerial(index)), 'an install child');
         expectHarmless([pinScript(1000 + index, 0xFFFF)], 'the pin script');
+        expectHarmless([minimizeWindowScript(1000 + index)], 'the minimize script');
+      }
+      expectHarmless([qemuWindowScript], 'the window script');
+      for (final grant in passGrants) {
+        expectHarmless(grant.command, 'the ${grant.what} grant');
       }
       expectHarmless(fleetBuildChildArgs(verbose: true), 'the build child');
       expectHarmless(emuAvdNameArgs, 'emu avd name');

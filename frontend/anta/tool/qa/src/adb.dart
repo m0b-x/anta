@@ -246,6 +246,17 @@ List<AdbDevice> parseDevices(String output) {
   return devices;
 }
 
+/// The alarms [package] holds armed in `dumpsys alarm` output: its rows in
+/// the pending list (`RTC_WAKEUP #3: Alarm{… com.alexzamfir.anta}`). A plain
+/// count of the package's name would also count the removal history and
+/// the stats, which keep naming it after every alarm is cancelled.
+int countArmedAlarms(String dumpsys, String package) {
+  final row = RegExp(
+    r'^\s*[A-Z_]+ #\d+: Alarm\{[^}]*\s' + RegExp.escape(package) + r'\}',
+  );
+  return dumpsys.split('\n').where(row.hasMatch).length;
+}
+
 /// The emulator this harness was built around; still the name in the docs.
 const String defaultSerial = 'emulator-5554';
 

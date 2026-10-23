@@ -239,6 +239,9 @@ class PassReport {
     required this.build,
     required this.flows,
     this.partial = false,
+    this.quietMs,
+    this.quietAlarms,
+    this.quietFailure,
   });
 
   factory PassReport.fromJson(Map<String, dynamic> json) {
@@ -273,6 +276,9 @@ class PassReport {
           FlowRecord.fromJson((flow as Map).cast<String, dynamic>()),
       ],
       partial: json['partial'] as bool? ?? false,
+      quietMs: json['quietMs'] as int?,
+      quietAlarms: json['quietAlarms'] as int?,
+      quietFailure: json['quietFailure'] as String?,
     );
   }
 
@@ -307,6 +313,21 @@ class PassReport {
   /// finished, and only its last write says the list is complete.
   final bool partial;
 
+  /// How long the closing `relaunch --fresh` took to leave the device
+  /// quiet (the app on an empty QA database, so none of the fixture's
+  /// alarms rings between passes); null when it did not run
+  /// (`--keep-state`, or a report from before it existed). On a merged
+  /// report, the slowest device's.
+  final int? quietMs;
+
+  /// The app's alarms still armed after that relaunch, counted from
+  /// `dumpsys alarm`'s pending list; null off Android or when it was not
+  /// counted. Summed over the devices of a merged report.
+  final int? quietAlarms;
+
+  /// Why the device could not be left quiet, when it could not.
+  final String? quietFailure;
+
   int get durationMs => finished.difference(started).inMilliseconds;
 
   int count(FlowStatus status) => flows.where((f) => f.status == status).length;
@@ -329,6 +350,9 @@ class PassReport {
         'fixture': fixture,
         'prelude': prelude,
         'build': build,
+        'quietMs': quietMs,
+        'quietAlarms': quietAlarms,
+        'quietFailure': quietFailure,
         'summary': {
           'flows': flows.length,
           'passed': count(FlowStatus.passed),
@@ -392,6 +416,7 @@ PassReport mergeReports(List<PassReport> reports) {
     for (final report in reports)
       for (final flow in report.flows) flow.name: flow,
   };
+  final quietFailures = reports.map((r) => r.quietFailure).nonNulls.toList();
   return PassReport(
     suite: first.suite,
     label: reports.map((r) => r.label).nonNulls.firstOrNull,
@@ -407,7 +432,28 @@ PassReport mergeReports(List<PassReport> reports) {
     build: first.build,
     flows: byName.values.toList()..sort((a, b) => a.name.compareTo(b.name)),
     partial: reports.any((r) => r.partial),
+    quietMs: reports.map((r) => r.quietMs).nonNulls.fold<int?>(
+        null, (slowest, ms) => slowest == null ? ms : math.max(slowest, ms)),
+    quietAlarms: reports.map((r) => r.quietAlarms).nonNulls.fold<int?>(
+        null, (sum, count) => (sum ?? 0) + count),
+    quietFailure: quietFailures.isEmpty ? null : quietFailures.join('; '),
   );
+}
+
+/// The line that says whether a pass left its device (or, merged, its
+/// devices) quiet, or null when the pass did not try.
+String? quietLine(PassReport report) {
+  final who = report.device == null ? 'devices' : 'device';
+  final failure = report.quietFailure;
+  if (failure != null) return '$who not left quiet: ${headline(failure)}';
+  final ms = report.quietMs;
+  if (ms == null) return null;
+  final took = '${(ms / 1000).toStringAsFixed(1)} s';
+  final alarms = report.quietAlarms;
+  if (alarms == null) return '$who left quiet in $took (alarms not counted)';
+  if (alarms == 0) return '$who left quiet (0 alarms armed) in $took';
+  return '$who not left quiet: $alarms alarm(s) of the app still armed '
+      'after relaunch --fresh ($took)';
 }
 
 /// A failure message cut to one summary line: its first line, joined with
@@ -446,6 +492,8 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
   final seconds = (report.durationMs / 1000).toStringAsFixed(1);
   lines.add('pass: ${report.count(FlowStatus.passed)}/${report.flows.length} '
       'green in $seconds s on $ids — report $reportPath');
+  final quiet = quietLine(report);
+  if (quiet != null) lines.add(quiet);
   final stats = computeVerbStats(report.flows);
   if (stats.isNotEmpty) {
     final verbWidth = stats.keys.fold<int>(4, (w, v) => math.max(w, v.length));
