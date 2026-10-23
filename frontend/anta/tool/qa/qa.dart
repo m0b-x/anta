@@ -704,6 +704,10 @@ class QaContext {
   /// the report it belongs to.
   String? shotsDirOverride;
 
+  /// The scale a screenshot takes when its verb is not told one: `qa pass`
+  /// sets [passShotScale] for its run.
+  double? shotScaleOverride;
+
   /// A screenshot from the layer that has one: the device's own capture
   /// where the platform offers it, the agent's render of the Flutter view
   /// otherwise (or on request).
@@ -996,6 +1000,7 @@ mixin PostActions on QaCommand {
         ctx.screenshotPng,
         ctx.paths,
         name: shotName,
+        scale: ctx.shotScaleOverride ?? defaultShotScale,
         outDir: ctx.shotsDirOverride,
       ));
       tookShot = true;
@@ -2098,8 +2103,10 @@ class ShotCommand extends QaCommand {
     final rest = argResults!.rest;
     final scale = (argResults!['full'] as bool)
         ? 1.0
-        : (double.tryParse(argResults!['scale'] as String) ??
-            (throw UsageFailure('--scale must be a number')));
+        : !argResults!.wasParsed('scale') && ctx.shotScaleOverride != null
+            ? ctx.shotScaleOverride!
+            : (double.tryParse(argResults!['scale'] as String) ??
+                (throw UsageFailure('--scale must be a number')));
     final via = parseViaMode(argResults!['via'] as String?);
     final path = await captureShot(
       () => ctx.screenshotPng(via: via),
@@ -3471,6 +3478,7 @@ class PassCommand extends QaCommand with StepLoop {
       _capture?.add(isError ? '! $line' : line);
     };
     ctx.shotsDirOverride = passDir.path;
+    ctx.shotScaleOverride = passShotScale;
     try {
       final installed = ApkRecord.read(paths.installedJsonFor(device.id));
       if (installed != null) {
@@ -3544,6 +3552,7 @@ class PassCommand extends QaCommand with StepLoop {
     } finally {
       qaRunner.lineSink = null;
       ctx.shotsDirOverride = null;
+      ctx.shotScaleOverride = null;
       await log.flush();
       await log.close();
     }
@@ -3751,7 +3760,13 @@ class PassCommand extends QaCommand with StepLoop {
     String? dump;
     String? errors;
     try {
-      final taken = await captureShot(ctx.screenshotPng, ctx.paths, name: base, outDir: passDir);
+      final taken = await captureShot(
+        ctx.screenshotPng,
+        ctx.paths,
+        name: base,
+        scale: passShotScale,
+        outDir: passDir,
+      );
       shot = File(taken).renameSync(joinPath(passDir, ['$base.png'])).absolute.path;
     } on Object catch (e) {
       warn('pass: no failure screenshot ($e)');

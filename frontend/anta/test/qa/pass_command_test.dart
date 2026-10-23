@@ -13,6 +13,7 @@ import '../../tool/qa/qa.dart'
         QaCommandRunner,
         QaContext,
         ScrollToCommand,
+        ShotCommand,
         StepsCommand,
         WaitCommand;
 import '../../tool/qa/src/device.dart';
@@ -134,6 +135,7 @@ class _World {
             context = _FakeContext(globals, paths: paths)..armed = armed,
         commands: [
           PassCommand(),
+          ShotCommand(),
           StepsCommand(),
           _Verb('relaunch', (verb, _) async {
             if ((verb.argResults!['seed'] as List<String>).isEmpty) {
@@ -324,6 +326,24 @@ void main() {
       expect((midPass['flows'] as List).map((f) => (f as Map)['name']),
           ['01_open', '02_red', '03_parse']);
       expect(report.partial, isFalse);
+    });
+
+    test('a pass keeps its screenshots at the device size; a lone qa shot halves', () async {
+      final world = _World(flows: {'01_shot': 'shot s1\nshot --scale 0.25 s2\nexpect "missing"\n'});
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, exitTarget);
+      final flow = report.flows.single;
+      int widthOf(String path) => img.decodePng(File(path).readAsBytesSync())!.width;
+      final shots = flow.steps.take(2).map((s) => s.output.trim()).toList();
+      expect(widthOf(shots[0]), 8, reason: 'a shot step in a pass is not resized');
+      expect(widthOf(shots[1]), 2, reason: 'an explicit --scale still holds');
+      expect(widthOf(flow.failure!.shot!), 8);
+
+      final alone = joinPath(world.root.path, ['alone']);
+      await world.runner().run(['-d', 'emulator-5556', 'shot', '--out', alone, 'a']);
+      final file = Directory(alone).listSync().whereType<File>().single;
+      expect(widthOf(file.path), 4, reason: 'outside a pass the default stays half size');
     });
 
     test('a failed reseed and a failed prelude are step 0, told apart by their line', () async {

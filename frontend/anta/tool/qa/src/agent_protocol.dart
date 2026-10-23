@@ -161,6 +161,15 @@ String? agentVersionMismatch(int installed) => installed >= agentProtocolVersion
     : 'installed agent is v$installed, this tool needs v$agentProtocolVersion '
         '— `qa build` then `qa install`';
 
+/// How long the agent waits after an action for the app to stop scheduling
+/// frames. A ripple keeps frames coming, so most taps pay the whole cap,
+/// while every flow then waits for what it needs explicitly: in a sharded
+/// calendar pass a tap measured p50 520 ms at a 500 ms cap and 245 ms at
+/// this one (2026-10-23). A route still closing or a scroll still animating
+/// is waited out past the cap (the agent's `screenMoving`): without that a
+/// short cap left a flow's next target unbuilt.
+const int agentSettleCapMs = 150;
+
 const String driverExtensionMethod = 'ext.flutter.driver';
 
 const List<String> agentTextActions = [

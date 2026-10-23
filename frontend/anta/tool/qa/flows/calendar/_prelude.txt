@@ -5,9 +5,11 @@
 #   tapped before it lands: a flow whose first step is `tap "Upcoming"` was
 #   put back on Day. Nothing on screen marks the restore, so the last step
 #   taps the already selected Day (which changes and persists nothing) and
-#   holds 2 s; measured 2026-10-23, 1.5 s was always enough.
+#   holds 1 s; measured 2026-10-23: with no hold 4 of 4 runs went red, at
+#   1.5 s and at 1 s flows 10 and 17 (which tap a mode first) were green
+#   10 of 10 over five runs each on the fleet.
 tap id:nav-menu
 wait id:drawer-calendar
 tap id:drawer-calendar
 wait id:calendar-add-event
-tap id:panel-mode-day --settle 2000
+tap id:panel-mode-day --settle 1000

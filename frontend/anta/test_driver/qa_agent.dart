@@ -45,8 +45,13 @@ class QaAgent {
   DateTime? _recordingSince;
 
   static const int _errorLimit = 100;
-  static const Duration _settleCap = Duration(milliseconds: 500);
+  static const Duration _settleCap = Duration(milliseconds: agentSettleCapMs);
   static const Duration _frameCap = Duration(milliseconds: 400);
+
+  /// How long a settle keeps going past [_settleCap] while [screenMoving];
+  /// a menu's reverse transition and a pager's page turn are 300 ms, a
+  /// page route's longer.
+  static const Duration _movingSettleCap = Duration(milliseconds: 800);
 
   /// `showOnScreen` jumps, but a scrollable that animates its offset runs
   /// about 300 ms and a fling it interrupts settles later still.
@@ -986,8 +991,44 @@ class QaAgent {
         return;
       }
     } while (binding.hasScheduledFrame && DateTime.now().isBefore(deadline));
+    if (!binding.hasScheduledFrame) return;
+    final movingDeadline = DateTime.now().add(_movingSettleCap);
+    while (screenMoving() && DateTime.now().isBefore(movingDeadline)) {
+      try {
+        await binding.endOfFrame.timeout(_frameCap);
+      } on TimeoutException {
+        return;
+      }
+    }
   }
 }
+
+/// Whether the screen is still on its way to what the next step targets,
+/// where a short settle alone would leave it unfound (calendar
+/// 23_overview_list, 2026-10-23): a popped route keeps its barrier until
+/// its reverse transition ends, and the barrier blocks the semantics of the
+/// route under it (at a 250 ms settle a tap right after a menu closed found
+/// only "Dismiss menu"); a scrollable animating to an offset has not yet
+/// built what it brings in (at 150 ms a tap right after the date picker's
+/// Today found no day of the month it was paging to).
+bool screenMoving() => routeClosing() || scrollAnimating();
+
+/// [ModalRoute] puts its barrier under an `IgnorePointer` that ignores
+/// exactly while the route is neither going forward nor completed.
+bool routeClosing() => find
+    .ancestor(
+      of: find.byType(ModalBarrier),
+      matching: find.byWidgetPredicate((w) => w is IgnorePointer && w.ignoring),
+    )
+    .evaluate()
+    .isNotEmpty;
+
+/// A pager turned by `animateToPage` or a list scrolled by `animateTo`;
+/// a finger-driven fling counts too, which is what a swipe waits out.
+bool scrollAnimating() => find.byType(Scrollable).evaluate().any((element) {
+      final state = (element as StatefulElement).state as ScrollableState;
+      return state.position.isScrollingNotifier.value;
+    });
 
 class _InspectorShots with WidgetInspectorService {
   Future<ui.Image?> capture(

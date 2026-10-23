@@ -24,16 +24,25 @@ String sanitiseName(String name) {
   return cleaned.isEmpty ? 'shot' : cleaned;
 }
 
+/// Halves each side, which is what keeps a hand-taken screenshot cheap for
+/// an agent to read back.
+const double defaultShotScale = 0.5;
+
+/// A pass keeps its screenshots at the device's size: the Dart-side decode,
+/// resize and re-encode was most of a shot's cost (adb screencap p50 562 ms
+/// at 0.5×, 228 ms full size, ten of each on a fleet device, 2026-10-23),
+/// and a full-size PNG is about 250 KB, which an agent's Read downscales
+/// anyway. The agent's own render was faster still (148 ms) but drew the
+/// view offset and cropped, without the system bars.
+const double passShotScale = 1.0;
+
 /// Grabs a screenshot through [capture], optionally downscales it, and
 /// returns the file path.
-///
-/// The default 0.5 scale halves each side, which is what keeps a screenshot
-/// cheap for an agent to read back.
 Future<String> captureShot(
   Future<List<int>> Function() capture,
   QaPaths paths, {
   String name = 'shot',
-  double scale = 0.5,
+  double scale = defaultShotScale,
   String? outDir,
   DateTime? now,
 }) async {

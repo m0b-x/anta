@@ -71,6 +71,14 @@ void main() {
       expect(decoded.height, 400);
     });
 
+    test("a pass's scale writes the device's PNG byte for byte", () async {
+      final png = _png(200, 400);
+      final path = await captureShot(_shotOf(png), paths, scale: passShotScale);
+      expect(File(path).readAsBytesSync(), png,
+          reason: 'no decode, resize or encode is what makes a pass shot cheap');
+      expect(defaultShotScale, 0.5);
+    });
+
     test('--out writes elsewhere, creating the directory', () async {
       final path = await captureShot(
         _shotOf(_png(100, 100)),
