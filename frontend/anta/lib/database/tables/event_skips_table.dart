@@ -56,6 +56,9 @@ class EventSkips extends Table {
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  TextColumn get ownerId => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {eventId, day};
 }

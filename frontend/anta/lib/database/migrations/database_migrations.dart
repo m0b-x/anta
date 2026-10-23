@@ -216,6 +216,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v42CategoryAlertsAndDigests,
       migrate: _migrateV41ToV42,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v42CategoryAlertsAndDigests,
+      toVersion: DatabaseSchema.v43SyncReadiness,
+      migrate: _migrateV42ToV43,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1770,5 +1775,130 @@ class DatabaseMigrations {
     }
 
     await DatabaseIndexes(_db).createCategoryAlertIndexes();
+  }
+
+  /// The eighteen tables that sync, by SQL name — the readiness record's §3.
+  /// `alert_registrations`, `sync_metadata`, `user_settings`, `public_holidays`
+  /// and `sync_outbox` stay device-local and are absent on purpose.
+  static const _syncedTables = [
+    'folders',
+    'notes',
+    'content_chunks',
+    'calendar_events',
+    'calendar_event_absences',
+    'calendar_event_occurrences',
+    'calendar_event_skips',
+    'calendar_event_templates',
+    'calendar_event_alerts',
+    'event_digests',
+    'calendar_category_alerts',
+    'calendar_filter_presets',
+    'overview_views',
+    'vocabularies',
+    'vocabulary_items',
+    'calendar_categories',
+    'counters',
+    'counter_values',
+  ];
+
+  /// v42→v43: sync readiness. Every synced table can name its owner, the last
+  /// three without the CRDT block get it, and the change feed exists. Purely
+  /// local — nothing reads `owner_id` or `sync_outbox` yet.
+  ///
+  /// `calendar_categories`, `counters` and `counter_values` take the
+  /// `calendar_events` v27 shape: populated tables, so `ADD COLUMN NOT NULL`
+  /// needs the `''` default on the identity pair, mirrored by the Drift
+  /// declarations. One backfill per table stamps a single migration-moment HLC
+  /// on every existing row, because this device can no longer order their past
+  /// edits; `version 1` / `is_deleted 0` make each a live, never-merged row.
+  ///
+  /// `owner_id` lands NULL everywhere: a row has no owner until sync binds an
+  /// account, and the binding decides who.
+  ///
+  /// `idx_counter_values_counter` was full since v6 and is dropped by name
+  /// before the shared creator rebuilds it partial; `IF NOT EXISTS` alone would
+  /// leave upgraders on the old definition under the same name.
+  ///
+  /// The repair: `FolderDao.softDeleteFolderWithDescendants` bound `deleted_at`
+  /// and `updated_at` as milliseconds where Drift stores seconds. A stored
+  /// value above 10^12 can only be milliseconds — as seconds it is the year
+  /// 33658, as milliseconds 2001, before this app existed — so dividing it is
+  /// exact and leaves nothing a second run would match.
+  ///
+  /// The DDL is frozen at this version. Idempotent throughout: `PRAGMA
+  /// table_info` guards every ALTER, the backfill is scoped to
+  /// `hlc_timestamp = ''`, the index swap is drop-then-create and the repair is
+  /// thresholded.
+  Future<void> _migrateV42ToV43(Migrator m, GeneratedDatabase db) async {
+    for (final table in ['calendar_categories', 'counters', 'counter_values']) {
+      final existing = await _columnsOf(table);
+      if (!existing.contains('hlc_timestamp')) {
+        await _db.customStatement(
+          "ALTER TABLE $table ADD COLUMN hlc_timestamp TEXT NOT NULL DEFAULT ''",
+        );
+      }
+      if (!existing.contains('device_id')) {
+        await _db.customStatement(
+          "ALTER TABLE $table ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+        );
+      }
+      if (!existing.contains('version')) {
+        await _db.customStatement(
+          'ALTER TABLE $table ADD COLUMN version INTEGER NOT NULL DEFAULT 1',
+        );
+      }
+      if (!existing.contains('is_deleted')) {
+        await _db.customStatement(
+          'ALTER TABLE $table ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+      if (!existing.contains('deleted_at')) {
+        await _db.customStatement(
+          'ALTER TABLE $table ADD COLUMN deleted_at INTEGER',
+        );
+      }
+      await _db.customStatement(
+        'UPDATE $table SET hlc_timestamp = ?, device_id = ?, version = 1 '
+        "WHERE hlc_timestamp = ''",
+        [_db.generateHlc(), _db.deviceId],
+      );
+    }
+
+    for (final table in _syncedTables) {
+      if (!(await _columnsOf(table)).contains('owner_id')) {
+        await _db.customStatement(
+          'ALTER TABLE $table ADD COLUMN owner_id TEXT',
+        );
+      }
+    }
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_outbox (
+        table_name TEXT NOT NULL,
+        row_key TEXT NOT NULL,
+        hlc TEXT NOT NULL,
+        op TEXT NOT NULL,
+        enqueued_at INTEGER NOT NULL,
+        PRIMARY KEY (table_name, row_key)
+      )
+    ''');
+
+    await _db.customStatement(
+      'DROP INDEX IF EXISTS idx_counter_values_counter',
+    );
+    final indexes = DatabaseIndexes(_db);
+    await indexes.createCounterIndexes();
+    await indexes.createCategoryIndexes();
+
+    for (final table in ['folders', 'notes']) {
+      await _db.customStatement(
+        'UPDATE $table SET deleted_at = deleted_at / 1000 '
+        'WHERE deleted_at > 1000000000000',
+      );
+      await _db.customStatement(
+        'UPDATE $table SET updated_at = updated_at / 1000 '
+        'WHERE updated_at > 1000000000000',
+      );
+    }
   }
 }

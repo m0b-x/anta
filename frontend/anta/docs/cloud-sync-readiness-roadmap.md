@@ -287,6 +287,42 @@ outbox table exists.
 - Skills: `drift-migrations` (persistence rules, the atomic-step contract),
   `anta-context`.
 
+**As built (2026-10-23, one implementer, one independent reviewer, one fix
+pass; the review found no data loss, crash or persisted-data break).**
+Deviations from the plan above, each sound and reversible on its own:
+
+- The folder-cascade `deleted_at` fix moved here from R3a so the binding fix
+  and the repair ship together; the repair covers every folder and note row
+  above 10^12 (live rows and `updated_at` too — no seconds value can reach it).
+- `CounterService` tracks dirty `(counterId, noteId)` pairs, not whole notes;
+  `CounterDao.upsertValue` is read-then-write, writes nothing when the value is
+  unchanged, resurrects a tombstoned value, and drops the write when the parent
+  counter is tombstoned; `deleteCounter` clears the counter's pending dirty
+  entries. One HLC per user action: `insertCounterWithValue` and
+  `setCounterPinned(positions:)`. `updateCounter` / `updateCategory` skip
+  no-op edits; reorders write only rows that moved; `nextSortOrder` counts
+  tombstones (gaps are harmless, `reorder` makes live rows dense).
+- Built-ins can never be tombstoned: `CalendarCategoryDao.softDeleteById`
+  returns `bool` and refuses built-in ids (by flag or by id),
+  `CategoryService.deleteCategory` refuses before its transaction, import
+  normalises `isBuiltIn` from the seed list regardless of the archive flag,
+  and `seedMissing` resurrects a tombstoned built-in (`DoUpdate … where
+  isDeleted`) keeping the user's name, colour and order.
+- Indexes: `idx_counter_values_counter` is now
+  `(counter_id, is_pinned DESC, position) WHERE is_deleted = 0` (the ordered
+  read otherwise sorted in a temp B-tree); new `idx_counters_active` and
+  `idx_calendar_categories_active`; v43 drops and recreates through the
+  shared creators, so fresh and migrated shapes agree (`upgrade_chain_test`).
+- Tests: `counter_crdt_test`, `calendar_category_crdt_test`,
+  `folder_tombstone_time_test`, `test/services/counter_service_test.dart`,
+  `test/database/support/v42_shapes.dart` (the real v42 shapes the parity and
+  CRDT suites migrate from), query-plan tests on every counter and category
+  read path. Older migration suites now run to `currentVersion`.
+- Left as found, recorded in §8: the folder cascade's `customUpdate` passes no
+  `updates:` (no stream notification, as before); `CounterValueRow` reaches
+  the per-note bloc; fresh installs carry a `CHECK (is_deleted IN (0,1))`
+  that migrated tables lack (v27 precedent); `getValuesForNote` scans.
+
 ### R5 — Clock persistence (D6)
 
 - `generateHlc()` (`database.dart:218`) writes the issued value to
@@ -323,9 +359,8 @@ outbox table exists.
   `hlc.update`, which they already do); `mergeNote` re-indexes FTS through
   the existing `_updateFtsIndex` (`note_dao.dart:316`) and returns the
   overwritten local row (`null` when it inserted) for D7.
-- **Fix** `folder_dao.dart:548-549` and `:567-568`: bind `Variable<DateTime>`
-  (the `calendar_event_dao.dart:153` idiom), with a test that a tombstoned
-  descendant's `deletedAt` reads back as the same instant.
+- ~~Fix `folder_dao.dart:548-549` and `:567-568`~~ — done in R2 together
+  with the stored-value repair.
 - **Tests**: per table, one mutation → exactly one outbox row with the row's
   HLC and `op`; a second mutation of the same row coalesces; a remote merge
   → zero rows; a tombstone records `op = 'tombstone'`; the usage probe — 200
@@ -475,6 +510,11 @@ outbox table exists.
 - Dialog copy for "Delete all events" naming the other devices.
 - Desktop sign-in: relax the gate for macOS (the official plugin supports
   it), a loopback OAuth flow for Windows.
+- Found by the R2 review, pre-existing: `softDeleteFolderWithDescendants`'s
+  `customUpdate` passes no `updates:` so no stream fires (same as before);
+  `CounterValueRow` (now carrying CRDT columns) reaches the per-note bloc;
+  fresh installs carry a `CHECK (is_deleted IN (0,1))` migrated tables lack;
+  `getValuesForNote` scans `counter_values` (no `note_id` index).
 
 ---
 

@@ -534,8 +534,18 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         [for (final id in descendantIds) id],
       );
 
-      // Bulk update notes. version + 1 per row is preserved.
-      await db.customStatement(
+      // Bulk update notes. version + 1 per row is preserved. The timestamps
+      // bind as `Variable<DateTime>`: Drift stores unix seconds, and raw
+      // milliseconds here once wrote values a thousand times too large (the
+      // v43 migration repairs those rows).
+      final stamps = <Variable>[
+        Variable<DateTime>(now),
+        Variable<DateTime>(now),
+        Variable<String>(hlc),
+        Variable<String>(db.deviceId),
+        for (final id in descendantIds) Variable<String>(id),
+      ];
+      await customUpdate(
         'UPDATE notes SET '
         '  is_deleted = 1, '
         '  deleted_at = ?, '
@@ -544,17 +554,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         '  device_id = ?, '
         '  version = version + 1 '
         'WHERE folder_id IN ($placeholders) AND is_deleted = 0',
-        [
-          now.millisecondsSinceEpoch,
-          now.millisecondsSinceEpoch,
-          hlc,
-          db.deviceId,
-          ...descendantIds,
-        ],
+        variables: stamps,
       );
 
       // 2. Bulk soft-delete folders themselves.
-      await db.customStatement(
+      await customUpdate(
         'UPDATE folders SET '
         '  is_deleted = 1, '
         '  deleted_at = ?, '
@@ -563,13 +567,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         '  device_id = ?, '
         '  version = version + 1 '
         'WHERE id IN ($placeholders) AND is_deleted = 0',
-        [
-          now.millisecondsSinceEpoch,
-          now.millisecondsSinceEpoch,
-          hlc,
-          db.deviceId,
-          ...descendantIds,
-        ],
+        variables: stamps,
       );
     });
   }

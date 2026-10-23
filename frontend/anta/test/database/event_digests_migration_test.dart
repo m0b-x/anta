@@ -74,7 +74,13 @@ void main() {
     final created = await columnShape('event_digests');
 
     await db.customStatement('DROP TABLE event_digests');
-    await runV42();
+    // v43 appends `owner_id`, so a fresh install's shape is the v42 DDL plus
+    // every later step that widens it.
+    await DatabaseMigrations(db).runMigrations(
+      db.createMigrator(),
+      DatabaseSchema.v41OverviewViews,
+      DatabaseSchema.currentVersion,
+    );
 
     expect(await columnShape('event_digests'), created);
   });

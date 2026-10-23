@@ -1,9 +1,12 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/migrations.dart';
 
 import 'support/db_test_support.dart';
+import 'support/v42_shapes.dart';
 
 /// Guards the invariant that the **create path and the migration path agree**.
 ///
@@ -75,7 +78,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_occurrences)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'event_id',
@@ -131,7 +134,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_absences)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'event_id',
@@ -188,7 +191,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_skips)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'event_id',
@@ -233,7 +236,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_templates)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'id',
@@ -323,7 +326,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_filter_presets)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'id',
@@ -375,7 +378,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(overview_views)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'id',
@@ -418,7 +421,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_alerts)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'id',
@@ -477,7 +480,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_category_alerts)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'id',
@@ -519,7 +522,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(event_digests)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'id',
@@ -558,7 +561,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(alert_registrations)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(byName.keys.toSet(), {
       'os_id',
@@ -607,7 +610,7 @@ void main() {
     // meaningless without its list, and the two must tombstone alike.
     for (final table in ['vocabularies', 'vocabulary_items']) {
       final columns = await db.customSelect('PRAGMA table_info($table)').get();
-      final byName = {for (final row in columns) row.read<String>('name'): row};
+      final byName = _frozenShape(columns);
 
       expect(byName.keys.toSet(), {
         'id',
@@ -672,7 +675,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_events)')
         .get();
-    final byName = {for (final row in columns) row.read<String>('name'): row};
+    final byName = _frozenShape(columns);
 
     expect(
       byName.keys,
@@ -763,6 +766,146 @@ void main() {
     expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
   });
 
+  test(
+    'every synced table carries a nullable owner_id, and only those',
+    () async {
+      // v43: a synced row must be able to say whose it is before it syncs. NULL
+      // until a binding exists, so no DEFAULT — on both paths alike.
+      const synced = {
+        'folders',
+        'notes',
+        'content_chunks',
+        'calendar_events',
+        'calendar_event_absences',
+        'calendar_event_occurrences',
+        'calendar_event_skips',
+        'calendar_event_templates',
+        'calendar_event_alerts',
+        'event_digests',
+        'calendar_category_alerts',
+        'calendar_filter_presets',
+        'overview_views',
+        'vocabularies',
+        'vocabulary_items',
+        'calendar_categories',
+        'counters',
+        'counter_values',
+      };
+      for (final table in await tableNames(db)) {
+        if (table.startsWith('notes_fts')) continue;
+        final columns = await db
+            .customSelect('PRAGMA table_info($table)')
+            .get();
+        final owner = [
+          for (final row in columns)
+            if (row.read<String>('name') == 'owner_id') row,
+        ];
+        if (!synced.contains(table)) {
+          expect(owner, isEmpty, reason: '$table is device-local');
+          continue;
+        }
+        expect(owner, hasLength(1), reason: '$table lacks owner_id');
+        expect(owner.single.read<String>('type'), 'TEXT', reason: table);
+        expect(owner.single.read<int>('notnull'), 0, reason: table);
+        expect(
+          owner.single.readNullable<String>('dflt_value'),
+          isNull,
+          reason: table,
+        );
+      }
+    },
+  );
+
+  test('the three v43 tables carry the calendar_events CRDT block', () async {
+    // Converted while populated, so the identity pair has the `''` DEFAULT
+    // SQLite's `ADD COLUMN NOT NULL` demands, and the declaration matches.
+    for (final table in ['calendar_categories', 'counters', 'counter_values']) {
+      final columns = await db.customSelect('PRAGMA table_info($table)').get();
+      final byName = {for (final row in columns) row.read<String>('name'): row};
+      for (final name in ['hlc_timestamp', 'device_id']) {
+        expect(byName[name]!.read<String>('type'), 'TEXT', reason: table);
+        expect(byName[name]!.read<int>('notnull'), 1, reason: table);
+        expect(byName[name]!.read<String>('dflt_value'), "''", reason: table);
+      }
+      expect(byName['version']!.read<String>('dflt_value'), '1');
+      expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+      expect(byName['deleted_at']!.read<int>('notnull'), 0, reason: table);
+    }
+    // The composite key that makes the global value `noteId == ''` survives.
+    final values = await db
+        .customSelect('PRAGMA table_info(counter_values)')
+        .get();
+    final pk = {
+      for (final row in values)
+        if (row.read<int>('pk') > 0)
+          row.read<String>('name'): row.read<int>('pk'),
+    };
+    expect(pk, {'counter_id': 1, 'note_id': 2});
+  });
+
+  test('the outbox table matches its frozen migration DDL', () async {
+    final columns = await db
+        .customSelect('PRAGMA table_info(sync_outbox)')
+        .get();
+    final shape = {
+      for (final row in columns)
+        row.read<String>('name'):
+            '${row.read<String>('type')} '
+            'notnull=${row.read<int>('notnull')} '
+            'pk=${row.read<int>('pk')}',
+    };
+    expect(shape, {
+      'table_name': 'TEXT notnull=1 pk=1',
+      'row_key': 'TEXT notnull=1 pk=2',
+      'hlc': 'TEXT notnull=1 pk=0',
+      'op': 'TEXT notnull=1 pk=0',
+      'enqueued_at': 'INTEGER notnull=1 pk=0',
+    });
+  });
+
+  test('the v43 partial indexes are defined identically on both paths', () async {
+    // The name scrape cannot see a definition, and `idx_counter_values_counter`
+    // keeps its v6 name while changing shape. This compares the stored
+    // definitions of a fresh install with a v42 database migrated to v43.
+    const names = [
+      'idx_counter_values_counter',
+      'idx_counters_active',
+      'idx_calendar_categories_active',
+    ];
+    Future<Map<String, String>> definitions(AppDatabase target) async {
+      final rows = await target
+          .customSelect(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'index' "
+            "AND name IN ('${names.join("', '")}')",
+          )
+          .get();
+      return {
+        for (final row in rows)
+          row.read<String>('name'): row.read<String>('sql'),
+      };
+    }
+
+    final created = await definitions(db);
+    expect(created.keys.toSet(), names.toSet());
+    for (final sql in created.values) {
+      expect(sql, endsWith('WHERE is_deleted = 0'));
+    }
+
+    // The three tables at their real v42 shape: no CRDT block, the v6 full
+    // index under the reused name, neither new index.
+    final migrated = await openTestDatabase();
+    addTearDown(migrated.close);
+    await rebuildCountersAtV42(migrated);
+    await rebuildCategoriesAtV42(migrated);
+    await DatabaseMigrations(migrated).runMigrations(
+      migrated.createMigrator(),
+      DatabaseSchema.v42CategoryAlertsAndDigests,
+      DatabaseSchema.v43SyncReadiness,
+    );
+
+    expect(await definitions(migrated), created);
+  });
+
   test('the event start-date index is partial on live rows', () async {
     // The v27 migration drops the full index by name before recreating it, so
     // an upgraded database and a fresh one hold the same definition. The
@@ -821,6 +964,14 @@ void main() {
     }
   });
 }
+
+/// [columns] keyed by name, without v43's `owner_id`. The frozen-DDL tests pin
+/// the shape each step shipped; `owner_id` arrives on every synced table by one
+/// later ALTER and is pinned once, in its own test.
+Map<String, QueryRow> _frozenShape(List<QueryRow> columns) => {
+  for (final row in columns)
+    if (row.read<String>('name') != 'owner_id') row.read<String>('name'): row,
+};
 
 /// The body of `Future<void> [name]() async { … }` in [source], from its
 /// opening brace to the matching close.

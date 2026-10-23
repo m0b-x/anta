@@ -33,6 +33,12 @@ import 'event_alert_service.dart';
 class CategoryService {
   static CategoryService? _instance;
 
+  /// Every seeded built-in's id, the fallback `other` among them.
+  static final _builtInIds = {
+    for (final seed in CalendarCategories.builtInSeeds) seed.id,
+    kFallbackCategoryId,
+  };
+
   late AppDatabase _db;
   late CalendarCategoryDao _dao;
   List<CalendarCategory> _cache = const [];
@@ -325,7 +331,8 @@ class CategoryService {
 
   /// Deletes a custom category and reassigns its events to the built-in
   /// fallback ([kFallbackCategoryId]) in one transaction. Built-ins cannot be
-  /// deleted (the seeder would re-add them anyway). No-op for unknown ids.
+  /// deleted — by flag or by id, since an older archive could restore one as
+  /// custom — and neither can the DAO tombstone one. No-op for unknown ids.
   ///
   /// The category's alerts (**v42**) are tombstoned in the same transaction —
   /// the `CalendarEventService.deleteById` cascade's shape, so the category
@@ -342,11 +349,13 @@ class CategoryService {
   Future<void> deleteCategory(String id) async {
     final deleted = await _serialize(() async {
       final category = CalendarCategories.byId(id);
-      if (category == null || category.isBuiltIn) return false;
+      if (category == null || category.isBuiltIn || _builtInIds.contains(id)) {
+        return false;
+      }
       await _db.transaction(() async {
         await _db.calendarEventDao.reassignCategory(id, kFallbackCategoryId);
         await _db.categoryAlertDao.tombstoneForCategory(id);
-        await _dao.deleteById(id);
+        await _dao.softDeleteById(id);
       });
       await _load();
       await EventAlertService.refreshAfterCategoryRemoval();
@@ -437,9 +446,12 @@ class CategoryService {
               map['sortOrder'] is int ? map['sortOrder'] as int : 0,
             ),
             // Every flag is read by *type test* rather than a cast, so a junk
-            // value costs the flag and not the whole category row.
+            // value costs the flag and not the whole category row. A built-in
+            // id is built-in whatever the archive says: restored as custom it
+            // could be deleted, and the fallback with it.
             isBuiltIn: Value(
-              map['isBuiltIn'] is bool && map['isBuiltIn'] as bool,
+              _builtInIds.contains(id) ||
+                  (map['isBuiltIn'] is bool && map['isBuiltIn'] as bool),
             ),
             isHidden: Value(map['isHidden'] is bool && map['isHidden'] as bool),
             createdAt: Value(

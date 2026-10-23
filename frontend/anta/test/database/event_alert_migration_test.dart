@@ -181,7 +181,13 @@ void main() {
       final created = await columnShape('calendar_event_alerts');
 
       await dropV40();
-      await runV40();
+      // v43 appends `owner_id`, so a fresh install's shape is the v40 DDL
+      // plus every later step that widens it.
+      await DatabaseMigrations(db).runMigrations(
+        db.createMigrator(),
+        DatabaseSchema.v39ItemLabels,
+        DatabaseSchema.currentVersion,
+      );
 
       expect(await columnShape('calendar_event_alerts'), created);
     });

@@ -353,6 +353,27 @@ void main() {
       expect(CalendarCategories.visible.length, CalendarCategories.all.length);
     });
 
+    test('a built-in id imports built-in whatever the archive says', () async {
+      final exported = await service.exportData();
+      // An archive that lost the flag, or never had it: every built-in row
+      // claims to be custom, `other` — the fallback — included.
+      final stripped = [
+        for (final row in exported) {...row, 'isBuiltIn': false},
+      ];
+
+      await service.importData(stripped);
+
+      for (final seed in CalendarCategories.builtInSeeds) {
+        expect(CalendarCategories.byId(seed.id)!.isBuiltIn, isTrue);
+      }
+      await service.deleteCategory('other');
+      expect(
+        CalendarCategories.byId('other'),
+        isNotNull,
+        reason: 'restored as custom, the fallback could be deleted',
+      );
+    });
+
     test('a malformed isHidden costs the flag, not the category', () async {
       final custom = await service.create(
         name: 'Dentist',

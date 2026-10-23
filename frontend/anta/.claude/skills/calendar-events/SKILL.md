@@ -38,7 +38,7 @@ Read only the `docs/calendar-events-feature.md` section you touch (§1–§13: v
 
 Reworks follow `ui-revamp`. **Before changing a surface, read its section in `references/subsystems.md`**.
 
-## Schema lineage (current v42)
+## Schema lineage (current v43)
 
 Chain: `references/schema-lineage.md`. Rules for every version:
 

@@ -988,8 +988,8 @@ void main() {
       counter.reset();
       await db.calendarCategoryDao.reorder(ids.reversed.toList());
 
-      // No CRDT columns on this table, so unlike the vocabulary reorder there
-      // is no `version + 1` to read first — every statement must be a write.
+      // `version + 1` is SQL arithmetic since v43, so there is still nothing
+      // to read first — every statement must be a write.
       expect(
         counter.selects,
         isEmpty,

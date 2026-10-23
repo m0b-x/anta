@@ -1,20 +1,38 @@
 import 'package:drift/drift.dart';
 
+import '../../models/calendar_event.dart' show CalendarEventCategory;
 import '../database.dart';
 import '../tables/calendar_categories_table.dart';
 
 part 'calendar_category_dao.g.dart';
 
+/// All CRDT stamping for `calendar_categories` lives here (**v43**), the
+/// [CalendarEventDao] rule: nothing above this class — `CategoryService`, the
+/// `CalendarCategories` facade, backup — sees a CRDT field or a tombstone.
 @DriftAccessor(tables: [CalendarCategories])
 class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
     with _$CalendarCategoryDaoMixin {
   CalendarCategoryDao(super.db);
 
+  /// The live-row predicate every read restates, spelled exactly as
+  /// `idx_calendar_categories_active`'s `WHERE`. A literal rather than
+  /// `isDeleted.equals(false)`, whose bound parameter the SQLite shipping to
+  /// Android does not prove implies the index's predicate.
+  static const _live = CustomExpression<bool>('is_deleted = 0');
+
+  /// The built-in ids: every `CalendarEventCategory` name, the seeds'
+  /// `id => kind.name`, `kFallbackCategoryId` among them.
+  static final _builtInIds = {
+    for (final kind in CalendarEventCategory.values) kind.name,
+  };
+
   Future<List<CalendarCategoryRow>> getAll() {
-    return (select(calendarCategories)..orderBy([
-          (c) => OrderingTerm.asc(c.sortOrder),
-          (c) => OrderingTerm.asc(c.id),
-        ]))
+    return (select(calendarCategories)
+          ..where((c) => _live)
+          ..orderBy([
+            (c) => OrderingTerm.asc(c.sortOrder),
+            (c) => OrderingTerm.asc(c.id),
+          ]))
         .get();
   }
 
@@ -27,11 +45,41 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// `CategoryService.getInstance()` of a session and again after every backup
   /// import, and `injection.dart` already records the nine-statement version
   /// as part of why the calendar services left the pre-`runApp` path.
+  ///
+  /// Every seed carries one shared HLC, but only the rows actually written
+  /// keep it: a live built-in is never re-stamped, so a launch is not a write
+  /// to every built-in.
+  ///
+  /// The one conflict that does write is a **tombstoned** built-in, which is
+  /// resurrected — keeping the user's last edits, flagged built-in again —
+  /// rather than ignored. Built-ins are undeletable, but a tombstone can still
+  /// arrive (a merge, or a row an older archive restored as custom), and
+  /// ignoring it would hide that built-in for good, `other` — the fallback
+  /// every orphaned event resolves to — included.
   Future<void> seedMissing(List<CalendarCategoriesCompanion> entries) {
     if (entries.isEmpty) return Future.value();
+    final hlc = db.generateHlc();
     return batch((b) {
       for (final entry in entries) {
-        b.insert(calendarCategories, entry, mode: InsertMode.insertOrIgnore);
+        b.insert(
+          calendarCategories,
+          entry.copyWith(
+            hlcTimestamp: Value(hlc),
+            deviceId: Value(db.deviceId),
+            version: const Value(1),
+          ),
+          onConflict: DoUpdate<$CalendarCategoriesTable, CalendarCategoryRow>(
+            (old) => CalendarCategoriesCompanion.custom(
+              isBuiltIn: const Constant(true),
+              isDeleted: const Constant(false),
+              deletedAt: const Constant<DateTime>(null),
+              hlcTimestamp: Variable<String>(hlc),
+              deviceId: Variable<String>(db.deviceId),
+              version: old.version + const Constant(1),
+            ),
+            where: (old) => old.isDeleted,
+          ),
+        );
       }
     });
   }
@@ -44,31 +92,101 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// `insertOrReplace` because `CategoryService.importData` wipes the table
   /// first: an archive carrying the same id twice must cost the duplicate,
   /// never the whole restore.
+  ///
+  /// Rows arrive as live `version 1` originals of this device, the
+  /// [CalendarEventDao.importAll] convention: a restore is never a merge.
   Future<void> importAll(List<CalendarCategoriesCompanion> entries) {
     if (entries.isEmpty) return Future.value();
     return batch((b) {
       for (final entry in entries) {
-        b.insert(calendarCategories, entry, mode: InsertMode.insertOrReplace);
+        b.insert(
+          calendarCategories,
+          entry.copyWith(
+            hlcTimestamp: Value(db.generateHlc()),
+            deviceId: Value(db.deviceId),
+            version: const Value(1),
+            isDeleted: const Value(false),
+            deletedAt: const Value(null),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
       }
     });
   }
 
   Future<void> insertCategory(CalendarCategoriesCompanion entry) {
-    return into(calendarCategories).insert(entry);
+    return into(calendarCategories).insert(
+      entry.copyWith(
+        hlcTimestamp: Value(db.generateHlc()),
+        deviceId: Value(db.deviceId),
+        version: const Value(1),
+      ),
+    );
   }
 
   /// Update that preserves `created_at` by masking it out, mirroring
   /// `CalendarEventDao.upsert`.
+  ///
+  /// Read-then-write so the version can be bumped. A tombstoned category is
+  /// left alone rather than resurrected: an edit that lands after the delete
+  /// would otherwise bring back a category whose events already moved to the
+  /// fallback — the no-op the hard delete this replaced gave.
+  ///
+  /// An edit that changes nothing but `updated_at` writes nothing, the way
+  /// `CategoryService.setHidden` already refuses a repeated tap, so a save of
+  /// an unchanged category does not read as a change once devices merge.
   Future<void> updateCategory(CalendarCategoriesCompanion entry) {
-    return (update(calendarCategories)
-          ..where((c) => c.id.equals(entry.id.value)))
-        .write(entry.copyWith(createdAt: const Value.absent()));
+    return transaction(() async {
+      final id = entry.id.value;
+      final existing = await _liveById(id);
+      if (existing == null) return;
+      final merged = existing.copyWithCompanion(
+        entry.copyWith(createdAt: const Value.absent()),
+      );
+      if (merged.copyWith(updatedAt: existing.updatedAt) == existing) return;
+      await (update(calendarCategories)..where((c) => c.id.equals(id))).write(
+        entry.copyWith(
+          createdAt: const Value.absent(),
+          hlcTimestamp: Value(db.generateHlc()),
+          deviceId: Value(db.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+    });
   }
 
-  Future<void> deleteById(String id) {
-    return (delete(calendarCategories)..where((c) => c.id.equals(id))).go();
+  /// Tombstones a category, the [CalendarEventDao.softDeleteById] shape: the
+  /// row survives with `is_deleted = 1` and a bumped version, so the delete
+  /// carries an order once devices merge, and [getAll]'s filter is what makes
+  /// it vanish. A missing or already-tombstoned row is a no-op.
+  ///
+  /// **Refuses every built-in** — by id as well as by flag, since an older
+  /// archive could restore a built-in as custom — and returns false, so no
+  /// path can tombstone one: `other` is where every orphaned event resolves.
+  /// Returns true only when a row was tombstoned.
+  Future<bool> softDeleteById(String id) {
+    return transaction(() async {
+      final existing = await _liveById(id);
+      if (existing == null || existing.isBuiltIn || _builtInIds.contains(id)) {
+        return false;
+      }
+      final now = DateTime.now();
+      await (update(calendarCategories)..where((c) => c.id.equals(id))).write(
+        CalendarCategoriesCompanion(
+          isDeleted: const Value(true),
+          deletedAt: Value(now),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(db.generateHlc()),
+          deviceId: Value(db.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      return true;
+    });
   }
 
+  /// Hard wipe, tombstones included — the backup import's replace-everything
+  /// step, which must stay hard: a restore is never a merge.
   Future<void> deleteAll() {
     return delete(calendarCategories).go();
   }
@@ -77,8 +195,9 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   ///
   /// One `batch` — which drift runs as a single transaction and a single
   /// commit — never an update per row awaited in a loop, and never a read
-  /// first: this table carries no CRDT columns, so there is no `version + 1`
-  /// to compute and nothing to fetch. `query_count_test` guards the shape.
+  /// first: `version + 1` is SQL arithmetic, and the drag shares one HLC.
+  /// `query_count_test` guards the shape. A row already at its index is not
+  /// written, so a drag re-stamps only the rows it moved.
   ///
   /// **Dense values matter.** `CalendarCategories._byOrder` tie-breaks on
   /// `id`, so leaving gaps or duplicates lets rows shuffle among themselves
@@ -89,15 +208,20 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   Future<void> reorder(List<String> idsInOrder) async {
     if (idsInOrder.isEmpty) return;
     final now = DateTime.now();
+    final hlc = db.generateHlc();
     await batch((b) {
       for (var i = 0; i < idsInOrder.length; i++) {
         b.update(
           calendarCategories,
-          CalendarCategoriesCompanion(
-            sortOrder: Value(i),
-            updatedAt: Value(now),
+          CalendarCategoriesCompanion.custom(
+            sortOrder: Variable<int>(i),
+            updatedAt: Variable<DateTime>(now),
+            hlcTimestamp: Variable<String>(hlc),
+            deviceId: Variable<String>(db.deviceId),
+            version: calendarCategories.version + const Constant(1),
           ),
-          where: (c) => c.id.equals(idsInOrder[i]),
+          where: (c) =>
+              c.id.equals(idsInOrder[i]) & _live & c.sortOrder.equals(i).not(),
         );
       }
     });
@@ -105,6 +229,10 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
 
   /// Next free sort order (max + 1, or 0 when the table is empty). Used to
   /// append newly created categories after every existing one.
+  ///
+  /// Counts tombstones on purpose, the `VocabularyDao` rule: a merge can
+  /// resurrect a deleted category, and it must not land on a slot a newer one
+  /// took. It returns a number, never a row, so no tombstone leaks upward.
   Future<int> nextSortOrder() async {
     final maxExpr = calendarCategories.sortOrder.max();
     final row = await (selectOnly(
@@ -112,5 +240,11 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
     )..addColumns([maxExpr])).getSingleOrNull();
     final current = row?.read(maxExpr);
     return (current ?? -1) + 1;
+  }
+
+  Future<CalendarCategoryRow?> _liveById(String id) {
+    return (select(
+      calendarCategories,
+    )..where((c) => c.id.equals(id) & _live)).getSingleOrNull();
   }
 }

@@ -30,6 +30,7 @@ import 'tables/event_digests_table.dart';
 import 'tables/event_templates_table.dart';
 import 'tables/vocabularies_table.dart';
 import 'tables/vocabulary_items_table.dart';
+import 'tables/sync_outbox_table.dart';
 import 'daos/folder_dao.dart';
 import 'daos/note_dao.dart';
 import 'daos/content_chunk_dao.dart';
@@ -81,6 +82,7 @@ part 'database.g.dart';
     VocabularyItems,
     CalendarCategoryAlerts,
     EventDigests,
+    SyncOutbox,
   ],
   daos: [
     FolderDao,

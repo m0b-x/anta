@@ -167,6 +167,17 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -183,6 +194,7 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -298,6 +310,12 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -363,6 +381,10 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -387,6 +409,9 @@ class Folder extends DataClass implements Insertable<Folder> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const Folder({
     required this.id,
     required this.name,
@@ -402,6 +427,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -427,6 +453,9 @@ class Folder extends DataClass implements Insertable<Folder> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -455,6 +484,9 @@ class Folder extends DataClass implements Insertable<Folder> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -480,6 +512,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -500,6 +533,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -518,6 +552,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => Folder(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -537,6 +572,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   Folder copyWithCompanion(FoldersCompanion data) {
     return Folder(
@@ -560,6 +596,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -579,7 +616,8 @@ class Folder extends DataClass implements Insertable<Folder> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -600,6 +638,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -618,7 +657,8 @@ class Folder extends DataClass implements Insertable<Folder> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class FoldersCompanion extends UpdateCompanion<Folder> {
@@ -636,6 +676,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const FoldersCompanion({
     this.id = const Value.absent(),
@@ -652,6 +693,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   FoldersCompanion.insert({
@@ -669,6 +711,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -691,6 +734,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -709,6 +753,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -728,6 +773,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return FoldersCompanion(
@@ -745,6 +791,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -794,6 +841,9 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -817,6 +867,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1016,6 +1067,17 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1034,6 +1096,7 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1163,6 +1226,12 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -1236,6 +1305,10 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -1262,6 +1335,9 @@ class Note extends DataClass implements Insertable<Note> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const Note({
     required this.id,
     required this.folderId,
@@ -1279,6 +1355,7 @@ class Note extends DataClass implements Insertable<Note> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1300,6 +1377,9 @@ class Note extends DataClass implements Insertable<Note> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -1324,6 +1404,9 @@ class Note extends DataClass implements Insertable<Note> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -1349,6 +1432,7 @@ class Note extends DataClass implements Insertable<Note> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -1371,6 +1455,7 @@ class Note extends DataClass implements Insertable<Note> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -1391,6 +1476,7 @@ class Note extends DataClass implements Insertable<Note> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => Note(
     id: id ?? this.id,
     folderId: folderId ?? this.folderId,
@@ -1408,6 +1494,7 @@ class Note extends DataClass implements Insertable<Note> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   Note copyWithCompanion(NotesCompanion data) {
     return Note(
@@ -1435,6 +1522,7 @@ class Note extends DataClass implements Insertable<Note> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -1456,7 +1544,8 @@ class Note extends DataClass implements Insertable<Note> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -1479,6 +1568,7 @@ class Note extends DataClass implements Insertable<Note> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -1499,7 +1589,8 @@ class Note extends DataClass implements Insertable<Note> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class NotesCompanion extends UpdateCompanion<Note> {
@@ -1519,6 +1610,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const NotesCompanion({
     this.id = const Value.absent(),
@@ -1537,6 +1629,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NotesCompanion.insert({
@@ -1556,6 +1649,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        folderId = Value(folderId),
@@ -1581,6 +1675,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1600,6 +1695,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1621,6 +1717,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return NotesCompanion(
@@ -1640,6 +1737,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1695,6 +1793,9 @@ class NotesCompanion extends UpdateCompanion<Note> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1720,6 +1821,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1836,6 +1938,17 @@ class $ContentChunksTable extends ContentChunks
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1847,6 +1960,7 @@ class $ContentChunksTable extends ContentChunks
     deviceId,
     version,
     isDeleted,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1929,6 +2043,12 @@ class $ContentChunksTable extends ContentChunks
         isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -1974,6 +2094,10 @@ class $ContentChunksTable extends ContentChunks
         DriftSqlType.bool,
         data['${effectivePrefix}is_deleted'],
       )!,
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -1993,6 +2117,10 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
   final String deviceId;
   final int version;
   final bool isDeleted;
+
+  /// The owning account once sync binds one (**v43**); NULL until then. Here
+  /// for parity with `notes` only: a chunk is local storage of a note's body.
+  final String? ownerId;
   const ContentChunk({
     required this.id,
     required this.noteId,
@@ -2003,6 +2131,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     required this.deviceId,
     required this.version,
     required this.isDeleted,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2016,6 +2145,9 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     map['device_id'] = Variable<String>(deviceId);
     map['version'] = Variable<int>(version);
     map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
     return map;
   }
 
@@ -2030,6 +2162,9 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       deviceId: Value(deviceId),
       version: Value(version),
       isDeleted: Value(isDeleted),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -2048,6 +2183,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       deviceId: serializer.fromJson<String>(json['deviceId']),
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -2063,6 +2199,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       'deviceId': serializer.toJson<String>(deviceId),
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -2076,6 +2213,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     String? deviceId,
     int? version,
     bool? isDeleted,
+    Value<String?> ownerId = const Value.absent(),
   }) => ContentChunk(
     id: id ?? this.id,
     noteId: noteId ?? this.noteId,
@@ -2086,6 +2224,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     deviceId: deviceId ?? this.deviceId,
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   ContentChunk copyWithCompanion(ContentChunksCompanion data) {
     return ContentChunk(
@@ -2104,6 +2243,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -2118,7 +2258,8 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
           ..write('hlcTimestamp: $hlcTimestamp, ')
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
-          ..write('isDeleted: $isDeleted')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -2134,6 +2275,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     deviceId,
     version,
     isDeleted,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -2147,7 +2289,8 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
           other.hlcTimestamp == this.hlcTimestamp &&
           other.deviceId == this.deviceId &&
           other.version == this.version &&
-          other.isDeleted == this.isDeleted);
+          other.isDeleted == this.isDeleted &&
+          other.ownerId == this.ownerId);
 }
 
 class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
@@ -2160,6 +2303,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
   final Value<String> deviceId;
   final Value<int> version;
   final Value<bool> isDeleted;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const ContentChunksCompanion({
     this.id = const Value.absent(),
@@ -2171,6 +2315,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     this.deviceId = const Value.absent(),
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ContentChunksCompanion.insert({
@@ -2183,6 +2328,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     required String deviceId,
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        noteId = Value(noteId),
@@ -2200,6 +2346,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     Expression<String>? deviceId,
     Expression<int>? version,
     Expression<bool>? isDeleted,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2212,6 +2359,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
       if (deviceId != null) 'device_id': deviceId,
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2226,6 +2374,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     Value<String>? deviceId,
     Value<int>? version,
     Value<bool>? isDeleted,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return ContentChunksCompanion(
@@ -2238,6 +2387,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
       deviceId: deviceId ?? this.deviceId,
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2272,6 +2422,9 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     if (isDeleted.present) {
       map['is_deleted'] = Variable<bool>(isDeleted.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2290,6 +2443,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2918,6 +3072,79 @@ class $CountersTable extends Counters
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2928,6 +3155,12 @@ class $CountersTable extends Counters
     position,
     isPinned,
     createdAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2992,6 +3225,45 @@ class $CountersTable extends Counters
     } else if (isInserting) {
       context.missing(_createdAtMeta);
     }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -3033,6 +3305,30 @@ class $CountersTable extends Counters
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
       )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -3051,6 +3347,19 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
   final int position;
   final bool isPinned;
   final DateTime createdAt;
+
+  /// The `calendar_events` block (**v43**): added to a populated table, so the
+  /// identity pair carries the `''` default SQLite's `ADD COLUMN NOT NULL`
+  /// demands, and the migration backfills it in the same run. All stamping
+  /// lives in `CounterDao`.
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const CounterRow({
     required this.id,
     required this.name,
@@ -3060,6 +3369,12 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
     required this.position,
     required this.isPinned,
     required this.createdAt,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3072,6 +3387,16 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
     map['position'] = Variable<int>(position);
     map['is_pinned'] = Variable<bool>(isPinned);
     map['created_at'] = Variable<DateTime>(createdAt);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
     return map;
   }
 
@@ -3085,6 +3410,16 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
       position: Value(position),
       isPinned: Value(isPinned),
       createdAt: Value(createdAt),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -3102,6 +3437,12 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
       position: serializer.fromJson<int>(json['position']),
       isPinned: serializer.fromJson<bool>(json['isPinned']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -3116,6 +3457,12 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
       'position': serializer.toJson<int>(position),
       'isPinned': serializer.toJson<bool>(isPinned),
       'createdAt': serializer.toJson<DateTime>(createdAt),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -3128,6 +3475,12 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
     int? position,
     bool? isPinned,
     DateTime? createdAt,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => CounterRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -3137,6 +3490,12 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
     position: position ?? this.position,
     isPinned: isPinned ?? this.isPinned,
     createdAt: createdAt ?? this.createdAt,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   CounterRow copyWithCompanion(CountersCompanion data) {
     return CounterRow(
@@ -3150,6 +3509,14 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
       position: data.position.present ? data.position.value : this.position,
       isPinned: data.isPinned.present ? data.isPinned.value : this.isPinned,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -3163,7 +3530,13 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
           ..write('scope: $scope, ')
           ..write('position: $position, ')
           ..write('isPinned: $isPinned, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -3178,6 +3551,12 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
     position,
     isPinned,
     createdAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -3190,7 +3569,13 @@ class CounterRow extends DataClass implements Insertable<CounterRow> {
           other.scope == this.scope &&
           other.position == this.position &&
           other.isPinned == this.isPinned &&
-          other.createdAt == this.createdAt);
+          other.createdAt == this.createdAt &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class CountersCompanion extends UpdateCompanion<CounterRow> {
@@ -3202,6 +3587,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
   final Value<int> position;
   final Value<bool> isPinned;
   final Value<DateTime> createdAt;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const CountersCompanion({
     this.id = const Value.absent(),
@@ -3212,6 +3603,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
     this.position = const Value.absent(),
     this.isPinned = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CountersCompanion.insert({
@@ -3223,6 +3620,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
     this.position = const Value.absent(),
     this.isPinned = const Value.absent(),
     required DateTime createdAt,
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -3236,6 +3639,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
     Expression<int>? position,
     Expression<bool>? isPinned,
     Expression<DateTime>? createdAt,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3247,6 +3656,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
       if (position != null) 'position': position,
       if (isPinned != null) 'is_pinned': isPinned,
       if (createdAt != null) 'created_at': createdAt,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3260,6 +3675,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
     Value<int>? position,
     Value<bool>? isPinned,
     Value<DateTime>? createdAt,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return CountersCompanion(
@@ -3271,6 +3692,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
       position: position ?? this.position,
       isPinned: isPinned ?? this.isPinned,
       createdAt: createdAt ?? this.createdAt,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3302,6 +3729,24 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3319,6 +3764,12 @@ class CountersCompanion extends UpdateCompanion<CounterRow> {
           ..write('position: $position, ')
           ..write('isPinned: $isPinned, ')
           ..write('createdAt: $createdAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3388,6 +3839,79 @@ class $CounterValuesTable extends CounterValues
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     counterId,
@@ -3395,6 +3919,12 @@ class $CounterValuesTable extends CounterValues
     value,
     position,
     isPinned,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3442,6 +3972,45 @@ class $CounterValuesTable extends CounterValues
         isPinned.isAcceptableOrUnknown(data['is_pinned']!, _isPinnedMeta),
       );
     }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -3471,6 +4040,30 @@ class $CounterValuesTable extends CounterValues
         DriftSqlType.bool,
         data['${effectivePrefix}is_pinned'],
       )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -3486,12 +4079,30 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
   final int value;
   final int position;
   final bool isPinned;
+
+  /// The `calendar_events` block (**v43**), as on `counters`. A deleted
+  /// counter tombstones its values with it, so the composite key keeps a row
+  /// to merge against.
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const CounterValueRow({
     required this.counterId,
     required this.noteId,
     required this.value,
     required this.position,
     required this.isPinned,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3501,6 +4112,16 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     map['value'] = Variable<int>(value);
     map['position'] = Variable<int>(position);
     map['is_pinned'] = Variable<bool>(isPinned);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
     return map;
   }
 
@@ -3511,6 +4132,16 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       value: Value(value),
       position: Value(position),
       isPinned: Value(isPinned),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -3525,6 +4156,12 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       value: serializer.fromJson<int>(json['value']),
       position: serializer.fromJson<int>(json['position']),
       isPinned: serializer.fromJson<bool>(json['isPinned']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -3536,6 +4173,12 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       'value': serializer.toJson<int>(value),
       'position': serializer.toJson<int>(position),
       'isPinned': serializer.toJson<bool>(isPinned),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -3545,12 +4188,24 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     int? value,
     int? position,
     bool? isPinned,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => CounterValueRow(
     counterId: counterId ?? this.counterId,
     noteId: noteId ?? this.noteId,
     value: value ?? this.value,
     position: position ?? this.position,
     isPinned: isPinned ?? this.isPinned,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   CounterValueRow copyWithCompanion(CounterValuesCompanion data) {
     return CounterValueRow(
@@ -3559,6 +4214,14 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       value: data.value.present ? data.value.value : this.value,
       position: data.position.present ? data.position.value : this.position,
       isPinned: data.isPinned.present ? data.isPinned.value : this.isPinned,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -3569,13 +4232,31 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
           ..write('noteId: $noteId, ')
           ..write('value: $value, ')
           ..write('position: $position, ')
-          ..write('isPinned: $isPinned')
+          ..write('isPinned: $isPinned, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(counterId, noteId, value, position, isPinned);
+  int get hashCode => Object.hash(
+    counterId,
+    noteId,
+    value,
+    position,
+    isPinned,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3584,7 +4265,13 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
           other.noteId == this.noteId &&
           other.value == this.value &&
           other.position == this.position &&
-          other.isPinned == this.isPinned);
+          other.isPinned == this.isPinned &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
@@ -3593,6 +4280,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
   final Value<int> value;
   final Value<int> position;
   final Value<bool> isPinned;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const CounterValuesCompanion({
     this.counterId = const Value.absent(),
@@ -3600,6 +4293,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     this.value = const Value.absent(),
     this.position = const Value.absent(),
     this.isPinned = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CounterValuesCompanion.insert({
@@ -3608,6 +4307,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     required int value,
     this.position = const Value.absent(),
     this.isPinned = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : counterId = Value(counterId),
        value = Value(value);
@@ -3617,6 +4322,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     Expression<int>? value,
     Expression<int>? position,
     Expression<bool>? isPinned,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3625,6 +4336,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
       if (value != null) 'value': value,
       if (position != null) 'position': position,
       if (isPinned != null) 'is_pinned': isPinned,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3635,6 +4352,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     Value<int>? value,
     Value<int>? position,
     Value<bool>? isPinned,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return CounterValuesCompanion(
@@ -3643,6 +4366,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
       value: value ?? this.value,
       position: position ?? this.position,
       isPinned: isPinned ?? this.isPinned,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3665,6 +4394,24 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     if (isPinned.present) {
       map['is_pinned'] = Variable<bool>(isPinned.value);
     }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3679,6 +4426,12 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
           ..write('value: $value, ')
           ..write('position: $position, ')
           ..write('isPinned: $isPinned, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4095,6 +4848,17 @@ class $CalendarEventsTable extends CalendarEvents
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -4130,6 +4894,7 @@ class $CalendarEventsTable extends CalendarEvents
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4394,6 +5159,12 @@ class $CalendarEventsTable extends CalendarEvents
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -4535,6 +5306,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -4592,6 +5367,9 @@ class CalendarEventRow extends DataClass
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const CalendarEventRow({
     required this.id,
     required this.title,
@@ -4626,6 +5404,7 @@ class CalendarEventRow extends DataClass
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4687,6 +5466,9 @@ class CalendarEventRow extends DataClass
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
     return map;
   }
 
@@ -4747,6 +5529,9 @@ class CalendarEventRow extends DataClass
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -4793,6 +5578,7 @@ class CalendarEventRow extends DataClass
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -4834,6 +5620,7 @@ class CalendarEventRow extends DataClass
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -4871,6 +5658,7 @@ class CalendarEventRow extends DataClass
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => CalendarEventRow(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -4912,6 +5700,7 @@ class CalendarEventRow extends DataClass
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   CalendarEventRow copyWithCompanion(CalendarEventsCompanion data) {
     return CalendarEventRow(
@@ -4980,6 +5769,7 @@ class CalendarEventRow extends DataClass
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -5018,7 +5808,8 @@ class CalendarEventRow extends DataClass
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -5058,6 +5849,7 @@ class CalendarEventRow extends DataClass
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -5095,7 +5887,8 @@ class CalendarEventRow extends DataClass
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
@@ -5132,6 +5925,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const CalendarEventsCompanion({
     this.id = const Value.absent(),
@@ -5167,6 +5961,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CalendarEventsCompanion.insert({
@@ -5203,6 +5998,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
@@ -5245,6 +6041,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -5282,6 +6079,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -5320,6 +6118,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return CalendarEventsCompanion(
@@ -5357,6 +6156,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -5465,6 +6265,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -5507,6 +6310,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6011,6 +6815,79 @@ class $CalendarCategoriesTable extends CalendarCategories
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -6022,6 +6899,12 @@ class $CalendarCategoriesTable extends CalendarCategories
     isHidden,
     createdAt,
     updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6098,6 +6981,45 @@ class $CalendarCategoriesTable extends CalendarCategories
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -6143,6 +7065,30 @@ class $CalendarCategoriesTable extends CalendarCategories
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -6172,6 +7118,19 @@ class CalendarCategoryRow extends DataClass
   final bool isHidden;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// The `calendar_events` block (**v43**): added to a populated table, so the
+  /// identity pair carries the `''` default SQLite's `ADD COLUMN NOT NULL`
+  /// demands, and the migration backfills it in the same run. All stamping
+  /// lives in `CalendarCategoryDao`.
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const CalendarCategoryRow({
     required this.id,
     required this.name,
@@ -6182,6 +7141,12 @@ class CalendarCategoryRow extends DataClass
     required this.isHidden,
     required this.createdAt,
     required this.updatedAt,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6195,6 +7160,16 @@ class CalendarCategoryRow extends DataClass
     map['is_hidden'] = Variable<bool>(isHidden);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
     return map;
   }
 
@@ -6209,6 +7184,16 @@ class CalendarCategoryRow extends DataClass
       isHidden: Value(isHidden),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -6227,6 +7212,12 @@ class CalendarCategoryRow extends DataClass
       isHidden: serializer.fromJson<bool>(json['isHidden']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -6242,6 +7233,12 @@ class CalendarCategoryRow extends DataClass
       'isHidden': serializer.toJson<bool>(isHidden),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -6255,6 +7252,12 @@ class CalendarCategoryRow extends DataClass
     bool? isHidden,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => CalendarCategoryRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -6265,6 +7268,12 @@ class CalendarCategoryRow extends DataClass
     isHidden: isHidden ?? this.isHidden,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   CalendarCategoryRow copyWithCompanion(CalendarCategoriesCompanion data) {
     return CalendarCategoryRow(
@@ -6279,6 +7288,14 @@ class CalendarCategoryRow extends DataClass
       isHidden: data.isHidden.present ? data.isHidden.value : this.isHidden,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -6293,7 +7310,13 @@ class CalendarCategoryRow extends DataClass
           ..write('isBuiltIn: $isBuiltIn, ')
           ..write('isHidden: $isHidden, ')
           ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -6309,6 +7332,12 @@ class CalendarCategoryRow extends DataClass
     isHidden,
     createdAt,
     updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -6322,7 +7351,13 @@ class CalendarCategoryRow extends DataClass
           other.isBuiltIn == this.isBuiltIn &&
           other.isHidden == this.isHidden &&
           other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
@@ -6335,6 +7370,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
   final Value<bool> isHidden;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const CalendarCategoriesCompanion({
     this.id = const Value.absent(),
@@ -6346,6 +7387,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     this.isHidden = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CalendarCategoriesCompanion.insert({
@@ -6358,6 +7405,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     this.isHidden = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -6375,6 +7428,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     Expression<bool>? isHidden,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -6387,6 +7446,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
       if (isHidden != null) 'is_hidden': isHidden,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -6401,6 +7466,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     Value<bool>? isHidden,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return CalendarCategoriesCompanion(
@@ -6413,6 +7484,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
       isHidden: isHidden ?? this.isHidden,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -6447,6 +7524,24 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -6465,6 +7560,12 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
           ..write('isHidden: $isHidden, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6592,6 +7693,17 @@ class $EventOccurrenceDescriptionsTable extends EventOccurrenceDescriptions
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     eventId,
@@ -6604,6 +7716,7 @@ class $EventOccurrenceDescriptionsTable extends EventOccurrenceDescriptions
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6693,6 +7806,12 @@ class $EventOccurrenceDescriptionsTable extends EventOccurrenceDescriptions
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -6742,6 +7861,10 @@ class $EventOccurrenceDescriptionsTable extends EventOccurrenceDescriptions
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -6769,6 +7892,9 @@ class EventOccurrenceRow extends DataClass
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const EventOccurrenceRow({
     required this.eventId,
     required this.day,
@@ -6780,6 +7906,7 @@ class EventOccurrenceRow extends DataClass
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6795,6 +7922,9 @@ class EventOccurrenceRow extends DataClass
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -6813,6 +7943,9 @@ class EventOccurrenceRow extends DataClass
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -6832,6 +7965,7 @@ class EventOccurrenceRow extends DataClass
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -6848,6 +7982,7 @@ class EventOccurrenceRow extends DataClass
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -6862,6 +7997,7 @@ class EventOccurrenceRow extends DataClass
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => EventOccurrenceRow(
     eventId: eventId ?? this.eventId,
     day: day ?? this.day,
@@ -6873,6 +8009,7 @@ class EventOccurrenceRow extends DataClass
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   EventOccurrenceRow copyWithCompanion(
     EventOccurrenceDescriptionsCompanion data,
@@ -6892,6 +8029,7 @@ class EventOccurrenceRow extends DataClass
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -6907,7 +8045,8 @@ class EventOccurrenceRow extends DataClass
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -6924,6 +8063,7 @@ class EventOccurrenceRow extends DataClass
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -6938,7 +8078,8 @@ class EventOccurrenceRow extends DataClass
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class EventOccurrenceDescriptionsCompanion
@@ -6953,6 +8094,7 @@ class EventOccurrenceDescriptionsCompanion
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const EventOccurrenceDescriptionsCompanion({
     this.eventId = const Value.absent(),
@@ -6965,6 +8107,7 @@ class EventOccurrenceDescriptionsCompanion
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EventOccurrenceDescriptionsCompanion.insert({
@@ -6978,6 +8121,7 @@ class EventOccurrenceDescriptionsCompanion
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : eventId = Value(eventId),
        day = Value(day),
@@ -6995,6 +8139,7 @@ class EventOccurrenceDescriptionsCompanion
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7008,6 +8153,7 @@ class EventOccurrenceDescriptionsCompanion
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7023,6 +8169,7 @@ class EventOccurrenceDescriptionsCompanion
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return EventOccurrenceDescriptionsCompanion(
@@ -7036,6 +8183,7 @@ class EventOccurrenceDescriptionsCompanion
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7073,6 +8221,9 @@ class EventOccurrenceDescriptionsCompanion
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7092,6 +8243,7 @@ class EventOccurrenceDescriptionsCompanion
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7216,6 +8368,17 @@ class $EventAbsencesTable extends EventAbsences
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     eventId,
@@ -7228,6 +8391,7 @@ class $EventAbsencesTable extends EventAbsences
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -7316,6 +8480,12 @@ class $EventAbsencesTable extends EventAbsences
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -7365,6 +8535,10 @@ class $EventAbsencesTable extends EventAbsences
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -7391,6 +8565,9 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const EventAbsenceRow({
     required this.eventId,
     required this.day,
@@ -7402,6 +8579,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -7417,6 +8595,9 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -7435,6 +8616,9 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -7454,6 +8638,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -7470,6 +8655,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -7484,6 +8670,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => EventAbsenceRow(
     eventId: eventId ?? this.eventId,
     day: day ?? this.day,
@@ -7495,6 +8682,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   EventAbsenceRow copyWithCompanion(EventAbsencesCompanion data) {
     return EventAbsenceRow(
@@ -7510,6 +8698,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -7525,7 +8714,8 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -7542,6 +8732,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -7556,7 +8747,8 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
@@ -7570,6 +8762,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const EventAbsencesCompanion({
     this.eventId = const Value.absent(),
@@ -7582,6 +8775,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EventAbsencesCompanion.insert({
@@ -7595,6 +8789,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : eventId = Value(eventId),
        day = Value(day),
@@ -7613,6 +8808,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7626,6 +8822,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7641,6 +8838,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return EventAbsencesCompanion(
@@ -7654,6 +8852,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7691,6 +8890,9 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7710,6 +8912,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -8037,6 +9240,17 @@ class $EventTemplatesTable extends EventTemplates
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -8065,6 +9279,7 @@ class $EventTemplatesTable extends EventTemplates
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -8275,6 +9490,12 @@ class $EventTemplatesTable extends EventTemplates
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -8388,6 +9609,10 @@ class $EventTemplatesTable extends EventTemplates
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -8431,6 +9656,9 @@ class EventTemplateRow extends DataClass
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const EventTemplateRow({
     required this.id,
     required this.name,
@@ -8458,6 +9686,7 @@ class EventTemplateRow extends DataClass
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -8504,6 +9733,9 @@ class EventTemplateRow extends DataClass
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
     return map;
   }
 
@@ -8549,6 +9781,9 @@ class EventTemplateRow extends DataClass
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -8586,6 +9821,7 @@ class EventTemplateRow extends DataClass
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -8620,6 +9856,7 @@ class EventTemplateRow extends DataClass
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -8650,6 +9887,7 @@ class EventTemplateRow extends DataClass
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => EventTemplateRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -8680,6 +9918,7 @@ class EventTemplateRow extends DataClass
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   EventTemplateRow copyWithCompanion(EventTemplatesCompanion data) {
     return EventTemplateRow(
@@ -8733,6 +9972,7 @@ class EventTemplateRow extends DataClass
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -8764,7 +10004,8 @@ class EventTemplateRow extends DataClass
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -8797,6 +10038,7 @@ class EventTemplateRow extends DataClass
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -8827,7 +10069,8 @@ class EventTemplateRow extends DataClass
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
@@ -8857,6 +10100,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const EventTemplatesCompanion({
     this.id = const Value.absent(),
@@ -8885,6 +10129,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EventTemplatesCompanion.insert({
@@ -8914,6 +10159,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -8949,6 +10195,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -8979,6 +10226,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -9010,6 +10258,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return EventTemplatesCompanion(
@@ -9040,6 +10289,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -9127,6 +10377,9 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -9162,6 +10415,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9297,6 +10551,17 @@ class $CalendarFilterPresetsTable extends CalendarFilterPresets
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -9310,6 +10575,7 @@ class $CalendarFilterPresetsTable extends CalendarFilterPresets
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -9403,6 +10669,12 @@ class $CalendarFilterPresetsTable extends CalendarFilterPresets
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -9459,6 +10731,10 @@ class $CalendarFilterPresetsTable extends CalendarFilterPresets
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -9483,6 +10759,9 @@ class CalendarFilterPresetRow extends DataClass
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const CalendarFilterPresetRow({
     required this.id,
     required this.name,
@@ -9495,6 +10774,7 @@ class CalendarFilterPresetRow extends DataClass
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -9511,6 +10791,9 @@ class CalendarFilterPresetRow extends DataClass
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -9530,6 +10813,9 @@ class CalendarFilterPresetRow extends DataClass
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -9550,6 +10836,7 @@ class CalendarFilterPresetRow extends DataClass
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -9567,6 +10854,7 @@ class CalendarFilterPresetRow extends DataClass
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -9582,6 +10870,7 @@ class CalendarFilterPresetRow extends DataClass
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => CalendarFilterPresetRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -9594,6 +10883,7 @@ class CalendarFilterPresetRow extends DataClass
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   CalendarFilterPresetRow copyWithCompanion(
     CalendarFilterPresetsCompanion data,
@@ -9612,6 +10902,7 @@ class CalendarFilterPresetRow extends DataClass
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -9628,7 +10919,8 @@ class CalendarFilterPresetRow extends DataClass
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -9646,6 +10938,7 @@ class CalendarFilterPresetRow extends DataClass
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -9661,7 +10954,8 @@ class CalendarFilterPresetRow extends DataClass
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class CalendarFilterPresetsCompanion
@@ -9677,6 +10971,7 @@ class CalendarFilterPresetsCompanion
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const CalendarFilterPresetsCompanion({
     this.id = const Value.absent(),
@@ -9690,6 +10985,7 @@ class CalendarFilterPresetsCompanion
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CalendarFilterPresetsCompanion.insert({
@@ -9704,6 +11000,7 @@ class CalendarFilterPresetsCompanion
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -9724,6 +11021,7 @@ class CalendarFilterPresetsCompanion
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -9738,6 +11036,7 @@ class CalendarFilterPresetsCompanion
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -9754,6 +11053,7 @@ class CalendarFilterPresetsCompanion
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return CalendarFilterPresetsCompanion(
@@ -9768,6 +11068,7 @@ class CalendarFilterPresetsCompanion
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -9808,6 +11109,9 @@ class CalendarFilterPresetsCompanion
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -9828,6 +11132,7 @@ class CalendarFilterPresetsCompanion
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9963,6 +11268,17 @@ class $OverviewViewsTable extends OverviewViews
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -9976,6 +11292,7 @@ class $OverviewViewsTable extends OverviewViews
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -10069,6 +11386,12 @@ class $OverviewViewsTable extends OverviewViews
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -10122,6 +11445,10 @@ class $OverviewViewsTable extends OverviewViews
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -10145,6 +11472,9 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const OverviewViewRow({
     required this.id,
     required this.name,
@@ -10157,6 +11487,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -10173,6 +11504,9 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -10192,6 +11526,9 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -10212,6 +11549,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -10229,6 +11567,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -10244,6 +11583,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => OverviewViewRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -10256,6 +11596,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   OverviewViewRow copyWithCompanion(OverviewViewsCompanion data) {
     return OverviewViewRow(
@@ -10272,6 +11613,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -10288,7 +11630,8 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -10306,6 +11649,7 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -10321,7 +11665,8 @@ class OverviewViewRow extends DataClass implements Insertable<OverviewViewRow> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
@@ -10336,6 +11681,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const OverviewViewsCompanion({
     this.id = const Value.absent(),
@@ -10349,6 +11695,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   OverviewViewsCompanion.insert({
@@ -10363,6 +11710,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -10383,6 +11731,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -10397,6 +11746,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -10413,6 +11763,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return OverviewViewsCompanion(
@@ -10427,6 +11778,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -10467,6 +11819,9 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -10487,6 +11842,7 @@ class OverviewViewsCompanion extends UpdateCompanion<OverviewViewRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10601,6 +11957,17 @@ class $EventSkipsTable extends EventSkips
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     eventId,
@@ -10612,6 +11979,7 @@ class $EventSkipsTable extends EventSkips
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -10694,6 +12062,12 @@ class $EventSkipsTable extends EventSkips
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -10739,6 +12113,10 @@ class $EventSkipsTable extends EventSkips
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -10760,6 +12138,9 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const EventSkipRow({
     required this.eventId,
     required this.day,
@@ -10770,6 +12151,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -10784,6 +12166,9 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -10801,6 +12186,9 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -10819,6 +12207,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -10834,6 +12223,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -10847,6 +12237,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => EventSkipRow(
     eventId: eventId ?? this.eventId,
     day: day ?? this.day,
@@ -10857,6 +12248,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   EventSkipRow copyWithCompanion(EventSkipsCompanion data) {
     return EventSkipRow(
@@ -10871,6 +12263,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -10885,7 +12278,8 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -10901,6 +12295,7 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -10914,7 +12309,8 @@ class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
@@ -10927,6 +12323,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const EventSkipsCompanion({
     this.eventId = const Value.absent(),
@@ -10938,6 +12335,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EventSkipsCompanion.insert({
@@ -10950,6 +12348,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : eventId = Value(eventId),
        day = Value(day),
@@ -10967,6 +12366,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -10979,6 +12379,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -10993,6 +12394,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return EventSkipsCompanion(
@@ -11005,6 +12407,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -11039,6 +12442,9 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -11057,6 +12463,7 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -11240,6 +12647,17 @@ class $EventAlertsTable extends EventAlerts
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -11257,6 +12675,7 @@ class $EventAlertsTable extends EventAlerts
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -11375,6 +12794,12 @@ class $EventAlertsTable extends EventAlerts
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -11444,6 +12869,10 @@ class $EventAlertsTable extends EventAlerts
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -11488,6 +12917,9 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const EventAlertRow({
     required this.id,
     required this.eventId,
@@ -11504,6 +12936,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -11528,6 +12961,9 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -11555,6 +12991,9 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -11579,6 +13018,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -11600,6 +13040,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -11619,6 +13060,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => EventAlertRow(
     id: id ?? this.id,
     eventId: eventId ?? this.eventId,
@@ -11635,6 +13077,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   EventAlertRow copyWithCompanion(EventAlertsCompanion data) {
     return EventAlertRow(
@@ -11659,6 +13102,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -11679,7 +13123,8 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -11701,6 +13146,7 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -11720,7 +13166,8 @@ class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
@@ -11739,6 +13186,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const EventAlertsCompanion({
     this.id = const Value.absent(),
@@ -11756,6 +13204,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EventAlertsCompanion.insert({
@@ -11774,6 +13223,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        eventId = Value(eventId),
@@ -11797,6 +13247,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -11815,6 +13266,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -11835,6 +13287,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return EventAlertsCompanion(
@@ -11853,6 +13306,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -11905,6 +13359,9 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -11929,6 +13386,7 @@ class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -12727,6 +14185,17 @@ class $VocabulariesTable extends Vocabularies
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -12740,6 +14209,7 @@ class $VocabulariesTable extends Vocabularies
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -12831,6 +14301,12 @@ class $VocabulariesTable extends Vocabularies
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -12884,6 +14360,10 @@ class $VocabulariesTable extends Vocabularies
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -12905,6 +14385,9 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const VocabularyRow({
     required this.id,
     required this.name,
@@ -12917,6 +14400,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -12933,6 +14417,9 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -12952,6 +14439,9 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -12972,6 +14462,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -12989,6 +14480,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -13004,6 +14496,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => VocabularyRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -13016,6 +14509,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   VocabularyRow copyWithCompanion(VocabulariesCompanion data) {
     return VocabularyRow(
@@ -13032,6 +14526,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -13048,7 +14543,8 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -13066,6 +14562,7 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -13081,7 +14578,8 @@ class VocabularyRow extends DataClass implements Insertable<VocabularyRow> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
@@ -13096,6 +14594,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const VocabulariesCompanion({
     this.id = const Value.absent(),
@@ -13109,6 +14608,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   VocabulariesCompanion.insert({
@@ -13123,6 +14623,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -13142,6 +14643,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -13156,6 +14658,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -13172,6 +14675,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return VocabulariesCompanion(
@@ -13186,6 +14690,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -13226,6 +14731,9 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -13246,6 +14754,7 @@ class VocabulariesCompanion extends UpdateCompanion<VocabularyRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -13381,6 +14890,17 @@ class $VocabularyItemsTable extends VocabularyItems
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -13394,6 +14914,7 @@ class $VocabularyItemsTable extends VocabularyItems
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -13490,6 +15011,12 @@ class $VocabularyItemsTable extends VocabularyItems
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -13543,6 +15070,10 @@ class $VocabularyItemsTable extends VocabularyItems
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -13565,6 +15096,9 @@ class VocabularyItemRow extends DataClass
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const VocabularyItemRow({
     required this.id,
     required this.vocabularyId,
@@ -13577,6 +15111,7 @@ class VocabularyItemRow extends DataClass
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -13593,6 +15128,9 @@ class VocabularyItemRow extends DataClass
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -13612,6 +15150,9 @@ class VocabularyItemRow extends DataClass
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -13632,6 +15173,7 @@ class VocabularyItemRow extends DataClass
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -13649,6 +15191,7 @@ class VocabularyItemRow extends DataClass
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -13664,6 +15207,7 @@ class VocabularyItemRow extends DataClass
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => VocabularyItemRow(
     id: id ?? this.id,
     vocabularyId: vocabularyId ?? this.vocabularyId,
@@ -13676,6 +15220,7 @@ class VocabularyItemRow extends DataClass
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   VocabularyItemRow copyWithCompanion(VocabularyItemsCompanion data) {
     return VocabularyItemRow(
@@ -13694,6 +15239,7 @@ class VocabularyItemRow extends DataClass
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -13710,7 +15256,8 @@ class VocabularyItemRow extends DataClass
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -13728,6 +15275,7 @@ class VocabularyItemRow extends DataClass
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -13743,7 +15291,8 @@ class VocabularyItemRow extends DataClass
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
@@ -13758,6 +15307,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const VocabularyItemsCompanion({
     this.id = const Value.absent(),
@@ -13771,6 +15321,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   VocabularyItemsCompanion.insert({
@@ -13785,6 +15336,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        vocabularyId = Value(vocabularyId),
@@ -13805,6 +15357,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -13819,6 +15372,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -13835,6 +15389,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return VocabularyItemsCompanion(
@@ -13849,6 +15404,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -13889,6 +15445,9 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -13909,6 +15468,7 @@ class VocabularyItemsCompanion extends UpdateCompanion<VocabularyItemRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -14092,6 +15652,17 @@ class $CalendarCategoryAlertsTable extends CalendarCategoryAlerts
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -14109,6 +15680,7 @@ class $CalendarCategoryAlertsTable extends CalendarCategoryAlerts
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -14227,6 +15799,12 @@ class $CalendarCategoryAlertsTable extends CalendarCategoryAlerts
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -14296,6 +15874,10 @@ class $CalendarCategoryAlertsTable extends CalendarCategoryAlerts
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -14334,6 +15916,9 @@ class CategoryAlertRow extends DataClass
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const CategoryAlertRow({
     required this.id,
     required this.categoryId,
@@ -14350,6 +15935,7 @@ class CategoryAlertRow extends DataClass
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -14374,6 +15960,9 @@ class CategoryAlertRow extends DataClass
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -14401,6 +15990,9 @@ class CategoryAlertRow extends DataClass
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -14425,6 +16017,7 @@ class CategoryAlertRow extends DataClass
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -14446,6 +16039,7 @@ class CategoryAlertRow extends DataClass
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -14465,6 +16059,7 @@ class CategoryAlertRow extends DataClass
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => CategoryAlertRow(
     id: id ?? this.id,
     categoryId: categoryId ?? this.categoryId,
@@ -14481,6 +16076,7 @@ class CategoryAlertRow extends DataClass
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   CategoryAlertRow copyWithCompanion(CalendarCategoryAlertsCompanion data) {
     return CategoryAlertRow(
@@ -14507,6 +16103,7 @@ class CategoryAlertRow extends DataClass
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -14527,7 +16124,8 @@ class CategoryAlertRow extends DataClass
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -14549,6 +16147,7 @@ class CategoryAlertRow extends DataClass
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -14568,7 +16167,8 @@ class CategoryAlertRow extends DataClass
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class CalendarCategoryAlertsCompanion
@@ -14588,6 +16188,7 @@ class CalendarCategoryAlertsCompanion
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const CalendarCategoryAlertsCompanion({
     this.id = const Value.absent(),
@@ -14605,6 +16206,7 @@ class CalendarCategoryAlertsCompanion
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CalendarCategoryAlertsCompanion.insert({
@@ -14623,6 +16225,7 @@ class CalendarCategoryAlertsCompanion
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        categoryId = Value(categoryId),
@@ -14646,6 +16249,7 @@ class CalendarCategoryAlertsCompanion
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -14664,6 +16268,7 @@ class CalendarCategoryAlertsCompanion
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -14684,6 +16289,7 @@ class CalendarCategoryAlertsCompanion
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return CalendarCategoryAlertsCompanion(
@@ -14702,6 +16308,7 @@ class CalendarCategoryAlertsCompanion
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -14754,6 +16361,9 @@ class CalendarCategoryAlertsCompanion
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -14778,6 +16388,7 @@ class CalendarCategoryAlertsCompanion
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -14929,6 +16540,17 @@ class $EventDigestsTable extends EventDigests
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -14943,6 +16565,7 @@ class $EventDigestsTable extends EventDigests
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -15040,6 +16663,12 @@ class $EventDigestsTable extends EventDigests
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
     return context;
   }
 
@@ -15097,6 +16726,10 @@ class $EventDigestsTable extends EventDigests
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
     );
   }
 
@@ -15123,6 +16756,9 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
   final int version;
   final bool isDeleted;
   final DateTime? deletedAt;
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  final String? ownerId;
   const EventDigestRow({
     required this.id,
     required this.name,
@@ -15136,6 +16772,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
     required this.version,
     required this.isDeleted,
     this.deletedAt,
+    this.ownerId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -15153,6 +16790,9 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
     }
     return map;
   }
@@ -15173,6 +16813,9 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
     );
   }
 
@@ -15194,6 +16837,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
     );
   }
   @override
@@ -15212,6 +16856,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
     };
   }
 
@@ -15228,6 +16873,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
     int? version,
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
   }) => EventDigestRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -15241,6 +16887,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
   );
   EventDigestRow copyWithCompanion(EventDigestsCompanion data) {
     return EventDigestRow(
@@ -15258,6 +16905,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
     );
   }
 
@@ -15275,7 +16923,8 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
           ..write(')'))
         .toString();
   }
@@ -15294,6 +16943,7 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
     version,
     isDeleted,
     deletedAt,
+    ownerId,
   );
   @override
   bool operator ==(Object other) =>
@@ -15310,7 +16960,8 @@ class EventDigestRow extends DataClass implements Insertable<EventDigestRow> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
 }
 
 class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
@@ -15326,6 +16977,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
   final Value<int> rowid;
   const EventDigestsCompanion({
     this.id = const Value.absent(),
@@ -15340,6 +16992,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EventDigestsCompanion.insert({
@@ -15355,6 +17008,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        payload = Value(payload),
@@ -15375,6 +17029,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -15390,6 +17045,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -15407,6 +17063,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
     Value<int>? rowid,
   }) {
     return EventDigestsCompanion(
@@ -15422,6 +17079,7 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -15465,6 +17123,9 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -15486,6 +17147,379 @@ class EventDigestsCompanion extends UpdateCompanion<EventDigestRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncOutboxTable extends SyncOutbox
+    with TableInfo<$SyncOutboxTable, SyncOutboxRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _syncedTableMeta = const VerificationMeta(
+    'syncedTable',
+  );
+  @override
+  late final GeneratedColumn<String> syncedTable = GeneratedColumn<String>(
+    'table_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _rowKeyMeta = const VerificationMeta('rowKey');
+  @override
+  late final GeneratedColumn<String> rowKey = GeneratedColumn<String>(
+    'row_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hlcMeta = const VerificationMeta('hlc');
+  @override
+  late final GeneratedColumn<String> hlc = GeneratedColumn<String>(
+    'hlc',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _opMeta = const VerificationMeta('op');
+  @override
+  late final GeneratedColumn<String> op = GeneratedColumn<String>(
+    'op',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enqueuedAtMeta = const VerificationMeta(
+    'enqueuedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> enqueuedAt = GeneratedColumn<DateTime>(
+    'enqueued_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    syncedTable,
+    rowKey,
+    hlc,
+    op,
+    enqueuedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_outbox';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncOutboxRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('table_name')) {
+      context.handle(
+        _syncedTableMeta,
+        syncedTable.isAcceptableOrUnknown(
+          data['table_name']!,
+          _syncedTableMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_syncedTableMeta);
+    }
+    if (data.containsKey('row_key')) {
+      context.handle(
+        _rowKeyMeta,
+        rowKey.isAcceptableOrUnknown(data['row_key']!, _rowKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_rowKeyMeta);
+    }
+    if (data.containsKey('hlc')) {
+      context.handle(
+        _hlcMeta,
+        hlc.isAcceptableOrUnknown(data['hlc']!, _hlcMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hlcMeta);
+    }
+    if (data.containsKey('op')) {
+      context.handle(_opMeta, op.isAcceptableOrUnknown(data['op']!, _opMeta));
+    } else if (isInserting) {
+      context.missing(_opMeta);
+    }
+    if (data.containsKey('enqueued_at')) {
+      context.handle(
+        _enqueuedAtMeta,
+        enqueuedAt.isAcceptableOrUnknown(data['enqueued_at']!, _enqueuedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_enqueuedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {syncedTable, rowKey};
+  @override
+  SyncOutboxRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncOutboxRow(
+      syncedTable: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}table_name'],
+      )!,
+      rowKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}row_key'],
+      )!,
+      hlc: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc'],
+      )!,
+      op: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op'],
+      )!,
+      enqueuedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}enqueued_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncOutboxTable createAlias(String alias) {
+    return $SyncOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
+  /// The SQL name of the changed row's table. Not `tableName` in Dart, which
+  /// [Table] already owns.
+  final String syncedTable;
+  final String rowKey;
+
+  /// The HLC the row was written at, so a push can tell whether the row moved
+  /// again after it was read.
+  final String hlc;
+
+  /// `upsert` or `delete` — a tombstone travels as a delete.
+  final String op;
+  final DateTime enqueuedAt;
+  const SyncOutboxRow({
+    required this.syncedTable,
+    required this.rowKey,
+    required this.hlc,
+    required this.op,
+    required this.enqueuedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['table_name'] = Variable<String>(syncedTable);
+    map['row_key'] = Variable<String>(rowKey);
+    map['hlc'] = Variable<String>(hlc);
+    map['op'] = Variable<String>(op);
+    map['enqueued_at'] = Variable<DateTime>(enqueuedAt);
+    return map;
+  }
+
+  SyncOutboxCompanion toCompanion(bool nullToAbsent) {
+    return SyncOutboxCompanion(
+      syncedTable: Value(syncedTable),
+      rowKey: Value(rowKey),
+      hlc: Value(hlc),
+      op: Value(op),
+      enqueuedAt: Value(enqueuedAt),
+    );
+  }
+
+  factory SyncOutboxRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncOutboxRow(
+      syncedTable: serializer.fromJson<String>(json['syncedTable']),
+      rowKey: serializer.fromJson<String>(json['rowKey']),
+      hlc: serializer.fromJson<String>(json['hlc']),
+      op: serializer.fromJson<String>(json['op']),
+      enqueuedAt: serializer.fromJson<DateTime>(json['enqueuedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'syncedTable': serializer.toJson<String>(syncedTable),
+      'rowKey': serializer.toJson<String>(rowKey),
+      'hlc': serializer.toJson<String>(hlc),
+      'op': serializer.toJson<String>(op),
+      'enqueuedAt': serializer.toJson<DateTime>(enqueuedAt),
+    };
+  }
+
+  SyncOutboxRow copyWith({
+    String? syncedTable,
+    String? rowKey,
+    String? hlc,
+    String? op,
+    DateTime? enqueuedAt,
+  }) => SyncOutboxRow(
+    syncedTable: syncedTable ?? this.syncedTable,
+    rowKey: rowKey ?? this.rowKey,
+    hlc: hlc ?? this.hlc,
+    op: op ?? this.op,
+    enqueuedAt: enqueuedAt ?? this.enqueuedAt,
+  );
+  SyncOutboxRow copyWithCompanion(SyncOutboxCompanion data) {
+    return SyncOutboxRow(
+      syncedTable: data.syncedTable.present
+          ? data.syncedTable.value
+          : this.syncedTable,
+      rowKey: data.rowKey.present ? data.rowKey.value : this.rowKey,
+      hlc: data.hlc.present ? data.hlc.value : this.hlc,
+      op: data.op.present ? data.op.value : this.op,
+      enqueuedAt: data.enqueuedAt.present
+          ? data.enqueuedAt.value
+          : this.enqueuedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncOutboxRow(')
+          ..write('syncedTable: $syncedTable, ')
+          ..write('rowKey: $rowKey, ')
+          ..write('hlc: $hlc, ')
+          ..write('op: $op, ')
+          ..write('enqueuedAt: $enqueuedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(syncedTable, rowKey, hlc, op, enqueuedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncOutboxRow &&
+          other.syncedTable == this.syncedTable &&
+          other.rowKey == this.rowKey &&
+          other.hlc == this.hlc &&
+          other.op == this.op &&
+          other.enqueuedAt == this.enqueuedAt);
+}
+
+class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
+  final Value<String> syncedTable;
+  final Value<String> rowKey;
+  final Value<String> hlc;
+  final Value<String> op;
+  final Value<DateTime> enqueuedAt;
+  final Value<int> rowid;
+  const SyncOutboxCompanion({
+    this.syncedTable = const Value.absent(),
+    this.rowKey = const Value.absent(),
+    this.hlc = const Value.absent(),
+    this.op = const Value.absent(),
+    this.enqueuedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncOutboxCompanion.insert({
+    required String syncedTable,
+    required String rowKey,
+    required String hlc,
+    required String op,
+    required DateTime enqueuedAt,
+    this.rowid = const Value.absent(),
+  }) : syncedTable = Value(syncedTable),
+       rowKey = Value(rowKey),
+       hlc = Value(hlc),
+       op = Value(op),
+       enqueuedAt = Value(enqueuedAt);
+  static Insertable<SyncOutboxRow> custom({
+    Expression<String>? syncedTable,
+    Expression<String>? rowKey,
+    Expression<String>? hlc,
+    Expression<String>? op,
+    Expression<DateTime>? enqueuedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (syncedTable != null) 'table_name': syncedTable,
+      if (rowKey != null) 'row_key': rowKey,
+      if (hlc != null) 'hlc': hlc,
+      if (op != null) 'op': op,
+      if (enqueuedAt != null) 'enqueued_at': enqueuedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncOutboxCompanion copyWith({
+    Value<String>? syncedTable,
+    Value<String>? rowKey,
+    Value<String>? hlc,
+    Value<String>? op,
+    Value<DateTime>? enqueuedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncOutboxCompanion(
+      syncedTable: syncedTable ?? this.syncedTable,
+      rowKey: rowKey ?? this.rowKey,
+      hlc: hlc ?? this.hlc,
+      op: op ?? this.op,
+      enqueuedAt: enqueuedAt ?? this.enqueuedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (syncedTable.present) {
+      map['table_name'] = Variable<String>(syncedTable.value);
+    }
+    if (rowKey.present) {
+      map['row_key'] = Variable<String>(rowKey.value);
+    }
+    if (hlc.present) {
+      map['hlc'] = Variable<String>(hlc.value);
+    }
+    if (op.present) {
+      map['op'] = Variable<String>(op.value);
+    }
+    if (enqueuedAt.present) {
+      map['enqueued_at'] = Variable<DateTime>(enqueuedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncOutboxCompanion(')
+          ..write('syncedTable: $syncedTable, ')
+          ..write('rowKey: $rowKey, ')
+          ..write('hlc: $hlc, ')
+          ..write('op: $op, ')
+          ..write('enqueuedAt: $enqueuedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -15525,6 +17559,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CalendarCategoryAlertsTable calendarCategoryAlerts =
       $CalendarCategoryAlertsTable(this);
   late final $EventDigestsTable eventDigests = $EventDigestsTable(this);
+  late final $SyncOutboxTable syncOutbox = $SyncOutboxTable(this);
   late final FolderDao folderDao = FolderDao(this as AppDatabase);
   late final NoteDao noteDao = NoteDao(this as AppDatabase);
   late final ContentChunkDao contentChunkDao = ContentChunkDao(
@@ -15598,6 +17633,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     vocabularyItems,
     calendarCategoryAlerts,
     eventDigests,
+    syncOutbox,
   ];
 }
 
@@ -15617,6 +17653,7 @@ typedef $$FoldersTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$FoldersTableUpdateCompanionBuilder =
@@ -15635,6 +17672,7 @@ typedef $$FoldersTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -15714,6 +17752,11 @@ class $$FoldersTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -15796,6 +17839,11 @@ class $$FoldersTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$FoldersTableAnnotationComposer
@@ -15854,6 +17902,9 @@ class $$FoldersTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$FoldersTableTableManager
@@ -15898,6 +17949,7 @@ class $$FoldersTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => FoldersCompanion(
                 id: id,
@@ -15914,6 +17966,7 @@ class $$FoldersTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -15932,6 +17985,7 @@ class $$FoldersTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => FoldersCompanion.insert(
                 id: id,
@@ -15948,6 +18002,7 @@ class $$FoldersTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -15990,6 +18045,7 @@ typedef $$NotesTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$NotesTableUpdateCompanionBuilder =
@@ -16010,6 +18066,7 @@ typedef $$NotesTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -16098,6 +18155,11 @@ class $$NotesTableFilterComposer extends Composer<_$AppDatabase, $NotesTable> {
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -16190,6 +18252,11 @@ class $$NotesTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NotesTableAnnotationComposer
@@ -16256,6 +18323,9 @@ class $$NotesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$NotesTableTableManager
@@ -16302,6 +18372,7 @@ class $$NotesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NotesCompanion(
                 id: id,
@@ -16320,6 +18391,7 @@ class $$NotesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -16340,6 +18412,7 @@ class $$NotesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NotesCompanion.insert(
                 id: id,
@@ -16358,6 +18431,7 @@ class $$NotesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -16393,6 +18467,7 @@ typedef $$ContentChunksTableCreateCompanionBuilder =
       required String deviceId,
       Value<int> version,
       Value<bool> isDeleted,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$ContentChunksTableUpdateCompanionBuilder =
@@ -16406,6 +18481,7 @@ typedef $$ContentChunksTableUpdateCompanionBuilder =
       Value<String> deviceId,
       Value<int> version,
       Value<bool> isDeleted,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -16460,6 +18536,11 @@ class $$ContentChunksTableFilterComposer
 
   ColumnFilters<bool> get isDeleted => $composableBuilder(
     column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -16517,6 +18598,11 @@ class $$ContentChunksTableOrderingComposer
     column: $table.isDeleted,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ContentChunksTableAnnotationComposer
@@ -16560,6 +18646,9 @@ class $$ContentChunksTableAnnotationComposer
 
   GeneratedColumn<bool> get isDeleted =>
       $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$ContentChunksTableTableManager
@@ -16602,6 +18691,7 @@ class $$ContentChunksTableTableManager
                 Value<String> deviceId = const Value.absent(),
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ContentChunksCompanion(
                 id: id,
@@ -16613,6 +18703,7 @@ class $$ContentChunksTableTableManager
                 deviceId: deviceId,
                 version: version,
                 isDeleted: isDeleted,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -16626,6 +18717,7 @@ class $$ContentChunksTableTableManager
                 required String deviceId,
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ContentChunksCompanion.insert(
                 id: id,
@@ -16637,6 +18729,7 @@ class $$ContentChunksTableTableManager
                 deviceId: deviceId,
                 version: version,
                 isDeleted: isDeleted,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -16998,6 +19091,12 @@ typedef $$CountersTableCreateCompanionBuilder =
       Value<int> position,
       Value<bool> isPinned,
       required DateTime createdAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$CountersTableUpdateCompanionBuilder =
@@ -17010,6 +19109,12 @@ typedef $$CountersTableUpdateCompanionBuilder =
       Value<int> position,
       Value<bool> isPinned,
       Value<DateTime> createdAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -17059,6 +19164,36 @@ class $$CountersTableFilterComposer
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -17111,6 +19246,36 @@ class $$CountersTableOrderingComposer
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CountersTableAnnotationComposer
@@ -17147,6 +19312,26 @@ class $$CountersTableAnnotationComposer
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$CountersTableTableManager
@@ -17188,6 +19373,12 @@ class $$CountersTableTableManager
                 Value<int> position = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CountersCompanion(
                 id: id,
@@ -17198,6 +19389,12 @@ class $$CountersTableTableManager
                 position: position,
                 isPinned: isPinned,
                 createdAt: createdAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -17210,6 +19407,12 @@ class $$CountersTableTableManager
                 Value<int> position = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
                 required DateTime createdAt,
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CountersCompanion.insert(
                 id: id,
@@ -17220,6 +19423,12 @@ class $$CountersTableTableManager
                 position: position,
                 isPinned: isPinned,
                 createdAt: createdAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -17251,6 +19460,12 @@ typedef $$CounterValuesTableCreateCompanionBuilder =
       required int value,
       Value<int> position,
       Value<bool> isPinned,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$CounterValuesTableUpdateCompanionBuilder =
@@ -17260,6 +19475,12 @@ typedef $$CounterValuesTableUpdateCompanionBuilder =
       Value<int> value,
       Value<int> position,
       Value<bool> isPinned,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -17294,6 +19515,36 @@ class $$CounterValuesTableFilterComposer
 
   ColumnFilters<bool> get isPinned => $composableBuilder(
     column: $table.isPinned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -17331,6 +19582,36 @@ class $$CounterValuesTableOrderingComposer
     column: $table.isPinned,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CounterValuesTableAnnotationComposer
@@ -17356,6 +19637,26 @@ class $$CounterValuesTableAnnotationComposer
 
   GeneratedColumn<bool> get isPinned =>
       $composableBuilder(column: $table.isPinned, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$CounterValuesTableTableManager
@@ -17394,6 +19695,12 @@ class $$CounterValuesTableTableManager
                 Value<int> value = const Value.absent(),
                 Value<int> position = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CounterValuesCompanion(
                 counterId: counterId,
@@ -17401,6 +19708,12 @@ class $$CounterValuesTableTableManager
                 value: value,
                 position: position,
                 isPinned: isPinned,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -17410,6 +19723,12 @@ class $$CounterValuesTableTableManager
                 required int value,
                 Value<int> position = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CounterValuesCompanion.insert(
                 counterId: counterId,
@@ -17417,6 +19736,12 @@ class $$CounterValuesTableTableManager
                 value: value,
                 position: position,
                 isPinned: isPinned,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -17479,6 +19804,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$CalendarEventsTableUpdateCompanionBuilder =
@@ -17516,6 +19842,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -17690,6 +20017,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -17867,6 +20199,11 @@ class $$CalendarEventsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CalendarEventsTableAnnotationComposer
@@ -18008,6 +20345,9 @@ class $$CalendarEventsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$CalendarEventsTableTableManager
@@ -18080,6 +20420,7 @@ class $$CalendarEventsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarEventsCompanion(
                 id: id,
@@ -18115,6 +20456,7 @@ class $$CalendarEventsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -18152,6 +20494,7 @@ class $$CalendarEventsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarEventsCompanion.insert(
                 id: id,
@@ -18187,6 +20530,7 @@ class $$CalendarEventsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -18445,6 +20789,12 @@ typedef $$CalendarCategoriesTableCreateCompanionBuilder =
       Value<bool> isHidden,
       required DateTime createdAt,
       required DateTime updatedAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$CalendarCategoriesTableUpdateCompanionBuilder =
@@ -18458,6 +20808,12 @@ typedef $$CalendarCategoriesTableUpdateCompanionBuilder =
       Value<bool> isHidden,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -18512,6 +20868,36 @@ class $$CalendarCategoriesTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -18569,6 +20955,36 @@ class $$CalendarCategoriesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CalendarCategoriesTableAnnotationComposer
@@ -18608,6 +21024,26 @@ class $$CalendarCategoriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$CalendarCategoriesTableTableManager
@@ -18659,6 +21095,12 @@ class $$CalendarCategoriesTableTableManager
                 Value<bool> isHidden = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarCategoriesCompanion(
                 id: id,
@@ -18670,6 +21112,12 @@ class $$CalendarCategoriesTableTableManager
                 isHidden: isHidden,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -18683,6 +21131,12 @@ class $$CalendarCategoriesTableTableManager
                 Value<bool> isHidden = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarCategoriesCompanion.insert(
                 id: id,
@@ -18694,6 +21148,12 @@ class $$CalendarCategoriesTableTableManager
                 isHidden: isHidden,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -18737,6 +21197,7 @@ typedef $$EventOccurrenceDescriptionsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$EventOccurrenceDescriptionsTableUpdateCompanionBuilder =
@@ -18751,6 +21212,7 @@ typedef $$EventOccurrenceDescriptionsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -18810,6 +21272,11 @@ class $$EventOccurrenceDescriptionsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -18872,6 +21339,11 @@ class $$EventOccurrenceDescriptionsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventOccurrenceDescriptionsTableAnnotationComposer
@@ -18916,6 +21388,9 @@ class $$EventOccurrenceDescriptionsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$EventOccurrenceDescriptionsTableTableManager
@@ -18974,6 +21449,7 @@ class $$EventOccurrenceDescriptionsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventOccurrenceDescriptionsCompanion(
                 eventId: eventId,
@@ -18986,6 +21462,7 @@ class $$EventOccurrenceDescriptionsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19000,6 +21477,7 @@ class $$EventOccurrenceDescriptionsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventOccurrenceDescriptionsCompanion.insert(
                 eventId: eventId,
@@ -19012,6 +21490,7 @@ class $$EventOccurrenceDescriptionsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -19055,6 +21534,7 @@ typedef $$EventAbsencesTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$EventAbsencesTableUpdateCompanionBuilder =
@@ -19069,6 +21549,7 @@ typedef $$EventAbsencesTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -19128,6 +21609,11 @@ class $$EventAbsencesTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -19190,6 +21676,11 @@ class $$EventAbsencesTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventAbsencesTableAnnotationComposer
@@ -19232,6 +21723,9 @@ class $$EventAbsencesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$EventAbsencesTableTableManager
@@ -19275,6 +21769,7 @@ class $$EventAbsencesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventAbsencesCompanion(
                 eventId: eventId,
@@ -19287,6 +21782,7 @@ class $$EventAbsencesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19301,6 +21797,7 @@ class $$EventAbsencesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventAbsencesCompanion.insert(
                 eventId: eventId,
@@ -19313,6 +21810,7 @@ class $$EventAbsencesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -19368,6 +21866,7 @@ typedef $$EventTemplatesTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$EventTemplatesTableUpdateCompanionBuilder =
@@ -19398,6 +21897,7 @@ typedef $$EventTemplatesTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -19537,6 +22037,11 @@ class $$EventTemplatesTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -19679,6 +22184,11 @@ class $$EventTemplatesTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventTemplatesTableAnnotationComposer
@@ -19791,6 +22301,9 @@ class $$EventTemplatesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$EventTemplatesTableTableManager
@@ -19856,6 +22369,7 @@ class $$EventTemplatesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventTemplatesCompanion(
                 id: id,
@@ -19884,6 +22398,7 @@ class $$EventTemplatesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19914,6 +22429,7 @@ class $$EventTemplatesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventTemplatesCompanion.insert(
                 id: id,
@@ -19942,6 +22458,7 @@ class $$EventTemplatesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -19982,6 +22499,7 @@ typedef $$CalendarFilterPresetsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$CalendarFilterPresetsTableUpdateCompanionBuilder =
@@ -19997,6 +22515,7 @@ typedef $$CalendarFilterPresetsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -20061,6 +22580,11 @@ class $$CalendarFilterPresetsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -20128,6 +22652,11 @@ class $$CalendarFilterPresetsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CalendarFilterPresetsTableAnnotationComposer
@@ -20173,6 +22702,9 @@ class $$CalendarFilterPresetsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$CalendarFilterPresetsTableTableManager
@@ -20232,6 +22764,7 @@ class $$CalendarFilterPresetsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarFilterPresetsCompanion(
                 id: id,
@@ -20245,6 +22778,7 @@ class $$CalendarFilterPresetsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -20260,6 +22794,7 @@ class $$CalendarFilterPresetsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarFilterPresetsCompanion.insert(
                 id: id,
@@ -20273,6 +22808,7 @@ class $$CalendarFilterPresetsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -20317,6 +22853,7 @@ typedef $$OverviewViewsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$OverviewViewsTableUpdateCompanionBuilder =
@@ -20332,6 +22869,7 @@ typedef $$OverviewViewsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -20396,6 +22934,11 @@ class $$OverviewViewsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -20463,6 +23006,11 @@ class $$OverviewViewsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$OverviewViewsTableAnnotationComposer
@@ -20508,6 +23056,9 @@ class $$OverviewViewsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$OverviewViewsTableTableManager
@@ -20552,6 +23103,7 @@ class $$OverviewViewsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => OverviewViewsCompanion(
                 id: id,
@@ -20565,6 +23117,7 @@ class $$OverviewViewsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -20580,6 +23133,7 @@ class $$OverviewViewsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => OverviewViewsCompanion.insert(
                 id: id,
@@ -20593,6 +23147,7 @@ class $$OverviewViewsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -20631,6 +23186,7 @@ typedef $$EventSkipsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$EventSkipsTableUpdateCompanionBuilder =
@@ -20644,6 +23200,7 @@ typedef $$EventSkipsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -20698,6 +23255,11 @@ class $$EventSkipsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -20755,6 +23317,11 @@ class $$EventSkipsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventSkipsTableAnnotationComposer
@@ -20794,6 +23361,9 @@ class $$EventSkipsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$EventSkipsTableTableManager
@@ -20836,6 +23406,7 @@ class $$EventSkipsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventSkipsCompanion(
                 eventId: eventId,
@@ -20847,6 +23418,7 @@ class $$EventSkipsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -20860,6 +23432,7 @@ class $$EventSkipsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventSkipsCompanion.insert(
                 eventId: eventId,
@@ -20871,6 +23444,7 @@ class $$EventSkipsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -20915,6 +23489,7 @@ typedef $$EventAlertsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$EventAlertsTableUpdateCompanionBuilder =
@@ -20934,6 +23509,7 @@ typedef $$EventAlertsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -21018,6 +23594,11 @@ class $$EventAlertsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -21105,6 +23686,11 @@ class $$EventAlertsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventAlertsTableAnnotationComposer
@@ -21166,6 +23752,9 @@ class $$EventAlertsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$EventAlertsTableTableManager
@@ -21214,6 +23803,7 @@ class $$EventAlertsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventAlertsCompanion(
                 id: id,
@@ -21231,6 +23821,7 @@ class $$EventAlertsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -21250,6 +23841,7 @@ class $$EventAlertsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventAlertsCompanion.insert(
                 id: id,
@@ -21267,6 +23859,7 @@ class $$EventAlertsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -21628,6 +24221,7 @@ typedef $$VocabulariesTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$VocabulariesTableUpdateCompanionBuilder =
@@ -21643,6 +24237,7 @@ typedef $$VocabulariesTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -21707,6 +24302,11 @@ class $$VocabulariesTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -21774,6 +24374,11 @@ class $$VocabulariesTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$VocabulariesTableAnnotationComposer
@@ -21819,6 +24424,9 @@ class $$VocabulariesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$VocabulariesTableTableManager
@@ -21863,6 +24471,7 @@ class $$VocabulariesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VocabulariesCompanion(
                 id: id,
@@ -21876,6 +24485,7 @@ class $$VocabulariesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -21891,6 +24501,7 @@ class $$VocabulariesTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VocabulariesCompanion.insert(
                 id: id,
@@ -21904,6 +24515,7 @@ class $$VocabulariesTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -21944,6 +24556,7 @@ typedef $$VocabularyItemsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$VocabularyItemsTableUpdateCompanionBuilder =
@@ -21959,6 +24572,7 @@ typedef $$VocabularyItemsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -22023,6 +24637,11 @@ class $$VocabularyItemsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -22090,6 +24709,11 @@ class $$VocabularyItemsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$VocabularyItemsTableAnnotationComposer
@@ -22137,6 +24761,9 @@ class $$VocabularyItemsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$VocabularyItemsTableTableManager
@@ -22187,6 +24814,7 @@ class $$VocabularyItemsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VocabularyItemsCompanion(
                 id: id,
@@ -22200,6 +24828,7 @@ class $$VocabularyItemsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -22215,6 +24844,7 @@ class $$VocabularyItemsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VocabularyItemsCompanion.insert(
                 id: id,
@@ -22228,6 +24858,7 @@ class $$VocabularyItemsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -22272,6 +24903,7 @@ typedef $$CalendarCategoryAlertsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$CalendarCategoryAlertsTableUpdateCompanionBuilder =
@@ -22291,6 +24923,7 @@ typedef $$CalendarCategoryAlertsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -22375,6 +25008,11 @@ class $$CalendarCategoryAlertsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -22462,6 +25100,11 @@ class $$CalendarCategoryAlertsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CalendarCategoryAlertsTableAnnotationComposer
@@ -22525,6 +25168,9 @@ class $$CalendarCategoryAlertsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$CalendarCategoryAlertsTableTableManager
@@ -22588,6 +25234,7 @@ class $$CalendarCategoryAlertsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarCategoryAlertsCompanion(
                 id: id,
@@ -22605,6 +25252,7 @@ class $$CalendarCategoryAlertsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -22624,6 +25272,7 @@ class $$CalendarCategoryAlertsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarCategoryAlertsCompanion.insert(
                 id: id,
@@ -22641,6 +25290,7 @@ class $$CalendarCategoryAlertsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -22686,6 +25336,7 @@ typedef $$EventDigestsTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 typedef $$EventDigestsTableUpdateCompanionBuilder =
@@ -22702,6 +25353,7 @@ typedef $$EventDigestsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
       Value<int> rowid,
     });
 
@@ -22771,6 +25423,11 @@ class $$EventDigestsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -22843,6 +25500,11 @@ class $$EventDigestsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventDigestsTableAnnotationComposer
@@ -22891,6 +25553,9 @@ class $$EventDigestsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
 }
 
 class $$EventDigestsTableTableManager
@@ -22936,6 +25601,7 @@ class $$EventDigestsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventDigestsCompanion(
                 id: id,
@@ -22950,6 +25616,7 @@ class $$EventDigestsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -22966,6 +25633,7 @@ class $$EventDigestsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventDigestsCompanion.insert(
                 id: id,
@@ -22980,6 +25648,7 @@ class $$EventDigestsTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
+                ownerId: ownerId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -23005,6 +25674,210 @@ typedef $$EventDigestsTableProcessedTableManager =
         BaseReferences<_$AppDatabase, $EventDigestsTable, EventDigestRow>,
       ),
       EventDigestRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncOutboxTableCreateCompanionBuilder =
+    SyncOutboxCompanion Function({
+      required String syncedTable,
+      required String rowKey,
+      required String hlc,
+      required String op,
+      required DateTime enqueuedAt,
+      Value<int> rowid,
+    });
+typedef $$SyncOutboxTableUpdateCompanionBuilder =
+    SyncOutboxCompanion Function({
+      Value<String> syncedTable,
+      Value<String> rowKey,
+      Value<String> hlc,
+      Value<String> op,
+      Value<DateTime> enqueuedAt,
+      Value<int> rowid,
+    });
+
+class $$SyncOutboxTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncOutboxTable> {
+  $$SyncOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get syncedTable => $composableBuilder(
+    column: $table.syncedTable,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get rowKey => $composableBuilder(
+    column: $table.rowKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlc => $composableBuilder(
+    column: $table.hlc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get enqueuedAt => $composableBuilder(
+    column: $table.enqueuedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncOutboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncOutboxTable> {
+  $$SyncOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get syncedTable => $composableBuilder(
+    column: $table.syncedTable,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get rowKey => $composableBuilder(
+    column: $table.rowKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hlc => $composableBuilder(
+    column: $table.hlc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get enqueuedAt => $composableBuilder(
+    column: $table.enqueuedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncOutboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncOutboxTable> {
+  $$SyncOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get syncedTable => $composableBuilder(
+    column: $table.syncedTable,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get rowKey =>
+      $composableBuilder(column: $table.rowKey, builder: (column) => column);
+
+  GeneratedColumn<String> get hlc =>
+      $composableBuilder(column: $table.hlc, builder: (column) => column);
+
+  GeneratedColumn<String> get op =>
+      $composableBuilder(column: $table.op, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get enqueuedAt => $composableBuilder(
+    column: $table.enqueuedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$SyncOutboxTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SyncOutboxTable,
+          SyncOutboxRow,
+          $$SyncOutboxTableFilterComposer,
+          $$SyncOutboxTableOrderingComposer,
+          $$SyncOutboxTableAnnotationComposer,
+          $$SyncOutboxTableCreateCompanionBuilder,
+          $$SyncOutboxTableUpdateCompanionBuilder,
+          (
+            SyncOutboxRow,
+            BaseReferences<_$AppDatabase, $SyncOutboxTable, SyncOutboxRow>,
+          ),
+          SyncOutboxRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncOutboxTableTableManager(_$AppDatabase db, $SyncOutboxTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncOutboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> syncedTable = const Value.absent(),
+                Value<String> rowKey = const Value.absent(),
+                Value<String> hlc = const Value.absent(),
+                Value<String> op = const Value.absent(),
+                Value<DateTime> enqueuedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncOutboxCompanion(
+                syncedTable: syncedTable,
+                rowKey: rowKey,
+                hlc: hlc,
+                op: op,
+                enqueuedAt: enqueuedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String syncedTable,
+                required String rowKey,
+                required String hlc,
+                required String op,
+                required DateTime enqueuedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncOutboxCompanion.insert(
+                syncedTable: syncedTable,
+                rowKey: rowKey,
+                hlc: hlc,
+                op: op,
+                enqueuedAt: enqueuedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncOutboxTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SyncOutboxTable,
+      SyncOutboxRow,
+      $$SyncOutboxTableFilterComposer,
+      $$SyncOutboxTableOrderingComposer,
+      $$SyncOutboxTableAnnotationComposer,
+      $$SyncOutboxTableCreateCompanionBuilder,
+      $$SyncOutboxTableUpdateCompanionBuilder,
+      (
+        SyncOutboxRow,
+        BaseReferences<_$AppDatabase, $SyncOutboxTable, SyncOutboxRow>,
+      ),
+      SyncOutboxRow,
       PrefetchHooks Function()
     >;
 
@@ -23062,4 +25935,6 @@ class $AppDatabaseManager {
       );
   $$EventDigestsTableTableManager get eventDigests =>
       $$EventDigestsTableTableManager(_db, _db.eventDigests);
+  $$SyncOutboxTableTableManager get syncOutbox =>
+      $$SyncOutboxTableTableManager(_db, _db.syncOutbox);
 }

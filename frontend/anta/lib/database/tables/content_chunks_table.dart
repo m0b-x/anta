@@ -13,6 +13,10 @@ class ContentChunks extends Table {
   IntColumn get version => integer().withDefault(const Constant(1))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 
+  /// The owning account once sync binds one (**v43**); NULL until then. Here
+  /// for parity with `notes` only: a chunk is local storage of a note's body.
+  TextColumn get ownerId => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

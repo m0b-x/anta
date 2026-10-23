@@ -46,8 +46,10 @@ class CounterService {
   /// Set of dirty counter IDs whose global value needs flushing.
   final Set<String> _dirtyGlobalValues = {};
 
-  /// Set of dirty noteIds whose per-note values need flushing.
-  final Set<String> _dirtyNoteValues = {};
+  /// Dirty `(counterId, noteId)` pairs whose per-note value needs flushing.
+  /// Pairs, not whole notes: a note's other counters did not change, and
+  /// writing them would stamp every one as a change once devices merge.
+  final Set<(String, String)> _dirtyNoteValues = {};
 
   Timer? _flushTimer;
   static const _flushDelay = Duration(milliseconds: 300);
@@ -67,6 +69,18 @@ class CounterService {
       DatabaseLifecycle.registerResetHandler(reset);
     }
     return _instance!;
+  }
+
+  /// A service over [db] for tests, the `CategoryService.forTesting` seam: the
+  /// real flush and DAO against an in-memory database. Not the singleton and
+  /// never registered with `DatabaseLifecycle`.
+  @visibleForTesting
+  static Future<CounterService> forTesting(AppDatabase db) async {
+    final service = CounterService._();
+    service._db = db;
+    service._dao = db.counterDao;
+    await service._load();
+    return service;
   }
 
   static void reset() {
@@ -106,7 +120,7 @@ class CounterService {
 
   Future<void> _flushDirty() async {
     final globalIds = Set<String>.from(_dirtyGlobalValues);
-    final noteIds = Set<String>.from(_dirtyNoteValues);
+    final notePairs = Set<(String, String)>.from(_dirtyNoteValues);
     _dirtyGlobalValues.clear();
     _dirtyNoteValues.clear();
 
@@ -118,11 +132,10 @@ class CounterService {
           futures.add(_dao.upsertValue(cid, '', val));
         }
       }
-      for (final nid in noteIds) {
-        final noteMap = _noteValuesCache[nid];
-        if (noteMap == null) continue;
-        for (final entry in noteMap.entries) {
-          futures.add(_dao.upsertValue(entry.key, nid, entry.value));
+      for (final (cid, nid) in notePairs) {
+        final val = _noteValuesCache[nid]?[cid];
+        if (val != null) {
+          futures.add(_dao.upsertValue(cid, nid, val));
         }
       }
       if (futures.isNotEmpty) await Future.wait(futures);
@@ -161,10 +174,10 @@ class CounterService {
     _counterIndex[id] = counter;
     _globalValues[id] = startValue;
 
-    await Future.wait([
-      _dao.insertCounter(_counterToCompanion(counter, _counters.length - 1)),
-      _dao.upsertValue(id, '', startValue),
-    ]);
+    await _dao.insertCounterWithValue(
+      _counterToCompanion(counter, _counters.length - 1),
+      startValue,
+    );
     return id;
   }
 
@@ -193,13 +206,11 @@ class CounterService {
     _counterIndex.remove(counterId);
     _globalValues.remove(counterId);
     _dirtyGlobalValues.remove(counterId);
+    _dirtyNoteValues.removeWhere((pair) => pair.$1 == counterId);
     for (final cache in _noteValuesCache.values) {
       cache.remove(counterId);
     }
-    await Future.wait([
-      _dao.deleteCounter(counterId),
-      _dao.deleteCounterValues(counterId),
-    ]);
+    await _dao.deleteCounter(counterId);
   }
 
   Future<void> deleteNoteValue(String counterId, String noteId) async {
@@ -231,6 +242,10 @@ class CounterService {
   Future<void> resetGlobal(String counterId) async {
     final counter = _counterIndex[counterId];
     if (counter == null) throw StateError('Counter not found: $counterId');
+    if ((_globalValues[counterId] ?? counter.startValue) ==
+        counter.startValue) {
+      return;
+    }
     _globalValues[counterId] = counter.startValue;
     _dirtyGlobalValues.add(counterId);
     _scheduleDirtyFlush();
@@ -290,7 +305,7 @@ class CounterService {
     final current = noteValues[counterId] ?? counter.startValue;
     final next = current + counter.step;
     noteValues[counterId] = next;
-    _dirtyNoteValues.add(noteId);
+    _dirtyNoteValues.add((counterId, noteId));
     _scheduleDirtyFlush();
     return next;
   }
@@ -307,7 +322,7 @@ class CounterService {
     final current = noteValues[counterId] ?? counter.startValue;
     final next = current - counter.step;
     noteValues[counterId] = next;
-    _dirtyNoteValues.add(noteId);
+    _dirtyNoteValues.add((counterId, noteId));
     _scheduleDirtyFlush();
     return next;
   }
@@ -327,7 +342,7 @@ class CounterService {
 
     final noteValues = await getNoteValues(noteId);
     noteValues[counterId] = value;
-    _dirtyNoteValues.add(noteId);
+    _dirtyNoteValues.add((counterId, noteId));
     _scheduleDirtyFlush();
   }
 
@@ -342,7 +357,7 @@ class CounterService {
 
     final noteValues = await getNoteValues(noteId);
     noteValues[counterId] = counter.startValue;
-    _dirtyNoteValues.add(noteId);
+    _dirtyNoteValues.add((counterId, noteId));
     _scheduleDirtyFlush();
   }
 
@@ -487,10 +502,7 @@ class CounterService {
     for (var i = 0; i < _counters.length; i++) {
       positions[_counters[i].id] = i;
     }
-    await Future.wait([
-      _dao.setCounterPinned(counterId, newPinned),
-      _dao.updatePositions(positions),
-    ]);
+    await _dao.setCounterPinned(counterId, newPinned, positions: positions);
   }
 
   Future<void> toggleNoteValuePin(

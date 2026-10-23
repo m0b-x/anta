@@ -16,10 +16,10 @@ import 'package:drift/drift.dart';
 /// can never leave a materialized copy behind.
 ///
 /// The five CRDT columns are the v40 alert table's block byte-for-byte, with
-/// [hlcTimestamp] / [deviceId] default-less. `calendar_categories` itself has
-/// no block; this table carries one anyway because the alert is user data that
-/// must merge, and it names its category by the stable id. All stamping lives
-/// in `CategoryAlertDao`.
+/// [hlcTimestamp] / [deviceId] default-less. `calendar_categories` only gained
+/// its own block in v43; this table carried one from the start because the
+/// alert is user data that must merge, and it names its category by the stable
+/// id. All stamping lives in `CategoryAlertDao`.
 @DataClassName('CategoryAlertRow')
 class CalendarCategoryAlerts extends Table {
   @override
@@ -55,6 +55,9 @@ class CalendarCategoryAlerts extends Table {
   IntColumn get version => integer().withDefault(const Constant(1))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  /// The owning account once sync binds one (**v43**); NULL until then.
+  TextColumn get ownerId => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

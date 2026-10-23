@@ -9,7 +9,8 @@ class DatabaseIndexes {
     await _createFolderIndexes();
     await _createNoteIndexes();
     await _createChunkIndexes();
-    await _createCounterIndexes();
+    await createCounterIndexes();
+    await createCategoryIndexes();
     await createCalendarIndexes();
     await createCalendarDeltaIndexes();
     await createAlertIndexes();
@@ -132,9 +133,38 @@ class DatabaseIndexes {
     );
   }
 
-  Future<void> _createCounterIndexes() async {
+  /// The counter indexes, partial on live rows since **v43**, when both tables
+  /// became CRDT-shaped and every `CounterDao` read started filtering
+  /// tombstones. Public because the v43 step calls it; v6 creates
+  /// `idx_counter_values_counter` in its own frozen full shape, and v43 drops
+  /// it by name before this recreates it, so upgraders and fresh installs end
+  /// on one definition.
+  ///
+  /// Both follow their list's ordering — pinned first, then position — so
+  /// `getAllCounters` and `getValuesForCounterOrdered` read in index order
+  /// without a temp B-tree; the values index's `counter_id` prefix still
+  /// serves the unordered per-counter read. Both predicates are the literal
+  /// `is_deleted = 0` the DAO spells, for the bound-parameter reason recorded
+  /// on [createCalendarDeltaIndexes].
+  Future<void> createCounterIndexes() async {
     await _db.customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_counter_values_counter ON counter_values(counter_id)',
+      'CREATE INDEX IF NOT EXISTS idx_counter_values_counter '
+      'ON counter_values(counter_id, is_pinned DESC, position) '
+      'WHERE is_deleted = 0',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_counters_active '
+      'ON counters(is_pinned DESC, position) WHERE is_deleted = 0',
+    );
+  }
+
+  /// The category catalog's index (**v43**), partial on live rows and keyed by
+  /// `CalendarCategoryDao.getAll`'s `(sort_order, id)` ordering. Public because
+  /// the v43 step calls it, so both paths build one definition.
+  Future<void> createCategoryIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_categories_active '
+      'ON calendar_categories(sort_order, id) WHERE is_deleted = 0',
     );
   }
 

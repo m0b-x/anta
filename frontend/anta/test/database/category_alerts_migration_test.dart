@@ -90,12 +90,9 @@ void main() {
     );
   }
 
-  test('the step is registered and the schema version is 42', () {
-    expect(DatabaseSchema.currentVersion, 42);
-    expect(
-      DatabaseSchema.v42CategoryAlertsAndDigests,
-      DatabaseSchema.currentVersion,
-    );
+  test('the step is registered at 42', () {
+    expect(DatabaseSchema.v42CategoryAlertsAndDigests, 42);
+    expect(DatabaseSchema.currentVersion, greaterThanOrEqualTo(42));
   });
 
   test('a fresh install already has everything v42 adds', () async {
@@ -238,7 +235,13 @@ void main() {
         final created = await columnShape('calendar_category_alerts');
 
         await dropV42();
-        await runV42();
+        // v43 appends `owner_id`, so a fresh install's shape is the v42 DDL
+        // plus every later step that widens it.
+        await DatabaseMigrations(db).runMigrations(
+          db.createMigrator(),
+          DatabaseSchema.v41OverviewViews,
+          DatabaseSchema.currentVersion,
+        );
 
         expect(await columnShape('calendar_category_alerts'), created);
       },
