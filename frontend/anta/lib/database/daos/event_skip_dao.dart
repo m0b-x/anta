@@ -1,13 +1,15 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/event_skips_table.dart';
 
 part 'event_skip_dao.g.dart';
 
 /// All CRDT stamping for `calendar_event_skips` lives here, never in the
-/// service: `db.generateHlc()`, `db.deviceId` and read-then-write
-/// `version + 1`, the [NoteDao] idiom.
+/// service: a `CrdtWrite` stamp, the row queued under [dayRowKey] in the same
+/// transaction (**v43**), and read-then-write `version + 1`, the [NoteDao]
+/// idiom.
 @DriftAccessor(tables: [EventSkips])
 class EventSkipDao extends DatabaseAccessor<AppDatabase>
     with _$EventSkipDaoMixin {
@@ -64,7 +66,7 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
       if (existing != null && !existing.isDeleted) return;
 
       final now = DateTime.now();
-      final hlc = db.generateHlc();
+      final stamp = await db.stampLocal(eventSkips, dayRowKey(eventId, day));
       if (existing == null) {
         await into(eventSkips).insert(
           EventSkipsCompanion(
@@ -72,8 +74,8 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
             day: Value(day),
             createdAt: Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: const Value(1),
             isDeleted: const Value(false),
           ),
@@ -88,8 +90,8 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
           isDeleted: const Value(false),
           deletedAt: const Value(null),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -105,6 +107,11 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        eventSkips,
+        dayRowKey(eventId, day),
+        op: OutboxOp.tombstone,
+      );
       await (update(
         eventSkips,
       )..where((a) => a.eventId.equals(eventId) & a.day.equals(day))).write(
@@ -112,8 +119,8 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -127,23 +134,35 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   /// Takes the whole archive at once (**5.1**): one batched transaction and one
   /// commit, where this was a separate awaited insert — and so a separate WAL
   /// commit — per restored skip. See [CalendarEventDao.importAll] for why
-  /// `insertOrReplace` is the safe mode here.
+  /// `insertOrReplace` is the safe mode here. Each skip is queued in the same
+  /// batch, as any new local row is.
   Future<void> importAll(List<EventSkipsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          eventSkips,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            eventSkips,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(
+            b,
+            eventSkips,
+            dayRowKey(entry.eventId.value, entry.day.value),
+            stamp.hlc,
+          );
+        }
+      });
     });
   }
 
@@ -153,25 +172,40 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   ///
   /// One statement for an unbounded row count — `version + 1` in SQL, one
   /// shared HLC for the batch, the [FolderDao.softDeleteFolderWithDescendants]
-  /// idiom. Already-tombstoned rows are skipped, so a repeat cannot churn
-  /// versions. `updated_at` / `deleted_at` bind as `Variable<DateTime>`
-  /// because Drift stores unix seconds.
-  Future<void> tombstoneForEvent(String eventId) async {
-    final now = DateTime.now();
-    await customUpdate(
-      'UPDATE calendar_event_skips SET is_deleted = 1, deleted_at = ?, '
-      'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
-      'version = version + 1 '
-      'WHERE event_id = ? AND is_deleted = 0',
-      variables: [
-        Variable<DateTime>(now),
-        Variable<DateTime>(now),
-        Variable<String>(db.generateHlc()),
-        Variable<String>(db.deviceId),
-        Variable<String>(eventId),
-      ],
-      updates: {eventSkips},
-    );
+  /// idiom — and `RETURNING day` to queue exactly the rows it tombstoned.
+  /// Already-tombstoned rows are skipped, so a repeat cannot churn versions.
+  /// `updated_at` / `deleted_at` bind as `Variable<DateTime>` because Drift
+  /// stores unix seconds. [stamp] is the event delete's own, from
+  /// [CalendarEventDao.tombstoneEventCascade].
+  Future<void> tombstoneForEvent(String eventId, {CrdtStamp? stamp}) {
+    return transaction(() async {
+      final shared = stamp ?? db.newStamp();
+      final now = DateTime.now();
+      final tombstoned = await customWriteReturning(
+        'UPDATE calendar_event_skips SET is_deleted = 1, deleted_at = ?, '
+        'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
+        'version = version + 1 '
+        'WHERE event_id = ? AND is_deleted = 0 RETURNING day',
+        variables: [
+          Variable<DateTime>(now),
+          Variable<DateTime>(now),
+          Variable<String>(shared.hlc),
+          Variable<String>(shared.deviceId),
+          Variable<String>(eventId),
+        ],
+        updates: {eventSkips},
+        updateKind: UpdateKind.update,
+      );
+      await db.enqueueMany(
+        eventSkips,
+        [
+          for (final row in tombstoned)
+            dayRowKey(eventId, row.read<DateTime>('day')),
+        ],
+        shared.hlc,
+        op: OutboxOp.tombstone,
+      );
+    });
   }
 
   /// The **hard** cascade, tombstones included — kept for the wipe paths, where

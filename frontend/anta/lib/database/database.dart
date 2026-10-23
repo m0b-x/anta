@@ -219,7 +219,11 @@ class AppDatabase extends _$AppDatabase {
     await customStatement('VACUUM');
   }
 
-  String generateHlc() {
+  /// The HLC a migration step backfills onto rows that predate their CRDT
+  /// columns — for `DatabaseMigrations` alone. Such rows are not local edits
+  /// and queue nothing; every write on a synced table takes its stamp from
+  /// `CrdtWrite` instead, which is what queues it for the push.
+  String migrationBackfillHlc() {
     return hlc.now().toString();
   }
 

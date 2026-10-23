@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/event_digests_table.dart';
 
@@ -7,7 +8,7 @@ part 'event_digest_dao.g.dart';
 
 /// All CRDT stamping for `event_digests` lives here, never in the service —
 /// [OverviewViewDao] cloned, so the saved-list tables behave alike under a
-/// future merge.
+/// future merge, the outbox included (**v43**).
 @DriftAccessor(tables: [EventDigests])
 class EventDigestDao extends DatabaseAccessor<AppDatabase>
     with _$EventDigestDaoMixin {
@@ -27,21 +28,22 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
 
   /// Inserts a new digest or updates an existing one in place — a version
   /// bump from the stored row, `created_at` left alone, a tombstone
-  /// resurrected rather than duplicated ([OverviewViewDao.upsertView]).
+  /// resurrected rather than duplicated ([OverviewViewDao.upsertView]), an
+  /// unchanged save of a live digest not written at all.
   Future<void> upsertDigest(EventDigestsCompanion entry) {
     return transaction(() async {
       final id = entry.id.value;
       final existing = await _byId(id);
       final now = DateTime.now();
-      final hlc = db.generateHlc();
 
       if (existing == null) {
+        final stamp = await db.stampLocal(eventDigests, id);
         await into(eventDigests).insert(
           entry.copyWith(
             createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: const Value(1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
@@ -50,12 +52,14 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
         return;
       }
 
+      if (!existing.isDeleted && db.changesNothing(existing, entry)) return;
+      final stamp = await db.stampLocal(eventDigests, id);
       await (update(eventDigests)..where((t) => t.id.equals(id))).write(
         entry.copyWith(
           createdAt: const Value.absent(),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
           isDeleted: const Value(false),
           deletedAt: const Value(null),
@@ -77,12 +81,13 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
           existing.enabled == enabled) {
         return;
       }
+      final stamp = await db.stampLocal(eventDigests, id);
       await (update(eventDigests)..where((t) => t.id.equals(id))).write(
         EventDigestsCompanion(
           enabled: Value(enabled),
           updatedAt: Value(DateTime.now()),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -97,13 +102,18 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        eventDigests,
+        id,
+        op: OutboxOp.tombstone,
+      );
       await (update(eventDigests)..where((t) => t.id.equals(id))).write(
         EventDigestsCompanion(
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -123,51 +133,60 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
   /// Rewrites `sort_order` to a dense `0..N-1` matching [idsInOrder] in one
   /// transaction of `UPDATE`s and no reads — [OverviewViewDao.reorder]'s
   /// contract: `version + 1` in SQL, a row already in place left alone, a
-  /// tombstone or an unknown id untouched.
+  /// tombstone or an unknown id untouched, and only the rows it moved queued.
   Future<void> reorder(List<String> idsInOrder) async {
     if (idsInOrder.isEmpty) return;
     final now = DateTime.now();
-    final hlc = db.generateHlc();
 
     await transaction(() async {
+      final stamp = db.newStamp();
+      final moved = <String>[];
       for (var i = 0; i < idsInOrder.length; i++) {
-        await customUpdate(
+        final changed = await customUpdate(
           'UPDATE event_digests SET sort_order = ?, updated_at = ?, '
           'hlc_timestamp = ?, device_id = ?, version = version + 1 '
           'WHERE id = ? AND is_deleted = 0 AND sort_order != ?',
           variables: [
             Variable<int>(i),
             Variable<DateTime>(now),
-            Variable<String>(hlc),
-            Variable<String>(db.deviceId),
+            Variable<String>(stamp.hlc),
+            Variable<String>(stamp.deviceId),
             Variable<String>(idsInOrder[i]),
             Variable<int>(i),
           ],
           updates: {eventDigests},
         );
+        if (changed > 0) moved.add(idsInOrder[i]);
       }
+      await db.enqueueMany(eventDigests, moved, stamp.hlc);
     });
   }
 
   /// Inserts digests while preserving the caller's audit fields; identity is
   /// stamped **fresh** — a backup is not a sync channel. One batch for the
-  /// whole archive.
+  /// whole archive, each row queued in it as any new local row is.
   Future<void> importAll(List<EventDigestsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          eventDigests,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            eventDigests,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(b, eventDigests, entry.id.value, stamp.hlc);
+        }
+      });
     });
   }
 

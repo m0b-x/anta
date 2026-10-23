@@ -1,13 +1,15 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/event_occurrences_table.dart';
 
 part 'event_occurrence_dao.g.dart';
 
 /// All CRDT stamping for `calendar_event_occurrences` lives here, never in the
-/// service: `db.generateHlc()`, `db.deviceId` and read-then-write
-/// `version + 1`, the [NoteDao] idiom shared with [EventAbsenceDao].
+/// service: a `CrdtWrite` stamp, the row queued under [dayRowKey] in the same
+/// transaction (**v43**), and read-then-write `version + 1`, the [NoteDao]
+/// idiom shared with [EventAbsenceDao].
 @DriftAccessor(tables: [EventOccurrenceDescriptions])
 class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
     with _$EventOccurrenceDaoMixin {
@@ -34,32 +36,41 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   ///
   /// The update branch clears the tombstone flags **explicitly**, so
   /// re-describing a day that was reset resurrects its original row with
-  /// `created_at` intact instead of quietly updating an invisible one.
+  /// `created_at` intact instead of quietly updating an invisible one. A live
+  /// day re-saved with the same text writes nothing.
   Future<void> upsert(EventOccurrenceDescriptionsCompanion entry) {
     return transaction(() async {
       final eventId = entry.eventId.value;
       final day = entry.day.value;
       final existing = await _byKey(eventId, day);
-      final hlc = db.generateHlc();
 
       if (existing == null) {
+        final stamp = await db.stampLocal(
+          eventOccurrenceDescriptions,
+          dayRowKey(eventId, day),
+        );
         await into(eventOccurrenceDescriptions).insert(
           entry.copyWith(
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: const Value(1),
           ),
         );
         return;
       }
 
+      if (!existing.isDeleted && db.changesNothing(existing, entry)) return;
+      final stamp = await db.stampLocal(
+        eventOccurrenceDescriptions,
+        dayRowKey(eventId, day),
+      );
       await (update(
         eventOccurrenceDescriptions,
       )..where((o) => o.eventId.equals(eventId) & o.day.equals(day))).write(
         entry.copyWith(
           createdAt: const Value.absent(),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
           isDeleted: const Value(false),
           deletedAt: const Value(null),
@@ -81,6 +92,11 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        eventOccurrenceDescriptions,
+        dayRowKey(eventId, day),
+        op: OutboxOp.tombstone,
+      );
       await (update(
         eventOccurrenceDescriptions,
       )..where((o) => o.eventId.equals(eventId) & o.day.equals(day))).write(
@@ -88,8 +104,8 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -102,25 +118,40 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   ///
   /// One statement for an unbounded row count — `version + 1` in SQL, one
   /// shared HLC for the batch, the [FolderDao.softDeleteFolderWithDescendants]
-  /// idiom. Already-tombstoned rows are skipped, so a repeat cannot churn
-  /// versions. `updated_at` / `deleted_at` bind as `Variable<DateTime>` because
-  /// Drift stores unix seconds.
-  Future<void> tombstoneForEvent(String eventId) async {
-    final now = DateTime.now();
-    await customUpdate(
-      'UPDATE calendar_event_occurrences SET is_deleted = 1, deleted_at = ?, '
-      'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
-      'version = version + 1 '
-      'WHERE event_id = ? AND is_deleted = 0',
-      variables: [
-        Variable<DateTime>(now),
-        Variable<DateTime>(now),
-        Variable<String>(db.generateHlc()),
-        Variable<String>(db.deviceId),
-        Variable<String>(eventId),
-      ],
-      updates: {eventOccurrenceDescriptions},
-    );
+  /// idiom — and `RETURNING day` to queue exactly the rows it tombstoned.
+  /// Already-tombstoned rows are skipped, so a repeat cannot churn versions.
+  /// `updated_at` / `deleted_at` bind as `Variable<DateTime>` because Drift
+  /// stores unix seconds. [stamp] is the event delete's own, from
+  /// [CalendarEventDao.tombstoneEventCascade].
+  Future<void> tombstoneForEvent(String eventId, {CrdtStamp? stamp}) {
+    return transaction(() async {
+      final shared = stamp ?? db.newStamp();
+      final now = DateTime.now();
+      final tombstoned = await customWriteReturning(
+        'UPDATE calendar_event_occurrences SET is_deleted = 1, '
+        'deleted_at = ?, updated_at = ?, hlc_timestamp = ?, device_id = ?, '
+        'version = version + 1 '
+        'WHERE event_id = ? AND is_deleted = 0 RETURNING day',
+        variables: [
+          Variable<DateTime>(now),
+          Variable<DateTime>(now),
+          Variable<String>(shared.hlc),
+          Variable<String>(shared.deviceId),
+          Variable<String>(eventId),
+        ],
+        updates: {eventOccurrenceDescriptions},
+        updateKind: UpdateKind.update,
+      );
+      await db.enqueueMany(
+        eventOccurrenceDescriptions,
+        [
+          for (final row in tombstoned)
+            dayRowKey(eventId, row.read<DateTime>('day')),
+        ],
+        shared.hlc,
+        op: OutboxOp.tombstone,
+      );
+    });
   }
 
   /// Inserts an override while preserving externally-provided audit fields, the
@@ -130,23 +161,35 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   /// Takes the whole archive at once (**5.1**): one batched transaction and one
   /// commit, where this was a separate awaited insert — and so a separate WAL
   /// commit — per restored day. See [CalendarEventDao.importAll] for why
-  /// `insertOrReplace` is the safe mode here.
+  /// `insertOrReplace` is the safe mode here. Each day is queued in the same
+  /// batch, as any new local row is.
   Future<void> importAll(List<EventOccurrenceDescriptionsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          eventOccurrenceDescriptions,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            eventOccurrenceDescriptions,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(
+            b,
+            eventOccurrenceDescriptions,
+            dayRowKey(entry.eventId.value, entry.day.value),
+            stamp.hlc,
+          );
+        }
+      });
     });
   }
 

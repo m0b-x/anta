@@ -1,13 +1,14 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/event_templates_table.dart';
 
 part 'event_template_dao.g.dart';
 
 /// All CRDT stamping for `calendar_event_templates` lives here, never in the
-/// service: `db.generateHlc()`, `db.deviceId` and read-then-write
-/// `version + 1`, the [NoteDao] idiom.
+/// service: a `CrdtWrite` stamp, the row queued in the same transaction
+/// (**v43**), and read-then-write `version + 1`, the [NoteDao] idiom.
 @DriftAccessor(tables: [EventTemplates])
 class EventTemplateDao extends DatabaseAccessor<AppDatabase>
     with _$EventTemplateDaoMixin {
@@ -33,21 +34,22 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
   /// identity is always stamped here. An update bumps `version` from the
   /// stored row and leaves `created_at` alone, so editing a template keeps the
   /// date it was made. A tombstoned row is resurrected rather than duplicated —
-  /// ids are caller-supplied, and a re-imported id must not collide.
+  /// ids are caller-supplied, and a re-imported id must not collide. A save of
+  /// a live template that changes nothing writes nothing.
   Future<void> upsertTemplate(EventTemplatesCompanion entry) {
     return transaction(() async {
       final id = entry.id.value;
       final existing = await _byId(id);
       final now = DateTime.now();
-      final hlc = db.generateHlc();
 
       if (existing == null) {
+        final stamp = await db.stampLocal(eventTemplates, id);
         await into(eventTemplates).insert(
           entry.copyWith(
             createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: const Value(1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
@@ -56,12 +58,14 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
         return;
       }
 
+      if (!existing.isDeleted && db.changesNothing(existing, entry)) return;
+      final stamp = await db.stampLocal(eventTemplates, id);
       await (update(eventTemplates)..where((t) => t.id.equals(id))).write(
         entry.copyWith(
           createdAt: const Value.absent(),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
           isDeleted: const Value(false),
           deletedAt: const Value(null),
@@ -79,13 +83,18 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        eventTemplates,
+        id,
+        op: OutboxOp.tombstone,
+      );
       await (update(eventTemplates)..where((t) => t.id.equals(id))).write(
         EventTemplatesCompanion(
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -110,23 +119,30 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
   /// Takes the whole archive at once (**5.1**): one batched transaction and one
   /// commit, where this was a separate awaited insert — and so a separate WAL
   /// commit — per restored template. See [CalendarEventDao.importAll] for why
-  /// `insertOrReplace` is the safe mode here.
+  /// `insertOrReplace` is the safe mode here. Each template is queued in the
+  /// same batch, as any new local row is.
   Future<void> importAll(List<EventTemplatesCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          eventTemplates,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            eventTemplates,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(b, eventTemplates, entry.id.value, stamp.hlc);
+        }
+      });
     });
   }
 

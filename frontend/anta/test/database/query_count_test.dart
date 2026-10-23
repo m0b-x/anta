@@ -406,16 +406,27 @@ void main() {
     // repeated delete churns versions the merge reads as ordering events.
     await db.eventAbsenceDao.clearMark('e1', DateTime.utc(2026, 1, 1));
     await db.eventOccurrenceDao.tombstone('e1', DateTime.utc(2026, 1, 1));
+    for (var i = 0; i < 10; i++) {
+      await db.eventSkipDao.markSkipped('e1', DateTime.utc(2026, 2, i + 1));
+    }
+    await db.eventAlertDao.replaceForEvent('e1', [
+      for (var i = 0; i < 5; i++)
+        EventAlertsCompanion(
+          id: Value('a$i'),
+          eventId: const Value('e1'),
+          offsetMinutes: Value(i * 10),
+        ),
+    ]);
 
     counter.reset();
-    await db.calendarEventDao.softDeleteById('e1');
-    await db.eventAbsenceDao.tombstoneForEvent('e1');
-    await db.eventOccurrenceDao.tombstoneForEvent('e1');
+    await db.calendarEventDao.tombstoneEventCascade('e1');
 
     // The parent is read-then-write (it needs `version + 1` for exactly one
     // row); everything below it is a single set-based statement covering every
     // row, not one per materialized day. Since v28 both children tombstone,
-    // so "one statement per table" is now an UPDATE on each.
+    // so "one statement per table" is now an UPDATE on each. Since v43 each
+    // also queues what it returned, in one batched outbox insert that never
+    // names the table in its SQL.
     expect(
       counter.matching('calendar_events'),
       hasLength(2),
@@ -442,9 +453,33 @@ void main() {
       hasLength(1),
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
+    expect(
+      counter.matching('calendar_event_skips'),
+      hasLength(1),
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    expect(
+      counter.matching('calendar_event_alerts'),
+      hasLength(1),
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    // One entry for the event, one batched insert per child table — never one
+    // per tombstoned row.
+    expect(
+      counter.matching('sync_outbox'),
+      hasLength(5),
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    // Read + write for the event and its entry, then a returning update and
+    // a batched insert for each of the four child tables.
+    expect(
+      counter.count,
+      11,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
   });
 
-  test('reassigning a category is one statement whatever the row count', () async {
+  test('reassigning a category is two statements whatever the row count', () async {
     for (var i = 0; i < 20; i++) {
       await db.calendarEventDao.upsert(_event('e$i'));
     }
@@ -456,10 +491,13 @@ void main() {
     // Deleting a category can touch an unbounded number of events, so this one
     // cannot read-then-write: the version bump has to happen in SQL. Forgetting
     // the stamping entirely would break nothing visible today and corrupt merge
-    // ordering the moment transport exists — that is what this pins.
+    // ordering the moment transport exists — that is what this pins. Since
+    // v43 the update returns the ids it moved and one batched insert queues
+    // them all: two statements, whatever the row count.
+    expect(counter.matching('sync_outbox'), hasLength(1));
     expect(
       counter.count,
-      1,
+      2,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
   });
@@ -467,21 +505,25 @@ void main() {
   test('an upsert reads the row it overwrites exactly once', () async {
     counter.reset();
     await db.calendarEventDao.upsert(_event('e1'));
-    // SELECT (miss) + INSERT. The extra read is the price of `version 1` vs
-    // `version + 1`, paid on a table that writes at human speed.
+    // SELECT (miss) + INSERT, plus the outbox entry (v43). The extra read is
+    // the price of `version 1` vs `version + 1`, paid on a table that writes
+    // at human speed.
     expect(
       counter.count,
-      2,
+      3,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
 
     counter.reset();
-    await db.calendarEventDao.upsert(_event('e1'));
-    // SELECT (hit) + UPDATE — never a blind UPDATE-then-INSERT, which would be
-    // two writes and could not compute the version bump.
+    await db.calendarEventDao.upsert(
+      _event('e1').copyWith(title: const Value('Arm day')),
+    );
+    // SELECT (hit) + UPDATE + the outbox entry — never a blind
+    // UPDATE-then-INSERT, which would be two writes and could not compute
+    // the version bump.
     expect(
       counter.count,
-      2,
+      3,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     expect(counter.selects, hasLength(1));
@@ -555,22 +597,25 @@ void main() {
   test('an occurrence upsert reads the row it overwrites exactly once', () async {
     counter.reset();
     await db.eventOccurrenceDao.upsert(_occurrence(1));
-    // SELECT (miss) + INSERT. The extra read is the price of `version 1` vs
-    // `version + 1` and of keeping `created_at` when a reset day is
-    // re-described, paid on a table that writes at human speed.
+    // SELECT (miss) + INSERT, plus the outbox entry (v43). The extra read is
+    // the price of `version 1` vs `version + 1` and of keeping `created_at`
+    // when a reset day is re-described, paid on a table that writes at human
+    // speed.
     expect(
       counter.count,
-      2,
+      3,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
 
     counter.reset();
-    await db.eventOccurrenceDao.upsert(_occurrence(1));
-    // SELECT (hit) + UPDATE — never a blind UPDATE-then-INSERT, which could not
-    // compute the version bump.
+    await db.eventOccurrenceDao.upsert(
+      _occurrence(1).copyWith(description: const Value('rest day')),
+    );
+    // SELECT (hit) + UPDATE + the outbox entry — never a blind
+    // UPDATE-then-INSERT, which could not compute the version bump.
     expect(
       counter.count,
-      2,
+      3,
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     expect(counter.selects, hasLength(1));
@@ -1058,10 +1103,11 @@ void main() {
             'reorder must not read a row to write it. Issued:\n'
             '${counter.statements.take(6).join('\n')}',
       );
-      // One UPDATE per row is inherent; a SELECT per row is not.
+      // One UPDATE per row is inherent; a SELECT per row is not. Plus one
+      // batched outbox insert for every row that moved (v43).
       expect(
         counter.count,
-        lessThanOrEqualTo(ids.length),
+        lessThanOrEqualTo(ids.length + 1),
         reason: 'issued:\n${counter.statements.take(6).join('\n')}',
       );
 
@@ -1182,7 +1228,7 @@ void main() {
       expect(counter.count, 1, reason: 'Issued:\n${counter.statements.join('\n')}');
     });
 
-    test('the tombstone cascade is one statement for any number of alerts', () async {
+    test('the tombstone cascade is two statements for any number of alerts', () async {
       await seedAlerts(1);
       counter.reset();
 
@@ -1190,7 +1236,10 @@ void main() {
 
       // `version + 1` is arithmetic SQL does itself — the reorder path's old
       // SELECT-then-UPDATE per row is the failure this file was built on.
-      expect(counter.count, 1);
+      // Since v43 the update returns its ids and one batched insert queues
+      // them: two statements for any number of alerts.
+      expect(counter.matching('sync_outbox'), hasLength(1));
+      expect(counter.count, 2);
     });
   });
 }

@@ -1033,7 +1033,7 @@ class DatabaseMigrations {
     await _db.customStatement(
       "UPDATE calendar_events SET hlc_timestamp = ?, device_id = ? "
       "WHERE hlc_timestamp = ''",
-      [_db.generateHlc(), _db.deviceId],
+      [_db.migrationBackfillHlc(), _db.deviceId],
     );
 
     await _db.customStatement(
@@ -1152,7 +1152,7 @@ class DatabaseMigrations {
     await _db.customStatement(
       "UPDATE calendar_event_occurrences SET hlc_timestamp = ?, device_id = ? "
       "WHERE hlc_timestamp = ''",
-      [_db.generateHlc(), _db.deviceId],
+      [_db.migrationBackfillHlc(), _db.deviceId],
     );
   }
 
@@ -1867,7 +1867,7 @@ class DatabaseMigrations {
       await _db.customStatement(
         'UPDATE $table SET hlc_timestamp = ?, device_id = ?, version = 1 '
         "WHERE hlc_timestamp = ''",
-        [_db.generateHlc(), _db.deviceId],
+        [_db.migrationBackfillHlc(), _db.deviceId],
       );
     }
 

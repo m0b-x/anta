@@ -1,13 +1,15 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/calendar_filter_presets_table.dart';
 
 part 'filter_preset_dao.g.dart';
 
 /// All CRDT stamping for `calendar_filter_presets` lives here, never in the
-/// service: `db.generateHlc()`, `db.deviceId` and read-then-write
-/// `version + 1`, the [EventTemplateDao] idiom.
+/// service: a `CrdtWrite` stamp, the row queued in the same transaction
+/// (**v43**), and read-then-write `version + 1`, the [EventTemplateDao]
+/// idiom.
 @DriftAccessor(tables: [CalendarFilterPresets])
 class FilterPresetDao extends DatabaseAccessor<AppDatabase>
     with _$FilterPresetDaoMixin {
@@ -33,21 +35,21 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
   /// alone, so renaming a preset or re-saving it over the current filters
   /// keeps the date it was made. A tombstoned row is resurrected rather than
   /// duplicated — ids are caller-supplied, and a re-imported id must not
-  /// collide.
+  /// collide. A save of a live preset that changes nothing writes nothing.
   Future<void> upsertPreset(CalendarFilterPresetsCompanion entry) {
     return transaction(() async {
       final id = entry.id.value;
       final existing = await _byId(id);
       final now = DateTime.now();
-      final hlc = db.generateHlc();
 
       if (existing == null) {
+        final stamp = await db.stampLocal(calendarFilterPresets, id);
         await into(calendarFilterPresets).insert(
           entry.copyWith(
             createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: const Value(1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
@@ -56,14 +58,16 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
         return;
       }
 
+      if (!existing.isDeleted && db.changesNothing(existing, entry)) return;
+      final stamp = await db.stampLocal(calendarFilterPresets, id);
       await (update(
         calendarFilterPresets,
       )..where((t) => t.id.equals(id))).write(
         entry.copyWith(
           createdAt: const Value.absent(),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
           isDeleted: const Value(false),
           deletedAt: const Value(null),
@@ -81,6 +85,11 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        calendarFilterPresets,
+        id,
+        op: OutboxOp.tombstone,
+      );
       await (update(
         calendarFilterPresets,
       )..where((t) => t.id.equals(id))).write(
@@ -88,8 +97,8 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -119,29 +128,33 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
   /// id updates nothing (`is_deleted = 0`), the outcome an existence check
   /// would have produced. **Dense values matter**: [getAll] tie-breaks on
   /// `id`, so gaps or duplicates would let rows shuffle on the next load,
-  /// which reads as the drag not having stuck.
+  /// which reads as the drag not having stuck. Only the rows it moved are
+  /// queued, under the drag's one HLC.
   Future<void> reorder(List<String> idsInOrder) async {
     if (idsInOrder.isEmpty) return;
     final now = DateTime.now();
-    final hlc = db.generateHlc();
 
     await transaction(() async {
+      final stamp = db.newStamp();
+      final moved = <String>[];
       for (var i = 0; i < idsInOrder.length; i++) {
-        await customUpdate(
+        final changed = await customUpdate(
           'UPDATE calendar_filter_presets SET sort_order = ?, updated_at = ?, '
           'hlc_timestamp = ?, device_id = ?, version = version + 1 '
           'WHERE id = ? AND is_deleted = 0 AND sort_order != ?',
           variables: [
             Variable<int>(i),
             Variable<DateTime>(now),
-            Variable<String>(hlc),
-            Variable<String>(db.deviceId),
+            Variable<String>(stamp.hlc),
+            Variable<String>(stamp.deviceId),
             Variable<String>(idsInOrder[i]),
             Variable<int>(i),
           ],
           updates: {calendarFilterPresets},
         );
+        if (changed > 0) moved.add(idsInOrder[i]);
       }
+      await db.enqueueMany(calendarFilterPresets, moved, stamp.hlc);
     });
   }
 
@@ -150,23 +163,29 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
   /// from the caller, identity is stamped **fresh**. A backup is not a sync
   /// channel, so a restored preset is this device's own live row, never a
   /// replayed one. One batched transaction and one commit for the whole
-  /// archive.
+  /// archive, each row queued in it as any new local row is.
   Future<void> importAll(List<CalendarFilterPresetsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          calendarFilterPresets,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            calendarFilterPresets,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(b, calendarFilterPresets, entry.id.value, stamp.hlc);
+        }
+      });
     });
   }
 

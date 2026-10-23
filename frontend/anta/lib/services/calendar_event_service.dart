@@ -150,13 +150,12 @@ class CalendarEventService {
   /// scheduler and is rebuilt by the next reconcile. Both matter more than the
   /// rows above: a stranded alert does not draw a stale badge, it wakes the
   /// phone up for an event that no longer exists.
+  ///
+  /// The tombstones are one DAO call (**v43**) so the whole delete shares one
+  /// merge order, which only the DAO can give it.
   Future<void> deleteById(String id) async {
     await _db.transaction(() async {
-      await _dao.softDeleteById(id);
-      await _db.eventAbsenceDao.tombstoneForEvent(id);
-      await _db.eventOccurrenceDao.tombstoneForEvent(id);
-      await _db.eventSkipDao.tombstoneForEvent(id);
-      await _db.eventAlertDao.tombstoneForEvent(id);
+      await _dao.tombstoneEventCascade(id);
       await _db.alertRegistrationDao.deleteForEvent(id);
     });
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));

@@ -192,28 +192,63 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// Returns true only when a row was tombstoned.
   Future<bool> softDeleteById(String id) {
     return transaction(() async {
-      final existing = await _liveById(id);
-      if (existing == null || existing.isBuiltIn || _builtInIds.contains(id)) {
-        return false;
-      }
-      final now = DateTime.now();
-      final stamp = await db.stampLocal(
-        calendarCategories,
-        id,
-        op: OutboxOp.tombstone,
-      );
-      await (update(calendarCategories)..where((c) => c.id.equals(id))).write(
-        CalendarCategoriesCompanion(
-          isDeleted: const Value(true),
-          deletedAt: Value(now),
-          updatedAt: Value(now),
-          hlcTimestamp: Value(stamp.hlc),
-          deviceId: Value(stamp.deviceId),
-          version: Value(existing.version + 1),
-        ),
-      );
+      final existing = await _deletable(id);
+      if (existing == null) return false;
+      await _tombstone(existing, db.newStamp());
       return true;
     });
+  }
+
+  /// Deletes a custom category as the one act it is to the user: its live
+  /// events move to [reassignTo], its live alerts tombstone, and the category
+  /// tombstones, all under **one** HLC and each row queued — so another device
+  /// merges the delete whole rather than three changes it could interleave.
+  ///
+  /// [softDeleteById]'s refusals are checked before anything is written: a
+  /// built-in, missing or already-tombstoned category moves no event and
+  /// tombstones no alert. Returns whether the category was deleted.
+  Future<bool> tombstoneCascade(String id, {required String reassignTo}) {
+    return transaction(() async {
+      final existing = await _deletable(id);
+      if (existing == null) return false;
+      final stamp = db.newStamp();
+      await db.calendarEventDao.reassignCategory(id, reassignTo, stamp: stamp);
+      await db.categoryAlertDao.tombstoneForCategory(id, stamp: stamp);
+      await _tombstone(existing, stamp);
+      return true;
+    });
+  }
+
+  /// The live custom row [id], or null when it is missing, already a
+  /// tombstone, or built in — by flag or by id.
+  Future<CalendarCategoryRow?> _deletable(String id) async {
+    final existing = await _liveById(id);
+    if (existing == null || existing.isBuiltIn || _builtInIds.contains(id)) {
+      return null;
+    }
+    return existing;
+  }
+
+  Future<void> _tombstone(CalendarCategoryRow existing, CrdtStamp stamp) async {
+    final now = DateTime.now();
+    await db.enqueue(
+      calendarCategories,
+      existing.id,
+      stamp.hlc,
+      op: OutboxOp.tombstone,
+    );
+    await (update(
+      calendarCategories,
+    )..where((c) => c.id.equals(existing.id))).write(
+      CalendarCategoriesCompanion(
+        isDeleted: const Value(true),
+        deletedAt: Value(now),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: Value(existing.version + 1),
+      ),
+    );
   }
 
   /// Hard wipe, tombstones included — the backup import's replace-everything

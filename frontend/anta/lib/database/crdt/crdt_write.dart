@@ -30,6 +30,21 @@ enum MergeOrigin { local, remote }
 String counterValueRowKey(String counterId, String noteId) =>
     '$counterId|$noteId';
 
+/// The row key of an `{eventId, day}` row — `calendar_event_absences`,
+/// `calendar_event_occurrences` and `calendar_event_skips`: the event id and
+/// the day as epoch milliseconds, the integer each table's `exportData`
+/// writes as `dayMs`.
+///
+/// The instant, never a date read back from it: drift returns the column as a
+/// local `DateTime`, whose `.day` shifts in zones west of UTC, while its epoch
+/// value is the same in every zone — so two devices key one row alike.
+///
+/// Truncated to the whole second the column stores (drift writes unix
+/// seconds, `~/ 1000`), so a caller's milliseconds cannot key a row apart from
+/// the one the table, a `RETURNING` cascade and the export all read back.
+String dayRowKey(String eventId, DateTime day) =>
+    '$eventId|${day.millisecondsSinceEpoch ~/ 1000 * 1000}';
+
 /// The one path a write on a synced table takes to obtain its stamp, and the
 /// only path that feeds `sync_outbox`.
 ///
@@ -62,7 +77,38 @@ extension CrdtWrite on AppDatabase {
   /// under one HLC and queues what it actually wrote through [enqueue] or
   /// [enqueueMany] — and for `content_chunks`, which are the local storage of
   /// a note body and never queue on their own (D14).
-  CrdtStamp newStamp() => (hlc: generateHlc(), deviceId: deviceId);
+  ///
+  /// The only place a local write's HLC is minted:
+  /// `test/database/crdt_write_guard_test.dart` fails on any other `hlc.now()`
+  /// in a DAO or a service, since a stamp minted beside this helper is a write
+  /// the push never hears of.
+  CrdtStamp newStamp() => (hlc: hlc.now().toString(), deviceId: deviceId);
+
+  /// Whether writing [entry] over the live [existing] row would store exactly
+  /// what the row already holds, so an unchanged save stamps nothing — a
+  /// fresh HLC on a row nobody edited would beat a real edit made elsewhere.
+  ///
+  /// Compared as the values SQLite stores, not as Dart values: a caller's
+  /// UTC `DateTime` equals the local one drift reads back, and milliseconds a
+  /// unix-seconds column never kept do not read as an edit. [ignoring] names
+  /// the audit columns every save moves.
+  bool changesNothing<D>(
+    Insertable<D> existing,
+    Insertable<D> entry, {
+    Set<String> ignoring = const {'created_at', 'updated_at'},
+  }) {
+    final stored = existing.toColumns(false);
+    for (final MapEntry(:key, :value) in entry.toColumns(false).entries) {
+      if (ignoring.contains(key)) continue;
+      final current = stored[key];
+      if (value is! Variable || current is! Variable) return false;
+      if (typeMapping.mapToSqlVariable(value.value) !=
+          typeMapping.mapToSqlVariable(current.value)) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   /// Queues one row already written under [hlc].
   Future<void> enqueue(

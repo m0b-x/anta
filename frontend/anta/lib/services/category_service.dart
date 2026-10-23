@@ -352,11 +352,7 @@ class CategoryService {
       if (category == null || category.isBuiltIn || _builtInIds.contains(id)) {
         return false;
       }
-      await _db.transaction(() async {
-        await _db.calendarEventDao.reassignCategory(id, kFallbackCategoryId);
-        await _db.categoryAlertDao.tombstoneForCategory(id);
-        await _dao.softDeleteById(id);
-      });
+      await _dao.tombstoneCascade(id, reassignTo: kFallbackCategoryId);
       await _load();
       await EventAlertService.refreshAfterCategoryRemoval();
       return true;

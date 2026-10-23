@@ -1607,8 +1607,8 @@ void main() {
       });
     }
 
-    testWidgets('a fling during the write of an untouched edit is ignored '
-        'too: clean is not idle', (tester) async {
+    testWidgets('a fling during the save\'s read of an untouched edit is '
+        'ignored too: clean is not idle', (tester) async {
       final existing = await service.create(loaded);
       final form = TemplateFormRobot(tester);
       final outcome = await openSheet(tester, initial: existing);
@@ -3397,13 +3397,15 @@ class _Outcome {
   bool returned = false;
 }
 
-/// Holds or refuses the write of a template row, so a test can look at the
-/// form while a save is in flight and after one has failed — the two states a
-/// real store reaches only by being slow or broken. It can hold the read of a
+/// Holds or refuses a save of a template row, so a test can look at the form
+/// while a save is in flight and after one has failed — the two states a real
+/// store reaches only by being slow or broken. A hold stops the save at its
+/// read of the row, which every save makes — one that changes nothing ends
+/// there without writing — and at its write. It can hold the read of a
 /// setting the same way, for the moment a form is open before its settings
 /// have arrived.
 class _TemplateWrites extends QueryInterceptor {
-  /// While set and not completed, a template write waits for it.
+  /// While set and not completed, a template read or write waits for it.
   Completer<void>? hold;
 
   /// While true, a template write throws instead of reaching the database.
@@ -3425,6 +3427,7 @@ class _TemplateWrites extends QueryInterceptor {
     List<Object?> args,
   ) async {
     if (statement.contains('user_settings')) await holdSettings?.future;
+    if (statement.contains('calendar_event_templates')) await hold?.future;
     return super.runSelect(executor, statement, args);
   }
 

@@ -1,15 +1,16 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/event_alerts_table.dart';
 
 part 'event_alert_dao.g.dart';
 
 /// All CRDT stamping for `calendar_event_alerts` lives here, never in the
-/// service: `db.generateHlc()`, `db.deviceId` and read-then-write
-/// `version + 1`, the [NoteDao] idiom already followed by [EventSkipDao].
-/// Nothing above this class — model, service, blocs, backup — sees a CRDT
-/// field or a tombstone.
+/// service: a `CrdtWrite` stamp, the row queued in the same transaction
+/// (**v43**), and read-then-write `version + 1`, the [NoteDao] idiom already
+/// followed by [EventSkipDao]. Nothing above this class — model, service,
+/// blocs, backup — sees a CRDT field, a tombstone or the outbox.
 @DriftAccessor(tables: [EventAlerts])
 class EventAlertDao extends DatabaseAccessor<AppDatabase>
     with _$EventAlertDaoMixin {
@@ -63,6 +64,10 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
   /// One read for the whole event, then one write per changed row: the
   /// alternative, a `SELECT` per alert to find its version, is the
   /// query-in-a-loop shape at five rows.
+  ///
+  /// The whole save is one act under one HLC: removals queue as tombstones,
+  /// inserts and edits as upserts, each set in one statement, and an
+  /// unchanged row queues nothing.
   Future<void> replaceForEvent(
     String eventId,
     List<EventAlertsCompanion> entries,
@@ -74,7 +79,9 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
       final byId = {for (final row in existing) row.id: row};
       final keep = {for (final entry in entries) entry.id.value};
       final now = DateTime.now();
-      final hlc = db.generateHlc();
+      final stamp = db.newStamp();
+      final removed = <String>[];
+      final written = <String>[];
 
       for (final row in existing) {
         if (row.isDeleted || keep.contains(row.id)) continue;
@@ -83,16 +90,18 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
             isDeleted: const Value(true),
             deletedAt: Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: Value(row.version + 1),
           ),
         );
+        removed.add(row.id);
       }
 
       for (final entry in entries) {
         final row = byId[entry.id.value];
         if (row != null && _sameContent(row, entry, eventId)) continue;
+        written.add(entry.id.value);
         if (row == null) {
           await into(eventAlerts).insert(
             entry.copyWith(
@@ -101,8 +110,8 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
                   ? entry.createdAt
                   : Value(now),
               updatedAt: Value(now),
-              hlcTimestamp: Value(hlc),
-              deviceId: Value(db.deviceId),
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
               version: const Value(1),
               isDeleted: const Value(false),
               deletedAt: const Value(null),
@@ -117,14 +126,22 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
             // the `CalendarEventDao.upsert` rule.
             createdAt: const Value.absent(),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: Value(row.version + 1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
           ),
         );
       }
+
+      await db.enqueueMany(
+        eventAlerts,
+        removed,
+        stamp.hlc,
+        op: OutboxOp.tombstone,
+      );
+      await db.enqueueMany(eventAlerts, written, stamp.hlc);
     });
   }
 
@@ -158,23 +175,34 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
   ///
   /// The `is_deleted = 0` literal is what lets this find its rows through
   /// `idx_calendar_event_alerts_active` instead of scanning years of
-  /// tombstones.
-  Future<void> tombstoneForEvent(String eventId) async {
-    final now = DateTime.now();
-    await customUpdate(
-      'UPDATE calendar_event_alerts SET is_deleted = 1, deleted_at = ?, '
-      'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
-      'version = version + 1 '
-      'WHERE event_id = ? AND is_deleted = 0',
-      variables: [
-        Variable<DateTime>(now),
-        Variable<DateTime>(now),
-        Variable<String>(db.generateHlc()),
-        Variable<String>(db.deviceId),
-        Variable<String>(eventId),
-      ],
-      updates: {eventAlerts},
-    );
+  /// tombstones. `RETURNING id` queues exactly the rows it tombstoned; [stamp]
+  /// is the event delete's own, from [CalendarEventDao.tombstoneEventCascade].
+  Future<void> tombstoneForEvent(String eventId, {CrdtStamp? stamp}) {
+    return transaction(() async {
+      final shared = stamp ?? db.newStamp();
+      final now = DateTime.now();
+      final tombstoned = await customWriteReturning(
+        'UPDATE calendar_event_alerts SET is_deleted = 1, deleted_at = ?, '
+        'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
+        'version = version + 1 '
+        'WHERE event_id = ? AND is_deleted = 0 RETURNING id',
+        variables: [
+          Variable<DateTime>(now),
+          Variable<DateTime>(now),
+          Variable<String>(shared.hlc),
+          Variable<String>(shared.deviceId),
+          Variable<String>(eventId),
+        ],
+        updates: {eventAlerts},
+        updateKind: UpdateKind.update,
+      );
+      await db.enqueueMany(
+        eventAlerts,
+        [for (final row in tombstoned) row.read<String>('id')],
+        shared.hlc,
+        op: OutboxOp.tombstone,
+      );
+    });
   }
 
   /// The **hard** cascade, tombstones included — for the wipe paths, where no
@@ -194,23 +222,30 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
   /// a restored alert is this device's own live row, never a replayed one.
   ///
   /// One batched transaction and one commit for the whole archive rather than
-  /// an awaited insert — and a WAL commit — per restored alert.
+  /// an awaited insert — and a WAL commit — per restored alert. Each alert is
+  /// queued in the same batch, as any new local row is.
   Future<void> importAll(List<EventAlertsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          eventAlerts,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            eventAlerts,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(b, eventAlerts, entry.id.value, stamp.hlc);
+        }
+      });
     });
   }
 }

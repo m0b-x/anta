@@ -383,7 +383,9 @@ void main() {
       await db.calendarEventDao.upsert(_event('e1'));
       final plan = await planOf(
         () => db.calendarEventDao.softDeleteById('e1'),
-        containing: 'UPDATE',
+        // The table's own write; the outbox entry beside it is an upsert of
+        // its own (`DO UPDATE`), keyed and planned by `sync_outbox`.
+        containing: 'UPDATE "calendar_events"',
       );
       // Deleting an event now *finds* a row and rewrites it rather than
       // dropping it, so the delete path has a plan worth guarding.
@@ -399,6 +401,7 @@ void main() {
       );
       final plan = await planOf(
         () => db.eventAbsenceDao.tombstoneForEvent('e1'),
+        containing: 'UPDATE calendar_event_absences',
       );
       // Same shape as the hard cascade it replaced: `event_id` is leftmost in
       // the PK, so the bulk tombstone rides the automatic index instead of
@@ -411,7 +414,7 @@ void main() {
       await db.eventOccurrenceDao.upsert(_occurrence('e1'));
       final plan = await planOf(
         () => db.eventOccurrenceDao.tombstone('e1', DateTime.utc(2026, 8, 10)),
-        containing: 'UPDATE',
+        containing: 'UPDATE "calendar_event_occurrences"',
       );
       // Since v28 "reset this day" tombstones rather than deletes, so this is
       // the one write on the hot path that has to *find* a row. The composite
@@ -425,6 +428,7 @@ void main() {
       await db.eventOccurrenceDao.upsert(_occurrence('e1'));
       final plan = await planOf(
         () => db.eventOccurrenceDao.tombstoneForEvent('e1'),
+        containing: 'UPDATE calendar_event_occurrences',
       );
       // `event_id` is leftmost in the PK, so the bulk tombstone rides the
       // automatic index instead of scanning every materialized day in the
@@ -445,7 +449,7 @@ void main() {
           DateTime.utc(2026, 8, 10),
           PresenceStatus.present,
         ),
-        containing: 'UPDATE',
+        containing: 'UPDATE "calendar_event_absences"',
       );
       // Since v37 flipping a day writes the opposite status in place instead of
       // tombstoning, so the ordinary toggle now *finds* a row on the hot path
@@ -464,7 +468,7 @@ void main() {
       );
       final plan = await planOf(
         () => db.eventAbsenceDao.clearMark('e1', DateTime.utc(2026, 8, 10)),
-        containing: 'UPDATE',
+        containing: 'UPDATE "calendar_event_absences"',
       );
       // Clearing a mark tombstones the row rather than deleting it, so this is
       // the one write that has to *find* a row on the hot path. The composite PK
@@ -606,7 +610,10 @@ void main() {
         containing: 'calendar_event_alerts',
       );
 
-      expect(plan, usesIndex('idx_calendar_event_alerts_active'));
+      // Since v43 the update returns the ids it tombstoned. The search needs
+      // only `event_id` and the row's key, both in the partial index, so
+      // SQLite plans it as a covering index.
+      expect(plan, usesCoveringIndex('idx_calendar_event_alerts_active'));
       expect(plan, isNot(contains(contains('SCAN calendar_event_alerts'))));
     });
 

@@ -1,7 +1,10 @@
 # Cloud Sync Readiness Roadmap — ANTA
 
-**Status: planned, 2026-10-23. Nothing here is implemented.** The phase
-between Phase 01 (pairing, shipped 2026-08-17) and Phase 02 (transport) of
+**Status: R1, R2, R3a and R3b built and reviewed on 2026-10-23 (R1
+`729a25f`, R2 `14c9250`, R3a `596998d`, R3b the next commit); R4–R7
+planned.** Each built slice has an "As built" block under its section — that
+block, not the plan above it, is the truth. The phase between Phase 01
+(pairing, shipped 2026-08-17) and Phase 02 (transport) of
 `docs/cloud-sync-roadmap.md`. It owns migration **v43** (schema is at v42,
 `lib/database/migrations/database_schema.dart:4`). Decisions D1–D14 await the
 owner's letters; the recommended default is marked on each. The recipe is the
@@ -327,7 +330,9 @@ Deviations from the plan above, each sound and reversible on its own:
 
 ### R5 — Clock persistence (D6)
 
-- `generateHlc()` (`database.dart:218`) writes the issued value to
+- `CrdtWrite.newStamp()` (`lib/database/crdt/crdt_write.dart`, the only
+  local minting point since R3b; `migrationBackfillHlc()` in `database.dart`
+  is the migrations' own) writes the issued value to
   `sync_metadata['last_hlc']` inside the caller's transaction when there is
   one, else directly; `AppDatabase.getInstance` seeds the clock from the
   stored value so the first `now()` is above it even when the wall clock is
@@ -369,10 +374,11 @@ Deviations from the plan above, each sound and reversible on its own:
   simulated saves of one note leave one outbox row.
 - Skills: `anta-context`, `flutter-principles`.
 
-**As built (2026-10-23; one implementer, one independent reviewer, two fix
-passes; the review confirmed every converted write commits with its outbox
-entry).** Deviations from the plan above, each sound and reversible on its
-own:
+**As built (2026-10-23, committed `596998d`; one implementer, one independent
+reviewer, two fix passes; the review confirmed every converted write commits
+with its outbox entry; gate: analyze clean, 9,439 tests green, the one failure
+the known Windows-only `host_devices_test`).** Deviations from the plan
+above, each sound and reversible on its own:
 
 - The helper is the `CrdtWrite` extension on `AppDatabase`
   (`lib/database/crdt/crdt_write.dart`): `stampLocal`, `newStamp` (one
@@ -442,6 +448,50 @@ own:
 - Same test shape as R3a per table; the shared-HLC cascades
   (`calendar_event_service.dart:155-159`) enqueue one row per affected row.
 - Skills: `anta-context`, `calendar-events` (invariants of the event tables).
+
+**As built (2026-10-23; one implementer, one independent reviewer, one fix
+pass; the review found no data loss and judged the no-op comparison sound
+against every column type).** Deviations from the plan above, each sound
+and reversible on its own:
+
+- All ten calendar-side tables go through `CrdtWrite`; `dayRowKey(eventId,
+  day)` joins the event id and the stored day's epoch-ms (normalised to the
+  stored second) — the same integer the services' `exportData()` writes as
+  `dayMs`; `changesNothing(existing, entry)` compares what SQLite would store
+  (seconds for DateTimes, 0/1 for bools, absent fields never count as equal,
+  `created_at`/`updated_at` ignored) so an unchanged save writes nothing and
+  a save over a tombstone always writes.
+- One HLC per user action: `CalendarEventDao.tombstoneEventCascade` (event,
+  absences, descriptions, skips, alerts under one stamp, every row enqueued;
+  the hard `alert_registrations` delete follows inside the same
+  transaction); `CalendarCategoryDao.tombstoneCascade(id, reassignTo:)`
+  (events moved with `UPDATE … RETURNING`, alerts tombstoned, the category
+  tombstoned — refusals for built-ins and tombstones checked before any
+  write); `replaceForEvent` / `replaceForCategory` queue removals as
+  tombstones, edits as upserts, nothing for unchanged alerts; reorders only
+  rows that moved; `importAll`s one stamp per row, every row enqueued.
+- The fence: `generateHlc()` is gone; `migrationBackfillHlc()` exists for
+  `DatabaseMigrations` alone; `CrdtWrite.newStamp()` is the only local
+  minting point. `test/database/crdt_write_guard_test.dart` scans `lib/`
+  (allow-list: `crdt_write.dart`, `hlc.dart`, `database.dart`,
+  `database_migrations.dart`, `sync_outbox_dao.dart`) for any clock use,
+  `HlcTimestamp` construction, outbox identifier or SQL literal, requires
+  `hlc.update` in exactly the three merges, and requires an `enqueue` next
+  to every `newStamp`. It is a heuristic; the per-table suites are the
+  proof.
+- Tests: `test/database/sync_outbox_calendar_test.dart` (per-table rows,
+  coalescing, tombstone ops, imports, both cascades under one HLC,
+  `reassignCategory` only moved events, alert tombstones vs upserts and
+  resurrection, one-field edits of DateTime / bool / nullable columns, the
+  key against `exportData()` across DST days, a throwing write leaves
+  nothing), `crdt_write_guard_test.dart`; statement counts and plans
+  re-pinned in `query_count_test` and `query_plan_test`.
+- Hot paths: every single-row write costs one more statement (its outbox
+  upsert); unchanged saves cost one fewer; the cascades one batched insert
+  per child table.
+- Left as found, recorded in §8: the editor saves an event and its alerts
+  as two actions with two HLCs; a skip clears the day's presence through a
+  second service call and HLC; three files unformatted at HEAD.
 
 ### R4 — Wipes, imports and the unbind (D9, D13)
 
@@ -515,8 +565,11 @@ own:
 
 - **High — a write that commits without its outbox row.** That is the silent
   divergence the roadmap's register already names. Mitigation: the helper is
-  the only way to obtain an HLC for a synced-table write (`generateHlc()`
-  becomes private to the helper after R3b), plus the per-table suites.
+  the only way to obtain an HLC for a synced-table write — R3b renamed
+  `generateHlc()` to `migrationBackfillHlc()` for the migrations alone (Dart
+  has no cross-library privacy, so the fence is
+  `test/database/crdt_write_guard_test.dart`, a source scan of `lib/` for any
+  other clock use or outbox write), plus the per-table suites.
 - **High — the unbind on restore is forgotten.** A restore that keeps its
   binding re-pushes every re-created row as new and duplicates the other
   device. R4's test pins it.
@@ -587,6 +640,12 @@ own:
   repositories import `MergeOrigin` (a CRDT type one layer above the DAO) and
   `NoteRepository.mergeNote` discards the loser row the DAO returns — the
   engine will consume it in Phase 02.
+- Found by the R3b review, left as found: the event editor saves the event
+  and then its alerts as two DAO transactions with two HLCs
+  (`event_alert_service.dart`), and `EventSkipService.markSkipped` clears the
+  day's presence through a second service call — one user action, two HLCs
+  in both cases. Harmless for the engine (two outbox rows, both pushed); a
+  single stamp would need the facades' write order to change.
 
 ---
 
