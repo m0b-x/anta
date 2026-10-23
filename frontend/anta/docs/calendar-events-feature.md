@@ -30,7 +30,7 @@ file is the history: read the section or addendum you need, never the whole file
 ## 1. Product purpose
 
 The calendar lives inside an offline-first personal tracker. It is **not** a
-general-purpose calendar (no meetings, no invites, no sync). Its purpose is to
+general-purpose calendar (no meetings, no invites; sync between your own devices and with a partner is being added in phases — `docs/cloud-sync-roadmap.md`). Its purpose is to
 let one person:
 
 - **Plan recurring commitments** — schedule repeating sessions (3×/week, every
@@ -38,8 +38,8 @@ let one person:
   today?". Training was the original case and is still the densest one.
 - **Annotate the year** — mark holidays, fasting periods, birthdays,
   competitions, deload windows, measurements, rest days.
-- **Stay context-rich on a single device** — every event is local SQLite,
-  with no account, no cloud, and survives device wipe via the JSON backup.
+- **Stay context-rich on your own devices** — every event is local SQLite,
+  without an account; an optional Google sign-in adds sync (`docs/cloud-sync-roadmap.md`); the JSON backup survives a device wipe either way.
 
 Design principle: the calendar must be useful **the second the user installs
 the app**, with zero setup. That is why public holidays are pre-seeded and

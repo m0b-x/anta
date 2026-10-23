@@ -1,6 +1,7 @@
 # Cloud Sync Roadmap
 
-**Status: Phase 00 shipped 2026-08-16, Phase 01 shipped 2026-08-17. Phases
+**Status: Phase 00 shipped 2026-08-16, Phase 01 shipped 2026-08-17. Readiness
+phase planned 2026-10-23 (`cloud-sync-readiness-roadmap.md`, owns v43). Phases
 02–04 planned.** Master document
 for the cloud migration; per-phase implementation docs live alongside this
 file (`cloud-sync-phase-01-pairing.md` … `cloud-sync-phase-04-hardening.md`).
@@ -10,7 +11,10 @@ file (`cloud-sync-phase-01-pairing.md` … `cloud-sync-phase-04-hardening.md`).
 A shared calendar and shared note folders for two people, built on the CRDT
 metadata (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`, `deletedAt`)
 that folders, notes, and content chunks already carry. Firebase (Spark plan)
-is the backend; Google Sign-In is the identity.
+is the backend; Google Sign-In is the identity. Since 2026-10-23 the scope
+also covers one account's own devices (notes and calendar identical on a
+phone and a tablet) and sharing selected events; the readiness roadmap's
+D1–D3 decide where a row lives remotely for that.
 
 ## Architecture stance — the rules every phase obeys
 
@@ -49,8 +53,9 @@ is the backend; Google Sign-In is the identity.
 | --- | --- | --- | --- |
 | 00 | Firebase foundations, platform gate, Google Sign-In, Sharing page | none | **Shipped 2026-08-16** |
 | 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | **Shipped 2026-08-17** |
-| 02 | Calendar sync + ownership + consent | v26 | Planned |
-| 03 | Shared folders (folder → note → chunks) | v27 | Planned |
+| R | Readiness — CRDT columns on categories and counters, `owner_id`, the outbox, clock persistence, tombstoned wipes, engine seams (`cloud-sync-readiness-roadmap.md`) | v43 | Planned 2026-10-23 |
+| 02 | Calendar sync + ownership + consent | likely none after v43 (its doc's v29 is stale) | Planned |
+| 03 | Shared folders (folder → note → chunks) | v44 (its doc's v27 is stale) | Planned |
 | 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Planned |
 
 ## Phase 00 — what actually shipped (deviations from the original plan)
@@ -77,6 +82,11 @@ is the backend; Google Sign-In is the identity.
   with `flutterfire configure --platforms=android,ios`.
 
 ## Remote shape (target)
+
+**Pending D1 of `cloud-sync-readiness-roadmap.md`**, every data collection
+below may move under `users/{uid}/spaces/{spaceId}/…` so that one account's
+own devices have a home and a shared row exists once; `pairs` and `invites`
+stay as the control plane either way.
 
 ```
 pairs/{pairId}                        // random id; never deleted, never reused
