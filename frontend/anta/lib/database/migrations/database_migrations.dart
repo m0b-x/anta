@@ -1825,10 +1825,17 @@ class DatabaseMigrations {
   /// 33658, as milliseconds 2001, before this app existed — so dividing it is
   /// exact and leaves nothing a second run would match.
   ///
+  /// The FTS rebuild: before this version a rename re-indexed `notes_fts`
+  /// (`content=notes`) with `INSERT OR REPLACE` after the row was rewritten,
+  /// which left the old title's tokens behind, and the `'delete'` command
+  /// `NoteDao` now issues assumes a consistent index. One rebuild from
+  /// `notes` makes it so; it is guarded on the table existing, since older
+  /// shapes in the upgrade chain may not have it.
+  ///
   /// The DDL is frozen at this version. Idempotent throughout: `PRAGMA
   /// table_info` guards every ALTER, the backfill is scoped to
-  /// `hlc_timestamp = ''`, the index swap is drop-then-create and the repair is
-  /// thresholded.
+  /// `hlc_timestamp = ''`, the index swap is drop-then-create, the repair is
+  /// thresholded and a rebuild of a consistent index changes nothing.
   Future<void> _migrateV42ToV43(Migrator m, GeneratedDatabase db) async {
     for (final table in ['calendar_categories', 'counters', 'counter_values']) {
       final existing = await _columnsOf(table);
@@ -1898,6 +1905,18 @@ class DatabaseMigrations {
       await _db.customStatement(
         'UPDATE $table SET updated_at = updated_at / 1000 '
         'WHERE updated_at > 1000000000000',
+      );
+    }
+
+    final fts = await _db
+        .customSelect(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+          "AND name = 'notes_fts'",
+        )
+        .get();
+    if (fts.isNotEmpty) {
+      await _db.customStatement(
+        "INSERT INTO notes_fts(notes_fts) VALUES('rebuild')",
       );
     }
   }

@@ -17317,7 +17317,9 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
   /// again after it was read.
   final String hlc;
 
-  /// `upsert` or `delete` — a tombstone travels as a delete.
+  /// `upsert` or `tombstone` (`OutboxOp`). `tombstone` means the write
+  /// soft-deleted the row: it is pushed as the tombstone row, so the delete
+  /// merges by HLC like any other write.
   final String op;
   final DateTime enqueuedAt;
   const SyncOutboxRow({
@@ -17606,6 +17608,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final EventDigestDao eventDigestDao = EventDigestDao(
     this as AppDatabase,
   );
+  late final SyncOutboxDao syncOutboxDao = SyncOutboxDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();

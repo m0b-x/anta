@@ -210,7 +210,8 @@ void main() {
       );
     });
 
-    test('a launch with nothing to seed is still one batched insert', () async {
+    test('a launch with nothing to seed is one batch that writes and queues '
+        'nothing', () async {
       final counter = StatementCounter();
       final counted = await openTestDatabase(interceptor: counter);
       addTearDown(counted.close);
@@ -218,12 +219,16 @@ void main() {
         for (var i = 0; i < 9; i++) category('b$i', order: i, builtIn: true),
       ];
       await counted.calendarCategoryDao.seedMissing(seeds);
+      await counted.syncOutboxDao.clear();
       counter.reset();
 
       await counted.calendarCategoryDao.seedMissing(seeds);
 
       expect(counter.selects, isEmpty);
-      expect(counter.count, 1, reason: counter.statements.join('\n'));
+      // The batched seed insert and the outbox insert that picks up only
+      // the rows carrying this launch's HLC — none, here.
+      expect(counter.count, 2, reason: counter.statements.join('\n'));
+      expect(await counted.syncOutboxDao.count(), 0);
     });
   });
 

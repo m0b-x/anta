@@ -223,10 +223,10 @@ class NoteStorageService {
     await initialize();
 
     final existingNote = await _repository.getNoteById(noteId);
-    // Tombstones come back from `getNoteById` too, and the repository
-    // writes the chunks *before* the DAO gets to refuse the row — so an
-    // auto-save flushing after a delete would repopulate a deleted note's
-    // content. The refusal has to happen here, above both.
+    // Tombstones come back from `getNoteById` too. The DAO refuses to write
+    // a tombstone (its row and its body commit together, or neither does),
+    // but refusing here first spares an auto-save flushing after a delete
+    // the title backstop below and the repository round-trip.
     if (existingNote == null || existingNote.isDeleted) return null;
 
     // Title-uniqueness backstop. Only run when the title is actually
@@ -509,12 +509,11 @@ class NoteStorageService {
     }
   }
 
+  /// One bulk tombstone under one HLC: emptying a folder is one user act.
   Future<void> deleteNotesInFolder(String folderId) async {
     await initialize();
     final notes = await _repository.getNotesByFolder(folderId);
-    for (final note in notes) {
-      await _repository.deleteNote(note.id);
-    }
+    await _repository.deleteNotes([for (final note in notes) note.id]);
   }
 
   Future<NoteMetadata?> moveNote({

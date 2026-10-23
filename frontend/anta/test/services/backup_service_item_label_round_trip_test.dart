@@ -49,12 +49,12 @@ void main() {
       name: 'Labelled folder',
       label: ItemLabel.teal,
     );
-    final note = await db.noteDao.createNote(
+    await db.noteDao.createNote(
       folderId: folder.id,
       title: 'Labelled note',
       label: ItemLabel.pink,
+      content: 'body',
     );
-    await db.contentChunkDao.saveContent(noteId: note.id, content: 'body');
 
     final backup = await BackupService.getInstance();
     final exported = await backup.exportAllData();

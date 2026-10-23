@@ -28,8 +28,8 @@ void main() {
       preview: 'hello',
       contentLength: content.length,
       chunkCount: 1,
+      content: content,
     );
-    await db.contentChunkDao.saveContent(noteId: note.id, content: content);
     return note;
   }
 

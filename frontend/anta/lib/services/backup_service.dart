@@ -376,14 +376,10 @@ class BackupService {
           contentLength: content.length,
           chunkCount: 1,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
+          content: content,
         );
         final archivedNoteId = map[JsonKeys.id];
         if (archivedNoteId is String) noteIdMap[archivedNoteId] = note.id;
-
-        await _db.contentChunkDao.saveContent(
-          noteId: note.id,
-          content: content,
-        );
         notesImported++;
       }
 

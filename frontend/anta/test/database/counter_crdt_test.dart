@@ -228,7 +228,7 @@ void main() {
       },
     );
 
-    test('the cascade is two statements for any number of values', () async {
+    test('the cascade is four statements for any number of values', () async {
       final counter = StatementCounter();
       final counted = await openTestDatabase(interceptor: counter);
       addTearDown(counted.close);
@@ -247,7 +247,9 @@ void main() {
       await counted.counterDao.deleteCounter('c1');
 
       expect(counter.selects, isEmpty);
-      expect(counter.count, 2, reason: counter.statements.join('\n'));
+      // Two tombstone updates, and queueing what each tombstoned.
+      expect(counter.count, 4, reason: counter.statements.join('\n'));
+      expect(await counted.syncOutboxDao.count(), 31);
     });
 
     test('deleting twice does not churn the version', () async {

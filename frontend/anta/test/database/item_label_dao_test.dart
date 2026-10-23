@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 
@@ -218,9 +219,11 @@ void main() {
       );
 
       expect(changed, 20);
+      // The UPDATE, and one outbox insert queueing every row it changed.
+      expect(counter.matching('sync_outbox'), hasLength(1));
       expect(
         counter.count,
-        1,
+        2,
         reason:
             'updateLabelForNotes must stay one `UPDATE … WHERE id IN (…)`. '
             'SQL does the version + 1 arithmetic itself, so a per-row loop '
@@ -257,7 +260,7 @@ void main() {
       expect(changed, 12);
       expect(
         counter.count,
-        1,
+        2,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
     });
@@ -490,7 +493,7 @@ void main() {
         hlcTimestamp: 'ffffffffffff:0001:remote',
       );
 
-      await db.noteDao.mergeNote(remote);
+      await db.noteDao.mergeNote(remote, origin: MergeOrigin.remote);
 
       final stored = await db.noteDao.getNoteById('remote-note');
       expect(ItemLabel.fromStorage(stored!.label), ItemLabel.teal);
@@ -505,7 +508,7 @@ void main() {
         version: local.version + 1,
       );
 
-      await db.noteDao.mergeNote(remote);
+      await db.noteDao.mergeNote(remote, origin: MergeOrigin.remote);
 
       final stored = await db.noteDao.getNoteById(local.id);
       expect(ItemLabel.fromStorage(stored!.label), ItemLabel.red);
@@ -520,6 +523,7 @@ void main() {
           label: ItemLabel.orange.storageValue,
           hlcTimestamp: 'ffffffffffff:0001:remote',
         ),
+        origin: MergeOrigin.remote,
       );
       await db.folderDao.mergeFolder(
         local.copyWith(
@@ -527,6 +531,7 @@ void main() {
           hlcTimestamp: 'ffffffffffff:0002:remote',
           version: local.version + 1,
         ),
+        origin: MergeOrigin.remote,
       );
 
       final inserted = await db.folderDao.getFolderById('remote-folder');

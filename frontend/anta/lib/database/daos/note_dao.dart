@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import '../../models/item_label.dart';
 import '../database.dart';
 import '../tables/notes_table.dart';
+import '../crdt/crdt_write.dart';
 import '../crdt/hlc.dart';
 
 part 'note_dao.g.dart';
@@ -150,6 +151,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     )..where((n) => n.id.equals(note.id.value))).getSingle();
   }
 
+  /// Creates a note, and writes its body when [content] is given, under one
+  /// stamp: a note and its body are one document (D14), so they are one
+  /// write and one outbox entry.
   Future<Note> createNote({
     required String folderId,
     required String title,
@@ -158,47 +162,60 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     int chunkCount = 0,
     bool isCompressed = false,
     ItemLabel label = ItemLabel.none,
-  }) async {
-    final now = DateTime.now();
-    final id = db.generateId();
-    final hlc = db.generateHlc();
+    String? content,
+  }) {
+    return transaction(() async {
+      final now = DateTime.now();
+      final id = db.generateId();
+      final stamp = await db.stampLocal(notes, id);
 
-    // Get the next position for this folder
-    final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
-    maxPosQuery.where(notes.folderId.equals(folderId));
-    maxPosQuery.where(notes.isDeleted.equals(false));
-    final maxPosResult = await maxPosQuery.getSingle();
-    final maxPos = maxPosResult.read(notes.position.max()) ?? -1;
+      // Get the next position for this folder
+      final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
+      maxPosQuery.where(notes.folderId.equals(folderId));
+      maxPosQuery.where(notes.isDeleted.equals(false));
+      final maxPosResult = await maxPosQuery.getSingle();
+      final maxPos = maxPosResult.read(notes.position.max()) ?? -1;
 
-    final companion = NotesCompanion(
-      id: Value(id),
-      folderId: Value(folderId),
-      title: Value(title),
-      preview: Value(preview),
-      contentLength: Value(contentLength),
-      chunkCount: Value(chunkCount),
-      isCompressed: Value(isCompressed),
-      label: Value(label.storageValue),
-      position: Value(maxPos + 1),
-      createdAt: Value(now),
-      updatedAt: Value(now),
-      hlcTimestamp: Value(hlc),
-      deviceId: Value(db.deviceId),
-      version: const Value(1),
-      isDeleted: const Value(false),
-    );
+      final companion = NotesCompanion(
+        id: Value(id),
+        folderId: Value(folderId),
+        title: Value(title),
+        preview: Value(preview),
+        contentLength: Value(contentLength),
+        chunkCount: Value(chunkCount),
+        isCompressed: Value(isCompressed),
+        label: Value(label.storageValue),
+        position: Value(maxPos + 1),
+        createdAt: Value(now),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: const Value(1),
+        isDeleted: const Value(false),
+      );
 
-    final note = await insertNote(companion);
+      final note = await insertNote(companion);
 
-    // Add to FTS index
-    await _addToFtsIndex(id, title, preview);
+      // Add to FTS index
+      await _addToFtsIndex(id, title, preview);
 
-    return note;
+      if (content != null) {
+        await db.contentChunkDao.writeChunks(
+          noteId: id,
+          content: content,
+          hlc: stamp.hlc,
+        );
+      }
+
+      return note;
+    });
   }
 
   /// Insert a note while preserving externally-provided audit fields.
   /// Used by the import pipeline so a round-tripped note keeps the
-  /// `createdAt` and `updatedAt` it carried in its source archive.
+  /// `createdAt` and `updatedAt` it carried in its source archive. Identity
+  /// is stamped fresh and the note is queued: an imported note is a new
+  /// local row. [content] as in [createNote].
   Future<Note> importNote({
     required String folderId,
     required String title,
@@ -209,39 +226,52 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     ItemLabel label = ItemLabel.none,
     required DateTime createdAt,
     required DateTime updatedAt,
-  }) async {
-    final id = db.generateId();
-    final hlc = db.generateHlc();
+    String? content,
+  }) {
+    return transaction(() async {
+      final id = db.generateId();
+      final stamp = await db.stampLocal(notes, id);
 
-    final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
-    maxPosQuery.where(notes.folderId.equals(folderId));
-    maxPosQuery.where(notes.isDeleted.equals(false));
-    final maxPosResult = await maxPosQuery.getSingle();
-    final maxPos = maxPosResult.read(notes.position.max()) ?? -1;
+      final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
+      maxPosQuery.where(notes.folderId.equals(folderId));
+      maxPosQuery.where(notes.isDeleted.equals(false));
+      final maxPosResult = await maxPosQuery.getSingle();
+      final maxPos = maxPosResult.read(notes.position.max()) ?? -1;
 
-    final companion = NotesCompanion(
-      id: Value(id),
-      folderId: Value(folderId),
-      title: Value(title),
-      preview: Value(preview),
-      contentLength: Value(contentLength),
-      chunkCount: Value(chunkCount),
-      isCompressed: Value(isCompressed),
-      label: Value(label.storageValue),
-      position: Value(maxPos + 1),
-      createdAt: Value(createdAt),
-      updatedAt: Value(updatedAt),
-      hlcTimestamp: Value(hlc),
-      deviceId: Value(db.deviceId),
-      version: const Value(1),
-      isDeleted: const Value(false),
-    );
+      final companion = NotesCompanion(
+        id: Value(id),
+        folderId: Value(folderId),
+        title: Value(title),
+        preview: Value(preview),
+        contentLength: Value(contentLength),
+        chunkCount: Value(chunkCount),
+        isCompressed: Value(isCompressed),
+        label: Value(label.storageValue),
+        position: Value(maxPos + 1),
+        createdAt: Value(createdAt),
+        updatedAt: Value(updatedAt),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: const Value(1),
+        isDeleted: const Value(false),
+      );
 
-    final note = await insertNote(companion);
-    await _addToFtsIndex(id, title, preview);
-    return note;
+      final note = await insertNote(companion);
+      await _addToFtsIndex(id, title, preview);
+      if (content != null) {
+        await db.contentChunkDao.writeChunks(
+          noteId: id,
+          content: content,
+          hlc: stamp.hlc,
+        );
+      }
+      return note;
+    });
   }
 
+  /// Writes a note's metadata and, when [content] is given, its body, under
+  /// one stamp and one outbox entry — the auto-save path, so a heavy editing
+  /// day coalesces to one queued row per note however often it saves.
   Future<Note?> updateNote({
     required String id,
     String? title,
@@ -249,44 +279,56 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     int? contentLength,
     int? chunkCount,
     bool? isCompressed,
-  }) async {
-    final existing = await getNoteById(id);
-    if (existing == null) return null;
-    // `getNoteById` does not filter tombstones, and an editor's auto-save
-    // can flush after the note was deleted from under it. Writing here
-    // would stamp the tombstone with a fresh HLC and version and resurrect
-    // it on the next merge.
-    if (existing.isDeleted) return null;
+    String? content,
+  }) {
+    return transaction(() async {
+      final existing = await getNoteById(id);
+      if (existing == null) return null;
+      // `getNoteById` does not filter tombstones, and an editor's auto-save
+      // can flush after the note was deleted from under it. Writing here
+      // would stamp the tombstone with a fresh HLC and version and resurrect
+      // it on the next merge.
+      if (existing.isDeleted) return null;
 
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+      final now = DateTime.now();
+      final stamp = await db.stampLocal(notes, id);
 
-    final companion = NotesCompanion(
-      title: title != null ? Value(title) : const Value.absent(),
-      preview: preview != null ? Value(preview) : const Value.absent(),
-      contentLength: contentLength != null
-          ? Value(contentLength)
-          : const Value.absent(),
-      chunkCount: chunkCount != null ? Value(chunkCount) : const Value.absent(),
-      isCompressed: isCompressed != null
-          ? Value(isCompressed)
-          : const Value.absent(),
-      updatedAt: Value(now),
-      hlcTimestamp: Value(hlc),
-      deviceId: Value(db.deviceId),
-      version: Value(existing.version + 1),
-    );
+      if (content != null) {
+        await db.contentChunkDao.writeChunks(
+          noteId: id,
+          content: content,
+          hlc: stamp.hlc,
+        );
+      }
 
-    await (update(notes)..where((n) => n.id.equals(id))).write(companion);
+      final companion = NotesCompanion(
+        title: title != null ? Value(title) : const Value.absent(),
+        preview: preview != null ? Value(preview) : const Value.absent(),
+        contentLength: contentLength != null
+            ? Value(contentLength)
+            : const Value.absent(),
+        chunkCount: chunkCount != null
+            ? Value(chunkCount)
+            : const Value.absent(),
+        isCompressed: isCompressed != null
+            ? Value(isCompressed)
+            : const Value.absent(),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: Value(existing.version + 1),
+      );
 
-    // Update FTS index with new values
-    await _updateFtsIndex(
-      id,
-      title ?? existing.title,
-      preview ?? existing.preview,
-    );
+      await (update(notes)..where((n) => n.id.equals(id))).write(companion);
 
-    return getNoteById(id);
+      final nextTitle = title ?? existing.title;
+      final nextPreview = preview ?? existing.preview;
+      if (nextTitle != existing.title || nextPreview != existing.preview) {
+        await _updateFtsIndex(existing, nextTitle, nextPreview);
+      }
+
+      return getNoteById(id);
+    });
   }
 
   /// Add a note to the FTS index
@@ -312,24 +354,29 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     }
   }
 
-  /// Update a note in the FTS index
-  Future<void> _updateFtsIndex(
-    String noteId,
-    String title,
-    String preview,
-  ) async {
+  /// Re-indexes a note whose title or preview changed.
+  ///
+  /// `notes_fts` is `content=notes`: FTS5 removes an entry by tokenising the
+  /// text it is handed, so the entry is removed with the [old] row's values
+  /// through the `'delete'` command — never by a REPLACE after the row was
+  /// rewritten, which tokenises the new text and leaves the old tokens in.
+  Future<void> _updateFtsIndex(Note old, String title, String preview) async {
     final result = await db
         .customSelect(
           'SELECT rowid FROM notes WHERE id = ?',
-          variables: [Variable.withString(noteId)],
+          variables: [Variable.withString(old.id)],
         )
         .getSingleOrNull();
 
     if (result != null) {
       final rowid = result.read<int>('rowid');
-      // FTS5 uses INSERT OR REPLACE semantics with rowid
       await db.customStatement(
-        'INSERT OR REPLACE INTO notes_fts(rowid, title, preview) VALUES (?, ?, ?)',
+        "INSERT INTO notes_fts(notes_fts, rowid, title, preview) "
+        "VALUES ('delete', ?, ?, ?)",
+        [rowid, old.title, old.preview],
+      );
+      await db.customStatement(
+        'INSERT INTO notes_fts(rowid, title, preview) VALUES (?, ?, ?)',
         [rowid, title, preview],
       );
     }
@@ -352,23 +399,31 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     }
   }
 
-  Future<void> softDeleteNote(String id) async {
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+  /// A missing or already-tombstoned note writes nothing: a repeat would
+  /// churn the version a merge orders by, and the tombstone has no index
+  /// entry left to remove.
+  Future<void> softDeleteNote(String id) {
+    return transaction(() async {
+      final existing = await getNoteById(id);
+      if (existing == null || existing.isDeleted) return;
+      final stamp = await db.stampLocal(notes, id, op: OutboxOp.tombstone);
+      await _tombstone(existing, stamp);
+    });
+  }
 
-    final existing = await getNoteById(id);
-    if (existing == null) return;
+  Future<void> _tombstone(Note existing, CrdtStamp stamp) async {
+    final now = DateTime.now();
 
     // Remove from FTS index before soft delete
-    await _removeFromFtsIndex(id);
+    await _removeFromFtsIndex(existing.id);
 
-    await (update(notes)..where((n) => n.id.equals(id))).write(
+    await (update(notes)..where((n) => n.id.equals(existing.id))).write(
       NotesCompanion(
         isDeleted: const Value(true),
         deletedAt: Value(now),
         updatedAt: Value(now),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
         version: Value(existing.version + 1),
       ),
     );
@@ -384,23 +439,29 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   Future<Note?> updateNotePosition({
     required String id,
     required int newPosition,
-  }) async {
-    final existing = await getNoteById(id);
-    if (existing == null) return null;
+  }) {
+    return transaction(() async {
+      final existing = await getNoteById(id);
+      if (existing == null) return null;
 
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+      final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        notes,
+        id,
+        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
+      );
 
-    await (update(notes)..where((n) => n.id.equals(id))).write(
-      NotesCompanion(
-        position: Value(newPosition),
-        updatedAt: Value(now),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
-        version: Value(existing.version + 1),
-      ),
-    );
-    return getNoteById(id);
+      await (update(notes)..where((n) => n.id.equals(id))).write(
+        NotesCompanion(
+          position: Value(newPosition),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      return getNoteById(id);
+    });
   }
 
   /// Writes the colour label of one note.
@@ -424,22 +485,24 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   Future<Note?> updateNoteLabel({
     required String id,
     required ItemLabel label,
-  }) async {
-    final existing = await getNoteById(id);
-    if (existing == null || existing.isDeleted) return null;
-    if (existing.label == label.storageValue) return existing;
+  }) {
+    return transaction(() async {
+      final existing = await getNoteById(id);
+      if (existing == null || existing.isDeleted) return null;
+      if (existing.label == label.storageValue) return existing;
 
-    final hlc = db.generateHlc();
+      final stamp = await db.stampLocal(notes, id);
 
-    await (update(notes)..where((n) => n.id.equals(id))).write(
-      NotesCompanion(
-        label: Value(label.storageValue),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
-        version: Value(existing.version + 1),
-      ),
-    );
-    return getNoteById(id);
+      await (update(notes)..where((n) => n.id.equals(id))).write(
+        NotesCompanion(
+          label: Value(label.storageValue),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      return getNoteById(id);
+    });
   }
 
   /// Labels a whole selection in **one** statement, the way
@@ -459,21 +522,29 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     if (ids.isEmpty) return 0;
     final unique = ids.toSet().toList(growable: false);
     final placeholders = List.filled(unique.length, '?').join(', ');
-    final hlc = db.generateHlc();
 
-    return customUpdate(
-      'UPDATE notes SET label = ?, hlc_timestamp = ?, '
-      'device_id = ?, version = version + 1 '
-      'WHERE id IN ($placeholders) AND is_deleted = 0 AND label <> ?',
-      variables: [
-        Variable<int>(label.storageValue),
-        Variable<String>(hlc),
-        Variable<String>(db.deviceId),
-        for (final id in unique) Variable<String>(id),
-        Variable<int>(label.storageValue),
-      ],
-      updates: {notes},
-    );
+    return transaction(() async {
+      final stamp = db.newStamp();
+      final changed = await customWriteReturning(
+        'UPDATE notes SET label = ?, hlc_timestamp = ?, '
+        'device_id = ?, version = version + 1 '
+        'WHERE id IN ($placeholders) AND is_deleted = 0 AND label <> ? '
+        'RETURNING id',
+        variables: [
+          Variable<int>(label.storageValue),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
+          for (final id in unique) Variable<String>(id),
+          Variable<int>(label.storageValue),
+        ],
+        updates: {notes},
+        updateKind: UpdateKind.update,
+      );
+      await db.enqueueMany(notes, [
+        for (final row in changed) row.read<String>('id'),
+      ], stamp.hlc);
+      return changed.length;
+    });
   }
 
   /// Every colour a live note actually carries, in palette order.
@@ -632,34 +703,36 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// `version + 1`, which halves the statements a reorder issues (a drag of 50
   /// notes was a SELECT **and** an UPDATE per note). A missing id updates zero
   /// rows, which is the same outcome the previous existence check produced.
+  ///
+  /// Only live rows whose position actually moves are written, under one
+  /// shared HLC, and only those are queued: re-stamping the rest would mark
+  /// every note in the folder changed on every drag.
   Future<void> setNotePositions(Map<String, int> positionByNoteId) async {
     if (positionByNoteId.isEmpty) return;
     final now = DateTime.now();
-    final hlc = db.generateHlc();
 
     await transaction(() async {
+      final stamp = db.newStamp();
+      final moved = <String>[];
       for (final entry in positionByNoteId.entries) {
-        await customUpdate(
+        final changed = await customUpdate(
           'UPDATE notes SET position = ?, updated_at = ?, hlc_timestamp = ?, '
-          'device_id = ?, version = version + 1 WHERE id = ?',
+          'device_id = ?, version = version + 1 '
+          'WHERE id = ? AND is_deleted = 0 AND position != ?',
           variables: [
             Variable<int>(entry.value),
             Variable<DateTime>(now),
-            Variable<String>(hlc),
-            Variable<String>(db.deviceId),
+            Variable<String>(stamp.hlc),
+            Variable<String>(stamp.deviceId),
             Variable<String>(entry.key),
+            Variable<int>(entry.value),
           ],
           updates: {notes},
         );
+        if (changed > 0) moved.add(entry.key);
       }
+      await db.enqueueMany(notes, moved, stamp.hlc);
     });
-  }
-
-  Future<void> deleteNotesInFolder(String folderId) async {
-    final notesInFolder = await getNotesByFolder(folderId);
-    for (final note in notesInFolder) {
-      await softDeleteNote(note.id);
-    }
   }
 
   /// Returns true if a non-deleted note with the same case-insensitive,
@@ -835,36 +908,57 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     )..where((n) => n.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
-  Future<void> mergeNote(Note remote) async {
-    final local = await getNoteById(remote.id);
+  /// Merges one note by HLC and keeps the search index in step with it.
+  ///
+  /// Returns the live local row the merge overwrote — `null` when the note was
+  /// new here, the local row won, or the local row was a tombstone (nothing to
+  /// keep) — so a caller can keep the losing side as a conflict copy (D7).
+  /// Either branch advances the clock past the remote HLC, so the next local
+  /// write orders after it. A [MergeOrigin.remote] note is never queued, or it
+  /// would be pushed straight back out; a [MergeOrigin.local] one that is
+  /// written is queued at the HLC it carries.
+  ///
+  /// The index is `content=notes`, so an entry is removed while the row still
+  /// holds the text it was indexed from and added back after the write; a
+  /// tombstone has no entry to remove.
+  Future<Note?> mergeNote(Note remote, {required MergeOrigin origin}) {
+    return transaction(() async {
+      final local = await getNoteById(remote.id);
 
-    if (local == null) {
-      await into(notes).insert(
-        NotesCompanion(
-          id: Value(remote.id),
-          folderId: Value(remote.folderId),
-          title: Value(remote.title),
-          preview: Value(remote.preview),
-          contentLength: Value(remote.contentLength),
-          chunkCount: Value(remote.chunkCount),
-          isCompressed: Value(remote.isCompressed),
-          label: Value(remote.label),
-          createdAt: Value(remote.createdAt),
-          updatedAt: Value(remote.updatedAt),
-          hlcTimestamp: Value(remote.hlcTimestamp),
-          deviceId: Value(remote.deviceId),
-          version: Value(remote.version),
-          isDeleted: Value(remote.isDeleted),
-          deletedAt: Value(remote.deletedAt),
-        ),
-      );
-      return;
-    }
+      if (local == null) {
+        await into(notes).insert(
+          NotesCompanion(
+            id: Value(remote.id),
+            folderId: Value(remote.folderId),
+            title: Value(remote.title),
+            preview: Value(remote.preview),
+            contentLength: Value(remote.contentLength),
+            chunkCount: Value(remote.chunkCount),
+            isCompressed: Value(remote.isCompressed),
+            label: Value(remote.label),
+            createdAt: Value(remote.createdAt),
+            updatedAt: Value(remote.updatedAt),
+            hlcTimestamp: Value(remote.hlcTimestamp),
+            deviceId: Value(remote.deviceId),
+            version: Value(remote.version),
+            isDeleted: Value(remote.isDeleted),
+            deletedAt: Value(remote.deletedAt),
+          ),
+        );
+        if (!remote.isDeleted) {
+          await _addToFtsIndex(remote.id, remote.title, remote.preview);
+        }
+        db.hlc.update(HlcTimestamp.parse(remote.hlcTimestamp));
+        await _enqueueMerged(remote, origin);
+        return null;
+      }
 
-    final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
-    final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
+      final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
+      final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
 
-    if (remoteHlc > localHlc) {
+      if (remoteHlc <= localHlc) return null;
+
+      if (!local.isDeleted) await _removeFromFtsIndex(remote.id);
       await (update(notes)..where((n) => n.id.equals(remote.id))).write(
         NotesCompanion(
           folderId: Value(remote.folderId),
@@ -882,8 +976,23 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           deletedAt: Value(remote.deletedAt),
         ),
       );
+      if (!remote.isDeleted) {
+        await _addToFtsIndex(remote.id, remote.title, remote.preview);
+      }
       db.hlc.update(remoteHlc);
-    }
+      await _enqueueMerged(remote, origin);
+      return local.isDeleted ? null : local;
+    });
+  }
+
+  Future<void> _enqueueMerged(Note merged, MergeOrigin origin) async {
+    if (origin == MergeOrigin.remote) return;
+    await db.enqueue(
+      notes,
+      merged.id,
+      merged.hlcTimestamp,
+      op: OutboxOp.forRow(isDeleted: merged.isDeleted),
+    );
   }
 
   Future<int> searchNotesCount(String query, {String? folderId}) async {
@@ -955,7 +1064,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       if (existing.folderId == targetFolderId) return existing;
 
       final now = DateTime.now();
-      final hlc = db.generateHlc();
+      final stamp = await db.stampLocal(notes, id);
 
       final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
       maxPosQuery.where(notes.folderId.equals(targetFolderId));
@@ -968,8 +1077,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           folderId: Value(targetFolderId),
           position: Value(maxPos + 1),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -978,46 +1087,65 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     });
   }
 
-  Future<void> softDeleteNoteWithChunks(String noteId) async {
-    await transaction(() async {
-      await db.contentChunkDao.softDeleteChunksForNote(noteId);
-      await softDeleteNote(noteId);
+  /// Tombstones a note and its body under one stamp: one user act. A missing
+  /// or already-tombstoned note writes nothing.
+  Future<void> softDeleteNoteWithChunks(String noteId) {
+    return transaction(() async {
+      final existing = await getNoteById(noteId);
+      if (existing == null || existing.isDeleted) return;
+      final stamp = await db.stampLocal(notes, noteId, op: OutboxOp.tombstone);
+      await db.contentChunkDao.softDeleteChunksForNotes([noteId], stamp);
+      await _tombstone(existing, stamp);
     });
   }
 
   /// Tombstones a whole selection in one transaction: one FTS delete, one
-  /// chunk update, one note update, however many notes were picked.
+  /// note update, one chunk update, however many notes were picked.
   ///
   /// The per-note path reads each row to write `version + 1`; here SQLite does
   /// that arithmetic itself, the same way [setNotePositions] does, so the
-  /// statement count does not move with the size of the selection.
+  /// statement count does not move with the size of the selection. Only the
+  /// notes still live are touched: a tombstone has no index entry to remove,
+  /// and removing one it never had would corrupt `notes_fts`.
   Future<void> softDeleteNotesWithChunks(List<String> noteIds) async {
     if (noteIds.isEmpty) return;
     final ids = noteIds.toSet().toList(growable: false);
     final placeholders = List.filled(ids.length, '?').join(', ');
     final idVariables = [for (final id in ids) Variable<String>(id)];
     final now = DateTime.now();
-    final hlc = db.generateHlc();
 
     await transaction(() async {
+      final stamp = db.newStamp();
+      // Before the UPDATE, while the rows still hold the indexed text, and
+      // with its predicate, so it covers exactly the rows it tombstones.
       await db.customStatement(
         'DELETE FROM notes_fts WHERE rowid IN '
-        '(SELECT rowid FROM notes WHERE id IN ($placeholders))',
+        '(SELECT rowid FROM notes WHERE id IN ($placeholders) '
+        'AND is_deleted = 0)',
         ids,
       );
-      await db.contentChunkDao.softDeleteChunksForNotes(ids);
-      await customUpdate(
+      final rows = await customWriteReturning(
         'UPDATE notes SET is_deleted = 1, deleted_at = ?, updated_at = ?, '
         'hlc_timestamp = ?, device_id = ?, version = version + 1 '
-        'WHERE id IN ($placeholders) AND is_deleted = 0',
+        'WHERE id IN ($placeholders) AND is_deleted = 0 RETURNING id',
         variables: [
           Variable<DateTime>(now),
           Variable<DateTime>(now),
-          Variable<String>(hlc),
-          Variable<String>(db.deviceId),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
           ...idVariables,
         ],
         updates: {notes},
+        updateKind: UpdateKind.update,
+      );
+      final tombstoned = [for (final row in rows) row.read<String>('id')];
+      if (tombstoned.isEmpty) return;
+      await db.contentChunkDao.softDeleteChunksForNotes(tombstoned, stamp);
+      await db.enqueueMany(
+        notes,
+        tombstoned,
+        stamp.hlc,
+        op: OutboxOp.tombstone,
       );
     });
   }

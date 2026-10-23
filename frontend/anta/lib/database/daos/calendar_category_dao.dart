@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../models/calendar_event.dart' show CalendarEventCategory;
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/calendar_categories_table.dart';
 
@@ -48,7 +49,8 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   ///
   /// Every seed carries one shared HLC, but only the rows actually written
   /// keep it: a live built-in is never re-stamped, so a launch is not a write
-  /// to every built-in.
+  /// to every built-in — and since only the rows carrying that HLC are
+  /// queued, a launch queues nothing either.
   ///
   /// The one conflict that does write is a **tombstoned** built-in, which is
   /// resurrected — keeping the user's last edits, flagged built-in again —
@@ -58,30 +60,43 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// every orphaned event resolves to — included.
   Future<void> seedMissing(List<CalendarCategoriesCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    final hlc = db.generateHlc();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          calendarCategories,
-          entry.copyWith(
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-          ),
-          onConflict: DoUpdate<$CalendarCategoriesTable, CalendarCategoryRow>(
-            (old) => CalendarCategoriesCompanion.custom(
-              isBuiltIn: const Constant(true),
-              isDeleted: const Constant(false),
-              deletedAt: const Constant<DateTime>(null),
-              hlcTimestamp: Variable<String>(hlc),
-              deviceId: Variable<String>(db.deviceId),
-              version: old.version + const Constant(1),
-            ),
-            where: (old) => old.isDeleted,
-          ),
-        );
-      }
+    return transaction(() async {
+      final stamp = db.newStamp();
+      await batch((b) => _seed(b, entries, stamp));
     });
+  }
+
+  void _seed(
+    Batch b,
+    List<CalendarCategoriesCompanion> entries,
+    CrdtStamp stamp,
+  ) {
+    for (final entry in entries) {
+      b.insert(
+        calendarCategories,
+        entry.copyWith(
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: const Value(1),
+        ),
+        onConflict: DoUpdate<$CalendarCategoriesTable, CalendarCategoryRow>(
+          (old) => CalendarCategoriesCompanion.custom(
+            isBuiltIn: const Constant(true),
+            isDeleted: const Constant(false),
+            deletedAt: const Constant<DateTime>(null),
+            hlcTimestamp: Variable<String>(stamp.hlc),
+            deviceId: Variable<String>(stamp.deviceId),
+            version: old.version + const Constant(1),
+          ),
+          where: (old) => old.isDeleted,
+        ),
+      );
+    }
+    // A batch reports no per-row result, so the rows it wrote are found by
+    // the stamp, inside the seeded ids.
+    db.enqueueWrittenIn(b, calendarCategories, [
+      for (final entry in entries) entry.id.value,
+    ], stamp.hlc);
   }
 
   /// Restores a backup's rows in one `batch` — the shape
@@ -94,34 +109,44 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// never the whole restore.
   ///
   /// Rows arrive as live `version 1` originals of this device, the
-  /// [CalendarEventDao.importAll] convention: a restore is never a merge.
+  /// [CalendarEventDao.importAll] convention: a restore is never a merge. Each
+  /// is queued in the same batch, as any new local row is.
   Future<void> importAll(List<CalendarCategoriesCompanion> entries) {
     if (entries.isEmpty) return Future.value();
-    return batch((b) {
-      for (final entry in entries) {
-        b.insert(
-          calendarCategories,
-          entry.copyWith(
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-            deletedAt: const Value(null),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
+    return transaction(() async {
+      final stamps = [for (final _ in entries) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final stamp = stamps[i];
+          b.insert(
+            calendarCategories,
+            entry.copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+          db.enqueueIn(b, calendarCategories, entry.id.value, stamp.hlc);
+        }
+      });
     });
   }
 
   Future<void> insertCategory(CalendarCategoriesCompanion entry) {
-    return into(calendarCategories).insert(
-      entry.copyWith(
-        hlcTimestamp: Value(db.generateHlc()),
-        deviceId: Value(db.deviceId),
-        version: const Value(1),
-      ),
-    );
+    return transaction(() async {
+      final stamp = await db.stampLocal(calendarCategories, entry.id.value);
+      await into(calendarCategories).insert(
+        entry.copyWith(
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: const Value(1),
+        ),
+      );
+    });
   }
 
   /// Update that preserves `created_at` by masking it out, mirroring
@@ -144,11 +169,12 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
         entry.copyWith(createdAt: const Value.absent()),
       );
       if (merged.copyWith(updatedAt: existing.updatedAt) == existing) return;
+      final stamp = await db.stampLocal(calendarCategories, id);
       await (update(calendarCategories)..where((c) => c.id.equals(id))).write(
         entry.copyWith(
           createdAt: const Value.absent(),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -171,13 +197,18 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
         return false;
       }
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        calendarCategories,
+        id,
+        op: OutboxOp.tombstone,
+      );
       await (update(calendarCategories)..where((c) => c.id.equals(id))).write(
         CalendarCategoriesCompanion(
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -208,22 +239,27 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   Future<void> reorder(List<String> idsInOrder) async {
     if (idsInOrder.isEmpty) return;
     final now = DateTime.now();
-    final hlc = db.generateHlc();
-    await batch((b) {
-      for (var i = 0; i < idsInOrder.length; i++) {
-        b.update(
-          calendarCategories,
-          CalendarCategoriesCompanion.custom(
-            sortOrder: Variable<int>(i),
-            updatedAt: Variable<DateTime>(now),
-            hlcTimestamp: Variable<String>(hlc),
-            deviceId: Variable<String>(db.deviceId),
-            version: calendarCategories.version + const Constant(1),
-          ),
-          where: (c) =>
-              c.id.equals(idsInOrder[i]) & _live & c.sortOrder.equals(i).not(),
-        );
-      }
+    await transaction(() async {
+      final stamp = db.newStamp();
+      await batch((b) {
+        for (var i = 0; i < idsInOrder.length; i++) {
+          b.update(
+            calendarCategories,
+            CalendarCategoriesCompanion.custom(
+              sortOrder: Variable<int>(i),
+              updatedAt: Variable<DateTime>(now),
+              hlcTimestamp: Variable<String>(stamp.hlc),
+              deviceId: Variable<String>(stamp.deviceId),
+              version: calendarCategories.version + const Constant(1),
+            ),
+            where: (c) =>
+                c.id.equals(idsInOrder[i]) &
+                _live &
+                c.sortOrder.equals(i).not(),
+          );
+        }
+        db.enqueueWrittenIn(b, calendarCategories, idsInOrder, stamp.hlc);
+      });
     });
   }
 

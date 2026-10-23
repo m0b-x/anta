@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
 import '../database.dart';
 import '../tables/content_chunks_table.dart';
+import '../crdt/crdt_write.dart';
 import '../crdt/hlc.dart';
 import '../../utils/compression_utils.dart';
 
@@ -130,9 +131,17 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     return result;
   }
 
-  Future<void> saveContent({
+  /// Diffs [content] against the stored chunks and writes only what changed,
+  /// every written chunk stamped with [hlc]. Returns whether anything was
+  /// written.
+  ///
+  /// Queues nothing: under D14 a note travels as one document with its body,
+  /// so a body is written only through `NoteDao`, which stamps and queues the
+  /// owning note in the same transaction.
+  Future<bool> writeChunks({
     required String noteId,
     required String content,
+    required String hlc,
   }) async {
     // Split new content into raw (unprocessed) slices.
     final rawSlices = _splitRaw(content);
@@ -174,7 +183,6 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
         final processedContent = shouldCompress
             ? CompressionUtils.compressToBase64(rawContent)
             : rawContent;
-        final hlc = db.generateHlc();
 
         toUpdate.add(
           ContentChunksCompanion(
@@ -195,7 +203,6 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
         final processedContent = shouldCompress
             ? CompressionUtils.compressToBase64(rawContent)
             : rawContent;
-        final hlc = db.generateHlc();
 
         toInsert.add(
           ContentChunksCompanion(
@@ -222,7 +229,7 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
 
     // Nothing changed at all — skip the DB round-trip entirely.
     if (toInsert.isEmpty && toUpdate.isEmpty && toDeleteIds.isEmpty) {
-      return;
+      return false;
     }
 
     // Apply all changes in a single batch for atomicity and speed.
@@ -239,6 +246,7 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
         b.deleteWhere(contentChunks, (c) => c.id.equals(id));
       }
     });
+    return true;
   }
 
   /// Splits [content] into raw string slices of [defaultChunkSize] characters.
@@ -256,28 +264,31 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     return slices;
   }
 
-  /// Soft delete chunks for CRDT sync (marks as deleted but preserves for sync)
-  Future<void> softDeleteChunksForNote(String noteId) async {
-    final hlc = db.generateHlc();
+  /// Soft delete chunks for CRDT sync (marks as deleted but preserves for
+  /// sync), under the [stamp] that tombstones their note.
+  Future<void> softDeleteChunksForNote(String noteId, CrdtStamp stamp) async {
     await (update(contentChunks)..where((c) => c.noteId.equals(noteId))).write(
       ContentChunksCompanion(
         isDeleted: const Value(true),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
       ),
     );
   }
 
   /// Tombstones every chunk of a whole selection of notes in one statement,
-  /// so a bulk delete costs one update here rather than one per note.
-  Future<void> softDeleteChunksForNotes(List<String> noteIds) async {
+  /// so a bulk delete costs one update here rather than one per note, under
+  /// the [stamp] that tombstones the notes.
+  Future<void> softDeleteChunksForNotes(
+    List<String> noteIds,
+    CrdtStamp stamp,
+  ) async {
     if (noteIds.isEmpty) return;
-    final hlc = db.generateHlc();
     await (update(contentChunks)..where((c) => c.noteId.isIn(noteIds))).write(
       ContentChunksCompanion(
         isDeleted: const Value(true),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
       ),
     );
   }
@@ -298,44 +309,78 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     )..where((c) => c.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
-  Future<void> mergeChunk(ContentChunk remote) async {
-    final local = await (select(
-      contentChunks,
-    )..where((c) => c.id.equals(remote.id))).getSingleOrNull();
+  /// Merges one chunk by HLC, advancing the clock past it whichever branch
+  /// writes. A chunk never queues itself (D14): a [MergeOrigin.local] chunk
+  /// that is written stamps its owning note with the chunk's HLC and queues
+  /// the note, and a [MergeOrigin.remote] one queues nothing.
+  Future<void> mergeChunk(ContentChunk remote, {required MergeOrigin origin}) {
+    return transaction(() async {
+      final local = await (select(
+        contentChunks,
+      )..where((c) => c.id.equals(remote.id))).getSingleOrNull();
 
-    if (local == null) {
-      await into(contentChunks).insert(
-        ContentChunksCompanion(
-          id: Value(remote.id),
-          noteId: Value(remote.noteId),
-          chunkIndex: Value(remote.chunkIndex),
-          content: Value(remote.content),
-          isCompressed: Value(remote.isCompressed),
-          hlcTimestamp: Value(remote.hlcTimestamp),
-          deviceId: Value(remote.deviceId),
-          version: Value(remote.version),
-          isDeleted: Value(remote.isDeleted),
-        ),
-      );
-      return;
-    }
+      if (local == null) {
+        await into(contentChunks).insert(
+          ContentChunksCompanion(
+            id: Value(remote.id),
+            noteId: Value(remote.noteId),
+            chunkIndex: Value(remote.chunkIndex),
+            content: Value(remote.content),
+            isCompressed: Value(remote.isCompressed),
+            hlcTimestamp: Value(remote.hlcTimestamp),
+            deviceId: Value(remote.deviceId),
+            version: Value(remote.version),
+            isDeleted: Value(remote.isDeleted),
+          ),
+        );
+        db.hlc.update(HlcTimestamp.parse(remote.hlcTimestamp));
+        await _enqueueOwner(remote, origin);
+        return;
+      }
 
-    final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
-    final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
+      final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
+      final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
 
-    if (remoteHlc > localHlc) {
-      await (update(contentChunks)..where((c) => c.id.equals(remote.id))).write(
-        ContentChunksCompanion(
-          content: Value(remote.content),
-          isCompressed: Value(remote.isCompressed),
-          hlcTimestamp: Value(remote.hlcTimestamp),
-          deviceId: Value(remote.deviceId),
-          version: Value(remote.version),
-          isDeleted: Value(remote.isDeleted),
-        ),
-      );
-      db.hlc.update(remoteHlc);
-    }
+      if (remoteHlc > localHlc) {
+        await (update(
+          contentChunks,
+        )..where((c) => c.id.equals(remote.id))).write(
+          ContentChunksCompanion(
+            content: Value(remote.content),
+            isCompressed: Value(remote.isCompressed),
+            hlcTimestamp: Value(remote.hlcTimestamp),
+            deviceId: Value(remote.deviceId),
+            version: Value(remote.version),
+            isDeleted: Value(remote.isDeleted),
+          ),
+        );
+        db.hlc.update(remoteHlc);
+        await _enqueueOwner(remote, origin);
+      }
+    });
+  }
+
+  /// Stamps the owning note with the chunk's HLC, so the note row and its
+  /// outbox entry carry the same one. A note already stamped later keeps its
+  /// stamp — lowering a row's HLC would lose a merge it should win — and its
+  /// newer write queued it already. A tombstoned note is left alone: a body
+  /// does not bring its note back.
+  Future<void> _enqueueOwner(ContentChunk chunk, MergeOrigin origin) async {
+    if (origin == MergeOrigin.remote) return;
+    final stamped = await customUpdate(
+      'UPDATE notes SET hlc_timestamp = ?, device_id = ?, '
+      'version = version + 1 '
+      'WHERE id = ? AND is_deleted = 0 AND hlc_timestamp < ?',
+      variables: [
+        Variable<String>(chunk.hlcTimestamp),
+        Variable<String>(chunk.deviceId),
+        Variable<String>(chunk.noteId),
+        Variable<String>(chunk.hlcTimestamp),
+      ],
+      updates: {db.notes},
+    );
+    if (stamped == 0) return;
+    await db.enqueue(db.notes, chunk.noteId, chunk.hlcTimestamp);
   }
 
   Future<ContentStats> getContentStats(String noteId) async {

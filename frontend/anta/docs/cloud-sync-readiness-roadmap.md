@@ -287,8 +287,10 @@ outbox table exists.
 - Skills: `drift-migrations` (persistence rules, the atomic-step contract),
   `anta-context`.
 
-**As built (2026-10-23, one implementer, one independent reviewer, one fix
-pass; the review found no data loss, crash or persisted-data break).**
+**As built (2026-10-23, committed `14c9250`; one implementer, one independent
+reviewer, one fix pass; the review found no data loss, crash or
+persisted-data break; gate: analyze clean, 9,381 tests green, the one failure
+the known Windows-only `host_devices_test`).**
 Deviations from the plan above, each sound and reversible on its own:
 
 - The folder-cascade `deleted_at` fix moved here from R3a so the binding fix
@@ -366,6 +368,67 @@ Deviations from the plan above, each sound and reversible on its own:
   → zero rows; a tombstone records `op = 'tombstone'`; the usage probe — 200
   simulated saves of one note leave one outbox row.
 - Skills: `anta-context`, `flutter-principles`.
+
+**As built (2026-10-23; one implementer, one independent reviewer, two fix
+passes; the review confirmed every converted write commits with its outbox
+entry).** Deviations from the plan above, each sound and reversible on its
+own:
+
+- The helper is the `CrdtWrite` extension on `AppDatabase`
+  (`lib/database/crdt/crdt_write.dart`): `stampLocal`, `newStamp` (one
+  shared HLC for a multi-row action), `enqueue` / `enqueueIn(batch)` /
+  `enqueueMany`, and `enqueueWrittenIn(batch, table, rowKeys, hlc)` for the
+  two batched writes that cannot learn per-row results (`seedMissing`,
+  category `reorder`). Every outbox upsert is monotonic (`DoUpdate …
+  WHERE excluded.hlc > sync_outbox.hlc`): an entry can never be lowered, and
+  every stamp is taken inside the transaction or batch it belongs to — the
+  review found that a stamp taken before `transaction(...)` could write an
+  older HLC over a newer row and lose a queued change to the in-flight
+  `ackThrough`. Set-based writes learn their exact keys with `UPDATE …
+  RETURNING` (SQLite ≥ 3.35, guaranteed because the app bundles SQLite
+  through `sqlite3_flutter_libs`); HLC-equality selection was removed.
+- `SyncOutboxDao`: `pending({limit})` by hlc, table, key; `count()`;
+  `ackThrough` compare-and-delete returning `bool`; `clear()`. `OutboxOp`
+  {`upsert`, `tombstone`}; `MergeOrigin` {`local`, `remote`};
+  `counterValueRowKey`.
+- The note body moved into `NoteDao.createNote` / `importNote` /
+  `updateNote` (optional `content:` → `ContentChunkDao.writeChunks`), so one
+  save is one transaction, one stamp, one `notes` outbox row;
+  `ContentChunkDao.saveContent` is gone (it wrote chunks before the
+  tombstone check and left preview/length/count stale). The repository
+  caches a body only when the DAO wrote it.
+- Merges: `origin` is required; a remote merge never enqueues; every merge,
+  insert branch included, advances the clock (`hlc.update`) — the insert
+  branch never did before; `mergeNote` / `mergeFolder` return the
+  overwritten live row for D7 and `null` when the local row was a
+  tombstone; a local-origin `mergeChunk` stamps the owning note only when
+  the note's HLC is older than the chunk's.
+- **FTS fix on the save path** (pre-existing, proven by a failing test
+  first): `notes_fts` is an external-content FTS5 table, and `updateNote`
+  ran `INSERT OR REPLACE` after writing the row, so the old title's tokens
+  stayed and a renamed note still matched its old title. `_updateFtsIndex`
+  now issues the FTS5 `'delete'` with the old values then inserts the new
+  ones, only when title or preview changed; the bulk tombstone deletes FTS
+  rows only for notes that were live. `test/database/note_fts_test.dart`.
+  The v43 step also rebuilds `notes_fts` once (guarded on the table's
+  existence) because every existing install carries the stale tokens.
+- No-op guards: `updateFolder`, `updateFolderSortPreferences`,
+  `softDeleteNote` / `softDeleteFolder` on a tombstone,
+  `setNoteValuePinned`, `upsertVocabulary`; `setNotePositions` /
+  `setFolderPositions` write only live rows that moved. One HLC per action:
+  `softDeleteNoteWithChunks`, the vocabulary writes, the chunk tombstones;
+  `NoteStorageService.deleteNotesInFolder` goes through the bulk tombstone;
+  `NoteDao.deleteNotesInFolder` (no callers) removed.
+- Tests: `test/database/sync_outbox_test.dart` (per-table one row,
+  coalescing, tombstone op, remote merge → none, `ackThrough` boundary,
+  monotonic entry, a throwing write leaves no entry, 200 saves through
+  `NoteStorageService` → one `notes` row and no chunk rows, import rows,
+  clock advance per merge, the guards), `note_fts_test.dart`; counts
+  updated in `counter_crdt_test`, `calendar_category_crdt_test`,
+  `query_count_test`, `item_label_dao_test`.
+- Left as found, recorded in §8: the four-hex-digit HLC counter ceiling,
+  restore wipes leaving outbox entries until R4, `MergeOrigin` at the
+  repository layer, two test files unformatted at HEAD.
 
 ### R3b — The helper and the outbox, calendar-side tables
 
@@ -515,6 +578,15 @@ Deviations from the plan above, each sound and reversible on its own:
   `CounterValueRow` (now carrying CRDT columns) reaches the per-note bloc;
   fresh installs carry a `CHECK (is_deleted IN (0,1))` migrated tables lack;
   `getValuesForNote` scans `counter_values` (no `note_id` index).
+- Found by the R3a review, left as found: the HLC encoding pads the logical
+  counter to four hex digits (`hlc.dart:112`), so string order breaks at
+  0x10000 ticks inside one millisecond — reachable only in a long
+  clock-behind stretch; the encoding is must-not-change, R5 should clamp or
+  guard the counter instead. Restore's hard wipes leave outbox entries for
+  rows that no longer exist until R4's unbind clears the outbox. The
+  repositories import `MergeOrigin` (a CRDT type one layer above the DAO) and
+  `NoteRepository.mergeNote` discards the loser row the DAO returns — the
+  engine will consume it in Phase 02.
 
 ---
 

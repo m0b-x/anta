@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/counters_table.dart';
 import '../tables/counter_values_table.dart';
@@ -6,10 +7,10 @@ import '../tables/counter_values_table.dart';
 part 'counter_dao.g.dart';
 
 /// All CRDT stamping for `counters` and `counter_values` lives here (**v43**),
-/// the [CalendarEventDao] rule: `db.generateHlc()`, `db.deviceId` and
-/// `version + 1` on every write, tombstones instead of deletes. Nothing above
-/// this class — `CounterService`, the bloc, backup — sees a CRDT field or a
-/// tombstone.
+/// the [CalendarEventDao] rule: a `CrdtWrite` stamp, the row queued in the
+/// same transaction, and `version + 1` on every write, tombstones instead of
+/// deletes. Nothing above this class — `CounterService`, the bloc, backup —
+/// sees a CRDT field, a tombstone or the outbox.
 @DriftAccessor(tables: [Counters, CounterValues])
 class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   CounterDao(super.db);
@@ -35,7 +36,7 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   }
 
   Future<void> insertCounter(CountersCompanion entry) {
-    return _insertCounter(entry, db.generateHlc());
+    return transaction(() => _insertCounter(entry, db.newStamp()));
   }
 
   /// Creates a counter together with its global value row, both under one
@@ -44,21 +45,22 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
     CountersCompanion entry,
     int globalValue,
   ) {
-    final hlc = db.generateHlc();
     return transaction(() async {
-      await _insertCounter(entry, hlc);
-      await _upsertValue(entry.id.value, '', globalValue, hlc);
+      final stamp = db.newStamp();
+      await _insertCounter(entry, stamp);
+      await _upsertValue(entry.id.value, '', globalValue, stamp);
     });
   }
 
-  Future<void> _insertCounter(CountersCompanion entry, String hlc) {
-    return into(counters).insert(
+  Future<void> _insertCounter(CountersCompanion entry, CrdtStamp stamp) async {
+    await into(counters).insert(
       entry.copyWith(
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
         version: const Value(1),
       ),
     );
+    await db.enqueue(counters, entry.id.value, stamp.hlc);
   }
 
   /// Read-then-write so the version can be bumped; a missing or tombstoned
@@ -76,10 +78,11 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
       if (existing == null) return;
       final merged = existing.copyWithCompanion(entry);
       if (merged.copyWith(createdAt: existing.createdAt) == existing) return;
+      final stamp = await db.stampLocal(counters, id);
       await (update(counters)..where((c) => c.id.equals(id))).write(
         entry.copyWith(
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -89,35 +92,49 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   /// Tombstones a counter **and every value it holds** with one shared HLC,
   /// the [EventAbsenceDao.tombstoneForEvent] shape: one user act, merged as
   /// one, and a value row cannot outlive its counter on another device.
-  /// `version + 1` in SQL, so an unbounded value count costs two statements.
+  /// `version + 1` in SQL, so an unbounded value count costs two statements,
+  /// and queueing what they tombstoned two more.
   /// Already-tombstoned rows are skipped, so a repeat cannot churn versions.
   Future<void> deleteCounter(String id) {
     final now = DateTime.now();
-    final hlc = db.generateHlc();
     return transaction(() async {
-      await customUpdate(
+      final stamp = db.newStamp();
+      final tombstoned = await customUpdate(
         'UPDATE counters SET is_deleted = 1, deleted_at = ?, '
         'hlc_timestamp = ?, device_id = ?, version = version + 1 '
         'WHERE id = ? AND is_deleted = 0',
         variables: [
           Variable<DateTime>(now),
-          Variable<String>(hlc),
-          Variable<String>(db.deviceId),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
           Variable<String>(id),
         ],
         updates: {counters},
       );
-      await customUpdate(
+      final values = await customWriteReturning(
         'UPDATE counter_values SET is_deleted = 1, deleted_at = ?, '
         'hlc_timestamp = ?, device_id = ?, version = version + 1 '
-        'WHERE counter_id = ? AND is_deleted = 0',
+        'WHERE counter_id = ? AND is_deleted = 0 RETURNING note_id',
         variables: [
           Variable<DateTime>(now),
-          Variable<String>(hlc),
-          Variable<String>(db.deviceId),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
           Variable<String>(id),
         ],
         updates: {counterValues},
+        updateKind: UpdateKind.update,
+      );
+      if (tombstoned > 0) {
+        await db.enqueue(counters, id, stamp.hlc, op: OutboxOp.tombstone);
+      }
+      await db.enqueueMany(
+        counterValues,
+        [
+          for (final row in values)
+            counterValueRowKey(id, row.read<String>('note_id')),
+        ],
+        stamp.hlc,
+        op: OutboxOp.tombstone,
       );
     });
   }
@@ -139,7 +156,7 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   /// cannot bring its values back.
   Future<void> upsertValue(String counterId, String noteId, int value) {
     return transaction(
-      () => _upsertValue(counterId, noteId, value, db.generateHlc()),
+      () => _upsertValue(counterId, noteId, value, db.newStamp()),
     );
   }
 
@@ -147,7 +164,7 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
     String counterId,
     String noteId,
     int value,
-    String hlc,
+    CrdtStamp stamp,
   ) async {
     final existing = await _valueRow(counterId, noteId);
     if (existing != null && !existing.isDeleted && existing.value == value) {
@@ -157,14 +174,19 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
       counters,
     )..where((c) => c.id.equals(counterId))).getSingleOrNull();
     if (parent != null && parent.isDeleted) return;
+    await db.enqueue(
+      counterValues,
+      counterValueRowKey(counterId, noteId),
+      stamp.hlc,
+    );
     if (existing == null) {
       await into(counterValues).insert(
         CounterValuesCompanion(
           counterId: Value(counterId),
           noteId: Value(noteId),
           value: Value(value),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: const Value(1),
         ),
       );
@@ -176,8 +198,8 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
         .write(
           CounterValuesCompanion(
             value: Value(value),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: Value(existing.version + 1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
@@ -214,19 +236,30 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
 
   /// Tombstones the value row for a specific counter + note pair.
   Future<void> deleteValue(String counterId, String noteId) {
-    return customUpdate(
-      'UPDATE counter_values SET is_deleted = 1, deleted_at = ?, '
-      'hlc_timestamp = ?, device_id = ?, version = version + 1 '
-      'WHERE counter_id = ? AND note_id = ? AND is_deleted = 0',
-      variables: [
-        Variable<DateTime>(DateTime.now()),
-        Variable<String>(db.generateHlc()),
-        Variable<String>(db.deviceId),
-        Variable<String>(counterId),
-        Variable<String>(noteId),
-      ],
-      updates: {counterValues},
-    );
+    return transaction(() async {
+      final stamp = db.newStamp();
+      final tombstoned = await customUpdate(
+        'UPDATE counter_values SET is_deleted = 1, deleted_at = ?, '
+        'hlc_timestamp = ?, device_id = ?, version = version + 1 '
+        'WHERE counter_id = ? AND note_id = ? AND is_deleted = 0',
+        variables: [
+          Variable<DateTime>(DateTime.now()),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
+          Variable<String>(counterId),
+          Variable<String>(noteId),
+        ],
+        updates: {counterValues},
+      );
+      if (tombstoned > 0) {
+        await db.enqueue(
+          counterValues,
+          counterValueRowKey(counterId, noteId),
+          stamp.hlc,
+          op: OutboxOp.tombstone,
+        );
+      }
+    });
   }
 
   /// Bulk-updates positions for reordering. Expects a map of id → position.
@@ -236,26 +269,32 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   /// every counter changed on every drag.
   Future<void> updatePositions(Map<String, int> positions) async {
     if (positions.isEmpty) return;
-    final hlc = db.generateHlc();
-    await transaction(() => _writePositions(positions, hlc));
+    await transaction(() => _writePositions(positions, db.newStamp()));
   }
 
-  Future<void> _writePositions(Map<String, int> positions, String hlc) async {
+  /// Writes and queues only the rows that move.
+  Future<void> _writePositions(
+    Map<String, int> positions,
+    CrdtStamp stamp,
+  ) async {
+    final moved = <String>[];
     for (final entry in positions.entries) {
-      await customUpdate(
+      final changed = await customUpdate(
         'UPDATE counters SET position = ?, hlc_timestamp = ?, '
         'device_id = ?, version = version + 1 '
         'WHERE id = ? AND is_deleted = 0 AND position != ?',
         variables: [
           Variable<int>(entry.value),
-          Variable<String>(hlc),
-          Variable<String>(db.deviceId),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
           Variable<String>(entry.key),
           Variable<int>(entry.value),
         ],
         updates: {counters},
       );
+      if (changed > 0) moved.add(entry.key);
     }
+    await db.enqueueMany(counters, moved, stamp.hlc);
   }
 
   /// Returns all live counter-value rows (for backup export).
@@ -303,9 +342,9 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
     bool pinned, {
     Map<String, int> positions = const {},
   }) {
-    final hlc = db.generateHlc();
     return transaction(() async {
-      await customUpdate(
+      final stamp = db.newStamp();
+      final toggled = await customUpdate(
         'UPDATE counters SET is_pinned = ?, position = COALESCE(?, position), '
         'hlc_timestamp = ?, device_id = ?, version = version + 1 '
         'WHERE id = ? AND is_deleted = 0 '
@@ -313,15 +352,16 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
         variables: [
           Variable<bool>(pinned),
           Variable<int>(positions[id]),
-          Variable<String>(hlc),
-          Variable<String>(db.deviceId),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
           Variable<String>(id),
           Variable<bool>(pinned),
           Variable<int>(positions[id]),
         ],
         updates: {counters},
       );
-      await _writePositions({...positions}..remove(id), hlc);
+      if (toggled > 0) await db.enqueue(counters, id, stamp.hlc);
+      await _writePositions({...positions}..remove(id), stamp);
     });
   }
 
@@ -334,19 +374,32 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
     String noteId,
     bool pinned,
   ) {
-    return customUpdate(
-      'UPDATE counter_values SET is_pinned = ?, hlc_timestamp = ?, '
-      'device_id = ?, version = version + 1 '
-      'WHERE counter_id = ? AND note_id = ? AND is_deleted = 0',
-      variables: [
-        Variable<bool>(pinned),
-        Variable<String>(db.generateHlc()),
-        Variable<String>(db.deviceId),
-        Variable<String>(counterId),
-        Variable<String>(noteId),
-      ],
-      updates: {counterValues},
-    );
+    return transaction(() async {
+      final stamp = db.newStamp();
+      // A pin that is already set writes nothing.
+      final changed = await customUpdate(
+        'UPDATE counter_values SET is_pinned = ?, hlc_timestamp = ?, '
+        'device_id = ?, version = version + 1 '
+        'WHERE counter_id = ? AND note_id = ? AND is_deleted = 0 '
+        'AND is_pinned != ?',
+        variables: [
+          Variable<bool>(pinned),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
+          Variable<String>(counterId),
+          Variable<String>(noteId),
+          Variable<bool>(pinned),
+        ],
+        updates: {counterValues},
+      );
+      if (changed > 0) {
+        await db.enqueue(
+          counterValues,
+          counterValueRowKey(counterId, noteId),
+          stamp.hlc,
+        );
+      }
+    });
   }
 
   /// The [updatePositions] shape for one counter's per-note values.
@@ -355,25 +408,28 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
     Map<String, int> positions,
   ) async {
     if (positions.isEmpty) return;
-    final hlc = db.generateHlc();
     await transaction(() async {
+      final stamp = db.newStamp();
+      final moved = <String>[];
       for (final entry in positions.entries) {
-        await customUpdate(
+        final changed = await customUpdate(
           'UPDATE counter_values SET position = ?, hlc_timestamp = ?, '
           'device_id = ?, version = version + 1 '
           'WHERE counter_id = ? AND note_id = ? AND is_deleted = 0 '
           'AND position != ?',
           variables: [
             Variable<int>(entry.value),
-            Variable<String>(hlc),
-            Variable<String>(db.deviceId),
+            Variable<String>(stamp.hlc),
+            Variable<String>(stamp.deviceId),
             Variable<String>(counterId),
             Variable<String>(entry.key),
             Variable<int>(entry.value),
           ],
           updates: {counterValues},
         );
+        if (changed > 0) moved.add(counterValueRowKey(counterId, entry.key));
       }
+      await db.enqueueMany(counterValues, moved, stamp.hlc);
     });
   }
 

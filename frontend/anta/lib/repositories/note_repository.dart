@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../database/crdt/crdt_write.dart' show MergeOrigin;
 import '../database/database.dart';
 import '../database/daos/note_dao.dart';
 import '../database/daos/content_chunk_dao.dart';
@@ -201,9 +202,8 @@ class NoteRepository {
       chunkCount: chunkCount,
       isCompressed: isCompressed,
       label: label,
+      content: content,
     );
-
-    await _chunkDao.saveContent(noteId: note.id, content: content);
 
     _noteCache.put(note.id, note);
     _contentCache.put(note.id, content);
@@ -248,9 +248,8 @@ class NoteRepository {
       label: label,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      content: content,
     );
-
-    await _chunkDao.saveContent(noteId: note.id, content: content);
 
     _noteCache.put(note.id, note);
     _contentCache.put(note.id, content);
@@ -277,11 +276,6 @@ class NoteRepository {
     bool? isCompressed,
     String? content,
   }) async {
-    if (content != null) {
-      await _chunkDao.saveContent(noteId: id, content: content);
-      _contentCache.put(id, content);
-    }
-
     final note = await _noteDao.updateNote(
       id: id,
       title: title,
@@ -289,7 +283,10 @@ class NoteRepository {
       contentLength: contentLength,
       chunkCount: chunkCount,
       isCompressed: isCompressed,
+      content: content,
     );
+    // Only a body the DAO wrote: a refused save must not serve its text.
+    if (content != null && note != null) _contentCache.put(id, content);
 
     if (note != null) {
       _noteCache.put(id, note);
@@ -609,7 +606,7 @@ class NoteRepository {
   }
 
   Future<void> mergeNote(Note remote) async {
-    await _noteDao.mergeNote(remote);
+    await _noteDao.mergeNote(remote, origin: MergeOrigin.remote);
     _noteCache.remove(remote.id);
     _invalidateFolderCache(remote.folderId);
   }

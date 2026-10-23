@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/vocabularies_table.dart';
 import '../tables/vocabulary_items_table.dart';
@@ -8,7 +9,7 @@ import '../tables/vocabulary_items_table.dart';
 part 'vocabulary_dao.g.dart';
 
 /// All CRDT stamping for `vocabularies` and `vocabulary_items` lives here,
-/// never in the service: `db.generateHlc()`, `db.deviceId` and read-then-write
+/// never in the service: a `CrdtWrite` stamp and read-then-write
 /// `version + 1`, the [NoteDao] idiom.
 @DriftAccessor(tables: [Vocabularies, VocabularyItems])
 class VocabularyDao extends DatabaseAccessor<AppDatabase>
@@ -53,16 +54,26 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
     return transaction(() async {
       final id = entry.id.value;
       final existing = await _vocabularyById(id);
+      // A live row the entry would not change is left alone, so a save of an
+      // unchanged list does not read as a change once devices merge.
+      if (existing != null && !existing.isDeleted) {
+        final merged = existing.copyWithCompanion(entry);
+        final unchanged = merged.copyWith(
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+        );
+        if (unchanged == existing) return;
+      }
       final now = DateTime.now();
-      final hlc = db.generateHlc();
+      final stamp = await db.stampLocal(vocabularies, id);
 
       if (existing == null) {
         await into(vocabularies).insert(
           entry.copyWith(
             createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: const Value(1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
@@ -75,8 +86,8 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
         entry.copyWith(
           createdAt: const Value.absent(),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
           isDeleted: const Value(false),
           deletedAt: const Value(null),
@@ -115,8 +126,11 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
       }
 
       final now = DateTime.now();
+      final stamp = db.newStamp();
       final kept = <String>{};
       final seen = <String>{};
+      final written = <String>[];
+      final tombstoned = <String>[];
       var position = 0;
 
       for (final term in terms) {
@@ -125,18 +139,20 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
         final sortOrder = position++;
 
         if (row == null) {
+          final id = _uuid.v4();
           await into(vocabularyItems).insert(
             VocabularyItemsCompanion.insert(
-              id: _uuid.v4(),
+              id: id,
               vocabularyId: vocabularyId,
               term: term,
               sortOrder: Value(sortOrder),
               createdAt: now,
               updatedAt: now,
-              hlcTimestamp: db.generateHlc(),
-              deviceId: db.deviceId,
+              hlcTimestamp: stamp.hlc,
+              deviceId: stamp.deviceId,
             ),
           );
+          written.add(id);
           continue;
         }
 
@@ -149,19 +165,29 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
           VocabularyItemsCompanion(
             sortOrder: Value(sortOrder),
             updatedAt: Value(now),
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: Value(row.version + 1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
           ),
         );
+        written.add(row.id);
       }
 
       for (final row in existing) {
         if (row.isDeleted || kept.contains(row.id)) continue;
-        await _tombstoneItem(row, now);
+        await _tombstoneItem(row, now, stamp);
+        tombstoned.add(row.id);
       }
+
+      await db.enqueueMany(vocabularyItems, written, stamp.hlc);
+      await db.enqueueMany(
+        vocabularyItems,
+        tombstoned,
+        stamp.hlc,
+        op: OutboxOp.tombstone,
+      );
     });
   }
 
@@ -175,13 +201,18 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        vocabularies,
+        id,
+        op: OutboxOp.tombstone,
+      );
       await (update(vocabularies)..where((t) => t.id.equals(id))).write(
         VocabulariesCompanion(
           isDeleted: const Value(true),
           deletedAt: Value(now),
           updatedAt: Value(now),
-          hlcTimestamp: Value(db.generateHlc()),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -192,8 +223,14 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
               ))
               .get();
       for (final item in items) {
-        await _tombstoneItem(item, now);
+        await _tombstoneItem(item, now, stamp);
       }
+      await db.enqueueMany(
+        vocabularyItems,
+        [for (final item in items) item.id],
+        stamp.hlc,
+        op: OutboxOp.tombstone,
+      );
     });
   }
 
@@ -205,6 +242,8 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
   Future<void> reorderVocabularies(List<String> orderedIds) {
     return transaction(() async {
       final now = DateTime.now();
+      final stamp = db.newStamp();
+      final moved = <String>[];
       for (var i = 0; i < orderedIds.length; i++) {
         final existing = await _vocabularyById(orderedIds[i]);
         if (existing == null || existing.isDeleted) continue;
@@ -216,12 +255,14 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
           VocabulariesCompanion(
             sortOrder: Value(i),
             updatedAt: Value(now),
-            hlcTimestamp: Value(db.generateHlc()),
-            deviceId: Value(db.deviceId),
+            hlcTimestamp: Value(stamp.hlc),
+            deviceId: Value(stamp.deviceId),
             version: Value(existing.version + 1),
           ),
         );
+        moved.add(existing.id);
       }
+      await db.enqueueMany(vocabularies, moved, stamp.hlc);
     });
   }
 
@@ -238,29 +279,36 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
   /// Inserts a vocabulary while preserving externally-provided audit fields,
   /// the [NoteDao.importNote] convention: `createdAt`/`updatedAt` come from the
   /// caller, identity is stamped **fresh**. A backup is not a sync channel, so
-  /// a restored row is this device's own live row, never a replayed one.
+  /// a restored row is this device's own live row, never a replayed one, and
+  /// it is queued like one.
   Future<void> importVocabulary(VocabulariesCompanion entry) {
-    return into(vocabularies).insert(
-      entry.copyWith(
-        hlcTimestamp: Value(db.generateHlc()),
-        deviceId: Value(db.deviceId),
-        version: const Value(1),
-        isDeleted: const Value(false),
-        deletedAt: const Value(null),
-      ),
-    );
+    return transaction(() async {
+      final stamp = await db.stampLocal(vocabularies, entry.id.value);
+      await into(vocabularies).insert(
+        entry.copyWith(
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: const Value(1),
+          isDeleted: const Value(false),
+          deletedAt: const Value(null),
+        ),
+      );
+    });
   }
 
   Future<void> importItem(VocabularyItemsCompanion entry) {
-    return into(vocabularyItems).insert(
-      entry.copyWith(
-        hlcTimestamp: Value(db.generateHlc()),
-        deviceId: Value(db.deviceId),
-        version: const Value(1),
-        isDeleted: const Value(false),
-        deletedAt: const Value(null),
-      ),
-    );
+    return transaction(() async {
+      final stamp = await db.stampLocal(vocabularyItems, entry.id.value);
+      await into(vocabularyItems).insert(
+        entry.copyWith(
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: const Value(1),
+          isDeleted: const Value(false),
+          deletedAt: const Value(null),
+        ),
+      );
+    });
   }
 
   /// The **hard** wipe, tombstones included. Used by the import path, where no
@@ -273,14 +321,20 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
-  Future<void> _tombstoneItem(VocabularyItemRow row, DateTime now) {
+  /// Writes the tombstone only; the caller queues every row it tombstoned in
+  /// one [CrdtWrite.enqueueMany].
+  Future<void> _tombstoneItem(
+    VocabularyItemRow row,
+    DateTime now,
+    CrdtStamp stamp,
+  ) {
     return (update(vocabularyItems)..where((t) => t.id.equals(row.id))).write(
       VocabularyItemsCompanion(
         isDeleted: const Value(true),
         deletedAt: Value(now),
         updatedAt: Value(now),
-        hlcTimestamp: Value(db.generateHlc()),
-        deviceId: Value(db.deviceId),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
         version: Value(row.version + 1),
       ),
     );

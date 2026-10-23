@@ -22,7 +22,9 @@ class SyncOutbox extends Table {
   /// again after it was read.
   TextColumn get hlc => text()();
 
-  /// `upsert` or `delete` — a tombstone travels as a delete.
+  /// `upsert` or `tombstone` (`OutboxOp`). `tombstone` means the write
+  /// soft-deleted the row: it is pushed as the tombstone row, so the delete
+  /// merges by HLC like any other write.
   TextColumn get op => text()();
   DateTimeColumn get enqueuedAt => dateTime()();
 

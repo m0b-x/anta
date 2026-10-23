@@ -271,12 +271,14 @@ void main() {
         isEmpty,
         reason: 'no row is read on the way to writing it',
       );
-      // Two, and only two: the notes update and the chunks update. The FTS
-      // delete rides on `customStatement`, which this interceptor does not
-      // see — the count below is therefore about the two tables it can.
+      // Three, and only three: the notes update, the chunks update and the
+      // one outbox insert that queues every tombstoned note. The FTS delete
+      // rides on `customStatement`, which this interceptor does not see — the
+      // count below is therefore about the tables it can.
+      expect(counter.matching('sync_outbox'), hasLength(1));
       expect(
         counter.count,
-        2,
+        3,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
     });
@@ -357,7 +359,8 @@ void main() {
           'reorder must not read each row before writing it. Issued:\n'
           '${counter.statements.take(6).join('\n')}',
     );
-    expect(counter.count, lessThanOrEqualTo(positions.length));
+    // Plus one batched outbox insert for every row that moved.
+    expect(counter.count, lessThanOrEqualTo(positions.length + 1));
   });
 
   test('reordering still bumps the CRDT version of each moved row', () async {
@@ -631,7 +634,7 @@ void main() {
       // head and — here — a short, plain tail. Branching on `isCompressed` per
       // *note* instead of per *row* corrupts one of the two.
       final content = 'x' * ContentChunkDao.defaultChunkSize + 'tail';
-      await db.contentChunkDao.saveContent(noteId: 'n0', content: content);
+      await db.noteDao.updateNote(id: 'n0', content: content);
       final chunks = await db.contentChunkDao.getChunksForNote('n0');
       expect(chunks.map((c) => c.isCompressed), [true, false]);
 

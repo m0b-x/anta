@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import '../../models/item_label.dart';
 import '../database.dart';
 import '../tables/folders_table.dart';
+import '../crdt/crdt_write.dart';
 import '../crdt/hlc.dart';
 
 part 'folder_dao.g.dart';
@@ -140,45 +141,48 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     required String name,
     String? parentId,
     ItemLabel label = ItemLabel.none,
-  }) async {
-    final now = DateTime.now();
-    final id = db.generateId();
-    final hlc = db.generateHlc();
+  }) {
+    return transaction(() async {
+      final now = DateTime.now();
+      final id = db.generateId();
+      final stamp = await db.stampLocal(folders, id);
 
-    // Get the next position for this parent
-    final maxPosQuery = selectOnly(folders)
-      ..addColumns([folders.position.max()]);
-    if (parentId == null) {
-      maxPosQuery.where(folders.parentId.isNull());
-    } else {
-      maxPosQuery.where(folders.parentId.equals(parentId));
-    }
-    maxPosQuery.where(folders.isDeleted.equals(false));
-    final maxPosResult = await maxPosQuery.getSingle();
-    final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
+      // Get the next position for this parent
+      final maxPosQuery = selectOnly(folders)
+        ..addColumns([folders.position.max()]);
+      if (parentId == null) {
+        maxPosQuery.where(folders.parentId.isNull());
+      } else {
+        maxPosQuery.where(folders.parentId.equals(parentId));
+      }
+      maxPosQuery.where(folders.isDeleted.equals(false));
+      final maxPosResult = await maxPosQuery.getSingle();
+      final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
 
-    final companion = FoldersCompanion(
-      id: Value(id),
-      name: Value(name),
-      parentId: Value(parentId),
-      label: Value(label.storageValue),
-      position: Value(maxPos + 1),
-      createdAt: Value(now),
-      updatedAt: Value(now),
-      hlcTimestamp: Value(hlc),
-      deviceId: Value(db.deviceId),
-      version: const Value(1),
-      isDeleted: const Value(false),
-    );
+      final companion = FoldersCompanion(
+        id: Value(id),
+        name: Value(name),
+        parentId: Value(parentId),
+        label: Value(label.storageValue),
+        position: Value(maxPos + 1),
+        createdAt: Value(now),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: const Value(1),
+        isDeleted: const Value(false),
+      );
 
-    return insertFolder(companion);
+      return insertFolder(companion);
+    });
   }
 
   /// Insert a folder while preserving externally-provided audit fields.
   /// Used by the import pipeline so a round-tripped folder keeps its
   /// original `createdAt` and per-folder sort preferences. Position is
   /// still appended to the parent so the folder shows up at the end and
-  /// doesn't fight existing ordering.
+  /// doesn't fight existing ordering. Identity is stamped fresh and the
+  /// folder is queued: an imported folder is a new local row.
   Future<Folder> importFolder({
     required String name,
     String? parentId,
@@ -186,45 +190,47 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     String? noteSortOrder,
     String? subfolderSortOrder,
     ItemLabel label = ItemLabel.none,
-  }) async {
-    final now = DateTime.now();
-    final id = db.generateId();
-    final hlc = db.generateHlc();
+  }) {
+    return transaction(() async {
+      final now = DateTime.now();
+      final id = db.generateId();
+      final stamp = await db.stampLocal(folders, id);
 
-    final maxPosQuery = selectOnly(folders)
-      ..addColumns([folders.position.max()]);
-    if (parentId == null) {
-      maxPosQuery.where(folders.parentId.isNull());
-    } else {
-      maxPosQuery.where(folders.parentId.equals(parentId));
-    }
-    maxPosQuery.where(folders.isDeleted.equals(false));
-    final maxPosResult = await maxPosQuery.getSingle();
-    final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
+      final maxPosQuery = selectOnly(folders)
+        ..addColumns([folders.position.max()]);
+      if (parentId == null) {
+        maxPosQuery.where(folders.parentId.isNull());
+      } else {
+        maxPosQuery.where(folders.parentId.equals(parentId));
+      }
+      maxPosQuery.where(folders.isDeleted.equals(false));
+      final maxPosResult = await maxPosQuery.getSingle();
+      final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
 
-    final companion = FoldersCompanion(
-      id: Value(id),
-      name: Value(name),
-      parentId: Value(parentId),
-      label: Value(label.storageValue),
-      position: Value(maxPos + 1),
-      createdAt: Value(createdAt),
-      // updatedAt records when this row was written locally; the import
-      // is a fresh write event so `now` is the correct semantic.
-      updatedAt: Value(now),
-      noteSortOrder: noteSortOrder != null
-          ? Value(noteSortOrder)
-          : const Value.absent(),
-      subfolderSortOrder: subfolderSortOrder != null
-          ? Value(subfolderSortOrder)
-          : const Value.absent(),
-      hlcTimestamp: Value(hlc),
-      deviceId: Value(db.deviceId),
-      version: const Value(1),
-      isDeleted: const Value(false),
-    );
+      final companion = FoldersCompanion(
+        id: Value(id),
+        name: Value(name),
+        parentId: Value(parentId),
+        label: Value(label.storageValue),
+        position: Value(maxPos + 1),
+        createdAt: Value(createdAt),
+        // updatedAt records when this row was written locally; the import
+        // is a fresh write event so `now` is the correct semantic.
+        updatedAt: Value(now),
+        noteSortOrder: noteSortOrder != null
+            ? Value(noteSortOrder)
+            : const Value.absent(),
+        subfolderSortOrder: subfolderSortOrder != null
+            ? Value(subfolderSortOrder)
+            : const Value.absent(),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: const Value(1),
+        isDeleted: const Value(false),
+      );
 
-    return insertFolder(companion);
+      return insertFolder(companion);
+    });
   }
 
   Future<Folder?> updateFolder({
@@ -232,24 +238,35 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     String? name,
     String? parentId,
     bool updateParent = false,
-  }) async {
-    final existing = await getFolderById(id);
-    if (existing == null) return null;
+  }) {
+    return transaction(() async {
+      final existing = await getFolderById(id);
+      if (existing == null) return null;
+      // An edit that changes nothing writes nothing, so it does not read as a
+      // change once devices merge.
+      final renames = name != null && name != existing.name;
+      final moves = updateParent && parentId != existing.parentId;
+      if (!renames && !moves) return existing;
 
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+      final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        folders,
+        id,
+        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
+      );
 
-    final companion = FoldersCompanion(
-      name: name != null ? Value(name) : const Value.absent(),
-      parentId: updateParent ? Value(parentId) : const Value.absent(),
-      updatedAt: Value(now),
-      hlcTimestamp: Value(hlc),
-      deviceId: Value(db.deviceId),
-      version: Value(existing.version + 1),
-    );
+      final companion = FoldersCompanion(
+        name: name != null ? Value(name) : const Value.absent(),
+        parentId: updateParent ? Value(parentId) : const Value.absent(),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: Value(existing.version + 1),
+      );
 
-    await (update(folders)..where((f) => f.id.equals(id))).write(companion);
-    return getFolderById(id);
+      await (update(folders)..where((f) => f.id.equals(id))).write(companion);
+      return getFolderById(id);
+    });
   }
 
   Future<Folder?> moveFolder({
@@ -271,7 +288,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       if (existing.parentId == targetParentId) return existing;
 
       final now = DateTime.now();
-      final hlc = db.generateHlc();
+      final stamp = await db.stampLocal(folders, id);
 
       final maxPosQuery = selectOnly(folders)
         ..addColumns([folders.position.max()]);
@@ -289,8 +306,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           parentId: Value(targetParentId),
           position: Value(maxPos + 1),
           updatedAt: Value(now),
-          hlcTimestamp: Value(hlc),
-          deviceId: Value(db.deviceId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
         ),
       );
@@ -298,23 +315,27 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     });
   }
 
-  Future<void> softDeleteFolder(String id) async {
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+  /// A missing or already-tombstoned folder writes nothing, so a repeat
+  /// cannot churn the version a merge orders by.
+  Future<void> softDeleteFolder(String id) {
+    return transaction(() async {
+      final now = DateTime.now();
 
-    final existing = await getFolderById(id);
-    if (existing == null) return;
+      final existing = await getFolderById(id);
+      if (existing == null || existing.isDeleted) return;
+      final stamp = await db.stampLocal(folders, id, op: OutboxOp.tombstone);
 
-    await (update(folders)..where((f) => f.id.equals(id))).write(
-      FoldersCompanion(
-        isDeleted: const Value(true),
-        deletedAt: Value(now),
-        updatedAt: Value(now),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
-        version: Value(existing.version + 1),
-      ),
-    );
+      await (update(folders)..where((f) => f.id.equals(id))).write(
+        FoldersCompanion(
+          isDeleted: const Value(true),
+          deletedAt: Value(now),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+    });
   }
 
   Future<void> hardDeleteFolder(String id) async {
@@ -325,23 +346,29 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   Future<Folder?> updateFolderPosition({
     required String id,
     required int newPosition,
-  }) async {
-    final existing = await getFolderById(id);
-    if (existing == null) return null;
+  }) {
+    return transaction(() async {
+      final existing = await getFolderById(id);
+      if (existing == null) return null;
 
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+      final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        folders,
+        id,
+        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
+      );
 
-    await (update(folders)..where((f) => f.id.equals(id))).write(
-      FoldersCompanion(
-        position: Value(newPosition),
-        updatedAt: Value(now),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
-        version: Value(existing.version + 1),
-      ),
-    );
-    return getFolderById(id);
+      await (update(folders)..where((f) => f.id.equals(id))).write(
+        FoldersCompanion(
+          position: Value(newPosition),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      return getFolderById(id);
+    });
   }
 
   /// Writes the colour label of one folder.
@@ -354,22 +381,24 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   Future<Folder?> updateFolderLabel({
     required String id,
     required ItemLabel label,
-  }) async {
-    final existing = await getFolderById(id);
-    if (existing == null || existing.isDeleted) return null;
-    if (existing.label == label.storageValue) return existing;
+  }) {
+    return transaction(() async {
+      final existing = await getFolderById(id);
+      if (existing == null || existing.isDeleted) return null;
+      if (existing.label == label.storageValue) return existing;
 
-    final hlc = db.generateHlc();
+      final stamp = await db.stampLocal(folders, id);
 
-    await (update(folders)..where((f) => f.id.equals(id))).write(
-      FoldersCompanion(
-        label: Value(label.storageValue),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
-        version: Value(existing.version + 1),
-      ),
-    );
-    return getFolderById(id);
+      await (update(folders)..where((f) => f.id.equals(id))).write(
+        FoldersCompanion(
+          label: Value(label.storageValue),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      return getFolderById(id);
+    });
   }
 
   /// Labels a whole selection in **one** statement — SQLite does the
@@ -387,21 +416,29 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     if (ids.isEmpty) return 0;
     final unique = ids.toSet().toList(growable: false);
     final placeholders = List.filled(unique.length, '?').join(', ');
-    final hlc = db.generateHlc();
 
-    return customUpdate(
-      'UPDATE folders SET label = ?, hlc_timestamp = ?, '
-      'device_id = ?, version = version + 1 '
-      'WHERE id IN ($placeholders) AND is_deleted = 0 AND label <> ?',
-      variables: [
-        Variable<int>(label.storageValue),
-        Variable<String>(hlc),
-        Variable<String>(db.deviceId),
-        for (final id in unique) Variable<String>(id),
-        Variable<int>(label.storageValue),
-      ],
-      updates: {folders},
-    );
+    return transaction(() async {
+      final stamp = db.newStamp();
+      final changed = await customWriteReturning(
+        'UPDATE folders SET label = ?, hlc_timestamp = ?, '
+        'device_id = ?, version = version + 1 '
+        'WHERE id IN ($placeholders) AND is_deleted = 0 AND label <> ? '
+        'RETURNING id',
+        variables: [
+          Variable<int>(label.storageValue),
+          Variable<String>(stamp.hlc),
+          Variable<String>(stamp.deviceId),
+          for (final id in unique) Variable<String>(id),
+          Variable<int>(label.storageValue),
+        ],
+        updates: {folders},
+        updateKind: UpdateKind.update,
+      );
+      await db.enqueueMany(folders, [
+        for (final row in changed) row.read<String>('id'),
+      ], stamp.hlc);
+      return changed.length;
+    });
   }
 
   /// Reorder folders within a parent
@@ -420,28 +457,33 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// without forcing the caller to pass dense 0..N ranges per kind.
   /// Bumps `version` in SQL rather than reading each row first — see
   /// [NoteDao.setNotePositions] for why. A missing id updates zero rows, the
-  /// same outcome the previous existence check produced.
+  /// same outcome the previous existence check produced. Only live rows that
+  /// move are written and queued, as there.
   Future<void> setFolderPositions(Map<String, int> positionByFolderId) async {
     if (positionByFolderId.isEmpty) return;
     final now = DateTime.now();
-    final hlc = db.generateHlc();
 
     await transaction(() async {
+      final stamp = db.newStamp();
+      final moved = <String>[];
       for (final entry in positionByFolderId.entries) {
-        await customUpdate(
+        final changed = await customUpdate(
           'UPDATE folders SET position = ?, updated_at = ?, '
           'hlc_timestamp = ?, device_id = ?, version = version + 1 '
-          'WHERE id = ?',
+          'WHERE id = ? AND is_deleted = 0 AND position != ?',
           variables: [
             Variable<int>(entry.value),
             Variable<DateTime>(now),
-            Variable<String>(hlc),
-            Variable<String>(db.deviceId),
+            Variable<String>(stamp.hlc),
+            Variable<String>(stamp.deviceId),
             Variable<String>(entry.key),
+            Variable<int>(entry.value),
           ],
           updates: {folders},
         );
+        if (changed > 0) moved.add(entry.key);
       }
+      await db.enqueueMany(folders, moved, stamp.hlc);
     });
   }
 
@@ -452,32 +494,41 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     String? subfolderSortOrder,
     bool clearNoteSortOrder = false,
     bool clearSubfolderSortOrder = false,
-  }) async {
-    final existing = await getFolderById(id);
-    if (existing == null) return null;
+  }) {
+    return transaction(() async {
+      final existing = await getFolderById(id);
+      if (existing == null) return null;
+      final nextNoteSort = clearNoteSortOrder
+          ? null
+          : (noteSortOrder ?? existing.noteSortOrder);
+      final nextSubfolderSort = clearSubfolderSortOrder
+          ? null
+          : (subfolderSortOrder ?? existing.subfolderSortOrder);
+      // Re-picking the sort a folder already has writes nothing.
+      if (nextNoteSort == existing.noteSortOrder &&
+          nextSubfolderSort == existing.subfolderSortOrder) {
+        return existing;
+      }
 
-    final now = DateTime.now();
-    final hlc = db.generateHlc();
+      final now = DateTime.now();
+      final stamp = await db.stampLocal(
+        folders,
+        id,
+        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
+      );
 
-    await (update(folders)..where((f) => f.id.equals(id))).write(
-      FoldersCompanion(
-        noteSortOrder: clearNoteSortOrder
-            ? const Value(null)
-            : (noteSortOrder != null
-                  ? Value(noteSortOrder)
-                  : const Value.absent()),
-        subfolderSortOrder: clearSubfolderSortOrder
-            ? const Value(null)
-            : (subfolderSortOrder != null
-                  ? Value(subfolderSortOrder)
-                  : const Value.absent()),
-        updatedAt: Value(now),
-        hlcTimestamp: Value(hlc),
-        deviceId: Value(db.deviceId),
-        version: Value(existing.version + 1),
-      ),
-    );
-    return getFolderById(id);
+      await (update(folders)..where((f) => f.id.equals(id))).write(
+        FoldersCompanion(
+          noteSortOrder: Value(nextNoteSort),
+          subfolderSortOrder: Value(nextSubfolderSort),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      return getFolderById(id);
+    });
   }
 
   Future<List<String>> getAllDescendantIds(String folderId) async {
@@ -516,7 +567,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
     await transaction(() async {
       final now = DateTime.now();
-      final hlc = db.generateHlc();
+      final stamp = db.newStamp();
 
       // 1. Bulk soft-delete notes in any of these folders. We need to
       //    update FTS rowids first because softDeleteNote's FTS removal
@@ -541,11 +592,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final stamps = <Variable>[
         Variable<DateTime>(now),
         Variable<DateTime>(now),
-        Variable<String>(hlc),
-        Variable<String>(db.deviceId),
+        Variable<String>(stamp.hlc),
+        Variable<String>(stamp.deviceId),
         for (final id in descendantIds) Variable<String>(id),
       ];
-      await customUpdate(
+      final noteRows = await customWriteReturning(
         'UPDATE notes SET '
         '  is_deleted = 1, '
         '  deleted_at = ?, '
@@ -553,12 +604,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         '  hlc_timestamp = ?, '
         '  device_id = ?, '
         '  version = version + 1 '
-        'WHERE folder_id IN ($placeholders) AND is_deleted = 0',
+        'WHERE folder_id IN ($placeholders) AND is_deleted = 0 '
+        'RETURNING id',
         variables: stamps,
       );
 
       // 2. Bulk soft-delete folders themselves.
-      await customUpdate(
+      final folderRows = await customWriteReturning(
         'UPDATE folders SET '
         '  is_deleted = 1, '
         '  deleted_at = ?, '
@@ -566,8 +618,23 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         '  hlc_timestamp = ?, '
         '  device_id = ?, '
         '  version = version + 1 '
-        'WHERE id IN ($placeholders) AND is_deleted = 0',
+        'WHERE id IN ($placeholders) AND is_deleted = 0 '
+        'RETURNING id',
         variables: stamps,
+      );
+
+      // 3. Queue exactly the rows the two updates tombstoned, under its HLC.
+      await db.enqueueMany(
+        db.notes,
+        [for (final row in noteRows) row.read<String>('id')],
+        stamp.hlc,
+        op: OutboxOp.tombstone,
+      );
+      await db.enqueueMany(
+        folders,
+        [for (final row in folderRows) row.read<String>('id')],
+        stamp.hlc,
+        op: OutboxOp.tombstone,
       );
     });
   }
@@ -664,34 +731,43 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
-  Future<void> mergeFolder(Folder remote) async {
-    final local = await getFolderById(remote.id);
+  /// Merges one folder by HLC, the [NoteDao.mergeNote] shape: returns the
+  /// live local row the merge overwrote (`null` when the folder was new here,
+  /// the local row won or was a tombstone), advances the clock past the
+  /// remote HLC on either branch, and queues the written row only for a
+  /// [MergeOrigin.local] merge — a remote one would echo.
+  Future<Folder?> mergeFolder(Folder remote, {required MergeOrigin origin}) {
+    return transaction(() async {
+      final local = await getFolderById(remote.id);
 
-    if (local == null) {
-      await into(folders).insert(
-        FoldersCompanion(
-          id: Value(remote.id),
-          name: Value(remote.name),
-          parentId: Value(remote.parentId),
-          label: Value(remote.label),
-          createdAt: Value(remote.createdAt),
-          updatedAt: Value(remote.updatedAt),
-          hlcTimestamp: Value(remote.hlcTimestamp),
-          deviceId: Value(remote.deviceId),
-          version: Value(remote.version),
-          isDeleted: Value(remote.isDeleted),
-          deletedAt: Value(remote.deletedAt),
-          noteSortOrder: Value(remote.noteSortOrder),
-          subfolderSortOrder: Value(remote.subfolderSortOrder),
-        ),
-      );
-      return;
-    }
+      if (local == null) {
+        await into(folders).insert(
+          FoldersCompanion(
+            id: Value(remote.id),
+            name: Value(remote.name),
+            parentId: Value(remote.parentId),
+            label: Value(remote.label),
+            createdAt: Value(remote.createdAt),
+            updatedAt: Value(remote.updatedAt),
+            hlcTimestamp: Value(remote.hlcTimestamp),
+            deviceId: Value(remote.deviceId),
+            version: Value(remote.version),
+            isDeleted: Value(remote.isDeleted),
+            deletedAt: Value(remote.deletedAt),
+            noteSortOrder: Value(remote.noteSortOrder),
+            subfolderSortOrder: Value(remote.subfolderSortOrder),
+          ),
+        );
+        db.hlc.update(HlcTimestamp.parse(remote.hlcTimestamp));
+        await _enqueueMerged(remote, origin);
+        return null;
+      }
 
-    final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
-    final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
+      final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
+      final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
 
-    if (remoteHlc > localHlc) {
+      if (remoteHlc <= localHlc) return null;
+
       await (update(folders)..where((f) => f.id.equals(remote.id))).write(
         FoldersCompanion(
           name: Value(remote.name),
@@ -708,7 +784,19 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         ),
       );
       db.hlc.update(remoteHlc);
-    }
+      await _enqueueMerged(remote, origin);
+      return local.isDeleted ? null : local;
+    });
+  }
+
+  Future<void> _enqueueMerged(Folder merged, MergeOrigin origin) async {
+    if (origin == MergeOrigin.remote) return;
+    await db.enqueue(
+      folders,
+      merged.id,
+      merged.hlcTimestamp,
+      op: OutboxOp.forRow(isDeleted: merged.isDeleted),
+    );
   }
 
   Stream<List<Folder>> watchFoldersByParent(String? parentId) {

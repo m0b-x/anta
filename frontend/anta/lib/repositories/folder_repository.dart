@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../database/crdt/crdt_write.dart' show MergeOrigin;
 import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
 import '../models/folder_change.dart';
@@ -487,7 +488,7 @@ class FolderRepository {
   }
 
   Future<void> mergeFolder(Folder remote) async {
-    await _folderDao.mergeFolder(remote);
+    await _folderDao.mergeFolder(remote, origin: MergeOrigin.remote);
     _folderCache.remove(remote.id);
     _invalidateParentCache(remote.parentId);
   }

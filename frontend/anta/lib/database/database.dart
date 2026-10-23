@@ -51,6 +51,7 @@ import 'daos/alert_registration_dao.dart';
 import 'daos/category_alert_dao.dart';
 import 'daos/event_digest_dao.dart';
 import 'daos/vocabulary_dao.dart';
+import 'daos/sync_outbox_dao.dart';
 import 'crdt/hlc.dart';
 import 'database_lifecycle.dart';
 import 'loading_interceptor.dart';
@@ -105,6 +106,7 @@ part 'database.g.dart';
     VocabularyDao,
     CategoryAlertDao,
     EventDigestDao,
+    SyncOutboxDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
