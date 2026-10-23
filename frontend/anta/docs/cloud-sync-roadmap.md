@@ -54,8 +54,8 @@ D1–D3 decide where a row lives remotely for that.
 | 00 | Firebase foundations, platform gate, Google Sign-In, Sharing page | none | **Shipped 2026-08-16** |
 | 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | **Shipped 2026-08-17** |
 | R | Readiness — CRDT columns on categories and counters, `owner_id`, the outbox, clock persistence, tombstoned wipes, engine seams (`cloud-sync-readiness-roadmap.md`) | v43 | **R1–R3 committed 2026-10-23** (`729a25f`, `14c9250`, `596998d`, `4fd26aa`); R4–R7 planned |
-| 02 | Calendar sync + ownership + consent | likely none after v43 (its doc's v29 is stale) | Planned |
-| 03 | Shared folders (folder → note → chunks) | v44 (its doc's v27 is stale) | Planned |
+| 02 | Own space on N devices — the engine for all eighteen tables, bind flow, `owner_id` backfill at bind, initial merge, drain cadence, status; the Worker's "pull now" last (readiness D1–D3, D15, D17, D19) | none expected after v43 | Planned; its doc predates these decisions |
+| 03 | Sharing between accounts — grants on a space, shared folders, selected events (`shared_with`), ownership and consent, child-row routing (readiness D16, D18) | v44 | Planned; its doc predates these decisions |
 | 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Planned |
 
 ## Phase 00 — what actually shipped (deviations from the original plan)
@@ -83,10 +83,14 @@ D1–D3 decide where a row lives remotely for that.
 
 ## Remote shape (target)
 
-**Pending D1 of `cloud-sync-readiness-roadmap.md`**, every data collection
-below may move under `users/{uid}/spaces/{spaceId}/…` so that one account's
-own devices have a home and a shared row exists once; `pairs` and `invites`
-stay as the control plane either way.
+**Decided 2026-10-23 (readiness D1):** every data collection below moves
+under `users/{uid}/spaces/{spaceId}/{table}/{rowKey}` — a row lives once, in
+the space of its `owner_id`; one account's devices sync against their own
+space; sharing is a grant on the space (checked through a rules `get()` of
+the active pair) or a `shared_with` array on an event. `pairs` and `invites`
+stay exactly as shipped, as the consent plane. The subcollections drawn
+under `pairs/{pairId}` below are superseded; see the readiness record §2 and
+§7.
 
 ```
 pairs/{pairId}                        // random id; never deleted, never reused

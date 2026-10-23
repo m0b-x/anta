@@ -1,8 +1,8 @@
 # Cloud Sync Readiness Roadmap — ANTA
 
 **Status: R1, R2, R3a and R3b built, reviewed and committed on 2026-10-23
-(R1 `729a25f`, R2 `14c9250`, R3a `596998d`, R3b `4fd26aa`); R4–R7
-planned.** Each built slice has an "As built" block under its section — that
+(R1 `729a25f`, R2 `14c9250`, R3a `596998d`, R3b `4fd26aa`); every decision
+D1–D19 taken on 2026-10-23 (§2); R4–R7 planned.** Each built slice has an "As built" block under its section — that
 block, not the plan above it, is the truth. The phase between Phase 01
 (pairing, shipped 2026-08-17) and Phase 02 (transport) of
 `docs/cloud-sync-roadmap.md`. It owns migration **v43** (schema is at v42,
@@ -105,9 +105,71 @@ cache hooks a merge must call exist and are public
 
 Answer with letters ("D1 A, D2 A, …"). A is the recommended default.
 
-**Letters so far (2026-10-23):** the owner's go on slices R1–R3 takes the
-decisions those slices embody as A — D4, D5, D7, D8, D12, D14. Still open:
-D1, D2, D3, D6, D9, D10, D11, D13.
+**Letters (2026-10-23) — all taken.** D4, D5, D7, D8, D12, D14 = A by the
+owner's go on slices R1–R3 (built). D1, D2, D3, D6, D9, D10, D11, D13 = A on
+the owner's instruction to decide with the most advanced reasoning: an
+independent Fable decision memo at maximum effort, reconciled by the lead
+(the memo verified every fact it relied on against the tree; its file:line
+list is in the session record). D15–D19 below were found missing by that
+memo and decided the same way. Refinements that bind the remaining slices:
+
+- **D1 sub-rules.** A row's home is the space of its `owner_id`. A
+  space-level share is `members`/`grants` on the space document, checked by
+  the partner's rule through one `get()` of the space (one read per query or
+  listener attach — open partner spaces lazily, only for granted tables). A
+  per-event share is a `shared_with` uid array on the event document (a v44
+  column locally), read by the grantee through one collection-group query
+  (`shared_with array-contains me`, `hlc > last`) under a `/{path=**}/
+  calendar_events/{id}` rule with no `get()`; it needs a collection-group
+  index. `pairs` and `invites` stay as the consent plane: a grant on a space
+  is authorised by a rules `get()` of the active pair, exactly as a pair is
+  authorised by its invite today. A self-pair is impossible under the shipped
+  rules (`members.size() == 2`, the invite's creator must differ), which is
+  the structural reason B cannot serve one account's devices.
+- **D2 scope.** Phase 02 becomes "own space on N devices, all eighteen
+  tables" — notes included, since D14 and the outbox's coalescing already
+  bound the write cost; Phase 03 becomes sharing (grants, folders, selected
+  events, ownership, consent). A first pull of a large space costs one read
+  per row: pull in dependency order (categories → events → day rows →
+  notes), debounce the drain (D19), surface `SyncStatus.paused` on
+  `resource-exhausted`.
+- **D3 constraints.** (i) One database ↔ one space, and a space bound at
+  most once per install: every database on an install shares the one
+  `device_id`, so two local databases in one space would stamp the same node
+  id and equal HLCs on one row key could not be told apart. (ii) The binding
+  records the account uid (`sync_space_account_uid`, the `pairingAccountUid`
+  precedent); a different account signing in on a bound database *suspends*
+  sync with a visible reason — never re-owns rows. (iii) Binding a non-empty
+  database is a union under D15. The QA database is already gated upstream
+  (`SyncAvailability.resolve` is false for a QA build unless QA explicitly
+  allows cloud).
+- **D6 refinements.** Write `last_hlc` once per DAO transaction, not per
+  stamp. Clamp the logical counter: when it would pass 0xFFFF, advance the
+  physical millisecond by one and reset — order kept, encoding unchanged.
+  When the stored value exceeds the wall clock by more than the drift guard,
+  surface it in `SyncStatus` but do **not** cap the seed (the lead's
+  disagreement with the memo: a capped seed would issue stamps below rows
+  already pushed, which is the rollback D6 exists to prevent; `receive()`
+  would pull the clock back up from the first remote row anyway).
+- **D9 refinement.** The re-bind after a restore is governed by D15: imports
+  mint fresh HLCs, so a plain "merge into space X" would let a month-old
+  backup overwrite a month of the other device's edits. R4 also clears the
+  outbox *after* the import (the inserts enqueue) and writes
+  `sync_metadata['bind_floor']`.
+- **D10 refinement.** The per-note money currency is note data mis-filed as
+  a setting and becomes `notes.money_currency` in v44 (Phase 03, with the
+  additive backup key); the markdown-bar assignment stays per device because
+  it names a bar profile that exists only on the device that made it.
+- **D11 honesty clause.** A device learns of a new alert only when it pulls,
+  and pulls run while the app is alive or at launch and resume; nothing in
+  the app runs in the background for this. Until the Worker relay sends a
+  "pull now" data message — push's first use, Phase 02's last slice — a
+  device not opened after the alert was created will not ring. Accepted. A
+  periodic background pull (WorkManager) is the fallback if the Worker is
+  declined.
+- **D13 refinement.** Scope the wipe to `owner_id IS NULL OR owner_id =
+  boundUid` (D17's "mine"); `alert_registrations` stays a hard delete;
+  `CalendarEventDao.deleteAll` remains for `importData` alone.
 
 - **D1 — Where a row lives remotely.** **A:** an *owner space*,
   `users/{uid}/spaces/{spaceId}/{table}/{rowKey}`: each owned row exists
@@ -188,6 +250,55 @@ D1, D2, D3, D6, D9, D10, D11, D13.
   visible reason (none exist in practice). **B:** chunk documents keyed by
   index as Phase 03 wrote. A removes a class of merge bugs the Phase 03 doc
   itself names ("interleaving chunks from two devices").
+
+Decided 2026-10-23, found missing by the decision memo:
+
+- **D15 — The initial merge at bind** (any bind of a non-empty database,
+  including the re-bind after a restore). **A (taken):** pull first; for a
+  row present on both sides, remote wins when the local HLC is ≤
+  `sync_metadata['bind_floor']`, ordinary last-writer-wins above it;
+  local-only rows upload (the outbox is re-seeded from every live row and
+  tombstone — `SyncOutboxDao.requeueAll`, R6); remote-only rows download.
+  `bind_floor` = the maximum HLC in the database at every unbind (manual or
+  restore, written by R4) or, for a never-bound database, at bind time. A
+  never-synced database collides only on fixed ids (built-in categories),
+  where the space should win; a restored database yields its snapshot but
+  keeps the edits made after the restore. **B:** plain last-writer-wins —
+  loses because a stale restore would overwrite a live space. Policy only;
+  reversible. Changes R4 (write the floor), R6 (`requeueAll`), Phase 02
+  (the bind flow).
+- **D16 — `owner_id` in backups.** **A (taken):** export `owner_id` as an
+  additive key and import it verbatim (absent → NULL; format stays 7 under
+  the absent-keys-take-defaults rule — the implementer verifies an older
+  app ignores the extra key); the push never enqueues rows with a foreign
+  `owner_id`; a pull refreshes or drops them per the live grant. Without it
+  a backup of a synced database turns partner rows into mine (D9). This
+  narrows §5's "no identity fields" to the clock fields; `owner_id` is
+  ownership, not identity. **B:** exclude foreign rows from exports — lossy
+  for the offline keeper who ended a connection and was promised their
+  copy stays. R4 can add it at zero risk (every row is NULL today).
+- **D17 — When `owner_id` is backfilled.** **A (taken):** at **bind**,
+  inside the bind transaction, `WHERE owner_id IS NULL`, with the bound
+  account's uid; everywhere, "mine" means `owner_id IS NULL OR owner_id =
+  boundUid`. **B:** at first sign-in, as D12 said — loses because sign-in is
+  global and binding is per database: it would stamp unbound databases (a
+  second local database, a QA database with cloud opt-in) and make every
+  row foreign after an account change. Changes R4's D13 predicate and
+  Phase 02.
+- **D18 — Which child rows follow the event and which the person**
+  (Phase 03). **A (taken):** skips and per-occurrence descriptions are event
+  data → the event's space, written under the edit grant, `owner_id` = the
+  event's owner; absences (presence) and alert definitions are personal →
+  the author's space, keyed by the shared event's id; a partner's devices
+  never arm the owner's alerts. Decides the rules' write clause per
+  subcollection and the engine's routing by table class. Reversible before
+  Phase 03 ships.
+- **D19 — Drain cadence** (Phase 02 engine knob). **A (taken):** push ≥ 30 s
+  after the last local write or immediately when the app goes to the
+  background; ≤ 500 operations per batch (Firestore's batch cap); stop on
+  `resource-exhausted` until the daily reset with `SyncStatus.paused`.
+  Without a stated cadence the auto-save path decides it, and the roadmap's
+  top risk is realised.
 
 ---
 
@@ -340,6 +451,13 @@ Deviations from the plan above, each sound and reversible on its own:
   `_lastPhysicalTime` and bumps the counter instead; what is missing is a
   constructor that sets `_lastPhysicalTime`/`_logicalCounter` from a stored
   `HlcTimestamp` — today's ctor takes only `initialCounter` (`hlc.dart:6-8`).
+- **Decided refinements (D6):** persist once per DAO transaction (the
+  helper's transaction already pays one outbox statement; the clock write
+  rides it), not per stamp; clamp the logical counter at 0xFFFF by advancing
+  the physical millisecond and resetting, so the four-hex-digit encoding
+  (§5) never breaks order; when the stored value exceeds the wall clock by
+  more than the drift guard, report it through `SyncStatus` but never cap
+  the seed.
 - Tests in `test/database/hlc_test.dart`: wall behind stored → monotonic;
   restart preserves order; a `receive()` of a far-future remote is clamped
   per the existing drift guard.
@@ -511,12 +629,23 @@ and reversible on its own:
   the tombstoning wipe leaves `getAll()` empty, `exportData()` rowless and
   the tombstones present; a pinned test that `_exportSettings`'s allowlist
   (`backup_service.dart:222-272`) never carries a pairing or sync key.
+- **Decided additions (2026-10-23, D13/D15/D16/D17):** the wipe's predicate
+  is `owner_id IS NULL OR owner_id = boundUid` (today every row is NULL, so
+  every row); the import also clears the outbox *after* its inserts (they
+  enqueue) and writes `sync_metadata['bind_floor']` = the maximum HLC in the
+  database at the end of the import, as does a manual unbind; `owner_id` is
+  exported as an additive backup key and imported verbatim (absent → NULL),
+  with a test that an older-format backup still imports and that a backup
+  carrying `owner_id` round-trips it. R4 does **not** backfill `owner_id` —
+  that happens at bind (D17, Phase 02).
 - Skills: `anta-context`, `calendar-events`.
 
 ### R6 — Engine seams, no network
 
 - `lib/services/sync/sync_gateway.dart`: `SyncGateway` interface
-  (`pushBatch(List<SyncEnvelope>)`, `pullSince(table, hlc)`, `ack`) and the
+  (`pushBatch(List<SyncEnvelope>)`, `pullSince(table, hlc)`, `ack`),
+  addressed by a space reference (`ownerUid`, `spaceId`) and never by a
+  pairId (D1), and the
   `SyncEnvelope` value (table, rowKey, hlc, op, `exportData()` map — the
   backup serializers are the wire format, roadmap stance); a
   `FakeSyncGateway` under `test/support/`. Firestore types appear nowhere.
@@ -525,8 +654,12 @@ and reversible on its own:
   `test/bloc/sync_bloc_test.dart`'s fake-service pattern.
 - A public `CalendarBloc` event for an external change that runs
   `_invalidateDayCache` and bumps `occurrenceRevision`;
-  `AlertReconcileReason.sync`; `SettingsKeys.syncSpaceId` /
-  `syncSpaceBoundAt` next to the pairing keys (`settings_keys.dart:376-398`).
+  `AlertReconcileReason.sync`; `SettingsKeys.syncSpaceId`,
+  `syncSpaceOwnerUid`, `syncSpaceAccountUid`, `syncSpaceBoundAt` next to the
+  pairing keys (`settings_keys.dart:376-398`), all excluded from backups by
+  the allowlist and pinned by R4's test (D3); `SyncOutboxDao.requeueAll()`
+  — re-seed the outbox from every live row and tombstone of every synced
+  table for the initial merge at bind (D15).
 - Skills: `anta-context`, `calendar-events`, `flutter-principles`.
 
 ### R7 — Gate and device pass
@@ -543,10 +676,11 @@ and reversible on its own:
 
 - The `gym_notes` directory and the `device_id` file
   (`database.dart:178-190`).
-- Backup format version 7, live rows only, no identity fields; absent keys
-  take column defaults; `importData`'s wipe stays hard, inside the
-  suspension; folders and notes still import as copies with fresh ids
-  (`backup_service.dart:122-124`).
+- Backup format version 7, live rows only, no clock fields (`hlcTimestamp`,
+  `deviceId`, `version` never travel); `owner_id` travels as an additive key
+  from R4 on (D16); absent keys take column defaults; `importData`'s wipe
+  stays hard, inside the suspension; folders and notes still import as
+  copies with fresh ids (`backup_service.dart:122-124`).
 - The HLC string encoding (`hlc.dart:110-113`, zero-padded hex, lexicographic
   order equals chronological) — every `since` comparison depends on it.
 - Soft-delete semantics on the fifteen CRDT tables; positions and sort
@@ -595,10 +729,17 @@ and reversible on its own:
 
 - The remote shape under D1: `users/{uid}/spaces/{spaceId}/{table}/{rowKey}`,
   a `spaces/{spaceId}` document with members and grants, rules for owner and
-  grantee, the per-event share field for selected events. The connections
-  design's "one designated calendar connection" (decision 9) becomes a
-  product choice rather than a merge necessity once a row has one home;
-  revisit it there.
+  grantee, the per-event `shared_with` array for selected events (D1
+  sub-rules). The connections design's "one designated calendar connection"
+  (decision 9) becomes a product choice rather than a merge necessity once a
+  row has one home; revisit it there.
+- **Phase 02 is "own space on N devices"** (D2): the engine for all eighteen
+  tables, the bind flow with the picker (bind this database / download into
+  a new one), the `owner_id` backfill at bind (D17), the initial merge
+  (D15), the drain cadence (D19), `SyncStatus`; the Worker's "pull now" data
+  message as its last slice (D11). **Phase 03 is sharing**: grants on a
+  space, shared folders, selected events, ownership colours and consent,
+  the child-row routing of D18, `notes.money_currency` (D10) — v44.
 - The engine: drain the outbox in Firestore batches, back off on
   `resource-exhausted` into `SyncStatus.paused` until the daily reset, pull
   through filtered listeners (`hlc > last`), `HybridLogicalClock.receive()`
