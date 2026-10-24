@@ -2,8 +2,9 @@ import 'package:drift/drift.dart';
 import '../../models/item_label.dart';
 import '../database.dart';
 import '../tables/folders_table.dart';
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
-import '../crdt/hlc.dart';
+import '../crdt/merge_outcome.dart';
 
 part 'folder_dao.g.dart';
 
@@ -735,72 +736,41 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
-  /// Merges one folder by HLC, the [NoteDao.mergeNote] shape: returns the
-  /// live local row the merge overwrote (`null` when the folder was new here,
-  /// the local row won or was a tombstone), advances the clock past the
-  /// remote HLC on either branch, and queues the written row only for a
-  /// [MergeOrigin.local] merge — a remote one would echo.
-  Future<Folder?> mergeFolder(Folder remote, {required MergeOrigin origin}) {
+  /// Merges one remote folder on the contract of [CrdtMerge.mergeRemoteRow]:
+  /// every column as received, sort preferences and position included. A
+  /// tombstone carries no data, so over a local row it writes the stamps, the
+  /// deletion and the owner and keeps the rest. Never cascades: each
+  /// descendant arrives as its own row.
+  Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) {
     return transaction(() async {
       final local = await getFolderById(remote.id);
-
-      if (local == null) {
-        await into(folders).insert(
-          FoldersCompanion(
-            id: Value(remote.id),
-            name: Value(remote.name),
-            parentId: Value(remote.parentId),
-            label: Value(remote.label),
-            createdAt: Value(remote.createdAt),
-            updatedAt: Value(remote.updatedAt),
-            hlcTimestamp: Value(remote.hlcTimestamp),
-            deviceId: Value(remote.deviceId),
-            version: Value(remote.version),
-            isDeleted: Value(remote.isDeleted),
-            deletedAt: Value(remote.deletedAt),
-            noteSortOrder: Value(remote.noteSortOrder),
-            subfolderSortOrder: Value(remote.subfolderSortOrder),
-          ),
-        );
-        db.hlc.update(HlcTimestamp.parse(remote.hlcTimestamp));
-        await _enqueueMerged(remote, origin);
-        return null;
-      }
-
-      final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
-      final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
-
-      if (remoteHlc <= localHlc) return null;
-
-      await (update(folders)..where((f) => f.id.equals(remote.id))).write(
-        FoldersCompanion(
-          name: Value(remote.name),
-          parentId: Value(remote.parentId),
-          label: Value(remote.label),
-          updatedAt: Value(remote.updatedAt),
-          hlcTimestamp: Value(remote.hlcTimestamp),
-          deviceId: Value(remote.deviceId),
-          version: Value(remote.version),
-          isDeleted: Value(remote.isDeleted),
-          deletedAt: Value(remote.deletedAt),
-          noteSortOrder: Value(remote.noteSortOrder),
-          subfolderSortOrder: Value(remote.subfolderSortOrder),
-        ),
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: folders,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(folders).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(folders)..where((f) => f.id.equals(remote.id))).write(
+              FoldersCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(folders).replace(remote);
+          }
+          return applied;
+        },
       );
-      db.hlc.update(remoteHlc);
-      await _enqueueMerged(remote, origin);
-      return local.isDeleted ? null : local;
     });
-  }
-
-  Future<void> _enqueueMerged(Folder merged, MergeOrigin origin) async {
-    if (origin == MergeOrigin.remote) return;
-    await db.enqueue(
-      folders,
-      merged.id,
-      merged.hlcTimestamp,
-      op: OutboxOp.forRow(isDeleted: merged.isDeleted),
-    );
   }
 
   Stream<List<Folder>> watchFoldersByParent(String? parentId) {

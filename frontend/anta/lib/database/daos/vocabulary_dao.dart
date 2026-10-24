@@ -1,7 +1,9 @@
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/vocabularies_table.dart';
 import '../tables/vocabulary_items_table.dart';
@@ -307,6 +309,90 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
           isDeleted: const Value(false),
           deletedAt: const Value(null),
         ),
+      );
+    });
+  }
+
+  /// Merges one remote vocabulary on the contract of
+  /// [CrdtMerge.mergeRemoteRow]. A tombstone carries no data, so over a local
+  /// row it writes the stamps, the deletion and the owner and keeps the rest;
+  /// its items arrive as their own rows, never by cascade.
+  Future<MergeOutcome> mergeRemoteVocabulary(
+    VocabularyRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _vocabularyById(remote.id);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: vocabularies,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(vocabularies).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              vocabularies,
+            )..where((t) => t.id.equals(remote.id))).write(
+              VocabulariesCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(vocabularies).replace(remote);
+          }
+          return applied;
+        },
+      );
+    });
+  }
+
+  /// Merges one remote term on the contract of [CrdtMerge.mergeRemoteRow],
+  /// stored as received even under a vocabulary tombstoned here: the parent's
+  /// tombstone is its own row, and `VocabularyService` lists terms only
+  /// under the live vocabularies it reads.
+  Future<MergeOutcome> mergeRemoteVocabularyItem(
+    VocabularyItemRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await (select(
+        vocabularyItems,
+      )..where((t) => t.id.equals(remote.id))).getSingleOrNull();
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: vocabularyItems,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(vocabularyItems).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              vocabularyItems,
+            )..where((t) => t.id.equals(remote.id))).write(
+              VocabularyItemsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(vocabularyItems).replace(remote);
+          }
+          return applied;
+        },
       );
     });
   }

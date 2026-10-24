@@ -88,6 +88,33 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Queues one row of [table] at the stamp it already carries — the
+  /// one-row form of [requeueAll], for a merge whose local row beat the
+  /// remote: the space holds an older version, so this device must push its
+  /// own again. Returns whether an entry was written or raised.
+  ///
+  /// Mints nothing and never lowers an entry pending at a newer stamp. No
+  /// owner predicate: a merge only ever names a row of the bound space.
+  Future<bool> requeueRow(String table, String rowKey) async {
+    final synced = syncedTables.where((t) => t.name == table).firstOrNull;
+    if (synced == null || synced.travelsWithParent) {
+      throw ArgumentError.value(table, 'table', 'not queued on its own');
+    }
+    final written = await customUpdate(
+      'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+      "SELECT '${synced.name}', ${synced.rowKeySql}, hlc_timestamp, "
+      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ? "
+      'FROM ${synced.name} WHERE ${synced.rowKeySql} = ? '
+      'ON CONFLICT (table_name, row_key) DO UPDATE SET '
+      'hlc = excluded.hlc, op = excluded.op '
+      'WHERE excluded.hlc > sync_outbox.hlc',
+      variables: [Variable<DateTime>(DateTime.now()), Variable<String>(rowKey)],
+      updates: {syncOutbox},
+      updateKind: UpdateKind.insert,
+    );
+    return written > 0;
+  }
+
   /// The highest stamp any synced row carries, `content_chunks` included,
   /// or null when no row carries one.
   Future<String?> maxHlc() async {

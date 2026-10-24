@@ -1,5 +1,7 @@
 import 'package:drift/drift.dart';
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/counters_table.dart';
 import '../tables/counter_values_table.dart';
@@ -448,6 +450,96 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
         if (changed > 0) moved.add(counterValueRowKey(counterId, entry.key));
       }
       await db.enqueueMany(counterValues, moved, stamp.hlc);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Remote merges
+  // ---------------------------------------------------------------------------
+
+  /// Merges one remote counter on the contract of [CrdtMerge.mergeRemoteRow]. A
+  /// tombstone carries no data, so over a local row it writes the stamps, the
+  /// deletion and the owner and keeps the rest; its values arrive as their
+  /// own rows, never by cascade.
+  Future<MergeOutcome> mergeRemoteCounter(CounterRow remote, {String? floor}) {
+    return transaction(() async {
+      final local = await (select(
+        counters,
+      )..where((c) => c.id.equals(remote.id))).getSingleOrNull();
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: counters,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(counters).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              counters,
+            )..where((c) => c.id.equals(remote.id))).write(
+              CountersCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(counters).replace(remote);
+          }
+          return applied;
+        },
+      );
+    });
+  }
+
+  /// Merges one remote value row, keyed `counterId|noteId` with the global
+  /// value's `noteId == ''`, on the contract of [CrdtMerge.mergeRemoteRow].
+  ///
+  /// Stored as received even under a counter tombstoned here: the parent's
+  /// tombstone is its own row with its own stamp, and `CounterService` shows
+  /// values only under the live counters it lists.
+  Future<MergeOutcome> mergeRemoteCounterValue(
+    CounterValueRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _valueRow(remote.counterId, remote.noteId);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: counterValues,
+        rowKey: counterValueRowKey(remote.counterId, remote.noteId),
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(counterValues).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(counterValues)..where(
+                  (v) =>
+                      v.counterId.equals(remote.counterId) &
+                      v.noteId.equals(remote.noteId),
+                ))
+                .write(
+                  CounterValuesCompanion(
+                    hlcTimestamp: Value(remote.hlcTimestamp),
+                    deviceId: Value(remote.deviceId),
+                    version: Value(remote.version),
+                    isDeleted: const Value(true),
+                    deletedAt: Value(remote.deletedAt),
+                    ownerId: Value(remote.ownerId),
+                  ),
+                );
+          } else {
+            await update(counterValues).replace(remote);
+          }
+          return applied;
+        },
+      );
     });
   }
 

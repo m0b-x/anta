@@ -1,9 +1,13 @@
 import 'package:drift/drift.dart';
 import '../../models/item_label.dart';
+import '../../models/note_metadata.dart';
+import '../../utils/compression_utils.dart';
 import '../database.dart';
 import '../tables/notes_table.dart';
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
-import '../crdt/hlc.dart';
+import '../crdt/merge_outcome.dart';
+import 'content_chunk_dao.dart';
 
 part 'note_dao.g.dart';
 
@@ -911,90 +915,104 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     )..where((n) => n.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
-  /// Merges one note by HLC and keeps the search index in step with it.
+  /// Merges one remote note document — the row and its whole body, which
+  /// travel as one (D14) — on the contract of [CrdtMerge.mergeRemoteRow],
+  /// keeping the chunks and the search index in step with whichever side
+  /// wins.
   ///
-  /// Returns the live local row the merge overwrote — `null` when the note was
-  /// new here, the local row won, or the local row was a tombstone (nothing to
-  /// keep) — so a caller can keep the losing side as a conflict copy (D7).
-  /// Either branch advances the clock past the remote HLC, so the next local
-  /// write orders after it. A [MergeOrigin.remote] note is never queued, or it
-  /// would be pushed straight back out; a [MergeOrigin.local] one that is
-  /// written is queued at the HLC it carries.
+  /// A live remote that is inserted or wins replaces the chunks with
+  /// [content], and the row's preview, length, chunk count and compression
+  /// flag are derived from that text as `NoteStorageService.createNote`
+  /// derives them — never taken from the wire, so they cannot disagree with
+  /// the body. A tombstone carries no data: over a local row it writes the
+  /// stamps, the deletion and the owner, keeps the data columns and leaves
+  /// the chunks alone.
+  ///
+  /// When the remote wins over a live local note whose change was still
+  /// unpushed and whose text differs, the outcome carries that row and its
+  /// text as the loser, for the engine's conflict copy (D3).
   ///
   /// The index is `content=notes`, so an entry is removed while the row still
   /// holds the text it was indexed from and added back after the write; a
   /// tombstone has no entry to remove.
-  Future<Note?> mergeNote(Note remote, {required MergeOrigin origin}) {
+  Future<MergeOutcome> mergeNoteDocument(
+    Note remote,
+    String? content, {
+    String? floor,
+  }) {
+    final body = remote.isDeleted ? null : content ?? '';
+    final merged = body == null ? remote : _withBody(remote, body);
     return transaction(() async {
       final local = await getNoteById(remote.id);
-
-      if (local == null) {
-        await into(notes).insert(
-          NotesCompanion(
-            id: Value(remote.id),
-            folderId: Value(remote.folderId),
-            title: Value(remote.title),
-            preview: Value(remote.preview),
-            contentLength: Value(remote.contentLength),
-            chunkCount: Value(remote.chunkCount),
-            isCompressed: Value(remote.isCompressed),
-            label: Value(remote.label),
-            createdAt: Value(remote.createdAt),
-            updatedAt: Value(remote.updatedAt),
-            hlcTimestamp: Value(remote.hlcTimestamp),
-            deviceId: Value(remote.deviceId),
-            version: Value(remote.version),
-            isDeleted: Value(remote.isDeleted),
-            deletedAt: Value(remote.deletedAt),
-          ),
-        );
-        if (!remote.isDeleted) {
-          await _addToFtsIndex(remote.id, remote.title, remote.preview);
-        }
-        db.hlc.update(HlcTimestamp.parse(remote.hlcTimestamp));
-        await _enqueueMerged(remote, origin);
-        return null;
-      }
-
-      final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
-      final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
-
-      if (remoteHlc <= localHlc) return null;
-
-      if (!local.isDeleted) await _removeFromFtsIndex(remote.id);
-      await (update(notes)..where((n) => n.id.equals(remote.id))).write(
-        NotesCompanion(
-          folderId: Value(remote.folderId),
-          title: Value(remote.title),
-          preview: Value(remote.preview),
-          contentLength: Value(remote.contentLength),
-          chunkCount: Value(remote.chunkCount),
-          isCompressed: Value(remote.isCompressed),
-          label: Value(remote.label),
-          updatedAt: Value(remote.updatedAt),
-          hlcTimestamp: Value(remote.hlcTimestamp),
-          deviceId: Value(remote.deviceId),
-          version: Value(remote.version),
-          isDeleted: Value(remote.isDeleted),
-          deletedAt: Value(remote.deletedAt),
-        ),
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: notes,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () async {
+          await into(notes).insert(merged);
+          if (body != null) await _indexMergedBody(merged, body);
+        },
+        overwrite: (applied) async {
+          var outcome = applied;
+          if (!local!.isDeleted) {
+            if (applied.localHadPendingPush) {
+              final text = await db.contentChunkDao.loadContent(local.id);
+              if (text != (body ?? '')) {
+                outcome = MergeOutcome(
+                  applied.result,
+                  localHadPendingPush: true,
+                  loser: local,
+                  loserContent: text,
+                );
+              }
+            }
+            await _removeFromFtsIndex(remote.id);
+          }
+          if (body == null) {
+            await (update(notes)..where((n) => n.id.equals(remote.id))).write(
+              NotesCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(notes).replace(merged);
+            await _indexMergedBody(merged, body);
+          }
+          return outcome;
+        },
       );
-      if (!remote.isDeleted) {
-        await _addToFtsIndex(remote.id, remote.title, remote.preview);
-      }
-      db.hlc.update(remoteHlc);
-      await _enqueueMerged(remote, origin);
-      return local.isDeleted ? null : local;
     });
   }
 
-  Future<void> _enqueueMerged(Note merged, MergeOrigin origin) async {
-    if (origin == MergeOrigin.remote) return;
-    await db.enqueue(
-      notes,
-      merged.id,
-      merged.hlcTimestamp,
-      op: OutboxOp.forRow(isDeleted: merged.isDeleted),
+  /// [note] with the columns that describe its body derived from [body].
+  Note _withBody(Note note, String body) {
+    return note.copyWith(
+      preview: NoteMetadata.generatePreview(body),
+      contentLength: body.length,
+      chunkCount: (body.length / ContentChunkDao.defaultChunkSize).ceil().clamp(
+        1,
+        double.maxFinite.toInt(),
+      ),
+      isCompressed: CompressionUtils.shouldCompress(body),
+    );
+  }
+
+  Future<void> _indexMergedBody(Note note, String body) async {
+    await _addToFtsIndex(note.id, note.title, note.preview);
+    await db.contentChunkDao.replaceChunks(
+      noteId: note.id,
+      content: body,
+      hlc: note.hlcTimestamp,
+      deviceId: note.deviceId,
+      version: note.version,
     );
   }
 

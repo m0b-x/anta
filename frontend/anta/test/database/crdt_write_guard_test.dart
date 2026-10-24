@@ -40,11 +40,11 @@ void main() {
     'lib/database/tables/sync_outbox_table.dart': {_May.outbox},
   };
 
-  /// The only three places a local device may advance the clock from a
-  /// remote stamp, each in its own DAO.
+  /// The only places a local device may advance the clock from a remote
+  /// stamp: the merge helper every synced table's remote merge goes through,
+  /// and the chunk merge that predates it.
   const merges = {
-    ('lib/database/daos/note_dao.dart', 'mergeNote'),
-    ('lib/database/daos/folder_dao.dart', 'mergeFolder'),
+    ('lib/database/crdt/crdt_merge.dart', 'mergeRemoteRow'),
     ('lib/database/daos/content_chunk_dao.dart', 'mergeChunk'),
   };
 
@@ -69,7 +69,7 @@ void main() {
     );
   });
 
-  test('the clock is used only by its owners and the three merges', () {
+  test('the clock is used only by its owners and the merges', () {
     final clock = [
       // The clock's own API on anything called `hlc` — not `.hlc` on a stamp
       // or an outbox row, which is a value, not the clock.

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
+import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -448,99 +449,81 @@ void main() {
     test('a remote note merge queues nothing, either branch', () async {
       final local = await seedNote('Squat log');
 
-      await db.noteDao.mergeNote(
+      await db.noteDao.mergeNoteDocument(
         local.copyWith(id: 'pulled', hlcTimestamp: newer),
-        origin: MergeOrigin.remote,
+        'pulled body',
       );
-      await db.noteDao.mergeNote(
+      await db.noteDao.mergeNoteDocument(
         local.copyWith(title: 'Deadlift log', hlcTimestamp: newer),
-        origin: MergeOrigin.remote,
+        'pulled body',
       );
 
       expect(await queued(), isEmpty);
     });
 
-    test('a local note merge queues the row it wrote', () async {
+    test('a newer note is applied and re-indexed', () async {
       final local = await seedNote('Squat log');
 
-      await db.noteDao.mergeNote(
+      final outcome = await db.noteDao.mergeNoteDocument(
         local.copyWith(title: 'Deadlift log', hlcTimestamp: newer),
-        origin: MergeOrigin.local,
+        'pulled body',
       );
 
-      final entry = await onlyEntry('notes');
-      expect(entry.hlc, newer);
-    });
-
-    test('mergeNote returns the overwritten row and re-indexes', () async {
-      final local = await seedNote('Squat log');
-
-      final overwritten = await db.noteDao.mergeNote(
-        local.copyWith(title: 'Deadlift log', hlcTimestamp: newer),
-        origin: MergeOrigin.remote,
-      );
-
-      expect(overwritten, isNotNull);
-      expect(overwritten!.title, 'Squat log');
-      expect(overwritten.hlcTimestamp, local.hlcTimestamp);
+      expect(outcome.result, MergeResult.applied);
       final found = await db.noteDao.fullTextSearch('Deadlift');
       expect(found.map((n) => n.id), [local.id]);
       expect(await db.noteDao.fullTextSearch('Squat'), isEmpty);
     });
 
-    test('mergeNote returns null when it inserted, and indexes it', () async {
+    test('an unknown note is inserted and indexed', () async {
       final local = await seedNote('Squat log');
 
-      final overwritten = await db.noteDao.mergeNote(
+      final outcome = await db.noteDao.mergeNoteDocument(
         local.copyWith(id: 'pulled', title: 'Bench log', hlcTimestamp: newer),
-        origin: MergeOrigin.remote,
+        'pulled body',
       );
 
-      expect(overwritten, isNull);
+      expect(outcome.result, MergeResult.inserted);
       final found = await db.noteDao.fullTextSearch('Bench');
       expect(found.map((n) => n.id), ['pulled']);
     });
 
-    test('mergeNote returns null and writes nothing when local wins', () async {
+    test('an older note keeps the local row and re-queues it', () async {
       final local = await seedNote('Squat log');
 
-      final overwritten = await db.noteDao.mergeNote(
+      final outcome = await db.noteDao.mergeNoteDocument(
         local.copyWith(title: 'Stale', hlcTimestamp: older),
-        origin: MergeOrigin.local,
+        'stale body',
       );
 
-      expect(overwritten, isNull);
+      expect(outcome.result, MergeResult.keptLocal);
       expect((await noteRow(local.id)).title, 'Squat log');
-      expect(await queued(), isEmpty);
+      expect((await onlyEntry('notes')).hlc, local.hlcTimestamp);
     });
 
     test('a remote tombstone leaves the index', () async {
       final local = await seedNote('Squat log');
 
-      await db.noteDao.mergeNote(
+      await db.noteDao.mergeNoteDocument(
         local.copyWith(isDeleted: true, hlcTimestamp: newer),
-        origin: MergeOrigin.remote,
+        null,
       );
 
       expect(await db.noteDao.fullTextSearch('Squat'), isEmpty);
     });
 
-    test(
-      'a remote folder merge queues nothing and returns the loser',
-      () async {
-        final local = await db.folderDao.createFolder(name: 'Training');
-        await db.syncOutboxDao.clear();
+    test('a remote folder merge queues nothing', () async {
+      final local = await db.folderDao.createFolder(name: 'Training');
+      await db.syncOutboxDao.clear();
 
-        final overwritten = await db.folderDao.mergeFolder(
-          local.copyWith(name: 'Gym', hlcTimestamp: newer),
-          origin: MergeOrigin.remote,
-        );
+      final outcome = await db.folderDao.mergeFolder(
+        local.copyWith(name: 'Gym', hlcTimestamp: newer),
+      );
 
-        expect(overwritten!.name, 'Training');
-        expect((await folderRow(local.id)).name, 'Gym');
-        expect(await queued(), isEmpty);
-      },
-    );
+      expect(outcome.result, MergeResult.applied);
+      expect((await folderRow(local.id)).name, 'Gym');
+      expect(await queued(), isEmpty);
+    });
 
     test('a chunk merge queues nothing remote, its note when local', () async {
       final local = await seedNote('Squat log');
@@ -572,32 +555,30 @@ void main() {
       expect(await queued('content_chunks'), isEmpty);
     });
 
-    test(
-      'mergeNote over a tombstone returns null, not the tombstone',
-      () async {
-        final local = await seedNote('Squat log');
-        await db.noteDao.softDeleteNote(local.id);
+    test('a note merged over a tombstone names no loser', () async {
+      final local = await seedNote('Squat log');
+      await db.noteDao.softDeleteNote(local.id);
 
-        final overwritten = await db.noteDao.mergeNote(
-          local.copyWith(title: 'Back', hlcTimestamp: newer),
-          origin: MergeOrigin.remote,
-        );
+      final outcome = await db.noteDao.mergeNoteDocument(
+        local.copyWith(title: 'Back', hlcTimestamp: newer),
+        'back again',
+      );
 
-        expect(overwritten, isNull);
-        expect((await noteRow(local.id)).title, 'Back');
-      },
-    );
+      expect(outcome.result, MergeResult.applied);
+      expect(outcome.loser, isNull);
+      expect((await noteRow(local.id)).title, 'Back');
+    });
 
-    test('mergeFolder over a tombstone returns null', () async {
+    test('a folder merged over a tombstone resurrects it', () async {
       final local = await db.folderDao.createFolder(name: 'Training');
       await db.folderDao.softDeleteFolder(local.id);
 
-      final overwritten = await db.folderDao.mergeFolder(
+      final outcome = await db.folderDao.mergeFolder(
         local.copyWith(name: 'Back', hlcTimestamp: newer),
-        origin: MergeOrigin.remote,
       );
 
-      expect(overwritten, isNull);
+      expect(outcome.result, MergeResult.applied);
+      expect((await folderRow(local.id)).isDeleted, isFalse);
     });
 
     group('an inserting merge advances the clock', () {
@@ -609,13 +590,13 @@ void main() {
         nodeId: 'remote',
       ).toString();
 
-      test('mergeNote', () async {
+      test('mergeNoteDocument', () async {
         final local = await seedNote('Squat log');
         final remoteHlc = ahead();
 
-        await db.noteDao.mergeNote(
+        await db.noteDao.mergeNoteDocument(
           local.copyWith(id: 'pulled', hlcTimestamp: remoteHlc),
-          origin: MergeOrigin.remote,
+          'pulled body',
         );
 
         expect(db.newStamp().hlc.compareTo(remoteHlc), greaterThan(0));
@@ -627,7 +608,6 @@ void main() {
 
         await db.folderDao.mergeFolder(
           local.copyWith(id: 'pulled', hlcTimestamp: remoteHlc),
-          origin: MergeOrigin.remote,
         );
 
         expect(db.newStamp().hlc.compareTo(remoteHlc), greaterThan(0));
@@ -839,6 +819,68 @@ void main() {
       final entry = await onlyEntry('notes');
       expect(entry.hlc, newer);
       expect(entry.op, 'upsert');
+    });
+
+    test('requeueRow queues a row at the stamp it carries', () async {
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      await db.syncOutboxDao.clear();
+
+      expect(await db.syncOutboxDao.requeueRow('folders', folder.id), isTrue);
+
+      final entry = await onlyEntry('folders');
+      expect(entry.rowKey, folder.id);
+      expect(entry.hlc, folder.hlcTimestamp);
+      expect(entry.op, 'upsert');
+    });
+
+    test('requeueRow raises an older entry and keys a composite row', () async {
+      await db.counterDao.insertCounterWithValue(
+        CountersCompanion(
+          id: const Value('c1'),
+          name: const Value('Sets'),
+          createdAt: Value(DateTime.utc(2026, 10, 1)),
+        ),
+        3,
+      );
+      final row = await db.select(db.counterValues).getSingle();
+      await db.syncOutboxDao.clear();
+      await db.transaction(
+        () => db.enqueue(db.counterValues, 'c1|', '000000000001:0000:old'),
+      );
+
+      expect(
+        await db.syncOutboxDao.requeueRow('counter_values', 'c1|'),
+        isTrue,
+      );
+
+      final entry = await onlyEntry('counter_values');
+      expect(entry.rowKey, 'c1|');
+      expect(entry.hlc, row.hlcTimestamp);
+    });
+
+    test('requeueRow never lowers a newer entry', () async {
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      await db.syncOutboxDao.clear();
+      const ahead = 'ffffffffffff:0000:other';
+      await db.transaction(() => db.enqueue(db.folders, folder.id, ahead));
+
+      expect(await db.syncOutboxDao.requeueRow('folders', folder.id), isFalse);
+      expect((await onlyEntry('folders')).hlc, ahead);
+    });
+
+    test('requeueRow queues a tombstone as one', () async {
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      await db.folderDao.softDeleteFolder(folder.id);
+      await db.syncOutboxDao.clear();
+
+      await db.syncOutboxDao.requeueRow('folders', folder.id);
+
+      expect((await onlyEntry('folders')).op, 'tombstone');
+    });
+
+    test('requeueRow writes nothing for a missing row', () async {
+      expect(await db.syncOutboxDao.requeueRow('folders', 'missing'), isFalse);
+      expect(await db.syncOutboxDao.count(), 0);
     });
 
     test('pending lists oldest change first and honours a limit', () async {

@@ -91,6 +91,14 @@ class CounterService {
 
   List<Counter> get counters => List.unmodifiable(_counters);
 
+  /// Re-reads both tables after rows arrived beneath the service — a sync
+  /// pull. Pending counts are flushed first, or the re-read would drop them
+  /// from memory before they reach the database.
+  Future<void> reload() async {
+    await flush();
+    await _load();
+  }
+
   // ---------------------------------------------------------------------------
   // Loading
   // ---------------------------------------------------------------------------

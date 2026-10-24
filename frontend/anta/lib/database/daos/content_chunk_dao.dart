@@ -298,6 +298,40 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     await (delete(contentChunks)..where((c) => c.noteId.equals(noteId))).go();
   }
 
+  /// Replaces a note's whole body with [content], split and compressed as
+  /// [writeChunks] does, every chunk carrying its note's stamps — for a
+  /// remote note document, whose body arrives whole (D14). Queues nothing:
+  /// the chunks travel inside the note.
+  Future<void> replaceChunks({
+    required String noteId,
+    required String content,
+    required String hlc,
+    required String deviceId,
+    required int version,
+  }) async {
+    await hardDeleteChunksForNote(noteId);
+    final slices = _splitRaw(content);
+    if (slices.isEmpty) return;
+    await batch((b) {
+      b.insertAll(contentChunks, [
+        for (final (i, raw) in slices.indexed)
+          ContentChunksCompanion.insert(
+            id: '${noteId}_chunk_$i',
+            noteId: noteId,
+            chunkIndex: i,
+            content: raw.length > compressionThreshold
+                ? CompressionUtils.compressToBase64(raw)
+                : raw,
+            isCompressed: Value(raw.length > compressionThreshold),
+            hlcTimestamp: hlc,
+            deviceId: deviceId,
+            version: Value(version),
+            isDeleted: const Value(false),
+          ),
+      ]);
+    });
+  }
+
   @Deprecated('Use softDeleteChunksForNote or hardDeleteChunksForNote instead')
   Future<void> deleteChunksForNote(String noteId) async {
     await hardDeleteChunksForNote(noteId);

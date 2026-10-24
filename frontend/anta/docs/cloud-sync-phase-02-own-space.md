@@ -688,6 +688,61 @@ S5 (listed there).
   (the rest), as R3a/R3b were. Skills: `drift-migrations`, `anta-context`,
   `calendar-events` for S2b, `flutter-principles`.
 
+**S2a as built (2026-10-24, one implementer; gate: `dart analyze lib test`
+clean, whole suite once — 10,014 passed, the one Windows-only failure;
+review pending, its fixes ride at the head of S3).** Deviations from the
+plan, each sound:
+
+- **One shared merge decision**, `CrdtMerge.mergeRemoteRow` in
+  `lib/database/crdt/crdt_merge.dart` (a static on an `abstract final
+  class` — the guard scan needs a `x.hlc.update(` receiver and an extension
+  would trip `unnecessary_this`): insert / unchanged / applied (+
+  `ackThrough`) / keptLocal (+ `requeueRow`) and the floor rule, then
+  `db.hlc.update`. `MergeResult` / `MergeOutcome` live in
+  `lib/database/crdt/merge_outcome.dart` (DAOs return them; a DAO importing
+  from `lib/services/` would invert the layering) and are re-exported by
+  `lib/services/sync/sync_table_binding.dart`. The per-table bindings sit in
+  `lib/services/sync/tables/<table>_binding.dart`; `sync_tables.dart` holds
+  the six in pull order. There is no `sync_codec.dart`: the codec is the
+  bindings' `encode`/`decode` plus small helpers in `sync_table_binding.dart`.
+- `NoteDao.mergeNote(…, origin)` is gone; `mergeNoteDocument(Note, String?
+  content, {floor})` replaces it (its only live callers used `remote`);
+  `ContentChunkDao.replaceChunks` hard-deletes and rewrites the split body
+  with the note's stamps, nothing queued; preview, length, chunk count and
+  `isCompressed` are recomputed from the arriving body with `createNote`'s
+  formula. `FolderDao.mergeFolder(Folder, {floor})` returns the outcome; the
+  `MergeOrigin` path is gone (`MergeOrigin` stays for `mergeChunk`, which is
+  unchanged and unused by the engine). `CounterDao.mergeRemoteCounter` /
+  `mergeRemoteCounterValue`, `VocabularyDao.mergeRemoteVocabulary` /
+  `mergeRemoteVocabularyItem`. `SyncOutboxDao.requeueRow(table, rowKey)`
+  throws `ArgumentError` for an unknown table or one that travels with its
+  parent. `CounterService.reload()` flushes pending counts, then `_load()`;
+  it notifies nobody (as `importData` does) — refreshing an open counter
+  bloc is the engine's (S3).
+- **The wire maps gained `position` for notes and counters** (the backup
+  leaves it out because a restore rebuilds order from the list; one document
+  per row would lose it) under the folder map's existing key. A tombstone
+  over an existing row writes only the stamps, `is_deleted`, `deleted_at`
+  and `owner_id`; an unknown row's tombstone inserts the minimal decoded row
+  (a folder takes its id as the name, the column refuses an empty one). The
+  note loser is set when the remote wins over a live local note with a
+  pending entry and a different text — a remote tombstone counts as the
+  empty text, so an unpushed edit deleted elsewhere is still offered as a
+  conflict copy. **To align at the head of S2b:** the implementer sent
+  note and folder dates as UTC ISO strings (the backup's local strings
+  carry no offset); the roadmap's wire stance is epoch-ms integers, so they
+  become `createdAtMs` / `updatedAtMs` like every other table.
+- Tests: `test/database/support/merge_contract.dart` (`runMergeContract`,
+  eleven cases per table), `folder_merge_test` 13, `note_merge_test` 26,
+  `counter_merge_test` 27, `vocabulary_merge_test` 25, `sync_codec_test` 14
+  (keys compared with the real `exportData` output for counters and
+  vocabularies; a 14 KB note merged into a second database comes back
+  identical), `sync_tables_test` 8, `sync_outbox_test` +5 (`requeueRow`);
+  the guard test's allow-list is now `CrdtMerge.mergeRemoteRow` and
+  `mergeChunk`. Known: `requeueRow` on a composite key scans the table (fine
+  at these sizes); no test of its own for `CounterService.reload()` or the
+  repository wrappers.
+
 ### S3 — The engine
 
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
