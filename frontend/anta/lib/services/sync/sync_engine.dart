@@ -27,10 +27,21 @@ import 'sync_suspension.dart';
 import 'sync_table_binding.dart';
 import 'sync_tables.dart';
 
-/// Why a run ended without reaching the space.
+part 'sync_puller.dart';
+part 'sync_pusher.dart';
+
+/// Why a run ended without reaching the space, or stopped short of it.
 enum SyncRunSkip {
+  /// The database has no binding — at the start of the run, or it was
+  /// unbound (or rebound) before one of its pages or batches, which then
+  /// write nothing into it.
   unbound,
+
+  /// No account is signed in; the binding waits for the bound one (D5).
   signedOut,
+
+  /// Another account than the bound one is signed in; its session must not
+  /// read or write the bound account's space.
   accountMismatch,
 
   /// A restore or import holds [SyncSuspension] — at the start of the run or
@@ -44,7 +55,13 @@ enum SyncRunSkip {
   /// The quota ran out and its retry has not fired yet; a resume or "Sync
   /// now" lifts the hold.
   paused,
+
+  /// The space was written by a newer schema than this build's; nothing
+  /// runs until the app is updated.
   appOutdated,
+
+  /// The space is gone or no longer readable by this account; nothing runs
+  /// until the next sign-in or launch.
   noAccess,
 }
 
@@ -154,9 +171,17 @@ class SyncEngine {
   int _downloadedRows = 0;
   int _backoffStep = 0;
 
+  /// The signal's own back-off, apart from the runs': a listener that keeps
+  /// failing re-subscribes on it without pulling anything.
+  int _signalBackoffStep = 0;
+
   bool _started = false;
   bool _stopped = false;
   bool _foreground = true;
+
+  /// Moved by every [start] and [stop], so a [start] that a [stop] overtook
+  /// during its first await attaches nothing.
+  int _startGeneration = 0;
 
   StreamSubscription<SyncSpaceSignal>? _signalSubscription;
   SyncSpaceRef? _signalSpace;
@@ -165,6 +190,7 @@ class SyncEngine {
   StreamSubscription<AppUser?>? _authSubscription;
   Timer? _debounce;
   Timer? _retry;
+  Timer? _signalRetry;
 
   _RunRequest? _queued;
   bool _pumping = false;
@@ -296,9 +322,13 @@ class SyncEngine {
     if (_started) return;
     _started = true;
     _stopped = false;
-    if (await _db.syncDao.getValue(SyncDao.keyQuotaPausedAt) != null) {
-      _pause = SyncPause.quotaExhausted;
-    }
+    final generation = ++_startGeneration;
+    final quotaPaused =
+        await _db.syncDao.getValue(SyncDao.keyQuotaPausedAt) != null;
+    if (generation != _startGeneration) return;
+    if (quotaPaused) _pause = SyncPause.quotaExhausted;
+    unawaited(_outboxSubscription?.cancel());
+    unawaited(_authSubscription?.cancel());
     _outboxSubscription = _db.syncOutboxDao.watchQueued().listen(
       (_) => _armDebounce(),
     );
@@ -311,10 +341,13 @@ class SyncEngine {
   Future<void> stop() async {
     _stopped = true;
     _started = false;
+    _startGeneration++;
     _debounce?.cancel();
     _retry?.cancel();
+    _signalRetry?.cancel();
     _debounce = null;
     _retry = null;
+    _signalRetry = null;
     final cancels = [
       _signalSubscription?.cancel(),
       _outboxSubscription?.cancel(),
@@ -342,39 +375,51 @@ class SyncEngine {
   /// served by the one run that follows it.
   Future<SyncRunReport> syncNow() {
     _quotaHeld = false;
-    return _request(full: true);
+    return _request(_RunMode.full);
   }
 
   /// The app came back: the signal is followed again and a full run starts
-  /// now, skipping whatever back-off or quota wait was pending.
+  /// now, skipping whatever back-off or quota wait was pending. Ignored
+  /// unless started.
   void onAppResumed() {
+    if (!_started) return;
     _foreground = true;
     _backoffStep = 0;
+    _signalBackoffStep = 0;
     _quotaHeld = false;
     _retry?.cancel();
     _retry = null;
+    _signalRetry?.cancel();
+    _signalRetry = null;
     _track(_reevaluate(run: true));
   }
 
   /// The app went to the background: the signal is dropped and the outbox
   /// drained now, without the debounce — the process may not live long
-  /// enough for it (readiness D19). Completes when the drain has run.
+  /// enough for it (readiness D19). Bounded: the drain pulls nothing, and a
+  /// run in flight stops pulling before its next page. Completes when that
+  /// drain has run or was skipped — skipped while the initial merge is
+  /// pending, which only a full pull may end (record §3.5). Ignored unless
+  /// started.
   Future<void> onAppBackgrounded() async {
+    if (!_started) return;
     _foreground = false;
     _debounce?.cancel();
     _debounce = null;
     _retry?.cancel();
     _retry = null;
+    _signalRetry?.cancel();
+    _signalRetry = null;
     _detachSignal();
-    await _request(full: false);
+    await _request(_RunMode.drain);
   }
 
   // ---------------------------------------------------------------------------
   // Runs
 
-  Future<SyncRunReport> _request({required bool full}) {
+  Future<SyncRunReport> _request(_RunMode mode) {
     final request = _queued ??= _RunRequest();
-    request.full |= full;
+    if (mode.index > request.mode.index) request.mode = mode;
     _pump();
     return request.done.future;
   }
@@ -394,7 +439,7 @@ class SyncEngine {
         final request = _queued;
         if (request == null) break;
         _queued = null;
-        request.done.complete(await _run(full: request.full));
+        request.done.complete(await _run(request.mode));
       }
     } finally {
       _pumping = false;
@@ -404,18 +449,17 @@ class SyncEngine {
     }
   }
 
-  /// One run: the pull — every table when [full], else the tables the
-  /// signal says moved — then the drain, so a push never carries a row this
-  /// device would have lost to a newer remote a moment later.
-  Future<SyncRunReport> _run({required bool full}) async {
-    final (binding, skip) = await _gate();
-    if (binding == null) {
-      if (skip != SyncRunSkip.suspended) _detachSignal();
-      _emit();
-      return SyncRunReport(skipped: skip);
-    }
-    final space = _spaceOf(binding);
-    if (_started && _foreground) _attachSignal(space);
+  /// One run: the pull — every table for [_RunMode.full], the tables the
+  /// signal says moved for [_RunMode.stale], none for [_RunMode.drain] — then
+  /// the drain, so a push never carries a row this device would have lost to
+  /// a newer remote a moment later. A table whose pull failed pushes nothing
+  /// in this run, for the same reason.
+  ///
+  /// While the initial merge is pending every run that pulls pulls
+  /// everything, and one whose pull fell short — or a drain-only run —
+  /// pushes nothing: a push before the floor pull would put the pre-bind
+  /// rows over the space, where the floor could never undo it (record §3.5).
+  Future<SyncRunReport> _run(_RunMode mode) async {
     final tally = _RunTally();
     final parkedBefore = _parkedCount;
     SyncRunReport report({SyncGatewayFailure? failure, SyncRunSkip? skipped}) =>
@@ -427,19 +471,40 @@ class SyncEngine {
           skipped: skipped,
         );
     try {
-      await _puller.pull(
-        space,
-        full ? _tables : await _staleTables(),
+      final (binding, skip) = await _gate();
+      if (binding == null) {
+        if (skip != SyncRunSkip.suspended) _detachSignal();
+        return SyncRunReport(skipped: skip);
+      }
+      if (_started && _foreground) _attachSignal(_spaceOf(binding));
+      final initial =
+          await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
+      if (initial && mode == _RunMode.drain) return report();
+      final full = initial || mode == _RunMode.full;
+      final pulled = await _puller.pull(
+        binding,
+        full
+            ? _tables
+            : mode == _RunMode.stale
+            ? await _staleTables()
+            : const [],
+        initial: initial,
         everyTable: full,
         tally: tally,
       );
-      await _pusher.drain(space, binding.accountUid, tally);
-      if (tally.calls > 0) await _succeeded();
+      if (!initial || pulled.complete) {
+        await _pusher.drain(binding, tally, skipTables: pulled.failedTables);
+      }
+      final tableFault = pulled.fault;
+      if (tableFault != null) {
+        await _failed(tableFault);
+        return report(failure: tableFault.failure);
+      }
+      if (tally.calls > 0) _succeeded();
       return report();
-    } on _Halted {
-      return report(
-        skipped: _stopped ? SyncRunSkip.stopped : SyncRunSkip.suspended,
-      );
+    } on _Halted catch (halted) {
+      if (halted.skip != SyncRunSkip.suspended) _detachSignal();
+      return report(skipped: halted.skip);
     } on _AccessLost catch (lost) {
       _recordFailure(lost.cause);
       _loseAccess(lost.pause);
@@ -485,17 +550,33 @@ class SyncEngine {
   SyncSpaceRef _spaceOf(SyncBinding binding) =>
       SyncSpaceRef(ownerUid: binding.ownerUid, spaceId: binding.spaceId);
 
-  /// Thrown between pages and batches once the run must end: a restore took
-  /// [SyncSuspension], or the engine was stopped.
-  void _checkHalt() {
-    if (_stopped || SyncSuspension.isSuspended) throw const _Halted();
+  /// Throws [_Halted] between pages and batches once the run must end: the
+  /// engine was stopped, a restore took [SyncSuspension], the database is no
+  /// longer bound as [bound] (an unbind or a rebind — nothing may land in it
+  /// after that), or the bound account is no longer the one signed in.
+  /// Cheap enough for every page: one settings read.
+  Future<void> _checkHalt(SyncBinding bound) async {
+    if (_stopped) throw const _Halted(SyncRunSkip.stopped);
+    if (SyncSuspension.isSuspended) throw const _Halted(SyncRunSkip.suspended);
+    if (await _binding.read() != bound) {
+      throw const _Halted(SyncRunSkip.unbound);
+    }
+    final user = _currentUser();
+    if (user == null) throw const _Halted(SyncRunSkip.signedOut);
+    if (user.uid != bound.accountUid) {
+      throw const _Halted(SyncRunSkip.accountMismatch);
+    }
+    // The await above may have spanned a stop or a suspension.
+    if (_stopped) throw const _Halted(SyncRunSkip.stopped);
+    if (SyncSuspension.isSuspended) throw const _Halted(SyncRunSkip.suspended);
   }
 
   /// The tables whose `touched` moved past their stored `pull_seen` — or
-  /// that were never seen — in the latest signal; none before one arrived.
+  /// that were never seen — in the latest signal; every table before one
+  /// arrived, since nothing then says which tables are current.
   Future<List<SyncTableBinding<Object>>> _staleTables() async {
     final signal = _signal;
-    if (signal == null) return const [];
+    if (signal == null) return _tables;
     final stale = <SyncTableBinding<Object>>[];
     for (final table in _tables) {
       final touched = signal.touched[table.table];
@@ -522,17 +603,22 @@ class SyncEngine {
   // ---------------------------------------------------------------------------
   // Outcomes
 
-  /// A call reached the space: the failure, the back-off and a quota pause
-  /// are over.
-  Future<void> _succeeded() async {
+  /// Counts a call that reached the space. The first of a run ends a quota
+  /// pause and deletes its stored mark whatever pause shows now: the space
+  /// answered, so the quota is back (record §3.5, D19).
+  Future<void> _reached(_RunTally tally) async {
+    if (tally.calls++ > 0) return;
+    if (_pause == SyncPause.quotaExhausted) _pause = SyncPause.none;
+    await _db.syncDao.deleteValue(SyncDao.keyQuotaPausedAt);
+  }
+
+  /// A run's calls all reached the space: the failure and the back-off are
+  /// over.
+  void _succeeded() {
     _lastFailure = null;
     _backoffStep = 0;
     _retry?.cancel();
     _retry = null;
-    if (_pause == SyncPause.quotaExhausted) {
-      _pause = SyncPause.none;
-      await _db.syncDao.deleteValue(SyncDao.keyQuotaPausedAt);
-    }
   }
 
   Future<void> _failed(SyncGatewayException error) async {
@@ -542,10 +628,16 @@ class SyncEngine {
         _pause = SyncPause.quotaExhausted;
         _quotaHeld = true;
         _detachSignal();
-        await _db.syncDao.setValue(
-          SyncDao.keyQuotaPausedAt,
-          '${DateTime.now().millisecondsSinceEpoch}',
-        );
+        try {
+          await _db.syncDao.setValue(
+            SyncDao.keyQuotaPausedAt,
+            '${DateTime.now().millisecondsSinceEpoch}',
+          );
+        } catch (error) {
+          // The pause holds for this session either way; only the next
+          // launch's retry at once is lost.
+          _warn('quota pause not stored: $error');
+        }
         _scheduleRetry(_timing.quotaRetry, liftsQuota: true);
       case SyncGatewayFailure.permissionDenied:
         // A pull's denial; a push's is diagnosed before it gets here.
@@ -598,11 +690,20 @@ class SyncEngine {
   /// [run] also starts a full run when runnable.
   Future<void> _reevaluate({required bool run}) async {
     if (_stopped) return;
-    final (binding, skip) = await _gate();
+    final SyncBinding? binding;
+    final SyncRunSkip? skip;
+    try {
+      (binding, skip) = await _gate();
+    } catch (error) {
+      // A closed database: nothing to follow, and a run would fail the same
+      // way — it reports the failure when one is asked for.
+      debugPrint('[SyncEngine] re-evaluation failed: $error');
+      return;
+    }
     if (_stopped) return;
     if (binding != null) {
       if (_started && _foreground) _attachSignal(_spaceOf(binding));
-      if (run) unawaited(_request(full: true));
+      if (run) unawaited(_request(_RunMode.full));
     } else if (skip != SyncRunSkip.suspended) {
       // A suspension keeps the signal: nothing announces its end, and the
       // restore it covers unbinds the database anyway.
@@ -631,16 +732,26 @@ class SyncEngine {
   /// already emptied the outbox — a merge's re-queue arms the trigger too.
   Future<void> _drainIfQueued() async {
     if (_stopped || await _db.syncOutboxDao.count() == 0) return;
-    await _request(full: false);
+    await _request(_RunMode.stale);
   }
 
   void _attachSignal(SyncSpaceRef space) {
     if (_signalSubscription != null && _signalSpace == space) return;
     _detachSignal();
     _signalSpace = space;
-    _signalSubscription = _gateway
+    late final StreamSubscription<SyncSpaceSignal> subscription;
+    subscription = _gateway
         .watchSpace(space)
-        .listen(_onSignal, onError: _onSignalError);
+        .listen(
+          _onSignal,
+          onError: _onSignalError,
+          // A stream that ended is not a listener: the next run attaches a
+          // fresh one instead of taking the dead one for current.
+          onDone: () {
+            if (identical(_signalSubscription, subscription)) _detachSignal();
+          },
+        );
+    _signalSubscription = subscription;
   }
 
   void _detachSignal() {
@@ -655,7 +766,8 @@ class SyncEngine {
     if (!signal.exists) return _loseAccess(SyncPause.noAccess);
     if (signal.schema > _schema) return _loseAccess(SyncPause.appOutdated);
     _signal = signal;
-    unawaited(_request(full: false));
+    _signalBackoffStep = 0;
+    unawaited(_request(_RunMode.stale));
   }
 
   void _onSignalError(Object error) {
@@ -667,10 +779,25 @@ class SyncEngine {
     if (failure.failure == SyncGatewayFailure.permissionDenied) {
       return _loseAccess(SyncPause.noAccess);
     }
-    // The retry re-subscribes through _reevaluate.
     _detachSignal();
-    _scheduleBackoff();
+    _scheduleSignalRetry();
     _emit();
+  }
+
+  /// Re-subscribes after the signal's next back-off step, without a run: a
+  /// listener that keeps failing must not cost a full pull per error, and a
+  /// snapshot that arrives pulls what moved anyway. Foreground only, like
+  /// the runs' back-off.
+  void _scheduleSignalRetry() {
+    if (_stopped || !_foreground) return;
+    _signalRetry?.cancel();
+    _signalRetry = _scheduler.schedule(
+      _timing._backoffAt(_signalBackoffStep++),
+      () {
+        _signalRetry = null;
+        _track(_reevaluate(run: false));
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -714,409 +841,27 @@ class SyncEngine {
   }
 }
 
-/// The pull side of a run.
-class _Puller {
-  final SyncEngine _e;
+/// What a run pulls before it drains, weakest first: requests made during a
+/// run merge into the strongest of them.
+enum _RunMode {
+  /// Nothing — the background drain.
+  drain,
 
-  /// The envelopes set aside this session, by table and key; a re-delivery
-  /// of the same one is not counted twice.
-  final Set<(String, String)> parked = {};
+  /// The tables the latest signal says moved — the signal and the debounce.
+  stale,
 
-  _Puller(this._e);
-
-  /// Pulls [tables] in order. [everyTable] says the run covers the whole
-  /// space, which is what ends the initial merge after a bind (D15).
-  Future<void> pull(
-    SyncSpaceRef space,
-    List<SyncTableBinding<Object>> tables, {
-    required bool everyTable,
-    required _RunTally tally,
-  }) async {
-    if (tables.isEmpty) return;
-    final db = _e._db;
-    final initial =
-        await db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
-    final floor = initial ? await _e._binding.bindFloor() : null;
-    final touched = <SyncInvalidation>{};
-    _e._setActivity(SyncActivity.pulling);
-    try {
-      for (final table in tables) {
-        await _pullTable(
-          space,
-          table,
-          floor: floor,
-          initial: initial,
-          touched: touched,
-          tally: tally,
-        );
-      }
-    } finally {
-      // Pages already applied stay applied, a halted run's included, so the
-      // caches hear of them either way.
-      if (touched.contains(SyncInvalidation.calendar)) {
-        touched.add(SyncInvalidation.alerts);
-      }
-      if (touched.isNotEmpty) {
-        await _e._hooks.afterRun(Set.unmodifiable(touched));
-      }
-    }
-    await db.syncDao.setValue(
-      SyncDao.keyLastPullAt,
-      '${DateTime.now().millisecondsSinceEpoch}',
-    );
-    if (initial && everyTable) {
-      await db.syncDao.deleteValue(SyncDao.keyBindMergePending);
-      _e._downloadedRows = 0;
-    }
-  }
-
-  Future<void> _pullTable(
-    SyncSpaceRef space,
-    SyncTableBinding<Object> table, {
-    required String? floor,
-    required bool initial,
-    required Set<SyncInvalidation> touched,
-    required _RunTally tally,
-  }) async {
-    final db = _e._db;
-    final name = table.table;
-    // Read before the first page: a push landing during the pull moves
-    // `touched` past this mark, so the next signal pulls again rather than
-    // the table being marked seen up to a write it never read.
-    final seenUpTo = _e._signal?.touched[name];
-    final stored = await db.syncDao.getValue(SyncDao.keyPullCursor(name));
-    var cursor = stored == null ? null : SyncCursor(stored);
-    var resumed = true;
-    while (true) {
-      _e._checkHalt();
-      final page = await _e._gateway.pullPage(
-        space,
-        name,
-        after: cursor,
-        resumed: resumed,
-      );
-      tally.calls++;
-      resumed = false;
-      if (page.envelopes.isEmpty) break;
-      await _apply(table, page, floor: floor, touched: touched, tally: tally);
-      if (initial) _e._downloadedRows += page.envelopes.length;
-      _e._emit();
-      cursor = page.next ?? cursor;
-      if (!page.hasMore) break;
-    }
-    if (seenUpTo != null) {
-      await db.syncDao.setValue(
-        SyncDao.keyPullSeen(name),
-        '${seenUpTo.microsecondsSinceEpoch}',
-      );
-    }
-  }
-
-  /// One page in one transaction: the merges, the cursor, the clock stored
-  /// once (readiness R5); the hooks after it committed.
-  Future<void> _apply(
-    SyncTableBinding<Object> table,
-    SyncPullPage page, {
-    required String? floor,
-    required Set<SyncInvalidation> touched,
-    required _RunTally tally,
-  }) async {
-    final db = _e._db;
-    final name = table.table;
-    await _e._hooks.beforePage(name);
-    final rows = <SyncAppliedRow>[];
-    final conflicts = <SyncNoteConflict>[];
-    await db.transaction(() async {
-      for (final envelope in page.envelopes) {
-        final MergeOutcome outcome;
-        try {
-          outcome = await table.mergeRemote(db, envelope, floor: floor);
-        } on Object catch (error) {
-          if (!_isEnvelopeFault(error)) rethrow;
-          _park(envelope, error);
-          continue;
-        }
-        rows.add(
-          SyncAppliedRow(
-            rowKey: envelope.rowKey,
-            result: outcome.result,
-            tombstone: isTombstone(envelope),
-          ),
-        );
-        if (outcome.result == MergeResult.inserted ||
-            outcome.result == MergeResult.applied) {
-          touched.add(table.invalidation);
-        }
-        final loser = outcome.loser;
-        if (loser != null) {
-          conflicts.add(
-            SyncNoteConflict(
-              loser: loser,
-              loserContent: outcome.loserContent ?? '',
-            ),
-          );
-        }
-      }
-      final next = page.next;
-      if (next != null) {
-        await db.syncDao.setValue(SyncDao.keyPullCursor(name), next.value);
-      }
-      await db.persistClock();
-    });
-    tally.pulled += rows.length;
-    await _e._hooks.afterPage(name, List.unmodifiable(rows));
-    for (final conflict in conflicts) {
-      await _e._hooks.fileConflictCopy(conflict);
-    }
-  }
-
-  /// What one malformed document raises: a missing or mistyped key, a value
-  /// a column refuses (drift checks lengths on write), a key that names no
-  /// row. Anything else is the database's or the engine's own fault and ends
-  /// the run instead.
-  static bool _isEnvelopeFault(Object error) =>
-      error is FormatException ||
-      error is TypeError ||
-      error is ArgumentError ||
-      error is InvalidDataException;
-
-  void _park(SyncEnvelope envelope, Object error) {
-    debugPrint(
-      '[SyncEngine] parked ${envelope.table}/${envelope.rowKey}: $error',
-    );
-    parked.add((envelope.table, envelope.rowKey));
-  }
-}
-
-/// The push side of a run.
-class _Pusher {
-  final SyncEngine _e;
-
-  /// The outbox entries set aside this session, retried next launch: one bad
-  /// row must not stop every other row (record §3.5).
-  final Set<(String, String)> parked = {};
-
-  _Pusher(this._e);
-
-  /// About 900 KB of JSON: under Firestore's 1 MiB document with room for
-  /// the envelope's own fields, so an oversized row is parked here rather
-  /// than refused for its whole batch.
-  static const int maxDocumentBytes = 900000;
-
-  /// More rows than this refused by the rules in one drain means the rules
-  /// changed, not the rows (record §3.5).
-  static const int maxRefusedPerDrain = 20;
-
-  /// Pushes the outbox in batches, oldest change first, until it is empty or
-  /// a call fails.
-  Future<void> drain(
-    SyncSpaceRef space,
-    String boundUid,
-    _RunTally tally,
-  ) async {
-    final outbox = _e._db.syncOutboxDao;
-    final maxBatch = _e._gateway.maxBatch;
-    // The entry stamp each row was pushed at in this drain: an entry the
-    // acknowledgement could not retire at the same stamp is not pushed again
-    // until an edit raises it.
-    final pushed = <(String, String), String>{};
-    final drain = _DrainState();
-    while (true) {
-      _e._checkHalt();
-      final skipped = parked.length + pushed.length;
-      final entries = [
-        for (final entry in await outbox.pending(limit: maxBatch + skipped))
-          if (!parked.contains((entry.syncedTable, entry.rowKey)) &&
-              pushed[(entry.syncedTable, entry.rowKey)] != entry.hlc)
-            entry,
-      ].take(maxBatch).toList();
-      if (entries.isEmpty) break;
-      _e._setActivity(SyncActivity.pushing);
-      final batch = await _prepare(entries, boundUid);
-      _e._emit();
-      if (batch.isEmpty) continue;
-      for (final queued in batch) {
-        pushed[(queued.entry.syncedTable, queued.entry.rowKey)] =
-            queued.entry.hlc;
-      }
-      await _push(space, batch, tally, drain);
-    }
-  }
-
-  /// The batch for [entries]: each row read as it stands now, a tombstone
-  /// included. A row gone since it was queued (an import wipe) retires its
-  /// entry; one that cannot be encoded or would exceed [maxDocumentBytes]
-  /// is parked before the push.
-  Future<List<_Queued>> _prepare(
-    List<SyncOutboxRow> entries,
-    String boundUid,
-  ) async {
-    final db = _e._db;
-    final byTable = <String, List<SyncOutboxRow>>{};
-    for (final entry in entries) {
-      byTable.putIfAbsent(entry.syncedTable, () => []).add(entry);
-    }
-    final batch = <_Queued>[];
-    for (final MapEntry(key: table, value: group) in byTable.entries) {
-      final binding = _e._bindingFor(table);
-      final List<Object> rows;
-      try {
-        if (binding == null) throw ArgumentError.value(table, 'table');
-        rows = await binding.loadByKeys(db, [for (final e in group) e.rowKey]);
-      } on Object catch (error) {
-        if (!_Puller._isEnvelopeFault(error)) rethrow;
-        for (final entry in group) {
-          _park(entry, error);
-        }
-        continue;
-      }
-      final byKey = {for (final row in rows) binding.rowKeyOf(row): row};
-      for (final entry in group) {
-        final row = byKey[entry.rowKey];
-        if (row == null) {
-          await db.syncOutboxDao.ackThrough(table, entry.rowKey, entry.hlc);
-          continue;
-        }
-        final SyncEnvelope envelope;
-        try {
-          envelope = await binding.encode(db, row, boundUid: boundUid);
-        } on Object catch (error) {
-          _park(entry, error);
-          continue;
-        }
-        final data = envelope.data;
-        if (data != null &&
-            utf8.encode(jsonEncode(data)).length > maxDocumentBytes) {
-          _park(entry, 'over $maxDocumentBytes bytes');
-          continue;
-        }
-        batch.add(_Queued(entry, envelope));
-      }
-    }
-    return batch;
-  }
-
-  /// Pushes [batch]; a refusal that would refuse it again — `invalidData`,
-  /// or a rule refusal of a row's shape — is narrowed to the refused rows,
-  /// which are parked while the rest lands.
-  Future<void> _push(
-    SyncSpaceRef space,
-    List<_Queued> batch,
-    _RunTally tally,
-    _DrainState drain,
-  ) async {
-    try {
-      await _send(space, batch, tally);
-    } on SyncGatewayException catch (error) {
-      switch (error.failure) {
-        case SyncGatewayFailure.permissionDenied:
-          await _diagnose(space, error);
-        case SyncGatewayFailure.invalidData:
-          break;
-        case SyncGatewayFailure.offline:
-        case SyncGatewayFailure.quotaExhausted:
-        case SyncGatewayFailure.unknown:
-          rethrow;
-      }
-      await _isolate(space, batch, error, tally, drain);
-    }
-  }
-
-  /// A denied push is believed only after the space is read (record §3.5):
-  /// gone or unreadable is `noAccess`, a newer schema is `appOutdated`;
-  /// otherwise the rules refused a row, which the caller isolates.
-  Future<void> _diagnose(
-    SyncSpaceRef space,
-    SyncGatewayException denied,
-  ) async {
-    final SyncSpaceInfo? info;
-    try {
-      info = await _e._gateway.readSpace(space);
-    } on SyncGatewayException catch (error) {
-      if (error.failure == SyncGatewayFailure.permissionDenied) {
-        throw _AccessLost(SyncPause.noAccess, denied);
-      }
-      rethrow;
-    }
-    if (info == null) throw _AccessLost(SyncPause.noAccess, denied);
-    if (info.schema > _e._schema) {
-      throw _AccessLost(SyncPause.appOutdated, denied);
-    }
-  }
-
-  /// Bisects [batch] — halves, then single rows — down to the rows refused
-  /// with [refusal]'s failure, parks those and pushes the rest.
-  Future<void> _isolate(
-    SyncSpaceRef space,
-    List<_Queued> batch,
-    SyncGatewayException refusal,
-    _RunTally tally,
-    _DrainState drain,
-  ) async {
-    if (batch.length == 1) {
-      _park(batch.single.entry, refusal);
-      if (refusal.failure == SyncGatewayFailure.permissionDenied &&
-          ++drain.refused > maxRefusedPerDrain) {
-        throw _AccessLost(SyncPause.noAccess, refusal);
-      }
-      return;
-    }
-    final middle = batch.length ~/ 2;
-    for (final half in [batch.sublist(0, middle), batch.sublist(middle)]) {
-      try {
-        await _send(space, half, tally);
-      } on SyncGatewayException catch (error) {
-        if (error.failure != refusal.failure) rethrow;
-        await _isolate(space, half, error, tally, drain);
-      }
-    }
-  }
-
-  /// One push, then each entry retired at the stamp its row had when read:
-  /// an entry an edit raised during the push stays queued.
-  Future<void> _send(
-    SyncSpaceRef space,
-    List<_Queued> batch,
-    _RunTally tally,
-  ) async {
-    _e._checkHalt();
-    final db = _e._db;
-    await _e._gateway.pushBatch(
-      space,
-      [for (final queued in batch) queued.envelope],
-      pushedBy: _e._deviceId,
-      schema: _e._schema,
-    );
-    tally.calls++;
-    await db.transaction(() async {
-      for (final queued in batch) {
-        await db.syncOutboxDao.ackThrough(
-          queued.entry.syncedTable,
-          queued.entry.rowKey,
-          queued.envelope.hlc,
-        );
-      }
-    });
-    tally.pushed += batch.length;
-    await db.syncDao.setValue(
-      SyncDao.keyLastPushAt,
-      '${DateTime.now().millisecondsSinceEpoch}',
-    );
-    _e._emit();
-  }
-
-  void _park(SyncOutboxRow entry, Object reason) {
-    debugPrint(
-      '[SyncEngine] parked ${entry.syncedTable}/${entry.rowKey}: $reason',
-    );
-    parked.add((entry.syncedTable, entry.rowKey));
-  }
+  /// Every table — a start, a resume, a retry, "Sync now".
+  full,
 }
 
 class _RunRequest {
-  bool full = false;
+  _RunMode mode = _RunMode.drain;
   final Completer<SyncRunReport> done = Completer<SyncRunReport>();
 }
+
+/// The engine's warnings: faults a parked row or a failed table hides from
+/// the status, which a developer reading the log must still see.
+void _warn(String message) => debugPrint('[SyncEngine] warning: $message');
 
 class _RunTally {
   int pulled = 0;
@@ -1129,6 +874,10 @@ class _RunTally {
 
 class _DrainState {
   int refused = 0;
+
+  /// Whether this drain already read the space to judge a denial: once is
+  /// enough to tell the space's denial from a row's.
+  bool diagnosed = false;
 }
 
 class _Queued {
@@ -1139,7 +888,10 @@ class _Queued {
 }
 
 class _Halted implements Exception {
-  const _Halted();
+  /// What the run reports.
+  final SyncRunSkip skip;
+
+  const _Halted(this.skip);
 }
 
 class _AccessLost implements Exception {

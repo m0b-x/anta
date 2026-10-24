@@ -312,6 +312,31 @@ void main() {
       db = await openTestDatabase();
     });
 
+    test("files the copy at the root when the loser's folder was deleted, "
+        'even while the folder is cached as live', () async {
+      final folder = await db.folderDao.createFolder(name: 'Old');
+      expect((await folders.getFolderById(folder.id))!.isDeleted, isFalse);
+      final note = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Squat log',
+        content: 'theirs',
+      );
+      await db.customStatement(
+        'UPDATE folders SET is_deleted = 1 WHERE id = ?',
+        [folder.id],
+      );
+
+      await hooks.fileConflictCopy(
+        SyncNoteConflict(loser: note, loserContent: 'mine'),
+      );
+
+      final copy = (await db.noteDao.getAllNotes()).singleWhere(
+        (n) => n.title.startsWith('Squat log ('),
+      );
+      expect(copy.folderId, '');
+      expect(await db.contentChunkDao.loadContent(copy.id), 'mine');
+    });
+
     test('a second copy the same minute takes a numbered title', () async {
       final note = await loser();
       final conflict = SyncNoteConflict(loser: note, loserContent: 'one');

@@ -17,6 +17,7 @@ import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_status_service.dart';
+import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
 
 import '../../../database/support/db_test_support.dart';
@@ -70,6 +71,7 @@ class SyncDevice {
     this.settings,
     FakeSyncGateway gateway,
     SyncEngineTiming timing,
+    List<SyncTableBinding<Object>>? tables,
   ) : binding = SyncBindingService.detached(db, settings) {
     engine = SyncEngine.detached(
       db: db,
@@ -83,6 +85,7 @@ class SyncDevice {
       authChanges: auth.stream,
       scheduler: scheduler,
       timing: timing,
+      tables: tables,
     );
     _statusSubscription = engine.status.listen(statuses.add);
   }
@@ -121,10 +124,13 @@ class SyncPair {
   SyncPair._(this.gateway, this.space, this.a, this.b);
 
   /// Opens both databases and creates the space; binds both unless [bind]
-  /// is false, for a test that writes before the bind.
+  /// is false, for a test that writes before the bind. [tables] replaces
+  /// both engines' table bindings, for a test that wraps one to make its
+  /// merge fail.
   static Future<SyncPair> open({
     bool bind = true,
     SyncEngineTiming timing = const SyncEngineTiming(),
+    List<SyncTableBinding<Object>>? tables,
   }) async {
     final gateway = FakeSyncGateway();
     final clock = _SharedClock();
@@ -140,7 +146,15 @@ class SyncPair {
       // gets its own settings over its own database (record, S3a as built).
       SettingsService.reset();
       final settings = SettingsService.forTesting(db);
-      return SyncDevice._(id, db, statements, settings, gateway, timing);
+      return SyncDevice._(
+        id,
+        db,
+        statements,
+        settings,
+        gateway,
+        timing,
+        tables,
+      );
     }
 
     final a = await device('A');
@@ -169,10 +183,14 @@ class SyncPair {
   }
 
   /// Every synced row of [device] as the push would send it, keyed
-  /// `table/rowKey`: stamp, operation and data. `ownerId` is left out of
-  /// the data — a row written after the bind is unowned where it was written
-  /// and owned by the account where it was merged, the same owner either way
-  /// (the envelope carries it).
+  /// `table/rowKey`: stamp, operation and data — nothing else, so two
+  /// devices compare equal while they differ in:
+  ///
+  /// - `ownerId`, dropped from the data: a row written after the bind is
+  ///   unowned where it was written and owned by the account where it was
+  ///   merged, the same owner either way (the envelope carries it);
+  /// - the envelope's `deviceId` and `version`, left out of the string;
+  /// - every column the codec leaves out of the data.
   static Future<Map<String, String>> snapshot(SyncDevice device) async {
     final rows = <String, String>{};
     for (final binding in syncTableBindings) {

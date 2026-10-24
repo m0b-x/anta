@@ -20,6 +20,15 @@ class RecordingSyncApplyHooks implements SyncApplyHooks {
   /// suspension while a page is about to be merged.
   Future<void> Function(String table)? onBeforePage;
 
+  /// Runs inside `afterRun` after the call is recorded, so a test can make
+  /// the hook throw.
+  Future<void> Function()? onAfterRun;
+
+  /// Runs inside `fileConflictCopy` before the conflict is recorded — inside
+  /// the page's transaction — so a test can file a copy, look at the page's
+  /// state from within, or throw to roll the page back.
+  Future<void> Function(SyncNoteConflict conflict)? onConflict;
+
   void clear() {
     calls.clear();
     pages.clear();
@@ -43,11 +52,13 @@ class RecordingSyncApplyHooks implements SyncApplyHooks {
   Future<void> afterRun(Set<SyncInvalidation> touched) async {
     calls.add('run');
     runs.add(touched);
+    await onAfterRun?.call();
   }
 
   @override
   Future<void> fileConflictCopy(SyncNoteConflict conflict) async {
     calls.add('conflict');
+    await onConflict?.call(conflict);
     conflicts.add(conflict);
   }
 }

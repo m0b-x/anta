@@ -53,6 +53,17 @@ class FakeSyncGateway implements SyncGateway {
     _signals[space]?.add(_signalNow(space));
   }
 
+  /// Delivers [failure] as an error to every listener of [space]'s signal,
+  /// as a dropped Firestore listener reports one; the listeners stay
+  /// subscribed. Test-only, for the engine's re-attach back-off.
+  void failWatches(SyncSpaceRef space, SyncGatewayFailure failure) =>
+      _signals[space]?.addError(SyncGatewayException(failure, 'scripted'));
+
+  /// Ends every listener of [space]'s signal, as a stream that completes;
+  /// a later [watchSpace] listens afresh. Test-only, for the engine's
+  /// `onDone`.
+  void endWatches(SyncSpaceRef space) => _signals.remove(space)?.close();
+
   /// Writes [envelope] into the space as if another client pushed it, past
   /// every check — a malformed document the rules would never have let in,
   /// so the engine's per-envelope parking can meet one.
@@ -238,9 +249,11 @@ class FakeSyncGateway implements SyncGateway {
     }
     return Stream.multi((listener) {
       listener.add(_signalNow(space));
-      final subscription = _signalOf(
-        space,
-      ).stream.listen(listener.add, onError: listener.addError);
+      final subscription = _signalOf(space).stream.listen(
+        listener.add,
+        onError: listener.addError,
+        onDone: listener.close,
+      );
       listener.onCancel = subscription.cancel;
     }, isBroadcast: true);
   }

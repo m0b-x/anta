@@ -137,31 +137,40 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   /// it too. It keeps the loser's folder and label and takes the folder's
   /// next free position — the storage path's own placement — under a title
   /// that names it a conflict copy, suffixed ` (n)` should a copy filed the
-  /// same minute already hold it.
+  /// same minute already hold it. A folder deleted meanwhile — the same pull
+  /// may have tombstoned it — would hide the copy with it, so the copy goes
+  /// to the root instead (`folderId` empty, the wire's own default).
   ///
   /// Safe inside the page's transaction, so a copy that fails can roll the
   /// page back: it only reads and writes this database (the language from
-  /// the settings table, the title check, the insert — drift nests the
-  /// insert as a savepoint) and touches no UI; the repository caches it
-  /// fills are dropped by [afterRun]'s invalidation either way. Unguarded,
-  /// unlike the cache effects: a failure must reach the engine, or the
-  /// losing text would be gone without a trace.
+  /// the settings table, the folder, the title check, the insert — drift
+  /// nests the insert as a savepoint) and touches no UI; the repository
+  /// caches it fills are dropped by [afterRun]'s invalidation either way.
+  /// Unguarded, unlike the cache effects: a failure must reach the engine,
+  /// or the losing text would be gone without a trace.
   @override
   Future<void> fileConflictCopy(SyncNoteConflict conflict) async {
     final loser = conflict.loser;
     final storage = _noteStorage();
+    // Read past the cache, tombstones included: a folder merged as deleted
+    // earlier in this run is still cached as live until afterRun.
+    final folder = await _folders().getFolderById(
+      loser.folderId,
+      forceRefresh: true,
+    );
+    final folderId = folder != null && folder.isDeleted ? '' : loser.folderId;
     final base = (await _strings()).syncConflictCopyTitle(loser.title, _now());
     var title = base;
     for (var n = 2;
         await storage.noteTitleExistsInFolder(
-          folderId: loser.folderId,
+          folderId: folderId,
           title: title,
         );
         n++) {
       title = '$base ($n)';
     }
     await storage.createNote(
-      folderId: loser.folderId,
+      folderId: folderId,
       title: title,
       content: conflict.loserContent,
       label: ItemLabel.fromStorage(loser.label),

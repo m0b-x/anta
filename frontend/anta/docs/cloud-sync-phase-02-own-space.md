@@ -351,9 +351,15 @@ checks all four before every pull, push and bind (readiness §7).
   are applied like any other (the merge makes them no-ops). **Counters:**
   before a page that touches `counters` or `counter_values` the engine calls
   `CounterService.flush()` — a pending tap flushed afterwards would be
-  stamped over the merged value — and after it `reload()` plus the service's
-  change signal (S3 adds `CounterService.changes`; the counter blocs reload
-  on it) (S2a review F4). **Merged notes and folders reach the UI** through
+  stamped over the merged value — and **right after that page** (in
+  `afterPage`, not at the end of the run) `reload()` plus the service's
+  change signal (`CounterService.changes`; the counter blocs reload on it).
+  `reload()` keeps the taps made during the page: the service holds each
+  dirty counter's pending **delta** since its last flush and re-applies it
+  over the freshly read value instead of flushing a stale absolute number
+  (S2a review F4; S3c review H1 — a tap between the page and a run-end
+  reload overwrote the other device's value on both devices). **Merged
+  notes and folders reach the UI** through
   the storage services' change events emitted by the engine per merged row
   — the browser, the search index and an open editor (§3.9) listen there.
 - **Per-envelope faults.** Decode and merge run per envelope under a catch:
@@ -509,7 +515,17 @@ kept where it still fits); with **unsaved modifications** it keeps the
 user's text and files the *arriving* text as a conflict copy with D3's
 title — the next autosave then wins and pushes, and the other device
 receives both the note and the copy. Nothing is lost either way. A widget
-test pins both branches; S6 drives it on two devices.
+test pins both branches; S6 drives it on two devices. The editor tells a
+merge from its own autosave by the change event's origin: `NoteChange`
+carries `remote: true` only when `announceMerged` emits it (S3c review F5);
+a remote move is announced as `moved` with its source folder beside the
+`updated` (the browser's old-folder list refreshes on `moved`, the search
+index on `updated`; F2), from the pre-merge row the merge already read
+(`MergeOutcome.previousParent` → `SyncAppliedRow`). A conflict copy created
+inside the page transaction is announced only after the page commits (the
+hook writes it through a repository method that caches and emits nothing;
+the engine lists the copy among the page's rows), so a rolled-back page
+never told a listener about a row that does not exist (F10).
 
 ### 3.8 Firestore settings and the QA seam (S5)
 
@@ -1153,6 +1169,89 @@ merge `engine.current`; a conflict copy goes into the loser's folder even
 when that folder was meanwhile tombstoned (S3d files it at the root then).
 **The rehearsal** is in §11.
 
+**S3c review (2026-10-24, one independent reviewer on a snapshot, three
+behaviour probes against the real repositories and services, the
+migration half of the rehearsal re-run; 1 high, 5 medium, 10 low; "the
+commit stands").** **H1** a counter tap between a counter page and the
+run-end `reload()` was flushed over the merged value (probe: 3 → merged 8 →
+tap → 4 on both devices) → §3.5 "Counters" as amended (reload in
+`afterPage`; pending deltas re-applied over the fresh value). Mediums: F2
+a remote move never refreshed the browser's old folder (no page uses the
+drift streams; the blocs refresh on `folderId == current` or `moved` with
+`sourceFolderId`) → `moved` beside `updated`, from the pre-merge row
+(§3.9); F3 a loser title near 500 characters plus the suffix failed the
+column's `withLength` — under in-transaction filing the page would roll
+back forever → the title is shortened to fit; F4 a lone `inactive` (a
+notification shade, a permission dialog, every desktop focus change)
+counted as leaving the app: a drain plus a full 17-table pull on return →
+a leave is `hidden`/`paused` only (the test pinned the wrong behaviour);
+F5 the editor rule cannot tell a merge from its own autosave →
+`NoteChange.remote` (§3.9); F6 nothing restarts the engine after a lifecycle
+reset (`start()` runs once from DI; the next `getInstance()` builds an
+unstarted engine — the "download into a new database" switch meets it) →
+`getInstance()` starts the engine when DI enabled it. Lows: F7
+`RefreshSyncStatus` replaces the engine-owned fields (a showing `noAccess`
+vanishes) → overlay `engine.current`; F8 two mutations survived (a
+`{calendar}`-only hook case and a resurrection case are missing); F9
+`reset()` leaves the status stream open (acceptable once F6 is fixed); F10
+the copy's `created` event and cache entry escape a page rollback → §3.9
+(announce after commit); F11 title details (an empty loser title gives a
+leading space, the ` (n)` suffix is a literal, `yMd` puts slashes in a
+title — check the export/share file-name path); F12 `VocabularyService`
+has no change signal (an open vocabulary page or the pills keep the old
+list until re-read); F13 a hard-coded "Counter not found" now reachable;
+F14 `CounterBloc._onRefreshCounters` keeps the old `pickedNoteValues`; F15
+the hooks and the blocs obtain `CounterService` two ways (same object per
+database lifetime); F16 `seedMissing` would revive a tombstoned built-in
+after a pull — moot, no device can tombstone a built-in. **S5 notes:** the
+gateway must be registered before the engine-start line in DI; a QA build
+syncs only with `ANTA_QA_CLOUD` (the availability gate). **Fixed in S4a**
+(the next run after S3d): H1, F2–F8, F10, F11, F13, F14; F12 as
+`VocabularyService.changes` with the vocabulary page refreshing on it.
+
+**S3d as built (2026-10-24, one implementer; gate: `dart analyze lib test`
+clean, whole suite once — 10,388 passed, the one Windows-only failure;
+review pending, fixes at the head of S4b).** Every S3b-review item has its
+fix and a named test (the implementer's table of item → test is in its
+report; the tests live in the three engine suites and
+`app_sync_apply_hooks_test`). The engine is now one library in three files:
+`sync_engine.dart` (902 lines, the root), `sync_puller.dart` (275, part),
+`sync_pusher.dart` (262, part). Shapes chosen, each sound: request modes
+`drain < stale < full` (`_RunMode`); `bind_merge_pending` forces a full
+run and a pending run whose pull fell short, or a drain-only run, does not
+drain (H1); before any signal every table is stale; the async
+`_checkHalt(bound)` checks stopped, suspension, the binding (same space)
+and the user before each page, after `beforePage`, before each batch and
+before each send (M6) — a suspension that begins inside `beforePage` now
+stops that page (stricter than the old test); the copy is filed inside the
+page transaction after the merges and before the cursor (H2); **each merge
+runs in its own savepoint** so a parked envelope leaves no partial writes,
+still one transaction and one `persistClock` per page; anything that is not
+a `SyncGatewayException` parks the envelope, `ArgumentError` logged as a
+probable bug (M3, L16); **a table whose pull failed for a local reason
+pushes none of its own rows in that run** while the other tables still
+drain (a failed copy followed by a push of the local note would re-create
+H2's loss on the other device) and the run reports `unknown` and backs off
+so the page is retried; a pull that did not complete writes no
+`last_pull_at`; the quota pause lifts on a run's first successful call
+(`quota_paused_at` deleted) while `lastFailure` and the back-off reset only
+after a run whose calls all succeeded (L9); `start()` has a generation
+guard (L10); the signal detaches on `onDone` (L11) and re-attaches on its
+own back-off without a run (L13); the lifecycle calls are no-ops unless
+started (L12); `onAppBackgrounded` drains only and any pull stops before
+its next page while `_foreground` is false (L14); `afterRun` wrapped (L17);
+parked push rows keyed by stamp (L7); warnings through
+`debugPrint('[SyncEngine] warning: …')` (no leveled logger exists). The
+conflict copy goes to the root (`folderId ''`, reachable through All notes
+and search) when the loser's folder is tombstoned — S4a refines it to the
+nearest live ancestor. Test support: `recording_sync_apply_hooks`
+`onAfterRun` / `onConflict`; `sync_pair` `tables:` and the comparator's
+exact ignore list; the fake's `failWatches` / `endWatches` and `watchSpace`
+forwarding `onDone`. Not verified by the implementer: that the new tests
+fail on the old engine (by reasoning, not by a run — the S3d review
+mutates); that M5's diagnosis runs once per drain (the fake does not log
+`readSpace`).
+
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
   if it reads better; `SyncStatus` / `SyncPause` additions; the
   `Stream<SyncStatus>`; the engine registered in DI behind `canSync`
@@ -1180,6 +1279,14 @@ when that folder was meanwhile tombstoned (S3d files it at the root then).
 - Skills: `anta-context`, `calendar-events`, `flutter-principles`.
 
 ### S4 — Bind, the picker, the Sync section
+
+Run as two implementer runs (decided 2026-10-24 after the S3c review):
+**S4a** needs no letters — the S3c review fixes (H1, F2–F8, F10–F14), the
+editor rule §3.9 with `NoteChange.remote`, the bloc's refresh overlay, the
+engine restarted after a reset; **S4b** needs D1, D2, D4, D5, D6 and D8 —
+the Sharing page's Sync section, the picker, the install registry, the
+space service, the strings. S5 (the Firestore gateway) runs between them if
+the letters are still out.
 
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name

@@ -75,6 +75,66 @@ void main() {
 
       expect(a().engine.current.pause, SyncPause.noAccess);
     });
+
+    test('a signal stream that ends is attached afresh by the next run', () async {
+      await a().engine.start();
+      await a().settle();
+
+      pair.gateway.endWatches(pair.space);
+      await a().settle();
+      await a().sync();
+      await b().db.folderDao.createFolder(name: 'From B');
+      pair.gateway.calls.clear();
+      await b().sync();
+      await a().settle();
+
+      expect(callsAfterPushOfB(), ['pull:folders']);
+    });
+
+    test('a failing signal re-attaches on its own growing back-off and '
+        'pulls nothing', () async {
+      await a().engine.start();
+      await a().settle();
+      pair.gateway.calls.clear();
+
+      pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
+      await pumpEventQueue();
+      for (var i = 0; i < 2; i++) {
+        pair.gateway.failNextWith(SyncGatewayFailure.unknown);
+        expect(a().scheduler.fire(), 1);
+        await a().settle();
+        await pumpEventQueue();
+      }
+
+      expect([for (final timer in a().scheduler.timers) timer.delay], const [
+        Duration(seconds: 30),
+        Duration(minutes: 1),
+        Duration(minutes: 2),
+      ]);
+      expect(pair.gateway.calls, isEmpty);
+    });
+
+    test('a table halted after a signal stores no pull_seen', () async {
+      await a().engine.start();
+      await a().settle();
+      final restore = Completer<void>();
+      a().hooks.onBeforePage = (table) async {
+        if (table == 'folders') unawaited(SyncSuspension.run(() => restore.future));
+      };
+
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().sync();
+      await a().settle();
+      restore.complete();
+      await pumpEventQueue();
+
+      expect(a().hooks.calls, contains('before:folders'));
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullSeen('folders')),
+        isNull,
+      );
+      expect(await a().db.select(a().db.folders).get(), isEmpty);
+    });
   });
 
   test('requests during a run are served by exactly one more run', () async {
@@ -114,8 +174,8 @@ void main() {
   });
 
   group('stopping', () {
-    test('a suspension that begins mid-page ends the run before the next '
-        'page', () async {
+    test('a suspension that begins as a page is about to merge ends the run '
+        'before that page merges', () async {
       await b().db.folderDao.createFolder(name: 'Folder');
       await b().db.counterDao.upsertValue('c1', '', 3);
       await b().sync();
@@ -129,7 +189,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(report.skipped, SyncRunSkip.suspended);
-      expect(a().hooks.calls, contains('after:folders'));
+      expect(a().hooks.calls, contains('before:folders'));
+      expect(a().hooks.calls, isNot(contains('after:folders')));
+      expect(await a().db.select(a().db.folders).get(), isEmpty);
       expect(a().hooks.calls, isNot(contains('before:counter_values')));
       expect(SyncSuspension.isSuspended, isFalse);
       expect((await a().sync()).skipped, isNull);
@@ -175,6 +237,128 @@ void main() {
       await a().engine.onAppBackgrounded();
 
       expect(pair.gateway.rowsOf(pair.space, 'folders').keys, [folder.id]);
+    });
+
+    test('going to the background mid-pull stops the pull before its next '
+        'page, drains, and completes', () async {
+      await a().sync();
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().db.counterDao.upsertValue('c1', '', 3);
+      await b().sync();
+      final hold = Completer<void>();
+      var held = false;
+      a().hooks.onBeforePage = (table) async {
+        if (table != 'folders' || held) return;
+        held = true;
+        await hold.future;
+      };
+      await a().engine.start();
+      while (!held) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      final mine = await a().db.folderDao.createFolder(name: 'Mine');
+      pair.gateway.calls.clear();
+
+      final background = a().engine.onAppBackgrounded();
+      hold.complete();
+      await background.timeout(const Duration(seconds: 5));
+
+      expect(pair.gateway.rowsOf(pair.space, 'folders'), contains(mine.id));
+      expect(pair.gateway.calls.where((c) => c.startsWith('pull')), isEmpty);
+      expect(await a().db.select(a().db.counterValues).get(), isEmpty);
+    });
+
+    test('resume and background do nothing before start and after stop', () async {
+      await a().db.folderDao.createFolder(name: 'Queued');
+
+      a().engine.onAppResumed();
+      await a().engine.onAppBackgrounded();
+      await a().settle();
+      expect(pair.gateway.calls, isEmpty);
+
+      await a().engine.start();
+      await a().settle();
+      await a().engine.stop();
+      pair.gateway.calls.clear();
+      await a().db.folderDao.createFolder(name: 'Later');
+      a().engine.onAppResumed();
+      await a().engine.onAppBackgrounded();
+      await a().settle();
+      expect(pair.gateway.calls, isEmpty);
+    });
+
+    test('a stop during start attaches nothing, and a later start attaches '
+        'once', () async {
+      final starting = a().engine.start();
+      await a().engine.stop();
+      await starting;
+
+      expect(a().auth.hasListener, isFalse);
+      await a().db.folderDao.createFolder(name: 'Queued');
+      await pumpEventQueue();
+      expect(a().scheduler.timers, isEmpty);
+
+      unawaited(a().engine.start());
+      final stopping = a().engine.stop();
+      await a().engine.start();
+      await stopping;
+      await a().settle();
+      await a().db.folderDao.createFolder(name: 'Again');
+      await pumpEventQueue();
+
+      expect(a().auth.hasListener, isTrue);
+      expect(
+        a().scheduler.timers.where(
+          (timer) => timer.delay == const Duration(seconds: 30),
+        ),
+        hasLength(1),
+      );
+    });
+
+    test('an unbind during a run ends it before the next page: no merge, no '
+        'cursor, no last pull', () async {
+      await b().db.folderDao.createFolder(name: 'Folder');
+      await b().db.counterDao.upsertValue('c1', '', 3);
+      await b().sync();
+      a().hooks.onBeforePage = (table) async {
+        if (table == 'folders') await a().binding.unbind();
+      };
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.unbound);
+      expect(await a().db.select(a().db.folders).get(), isEmpty);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        isNull,
+      );
+      expect(await a().db.syncDao.getValue(SyncDao.keyLastPullAt), isNull);
+      expect(a().hooks.calls, isNot(contains('before:counter_values')));
+    });
+
+    test('a throwing afterRun neither masks a halt nor fails a run', () async {
+      await b().db.folderDao.createFolder(name: 'Folder');
+      await b().db.counterDao.upsertValue('c1', '', 3);
+      await b().sync();
+      a().hooks.onAfterRun = () async => throw StateError('hook');
+      final restore = Completer<void>();
+      a().hooks.onBeforePage = (table) async {
+        if (table == 'counter_values') {
+          unawaited(SyncSuspension.run(() => restore.future));
+        }
+      };
+
+      final halted = await a().sync();
+      restore.complete();
+      await pumpEventQueue();
+      a().hooks.onBeforePage = null;
+      final next = await a().sync();
+
+      expect(halted.skipped, SyncRunSkip.suspended);
+      expect(halted.failure, isNull);
+      expect(next.failure, isNull);
+      expect(next.pulledRows, 1);
+      expect(a().hooks.runs, hasLength(2));
     });
   });
 

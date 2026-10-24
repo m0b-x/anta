@@ -2,9 +2,11 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
 import 'package:anta/services/sync/tables/folders_binding.dart';
@@ -165,6 +167,92 @@ void main() {
       );
     }
     await expectConverged();
+  });
+
+  group('the conflict copy inside the page', () {
+    late Folder folder;
+    late Note note;
+
+    /// A's unpushed edit of the note is about to lose to B's newer one.
+    setUp(() async {
+      folder = await a().db.folderDao.createFolder(name: 'Training');
+      note = await writeNote(a(), folderId: folder.id, title: 'Log', body: 'base');
+      await a().sync();
+      await b().sync();
+      await editNote(a(), note.id, 'typed on A');
+      await editNote(b(), note.id, 'typed on B');
+      await b().sync();
+    });
+
+    Future<List<String>> queuedOnA() async => [
+      for (final e in await a().db.syncOutboxDao.pending())
+        '${e.syncedTable}/${e.rowKey}',
+    ];
+
+    test('a copy that fails rolls its page back: the local note, its chunks, '
+        'its queue entry and the cursor stay, and the next run files it', () async {
+      final cursor = await a().db.syncDao.getValue(
+        SyncDao.keyPullCursor('notes'),
+      );
+      a().hooks.onConflict = (_) async => throw StateError('title clash');
+
+      final report = await a().sync();
+
+      expect(report.failure, SyncGatewayFailure.unknown);
+      expect(
+        await a().db.contentChunkDao.loadContent(note.id),
+        'typed on A',
+      );
+      expect(await queuedOnA(), contains('notes/${note.id}'));
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('notes')),
+        cursor,
+      );
+      final remote = pair.gateway.rowsOf(pair.space, 'notes')[note.id]!;
+      expect(remote.deviceId, 'B', reason: 'the losing edit was not pushed');
+
+      a().hooks.onConflict = null;
+      await a().sync();
+
+      expect(a().hooks.conflicts.single.loserContent, 'typed on A');
+      expect(
+        await a().db.contentChunkDao.loadContent(note.id),
+        'typed on B',
+      );
+    });
+
+    test('a copy is filed after its page merged and before its cursor moved, '
+        'and commits with the merge', () async {
+      final cursor = await a().db.syncDao.getValue(
+        SyncDao.keyPullCursor('notes'),
+      );
+      String? mergedBody;
+      String? cursorWithin;
+      a().hooks.onConflict = (conflict) async {
+        mergedBody = await a().db.contentChunkDao.loadContent(note.id);
+        cursorWithin = await a().db.syncDao.getValue(
+          SyncDao.keyPullCursor('notes'),
+        );
+        await writeNote(
+          a(),
+          folderId: folder.id,
+          title: 'Log (copy)',
+          body: conflict.loserContent,
+        );
+      };
+
+      await a().sync();
+
+      expect(mergedBody, 'typed on B');
+      expect(cursorWithin, cursor);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('notes')),
+        isNot(cursor),
+      );
+      final copy = (await a().db.noteDao.getNotesByFolder(folder.id))
+          .singleWhere((n) => n.title == 'Log (copy)');
+      expect(await a().db.contentChunkDao.loadContent(copy.id), 'typed on A');
+    });
   });
 
   test('a note deleted on A is tombstoned on B, its chunks too', () async {
@@ -390,6 +478,78 @@ void main() {
         expect((await folderOn(device, kept.id)).name, 'X after unbind');
       }
       await expectConverged();
+    });
+
+    group('with a started engine that has no signal yet', () {
+      late Folder kept;
+      late Folder yielded;
+
+      String? spaceName(String id) =>
+          pair.gateway.rowsOf(pair.space, 'folders')[id]?.data?[JsonKeys.name]
+              as String?;
+
+      /// The unbound-then-rebound case, B's engine started while unbound so
+      /// no run and no signal reached it before the rebind.
+      setUp(() async {
+        await pair.bind(a());
+        await pair.bind(b());
+        kept = await a().db.folderDao.createFolder(name: 'X');
+        yielded = await a().db.folderDao.createFolder(name: 'Y');
+        await a().sync();
+        await b().sync();
+        await a().db.folderDao.updateFolder(id: yielded.id, name: 'Y from A');
+        await a().sync();
+        await b().db.folderDao.updateFolder(id: yielded.id, name: 'Y from B');
+        await b().binding.unbind();
+        await b().engine.start();
+        await b().settle();
+        await b().db.folderDao.updateFolder(id: kept.id, name: 'X after unbind');
+        await pair.bind(b());
+      });
+
+      Future<void> expectNewerEverywhere() async {
+        await a().sync();
+        for (final device in [a(), b()]) {
+          expect((await folderOn(device, yielded.id)).name, 'Y from A');
+          expect((await folderOn(device, kept.id)).name, 'X after unbind');
+        }
+        expect(spaceName(yielded.id), 'Y from A');
+        await expectConverged();
+      }
+
+      test('going to the background pushes nothing before the floor pull', () async {
+        pair.gateway.calls.clear();
+
+        await b().engine.onAppBackgrounded();
+
+        expect(pair.gateway.calls, isEmpty);
+        expect(spaceName(yielded.id), 'Y from A');
+        expect(
+          await b().db.syncDao.getValue(SyncDao.keyBindMergePending),
+          isNotNull,
+        );
+
+        b().engine.onAppResumed();
+        await b().settle();
+        await expectNewerEverywhere();
+      });
+
+      test('the debounced drain pulls everything under the floor before it '
+          'pushes', () async {
+        pair.gateway.calls.clear();
+        await pumpEventQueue();
+
+        expect(b().scheduler.fire(const Duration(seconds: 30)), 1);
+        await b().settle();
+
+        expect(pair.gateway.calls.first, 'pull:calendar_categories');
+        expect(
+          pair.gateway.calls.indexOf('push:B'),
+          greaterThan(pair.gateway.calls.indexOf('pull:vocabulary_items')),
+        );
+        expect(spaceName(yielded.id), 'Y from A');
+        await expectNewerEverywhere();
+      });
     });
   });
 

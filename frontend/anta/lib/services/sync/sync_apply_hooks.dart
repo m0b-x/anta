@@ -25,7 +25,11 @@ abstract interface class SyncApplyHooks {
 
   /// A strictly newer remote replaced a note whose local edit had not been
   /// pushed yet: the losing text is filed as a copy so nothing typed is lost
-  /// (D3). Called once per losing merge, after its page committed.
+  /// (D3). Called once per losing merge, inside its page's transaction after
+  /// the merges and before the cursor moves: a copy that throws rolls the
+  /// page back, so the next run merges it again rather than the losing text
+  /// being dropped. It must therefore write only through the database —
+  /// drift nests its writes as a savepoint — and leave the UI to [afterRun].
   Future<void> fileConflictCopy(SyncNoteConflict conflict);
 }
 
