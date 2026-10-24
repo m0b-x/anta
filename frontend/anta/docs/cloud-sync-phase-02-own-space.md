@@ -1,0 +1,873 @@
+# Cloud Sync Phase 02 — Own Space on N Devices
+
+**Status: PLANNED 2026-10-24 (Fable 5.1). Decisions D1–D8 await the owner's
+letters; the recommended default is marked on each.** The transport phase
+of `docs/cloud-sync-roadmap.md`: one Google account, every device shows the
+same folders, notes, calendar, counters and alert definitions. Builds on the
+readiness phase (`docs/cloud-sync-readiness-roadmap.md`, DONE 2026-10-23,
+all in `39b0c7d`): the eighteen CRDT-shaped tables with `owner_id`, the
+outbox, the persisted clock, the tombstoning wipes, the unbinding restore
+and the engine seams (`SyncGateway` + `FakeSyncGateway`, `SyncStatus`,
+`SyncBindingService`, `SyncSuspension`, `requeueAll`). Its decisions D1–D19
+stand; where this record refines one it says so. No migration is expected
+(schema stays v43). The August version of this file (calendar sync,
+ownership, consent) described what is now Phase 03; its one still-live
+point — the resurrection trap of a restore — became readiness D9/R4.
+
+**The line this phase draws:** Firestore enters the app here, behind the
+gateway only — `lib/services/sync/firestore_sync_gateway.dart` and the
+existing `pairing_gateway.dart` are the only files that import it. The
+engine is built and proven against the fake first (S2–S4), the Firestore
+gateway lands last (S5), the device pass runs against the local Firebase
+emulator suite with fake accounts and then on the owner's phone with the
+real one (S6). Android first; iOS waits on the Mac-side setup the master
+roadmap lists; desktop stays local-only (`SyncAvailability.isSupported`).
+
+## Contents
+
+1. What the owner gets
+2. Decisions for the owner (D1–D8)
+3. Design — remote shape, the wire, the engine, bind, rules, QA seam
+4. Slices S1–S6 (+ S7 optional)
+5. Must not change
+6. Risk register
+7. What only the owner does
+8. Deferred
+9. How to run this
+10. Definition of done
+11. What it costs on the Spark plan (from the owner's export)
+
+---
+
+## 1. What the owner gets
+
+- On the Sharing page, signed in, a **Sync** section: "Sync this database"
+  turns it on; from then on every change made on this device reaches the
+  account's space and every change made on another device of the same
+  account arrives here — within seconds while the app is open (the space
+  document is a live signal), and at launch or resume otherwise.
+- A second device signs in with the same account and, if its database holds
+  nothing, binds in one tap; if it already holds data, a picker offers
+  "Merge this database into the space" or "Download the space into a new
+  database" (readiness D3), or "Upload as a new space".
+- Edits on both devices to different things merge; edits to the same thing
+  resolve last-writer-wins by the hybrid clock (readiness D5); two devices
+  editing the same **note** before syncing keep the losing text as a
+  conflict copy (D7, §2 D3 below). Deletes propagate as tombstones.
+  Counters merge per value (readiness D8).
+- Alerts ring on every device: each device arms its own registrations from
+  the synced definitions after every applied batch (readiness D11).
+- The status row says what sync is doing: up to date, uploading n changes,
+  downloading, offline and retrying, paused (daily limit, another account,
+  app outdated), with "Sync now" and "Stop syncing this database".
+- What stays as it is: pairing (Phase 01) and the `pairs`/`invites`
+  collections, backups (format 7), the restore's unbind, every string of
+  the rest of the app.
+
+---
+
+## 2. Decisions for the owner (D1–D8)
+
+Answer with letters ("D1 A, D2 A, …"). A is the recommended default. Each
+is reversible before the slice that builds it ships; the slice is named.
+
+- **D1 — How a database starts syncing** (S4). **A:** an explicit "Sync this
+  database" row on the Sharing page, enabled once signed in; nothing is
+  uploaded before the tap. The first device with no space yet creates the
+  account's first space and binds in that tap. **B:** automatic at first
+  sign-in, as readiness D3 wrote it. A refines D3's trigger only — sign-in
+  is global (pairing uses it too) while binding is per database, and an
+  upload nobody asked for is the wrong surprise for a tracker that is
+  someone's training log. One more tap, no surprise.
+- **D2 — A second device whose database already holds data** (S4). **A:**
+  the picker from readiness D3: "Merge this database into the space"
+  (initial merge under the bind floor, D15), "Download the space into a new
+  database" (creates and switches to a new local database, then binds it),
+  or "Upload as a new space". An empty database skips the picker and binds.
+  **B:** merge only, no new-database path, no new spaces beyond the first
+  (drops the multi-database part of D3 for now). A is one sheet more; B
+  would leave a tablet with its own notes no way to keep them separate.
+- **D3 — The conflict copy** (S3). **A:** when a newer remote note arrives
+  over a note this device changed and has not pushed yet, and the texts
+  differ, the losing text is saved as a new note in the same folder titled
+  "`<title>` (conflict copy, `<date time>`)", which syncs like any note, so
+  both devices show the original and the copy. Without a device name on
+  hand the title carries the time rather than readiness D7's `<device>`
+  (a device id is a uuid nobody recognises). **B:** copies go to a root
+  folder named "Conflicts". A keeps the copy where the owner is looking.
+- **D4 — Where sync status shows** (S4). **A:** the Sync section on the
+  Sharing page only — state line, last sync time, pending count, Sync now.
+  **B:** also a small cloud glyph in the browser's app bar while something
+  is pending or paused. A adds no chrome to the two pages that carry the
+  app; B can come with Phase 04's status work.
+- **D5 — Sign-out on a bound database** (S4). **A:** the binding stays;
+  sync pauses ("Paused — signed out") and resumes when the same account
+  signs back in; a different account signing in shows "Paused — this
+  database syncs with another account" with "Stop syncing this database" as
+  the way out (readiness D3 ii, `SyncPause.accountMismatch` as built).
+  **B:** sign-out unbinds (the next sign-in is a fresh bind with a full
+  re-merge). A matches the pairing precedent and never discards a floor.
+- **D6 — Removing data from the cloud** (S4 / Phase 04). **A:** this phase
+  ships "Stop syncing this database" (local unbind, the space stays). A
+  "Delete cloud copy" that deletes a space's documents in 500-document
+  batches within the daily quota is Phase 04. **B:** "Delete cloud copy"
+  now, as a resumable background job with its own status line. A keeps the
+  phase on the engine; B is a slice of its own.
+- **D7 — The push relay** (S7). **A:** not in this phase: while the app is
+  open on both devices changes arrive within seconds through the space
+  listener; a device not open catches up at launch and resume. A new alert
+  created on the phone will not ring on a tablet that stays closed
+  (readiness D11's honesty clause). **B:** the Cloudflare Worker from
+  `docs/cloud-sync-connections-design.md` §Push as the last slice, sending
+  a "pull now" data message to the account's other devices — needs the
+  owner's free Cloudflare account and `firebase_messaging`. **C:** a
+  periodic background pull with WorkManager instead of the Worker. A now;
+  B when the owner has the account; C is the heavier road (a background
+  isolate opening the database beside a live app).
+- **D8 — The page's name** (S4). **A:** the Settings row and the page title
+  become "Sync & sharing" (`sharingSettings`, en/de/ro), since the page now
+  carries the owner's own devices as much as the partner link. **B:** stays
+  "Sharing". A is one string in three languages.
+
+Decided here without a question (engineering, reversible, each with its why
+in §3): Firestore's local persistence is turned **off** app-wide; the pull
+cursor follows **server arrival order** with a ten-second overlap instead
+of the readiness `(hlc, rowKey)` cursor; the space document is the change
+signal; a remote row older than the local one **re-queues the local row**;
+a space written by a newer app schema pauses older devices
+(`SyncPause.appOutdated`); no server-side last-writer-wins in the rules.
+
+---
+
+## 3. Design
+
+### 3.1 Remote shape (readiness D1, concrete)
+
+```
+users/{uid}/spaces/{spaceId}                 // the space document = the signal
+  name: string (≤ 100)                       // "Main" for the default database,
+                                             // else the database name
+  createdAt: server timestamp
+  createdBy: deviceId
+  schema: int                                // the highest DatabaseSchema.currentVersion
+                                             // that ever pushed here (raised, never lowered)
+  touched: { <table>: server timestamp }     // last push that wrote the table
+  lastWriter: deviceId, lastWriteAt: server timestamp
+
+users/{uid}/spaces/{spaceId}/{table}/{rowKey}   // seventeen subcollections; never
+                                                // content_chunks (readiness D14)
+  hlc, deviceId, version, op: 'upsert' | 'tombstone', ownerId: uid
+  data: map | null                           // the backup serializer's map; null for a
+                                             // tombstone; a note's data carries its body
+  pushedAt: server timestamp, pushedBy: deviceId
+```
+
+The `rowKey` is the document id exactly as the outbox keys it (readiness
+§3: ids as they are; `counterId|noteId`; `eventId|dayEpochMs`). `pairs` and
+`invites` stay as shipped. A `users/{uid}/tokens/{token}` collection is the
+Worker's (S7 only).
+
+### 3.2 The wire
+
+`SyncEnvelope` as built (`lib/services/sync/sync_gateway.dart:18-55`) is
+the document minus the server fields. `SyncCodec` (S2) encodes a row with
+its table's **backup serializer** — the wire format is the backup format,
+master roadmap stance — and decodes with the same table's import parser;
+dates cross as epoch-ms integers; a note's `data` carries `content` (the
+chunks joined, readiness D14), so a note is one document and chunks are a
+local storage detail the merge rewrites. A note whose document would exceed
+Firestore's 1 MiB is refused with a visible reason and parked (§3.5), never
+split.
+
+### 3.3 The gateway contract, amended (S1)
+
+The readiness `pullSince(space, table, {sinceHlc, sinceRowKey})` ordered by
+`(hlc, rowKey)` (`sync_gateway.dart:99-108`) is replaced, because an HLC
+cursor loses rows: a phone edits offline at 09:30 (stamp 09:30), the tablet
+meanwhile pulls rows stamped 09:55 from elsewhere and stores that as its
+cursor, the phone pushes at 10:05 — its 09:30 row sits below the tablet's
+cursor for good. HLC order is write order, not arrival order; a pull must
+follow arrival order. So:
+
+- `pullPage(space, table, {SyncCursor? after, int limit}) →
+  SyncPullPage(envelopes, next, hasMore)` with an opaque `SyncCursor`
+  (`String value`) the gateway defines: Firestore orders by
+  `pushedAt`, then document id, and encodes `<pushedAt micros>|<rowKey>`;
+  the fake orders by an arrival sequence number. `ack` is dropped (it was a
+  hint nobody kept).
+- When a pull **resumes from a stored cursor**, the Firestore gateway starts
+  ten seconds before it (`pullOverlap`): `request.time`, which
+  `serverTimestamp()` resolves to, is the time a write was *received*, and
+  a write received earlier can commit later than a query that already ran.
+  The overlap re-reads a handful of rows the merge treats as no-ops (an
+  equal stamp changes nothing). Pages inside one pull resume exactly.
+- `pushBatch(space, batch)` writes every envelope with `pushedAt =
+  serverTimestamp()` **and**, in the same batch, merges
+  `touched[table] = serverTimestamp()` for each table in the batch,
+  `lastWriter`, `lastWriteAt` and `schema = max(current, mine)` into the
+  space document. The gateway's `maxBatch` is an instance getter: 499 for
+  Firestore (the space document takes the 500th slot), 500 for the fake.
+- New: `createSpace(ownerUid, name, deviceId, schema) → SyncSpaceInfo`,
+  `listSpaces(ownerUid)`, `readSpace(space)`, `watchSpace(space) →
+  Stream<SyncSpaceSignal>` (`touched`, `lastWriter`, `schema`).
+- `SyncGatewayFailure` gains `invalidData` (a document the server refuses:
+  too large, malformed) beside `offline`, `quotaExhausted`,
+  `permissionDenied`, `unknown`.
+
+### 3.4 The merge (S2)
+
+One method per table, `mergeRemote(envelope)` on its DAO beside the
+existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
+(`folder_dao.dart:743`) and `ContentChunkDao.mergeChunk`
+(`content_chunk_dao.dart:316`), all with one contract, in one transaction:
+
+1. Load the local row by key. Absent → insert the remote row with its
+   stamps verbatim (`MergeOrigin.remote`: no outbox entry, no new stamp),
+   `db.hlc.update(remote)`.
+2. Present → compare the HLC strings (the string embeds the device id, so
+   equal means the same write). **Remote newer:** write the remote row over
+   the local one, stamps verbatim; drop a stale outbox entry
+   (`SyncOutboxDao.ackThrough(table, rowKey, localHlc)`) so the overwritten
+   local change is not pushed back as an echo. **Local newer:** keep the
+   local row and make sure it is queued (`requeueRow(table, rowKey)`, an
+   `INSERT … SELECT` of that one row at its own stamp, S2) — this is the
+   repair for the lost-update window: a push that landed over a newer
+   remote is corrected by the device that holds the newer row, next drain.
+   **Equal:** nothing.
+3. **Under the bind floor** (the initial merge only, readiness D15 amended):
+   while `sync_metadata['bind_merge_pending']` is set, a present row whose
+   local HLC is ≤ `bind_floor` yields to the remote even when the remote is
+   older; the stale outbox entry is dropped the same way. The engine clears
+   the flag after the first complete pull of every table.
+4. A tombstone merges like any row (`is_deleted`, `deleted_at`, stamps);
+   an upsert newer than a local tombstone resurrects. **No cascade** on a
+   remote write: every descendant has its own envelope, because the local
+   cascade enqueued each row (readiness R3). Device-local `alert_registrations`
+   follow through `reconcileAll(sync)`, not here.
+5. Notes: `mergeNoteDocument(note, content)` replaces the chunks when the
+   remote wins (the `saveContent` shape without stamping or queueing), keeps
+   FTS in step as `mergeNote` does, and returns the overwritten row **and
+   whether it had an unpushed outbox entry** — the conflict-copy condition
+   (D3). Folders and notes keep `createFolder`/`createNote`'s `ownerId`.
+6. Returns a `MergeOutcome` (`applied` | `keptLocal` | `unchanged`, plus
+   the loser for notes). Nothing above the DAO sees a tombstone (readiness).
+
+Built-in categories (fixed ids) merge like any row. `owner_id` on a pulled
+row is stored as received (always the account's uid in this phase).
+
+### 3.5 The engine (S3) — `lib/services/sync/sync_engine.dart`
+
+A singleton on the `DatabaseLifecycle` reset contract (a database switch
+stops it; the next `getInstance` builds against the new database's
+binding), constructed by DI only when `canSync` (`injection.dart:147`),
+holding the gateway, `SyncBindingService`, `SyncStatusService`, the auth
+stream and the `AlertScheduler`. It runs only while **bound ∧ signed in as
+the bound account ∧ `!SyncSuspension.isSuspended` ∧ not paused**, and
+checks all four before every pull, push and bind (readiness §7).
+
+- **Pull.** Tables in dependency order (`calendar_categories`,
+  `calendar_event_templates`, `calendar_events`, the three day tables,
+  `calendar_event_alerts`, `calendar_category_alerts`, `event_digests`,
+  `calendar_filter_presets`, `overview_views`, `folders`, `notes`,
+  `counters`, `counter_values`, `vocabularies`, `vocabulary_items`); per
+  table page after page from `sync_metadata['pull_cursor.<table>']`; each
+  page is applied in **one transaction**: the merges, the cursor, then
+  `persistClock()` once (readiness R5). After a page that changed rows, the
+  hooks for the tables it touched: `NoteRepository.invalidateAll()`
+  (`note_repository.dart:624`) and `FolderRepository.invalidateAll()`
+  (`folder_repository.dart:520`), plus the storage services' change events
+  (or `FolderSearchService.updateIndex`) for every merged note and folder
+  so the browser and the search index see them — the drift streams refresh
+  open lists on their own; the calendar services' `reload()`
+  (`CategoryService` :104, `EventTemplateService` :70,
+  `CalendarEventService` :114, `EventOccurrenceService` :71,
+  `EventPresenceService` :74, `EventSkipService` :74, `EventAlertService`
+  :131, `EventDigestService` :79, `FilterPresetService` :85,
+  `OverviewViewService` :73) then `CalendarEventService.notifyExternalChange()`
+  (`calendar_event_service.dart:85`); `CounterService.reload()` (S2 adds it;
+  today only `_load()` :98) and `VocabularyService.reload()` (:71);
+  `AlertScheduler.reconcileAll(AlertReconcileReason.sync)`
+  (`alert_scheduler.dart:341`) once per applied batch that touched events,
+  alert definitions or digests. Envelopes whose `deviceId` is this device's
+  are applied like any other (the merge makes them no-ops).
+- **The signal.** While running and the app is in the foreground, one
+  listener on the space document (`watchSpace`). On every snapshot: a table
+  whose `touched[table]` moved past `sync_metadata['pull_seen.<table>']` is
+  pulled, then `pull_seen` stored. The device's own pushes move `touched`
+  too, so its own rows are read back once (one read per row written —
+  accepted, §11). A snapshot whose `schema` is above
+  `DatabaseSchema.currentVersion` sets `SyncPause.appOutdated` ("Update ANTA
+  on this device"), lifted when the app is updated.
+- **Push (drain).** Triggered 30 s after the last outbox write (a drift
+  `tableUpdates` stream on `sync_outbox`, debounced; readiness D19),
+  **immediately** when the app goes to the background
+  (`AppLifecycleListener`, the `permission_service.dart:106-120`
+  precedent), after a pull, and by "Sync now". A drain: `pending(limit:
+  gateway.maxBatch)` → load the current rows by key per table → encode
+  (a `tombstone` entry needs no row read: `data` null) → `pushBatch` →
+  `ackThrough` each entry at the HLC the row had when read (an entry
+  bumped by an edit during the push stays queued) → `last_push_at`.
+  Repeat until the outbox is empty or a call fails.
+- **Failures.** `offline` / `unknown`: retry with back-off 30 s, 1, 2, 5,
+  10 min (cap) while in the foreground, at once on resume. `quotaExhausted`:
+  `SyncPause.quotaExhausted` with the time; retry hourly and on launch /
+  resume, cleared by the first success (readiness D19). `permissionDenied`:
+  `SyncPause.noAccess` (rules refused the space; a stale binding) until the
+  next sign-in or launch. `invalidData`: bisect the batch (halves, then
+  single envelopes) to find the refused envelope, **park** it for the
+  session (in memory; `SyncStatus.parkedCount`; retried next launch) and
+  continue — one oversized note must not stop every other row.
+- **Order within a run:** pull, then push — so a push never carries a row
+  the device would have lost to a newer remote a moment later.
+- **Status.** `SyncStatus` (`sync_status.dart:20`) gains `activity` ∈
+  {idle, pulling, pushing}, `lastPullAt`, `lastFailure` (failure + time),
+  `parkedCount`, `downloadedRows` (the initial pull's progress), and
+  `SyncPause` gains `noAccess`, `appOutdated`, `signedOut`.
+  `SyncStatusService.read` keeps computing `accountMismatch`
+  (`sync_status_service.dart:57`); the engine publishes the rest through a
+  `Stream<SyncStatus>` the `SyncBloc` subscribes to.
+- **The conflict copy (D3)** is filed by the engine from the note merge's
+  returned loser: a local write through `NoteRepository` (stamped, queued),
+  same folder, the loser's body, the title of D3; once per losing merge.
+- **Clock.** Every applied envelope passes through `db.hlc.update` inside
+  the merge (the drift guard of readiness R5 holds a far-ahead stamp);
+  `persistClock()` once per applied page.
+
+### 3.6 Bind, unbind, mismatch (S4)
+
+- `SyncBindingService.bind({space, accountUid})`, one transaction:
+  `setSyncBinding` (the four `sync_space_*` keys,
+  `settings_keys.dart:405-411`); the `owner_id` backfill `UPDATE <table> SET
+  owner_id = ? WHERE owner_id IS NULL` on the seventeen queued tables
+  (readiness D17; `content_chunks` stays NULL as built);
+  `SyncOutboxDao.requeueAll(boundUid:)` (`sync_outbox_dao.dart:68`); the
+  pull cursors and `pull_seen` deleted; `bind_merge_pending := 1`;
+  `writeBindFloor()` **only when no floor exists** (readiness D15: a
+  never-bound database floors at bind time; a restored or unbound one keeps
+  the floor R4 wrote). The engine then runs: pull everything under the
+  floor rule, drain the re-seeded queue.
+- One database ↔ one space, and a space bound at most once per install
+  (readiness D3 i): an install-wide registry in `SharedPreferences`
+  (`sync_bound_spaces`, through `SettingsService` so the QA prefix applies)
+  of `{spaceId, databaseName}`; `bind` refuses a space another database of
+  this install holds, with a visible reason.
+- **First device, no space:** `createSpace` then `bind`, in the tap (D1).
+  **Any device, spaces exist:** the picker (D2) over `listSpaces`.
+  "Download into a new database": `DatabaseManager.createDatabase(name)`
+  (`database_manager.dart:104`), the switch the Settings database page
+  already performs, then `bind` on the fresh database — nothing local to
+  merge, the pull fills it.
+- **Unbind** = `SyncBindingService.unbind()` as built (keys, outbox, floor,
+  one transaction) plus the registry entry and the engine stopping; the
+  space is untouched (D6 A).
+- **Mismatch / sign-out** per D5. A restore keeps readiness R4's behaviour
+  (unbinds inside the suspension, floors after); afterwards the Sharing
+  page offers the picker again.
+
+### 3.7 Rules (S1)
+
+Owner-only, shape-checked, no deletes; `pairs`/`invites` untouched.
+`pushedAt == request.time` so a client cannot backdate a row below every
+puller's cursor. No `hlc` ordering clause: enforcing last-writer-wins in the
+rules would fail a whole batch for one stale row in the race window §3.4
+repairs client-side. Full text in S1. Deploy:
+`firebase deploy --only firestore:rules --project alexs-note-tracking-app`
+from `frontend/anta` after adding `"firestore": {"rules": "firestore.rules",
+"indexes": "firestore.indexes.json"}` to the gitignored `firebase.json`
+(today it holds only the `flutter` block). No composite index: the pull
+orders by `pushedAt` then the document id.
+
+### 3.8 Firestore settings and the QA seam (S5)
+
+- `FirebaseFirestore.instance.settings = Settings(persistenceEnabled:
+  false)` once, in DI, before any use. The outbox is the one durable queue;
+  with the SDK's own queue on, a `commit()` made offline never completes
+  and a batch replayed by the SDK after a restart could overwrite a newer
+  document. Pairing keeps working — its reads were server reads already
+  (`PairingService` reports `offline` / `unavailable`,
+  `pairing_service.dart:371,498`); S6 drives the Sharing page offline to
+  confirm nothing new surfaces.
+- `QaMode.firebaseEmulatorHost` (`ANTA_QA_FIREBASE_EMULATOR`, e.g.
+  `10.0.2.2` from a guest) beside `allowCloud` (`qa_mode.dart:29`): when set,
+  DI points Auth at `:9099` and Firestore at `:8080`
+  (`useAuthEmulator` / `useFirestoreEmulator`) and
+  `FirebaseAuthService.signInWithGoogle` signs in with a QA identity the
+  emulator accepts without Google (`ANTA_QA_ACCOUNT=<uid>:<email>`; the
+  implementer verifies the emulator's fake-token form against the Firebase
+  docs and falls back to the emulator's email sign-in). Compiled out
+  without `ANTA_QA`.
+- `tool/firebase/firebase.json` (tracked): the emulator suite — auth 9099,
+  firestore 8080 with `../../firestore.rules`, UI 4000 — and
+  `tool/firebase/emulators.cmd` / `.sh` running `firebase emulators:start
+  --project demo-anta --config tool/firebase/firebase.json`. Node 26, Java
+  25 and firebase-tools 15.27 are on the Windows machine.
+
+---
+
+## 4. Slices S1–S6 (+ S7 optional)
+
+Every slice: one `implementer` (Opus 5.5) from a brief built from its
+section here plus §5, then one `reviewer`; the review's fixes ride at the
+head of the next slice's run (the readiness recipe); gate = `dart analyze
+lib` clean, the whole `flutter test` green, `flutter gen-l10n` with an empty
+`untranslated.txt` when ARBs changed. Then one commit by the lead, short
+subject, no ledger. The order is fixed: S2 needs S1's cursor, S3 needs S2's
+merges, S4 and S5 need S3, S6 needs all.
+
+### S1 — Record, gateway contract, rules
+
+- This record; `docs/cloud-sync-roadmap.md` ladder row 02 and status line;
+  `.claude/skills/anta-context/references/docs-index.md`;
+  `sync-and-accounts.md` (the cursor amendment, the remote shape);
+  the two old-name references (`category-alerts-and-digests-roadmap.md:527`,
+  `presence-tracking-roadmap.md:168`).
+- `sync_gateway.dart`: §3.3 — `SyncCursor`, `SyncPullPage`,
+  `SyncSpaceInfo`, `SyncSpaceSignal`, `pullPage`, `createSpace`,
+  `listSpaces`, `readSpace`, `watchSpace`, `maxBatch` as an instance getter,
+  `invalidData`; `ack`/`pullSince` removed. `test/support/fake_sync_gateway.dart`
+  follows (arrival-sequence cursor, a broadcast signal stream, `failNextWith`
+  kept); `test/services/sync/fake_sync_gateway_test.dart` extended (a late
+  arrival with a lower HLC is still pulled; a page boundary inside one
+  batch; the signal fires once per push with the touched tables).
+- `firestore.rules`: under `match /databases/{database}/documents`:
+
+  ```
+  match /users/{owner}/spaces/{spaceId} {
+    function isOwner() { return signedIn() && uid() == owner; }
+    function validSpace() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['name', 'createdAt', 'createdBy', 'schema',
+                               'touched', 'lastWriter', 'lastWriteAt'])
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 100
+          && d.schema is int && d.schema > 0
+          && d.createdBy is string && d.createdBy.size() <= 64;
+    }
+    allow get, list: if isOwner();
+    allow create: if isOwner() && validSpace()
+                  && request.resource.data.createdAt == request.time;
+    allow update: if isOwner() && validSpace()
+                  && request.resource.data.createdAt == resource.data.createdAt
+                  && request.resource.data.schema >= resource.data.schema;
+    allow delete: if false;
+
+    match /{table}/{rowKey} {
+      function syncedTable() {
+        return table in ['folders', 'notes', 'counters', 'counter_values',
+          'calendar_events', 'calendar_categories', 'calendar_category_alerts',
+          'calendar_event_occurrences', 'calendar_event_absences',
+          'calendar_event_skips', 'calendar_event_alerts',
+          'calendar_event_templates', 'calendar_filter_presets',
+          'overview_views', 'event_digests', 'vocabularies', 'vocabulary_items'];
+      }
+      function validEnvelope() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['hlc', 'deviceId', 'version', 'op', 'ownerId',
+                                 'data', 'pushedAt', 'pushedBy'])
+            && d.hlc is string && d.hlc.size() > 0 && d.hlc.size() <= 80
+            && d.deviceId is string && d.deviceId.size() <= 64
+            && d.version is int
+            && d.op in ['upsert', 'tombstone']
+            && d.ownerId == uid()
+            && (d.op == 'tombstone' ? d.data == null : d.data is map)
+            && d.pushedAt == request.time
+            && d.pushedBy is string;
+      }
+      allow get, list: if isOwner() && syncedTable();
+      allow create, update: if isOwner() && syncedTable() && validEnvelope();
+      allow delete: if false;
+    }
+  }
+  ```
+
+  `firestore.indexes.json` unchanged. Deploy only on the owner's yes (§7).
+- Skills: `anta-context`, `flutter-principles`. Effort `medium` for the
+  implementer: the record fully specifies it.
+
+### S2 — The wire codec and the merge for every table
+
+- `lib/services/sync/sync_codec.dart` (§3.2) and the per-table binding
+  registry `lib/services/sync/sync_tables.dart` — one entry per
+  `syncedTables` row (`synced_tables.dart:50-69`, minus `content_chunks`)
+  with `loadByKeys`, `encode`, `mergeRemote`, the invalidation class and
+  the pull order; a test pins that every `syncedTables` entry has one.
+- The merge methods of §3.4 on each DAO; `SyncOutboxDao.requeueRow`;
+  `mergeNoteDocument`; the floor rule behind `bind_merge_pending`;
+  `MergeOutcome`.
+- **S2 facts** (the explorer's sweep, 2026-10-24; verify a line before
+  building on it). The backup export maps carry data fields only (never
+  the clock fields); `JsonKeys` is `lib/constants/json_keys.dart:1`
+  (`content` :9, `ownerId` :24), `EventAlertKeys`
+  `lib/constants/event_alerts.dart:37`; the day tables write the literal
+  key `dayMs` (`event_occurrence_service.dart:194`,
+  `event_presence_service.dart:189`, `event_skip_service.dart:187`).
+  `database.dart` sets no `PRAGMA foreign_keys` (:404-413), so the pull
+  order is for the UI's sake only. Drift streams exist for notes
+  (`note_dao.dart:1042`) and folders (`folder_dao.dart:806`) alone; every
+  other table is cached in its service.
+  - `folders`: export inline `backup_service.dart:75-90`; import appends
+    through `createFolder` :400-413 (fresh ids — not the merge's shape);
+    `FolderDao.mergeFolder` :743, `insertFolder` :133; cache
+    `FolderRepository.mergeFolder` :490 / `invalidateAll` :520.
+  - `notes`: export `backup_service.dart:59-73` with the body from
+    `contentChunkDao.loadContent` :61 under `content` :66; import appends
+    through `createNote` :415-434; `NoteDao.mergeNote` :927 (FTS kept
+    :924-926), `insertNote` :147; `NoteRepository.mergeNote` :608 emits no
+    `NoteChange`; `invalidateAll` :624 clears `_contentCache` too.
+    `FolderSearchService.updateIndex(noteId, title, content)`
+    `folder_search_service.dart:598-603`; its index otherwise learns of
+    notes only through `_storageService.changes` (:506-519), so a merged
+    note needs `updateIndex` or a `NoteChange`.
+  - `content_chunks`: no export of its own; `ContentChunkDao.mergeChunk`
+    :316 (no repository wrapper); `loadContent` is the read.
+  - `counters`: export `counter_service.dart:379-420` as JSON strings
+    (`Counter.toJson()` + `ownerId`, `lib/models/counter.dart:26`); import
+    wipes (:424) then `insertCounter` (`counter_dao.dart:38`); no merge;
+    cache `_counters` :31, `_counterIndex` :34, `_globalValues` :37,
+    `_noteValuesCache` :41, `_load()` :98 — **no public reload** (S2 adds
+    `CounterService.reload()`).
+  - `counter_values`: no per-row map in the backup (folded into
+    `globalValues` / `noteValues` / `noteValueExtras`, :417-419) — the codec
+    defines the per-row map (`counterId`, `noteId`, `value`, `isPinned`,
+    `position`, timestamps, `ownerId`); `CounterDao.upsertValue` :161; no
+    merge.
+  - `calendar_events`: export `calendar_event_service.dart:262-298`
+    (`startDateMs`, `endDateMs`, `assumeAbsentFromMs`, …); import wipes
+    :304 then `importAll` (`calendar_event_dao.dart:292`); `upsert` :56,
+    `tombstoneEventCascade` :108; cache `_cache` :27, `reload()` :114,
+    `notifyExternalChange()` :85.
+  - `calendar_categories`: export `category_service.dart:370-387`; import
+    `_persistImport` :409 (wipe :410, `importAll`
+    `calendar_category_dao.dart:114`, reseed :469); `insertCategory` :139;
+    cache `_cache` :45, `reload()` :104, publishes
+    `CalendarCategories.updateCache` :116.
+  - `calendar_category_alerts`: export `event_alert_service.dart:314`
+    (`CategoryAlert.toJson` `lib/models/category_alert.dart:98`); import
+    :329; `CategoryAlertDao.importAll` `category_alert_dao.dart:181`; no
+    upsert; cache `_byCategory` :129, `reload()` :131.
+  - `calendar_event_occurrences` (Dart `EventOccurrenceDescriptions`):
+    export `event_occurrence_service.dart:188-201`; import :206 (wipe,
+    `importAll` `event_occurrence_dao.dart:202`); `upsert` :42; cache
+    `_byEvent` :77, `reload()` :71, facade
+    `OccurrenceDescriptions.updateCache`.
+  - `calendar_event_absences` (Dart `EventAbsences`): export
+    `event_presence_service.dart:183-196` (`status`); import :201;
+    `EventAbsenceDao.importAll` `event_absence_dao.dart:162`; no upsert;
+    cache `_byEvent` :72, `reload()` :74, facade `EventPresence.updateCache`.
+  - `calendar_event_skips` (Dart `EventSkips`): export
+    `event_skip_service.dart:181-193`; import :198; `EventSkipDao.importAll`
+    `event_skip_dao.dart:140`; no upsert; cache `_byEvent` :72, `reload()`
+    :74, facade `EventSkips.updateCache`.
+  - `calendar_event_alerts` (Dart `EventAlerts`): export
+    `event_alert_service.dart:370-381` (`_rowToAlert(row).toJson()` +
+    keys); import :386; `EventAlertDao.importAll` `event_alert_dao.dart:258`;
+    no upsert; cache `_byEvent` :124, `_published` :179, `reload()` :131,
+    facade `EventAlerts.updateCache`.
+  - `calendar_event_templates`: export `event_template_service.dart:116-145`;
+    import :151; `EventTemplateDao.upsertTemplate` `event_template_dao.dart:39`,
+    `importAll` :124; cache `_cache` :66, `reload()` :70, facade
+    `CalendarTemplates.updateCache`.
+  - `calendar_filter_presets`: export `filter_preset_service.dart:213-227`;
+    import :237; `FilterPresetDao.upsertPreset` `filter_preset_dao.dart:39`;
+    cache `_cache` :76, `reload()` :85.
+  - `overview_views`: export `overview_view_service.dart:186-200`; import
+    :206; `OverviewViewDao.upsertView` `overview_view_dao.dart:35`; cache
+    `_cache` :64, `reload()` :73.
+  - `event_digests`: export `event_digest_service.dart:177-192`; import
+    :198; `EventDigestDao.upsertDigest` `event_digest_dao.dart:33`; cache
+    `_cache` :70, `reload()` :79, facade `EventDigests.updateCache`.
+  - `vocabularies` / `vocabulary_items`: export
+    `vocabulary_service.dart:198-227` with the items nested under `items`
+    (:203-212 is the per-item map the codec uses); import :230 / `importItem`
+    :277 (`vocabulary_dao.dart:299`); `upsertVocabulary` :53; cache `_cache`
+    :31, `reload()` :71, facade `Vocabularies.updateCache`.
+- Tests: per table `test/database/<table>_merge_test.dart` (absent → insert
+  with verbatim stamps and no outbox row; newer wins and drops the stale
+  outbox entry; older keeps local and re-queues it; equal is a no-op;
+  tombstone applies; upsert resurrects; the floor rule; notes replace
+  chunks and keep FTS; counters' `noteId == ''` key; day keys as epoch-ms);
+  `sync_codec_test` round-trips every table's row through encode → decode,
+  including a note with a 14 KB body and a composite key.
+  `crdt_write_guard_test`'s allow-list grows by the merge helper only.
+- Two implementer runs if the reviewer of S1 is still out: S2a browser-side
+  (folders, notes, counters, counter values, vocabularies), S2b calendar
+  (the rest), as R3a/R3b were. Skills: `drift-migrations`, `anta-context`,
+  `calendar-events` for S2b, `flutter-principles`.
+
+### S3 — The engine
+
+- `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
+  if it reads better; `SyncStatus` / `SyncPause` additions; the
+  `Stream<SyncStatus>`; the engine registered in DI behind `canSync`
+  (`injection.dart:145-156`) and on the lifecycle reset; `SyncBloc`
+  (`sync_bloc.dart:35-39`) subscribes and gains `SyncNowRequested`.
+- Tests: `test/services/sync/sync_engine_test.dart` with **two in-memory
+  databases and one fake gateway** — the convergence suite: an edit on A
+  appears on B; both edit different rows; both edit the same event (LWW);
+  both edit the same note (conflict copy on the loser's device, then both
+  show both notes); a tombstone and a cascade propagate; a resurrection;
+  counters per value; the late-arrival case (A's lower-HLC row pushed after
+  B pulled higher ones); the lost-update window (A overwrites B's newer
+  row; B re-queues; convergence after B's drain); offline back-off; quota
+  pause and clear; `invalidData` bisect and park; suspension stops a drain;
+  a database switch stops the engine; `persistClock` once per page; the
+  hooks called once per applied page; the pull-before-push order; the
+  initial merge under the floor (never-bound, unbound-then-rebound,
+  restored). Benchmarks carry the `benchmark` tag.
+- **Rehearsal, local only, never committed:** a throwaway test opens a copy
+  of the owner's export (`C:\Users\mobx3\Downloads\gym_notes_anta.db`,
+  schema v42) through `AppDatabase` on a temp file — the v43 migration runs
+  on real data — binds it against the fake with a second empty database,
+  drains, pulls, and compares row counts per table. The numbers go into
+  this record's §11 "as rehearsed"; the test file is deleted.
+- Skills: `anta-context`, `calendar-events`, `flutter-principles`.
+
+### S4 — Bind, the picker, the Sync section
+
+- `SyncBindingService.bind` and the install registry (§3.6);
+  `SyncSpaceService` (create / list through the gateway, the space name
+  rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
+  states carrying the picker's data; the Sharing page
+  (`sync_settings_page.dart:150-186`): a **Sync** section between Account
+  and Pairing with the status row (D4) and the bind / unbind row, the
+  picker as a form sheet (`ui-language`: `FormSheetFrame`, choice rows, the
+  semantics ids catalogue), D1/D2/D5/D6/D8 as lettered; strings in
+  `app_en.arb` / `app_de.arb` / `app_ro.arb` together, `flutter gen-l10n`,
+  `untranslated.txt` empty; the Settings row title per D8.
+- The "download into a new database" path reuses the database page's
+  create-and-switch; the new database binds with no local rows.
+- Tests: `sync_binding_service_test` (+ bind: keys, backfill on seventeen
+  tables with `content_chunks` untouched, `requeueAll`, cursors cleared,
+  the floor only when absent, the registry refusal, one transaction — a
+  failure leaves nothing bound); `sync_bloc_test` (+ bind / unbind /
+  sync-now / mismatch / signed-out status); a widget suite for the Sync
+  section and the picker against the robots in `test/widgets/support/`
+  (every state line, the disabled row signed out, the picker's three
+  choices, semantics ids, text scale 2.0 without overflow).
+- No `designer` run (the section is settings rows and a two-choice form
+  sheet on existing primitives); a `design-reviewer` pass after the build.
+  Skills: `ui-language`, `l10n`, `anta-context`, `flutter-principles`.
+
+### S5 — The Firestore gateway and the emulator seam
+
+- `lib/services/sync/firestore_sync_gateway.dart` per §3.1/§3.3: batches
+  with the space document merged in, `pushedAt = serverTimestamp()`,
+  `maxBatch = 499`; `pullPage` as `orderBy('pushedAt').orderBy(
+  FieldPath.documentId).startAfter([ts, rowKey]).limit(n)` from `Source.server`,
+  the ten-second overlap on a stored cursor; `watchSpace` over
+  `snapshots()`; `FirebaseException.code` mapped the way
+  `FirestorePairingGateway._guard` does (`pairing_gateway.dart:134-159`):
+  `unavailable` / `deadline-exceeded` → `offline`, `resource-exhausted` →
+  `quotaExhausted`, `permission-denied` / `unauthenticated` →
+  `permissionDenied`, `invalid-argument` / `failed-precondition` →
+  `invalidData`, else `unknown`. Persistence off in DI (§3.8). DI binds the
+  gateway behind `canSync`.
+- The QA seam and `tool/firebase/` (§3.8); `qa build` already passes extra
+  defines (`tool/qa/src/apk_build.dart:20-21`, `runner.dart:11-12`).
+- Tests: the pure parts extracted and unit-tested — the cursor codec, the
+  envelope ↔ document map (both directions, tombstones, the space document
+  merge payload), the error mapping, the overlap arithmetic; a source-scan
+  test that no file outside the two gateways imports `cloud_firestore`.
+- Skills: `anta-context`, `qa-emulator` (for the defines), `flutter-principles`.
+
+### S6 — Gate, device pass, docs
+
+- The gate; `qa-runner` runs the two-device pass: the emulator suite on the
+  host (`tool/firebase/emulators.cmd`), two fleet guests (`emulator-5556`,
+  `emulator-5558`) with a QA build carrying `ANTA_QA_CLOUD=true`,
+  `ANTA_QA_FIREBASE_EMULATOR=10.0.2.2`, `ANTA_QA_ACCOUNT=qa1:qa1@example.com`;
+  the step list (explicit `qa` verbs by semantics id, alternating `-d`):
+  sign in on both; "Sync this database" on A (creates the space); a note
+  and an event created on A through the saved flows; B: sign in, "Sync
+  this database" → the picker → merge; B shows the note and the event
+  within the wait; an edit on B reaches A; a delete on A reaches B; the
+  Sharing page offline on A shows the pairing row unchanged and the status
+  "Offline"; a second QA account on B shows the mismatch state; finally the
+  existing calendar, browser and alerts suites once each (no regression).
+- The owner's real check (§7), then: `sync-and-accounts.md` (the engine as
+  built), the `calendar-events` skill's sync note, `docs/cloud-sync-roadmap.md`
+  ladder row 02 DONE, this record's status and "As built" blocks.
+- Skills: `verify`, `qa-emulator`, `delegation`.
+
+### S7 — The push relay (only on D7 B)
+
+`docs/cloud-sync-connections-design.md` §Push, narrowed: the Worker
+verifies the caller's ID token and sends an FCM data message `{type:
+'pull', spaceId}` to `users/{uid}/tokens/*` minus the sender; the app
+registers its token (`firebase_messaging` ^16.x, the token service off the
+lifecycle contract as that design says), calls the Worker after each
+successful drain, and on a message runs a pull if the app is alive — a
+background isolate opening the database beside a live app is out of scope
+(readiness D11's honesty clause stands for a closed app). Rules for the
+tokens collection; the owner's Cloudflare account; `wrangler` on the
+machine.
+
+---
+
+## 5. Must not change
+
+- Everything in the readiness record §5: the `gym_notes` directory and the
+  `device_id` file; backup format 7 (`owner_id` as the additive key, no
+  clock fields); the HLC string encoding; soft-delete semantics, positions,
+  sort preferences, `noteId == ''`, pinned counters; `AuthService` off the
+  lifecycle reset contract, every sync singleton on it;
+  `SyncAvailability.isSupported` the single platform gate; the pairing and
+  binding keys out of backups.
+- The readiness invariants as built: the outbox written only inside
+  `CrdtWrite` (S2's `requeueRow` and the merges' `ackThrough` retire or
+  re-seed entries without minting a stamp; the guard test's allow-list
+  grows by the merge helper alone); `content_chunks` never queued;
+  `requeueAll` never lowering a newer entry; the restore unbinding inside
+  `SyncSuspension.run`; `tombstoneAll` for "Delete all events"; the clock
+  seeded before the instance is handed out and persisted forward-only; the
+  drift guard (`maxDrift`, one hour).
+- Pairing: `pairs` and `invites` rules, the `PairingService` flows and the
+  Pairing section untouched; with persistence off the page behaves offline
+  as it does today (S6 drives it).
+- No Firestore type outside `pairing_gateway.dart` and
+  `firestore_sync_gateway.dart` (a source scan pins it); no Firebase type
+  above the service layer (`AppUser` stays the boundary).
+- Settings through `SettingsService` + `SettingsKeys`; every string through
+  `AppLocalizations` in three languages; the `Page → BLoC → Service →
+  Repository → DAO` layering — the engine is a service, the page talks to
+  `SyncBloc` only.
+- The two pages that carry the app gain no chrome (D4 A); no new
+  state-management, persistence or navigation pattern.
+- No migration unless a reviewer proves one is needed; if so, v44 with the
+  `drift-migrations` recipe and the owner told first.
+
+---
+
+## 6. Risk register
+
+- **High — a push overwrites a newer document (the race window).** Pull
+  before push narrows it; the receiver's re-queue (§3.4) repairs it on the
+  next drain; the convergence test pins both. Residual: both devices never
+  come online again after the overwrite — the newer row then lives only on
+  one device, as it would without sync.
+- **High — the pull misses a row.** The HLC cursor would have (§3.3); the
+  arrival cursor with the ten-second overlap is the answer; the late-arrival
+  test pins it. Residual: `serverTimestamp()` semantics beyond ten seconds
+  of receive-to-commit skew — unseen in practice; the overlap is a constant.
+- **High — the first install on the phone migrates real data to v43.** The
+  gate's migration suite is green on synthetic shapes; S3's rehearsal runs
+  the migration on the owner's export first. The owner's export of
+  2026-10-24 is the fallback.
+- **Medium — persistence off changes pairing's feel offline.** Its reads
+  already reported `offline`; S6 drives the page offline before the owner's
+  check.
+- **Medium — schema skew between devices** (phone on v43, tablet on a later
+  app). A newer app raises `schema` on its first push and older devices
+  pause with "Update ANTA on this device"; the owner keeps both updated.
+  Residual: an older device's push before it saw the new schema value
+  drops the new columns on the rows it wrote — last-writer-wins on whole
+  rows; accepted for one person's own devices.
+- **Medium — a poison document.** Bisect-and-park (§3.5) keeps the queue
+  moving; the parked count is visible; a row stays parked until the note
+  is shortened. Deferred: a persistent park list.
+- **Medium — the daily quota on a bad day.** `quotaExhausted` pauses with
+  the reason and retries hourly; §11 shows the owner's space is far from
+  the limits; the auto-save path still coalesces per row in the outbox.
+- **Low — two local databases of one install in one space** (readiness D3
+  i): the install registry refuses the second bind.
+- **Low — the listener's cost**: one read per remote push plus the device's
+  own rows read back once; §11.
+- **Low — Google Sign-In on a Play-image emulator** needs the owner's
+  account typed once; the QA pass uses the Auth emulator instead.
+
+---
+
+## 7. What only the owner does
+
+1. The letters for D1–D8 (§2).
+2. A **yes before the rules deploy** (S1) — it touches the live project the
+   pairing feature uses; the deploy adds matches and changes none.
+3. Nothing in the Firebase console is expected: Google Sign-In and
+   Firestore exist since Phase 00/01; the CLI on this machine is logged in.
+4. The backup is done: the export of 2026-10-24 is the fallback for the
+   phone's v43 migration and the first bind.
+5. The real check after S6: install the build on the phone, Sharing →
+   "Sync this database"; on the Pixel 9 Pro emulator sign in with the same
+   Google account (the owner types the credentials), Sharing → "Sync this
+   database" → the picker → merge; then edit on each and watch the other.
+6. Only on D7 B: a free Cloudflare account and one `wrangler login`.
+7. Commits are the lead's for this phase (owner's word 2026-10-24): one per
+   slice after its gate, short subject, no ledger.
+
+---
+
+## 8. Deferred
+
+- Tombstone purge after every device acknowledged (needs device presence
+  in the space document); a persistent park list; "Delete cloud copy" (D6
+  A); the Worker (D7 A); a Wi-Fi-only switch (the volumes in §11 make it
+  moot); a per-device "ring here" toggle (readiness D11 B); renaming a
+  space; space row counts in the picker (would need maintained counters).
+- iOS (the Mac-side work the master roadmap lists); desktop sign-in
+  (readiness §8).
+- Settings that are note data (money currency, markdown bar assignment)
+  and the custom public holidays — readiness §8.
+- The pre-existing per-note counter restore defect (readiness §8,
+  `CounterService.importData` never applies `noteIdMap`) — unrelated to
+  sync, one focused fix with a round-trip test when the owner wants it.
+- The readiness §8 items left as found (two HLCs per event-editor save, the
+  held far-future remote, `restartable()`).
+
+---
+
+## 9. How to run this
+
+- This record was written on Fable 5.1 at high; the Fable session wrote
+  S1's brief and may run the slices as the lead (owner 2026-10-24: "I can
+  delegate everything"), spawning per slice one `implementer` and one
+  `reviewer` (Opus 5.5), `qa-runner` (Sonnet) for S6, `docs-writer`
+  (Sonnet) for placements; the `explorer` (Haiku) for sweeps. Load
+  `delegation` before spawning, `verify` for the gate, the slice's skills
+  as listed. Briefs carry the slice section, §3's subsection it builds, §5
+  and the test list — never the whole record.
+- `flutter test` runs one at a time: implementers run sequentially; a
+  reviewer overlaps only the next slice's implementer when their files are
+  disjoint and the reviewer never writes.
+- After every slice: the gate, the record's "As built" block under the
+  slice (the truth over the plan), one commit by the lead. The letters are
+  recorded at the top of §2 with the date.
+- The record is read by section; the `references/` facts are updated in
+  the slice that changes the behaviour (S1, S5, S6).
+
+---
+
+## 10. Definition of done
+
+- The owner's phone and the Pixel 9 Pro, same account, show the same
+  folders, notes, calendar, counters and alert definitions after edits on
+  either, in both directions: within seconds while both are open, at open
+  after offline edits; a note edited on both before syncing shows the
+  original and the conflict copy on both.
+- Alerts created on one device ring on the other once it has pulled.
+- The gate green after every slice; the two-device emulator pass green; the
+  calendar, browser and alerts suites unchanged; the rules deployed; no
+  visible change anywhere but the Sharing page and the Settings row of D8.
+- `docs/cloud-sync-roadmap.md` row 02 DONE, `sync-and-accounts.md` and this
+  record's as-built blocks written, one commit per slice on `main`.
+
+---
+
+## 11. What it costs on the Spark plan (from the owner's export)
+
+The export of 2026-10-24 (`gym_notes_anta.db`, 476 KB, schema v42): live
+rows — 2 folders, 11 notes (21 KB of text in all, the largest 14 KB),
+64 events, 90 presence days, 4 per-occurrence descriptions, 5 alert
+definitions, 1 template, 22 categories, 4 filter presets, 1 overview view,
+2 counters with 2 values, 2 vocabularies with 41 items; tombstones — about
+60 across notes, events, alerts, presets and items. About **310 documents**
+in all, each a few hundred bytes to a few kilobytes.
+
+Spark (no card): 20,000 writes, 50,000 reads and 20,000 deletes per day,
+1 GiB stored, 10 GiB egress per month. The first upload is about 310
+writes; the second device's first download about 310 reads plus one per
+table; from then on each change is one write on the writer and one read on
+every other device plus one read of the space document per remote batch,
+and one read per written row on the writer (its own rows read back through
+the signal). A day of two hundred edits on two devices stays under a
+thousand reads and writes. The listener adds nothing while idle. Daily
+quotas reset at midnight Pacific time; the engine retries hourly when
+paused.

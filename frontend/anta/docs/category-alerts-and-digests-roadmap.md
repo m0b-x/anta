@@ -524,7 +524,7 @@ ALTER TABLE alert_registrations ADD COLUMN source          TEXT    NOT NULL DEFA
   S5), so `EventDigests.all` is published under `CalendarPageLoaded` for
   the hub; the scheduler resolves it quietly as well (S2).
 - Sync: both tables carry the v29 block, so the calendar-sync phase
-  (`docs/cloud-sync-phase-02-calendar-sync.md`) takes them as it takes
+  (now `docs/cloud-sync-phase-02-own-space.md`) takes them as it takes
   `overview_views`; `alert_registrations` stays device-local.
 - `DatabaseLifecycle`: `EventDigestService` registers as `OverviewViewService`
   does; `EventAlertService.reset` clears the category cache too.

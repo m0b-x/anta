@@ -1,7 +1,10 @@
 # Cloud Sync Phase 03 — Shared Folders
 
-**Status: planned.** Migration **v27**. Depends on Phase 02's gateway and
-merge machinery. Symbol names are targets — re-verify at implementation time.
+**Status: planned; predates the readiness decisions (2026-10-23) — sharing
+is now a grant on an owner's space, v44, and the ownership and consent
+material of the August Phase 02 doc belongs here (readiness record §7,
+D16, D18).** Depends on Phase 02's engine (`cloud-sync-phase-02-own-space.md`).
+Symbol names are targets — re-verify at implementation time.
 
 ## Goal
 

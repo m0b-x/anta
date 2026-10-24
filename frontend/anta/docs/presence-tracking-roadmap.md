@@ -165,7 +165,8 @@ point at the same shape:
 ## 1. Data model & migration (schema v26)
 
 `database_schema.dart`: `v26EventPresence = 26`, `currentVersion = 26`.
-**Numbering collision**: `docs/cloud-sync-phase-02-calendar-sync.md` also
+**Numbering collision**: the then Phase 02 doc (since renamed
+`docs/cloud-sync-phase-02-own-space.md`; readiness v43 took the block) also
 reserved v26 — that (still planned) migration becomes v27; note it in the
 phase-02 doc when either ships.
 
