@@ -189,30 +189,55 @@ cursor, the phone pushes at 10:05 — its 09:30 row sits below the tablet's
 cursor for good. HLC order is write order, not arrival order; a pull must
 follow arrival order. So:
 
-- `pullPage(space, table, {SyncCursor? after, int limit}) →
+- `pullPage(space, table, {SyncCursor? after, int limit, bool resumed}) →
   SyncPullPage(envelopes, next, hasMore)` with an opaque `SyncCursor`
   (`String value`) the gateway defines: Firestore orders by
   `pushedAt`, then document id, and encodes `<pushedAt micros>|<rowKey>`;
   the fake orders by an arrival sequence number. `ack` is dropped (it was a
-  hint nobody kept).
-- When a pull **resumes from a stored cursor**, the Firestore gateway starts
-  ten seconds before it (`pullOverlap`): `request.time`, which
-  `serverTimestamp()` resolves to, is the time a write was *received*, and
-  a write received earlier can commit later than a query that already ran.
-  The overlap re-reads a handful of rows the merge treats as no-ops (an
-  equal stamp changes nothing). Pages inside one pull resume exactly.
-- `pushBatch(space, batch)` writes every envelope with `pushedAt =
-  serverTimestamp()` **and**, in the same batch, merges
+  hint nobody kept). **Delivery is at least once:** the engine passes
+  `resumed: true` on the first page of each table in a run (the cursor came
+  from storage) and false for the pages that follow; the merge makes a
+  repeated row a no-op. `hasMore` means "a further page may exist" — the
+  Firestore gateway answers `page.length == limit`, so the engine accepts
+  "hasMore, then an empty page". *(S1 review F1, F10.)*
+- When a pull **resumes from a stored cursor** (`resumed: true`), the
+  Firestore gateway starts ten seconds before it (`pullOverlap`):
+  `request.time`, which `serverTimestamp()` resolves to, is the time a write
+  was *received*, and a write received earlier can commit later than a query
+  that already ran. The overlap re-reads a handful of rows the merge treats
+  as no-ops (an equal stamp changes nothing). Pages inside one pull resume
+  exactly, so a 499-row batch sharing one `pushedAt` cannot pin a pull in
+  place. The fake has a `replayOnResume` switch (rows re-delivered on a
+  resumed page) so the engine's tests see repeats.
+- `pushBatch(space, batch, {pushedBy, schema})` writes every envelope with
+  `pushedAt = serverTimestamp()` **and**, in the same batch, merges
   `touched[table] = serverTimestamp()` for each table in the batch,
-  `lastWriter`, `lastWriteAt` and `schema = max(current, mine)` into the
-  space document. The gateway's `maxBatch` is an instance getter: 499 for
-  Firestore (the space document takes the 500th slot), 500 for the fake.
+  `lastWriter`, `lastWriteAt` and `schema = mine` into the space document.
+  The stored row is replaced unconditionally — no HLC check (§3.7); a stale
+  overwrite is repaired by the device holding the newer row (§3.4). The
+  document always carries the `data` key (null for a tombstone) and
+  `ownerId = space.ownerUid`; `SyncEnvelope.ownerId` is non-nullable and the
+  engine fills it with the bound account's uid *(F2)*. **Schema:** Firestore
+  has no max transform, so the rule `schema >= stored` does the work — a
+  push from an app older than the space's schema is **denied**, which is
+  what we want (an outdated device must not write rows lacking columns);
+  the fake denies the same way with `permissionDenied`; the engine's
+  diagnosis of a denied push is in §3.5 *(F3)*. The gateway's `maxBatch` is
+  an instance getter: 499 for Firestore (the space document takes the 500th
+  slot), 500 for the fake.
 - New: `createSpace(ownerUid, name, deviceId, schema) → SyncSpaceInfo`,
-  `listSpaces(ownerUid)`, `readSpace(space)`, `watchSpace(space) →
-  Stream<SyncSpaceSignal>` (`touched`, `lastWriter`, `schema`).
-- `SyncGatewayFailure` gains `invalidData` (a document the server refuses:
-  too large, malformed) beside `offline`, `quotaExhausted`,
-  `permissionDenied`, `unknown`.
+  `listSpaces(ownerUid)`, `readSpace(space)` (null when the document is
+  gone), `watchSpace(space) → Stream<SyncSpaceSignal>` (`exists`, `touched`,
+  `lastWriter`, `schema`; a missing space emits `exists: false`;
+  `createSpace` emits to listeners already subscribed; the stream is
+  broadcast on every path, errors included). A push to a space that does
+  not exist is **denied** — Firestore's `set(merge: true)` on a missing
+  document is a create that fails `validSpace()`; the fake denies the same
+  *(F5, F8, F11)*.
+- `SyncGatewayFailure` gains `invalidData` — strictly what the server
+  reports as `invalid-argument` (a document over 1 MiB). A rule refusal of a
+  malformed row arrives as `permission-denied`, so the engine tells the two
+  apart by reading the space document after a denied push (§3.5) *(F4)*.
 
 ### 3.4 The merge (S2)
 
@@ -303,20 +328,31 @@ checks all four before every pull, push and bind (readiness §7).
   **immediately** when the app goes to the background
   (`AppLifecycleListener`, the `permission_service.dart:106-120`
   precedent), after a pull, and by "Sync now". A drain: `pending(limit:
-  gateway.maxBatch)` → load the current rows by key per table → encode
-  (a `tombstone` entry needs no row read: `data` null) → `pushBatch` →
-  `ackThrough` each entry at the HLC the row had when read (an entry
-  bumped by an edit during the push stays queued) → `last_push_at`.
-  Repeat until the outbox is empty or a call fails.
+  gateway.maxBatch)` → load the current rows by key per table, tombstoned
+  rows included (`loadByKeys` never filters `is_deleted`; an entry whose row
+  no longer exists is retired, not pushed) → `encode(row, boundUid:)` →
+  `pushBatch` → `ackThrough` each entry at the HLC the row had when read (an
+  entry bumped by an edit during the push stays queued) → `last_push_at`.
+  Repeat until the outbox is empty or a call fails. *(S1 review F2: a
+  tombstone envelope needs the row's `deviceId`, `version` and owner, so
+  the row is read like any other.)*
 - **Failures.** `offline` / `unknown`: retry with back-off 30 s, 1, 2, 5,
   10 min (cap) while in the foreground, at once on resume. `quotaExhausted`:
   `SyncPause.quotaExhausted` with the time; retry hourly and on launch /
-  resume, cleared by the first success (readiness D19). `permissionDenied`:
-  `SyncPause.noAccess` (rules refused the space; a stale binding) until the
-  next sign-in or launch. `invalidData`: bisect the batch (halves, then
-  single envelopes) to find the refused envelope, **park** it for the
-  session (in memory; `SyncStatus.parkedCount`; retried next launch) and
-  continue — one oversized note must not stop every other row.
+  resume, cleared by the first success (readiness D19). `invalidData` (the
+  server's `invalid-argument`, a document over 1 MiB): bisect the batch
+  (halves, then single envelopes) to find the refused envelope, **park** it
+  for the session (in memory; `SyncStatus.parkedCount`; retried next
+  launch) and continue — one oversized note must not stop every other row.
+  **`permissionDenied` on a push is diagnosed before it is believed**
+  *(F3, F4)*: the engine calls `readSpace` once — the document is gone or
+  unreadable → `SyncPause.noAccess` until the next sign-in or launch; its
+  `schema` is above `DatabaseSchema.currentVersion` → `SyncPause.appOutdated`
+  (the rules denied an outdated app's write, by design); otherwise the rules
+  refused a row's shape → the same bisect-and-park as `invalidData`, bounded:
+  more than twenty parked rows in one drain means the rules themselves
+  changed → `noAccess`. `permissionDenied` on a pull or on `watchSpace` →
+  `noAccess` directly.
 - **Order within a run:** pull, then push — so a push never carries a row
   the device would have lost to a newer remote a moment later.
 - **Status.** `SyncStatus` (`sync_status.dart:20`) gains `activity` ∈
@@ -482,6 +518,65 @@ merges, S4 and S5 need S3, S6 needs all.
   `firestore.indexes.json` unchanged. Deploy only on the owner's yes (§7).
 - Skills: `anta-context`, `flutter-principles`. Effort `medium` for the
   implementer: the record fully specifies it.
+
+**As built (2026-10-24, one implementer at medium; gate: `dart analyze lib
+test` clean, whole suite green — 9,897 passed, the one Windows-only
+`host_devices_test` failure; review below).** Deviations from the plan,
+each sound:
+
+- **The emulator config lives at the app root as `firebase.emulators.json`**
+  (tracked; the gitignore covers only `firebase.json`), with
+  `tool/firebase/emulators.cmd` / `.sh` launching `firebase emulators:start
+  --project demo-anta --config firebase.emulators.json` from `frontend/anta`:
+  the CLI treats the config's folder as the project folder and refuses
+  `../../firestore.rules` as "outside of project directory"; the only other
+  shape keeps two copies of the rules.
+- **The rules were verified through the emulator's rules endpoint**, not
+  `emulators:exec` alone: `firebase emulators:exec … "echo ok"` prints ok
+  even for a broken rules file, so the implementer uploaded the file to the
+  running emulator (`PUT /emulator/v1/projects/demo-anta:securityRules`):
+  the repo rules answer 200, a deliberately broken copy 400 with the line
+  numbers. The record's block was placed word for word, one indent deeper.
+  Nothing deployed.
+- The fake: `touched` accumulates across pushes as a Firestore merge does
+  (the test asserts the moved tables are exactly the push's); an empty pull
+  returns the cursor it was given as `next` (null only when nothing was
+  ever pushed and no cursor came in); a space pushed to before `createSpace`
+  gets a signal (schema 0) but stays out of `listSpaces` / `readSpace`;
+  `failNextWith` reaches `watchSpace` as a stream error. 13 cases in
+  `fake_sync_gateway_test`.
+- Housekeeping: on Windows each `emulators:exec` left its Firestore Java
+  process alive (six, holding 8080 and 8085–8089); the agent's
+  `Stop-Process` was denied by the permission system and the lead did not
+  work around it — the owner stops them (`Get-Process java | Stop-Process`)
+  before S5/S6 start the suite on 8080.
+
+**S1 review (2026-10-24, one independent reviewer; 0 high, 5 medium, 11
+low; "safe to commit as is" — committed as reviewed, the fixes ride at the
+head of the S2b run).** The medium findings were contract gaps the engine
+would have hit; each is now settled in §3.3/§3.5/§3.7 and marked *(F n)*:
+F1 the overlap was inexpressible → `resumed` flag, at-least-once delivery,
+the fake's `replayOnResume`; F2 nullable `ownerId` and the `data` key would
+have had every tombstone denied → `ownerId` non-nullable, the gateway
+always writes both, the pusher reads tombstoned rows; F3 `schema = max`
+has no single-batch form → the rule denies a lower schema and the engine
+diagnoses a denied push by reading the space; F4 a rule refusal is
+`permission-denied`, not `invalid-argument` → `invalidData` narrowed to
+size, the same diagnosis routes a malformed row to bisect-and-park; F5 the
+fake accepted pushes to uncreated spaces → denied like Firestore,
+`SyncSpaceSignal.exists`. Lows to fix in the same pass: F6 the
+`touched`-accumulation assertion is mutation-blind (also assert the
+untouched table's stamp is unchanged); F7 `failNextWith` untested on
+`createSpace`/`listSpaces`/`readSpace`/`watchSpace`; F8 the scripted
+`watchSpace` error is single-subscription → `Stream.multi(…, isBroadcast:
+true)`; F9/F10 two-listener and exact-boundary cases, a `looseHasMore`
+switch; F11 `createSpace` emits to existing watchers; F12 the test's table
+`'events'` → `'calendar_events'`; F13 the `pushBatch` doc states the
+unconditional replace; F14 `///` on `SyncCursor.value`,
+`SyncSpaceSignal.lastWriter`, `SyncSpaceInfo.lastWriteAt`/`lastWriter`;
+F15 `emulators.sh` committed with `--chmod=+x` (done at the S1 commit) and
+`setlocal` + `pushd`/`popd` in `emulators.cmd`; F16 the rules probe owed in
+S5 (listed there).
 
 ### S2 — The wire codec and the merge for every table
 
@@ -664,9 +759,17 @@ merges, S4 and S5 need S3, S6 needs all.
 - The QA seam and `tool/firebase/` (§3.8); `qa build` already passes extra
   defines (`tool/qa/src/apk_build.dart:20-21`, `runner.dart:11-12`).
 - Tests: the pure parts extracted and unit-tested — the cursor codec, the
-  envelope ↔ document map (both directions, tombstones, the space document
-  merge payload), the error mapping, the overlap arithmetic; a source-scan
-  test that no file outside the two gateways imports `cloud_firestore`.
+  envelope ↔ document map (both directions; a tombstone document carries
+  the `data` key as null and `ownerId = space.ownerUid`; the space document
+  merge payload with `schema = mine`), the error mapping, the overlap
+  arithmetic on `resumed`; a source-scan test that no file outside the two
+  gateways imports `cloud_firestore`. **A rules probe against the emulator**
+  (S1 review F16): through the emulator's REST surface or
+  `@firebase/rules-unit-testing`, the allow/deny cases — owner read and
+  write; a stranger denied; a tombstone with `data: null` allowed and one
+  without the key denied; `ownerId` null denied; a lower-schema merge
+  denied, equal and higher allowed; a push to a missing space denied; an
+  unknown table denied; `pushedAt` not `request.time` denied.
 - Skills: `anta-context`, `qa-emulator` (for the defines), `flutter-principles`.
 
 ### S6 — Gate, device pass, docs
@@ -758,9 +861,9 @@ machine.
 - **Medium — schema skew between devices** (phone on v43, tablet on a later
   app). A newer app raises `schema` on its first push and older devices
   pause with "Update ANTA on this device"; the owner keeps both updated.
-  Residual: an older device's push before it saw the new schema value
-  drops the new columns on the rows it wrote — last-writer-wins on whole
-  rows; accepted for one person's own devices.
+  The rule `schema >= stored` denies an outdated app's push outright (S1
+  review F3), so an older device cannot drop the new columns on rows it
+  writes; it pauses until updated.
 - **Medium — a poison document.** Bisect-and-park (§3.5) keeps the queue
   moving; the parked count is visible; a row stays parked until the note
   is shortened. Deferred: a persistent park list.

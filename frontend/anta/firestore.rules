@@ -1,9 +1,14 @@
 rules_version = '2';
 
-// Cloud sync Phase 01 — pairing only. Phase 02 extends `pairs` with the
-// per-owner `allowPartnerEdit` consent clause and adds the subcollections.
+// Cloud sync Phase 01 — pairing (`pairs`, `invites`) — and Phase 02 — one
+// account's own spaces (`users/{owner}/spaces`, record
+// docs/cloud-sync-phase-02-own-space.md §3.7).
 //
-// Deploy with: firebase deploy --only firestore:rules,firestore:indexes
+// Deploy from frontend/anta with:
+//   firebase deploy --only firestore:rules --project alexs-note-tracking-app
+// after the gitignored firebase.json gains
+//   "firestore": {"rules": "firestore.rules", "indexes": "firestore.indexes.json"}
+// The emulator suite runs from firebase.emulators.json (tool/firebase/emulators.*).
 // `invites.expiresAt` should also carry a console-configured TTL policy —
 // Spark has no Cloud Functions, so nothing else reaps abandoned invites.
 service cloud.firestore {
@@ -166,6 +171,52 @@ service cloud.firestore {
         && request.resource.data.redeemedBy == uid();
 
       allow delete: if signedIn() && resource.data.creatorUid == uid();
+    }
+
+    match /users/{owner}/spaces/{spaceId} {
+      function isOwner() { return signedIn() && uid() == owner; }
+      function validSpace() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['name', 'createdAt', 'createdBy', 'schema',
+                                 'touched', 'lastWriter', 'lastWriteAt'])
+            && d.name is string && d.name.size() > 0 && d.name.size() <= 100
+            && d.schema is int && d.schema > 0
+            && d.createdBy is string && d.createdBy.size() <= 64;
+      }
+      allow get, list: if isOwner();
+      allow create: if isOwner() && validSpace()
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isOwner() && validSpace()
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && request.resource.data.schema >= resource.data.schema;
+      allow delete: if false;
+
+      match /{table}/{rowKey} {
+        function syncedTable() {
+          return table in ['folders', 'notes', 'counters', 'counter_values',
+            'calendar_events', 'calendar_categories', 'calendar_category_alerts',
+            'calendar_event_occurrences', 'calendar_event_absences',
+            'calendar_event_skips', 'calendar_event_alerts',
+            'calendar_event_templates', 'calendar_filter_presets',
+            'overview_views', 'event_digests', 'vocabularies', 'vocabulary_items'];
+        }
+        function validEnvelope() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['hlc', 'deviceId', 'version', 'op', 'ownerId',
+                                   'data', 'pushedAt', 'pushedBy'])
+              && d.hlc is string && d.hlc.size() > 0 && d.hlc.size() <= 80
+              && d.deviceId is string && d.deviceId.size() <= 64
+              && d.version is int
+              && d.op in ['upsert', 'tombstone']
+              && d.ownerId == uid()
+              && (d.op == 'tombstone' ? d.data == null : d.data is map)
+              && d.pushedAt == request.time
+              && d.pushedBy is string;
+        }
+        allow get, list: if isOwner() && syncedTable();
+        allow create, update: if isOwner() && syncedTable() && validEnvelope();
+        allow delete: if false;
+      }
     }
   }
 }
