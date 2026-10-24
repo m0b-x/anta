@@ -197,6 +197,95 @@ void main() {
     });
   });
 
+  group('taps pending across a sync page (S3c review H1)', () {
+    test('a tap in the reload window lands on top of the merged value', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      // The page merged another device's 8 beneath the service.
+      await db.counterDao.upsertValue(id, '', 8);
+
+      expect(await service.incrementGlobal(id), 4, reason: 'not reloaded yet');
+      await service.reload();
+
+      expect(service.getGlobalValue(id), 9);
+      expect(await db.counterDao.getValue(id, ''), 8, reason: 'still pending');
+      await service.flush();
+      expect(await db.counterDao.getValue(id, ''), 9);
+    });
+
+    test('flushed before the page, tapped, reloaded after: merged plus the '
+        'taps', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      await service.incrementGlobal(id);
+      await service.flush();
+      expect(await db.counterDao.getValue(id, ''), 4);
+
+      await service.incrementGlobal(id);
+      await service.incrementGlobal(id);
+      await db.counterDao.upsertValue(id, '', 8);
+      await service.reload();
+      await service.flush();
+
+      expect(service.getGlobalValue(id), 10);
+      expect(await db.counterDao.getValue(id, ''), 10);
+    });
+
+    test('a flush that lands after the merge and before the reload writes '
+        'the merged value plus the tap, never the stale number', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      await service.incrementGlobal(id);
+      await db.counterDao.upsertValue(id, '', 8);
+
+      await service.flush();
+
+      expect(await db.counterDao.getValue(id, ''), 9);
+      expect(service.getGlobalValue(id), 9);
+    });
+
+    test('a per-note tap survives the reload that dropped its note cache', () async {
+      final id = await service.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+      );
+      await service.setValueForNote(id, 2, noteId: 'n1');
+      await service.flush();
+      await service.increment(id, noteId: 'n1');
+      await db.counterDao.upsertValue(id, 'n1', 6);
+
+      await service.reload();
+
+      expect(await service.getValueForNote(id, 'n1'), 7);
+      await service.flush();
+      expect(await db.counterDao.getValue(id, 'n1'), 7);
+    });
+
+    test('a pending reset stays a reset over the merged value', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      await service.incrementGlobal(id);
+      await service.flush();
+      await service.resetGlobal(id);
+      await service.incrementGlobal(id);
+      await db.counterDao.upsertValue(id, '', 8);
+
+      await service.reload();
+      await service.flush();
+
+      expect(service.getGlobalValue(id), 4);
+      expect(await db.counterDao.getValue(id, ''), 4);
+    });
+
+    test('a tap on a counter the page deleted is dropped', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      await service.incrementGlobal(id);
+      await db.counterDao.deleteCounter(id);
+
+      await service.reload();
+      await service.flush();
+
+      expect(service.getCounterById(id), isNull);
+      expect(await db.counterDao.getValue(id, ''), isNull);
+    });
+  });
+
   group('the changes signal', () {
     test('fires after a reload, with the merged rows read', () async {
       final id = await service.addCounter(name: 'Sets', startValue: 3);

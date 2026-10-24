@@ -1070,6 +1070,7 @@
   "noNotesMatchSearch": "Nicio notiță nu corespunde căutării",
   "counterSelectNoteToView": "Apasă pentru a gestiona valorile per notițe",
   "counterLoadError": "Nu s-au putut încărca contoarele",
+  "counterNotFound": "Acest contor nu mai există",
   "counterRetry": "Încercă din nou",
   "counterPerNoteValues": "Valori per notiță",
   "counterPerNoteEmpty": "Nicio notiță nu are încă valori pentru acest contor",
@@ -1313,10 +1314,13 @@
       },
       "dateTime": {
         "type": "DateTime",
-        "format": "yMd+Hm"
+        "format": "yMMMd+Hm"
       }
     }
   },
+  "syncNoteUpdatedElsewhere": "Actualizată de pe alt dispozitiv",
+  "syncNoteConflictCopyFiled": "Versiunea celuilalt dispozitiv a fost salvată ca o copie",
+  "syncNoteDeletedElsewhere": "Ștearsă pe alt dispozitiv",
   "signInFailed": "Conectare eșuată",
   "authErrorOffline": "Fără conexiune. Verifică rețeaua și încearcă din nou.",
   "authErrorUnavailable": "Conectarea nu este disponibilă aici",

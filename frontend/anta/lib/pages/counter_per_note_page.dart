@@ -56,11 +56,14 @@ class _CounterPerNoteView extends StatelessWidget {
             CounterPerNoteInitial() || CounterPerNoteLoading() => const Center(
               child: CircularProgressIndicator(),
             ),
-            CounterPerNoteError(:final message) => _buildErrorState(
+            CounterPerNoteError(:final failure) => _buildErrorState(
               context,
               l10n,
               colorScheme,
-              message,
+              switch (failure) {
+                CounterPerNoteFailure.counterNotFound => l10n.counterNotFound,
+                CounterPerNoteFailure.loadFailed => l10n.counterLoadError,
+              },
             ),
             CounterPerNoteLoaded() => _buildLoaded(context, state),
           };

@@ -291,9 +291,26 @@ class CounterBloc extends Bloc<CounterEvent, CounterState> {
         counters: _counterService.counters,
         counterValues: await _buildCounterValues(noteId),
         loadedNoteId: noteId,
-        pickedNoteValues: current.pickedNoteValues,
+        pickedNoteValues: await _rereadPicked(current.pickedNoteValues),
       ),
     );
+  }
+
+  /// The locally picked values read again, so a refresh after a sync pull
+  /// does not keep showing a card's old count (S3c review F14); a pick whose
+  /// counter is gone is dropped.
+  Future<Map<({String counterId, String noteId}), int>> _rereadPicked(
+    Map<({String counterId, String noteId}), int> picked,
+  ) async {
+    final fresh = <({String counterId, String noteId}), int>{};
+    for (final key in picked.keys) {
+      if (_counterService.getCounterById(key.counterId) == null) continue;
+      fresh[key] = await _counterService.getValueForNote(
+        key.counterId,
+        key.noteId,
+      );
+    }
+    return fresh;
   }
 
   Future<void> _onReorderCounters(

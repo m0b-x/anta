@@ -173,7 +173,7 @@ class _Puller {
 
   /// One page in one transaction: the merges, the conflict copies, the
   /// cursor, the clock stored once (readiness R5); `afterPage` after it
-  /// committed.
+  /// committed, the copies among its rows as inserted notes.
   ///
   /// Each merge runs in its own savepoint, so an envelope that fails part-way
   /// leaves none of its writes behind; whatever it threw short of a gateway
@@ -197,6 +197,9 @@ class _Puller {
     // The hook may have outlived the binding, the session or the engine.
     await _e._checkHalt(bound);
     final rows = <SyncAppliedRow>[];
+    // The conflict copies filed in the transaction, announced with the
+    // page's rows only once it committed.
+    final copies = <SyncAppliedRow>[];
     var changed = false;
     await db.transaction(() async {
       final conflicts = <SyncNoteConflict>[];
@@ -217,6 +220,8 @@ class _Puller {
             rowKey: envelope.rowKey,
             result: outcome.result,
             tombstone: isTombstone(envelope),
+            moved: outcome.moved,
+            previousParent: outcome.previousParent,
           ),
         );
         if (outcome.result == MergeResult.inserted ||
@@ -234,7 +239,16 @@ class _Puller {
         }
       }
       for (final conflict in conflicts) {
-        await _e._hooks.fileConflictCopy(conflict);
+        final copy = await _e._hooks.fileConflictCopy(conflict);
+        if (copy != null) {
+          copies.add(
+            SyncAppliedRow(
+              rowKey: copy,
+              result: MergeResult.inserted,
+              tombstone: false,
+            ),
+          );
+        }
       }
       final next = page.next;
       if (next != null) {
@@ -244,7 +258,7 @@ class _Puller {
     });
     if (changed) touched.add(table.invalidation);
     tally.pulled += rows.length;
-    await _e._hooks.afterPage(name, List.unmodifiable(rows));
+    await _e._hooks.afterPage(name, List.unmodifiable([...rows, ...copies]));
   }
 
   /// Logs by kind: a malformed document is expected now and then; an

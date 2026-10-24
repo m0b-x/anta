@@ -44,16 +44,22 @@ class CounterService {
   // Debounce infrastructure
   // ---------------------------------------------------------------------------
 
-  /// Set of dirty counter IDs whose global value needs flushing.
-  final Set<String> _dirtyGlobalValues = {};
+  /// The global values changed since their last flush, by counter id.
+  final Map<String, _PendingCount> _dirtyGlobalValues = {};
 
-  /// Dirty `(counterId, noteId)` pairs whose per-note value needs flushing.
-  /// Pairs, not whole notes: a note's other counters did not change, and
-  /// writing them would stamp every one as a change once devices merge.
-  final Set<(String, String)> _dirtyNoteValues = {};
+  /// The per-note values changed since their last flush, by
+  /// `(counterId, noteId)`. Pairs, not whole notes: a note's other counters
+  /// did not change, and writing them would stamp every one as a change once
+  /// devices merge.
+  final Map<(String, String), _PendingCount> _dirtyNoteValues = {};
 
   Timer? _flushTimer;
   static const _flushDelay = Duration(milliseconds: 300);
+
+  /// The tail of the flush / reload queue: a reload that read the table
+  /// before a flush wrote it would otherwise put the older value back in
+  /// memory after the flush updated it.
+  Future<void> _serial = Future.value();
 
   final StreamController<void> _changes = StreamController<void>.broadcast();
 
@@ -100,12 +106,35 @@ class CounterService {
   Stream<void> get changes => _changes.stream;
 
   /// Re-reads both tables after rows arrived beneath the service — a sync
-  /// pull. Pending counts are flushed first, or the re-read would drop them
-  /// from memory before they reach the database.
+  /// page. The taps not flushed yet are applied again over the values read,
+  /// as deltas, and stay pending: flushing them as the absolute number shown
+  /// before the page would stamp that stale number over the merged one on
+  /// every device (record §3.5, S3c review H1).
   Future<void> reload() async {
-    await flush();
-    await _load();
+    await _serialized(() async {
+      await _load();
+      _dirtyNoteValues.removeWhere(
+        (pair, _) => !_counterIndex.containsKey(pair.$1),
+      );
+      for (final MapEntry(key: id, value: pending)
+          in _dirtyGlobalValues.entries.toList()) {
+        final counter = _counterIndex[id];
+        if (counter == null) {
+          _dirtyGlobalValues.remove(id);
+          continue;
+        }
+        _globalValues[id] = pending.over(
+          _globalValues[id] ?? counter.startValue,
+        );
+      }
+    });
     _changes.add(null);
+  }
+
+  Future<void> _serialized(Future<void> Function() body) {
+    final run = _serial.then((_) => body());
+    _serial = run.catchError((Object _) {});
+    return run;
   }
 
   // ---------------------------------------------------------------------------
@@ -133,30 +162,61 @@ class CounterService {
 
   void _scheduleDirtyFlush() {
     _flushTimer?.cancel();
-    _flushTimer = Timer(_flushDelay, _flushDirty);
+    _flushTimer = Timer(
+      _flushDelay,
+      () => unawaited(_serialized(_flushDirty)),
+    );
   }
 
+  /// A tap or a decrement: [delta] on top of whatever the value is when it
+  /// is written.
+  void _recordDelta<K>(Map<K, _PendingCount> dirty, K key, int delta) {
+    dirty.putIfAbsent(key, _PendingCount.new).delta += delta;
+  }
+
+  /// A set or a reset: [value] replaces the stored number and the taps before
+  /// it.
+  void _recordAbsolute<K>(Map<K, _PendingCount> dirty, K key, int value) {
+    dirty.putIfAbsent(key, _PendingCount.new)
+      ..absolute = value
+      ..delta = 0;
+  }
+
+  /// Writes each pending change over the value the table holds now, not the
+  /// one memory last read: a sync page may have merged another device's count
+  /// since, and the taps belong on top of it. Memory then shows what was
+  /// written plus any tap made while the write ran.
   Future<void> _flushDirty() async {
-    final globalIds = Set<String>.from(_dirtyGlobalValues);
-    final notePairs = Set<(String, String)>.from(_dirtyNoteValues);
+    final pending = <(String, String), _PendingCount>{
+      for (final MapEntry(key: id, value: change)
+          in _dirtyGlobalValues.entries)
+        (id, ''): change,
+      ..._dirtyNoteValues,
+    };
     _dirtyGlobalValues.clear();
     _dirtyNoteValues.clear();
+    if (pending.isEmpty) return;
 
     try {
-      final futures = <Future>[];
-      for (final cid in globalIds) {
-        final val = _globalValues[cid];
-        if (val != null) {
-          futures.add(_dao.upsertValue(cid, '', val));
+      final written = <(String, String), int>{};
+      await _db.transaction(() async {
+        for (final MapEntry(key: (cid, nid), value: change)
+            in pending.entries) {
+          final counter = _counterIndex[cid];
+          if (counter == null) continue;
+          final stored = await _dao.getValue(cid, nid) ?? counter.startValue;
+          final value = change.over(stored);
+          await _dao.upsertValue(cid, nid, value);
+          written[(cid, nid)] = value;
+        }
+      });
+      for (final MapEntry(key: (cid, nid), value: value) in written.entries) {
+        if (nid.isEmpty) {
+          _globalValues[cid] = _dirtyGlobalValues[cid]?.over(value) ?? value;
+        } else if (_noteValuesCache[nid] case final cache?) {
+          cache[cid] = _dirtyNoteValues[(cid, nid)]?.over(value) ?? value;
         }
       }
-      for (final (cid, nid) in notePairs) {
-        final val = _noteValuesCache[nid]?[cid];
-        if (val != null) {
-          futures.add(_dao.upsertValue(cid, nid, val));
-        }
-      }
-      if (futures.isNotEmpty) await Future.wait(futures);
     } catch (e) {
       debugPrint('[CounterService] Flush error: $e');
     }
@@ -165,7 +225,7 @@ class CounterService {
   /// Forces all pending writes to disk. Should be called on app pause/close.
   Future<void> flush() async {
     _flushTimer?.cancel();
-    await _flushDirty();
+    await _serialized(_flushDirty);
   }
 
   // ---------------------------------------------------------------------------
@@ -224,7 +284,7 @@ class CounterService {
     _counterIndex.remove(counterId);
     _globalValues.remove(counterId);
     _dirtyGlobalValues.remove(counterId);
-    _dirtyNoteValues.removeWhere((pair) => pair.$1 == counterId);
+    _dirtyNoteValues.removeWhere((pair, _) => pair.$1 == counterId);
     for (final cache in _noteValuesCache.values) {
       cache.remove(counterId);
     }
@@ -233,6 +293,9 @@ class CounterService {
 
   Future<void> deleteNoteValue(String counterId, String noteId) async {
     _noteValuesCache[noteId]?.remove(counterId);
+    // A pending tap is written over the stored value, and would bring the
+    // deleted one back.
+    _dirtyNoteValues.remove((counterId, noteId));
     await _dao.deleteValue(counterId, noteId);
   }
 
@@ -252,7 +315,7 @@ class CounterService {
     final current = _globalValues[counterId] ?? counter.startValue;
     final next = current + counter.step;
     _globalValues[counterId] = next;
-    _dirtyGlobalValues.add(counterId);
+    _recordDelta(_dirtyGlobalValues, counterId, counter.step);
     _scheduleDirtyFlush();
     return next;
   }
@@ -265,7 +328,7 @@ class CounterService {
       return;
     }
     _globalValues[counterId] = counter.startValue;
-    _dirtyGlobalValues.add(counterId);
+    _recordAbsolute(_dirtyGlobalValues, counterId, counter.startValue);
     _scheduleDirtyFlush();
   }
 
@@ -275,7 +338,7 @@ class CounterService {
     final current = _globalValues[counterId] ?? counter.startValue;
     final next = current - counter.step;
     _globalValues[counterId] = next;
-    _dirtyGlobalValues.add(counterId);
+    _recordDelta(_dirtyGlobalValues, counterId, -counter.step);
     _scheduleDirtyFlush();
     return next;
   }
@@ -283,7 +346,7 @@ class CounterService {
   Future<void> setGlobalValue(String counterId, int value) async {
     if (!_counterIndex.containsKey(counterId)) return;
     _globalValues[counterId] = value;
-    _dirtyGlobalValues.add(counterId);
+    _recordAbsolute(_dirtyGlobalValues, counterId, value);
     _scheduleDirtyFlush();
   }
 
@@ -296,6 +359,13 @@ class CounterService {
       return _noteValuesCache[noteId]!;
     }
     final fromDb = await _dao.getValuesForNote(noteId);
+    // A reload dropped this note's cache while its taps were still pending.
+    for (final MapEntry(key: (cid, nid), value: pending)
+        in _dirtyNoteValues.entries) {
+      final counter = _counterIndex[cid];
+      if (nid != noteId || counter == null) continue;
+      fromDb[cid] = pending.over(fromDb[cid] ?? counter.startValue);
+    }
     _noteValuesCache[noteId] = fromDb;
     return fromDb;
   }
@@ -323,7 +393,7 @@ class CounterService {
     final current = noteValues[counterId] ?? counter.startValue;
     final next = current + counter.step;
     noteValues[counterId] = next;
-    _dirtyNoteValues.add((counterId, noteId));
+    _recordDelta(_dirtyNoteValues, (counterId, noteId), counter.step);
     _scheduleDirtyFlush();
     return next;
   }
@@ -340,7 +410,7 @@ class CounterService {
     final current = noteValues[counterId] ?? counter.startValue;
     final next = current - counter.step;
     noteValues[counterId] = next;
-    _dirtyNoteValues.add((counterId, noteId));
+    _recordDelta(_dirtyNoteValues, (counterId, noteId), -counter.step);
     _scheduleDirtyFlush();
     return next;
   }
@@ -360,7 +430,7 @@ class CounterService {
 
     final noteValues = await getNoteValues(noteId);
     noteValues[counterId] = value;
-    _dirtyNoteValues.add((counterId, noteId));
+    _recordAbsolute(_dirtyNoteValues, (counterId, noteId), value);
     _scheduleDirtyFlush();
   }
 
@@ -375,7 +445,11 @@ class CounterService {
 
     final noteValues = await getNoteValues(noteId);
     noteValues[counterId] = counter.startValue;
-    _dirtyNoteValues.add((counterId, noteId));
+    _recordAbsolute(
+      _dirtyNoteValues,
+      (counterId, noteId),
+      counter.startValue,
+    );
     _scheduleDirtyFlush();
   }
 
@@ -636,4 +710,14 @@ class CounterService {
       createdAt: Value(c.createdAt),
     );
   }
+}
+
+/// A value's change since its last flush: the taps as a [delta], so a count
+/// another device merged meanwhile keeps them on top; a set or a reset as an
+/// [absolute] the later taps add to.
+class _PendingCount {
+  int? absolute;
+  int delta = 0;
+
+  int over(int base) => (absolute ?? base) + delta;
 }

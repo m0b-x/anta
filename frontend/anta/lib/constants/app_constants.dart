@@ -69,6 +69,11 @@ class AppConstants {
   static const int compressionThreshold = 5000;
   static const int previewMaxLength = 200;
 
+  /// The `notes.title` column's `withLength` maximum, in UTF-16 code units:
+  /// a title built in code (a sync conflict copy's) is cut to fit it, or the
+  /// insert fails.
+  static const int maxNoteTitleLength = 500;
+
   // ============================================================
   // SEARCH CONSTANTS
   // ============================================================

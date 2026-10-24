@@ -54,6 +54,10 @@ class CounterPerNoteBloc
     Emitter<CounterPerNoteState> emit,
   ) async {
     if (state is! CounterPerNoteLoaded) return;
+    // The entries are read from the table, and a reload keeps this page's
+    // taps pending in the service; the flush writes them over the merged
+    // values first.
+    await _counterService.flush();
     await _loadEntries(emit);
   }
 
@@ -257,7 +261,7 @@ class CounterPerNoteBloc
   Future<void> _loadEntries(Emitter<CounterPerNoteState> emit) async {
     final counter = _counterService.getCounterById(_counterId);
     if (counter == null) {
-      emit(const CounterPerNoteError('Counter not found'));
+      emit(const CounterPerNoteError(CounterPerNoteFailure.counterNotFound));
       return;
     }
 
@@ -290,7 +294,7 @@ class CounterPerNoteBloc
       emit(CounterPerNoteLoaded(counter: counter, entries: entries));
     } catch (e) {
       debugPrint('[CounterPerNoteBloc] Load error: $e');
-      emit(CounterPerNoteError(e.toString()));
+      emit(const CounterPerNoteError(CounterPerNoteFailure.loadFailed));
     }
   }
 

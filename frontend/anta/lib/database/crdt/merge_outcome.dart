@@ -37,13 +37,40 @@ final class MergeOutcome extends Equatable {
   /// The [loser]'s body, read before the remote replaced its chunks.
   final String? loserContent;
 
+  /// Notes and folders only: the remote moved the row to another parent (a
+  /// note's folder, a folder's parent), so the list it left must refresh too.
+  final bool moved;
+
+  /// The parent the row left when [moved] — null for a folder that was at
+  /// the root, which is why [moved] is a flag of its own.
+  final String? previousParent;
+
   const MergeOutcome(
     this.result, {
     this.localHadPendingPush = false,
     this.loser,
     this.loserContent,
+    this.moved = false,
+    this.previousParent,
   });
 
+  /// This outcome, recording that the row left [parent].
+  MergeOutcome movedFrom(String? parent) => MergeOutcome(
+    result,
+    localHadPendingPush: localHadPendingPush,
+    loser: loser,
+    loserContent: loserContent,
+    moved: true,
+    previousParent: parent,
+  );
+
   @override
-  List<Object?> get props => [result, localHadPendingPush, loser, loserContent];
+  List<Object?> get props => [
+    result,
+    localHadPendingPush,
+    loser,
+    loserContent,
+    moved,
+    previousParent,
+  ];
 }

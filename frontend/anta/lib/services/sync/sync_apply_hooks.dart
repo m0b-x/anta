@@ -29,8 +29,11 @@ abstract interface class SyncApplyHooks {
   /// the merges and before the cursor moves: a copy that throws rolls the
   /// page back, so the next run merges it again rather than the losing text
   /// being dropped. It must therefore write only through the database —
-  /// drift nests its writes as a savepoint — and leave the UI to [afterRun].
-  Future<void> fileConflictCopy(SyncNoteConflict conflict);
+  /// drift nests its writes as a savepoint — and tell no listener: it returns
+  /// the copy's id, and the engine passes it to [afterPage] as an inserted
+  /// row of `notes` once the page committed (record §3.9). Null when no copy
+  /// was written.
+  Future<String?> fileConflictCopy(SyncNoteConflict conflict);
 }
 
 /// One envelope a pulled page merged.
@@ -46,14 +49,29 @@ class SyncAppliedRow extends Equatable {
   /// an edit without reading the row back.
   final bool tombstone;
 
+  /// Notes and folders: the merge moved the row to another parent, so the
+  /// list it left hears of it too ([MergeOutcome.moved]).
+  final bool moved;
+
+  /// The parent the row left when [moved]; null for a folder at the root.
+  final String? previousParent;
+
   const SyncAppliedRow({
     required this.rowKey,
     required this.result,
     required this.tombstone,
+    this.moved = false,
+    this.previousParent,
   });
 
   @override
-  List<Object?> get props => [rowKey, result, tombstone];
+  List<Object?> get props => [
+    rowKey,
+    result,
+    tombstone,
+    moved,
+    previousParent,
+  ];
 }
 
 /// A local note a newer remote overwrote before its edit was pushed.
@@ -86,5 +104,5 @@ class NoOpSyncApplyHooks implements SyncApplyHooks {
   Future<void> afterRun(Set<SyncInvalidation> touched) async {}
 
   @override
-  Future<void> fileConflictCopy(SyncNoteConflict conflict) async {}
+  Future<String?> fileConflictCopy(SyncNoteConflict conflict) async => null;
 }

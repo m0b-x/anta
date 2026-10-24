@@ -231,12 +231,20 @@ class SyncEngine {
        _timing = timing,
        _tables = tables ?? syncTableBindings;
 
-  /// The app's engine over the active database, built once: the gateway and
-  /// the identity come from GetIt (global, like the `AlertScheduler`'s
-  /// gateway), the database and the sync services from their own
-  /// singletons, and the app's lifecycle is bridged in. Throws [StateError]
-  /// — touching nothing — when no [SyncGateway] is registered, which DI
-  /// checks before calling.
+  /// Set by DI once it decided the app syncs: every engine [getInstance]
+  /// builds then starts itself, the one built after a database switch
+  /// included — DI runs once, the [DatabaseLifecycle] reset many times, and
+  /// an engine built unstarted would leave the switched database unsynced
+  /// until the next launch (S3c review F6).
+  static bool autoStart = false;
+
+  /// The app's engine over the active database, built once per database: the
+  /// gateway and the identity come from GetIt (global, like the
+  /// `AlertScheduler`'s gateway), the database and the sync services from
+  /// their own singletons, and the app's lifecycle is bridged in; started,
+  /// unawaited, when [autoStart] is set. Throws [StateError] — touching
+  /// nothing — when no [SyncGateway] is registered, which DI checks before
+  /// calling.
   static Future<SyncEngine> getInstance() async {
     final existing = _instance;
     if (existing != null) return existing;
@@ -262,7 +270,19 @@ class SyncEngine {
       authChanges: auth.authStateChanges,
     );
     _bridge = SyncLifecycleBridge(engine, PermissionService.appLifecycle());
-    return _register(engine);
+    _register(engine);
+    // Not awaited: the first run reaches the network, and neither the launch
+    // nor a database switch waits on it.
+    if (autoStart) unawaited(_startLogged(engine));
+    return engine;
+  }
+
+  static Future<void> _startLogged(SyncEngine engine) async {
+    try {
+      await engine.start();
+    } catch (error, stack) {
+      _warn('start failed: $error\n$stack');
+    }
   }
 
   static SyncEngine _register(SyncEngine engine) {

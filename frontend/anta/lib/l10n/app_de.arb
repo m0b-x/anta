@@ -2209,6 +2209,7 @@
   "noNotesMatchSearch": "Keine Notizen gefunden",
   "counterSelectNoteToView": "Tippen, um Notizwerte zu verwalten",
   "counterLoadError": "Zähler konnten nicht geladen werden",
+  "counterNotFound": "Diesen Zähler gibt es nicht mehr",
   "counterRetry": "Erneut versuchen",
   "counterPerNoteValues": "Werte pro Notiz",
   "counterPerNoteEmpty": "Noch keine Notizen haben Werte für diesen Zähler",
@@ -2452,10 +2453,13 @@
       },
       "dateTime": {
         "type": "DateTime",
-        "format": "yMd+Hm"
+        "format": "yMMMd+Hm"
       }
     }
   },
+  "syncNoteUpdatedElsewhere": "Von einem anderen Gerät aktualisiert",
+  "syncNoteConflictCopyFiled": "Die Version des anderen Geräts wurde als Kopie gespeichert",
+  "syncNoteDeletedElsewhere": "Auf einem anderen Gerät gelöscht",
   "signInFailed": "Anmeldung fehlgeschlagen",
   "authErrorOffline": "Keine Verbindung. Prüf dein Netzwerk und versuch es erneut.",
   "authErrorUnavailable": "Anmeldung ist hier nicht verfügbar",

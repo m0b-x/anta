@@ -6,6 +6,7 @@ import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../constants/app_constants.dart';
 import '../models/note_change.dart';
+import '../utils/compression_utils.dart';
 import '../utils/lru_cache.dart';
 
 export '../models/note_change.dart';
@@ -625,11 +626,18 @@ class NoteRepository {
   /// repository, so the browser, the search index and an open editor hear of
   /// them as of a local write: each row is re-read (tombstones included), its
   /// cached copy and body dropped first so a listener reads the merged ones,
-  /// then announced — `deleted` for a tombstone, `created` for an id in
-  /// [inserted], `updated` otherwise.
+  /// then announced with `remote` set — `deleted` for a tombstone, `created`
+  /// for an id in [inserted], `updated` otherwise, and for an id in
+  /// [previousParents] a `moved` from that folder beside it, which the
+  /// browser showing the old folder refreshes on.
+  ///
+  /// A note merged live over its own tombstone is announced as `updated`,
+  /// not `created`: every listener treats the two alike, and the row is the
+  /// same note with a history, not a new one.
   Future<void> announceMerged(
     List<String> ids, {
     Set<String> inserted = const {},
+    Map<String, String> previousParents = const {},
   }) async {
     if (ids.isEmpty) return;
     final rows = await _noteDao.getByIdsIncludingDeleted(ids);
@@ -639,6 +647,8 @@ class NoteRepository {
       _contentCache.remove(note.id);
       _invalidateFolderCache(note.folderId);
       if (previous != null) _invalidateFolderCache(previous.folderId);
+      final source = previousParents[note.id];
+      if (source != null) _invalidateFolderCache(source);
       _noteChangesController.add(
         NoteChange(
           type: note.isDeleted
@@ -649,9 +659,49 @@ class NoteRepository {
           noteId: note.id,
           folderId: note.folderId,
           note: note.isDeleted ? null : note,
+          remote: true,
         ),
       );
+      if (source != null && !note.isDeleted) {
+        _noteChangesController.add(
+          NoteChange(
+            type: NoteChangeType.moved,
+            noteId: note.id,
+            folderId: note.folderId,
+            sourceFolderId: source,
+            note: note,
+            remote: true,
+          ),
+        );
+      }
     }
+  }
+
+  /// Writes a sync conflict copy inside a pulled page's transaction: stamped
+  /// and queued by the DAO like any new note, so it syncs, but nothing cached
+  /// and nothing announced — a page that rolls back would leave a listener
+  /// told of a row that does not exist. The engine lists the copy among the
+  /// page's rows and [announceMerged] announces it once the page committed
+  /// (record §3.9, S3c review F10). The body's derived columns are computed
+  /// as `NoteStorageService.createNote` computes them.
+  Future<Note> createMergedCopy({
+    required String folderId,
+    required String title,
+    required String content,
+    ItemLabel label = ItemLabel.none,
+  }) {
+    return _noteDao.createNote(
+      folderId: folderId,
+      title: title,
+      preview: NoteMetadata.generatePreview(content),
+      contentLength: content.length,
+      chunkCount: (content.length / ContentChunkDao.defaultChunkSize)
+          .ceil()
+          .clamp(1, double.maxFinite.toInt()),
+      isCompressed: CompressionUtils.shouldCompress(content),
+      label: label,
+      content: content,
+    );
   }
 
   void _cleanCacheIfNeeded() {

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ import 'package:anta/constants/font_constants.dart';
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -85,6 +87,7 @@ void main() {
   late AppDatabase db;
   late NotePositionService positions;
   late SettingsService settings;
+  late NoteRepository noteRepository;
   late NoteStorageService storageService;
   late _ThrowingStorage throwingStorage;
   late FolderSearchService searchService;
@@ -135,9 +138,8 @@ void main() {
     await db.customSelect('SELECT 1').get();
     positions = await NotePositionService.getInstance();
     settings = await SettingsService.getInstance();
-    storageService = NoteStorageService(
-      repository: NoteRepository(database: db),
-    );
+    noteRepository = NoteRepository(database: db);
+    storageService = NoteStorageService(repository: noteRepository);
     await storageService.initialize();
     // A second service over the same database whose title lookup always
     // throws, for the case about the tap handler's own guard. Built here
@@ -3776,6 +3778,228 @@ void main() {
         reason: 'the id has to sit on the editing surface, not beside it',
       );
 
+      await teardownPage(tester);
+    });
+  });
+
+  group('a change merged from another device (record §3.9)', () {
+    const body = 'first line\nsecond line\nthird';
+    late Folder syncFolder;
+    late NoteMetadata synced;
+    late NoteMetadata sibling;
+
+    setUp(() async {
+      syncFolder = await db.folderDao.createFolder(name: 'Synced');
+      synced = await storageService.createNote(
+        folderId: syncFolder.id,
+        title: 'Squat log',
+        content: body,
+      );
+      sibling = await storageService.createNote(
+        folderId: syncFolder.id,
+        title: 'Other',
+        content: 'other',
+      );
+    });
+
+    tearDown(() async {
+      final rows = await db.select(db.notes).get();
+      for (final row in rows.where((n) => n.folderId == syncFolder.id)) {
+        if (row.isDeleted) {
+          // A merged tombstone left the FTS index already.
+          await db.customStatement('DELETE FROM notes WHERE id = ?', [row.id]);
+        } else {
+          await db.noteDao.hardDeleteNote(row.id);
+        }
+      }
+      await db.folderDao.hardDeleteFolder(syncFolder.id);
+    });
+
+    /// What the engine does for a pulled page: the merge beneath the
+    /// repository, then `announceMerged`, which emits with `remote` set.
+    Future<void> mergeFromElsewhere(
+      WidgetTester tester,
+      String id, {
+      String? text,
+      bool delete = false,
+    }) async {
+      await tester.runAsync(() async {
+        final local = (await db.noteDao.getNoteById(id))!;
+        final newer = HlcTimestamp(
+          wallTime: DateTime.now().millisecondsSinceEpoch + 60000,
+          logicalCounter: 0,
+          nodeId: 'other-device',
+        );
+        await db.noteDao.mergeNoteDocument(
+          local.copyWith(
+            hlcTimestamp: newer.toString(),
+            deviceId: 'other-device',
+            isDeleted: delete,
+            deletedAt: Value(delete ? DateTime.now() : null),
+          ),
+          delete ? null : text,
+        );
+        await noteRepository.announceMerged([id]);
+      });
+      await settle(tester);
+    }
+
+    Future<CodeLineEditingController> open(WidgetTester tester) async {
+      await pumpPageFor(tester, synced);
+      noteBloc.emitContentLoaded(synced, body);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      return editorOf(tester).controller;
+    }
+
+    /// The editor pushed over a page of its own, so it has somewhere to
+    /// leave to.
+    Future<void> openOverAPage(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: const Scaffold(body: Text('beneath')),
+          ),
+        ),
+      );
+      tester
+          .state<NavigatorState>(find.byType(Navigator))
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => OptimizedNoteEditorPage(
+                folderId: synced.folderId,
+                noteId: synced.id,
+                metadata: synced,
+              ),
+            ),
+          );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      noteBloc.emitContentLoaded(synced, body);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+    }
+
+    Future<List<Note>> copies(WidgetTester tester) async =>
+        (await tester.runAsync(
+          () => db.noteDao.getNotesByFolder(syncFolder.id),
+        ))!.where((n) => n.title.startsWith('Squat log (conflict')).toList();
+
+    void type(CodeLineEditingController controller, String text) {
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      controller.replaceSelection(text);
+    }
+
+    testWidgets('a clean editor reloads the merged text in place, the caret '
+        'kept, with a quiet message', (tester) async {
+      final controller = await open(tester);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 3,
+      );
+      await tester.pump();
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'first line\nsecond line, edited\nthird',
+      );
+      await settleUntil(tester, () => controller.text.contains('edited'));
+
+      expect(controller.text, 'first line\nsecond line, edited\nthird');
+      expect(controller.selection.baseIndex, 1);
+      expect(controller.selection.baseOffset, 3);
+      expect(appBar(tester).hasChanges, isFalse);
+      expect(find.text('Updated from another device'), findsOneWidget);
+      expect(await copies(tester), isEmpty);
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a dirty editor keeps the typed text and files the arriving '
+        'text as one conflict copy', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      expect(appBar(tester).hasChanges, isTrue);
+
+      await mergeFromElsewhere(tester, synced.id, text: 'theirs');
+      await settle(tester);
+
+      expect(controller.text, 'mine $body');
+      final filed = await copies(tester);
+      expect(filed, hasLength(1));
+      expect(
+        await tester.runAsync(
+          () => db.contentChunkDao.loadContent(filed.single.id),
+        ),
+        'theirs',
+      );
+      expect(
+        find.text("Another device's version was saved as a copy"),
+        findsOneWidget,
+      );
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a clean editor whose note was deleted elsewhere closes, the '
+        'message on the page beneath', (tester) async {
+      await openOverAPage(tester);
+      expect(pages(), findsOneWidget);
+
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+
+      expect(pages(), findsNothing);
+      expect(find.text('beneath'), findsOneWidget);
+      expect(find.text('Deleted on another device'), findsOneWidget);
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('a dirty editor whose note was deleted elsewhere keeps its '
+        'text and stays', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+
+      expect(pages(), findsOneWidget);
+      expect(controller.text, 'mine $body');
+      expect(find.text('Deleted on another device'), findsNothing);
+      await teardownPage(tester);
+    });
+
+    testWidgets("nothing happens for this device's own write or for another "
+        "note's merge", (tester) async {
+      final controller = await open(tester);
+
+      await tester.runAsync(
+        () => storageService.updateNote(noteId: synced.id, content: 'local'),
+      );
+      await settle(tester);
+      await mergeFromElsewhere(tester, sibling.id, text: 'theirs');
+
+      expect(controller.text, body);
+      expect(find.text('Updated from another device'), findsNothing);
+      expect(await copies(tester), isEmpty);
       await teardownPage(tester);
     });
   });

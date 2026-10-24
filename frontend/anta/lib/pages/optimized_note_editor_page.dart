@@ -21,6 +21,8 @@ import '../bloc/counter/counter_bloc.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/dev_options.dart';
 import '../models/markdown_bar_profile.dart';
+import '../models/item_label.dart';
+import '../models/note_change.dart';
 import '../models/note_metadata.dart';
 import '../models/utility_button_config.dart';
 import '../services/auto_save_service.dart';
@@ -44,7 +46,9 @@ import '../services/app_navigator.dart';
 import '../services/drawer_host_registry.dart';
 import '../services/folder_storage_service.dart';
 import '../services/move_coordinator.dart';
+import '../services/duplicate_name_exception.dart';
 import '../services/note_storage_service.dart';
+import '../services/sync/conflict_copy_title.dart';
 import '../widgets/label_swatch_strip.dart';
 import '../widgets/note_overflow_menu.dart';
 import '../widgets/unified_app_bars.dart';
@@ -167,6 +171,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// Cached reference so we can dispatch [SetNoteContext] during [dispose].
   late final CounterBloc _counterBloc;
+
+  /// The storage service's change events, for the merges a sync pull brings
+  /// into this note ([_onStorageChange]).
+  late final StreamSubscription<NoteChange> _storageChanges;
 
   /// Owns the markdown preview render pipeline (parse, chunk cache,
   /// scroll progress, search highlights). Created in [initState] and
@@ -413,6 +421,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _notifiedLength = _contentController.textLength;
     _contentController.addListener(_onContentNotified);
     _searchController.addListener(_onSearchChanged);
+    _storageChanges = GetIt.I<NoteStorageService>().changes.listen(
+      _onStorageChange,
+    );
 
     if (widget.noteId != null) {
       _loadNoteContent();
@@ -1044,20 +1055,24 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// Layering: Page -> Service, like every other read this page owns. A
   /// note that has been deleted meanwhile reads as null and changes
   /// nothing — the page keeps its text rather than blanking under the user.
-  Future<void> _reloadContentIfChanged() async {
-    if (!_contentLoaded) return;
-    if (_saves.hasChanges.value) return;
-    if (_saves.saveStatus.value == SaveStatus.saving) return;
+  ///
+  /// Answers true when the title or the text was adopted, false when the
+  /// row held what the page shows, and null when nothing was read or the
+  /// page turned dirty during the read — the sync rule (§3.9) files the
+  /// arriving text as a copy then.
+  Future<bool?> _reloadContentIfChanged() async {
+    if (!_contentLoaded) return null;
+    if (_hasUnsavedText) return null;
     final noteId = _saves.effectiveNoteId ?? widget.noteId;
-    if (noteId == null) return;
+    if (noteId == null) return null;
 
     final lazy = await GetIt.I<NoteStorageService>().loadNoteWithContent(
       noteId,
     );
-    if (!mounted || lazy == null) return;
+    if (!mounted || lazy == null) return null;
     // Re-checked after the await: a keystroke landing during the read makes
     // the editor's text the newer one again.
-    if (_saves.hasChanges.value) return;
+    if (_saves.hasChanges.value) return null;
 
     // The title is held in a plain controller seeded from `widget.metadata`,
     // not by a bloc, so a rename made in the editor above this one would
@@ -1074,9 +1089,114 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       // above still fired the page's text listener, so re-baseline
       // auto-save on it before the debounce writes it back.
       if (titleChanged) _saves.contentLoaded();
-      return;
+      return titleChanged;
     }
     _adoptLoadedContent(content, keepCaret: true);
+    return true;
+  }
+
+  /// The page's own text is newer than the row: an edit auto-save has not
+  /// written yet, or a write still in flight.
+  bool get _hasUnsavedText =>
+      _saves.hasChanges.value ||
+      _saves.saveStatus.value == SaveStatus.saving;
+
+  /// The open-editor rule (record §3.9) for a change a sync pull merged
+  /// into this page's note. Filtered here, off the typing path: only a
+  /// remote `updated` or `deleted` of this note reaches the handlers.
+  void _onStorageChange(NoteChange change) {
+    if (!change.remote) return;
+    if (change.noteId != (_saves.effectiveNoteId ?? widget.noteId)) return;
+    switch (change.type) {
+      case NoteChangeType.updated:
+        unawaited(_adoptRemoteUpdate(change));
+      case NoteChangeType.deleted:
+        _leaveRemotelyDeleted();
+      case NoteChangeType.created:
+      case NoteChangeType.moved:
+      case NoteChangeType.labelled:
+        break;
+    }
+  }
+
+  /// A clean page reloads the merged text in place, the caret kept where it
+  /// still fits. A dirty one keeps what the user typed — its next auto-save
+  /// wins and pushes — and files the arriving text as a conflict copy, so
+  /// the other device's text is not lost either.
+  Future<void> _adoptRemoteUpdate(NoteChange change) async {
+    final folderId = change.note?.folderId;
+    if (folderId != null && folderId != _folderId) {
+      setState(() {
+        _folderId = folderId;
+        _folderName = null;
+      });
+      unawaited(_loadFolderName());
+    }
+    if (!_hasUnsavedText) {
+      final reloaded = await _reloadContentIfChanged();
+      if (!mounted || reloaded == false) return;
+      if (reloaded == true) {
+        CustomSnackbar.show(
+          context,
+          AppLocalizations.of(context)!.syncNoteUpdatedElsewhere,
+          withToolbarOffset: true,
+        );
+        return;
+      }
+      // Nothing was read, or a keystroke landed during the read.
+      if (!_hasUnsavedText) return;
+    }
+    await _fileArrivingTextAsCopy(change);
+  }
+
+  /// Saves the text the merge brought as a new note beside this one, under
+  /// D3's title, through the storage service's normal create — a local
+  /// write like any other, so it is announced and synced.
+  Future<void> _fileArrivingTextAsCopy(NoteChange change) async {
+    final storage = GetIt.I<NoteStorageService>();
+    final arriving = await storage.loadNoteContent(change.noteId);
+    if (!mounted || arriving == _contentController.text) return;
+    final l10n = AppLocalizations.of(context)!;
+    final merged = change.note;
+    final at = DateTime.now();
+    for (var copy = 1; ; copy++) {
+      try {
+        await storage.createNote(
+          folderId: merged?.folderId ?? _folderId,
+          title: conflictCopyTitle(
+            l10n,
+            merged?.title ?? _titleController.text,
+            at,
+            copy: copy,
+          ),
+          content: arriving,
+          label: ItemLabel.fromStorage(merged?.label ?? 0),
+        );
+        break;
+      } on DuplicateNameException {
+        continue;
+      }
+    }
+    if (!mounted) return;
+    CustomSnackbar.show(
+      context,
+      l10n.syncNoteConflictCopyFiled,
+      withToolbarOffset: true,
+    );
+  }
+
+  /// A clean page has nothing left to show and closes, the message raised
+  /// before the pop so it stays up over the page beneath. A dirty one keeps
+  /// the user's text on screen.
+  void _leaveRemotelyDeleted() {
+    if (_hasUnsavedText || _isExiting) return;
+    _isExiting = true;
+    _saves.disableSaves();
+    CustomSnackbar.show(
+      context,
+      AppLocalizations.of(context)!.syncNoteDeletedElsewhere,
+    );
+    AppNavigator.pop(context);
   }
 
   /// The document [_onContentNotified] last reported, so a notification
@@ -1425,6 +1545,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   @override
   void dispose() {
+    _storageChanges.cancel();
     AppNavigator.routeObserver.unsubscribe(this);
     _counterBloc.add(const SetNoteContext());
     ShortcutHandlerFactory.counterHandler.setActiveNoteId(null);

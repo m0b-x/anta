@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/sync/sync_bloc.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/services/auth_service.dart';
+import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/utils/auth_error.dart';
 
@@ -512,6 +513,65 @@ void main() {
       final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
 
       expect(states.last, const SyncSignedIn(_user, status: pulling));
+      await bloc.close();
+    });
+
+    test('a refresh keeps the engine-owned fields over the reader\'s, a '
+        'showing noAccess included', () async {
+      final reader = _FakeStatusReader()..pendingCount = 4;
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(
+        user: _user,
+        reader: reader,
+        engine: engine,
+      );
+      final failure = SyncFailureInfo(
+        SyncGatewayFailure.permissionDenied,
+        at: DateTime.utc(2026, 10, 24, 9),
+      );
+      engine.emit(
+        SyncStatus(
+          pendingCount: 4,
+          pause: SyncPause.noAccess,
+          lastFailure: failure,
+          parkedCount: 2,
+          lastPullAt: DateTime.utc(2026, 10, 24, 8),
+        ),
+      );
+      await pumpEventQueue();
+
+      reader.pendingCount = 5;
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+
+      final status = (states.last as SyncSignedIn).status;
+      expect(status.pendingCount, 5, reason: "the reader's own field");
+      expect(status.pause, SyncPause.noAccess);
+      expect(status.lastFailure, failure);
+      expect(status.parkedCount, 2);
+      expect(status.lastPullAt, DateTime.utc(2026, 10, 24, 8));
+      await bloc.close();
+    });
+
+    test('a refresh takes the reader\'s account pause when the engine holds '
+        'none of its own', () async {
+      final reader = _FakeStatusReader();
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(
+        user: _user,
+        reader: reader,
+        engine: engine,
+      );
+      engine.emit(pulling);
+      await pumpEventQueue();
+
+      reader.pause = SyncPause.accountMismatch;
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+
+      final status = (states.last as SyncSignedIn).status;
+      expect(status.pause, SyncPause.accountMismatch);
+      expect(status.activity, SyncActivity.pulling);
       await bloc.close();
     });
 

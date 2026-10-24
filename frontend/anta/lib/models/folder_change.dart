@@ -13,11 +13,16 @@ class FolderChange {
   final String? sourceParentId;
   final Folder? folder;
 
+  /// Whether a sync pull merged the change from another device, rather than
+  /// this device writing it.
+  final bool remote;
+
   const FolderChange({
     required this.type,
     required this.folderId,
     this.parentId,
     this.sourceParentId,
     this.folder,
+    this.remote = false,
   });
 }

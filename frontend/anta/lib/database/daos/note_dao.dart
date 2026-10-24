@@ -946,6 +946,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// change, and a restore-then-rebind would file one copy per note (S3a
   /// review F2).
   ///
+  /// A live remote in another folder reports the folder the note left
+  /// ([MergeOutcome.moved]), so the browser refreshes that list too.
+  ///
   /// The index is `content=notes`, so an entry is removed while the row still
   /// holds the text it was indexed from and added back after the write; a
   /// tombstone has no entry to remove.
@@ -1007,6 +1010,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           } else {
             await update(notes).replace(merged);
             await _indexMergedBody(merged, body);
+            if (local.folderId != remote.folderId) {
+              outcome = outcome.movedFrom(local.folderId);
+            }
           }
           return outcome;
         },

@@ -11,7 +11,10 @@ import 'sync_engine.dart';
 /// Android passes through `inactive`, `hidden` and `paused` on one way out
 /// and back through some of them on the way in, so the drain fires once per
 /// leave and the resume once per return, not on every intermediate state —
-/// and only while the engine is started.
+/// and only while the engine is started. A leave is `hidden` or `paused`: a
+/// lone `inactive` is a notification shade, a permission dialog or a desktop
+/// focus change, and treating it as one cost a drain plus a full pull on
+/// every return (S3c review F4).
 class SyncLifecycleBridge {
   final SyncEngine _engine;
   late final StreamSubscription<AppLifecycleState> _subscription;
@@ -32,12 +35,12 @@ class SyncLifecycleBridge {
         if (!_away) return;
         _away = false;
         _engine.onAppResumed();
-      case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         if (_away) return;
         _away = true;
         unawaited(_engine.onAppBackgrounded());
+      case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
         break;
     }

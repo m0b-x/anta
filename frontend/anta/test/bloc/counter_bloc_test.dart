@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/counter/counter_bloc.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/counter.dart';
 import 'package:anta/services/counter_service.dart';
 
 import '../database/support/db_test_support.dart';
@@ -37,6 +38,32 @@ void main() {
     await pumpEventQueue();
 
     expect((bloc.state as CounterLoaded).counterValues, {sets: 8});
+  });
+
+  test('a reload re-reads the values picked on a card', () async {
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    await service.setValueForNote(laps, 2, noteId: 'n1');
+    await service.flush();
+    bloc.add(const LoadCounters());
+    await pumpEventQueue();
+    bloc.add(LoadCounterForNote(counterId: laps, noteId: 'n1'));
+    await pumpEventQueue();
+    expect(
+      (bloc.state as CounterLoaded).pickedNoteValues,
+      {(counterId: laps, noteId: 'n1'): 2},
+    );
+
+    await db.counterDao.upsertValue(laps, 'n1', 7);
+    await service.reload();
+    await pumpEventQueue();
+
+    expect(
+      (bloc.state as CounterLoaded).pickedNoteValues,
+      {(counterId: laps, noteId: 'n1'): 7},
+    );
   });
 
   test('a reload before the first load leaves the bloc unloaded', () async {

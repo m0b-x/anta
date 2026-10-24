@@ -749,7 +749,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// every column as received, sort preferences and position included. A
   /// tombstone carries no data, so over a local row it writes the stamps, the
   /// deletion and the owner and keeps the rest. Never cascades: each
-  /// descendant arrives as its own row.
+  /// descendant arrives as its own row. A live remote under another parent
+  /// reports the parent it left ([MergeOutcome.moved]).
   Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) {
     return transaction(() async {
       final local = await getFolderById(remote.id);
@@ -775,6 +776,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
             );
           } else {
             await update(folders).replace(remote);
+            if (local!.parentId != remote.parentId) {
+              return applied.movedFrom(local.parentId);
+            }
           }
           return applied;
         },

@@ -4630,6 +4630,10 @@
   "@counterLoadError": {
     "description": "Error message shown when counter loading fails"
   },
+  "counterNotFound": "This counter no longer exists",
+  "@counterNotFound": {
+    "description": "Shown on the per-note values page when its counter is gone, for example deleted on another device"
+  },
   "counterRetry": "Retry",
   "@counterRetry": {
     "description": "Button label to retry loading counters"
@@ -5540,9 +5544,21 @@
       },
       "dateTime": {
         "type": "DateTime",
-        "format": "yMd+Hm"
+        "format": "yMMMd+Hm"
       }
     }
+  },
+  "syncNoteUpdatedElsewhere": "Updated from another device",
+  "@syncNoteUpdatedElsewhere": {
+    "description": "Quiet snackbar in the note editor when the open note, with no unsaved changes, was reloaded with text synced from another device"
+  },
+  "syncNoteConflictCopyFiled": "Another device's version was saved as a copy",
+  "@syncNoteConflictCopyFiled": {
+    "description": "Snackbar in the note editor when another device changed the open note while it had unsaved changes: the typed text stays, the other device's text becomes a conflict copy note"
+  },
+  "syncNoteDeletedElsewhere": "Deleted on another device",
+  "@syncNoteDeletedElsewhere": {
+    "description": "Snackbar after the note editor closes because the open note, with no unsaved changes, was deleted on another device"
   },
   "signInFailed": "Sign-in failed",
   "@signInFailed": {

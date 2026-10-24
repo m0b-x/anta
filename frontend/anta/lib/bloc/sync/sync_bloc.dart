@@ -133,7 +133,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       default:
         return;
     }
-    final status = await _readStatus(user);
+    final status = _withEngine(await _readStatus(user));
     // Re-read after the await: an account change while reading owns the
     // state now, and its own read already carries a status.
     switch (state) {
@@ -144,6 +144,33 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       default:
         break;
     }
+  }
+
+  /// [read] with the fields only the engine knows laid over it from the
+  /// followed engine's last status: the reader sees the database, not the
+  /// run, and a refresh that replaced them would drop a showing `noAccess`
+  /// until the engine's next emit (S3c review F7). The sync times come from
+  /// the engine only once it has them; the pause only when it is one the
+  /// engine decides.
+  SyncStatus _withEngine(SyncStatus read) {
+    final engine = _followedEngine?.current;
+    if (engine == null || engine == SyncStatus.empty) return read;
+    final pause = switch (engine.pause) {
+      SyncPause.noAccess ||
+      SyncPause.appOutdated ||
+      SyncPause.quotaExhausted => engine.pause,
+      _ => null,
+    };
+    return read.copyWith(
+      activity: engine.activity,
+      lastFailure: engine.lastFailure,
+      clearLastFailure: engine.lastFailure == null,
+      parkedCount: engine.parkedCount,
+      downloadedRows: engine.downloadedRows,
+      lastPullAt: engine.lastPullAt,
+      lastPushAt: engine.lastPushAt,
+      pause: pause,
+    );
   }
 
   Future<void> _onSyncNow(

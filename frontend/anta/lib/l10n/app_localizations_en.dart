@@ -3732,6 +3732,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get counterLoadError => 'Failed to load counters';
 
   @override
+  String get counterNotFound => 'This counter no longer exists';
+
+  @override
   String get counterRetry => 'Retry';
 
   @override
@@ -4434,13 +4437,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncConflictCopyTitle(String title, DateTime dateTime) {
-    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMd(
+    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMMMd(
       localeName,
     ).add_Hm();
     final String dateTimeString = dateTimeDateFormat.format(dateTime);
 
     return '$title (conflict copy, $dateTimeString)';
   }
+
+  @override
+  String get syncNoteUpdatedElsewhere => 'Updated from another device';
+
+  @override
+  String get syncNoteConflictCopyFiled =>
+      'Another device\'s version was saved as a copy';
+
+  @override
+  String get syncNoteDeletedElsewhere => 'Deleted on another device';
 
   @override
   String get signInFailed => 'Sign-in failed';

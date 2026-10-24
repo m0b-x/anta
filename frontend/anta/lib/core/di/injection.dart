@@ -276,9 +276,12 @@ void _registerBlocs() {
 bool get _syncEngineEnabled =>
     getIt.isRegistered<SyncGateway>() && getIt<AuthService>().isAvailable;
 
+/// Through `SyncEngine.getInstance`, the path a database switch takes too:
+/// with `autoStart` set every engine it builds starts itself.
 Future<void> _startSyncEngine() async {
+  SyncEngine.autoStart = true;
   try {
-    await (await SyncEngine.getInstance()).start();
+    await SyncEngine.getInstance();
   } catch (e, st) {
     debugPrint('[DI] sync engine not started: $e\n$st');
   }
@@ -287,6 +290,7 @@ Future<void> _startSyncEngine() async {
 Future<void> resetDependencies() async {
   // Before the registrations go: the engine resolves the gateway and the
   // identity through them.
+  SyncEngine.autoStart = false;
   SyncEngine.reset();
   await getIt.reset();
 }

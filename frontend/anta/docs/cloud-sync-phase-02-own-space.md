@@ -369,7 +369,17 @@ checks all four before every pull, push and bind (readiness §7).
   (`parkedCount`, logged with its type) and the page goes on — an exception
   that escaped would roll the page back and the next run would hit the same
   cursor forever, stalling every later table and every push (S3b review
-  M3); a gateway failure ends the pull. A table whose pull failed for a
+  M3); a gateway failure ends the pull. **Two exceptions are never
+  parked:** drift's `CouldNotRollBackException` and any `SqliteException`
+  other than a constraint violation (`resultCode != 19`) — a disk-full or
+  I/O error aborts SQLite's whole transaction, so the savepoint is gone,
+  the remaining statements would run in autocommit and the cursor would
+  commit past rows that were rolled back; such a page fails as a whole and
+  is retried (S3d review H1). **Under the bind floor a parked envelope
+  retires the local row's outbox entry when the local stamp is at or below
+  the floor** (the floor says the local row loses; pushing it would
+  overwrite the space with the loser), and pull-parked keys stay out of the
+  drain for the session (S3d review H2). A table whose pull failed for a
   non-gateway reason does not cancel the other tables or the drain. An
   outbox entry whose row no longer exists (an import wipe) is retired; a
   row whose encode fails (a corrupt chunk) or whose document would exceed
@@ -429,7 +439,16 @@ checks all four before every pull, push and bind (readiness §7).
   and the floor rule could never undo it (S3b review H1). Without a signal
   yet, every table counts as stale. A background drain (the app leaving the
   foreground) is drain-only and bounded: it never waits for a pull in flight
-  beyond the current page, and a never-started engine ignores it.
+  beyond the current page, and a never-started engine ignores it. "Did not
+  complete" means a background cut: a run in which every table was
+  **reached** (pulled to its end or faulted and recorded) drains the
+  non-faulted tables, since each was pulled in full under the floor; the
+  flag clears only when every table ended without fault, so a faulting
+  table keeps the floor rule for its retries (S3d review M3 — otherwise one
+  deterministic fault held every push forever). The foreground state is
+  tracked whether or not the engine is started, and `start()` reads the
+  real lifecycle state — a stop/start across a leave must not restart an
+  engine that cuts every pull and attaches no signal (M4).
 - **The conflict copy is filed inside the page transaction**, before the
   cursor write: a copy that fails rolls the page back, so the losing text is
   never dropped (H2). The hook therefore only writes through the storage
@@ -514,8 +533,11 @@ unsaved modification** since load it reloads the body in place (the caret
 kept where it still fits); with **unsaved modifications** it keeps the
 user's text and files the *arriving* text as a conflict copy with D3's
 title — the next autosave then wins and pushes, and the other device
-receives both the note and the copy. Nothing is lost either way. A widget
-test pins both branches; S6 drives it on two devices. The editor tells a
+receives both the note and the copy. Nothing is lost either way. A remote
+**delete** of the open note: a clean editor closes with a notice; a dirty
+one files its text as a new note it keeps editing (a save to a deleted
+note is refused by design, so the text cannot ride the next autosave). A
+widget test pins every branch; S6 drives it on two devices. The editor tells a
 merge from its own autosave by the change event's origin: `NoteChange`
 carries `remote: true` only when `announceMerged` emits it (S3c review F5);
 a remote move is announced as `moved` with its source folder beside the
@@ -1252,6 +1274,40 @@ fail on the old engine (by reasoning, not by a run — the S3d review
 mutates); that M5's diagnosis runs once per drain (the fake does not log
 `readSpace`).
 
+**S3d review (2026-10-24, one independent reviewer on a snapshot, nine
+brief mutations plus five more, four behaviour probes incl. a disk-full
+database; 2 high, 2 medium, 7 low, 5 test gaps; "the commit stands as the
+base").** Both highs are second-order effects of M3's catch-all: **H1** a
+`SqliteException` that aborts the whole transaction (SQLITE_FULL — probe
+with `PRAGMA max_page_count`) was parked, the savepoint rollback failed
+(`CouldNotRollBackException`), the cursor and `persistClock` ran in
+autocommit and the row was lost for good along with the page's earlier
+rows; **H2** an envelope parked under the floor still counted the pull as
+complete, the flag cleared and the bind's re-queue pushed the pre-bind
+local row over the space (H1's loss one row at a time). Mediums: M3 one
+table faulting every run under the flag held every push forever and the
+flag never cleared (probe: a category pulled in full stayed unpushed over
+three runs); M4 `_foreground` survived `stop()`/`start()`, so an engine
+restarted across a leave cut every pull and attached no signal ("Sync now"
+made no call and reported a clean run) — S4's bind flow around an external
+sign-in activity would meet it. All four are rules in §3.5 now. Lows: L5
+`_drainIfQueued` unguarded (a closed database → an uncaught zone error
+through `whenIdle`); L6 `_signal` never cleared on detach or on a space
+change (a stale snapshot picks the tables; `pull_seen` of a new space
+written from the old space's `touched`); L7 a leave mid-pull runs
+`afterRun` before the drain the leave exists for; L8 a signal error's
+`lastFailure` outlives a healthy re-attach; L9 `onDone` detaches without
+scheduling a re-attach (an idle session hears nothing until an edit or a
+resume); L10 the pull side's parked set never drops a key; L11 every
+debounced drain before the first snapshot is a full pull (accepted,
+bounded). Test gaps T1–T5: stale-before-signal, the per-merge savepoint
+(a merge failing part-way), the user checks in `_checkHalt`, the signal's
+own step counter, the once-per-drain diagnosis (the fake must log
+`readSpace`). **Fixed at the head of S5** (S4a is editing the puller for
+the copy rows): H1, H2, M3, M4, L5–L10, T1–T5; the reviewer's probe file is
+at `scratchpad\snap\frontend\anta\test\zz_probe\review_probe_test.dart`
+for the implementer to port into real tests.
+
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
   if it reads better; `SyncStatus` / `SyncPause` additions; the
   `Stream<SyncStatus>`; the engine registered in DI behind `canSync`
@@ -1287,6 +1343,59 @@ engine restarted after a reset; **S4b** needs D1, D2, D4, D5, D6 and D8 —
 the Sharing page's Sync section, the picker, the install registry, the
 space service, the strings. S5 (the Firestore gateway) runs between them if
 the letters are still out.
+
+**S4a as built (2026-10-24, one implementer resumed once at its turn cap;
+gate: `dart analyze lib test` clean, gen-l10n `{}`, the implementer's
+whole-suite run green but for one test its own `moved` field broke in the
+shared merge contract — fixed, `test/database` 806 green — and the lead's
+own whole-suite run before the commit; review pending, fixes at the head of
+S4b).** The S3c fix pass: H1 — `CounterService` keeps each unflushed value
+as a delta (taps) or an absolute (set/reset) over the shown value,
+`reload()` re-reads and puts the pending deltas back, `flush()` reads the
+stored value inside its own write transaction and writes stored + delta,
+flush and reload share one queue, `afterPage` reloads counters right after
+their page, the per-note bloc flushes before a refresh (tests incl. an
+engine-level case with the real service against the pair); F2 —
+`MergeOutcome.moved` + `previousParent` (a folder at the root has parent
+null, so a flag is needed), `SyncAppliedRow` carries both,
+`announceMerged(ids, inserted:, previousParents:)` emits `moved` with its
+source beside `updated`, the browser bloc refreshes the old folder; F3 —
+`lib/services/sync/conflict_copy_title.dart` shared by the engine and the
+editor, `AppConstants.maxNoteTitleLength = 500`, an empty title becomes
+`untitledNote`; F4 — a leave is `hidden`/`paused` only, a lone `inactive`
+does nothing; F5 — `NoteChange.remote` / `FolderChange.remote`; F6 — a
+static `SyncEngine.autoStart` DI sets, every `getInstance()` builds and
+starts (no test: `getInstance()` reaches `AppDatabase.getInstance()`); F7 —
+`SyncBloc._withEngine` overlays the engine-owned fields on a refresh; F8 —
+the resurrection doc and the two tests; F10 — `fileConflictCopy` returns the
+copy's id, `NoteRepository.createMergedCopy` stamps and queues but caches
+and emits nothing, the puller hands the copies to `afterPage` as inserted
+`notes` rows apart from the pulled count; F11 — `yMMMd`+`Hm` (no slash in
+any language; the export sanitizer turns `/` into `_`), the ` (n)` suffix
+literal like `_createNoteWithUniqueTitle`; F12 — `VocabularyService.changes`
+(after reload, import and clear), `VocabulariesPage` refreshes (service
+tests; no page test); F13 — `CounterPerNoteError(CounterPerNoteFailure)`
+with `counterNotFound` / `loadFailed`, the page words them (`counterNotFound`
+en/de/ro; the raw `e.toString()` gone); F14 — the card picks re-read;
+the copy goes to the nearest live ancestor, else the root. **The editor
+(§3.9):** one subscription to `NoteStorageService.changes` in `initState`,
+`_onStorageChange` returns unless `remote` and the id is the page's note;
+dirty = `_saves.hasChanges.value || saveStatus == saving` (a save in flight
+counts as dirty); clean update → `_reloadContentIfChanged` through
+`_adoptLoadedContent(keepCaret: true)` (caret kept at the same line and
+column, clamped), a keystroke during the read falls through to the dirty
+branch; dirty update → the arriving text filed through `createNote` under
+D3's title in the merged row's folder and label, ` (n)` on a clash; a remote
+move also updates the page's folder; snackbars through `CustomSnackbar.show`
+(the overlay road): `syncNoteUpdatedElsewhere`, `syncNoteConflictCopyFiled`,
+`syncNoteDeletedElsewhere`; clean delete → saves off, the notice, pop;
+dirty delete → keeps the text and the editor **but the next autosave cannot
+save it** (writing to a deleted note is refused by `NoteDao.updateNote` on
+purpose) — the §3.9 rule now says the text is filed as a new note the page
+keeps editing; **S4b builds that branch.** Tests: five editor cases in
+`optimized_note_editor_page_test` driving the real DAO merge +
+`announceMerged`; the counter, hooks, engine, bloc, bridge and vocabulary
+suites listed in the implementer's report.
 
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name

@@ -519,11 +519,15 @@ class FolderRepository {
   /// Tells [folderChanges] about folders a sync pull merged beneath the
   /// repository, as `NoteRepository.announceMerged` does for notes: each row
   /// re-read (tombstones included), its cached copy dropped first, then
-  /// announced — `deleted` for a tombstone, `created` for an id in
-  /// [inserted], `updated` otherwise.
+  /// announced with `remote` set — `deleted` for a tombstone, `created` for
+  /// an id in [inserted], `updated` otherwise (a resurrection included, as
+  /// for notes), and for an id in [previousParents] a `moved` from that
+  /// parent beside it. A key mapped to null left the root, so the map is
+  /// read by key, never by a null value.
   Future<void> announceMerged(
     List<String> ids, {
     Set<String> inserted = const {},
+    Map<String, String?> previousParents = const {},
   }) async {
     if (ids.isEmpty) return;
     final rows = await _folderDao.getByIdsIncludingDeleted(ids);
@@ -531,6 +535,9 @@ class FolderRepository {
       final previous = _folderCache.remove(folder.id);
       _invalidateParentCache(folder.parentId);
       if (previous != null) _invalidateParentCache(previous.parentId);
+      final moved = previousParents.containsKey(folder.id);
+      final source = previousParents[folder.id];
+      if (moved) _invalidateParentCache(source);
       _folderChangesController.add(
         FolderChange(
           type: folder.isDeleted
@@ -541,8 +548,21 @@ class FolderRepository {
           folderId: folder.id,
           parentId: folder.parentId,
           folder: folder.isDeleted ? null : folder,
+          remote: true,
         ),
       );
+      if (moved && !folder.isDeleted) {
+        _folderChangesController.add(
+          FolderChange(
+            type: FolderChangeType.moved,
+            folderId: folder.id,
+            parentId: folder.parentId,
+            sourceParentId: source,
+            folder: folder,
+            remote: true,
+          ),
+        );
+      }
     }
   }
 

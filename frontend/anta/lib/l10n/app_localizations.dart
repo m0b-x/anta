@@ -6454,6 +6454,12 @@ abstract class AppLocalizations {
   /// **'Failed to load counters'**
   String get counterLoadError;
 
+  /// Shown on the per-note values page when its counter is gone, for example deleted on another device
+  ///
+  /// In en, this message translates to:
+  /// **'This counter no longer exists'**
+  String get counterNotFound;
+
   /// Button label to retry loading counters
   ///
   /// In en, this message translates to:
@@ -7617,6 +7623,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{title} (conflict copy, {dateTime})'**
   String syncConflictCopyTitle(String title, DateTime dateTime);
+
+  /// Quiet snackbar in the note editor when the open note, with no unsaved changes, was reloaded with text synced from another device
+  ///
+  /// In en, this message translates to:
+  /// **'Updated from another device'**
+  String get syncNoteUpdatedElsewhere;
+
+  /// Snackbar in the note editor when another device changed the open note while it had unsaved changes: the typed text stays, the other device's text becomes a conflict copy note
+  ///
+  /// In en, this message translates to:
+  /// **'Another device\'s version was saved as a copy'**
+  String get syncNoteConflictCopyFiled;
+
+  /// Snackbar after the note editor closes because the open note, with no unsaved changes, was deleted on another device
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted on another device'**
+  String get syncNoteDeletedElsewhere;
 
   /// Error title when the sign-in flow throws
   ///

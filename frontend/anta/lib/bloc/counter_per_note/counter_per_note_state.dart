@@ -71,11 +71,20 @@ final class CounterPerNoteLoaded extends CounterPerNoteState {
   List<Object?> get props => [counter, entries, lastError];
 }
 
-final class CounterPerNoteError extends CounterPerNoteState {
-  final String message;
+/// Why the page could not show its values; the page words it through l10n.
+enum CounterPerNoteFailure {
+  /// The counter is gone — a sync pull can delete it while the page is open.
+  counterNotFound,
 
-  const CounterPerNoteError(this.message);
+  /// Reading the values failed.
+  loadFailed,
+}
+
+final class CounterPerNoteError extends CounterPerNoteState {
+  final CounterPerNoteFailure failure;
+
+  const CounterPerNoteError(this.failure);
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [failure];
 }

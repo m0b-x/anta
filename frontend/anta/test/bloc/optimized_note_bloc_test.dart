@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -33,6 +35,13 @@ class _FakeNoteStorage extends NoteStorageService {
 
   /// Set to make every label write throw, for the error path.
   bool failLabels = false;
+
+  /// The change stream the bloc follows, which a test feeds by hand.
+  final StreamController<NoteChange> changeEvents =
+      StreamController<NoteChange>.broadcast();
+
+  @override
+  Stream<NoteChange> get changes => changeEvents.stream;
 
   @override
   Future<PaginatedNotes> loadNotesPaginated({
@@ -186,6 +195,45 @@ void main() {
     await pumpEventQueue();
     return bloc;
   }
+
+  group('a change from elsewhere', () {
+    Future<int> reloadsAfter(NoteChange change) async {
+      final bloc = await openedOnPageOne();
+      addTearDown(bloc.close);
+      final before = storage.loads.length;
+      storage.changeEvents.add(change);
+      await Future<void>.delayed(Duration.zero);
+      await pumpEventQueue();
+      return storage.loads.length - before;
+    }
+
+    test('a remote move out of the shown folder refreshes it', () async {
+      final reloads = await reloadsAfter(
+        const NoteChange(
+          type: NoteChangeType.moved,
+          noteId: 'n001',
+          folderId: 'f2',
+          sourceFolderId: 'f1',
+          remote: true,
+        ),
+      );
+
+      expect(reloads, 1);
+    });
+
+    test('an update in another folder leaves the shown one alone', () async {
+      final reloads = await reloadsAfter(
+        const NoteChange(
+          type: NoteChangeType.updated,
+          noteId: 'n001',
+          folderId: 'f2',
+          remote: true,
+        ),
+      );
+
+      expect(reloads, 0);
+    });
+  });
 
   group('load more', () {
     test('a failed load-more does not skip a page', () async {

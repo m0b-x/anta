@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
@@ -31,15 +33,27 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
   List<Vocabulary> _vocabularies = const [];
   bool _isLoading = true;
 
+  /// The lists re-read beneath the page — a sync pull, a restore.
+  StreamSubscription<void>? _changes;
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  @override
+  void dispose() {
+    _changes?.cancel();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final service = await VocabularyService.getInstance();
     if (!mounted) return;
+    _changes = service.changes.listen((_) {
+      if (mounted) _refresh();
+    });
     setState(() {
       _service = service;
       _vocabularies = service.vocabularies;

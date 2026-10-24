@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/vocabularies.dart';
@@ -369,6 +370,49 @@ void main() {
 
       expect(service.vocabularies, isEmpty);
       expect(await db.vocabularyDao.getAllItems(), isEmpty);
+    });
+  });
+
+  group('the changes signal', () {
+    test('fires after a reload, with the rows merged beneath read', () async {
+      final names = <List<String>>[];
+      final subscription = service.changes.listen(
+        (_) => names.add([for (final v in service.vocabularies) v.name]),
+      );
+      addTearDown(subscription.cancel);
+      // A sync pull wrote the row beneath the service.
+      await db.vocabularyDao.importVocabulary(
+        VocabulariesCompanion(
+          id: const Value('v1'),
+          name: const Value('Exercises'),
+          createdAt: Value(DateTime.utc(2026, 1, 1)),
+          updatedAt: Value(DateTime.utc(2026, 1, 1)),
+        ),
+      );
+
+      await service.reload();
+      await pumpEventQueue();
+
+      expect(names, [
+        ['Exercises'],
+      ]);
+    });
+
+    test('fires after an import and a clear, never after its own writes', () async {
+      var fired = 0;
+      final subscription = service.changes.listen((_) => fired++);
+      addTearDown(subscription.cancel);
+
+      final created = await service.createVocabulary(name: 'Exercises');
+      await service.setEnabled(created.id, false);
+      await service.deleteVocabulary(created.id);
+      await pumpEventQueue();
+      expect(fired, 0);
+
+      await service.importData(await service.exportData());
+      await service.clearAllForImport();
+      await pumpEventQueue();
+      expect(fired, 2);
     });
   });
 }

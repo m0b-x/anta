@@ -22,6 +22,7 @@ import '../note_storage_service.dart';
 import '../overview_view_service.dart';
 import '../settings_service.dart';
 import '../vocabulary_service.dart';
+import 'conflict_copy_title.dart';
 import 'sync_apply_hooks.dart';
 import 'sync_table_binding.dart';
 
@@ -91,16 +92,41 @@ class AppSyncApplyHooks implements SyncApplyHooks {
       for (final row in changed)
         if (row.result == MergeResult.inserted) row.rowKey,
     };
+    final previousParents = {
+      for (final row in changed)
+        if (row.moved) row.rowKey: row.previousParent,
+    };
     switch (table) {
       case 'notes':
         await _guard(
           'note changes',
-          () => _notes().announceMerged(ids, inserted: inserted),
+          () => _notes().announceMerged(
+            ids,
+            inserted: inserted,
+            previousParents: {
+              for (final MapEntry(key: id, value: folder)
+                  in previousParents.entries)
+                id: ?folder,
+            },
+          ),
         );
       case 'folders':
         await _guard(
           'folder changes',
-          () => _folders().announceMerged(ids, inserted: inserted),
+          () => _folders().announceMerged(
+            ids,
+            inserted: inserted,
+            previousParents: previousParents,
+          ),
+        );
+      case 'counters' || 'counter_values':
+        // Right after the page, not at the end of the run: a tap between the
+        // two was flushed over the merged count (S3c review H1). reload()
+        // keeps the taps still pending and fires CounterService.changes,
+        // which the counter blocs follow.
+        await _guard(
+          'counter reload',
+          () async => (await _counters()).reload(),
         );
     }
   }
@@ -123,58 +149,68 @@ class AppSyncApplyHooks implements SyncApplyHooks {
         touched.contains(SyncInvalidation.alerts)) {
       await _guard('alert reconcile', _reconcileAlerts);
     }
-    if (touched.contains(SyncInvalidation.counters)) {
-      // reload() fires CounterService.changes, which the counter blocs follow.
-      await _guard('counter reload', () async => (await _counters()).reload());
-    }
+    // The counters reloaded after their own pages.
     if (touched.contains(SyncInvalidation.vocabularies)) {
       await _guard('vocabulary reload', _reloadVocabularies);
     }
   }
 
-  /// Files the losing text as a new note through the storage service, which
-  /// stamps and queues it like any local note, so the other devices receive
-  /// it too. It keeps the loser's folder and label and takes the folder's
-  /// next free position — the storage path's own placement — under a title
-  /// that names it a conflict copy, suffixed ` (n)` should a copy filed the
-  /// same minute already hold it. A folder deleted meanwhile — the same pull
-  /// may have tombstoned it — would hide the copy with it, so the copy goes
-  /// to the root instead (`folderId` empty, the wire's own default).
+  /// Files the losing text as a new note through
+  /// `NoteRepository.createMergedCopy`, which stamps and queues it like any
+  /// local note, so the other devices receive it too, but caches and
+  /// announces nothing: the engine announces the returned id after the page
+  /// committed. It keeps the loser's folder and label and takes the folder's
+  /// next free position under D3's title ([conflictCopyTitle]). A folder
+  /// deleted meanwhile — the same pull may have tombstoned it — would hide
+  /// the copy with it, so the copy goes to the nearest live ancestor, else
+  /// the root (`folderId` empty, the wire's own default).
   ///
   /// Safe inside the page's transaction, so a copy that fails can roll the
   /// page back: it only reads and writes this database (the language from
-  /// the settings table, the folder, the title check, the insert — drift
-  /// nests the insert as a savepoint) and touches no UI; the repository
-  /// caches it fills are dropped by [afterRun]'s invalidation either way.
-  /// Unguarded, unlike the cache effects: a failure must reach the engine,
-  /// or the losing text would be gone without a trace.
+  /// the settings table, the folders, the title check, the insert — drift
+  /// nests the insert as a savepoint) and touches no UI. Unguarded, unlike
+  /// the cache effects: a failure must reach the engine, or the losing text
+  /// would be gone without a trace.
   @override
-  Future<void> fileConflictCopy(SyncNoteConflict conflict) async {
+  Future<String?> fileConflictCopy(SyncNoteConflict conflict) async {
     final loser = conflict.loser;
     final storage = _noteStorage();
-    // Read past the cache, tombstones included: a folder merged as deleted
-    // earlier in this run is still cached as live until afterRun.
-    final folder = await _folders().getFolderById(
-      loser.folderId,
-      forceRefresh: true,
-    );
-    final folderId = folder != null && folder.isDeleted ? '' : loser.folderId;
-    final base = (await _strings()).syncConflictCopyTitle(loser.title, _now());
-    var title = base;
+    final folderId = await _liveFolderFor(loser.folderId);
+    final strings = await _strings();
+    final now = _now();
+    var title = conflictCopyTitle(strings, loser.title, now);
     for (var n = 2;
         await storage.noteTitleExistsInFolder(
           folderId: folderId,
           title: title,
         );
         n++) {
-      title = '$base ($n)';
+      title = conflictCopyTitle(strings, loser.title, now, copy: n);
     }
-    await storage.createNote(
+    final copy = await _notes().createMergedCopy(
       folderId: folderId,
       title: title,
       content: conflict.loserContent,
       label: ItemLabel.fromStorage(loser.label),
     );
+    return copy.id;
+  }
+
+  /// [folderId] while it is live, else its nearest live ancestor, else the
+  /// root. Read past the cache, tombstones included: a folder merged as
+  /// deleted earlier in this run is still cached as live until [afterRun].
+  Future<String> _liveFolderFor(String folderId) async {
+    final seen = <String>{};
+    String? id = folderId;
+    while (id != null && id.isNotEmpty && seen.add(id)) {
+      final folder = await _folders().getFolderById(id, forceRefresh: true);
+      // A folder this device never received is not known to be deleted:
+      // the copy stays beside its note, as the note itself does.
+      if (folder == null) return id == folderId ? folderId : '';
+      if (!folder.isDeleted) return id;
+      id = folder.parentId;
+    }
+    return '';
   }
 
   Future<void> _guard(String what, Future<void> Function() effect) async {

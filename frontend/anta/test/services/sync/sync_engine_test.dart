@@ -6,6 +6,9 @@ import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/sync/app_sync_apply_hooks.dart';
+import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
@@ -134,6 +137,39 @@ void main() {
     await expectConverged();
   });
 
+  test('a counter tap made during a counter page is kept on both devices '
+      'after the next push (S3c review H1)', () async {
+    final counters = await CounterService.forTesting(a().db);
+    final id = await counters.addCounter(name: 'Sets', startValue: 3);
+    await a().sync();
+    await b().sync();
+    await b().db.counterDao.upsertValue(id, '', 8);
+    await b().sync();
+    final production = AppSyncApplyHooks(counters: () async => counters);
+    var tapped = false;
+    a().hooks.onBeforePage = (table) async {
+      await production.beforePage(table);
+      if (table == 'counter_values' && !tapped) {
+        tapped = true;
+        await counters.incrementGlobal(id);
+      }
+    };
+    a().hooks.onAfterPage = production.afterPage;
+
+    await a().sync();
+
+    expect(tapped, isTrue);
+    expect(counters.getGlobalValue(id), 9);
+    await counters.flush();
+    await a().sync();
+    await b().sync();
+
+    for (final device in [a(), b()]) {
+      expect(await device.db.counterDao.getValue(id, ''), 9, reason: device.id);
+    }
+    await expectConverged();
+  });
+
   test('the device whose unpushed note edit loses files one conflict copy, '
       'the other none', () async {
     final folder = await a().db.folderDao.createFolder(name: 'Training');
@@ -233,12 +269,13 @@ void main() {
         cursorWithin = await a().db.syncDao.getValue(
           SyncDao.keyPullCursor('notes'),
         );
-        await writeNote(
+        final copy = await writeNote(
           a(),
           folderId: folder.id,
           title: 'Log (copy)',
           body: conflict.loserContent,
         );
+        return copy.id;
       };
 
       await a().sync();
@@ -252,6 +289,72 @@ void main() {
       final copy = (await a().db.noteDao.getNotesByFolder(folder.id))
           .singleWhere((n) => n.title == 'Log (copy)');
       expect(await a().db.contentChunkDao.loadContent(copy.id), 'typed on A');
+    });
+
+    test('a committed page hands its copy to afterPage once, as an inserted '
+        'note beside the merged one', () async {
+      a().hooks.clear();
+      String? filed;
+      a().hooks.onConflict = (conflict) async {
+        final copy = await writeNote(
+          a(),
+          folderId: folder.id,
+          title: 'Log (copy)',
+          body: conflict.loserContent,
+        );
+        return filed = copy.id;
+      };
+
+      final report = await a().sync();
+
+      final notePages = [
+        for (final (table, rows) in a().hooks.pages)
+          if (table == 'notes') rows,
+      ];
+      final copyRows = [
+        for (final rows in notePages)
+          for (final row in rows)
+            if (row.rowKey == filed) row,
+      ];
+      expect(copyRows, [
+        SyncAppliedRow(
+          rowKey: filed!,
+          result: MergeResult.inserted,
+          tombstone: false,
+        ),
+      ]);
+      expect(
+        notePages.expand((rows) => rows).map((r) => r.rowKey),
+        contains(note.id),
+      );
+      expect(report.failure, isNull);
+    });
+
+    test('a page that rolls back hands its copy to no afterPage', () async {
+      a().hooks.clear();
+      String? filed;
+      a().hooks.onConflict = (conflict) async {
+        final copy = await writeNote(
+          a(),
+          folderId: folder.id,
+          title: 'Log (copy)',
+          body: conflict.loserContent,
+        );
+        filed = copy.id;
+        throw StateError('the page failed after the copy');
+      };
+
+      await a().sync();
+
+      expect(filed, isNotNull);
+      expect(
+        [
+          for (final (_, rows) in a().hooks.pages)
+            for (final row in rows) row.rowKey,
+        ],
+        isNot(contains(filed)),
+      );
+      expect(await a().db.noteDao.getNoteById(filed!), isNull);
     });
   });
 

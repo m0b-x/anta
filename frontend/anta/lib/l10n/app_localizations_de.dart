@@ -3759,6 +3759,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get counterLoadError => 'Zähler konnten nicht geladen werden';
 
   @override
+  String get counterNotFound => 'Diesen Zähler gibt es nicht mehr';
+
+  @override
   String get counterRetry => 'Erneut versuchen';
 
   @override
@@ -4469,13 +4472,23 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String syncConflictCopyTitle(String title, DateTime dateTime) {
-    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMd(
+    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMMMd(
       localeName,
     ).add_Hm();
     final String dateTimeString = dateTimeDateFormat.format(dateTime);
 
     return '$title (Konfliktkopie, $dateTimeString)';
   }
+
+  @override
+  String get syncNoteUpdatedElsewhere => 'Von einem anderen Gerät aktualisiert';
+
+  @override
+  String get syncNoteConflictCopyFiled =>
+      'Die Version des anderen Geräts wurde als Kopie gespeichert';
+
+  @override
+  String get syncNoteDeletedElsewhere => 'Auf einem anderen Gerät gelöscht';
 
   @override
   String get signInFailed => 'Anmeldung fehlgeschlagen';

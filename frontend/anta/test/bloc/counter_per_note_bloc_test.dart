@@ -54,6 +54,41 @@ void main() {
     expect((states.single as CounterPerNoteLoaded).entries.single.value, 9);
   });
 
+  test('a tap still pending at a reload shows on top of the merged value', () async {
+    final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    await service.setValueForNote(laps, 2, noteId: note.id);
+    bloc.add(CounterPerNoteOpened(counterId: laps));
+    await pumpEventQueue();
+
+    await service.increment(laps, noteId: note.id);
+    await db.counterDao.upsertValue(laps, note.id, 9);
+    await service.reload();
+    await pumpEventQueue();
+
+    expect((bloc.state as CounterPerNoteLoaded).entries.single.value, 10);
+    expect(await db.counterDao.getValue(laps, note.id), 10);
+  });
+
+  test('a counter that is gone is a typed error the page words', () async {
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    await service.deleteCounter(laps);
+
+    bloc.add(CounterPerNoteOpened(counterId: laps));
+    await pumpEventQueue();
+
+    expect(
+      bloc.state,
+      const CounterPerNoteError(CounterPerNoteFailure.counterNotFound),
+    );
+  });
+
   test('a reload before the page opened leaves the bloc as it was', () async {
     await service.reload();
     await pumpEventQueue();

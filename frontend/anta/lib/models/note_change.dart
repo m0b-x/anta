@@ -16,11 +16,17 @@ class NoteChange {
   final String? sourceFolderId;
   final Note? note;
 
+  /// Whether a sync pull merged the change from another device, rather than
+  /// this device writing it: an open editor reloads or files a copy on a
+  /// remote change and must not on its own autosave (record §3.9).
+  final bool remote;
+
   const NoteChange({
     required this.type,
     required this.noteId,
     this.folderId,
     this.sourceFolderId,
     this.note,
+    this.remote = false,
   });
 }

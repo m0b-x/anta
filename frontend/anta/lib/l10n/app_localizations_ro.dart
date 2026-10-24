@@ -3798,6 +3798,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get counterLoadError => 'Nu s-au putut încărca contoarele';
 
   @override
+  String get counterNotFound => 'Acest contor nu mai există';
+
+  @override
   String get counterRetry => 'Încercă din nou';
 
   @override
@@ -4517,13 +4520,23 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String syncConflictCopyTitle(String title, DateTime dateTime) {
-    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMd(
+    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMMMd(
       localeName,
     ).add_Hm();
     final String dateTimeString = dateTimeDateFormat.format(dateTime);
 
     return '$title (copie de conflict, $dateTimeString)';
   }
+
+  @override
+  String get syncNoteUpdatedElsewhere => 'Actualizată de pe alt dispozitiv';
+
+  @override
+  String get syncNoteConflictCopyFiled =>
+      'Versiunea celuilalt dispozitiv a fost salvată ca o copie';
+
+  @override
+  String get syncNoteDeletedElsewhere => 'Ștearsă pe alt dispozitiv';
 
   @override
   String get signInFailed => 'Conectare eșuată';

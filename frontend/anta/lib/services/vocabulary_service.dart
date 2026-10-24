@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
@@ -66,9 +67,20 @@ class VocabularyService {
     Vocabularies.resetCache();
   }
 
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
   List<Vocabulary> get vocabularies => _cache;
 
-  Future<void> reload() => _load();
+  /// Fires after the lists were re-read from rows the service did not write
+  /// — [reload] after a sync pull, [importData] and [clearAllForImport] after
+  /// a restore — so an open vocabularies page shows them; the service's own
+  /// writes do not fire it, their callers already refresh (S3c review F12).
+  Stream<void> get changes => _changes.stream;
+
+  Future<void> reload() async {
+    await _load();
+    _changes.add(null);
+  }
 
   /// Turns the editor's one-line-per-entry block into a clean list: trimmed,
   /// blank lines dropped, duplicates removed.
@@ -293,6 +305,7 @@ class VocabularyService {
       }
     }
     await _load();
+    _changes.add(null);
   }
 
   /// Empties the tables when a backup carries no vocabularies but the caller
@@ -300,6 +313,7 @@ class VocabularyService {
   Future<void> clearAllForImport() async {
     await _dao.deleteAll();
     await _load();
+    _changes.add(null);
   }
 
   static DateTime _fromMs(int ms) =>

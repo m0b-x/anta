@@ -117,7 +117,11 @@ void runMergeContract<R>(
 
       final outcome = await c.merge(db(), c.remote(key, newerHlc));
 
-      expect(outcome, const MergeOutcome(MergeResult.applied));
+      // Field by field: a folder or note remote under another parent also
+      // reports the move (`MergeOutcome.moved`), which is no part of this.
+      expect(outcome.result, MergeResult.applied);
+      expect(outcome.localHadPendingPush, isFalse);
+      expect(outcome.loser, isNull);
     });
 
     test('an older remote keeps the local row and re-queues it', () async {

@@ -44,8 +44,22 @@ void main() {
     expect(engine.calls, ['backgrounded', 'resumed']);
   });
 
-  test('a brief inactive, as a system dialog makes, is a leave and a '
-      'return', () async {
+  test('a lone inactive, as a notification shade or a system dialog makes, '
+      'is neither a leave nor a return', () async {
+    await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
+    await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
+
+    expect(engine.calls, isEmpty);
+  });
+
+  test('a leave after a lone inactive still drains once and resumes once', () async {
+    await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
+    await send([
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+    ]);
     await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
 
     expect(engine.calls, ['backgrounded', 'resumed']);
