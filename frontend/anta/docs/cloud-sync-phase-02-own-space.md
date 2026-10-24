@@ -279,10 +279,13 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    FTS in step as `mergeNote` does, and returns the overwritten row **and
    whether it had an unpushed outbox entry** — the conflict-copy condition
    (D3). The loser is reported only when the remote is **strictly newer by
-   stamp**, never on the floor branch: at a rebind `requeueAll` has queued
-   every row, so a pending entry there is not an unpushed change and a
-   restore-then-rebind would otherwise file one copy per note (S2a review
-   F1). A remote tombstone soft-deletes the note's chunks under the remote
+   stamp** AND the local row is **above the bind floor** (`floor == null ||
+   local.hlc > floor`): at a rebind `requeueAll` has queued every row, so a
+   pending entry at or below the floor is not an unpushed change but the
+   pre-unbind or restored state the space already knew — a
+   restore-then-rebind would otherwise file one copy per note the space has
+   newer (S2a review F1, corrected by the S3a review F2: the first fix only
+   covered the older-remote direction). A remote tombstone soft-deletes the note's chunks under the remote
    stamp, as a local delete does (F5). Folders and notes keep
    `createFolder`/`createNote`'s `ownerId`.
 7. Decoding is strict for a live envelope: a missing or wrong-typed
@@ -425,8 +428,14 @@ checks all four before every pull, push and bind (readiness §7).
   pull cursors and `pull_seen` deleted; `bind_merge_pending := 1`;
   `writeBindFloor()` **only when no floor exists** (readiness D15: a
   never-bound database floors at bind time; a restored or unbound one keeps
-  the floor R4 wrote). The engine then runs: pull everything under the
-  floor rule, drain the re-seeded queue.
+  the floor R4 wrote). **A bind while a binding exists is refused**
+  (`StateError`, "stop syncing first"): a direct rebind to another account
+  would leave the first account's rows owned by it, unqueued and foreign
+  under D17 — the unbind writes the floor and clears the queue, and only
+  then may another space be bound (S3a review F1). The engine then runs:
+  pull everything under the floor rule, drain the re-seeded queue. The
+  unbind also clears `quota_paused_at`, `last_pull_at` and `last_push_at`
+  (they describe the old space; F7).
 - One database ↔ one space, and a space bound at most once per install
   (readiness D3 i): an install-wide registry in `SharedPreferences`
   (`sync_bound_spaces`, through `SettingsService` so the QA prefix applies)
@@ -941,6 +950,90 @@ an empty prefix refused). Tests: `sync_codec_test` 56,
 `counter_merge_test` 33, `sync_outbox_test` 58, `counter_service_test` 4;
 all seventeen merge suites 269.
 
+**S3a review (2026-10-24, one independent reviewer on a snapshot, two
+mutations, four behaviour probes; 0 high, 4 medium, 10 low; "the commit
+stands").** Settled: F1 a bind over an existing binding to another account
+left the first account's rows owned, unqueued and foreign → `bind` refuses
+while bound (§3.6); F2 the loser rule still filed a copy for every restored
+note the space had newer → the loser needs the local row above the floor
+(§3.4 (5)). Handed to S3b mid-run: F3 the counter export test compared JSON
+strings whose key order differs between the creation-order cache and the
+DB (one run in three failed) → compare decoded maps; F4 a `counter_values`
+key without `|` threw `RangeError` → `FormatException` with a codec case;
+F5 a live envelope that passes `WireFields` can still fail drift's
+`withLength` check → `InvalidDataException` joins the engine's park list.
+**Fixed at the head of S3c:** F1 and F2 above (with their tests); F6
+`exportData` still mixed the in-memory `counters`/`globalValues` with the
+DB's `noteValues` → everything from the live DB set after `flush()`; F7
+`unbind`/`bind` kept `quota_paused_at`, `last_pull_at`, `last_push_at`; F8
+the rollback test arms the interceptor only on the flag insert → also on
+the first backfill `UPDATE` and the floor insert; F9 a `detached(db2,
+settings1)` pair would write the binding into the other database → an
+assert that the settings service's database is the bound one, and a doc
+line; F10 `getValuesByKeysIncludingDeleted` narrows by `counter_id` alone →
+add `note_id IN`; F11 a 128-character doc line in `crdt_merge.dart`; F12
+`///` on `SyncFailureInfo.failure` / `.at` and the `SyncActivity` values;
+F13 `sync_bloc_test` asserts a `signedOut` status reaches `SyncSignedOut`.
+F14 (an unknown counter `scope` decodes to global) accepted — a newer enum
+value can only come from a newer schema, which `appOutdated` already stops.
+
+**S3b as built (2026-10-24, one implementer; gate: `dart analyze lib test`
+clean, whole suite once — 10,322 passed, the one Windows-only failure;
+review pending, fixes at the head of S4).** The S2b fix pass F2–F6, F8–F10
+landed (a day key is refused unless `dayRowKey(id, day)` reproduces it byte
+for byte, tombstones included; `WireFields` refuses an empty row key; the
+day loads narrow by `event_id IN` and `day IN`; the fake asserts
+`envelope.ownerId == space.ownerUid`; `.gitattributes` for `.cmd`/`.sh`),
+plus the three S3a-review items handed over mid-run (the counter export
+test compares decoded maps; a `counter_values` key without `|` is a
+`FormatException`; drift's `InvalidDataException` joins the park list).
+**The engine:** `lib/services/sync/sync_engine.dart` (one file of about
+1,090 lines with private `_Puller` / `_Pusher`), `sync_apply_hooks.dart`
+(`SyncApplyHooks`: `beforePage`, `afterPage`, `afterRun`,
+`fileConflictCopy`; `SyncAppliedRow`, `SyncNoteConflict`,
+`NoOpSyncApplyHooks`), `sync_scheduler.dart` (`SyncScheduler`,
+`TimerSyncScheduler`); `SyncEngine.detached(…)`, `status` / `current` /
+`whenIdle`, `start` / `stop` / `dispose`, `syncNow → SyncRunReport`
+(`pulledRows`, `pushedRows`, `parked`, `failure`, `skipped ∈ SyncRunSkip`),
+`onAppResumed` / `onAppBackgrounded`, static `reset()` and
+`registerForTesting` through one `_register` that also registers with
+`DatabaseLifecycle` (S3c's `getInstance` only constructs and registers).
+The outbox trigger is `SyncOutboxDao.watchQueued()` (insert updates only;
+the guard test forbids naming `syncOutbox` outside its owners). Shapes
+chosen: a drain trigger (debounce, background) is a run that first pulls
+the tables the latest signal marked stale, then drains; `pull_seen.<table>`
+stores the signal value read *before* the table's first page, as
+microseconds, so a push landing mid-pull leaves the table stale; an empty
+page gets no transaction, no hooks, no `persistClock`; `afterRun` only when
+something changed, in a `finally`; a suspension keeps the signal attached
+(nothing announces its end), every other not-runnable state detaches it;
+sign-in lifts `noAccess`; a quota hold is lifted by its retry, by resume and
+by `syncNow` but shows until a call succeeds, and a stored `quota_paused_at`
+at `start()` shows the pause and retries at once; `whenIdle` also waits for
+re-evaluations and debounced drains; `syncNow` on a stopped engine reports
+`skipped: suspended` (S4 head: a `stopped` value). Test support:
+`recording_sync_apply_hooks.dart`, `manual_sync_scheduler.dart`,
+`test/services/sync/support/sync_pair.dart` (two databases A/B, one
+ms-ticking wall clock, the settings recipe, a per-table snapshot
+comparator); the fake gained `refuse`, `deleteSpace`, `plant` and a `calls`
+log. Tests: `sync_engine_test` 15 (convergence of all six row kinds,
+different rows, LWW on an event, the conflict copy once on the loser's
+device, tombstone + chunks, folder cascade, resurrection, late arrival,
+`replayOnResume` no-ops, the lost-update repair, both floor cases, pull
+before push, `persistClock` once per page over 501 rows, hasMore then
+empty), `sync_engine_failures_test` 11 (back-off and its reset, quota,
+bisect-and-park for `invalidData` and a refused row, > 20 refused →
+`noAccess`, a deleted space, schema 44 → `appOutdated`, malformed and
+empty-name documents, a hard-deleted row retired, a 950 KB note parked),
+`sync_engine_lifecycle_test` 15 (the signal pulls only the moved table,
+`appOutdated`/`noAccess` via the signal, single-flight, suspension
+mid-page, the database switch, debounce and background drains, the hook
+classes incl. `alerts` for a calendar page, the status sequence, signedOut,
+accountMismatch, sign-back-in, unbound, `lastFailure` cleared);
+`fake_sync_gateway_test` 27. Noted: a row created after the bind keeps
+`owner_id` NULL locally while the merging device stores the uid — both mean
+"mine" (readiness D12), the comparator ignores the key; §8.
+
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
   if it reads better; `SyncStatus` / `SyncPause` additions; the
   `Stream<SyncStatus>`; the engine registered in DI behind `canSync`
@@ -1184,6 +1277,10 @@ machine.
   per-folder uniqueness backstop does not run on merge; ids differ) and one
   vocabulary two items for the same term (`saveItems` tombstones one later);
   `requeueRow` on a composite key scans its table.
+- A row created after the bind keeps `owner_id` NULL locally (NULL means
+  "mine", readiness D12) while the device that merges it stores the uid;
+  harmless in Phase 02, and Phase 03 — which needs foreign rows told apart
+  — decides whether local writes on a bound database stamp the uid.
 
 ---
 

@@ -280,17 +280,23 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// The rows under [keys], tombstones included: the sync push sends the
-  /// tombstone a delete queued. Narrowed by event id on the primary key's
-  /// prefix, then matched through [dayRowKey] — the outbox's own key — so a
-  /// caller's milliseconds cannot miss the stored second.
+  /// tombstone a delete queued. Narrowed by event id and day on the primary
+  /// key — a recurring event's years of marks stay out of the read — then
+  /// matched through [dayRowKey], the outbox's own key, so only the asked
+  /// pairs come back and a caller's milliseconds cannot miss the stored
+  /// second.
   Future<List<EventAbsenceRow>> getByDayKeysIncludingDeleted(
     List<({String eventId, DateTime day})> keys,
   ) async {
     if (keys.isEmpty) return const [];
     final wanted = {for (final k in keys) dayRowKey(k.eventId, k.day)};
-    final rows = await (select(
-      eventAbsences,
-    )..where((a) => a.eventId.isIn({for (final k in keys) k.eventId}))).get();
+    final rows =
+        await (select(eventAbsences)..where(
+              (a) =>
+                  a.eventId.isIn({for (final k in keys) k.eventId}) &
+                  a.day.isIn({for (final k in keys) k.day}),
+            ))
+            .get();
     return [
       for (final row in rows)
         if (wanted.contains(dayRowKey(row.eventId, row.day))) row,

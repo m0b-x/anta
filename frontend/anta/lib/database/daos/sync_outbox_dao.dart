@@ -28,6 +28,15 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
     return query.get();
   }
 
+  /// Fires after every commit that queued or raised an entry: the push
+  /// trigger the engine debounces. Inserts only, so the engine's own acks —
+  /// deletes — never re-arm the trigger they just satisfied.
+  Stream<void> watchQueued() => db
+      .tableUpdates(
+        TableUpdateQuery.onTable(syncOutbox, limitUpdateKind: UpdateKind.insert),
+      )
+      .map((_) {});
+
   Future<int> count() async {
     final countExpr = syncOutbox.rowKey.count();
     final row = await (selectOnly(

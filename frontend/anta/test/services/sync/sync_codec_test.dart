@@ -1019,4 +1019,89 @@ void main() {
       throwsFormatException,
     );
   });
+
+  group('row keys', () {
+    SyncEnvelope tombstone(String table, String rowKey) => SyncEnvelope(
+      table: table,
+      rowKey: rowKey,
+      hlc: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      op: OutboxOp.tombstone,
+      ownerId: uid,
+    );
+
+    test('dayKeyOf reads back exactly what dayRowKey writes', () {
+      final key = dayKeyOf(dayKey);
+
+      expect(key.eventId, 'e1');
+      expect(dayRowKey(key.eventId, key.day), dayKey);
+      expect(dayKeyOf('a|b|${day.millisecondsSinceEpoch}').eventId, 'a|b');
+    });
+
+    test('dayKeyOf refuses a key dayRowKey could not have written', () {
+      final ms = day.millisecondsSinceEpoch;
+      for (final bad in [
+        'e1',
+        '|$ms',
+        'e1|',
+        'e1|day',
+        'e1|${ms + 1}',
+        'e1|0$ms',
+        'e1|+$ms',
+        'e1|99999999999999999',
+      ]) {
+        expect(() => dayKeyOf(bad), throwsFormatException, reason: bad);
+      }
+    });
+
+    test('a day tombstone under a malformed key is refused', () {
+      const bindings = <SyncTableBinding<Object>>[
+        CalendarEventOccurrencesBinding(),
+        CalendarEventAbsencesBinding(),
+        CalendarEventSkipsBinding(),
+      ];
+      for (final binding in bindings) {
+        for (final bad in ['e1', 'e1|${day.millisecondsSinceEpoch + 500}']) {
+          expect(
+            () => binding.decode(tombstone(binding.table, bad)),
+            throwsFormatException,
+            reason: '${binding.table} $bad',
+          );
+        }
+      }
+    });
+
+    test('a counter value key without a | or a counter id is refused', () {
+      const binding = CounterValuesBinding();
+
+      for (final bad in ['c1', '|n1']) {
+        expect(
+          () => binding.decode(tombstone(binding.table, bad)),
+          throwsFormatException,
+          reason: bad,
+        );
+      }
+      expect(
+        binding.rowKeyOf(binding.decode(tombstone(binding.table, 'c1|'))),
+        'c1|',
+      );
+    });
+
+    test('a tombstone under an empty key is refused', () {
+      const bindings = <SyncTableBinding<Object>>[
+        FoldersBinding(),
+        NotesBinding(),
+        CalendarEventsBinding(),
+        CounterValuesBinding(),
+      ];
+      for (final binding in bindings) {
+        expect(
+          () => binding.decode(tombstone(binding.table, '')),
+          throwsFormatException,
+          reason: binding.table,
+        );
+      }
+    });
+  });
 }

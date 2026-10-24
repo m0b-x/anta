@@ -17,6 +17,11 @@ class FakeSyncGateway implements SyncGateway {
   /// Every batch accepted, in order.
   final List<List<SyncEnvelope>> pushes = [];
 
+  /// Every pull and push attempted past a scripted failure, in order, as
+  /// `pull:<table>` and `push:<pushedBy>` — so a test can read the order a
+  /// run made its calls in, and which tables a pull touched.
+  final List<String> calls = [];
+
   /// How many arrival numbers before the cursor a resumed pull starts, so the
   /// engine's tests see the repeats Firestore's resume overlap delivers.
   int replayOnResume = 0;
@@ -27,9 +32,41 @@ class FakeSyncGateway implements SyncGateway {
   bool looseHasMore = false;
 
   SyncGatewayFailure? _nextFailure;
+  final Map<(String, String), SyncGatewayFailure> _refused = {};
 
   /// Makes the next call — any of them — throw [failure] and change nothing.
   void failNextWith(SyncGatewayFailure failure) => _nextFailure = failure;
+
+  /// Makes every batch that carries [rowKey] of [table] fail with [failure]
+  /// and write nothing, for as long as the test runs — the way the server
+  /// keeps refusing one oversized or malformed document, so the engine's
+  /// bisect-and-park can be seen isolating it while the rest lands.
+  void refuse(String table, String rowKey, SyncGatewayFailure failure) =>
+      _refused[(table, rowKey)] = failure;
+
+  /// Removes a space, as a console delete would: pushes are denied, reads
+  /// answer null, listeners hear `exists: false`.
+  void deleteSpace(SyncSpaceRef space) {
+    _spaces.remove(space);
+    _store.remove(space);
+    _sequences.remove(space);
+    _signals[space]?.add(_signalNow(space));
+  }
+
+  /// Writes [envelope] into the space as if another client pushed it, past
+  /// every check — a malformed document the rules would never have let in,
+  /// so the engine's per-envelope parking can meet one.
+  void plant(SyncSpaceRef space, SyncEnvelope envelope) {
+    final sequences = _sequences.putIfAbsent(space, () => {});
+    final seq = sequences[envelope.table] =
+        (sequences[envelope.table] ?? 0) + 1;
+    _store
+        .putIfAbsent(space, () => {})
+        .putIfAbsent(envelope.table, () => {})[envelope.rowKey] = _Arrival(
+      envelope,
+      seq,
+    );
+  }
 
   /// What the space holds for [table], keyed by row key.
   Map<String, SyncEnvelope> rowsOf(SyncSpaceRef space, String table) =>
@@ -71,8 +108,18 @@ class FakeSyncGateway implements SyncGateway {
     required int schema,
   }) async {
     _throwIfScripted();
+    calls.add('push:$pushedBy');
     if (batch.length > maxBatch) {
       throw ArgumentError.value(batch.length, 'batch', 'over the batch limit');
+    }
+    for (final envelope in batch) {
+      if (envelope.ownerId != space.ownerUid) {
+        throw ArgumentError.value(
+          envelope.ownerId,
+          'ownerId',
+          '${envelope.table}/${envelope.rowKey} is not owned by the space owner',
+        );
+      }
     }
     final record = _spaces[space];
     if (record == null) {
@@ -86,6 +133,12 @@ class FakeSyncGateway implements SyncGateway {
         SyncGatewayFailure.permissionDenied,
         'schema below the space',
       );
+    }
+    for (final envelope in batch) {
+      final refused = _refused[(envelope.table, envelope.rowKey)];
+      if (refused != null) {
+        throw SyncGatewayException(refused, 'refused ${envelope.rowKey}');
+      }
     }
     final now = _tick();
     final tables = _store.putIfAbsent(space, () => {});
@@ -116,6 +169,7 @@ class FakeSyncGateway implements SyncGateway {
     bool resumed = false,
   }) async {
     _throwIfScripted();
+    calls.add('pull:$table');
     var from = after == null ? 0 : int.parse(after.value);
     if (resumed && after != null) {
       from = from > replayOnResume ? from - replayOnResume : 0;

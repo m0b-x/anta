@@ -223,7 +223,9 @@ abstract interface class SyncGateway {
   /// overwrite is repaired by the device holding the newer row, which keeps
   /// it on the next pull and re-queues it (record §3.4). Every document
   /// carries the `data` key (null for a tombstone) and `ownerId` =
-  /// [SyncSpaceRef.ownerUid], as the rules require.
+  /// [SyncSpaceRef.ownerUid], as the rules require. An envelope whose
+  /// `ownerId` is not that uid is a programming error, never a remote
+  /// condition: the gateway throws [ArgumentError] before writing anything.
   ///
   /// Denied with [SyncGatewayFailure.permissionDenied] before anything is
   /// written when the space does not exist (Firestore's merge-write on a

@@ -127,14 +127,28 @@ Map<String, Object?> dataOf(SyncEnvelope envelope) => envelope.data ?? const {};
 /// data. A tombstone carries no data at all, so every field takes the
 /// column's default and the row is stored only to be out-stamped.
 final class WireFields {
+  /// The SQL table, named in every refusal so a parked envelope can be traced
+  /// to its table from the message alone.
   final String table;
+
+  /// The envelope's data, empty for a tombstone that carries none.
   final Map<String, Object?> data;
+
+  /// Whether the envelope is an upsert: only a live row is held to its
+  /// fields; a tombstone takes the column defaults.
   final bool live;
 
+  /// Refuses an empty row key, a tombstone's included: the key is all a
+  /// tombstone carries, and an empty one names no row the outbox could have
+  /// queued.
   WireFields(SyncEnvelope envelope)
     : table = envelope.table,
       data = dataOf(envelope),
-      live = !isTombstone(envelope);
+      live = !isTombstone(envelope) {
+    if (envelope.rowKey.isEmpty) {
+      throw FormatException('$table: the row key is empty');
+    }
+  }
 
   /// A non-nullable column: required on a live row, [tombstoneDefault] on a
   /// tombstone.
@@ -179,12 +193,27 @@ final class WireFields {
 /// The `{eventId, day}` a day table's key names — `dayRowKey` read back. The
 /// key is all a data-less tombstone carries, so identity comes from it. The
 /// day follows the last `|`: it is digits only, whatever the event id holds.
+///
+/// A key [dayRowKey] could not have written — no `|`, an empty event id, a
+/// day that is not whole-second epoch milliseconds in its canonical digits —
+/// is a [FormatException], a tombstone's included: the merge stores the row
+/// under the key it recomputes from these parts, so only a key that reads
+/// back byte for byte can never be stored apart from its envelope's.
 ({String eventId, DateTime day}) dayKeyOf(String rowKey) {
   final split = rowKey.lastIndexOf('|');
-  return (
+  final ms = split < 1 ? null : int.tryParse(rowKey.substring(split + 1));
+  if (ms == null || ms.abs() > _maxEpochMs) {
+    throw FormatException('not an eventId|dayMs row key', rowKey);
+  }
+  final key = (
     eventId: rowKey.substring(0, split),
-    day: DateTime.fromMillisecondsSinceEpoch(
-      int.tryParse(rowKey.substring(split + 1)) ?? 0,
-    ),
+    day: DateTime.fromMillisecondsSinceEpoch(ms),
   );
+  if (dayRowKey(key.eventId, key.day) != rowKey) {
+    throw FormatException('the day is not a whole second', rowKey);
+  }
+  return key;
 }
+
+/// The largest epoch-milliseconds magnitude a [DateTime] holds.
+const int _maxEpochMs = 8640000000000000;

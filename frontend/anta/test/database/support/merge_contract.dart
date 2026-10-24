@@ -169,6 +169,8 @@ void runMergeContract<R>(
 
     test('a tombstone applies, and a newer upsert resurrects', () async {
       final key = await c.seedLocal(db());
+      final seeded = (await stored(key))![c.markerColumn];
+      expect(seeded, isNot(c.markerValue), reason: 'the marker must differ');
 
       final deleted = await c.merge(
         db(),
@@ -182,6 +184,11 @@ void runMergeContract<R>(
       expect(tombstone['owner_id'], 'uid-1');
       expect(tombstone['device_id'], 'remote');
       expect(tombstone['version'], 7);
+      expect(
+        tombstone[c.markerColumn],
+        seeded,
+        reason: 'a tombstone writes the stamps and keeps the data columns',
+      );
 
       final back = await c.merge(db(), c.remote(key, newerHlc));
       expect(back.result, MergeResult.applied);

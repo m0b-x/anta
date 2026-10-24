@@ -133,9 +133,15 @@ void main() {
       final after = await reloaded.exportData();
 
       // `counters` is left out: the reloaded service reads `createdAt` back
-      // at the column's precision, which this change does not touch.
+      // at the column's precision, which this change does not touch. Compared
+      // decoded: the reloaded maps follow the table's order over random ids,
+      // so equal maps need not serialize to the same bytes.
       for (final key in ['globalValues', 'noteValues', 'noteValueExtras']) {
-        expect(after[key], before[key], reason: '$key byte for byte');
+        expect(
+          jsonDecode(after[key] as String),
+          jsonDecode(before[key] as String),
+          reason: key,
+        );
       }
       expect(after['noteValueExtras'] as String, isNot(contains('gone')));
     });

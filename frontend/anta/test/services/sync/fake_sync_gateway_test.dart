@@ -229,7 +229,11 @@ void main() {
       expect(gateway.rowsOf(other, 'folders'), isEmpty);
       expect(gateway.pushes, isEmpty);
       expect(await gateway.readSpace(other), isNull);
-      expect((await gateway.watchSpace(other).first).exists, isFalse);
+      final signal = await gateway.watchSpace(other).first;
+      expect(signal.exists, isFalse);
+      expect(signal.touched, isEmpty);
+      expect(signal.lastWriter, isNull);
+      expect((await gateway.readSpace(space))!.lastWriter, isNull);
     },
   );
 
@@ -237,12 +241,14 @@ void main() {
     'a push below the space schema is denied; equal and higher land',
     () async {
       await expectLater(
-        push([envelope('a', 1)], schema: 42),
+        push([envelope('a', 1)], schema: 42, by: 'outdated'),
         failsWith(SyncGatewayFailure.permissionDenied),
       );
       expect(gateway.rowsOf(space, 'folders'), isEmpty);
       expect(gateway.pushes, isEmpty);
       expect((await gateway.readSpace(space))!.schema, 43);
+      expect((await gateway.readSpace(space))!.lastWriter, isNull);
+      expect((await gateway.watchSpace(space).first).touched, isEmpty);
 
       await push([envelope('a', 1)], schema: 43);
       expect(gateway.rowsOf(space, 'folders').keys, ['a']);
@@ -251,14 +257,92 @@ void main() {
       await push([envelope('b', 2)], schema: 44);
       expect(gateway.rowsOf(space, 'folders').keys, ['a', 'b']);
       expect((await gateway.readSpace(space))!.schema, 44);
+      final before = await gateway.watchSpace(space).first;
 
       await expectLater(
-        push([envelope('c', 3)], schema: 43),
+        push([envelope('c', 3, table: 'notes')], schema: 43, by: 'outdated'),
         failsWith(SyncGatewayFailure.permissionDenied),
       );
       expect(gateway.rowsOf(space, 'folders').keys, ['a', 'b']);
+      expect(gateway.rowsOf(space, 'notes'), isEmpty);
+      expect((await gateway.readSpace(space))!.lastWriter, 'dev');
+      expect((await gateway.watchSpace(space).first).touched, before.touched);
     },
   );
+
+  test('an envelope owned by another uid is a programming error', () async {
+    final foreign = SyncEnvelope(
+      table: 'folders',
+      rowKey: 'x',
+      hlc: stamp(1),
+      deviceId: 'dev',
+      version: 1,
+      op: OutboxOp.upsert,
+      ownerId: 'stranger',
+      data: const {'id': 'x', 'name': 'X'},
+    );
+
+    await expectLater(
+      push([envelope('a', 1), foreign]),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(gateway.rowsOf(space, 'folders'), isEmpty);
+    expect(gateway.pushes, isEmpty);
+    expect((await gateway.readSpace(space))!.lastWriter, isNull);
+  });
+
+  test('a refused row fails every batch carrying it, and only those', () async {
+    gateway.refuse('folders', 'bad', SyncGatewayFailure.invalidData);
+
+    await expectLater(
+      push([envelope('a', 1), envelope('bad', 2)]),
+      failsWith(SyncGatewayFailure.invalidData),
+    );
+    expect(gateway.rowsOf(space, 'folders'), isEmpty);
+    await expectLater(
+      push([envelope('bad', 3)]),
+      failsWith(SyncGatewayFailure.invalidData),
+    );
+
+    await push([envelope('a', 1)]);
+    expect(gateway.rowsOf(space, 'folders').keys, ['a']);
+  });
+
+  test('a deleted space denies pushes and signals it is gone', () async {
+    await push([envelope('a', 1)]);
+    final signals = <SyncSpaceSignal>[];
+    final subscription = gateway.watchSpace(space).listen(signals.add);
+    await pumpEventQueue();
+
+    gateway.deleteSpace(space);
+    await pumpEventQueue();
+    await subscription.cancel();
+
+    expect(signals.last.exists, isFalse);
+    expect(await gateway.readSpace(space), isNull);
+    await expectLater(
+      push([envelope('b', 2)]),
+      failsWith(SyncGatewayFailure.permissionDenied),
+    );
+  });
+
+  test('a planted row is pulled like a pushed one, past every check', () async {
+    final planted = SyncEnvelope(
+      table: 'folders',
+      rowKey: 'p',
+      hlc: stamp(1),
+      deviceId: 'elsewhere',
+      version: 1,
+      op: OutboxOp.upsert,
+      ownerId: 'owner',
+      data: const {'id': 'p'},
+    );
+
+    gateway.plant(space, planted);
+
+    expect((await gateway.pullPage(space, 'folders')).envelopes, [planted]);
+    expect(gateway.pushes, isEmpty);
+  });
 
   test('a scripted failure throws once and writes nothing', () async {
     gateway.failNextWith(SyncGatewayFailure.quotaExhausted);

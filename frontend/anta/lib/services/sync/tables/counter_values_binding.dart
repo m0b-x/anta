@@ -93,9 +93,14 @@ final class CounterValuesBinding extends SyncTableBinding<CounterValueRow> {
   }
 
   /// [counterValueRowKey] read back: a counter id never holds `|`, so the
-  /// first one splits it, and a global value's note id is `''`.
+  /// first one splits it, and a global value's note id is `''`. A key without
+  /// a `|` or a counter id names no row and is a [FormatException], so the
+  /// engine parks its envelope.
   static ({String counterId, String noteId}) _keyOf(String rowKey) {
     final split = rowKey.indexOf('|');
+    if (split < 1) {
+      throw FormatException('not a counterId|noteId row key', rowKey);
+    }
     return (
       counterId: rowKey.substring(0, split),
       noteId: rowKey.substring(split + 1),
