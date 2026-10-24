@@ -1,5 +1,3 @@
-import 'package:drift/drift.dart';
-
 import '../../../constants/json_keys.dart';
 import '../../../database/crdt/crdt_write.dart';
 import '../../../database/database.dart';
@@ -22,20 +20,13 @@ final class CounterValuesBinding extends SyncTableBinding<CounterValueRow> {
   @override
   SyncInvalidation get invalidation => SyncInvalidation.counters;
 
-  /// Matched on the key expression itself, the registry's `rowKeySql`, so a
-  /// key is never split apart and rebuilt.
   @override
   Future<List<CounterValueRow>> loadByKeys(
     AppDatabase db,
     Iterable<String> rowKeys,
-  ) {
-    final keys = rowKeys.toList(growable: false);
-    if (keys.isEmpty) return Future.value(const []);
-    return (db.select(db.counterValues)..where(
-          (v) => (v.counterId + const Constant('|') + v.noteId).isIn(keys),
-        ))
-        .get();
-  }
+  ) => db.counterDao.getValuesByKeysIncludingDeleted([
+    for (final key in rowKeys) _keyOf(key),
+  ]);
 
   @override
   String rowKeyOf(CounterValueRow row) =>
@@ -67,17 +58,19 @@ final class CounterValuesBinding extends SyncTableBinding<CounterValueRow> {
   }
 
   /// The identity comes from the key, which a data-less tombstone still
-  /// carries: a counter id never holds `|`, so the first one splits it.
+  /// carries; a live row's own ids must agree with it.
   @override
   CounterValueRow decode(SyncEnvelope envelope) {
-    final data = dataOf(envelope);
-    final split = envelope.rowKey.indexOf('|');
+    final key = _keyOf(envelope.rowKey);
+    final f = WireFields(envelope)
+      ..expectSame(JsonKeys.counterId, key.counterId)
+      ..expectSame(_noteId, key.noteId);
     return CounterValueRow(
-      counterId: envelope.rowKey.substring(0, split),
-      noteId: envelope.rowKey.substring(split + 1),
-      value: data[_value] as int? ?? 0,
-      position: data['position'] as int? ?? 0,
-      isPinned: data[JsonKeys.counterIsPinned] as bool? ?? false,
+      counterId: key.counterId,
+      noteId: key.noteId,
+      value: f.field<int>(_value, 0),
+      position: f.field<int>('position', 0),
+      isPinned: f.field<bool>(JsonKeys.counterIsPinned, false),
       hlcTimestamp: envelope.hlc,
       deviceId: envelope.deviceId,
       version: envelope.version,
@@ -96,6 +89,16 @@ final class CounterValuesBinding extends SyncTableBinding<CounterValueRow> {
     return db.counterDao.mergeRemoteCounterValue(
       decode(envelope),
       floor: floor,
+    );
+  }
+
+  /// [counterValueRowKey] read back: a counter id never holds `|`, so the
+  /// first one splits it, and a global value's note id is `''`.
+  static ({String counterId, String noteId}) _keyOf(String rowKey) {
+    final split = rowKey.indexOf('|');
+    return (
+      counterId: rowKey.substring(0, split),
+      noteId: rowKey.substring(split + 1),
     );
   }
 }

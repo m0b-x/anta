@@ -70,6 +70,25 @@ void main() {
     expect(row.version, 7);
   });
 
+  test('the push load reads tombstones, 500 keys per statement', () async {
+    await db.batch((b) {
+      b.insertAll(db.folders, [
+        for (var i = 0; i < 1201; i++)
+          remote('f$i', newerHlc, deleted: i == 1200),
+      ]);
+    });
+    statements.reset();
+
+    final rows = await db.folderDao.getByIdsIncludingDeleted([
+      for (var i = 0; i < 1201; i++) 'f$i',
+      'missing',
+    ]);
+
+    expect(rows, hasLength(1201));
+    expect(rows.where((f) => f.isDeleted).single.id, 'f1200');
+    expect(statements.selects, hasLength(3));
+  });
+
   test('a tombstone keeps the data columns and cascades nothing', () async {
     final local = await db.folderDao.createFolder(name: 'Training');
     final child = await db.folderDao.createFolder(

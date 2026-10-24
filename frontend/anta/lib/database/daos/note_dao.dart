@@ -915,6 +915,15 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     )..where((n) => n.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<Note>> getByIdsIncludingDeleted(List<String> ids) {
+    return CrdtMerge.loadInChunks(
+      ids,
+      (chunk) => (select(notes)..where((n) => n.id.isIn(chunk))).get(),
+    );
+  }
+
   /// Merges one remote note document — the row and its whole body, which
   /// travel as one (D14) — on the contract of [CrdtMerge.mergeRemoteRow],
   /// keeping the chunks and the search index in step with whichever side
@@ -925,12 +934,16 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// flag are derived from that text as `NoteStorageService.createNote`
   /// derives them — never taken from the wire, so they cannot disagree with
   /// the body. A tombstone carries no data: over a local row it writes the
-  /// stamps, the deletion and the owner, keeps the data columns and leaves
-  /// the chunks alone.
+  /// stamps, the deletion and the owner and keeps the data columns; over a
+  /// live one it also tombstones the chunks under the remote stamp, as a
+  /// local delete does under its own.
   ///
-  /// When the remote wins over a live local note whose change was still
-  /// unpushed and whose text differs, the outcome carries that row and its
-  /// text as the loser, for the engine's conflict copy (D3).
+  /// When the remote is strictly newer than a live local note whose change
+  /// was still unpushed and whose text differs, the outcome carries that row
+  /// and its text as the loser, for the engine's conflict copy (D3). Never on
+  /// the floor branch: a rebind's `requeueAll` queued every row, so a pending
+  /// entry there is no unpushed change, and a restore-then-rebind would file
+  /// one copy per note.
   ///
   /// The index is `content=notes`, so an entry is removed while the row still
   /// holds the text it was indexed from and added back after the write; a
@@ -958,7 +971,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         overwrite: (applied) async {
           var outcome = applied;
           if (!local!.isDeleted) {
-            if (applied.localHadPendingPush) {
+            if (applied.localHadPendingPush &&
+                remote.hlcTimestamp.compareTo(local.hlcTimestamp) > 0) {
               final text = await db.contentChunkDao.loadContent(local.id);
               if (text != (body ?? '')) {
                 outcome = MergeOutcome(
@@ -970,6 +984,12 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
               }
             }
             await _removeFromFtsIndex(remote.id);
+            if (body == null) {
+              await db.contentChunkDao.softDeleteChunksForNote(remote.id, (
+                hlc: remote.hlcTimestamp,
+                deviceId: remote.deviceId,
+              ));
+            }
           }
           if (body == null) {
             await (update(notes)..where((n) => n.id.equals(remote.id))).write(

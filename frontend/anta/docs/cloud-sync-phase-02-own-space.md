@@ -218,7 +218,11 @@ follow arrival order. So:
   overwrite is repaired by the device holding the newer row (§3.4). The
   document always carries the `data` key (null for a tombstone) and
   `ownerId = space.ownerUid`; `SyncEnvelope.ownerId` is non-nullable and the
-  engine fills it with the bound account's uid *(F2)*. **Schema:** Firestore
+  engine fills it with the bound account's uid *(F2)*; a gateway **asserts**
+  `envelope.ownerId == space.ownerUid` and throws `ArgumentError` otherwise
+  (a programming error, never a remote condition — in Phase 03 a foreign
+  row is pushed to its owner's space, so the equality holds there too), the
+  fake the same *(S2b review F6)*. **Schema:** Firestore
   has no max transform, so the rule `schema >= stored` does the work — a
   push from an app older than the space's schema is **denied**, which is
   what we want (an outdated device must not write rows lacking columns);
@@ -285,8 +289,21 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    required key throws `FormatException` and the engine parks that envelope;
    only a tombstone (`data: null`) takes column defaults (F3). `loadByKeys`
    queries live in DAO methods (tombstones included), never in a binding;
-   the notes and folders merges go through their repositories, which drop
-   the per-row caches (F2).
+   every binding calls its DAO directly, as the calendar tables do, and the
+   engine's hooks call `NoteRepository.invalidateAll()` /
+   `FolderRepository.invalidateAll()` after each page — the repositories'
+   per-row merge wrappers had no caller and are removed (F2; decided over
+   routing through the repositories because the engine's two-database tests
+   would otherwise need two repository singletons).
+8. **A column added in a later schema** (S2b review F1): rows pushed at an
+   older schema stay in the space without the new key, and lower-schema
+   pushes are denied, so nothing ever rewrites them. A key added after the
+   space's first schema (v43) therefore decodes to its column default when
+   absent, even on a live envelope — `WireFields` gains a lenient accessor
+   for such columns when the first one appears (none exists today); every
+   v43 column stays strict. Row keys are validated for tombstones too: a
+   day key must split at `|` into an id and a whole-second epoch-ms, or the
+   envelope is a `FormatException` and parks (F2, F3).
 6. Returns a `MergeOutcome` (`applied` | `keptLocal` | `unchanged`, plus
    the loser for notes). Nothing above the DAO sees a tombstone (readiness).
 
@@ -325,8 +342,9 @@ checks all four before every pull, push and bind (readiness §7).
   (`calendar_event_service.dart:85`); `CounterService.reload()` (S2 adds it;
   today only `_load()` :98) and `VocabularyService.reload()` (:71);
   `AlertScheduler.reconcileAll(AlertReconcileReason.sync)`
-  (`alert_scheduler.dart:341`) once per applied batch that touched events,
-  alert definitions or digests. Envelopes whose `deviceId` is this device's
+  (`alert_scheduler.dart:341`) once per run that touched the `calendar` or
+  the `alerts` class — events and categories feed the planner as much as
+  the definitions do (S2b review F7). Envelopes whose `deviceId` is this device's
   are applied like any other (the merge makes them no-ops). **Counters:**
   before a page that touches `counters` or `counter_values` the engine calls
   `CounterService.flush()` — a pending tap flushed afterwards would be
@@ -784,15 +802,14 @@ plan, each sound:
   repository wrappers.
 
 **S2a review (2026-10-24, one independent reviewer; 0 high, 3 medium, 9
-low; "the commit stands"). Settled above and fixed at the head of the S3
-run:** F1 under the floor every differing note was a loser → the loser only
-when the remote is strictly newer, a note floor case pins it (§3.4 (5),
-D3); F2 the bindings built Drift queries in `lib/services` and skipped the
-repositories, whose cache-dropping wrappers had no caller → `loadByKeys`
-moves into DAO methods (`get…ByIdsIncludingDeleted`) for the six tables and
-the notes/folders merges go through `NoteRepository.mergeNoteDocument` /
-`FolderRepository.mergeFolder` (the engine still calls `invalidateAll` per
-class after a page) (§3.4 (7)); F3 decode defaulted live envelopes' missing
+low; "the commit stands"). Settled above and fixed in S3a:** F1 under the
+floor every differing note was a loser → the loser only when the remote is
+strictly newer, a note floor case pins it (§3.4 (5), D3); F2 the bindings
+built Drift queries in `lib/services` and skipped the repositories, whose
+cache-dropping wrappers had no caller → `loadByKeys` moves into DAO methods
+(`get…ByIdsIncludingDeleted`) for the six tables; the bindings keep calling
+DAOs and the dead wrappers are deleted — the engine's hooks call
+`invalidateAll` per class after a page (§3.4 (7)); F3 decode defaulted live envelopes' missing
 keys (an empty body over real text) → strict decode, `FormatException`
 parked by the engine (§3.4 (7)); F4 `CounterService.reload()` → the engine
 flushes before a counters page and the service gains `changes` (§3.5); F5
@@ -840,7 +857,89 @@ eleven-case contract and a DST-day key for the day tables), `sync_codec_test`
 head pass, as planned: S2a's six bindings (`loadByKeys` into DAOs, strict
 decode) and the counters' `createdAt` as epoch-ms.
 
+**S2b review (2026-10-24, one independent reviewer on a `git archive`
+snapshot of the commit, seven mutation probes; 0 high, 1 medium, 9 low;
+"the commit stands").** Settled: F1 a column added in a later schema would
+park every older row on a fresh device → §3.4 (8); F6 two sources for the
+document's `ownerId` → the gateway asserts equality (§3.3); F7 a `calendar`
+page also reconciles alerts (§3.5). **Fixed at the head of S3b:** F2
+`dayKeyOf` throws `RangeError`, not `FormatException`, on a key without `|`
+(and a non-numeric day decodes to 0) — both become `FormatException`; F3 a
+day tombstone can be stored under a key other than its envelope's
+(tombstones skip the key check and the merges recompute the key) — validate
+the key for tombstones too and refuse digits that are not a whole second;
+F4 in ten of eleven tables nothing pins that a tombstone keeps the data
+columns (mutation: `replace(remote)` on the tombstone branch passed) — the
+contract's tombstone case asserts the marker column; F5 the fake's denial
+tests do not assert `lastWriter` / `touched` unchanged; F8 the day loads
+narrow by `event_id IN` alone — add `day IN`; F9 `///` on `WireFields.table`
+/ `data` / `live`; F10 `.gitattributes` with `*.cmd text eol=crlf` and
+`*.sh text eol=lf` (the `.cmd` is LF in the index today). **Incident:** a
+mutation probe used a relative path that resolved against the process's
+working directory and wrote a cascade line into the tree's
+`calendar_event_dao.dart` for about two minutes before the reviewer noticed
+and `git restore`d the one file (verified clean afterwards; S3a's final
+whole-suite run covers the window). Rule for every later reviewer brief:
+probes run only in a scratch copy addressed by absolute path.
+
 ### S3 — The engine
+
+Run as three implementer runs (decided 2026-10-24 after S2b: one run of
+this size risks the agent's turn cap, and each part is a review point):
+**S3a** foundations at `medium` — the S2a fix pass F1–F10, the bind core
+(`SyncBindingService.bind`, §3.6, without the install registry and the
+picker), `SyncStatus` / `SyncPause` additions, the `sync_metadata` keys
+(`pull_cursor.<table>`, `pull_seen.<table>`, `bind_merge_pending`,
+`last_pull_at`, `quota_paused_at`), `detached` constructors so a test can
+hold two binding and status services; **S3b** the engine core against the
+fake with the convergence suite, its app-facing effects behind an injected
+`SyncApplyHooks` interface (`beforePage`, `afterPage`, `afterApplied`,
+`fileConflictCopy`) with a recording fake; **S3c** the production hooks
+(the invalidations, the storage services' change events for merged rows,
+counters flush/reload/`changes`, the conflict copy with its l10n title),
+`SyncBloc`, DI behind `canSync` and a registered gateway, the lifecycle
+triggers and timers, and the rehearsal on the owner's export.
+
+**S3a as built (2026-10-24, one implementer at medium; gate: `dart analyze
+lib test` clean, whole suite once — 10,272 passed, the one Windows-only
+failure; review pending, fixes at the head of S3c).** The S2a fix pass
+F1–F3, F5–F7, F9, F10 landed as specified, with these shapes: one shared
+`CrdtMerge.loadInChunks` (500 keys per statement) behind the six new DAO
+loads (`FolderDao` / `NoteDao.getByIdsIncludingDeleted`,
+`CounterDao.getCountersByIdsIncludingDeleted` /
+`getValuesByKeysIncludingDeleted`, `VocabularyDao.getVocabulariesByIdsIncludingDeleted`
+/ `getItemsByIdsIncludingDeleted`); the repositories' merge wrappers deleted;
+a remote note tombstone soft-deletes the chunks through the existing
+`softDeleteChunksForNote(noteId, CrdtStamp)` with the remote stamp (no new
+method); `CounterService.exportData` filters the three value maps to live
+counters (the `counters` list itself still comes from the in-memory cache —
+S3c's flush/reload around counter pages keeps it honest); the counters wire
+map is `Counter.toJson()` minus `createdAt` plus `createdAtMs`, an unknown
+`scope` decodes to global as `Counter.fromJson` does; the folder/note wire
+keys stay a literal list (`BackupService` cannot be pointed at a test
+database — twelve singletons through `getInstance()`). **Bind core:**
+`SyncBindingService.bind({space, accountUid})` is one transaction — the
+binding keys, the `owner_id` backfill through `customUpdate` with each
+table's `TableInfo` (watchers notified), `requeueAll`, the `pull_cursor.` /
+`pull_seen.` keys deleted, `bind_merge_pending = '1'`, the floor only when
+none exists; a bind while suspended throws `StateError`; `unbind()` also
+clears the pull keys and the flag; rollback proven through a
+`QueryInterceptor` that throws on the flag's insert. `SyncBindingService.detached`
+and `SyncStatusService.detached` for two-database tests (`SettingsService`
+has no detached form: `forTesting(db1)`, `reset()`, `forTesting(db2)` — the
+first instance keeps its own database). **Status:** `SyncPause` +
+`noAccess` / `appOutdated` / `signedOut`; `SyncActivity`; `SyncFailureInfo`
+over `SyncGatewayFailure`; `SyncStatus` + `lastPullAt`, `activity`,
+`lastFailure`, `parkedCount`, `downloadedRows`, `copyWith`; the status
+service reports `signedOut` when bound with no user. **Keys:**
+`SyncDao.keyBindMergePending`, `keyLastPullAt`, `keyQuotaPausedAt`,
+`keyPullCursor(table)` / `keyPullSeen(table)` with public prefixes,
+`deleteByPrefix` (matched with `substr`, not `LIKE` — `_` is a wildcard;
+an empty prefix refused). Tests: `sync_codec_test` 56,
+`sync_binding_service_test` 15, `sync_status_service_test` 10,
+`sync_dao_test` 4, `note_merge_test` 29, `folder_merge_test` 16,
+`counter_merge_test` 33, `sync_outbox_test` 58, `counter_service_test` 4;
+all seventeen merge suites 269.
 
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
   if it reads better; `SyncStatus` / `SyncPause` additions; the

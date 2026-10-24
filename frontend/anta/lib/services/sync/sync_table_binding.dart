@@ -10,11 +10,24 @@ export '../../database/crdt/merge_outcome.dart';
 /// table: every table but notes and folders is cached in its service, and
 /// nothing above the DAO hears of a merge on its own.
 enum SyncInvalidation {
+  /// `FolderRepository.invalidateAll`: its per-row and per-parent caches.
   folders,
+
+  /// `NoteRepository.invalidateAll`: its per-row and per-folder caches.
   notes,
+
+  /// `CounterService`, whose cache holds counters and values together.
   counters,
+
+  /// `VocabularyService`, whose cache holds vocabularies and terms together.
   vocabularies,
+
+  /// The calendar services: events, categories, day rows, templates, filter
+  /// presets and overview views.
   calendar,
+
+  /// The alert services — event alerts, category alerts, digests — after
+  /// which the device-local `alert_registrations` are reconciled.
   alerts,
 }
 
@@ -32,6 +45,8 @@ abstract class SyncTableBinding<R> {
   /// The SQL table name, one of `syncedTables`.
   String get table;
 
+  /// The cache the engine refreshes once a pulled page merged rows of this
+  /// table — a merge writes below every cache and tells none of them.
   SyncInvalidation get invalidation;
 
   /// The rows under [rowKeys], live and tombstoned alike — a push sends the
@@ -102,11 +117,6 @@ DateTime? deletedAtOf(SyncEnvelope envelope) {
 
 /// The envelope's data, or an empty map for a tombstone without any.
 Map<String, Object?> dataOf(SyncEnvelope envelope) => envelope.data ?? const {};
-
-/// An instant written as epoch milliseconds — the wire's one date shape —
-/// read back; the epoch when absent, as a data-less tombstone's dates are.
-DateTime fromMs(Object? value) =>
-    DateTime.fromMillisecondsSinceEpoch(value is int ? value : 0);
 
 /// An envelope's data read field by field, strictly for a live row and
 /// leniently for a tombstone.

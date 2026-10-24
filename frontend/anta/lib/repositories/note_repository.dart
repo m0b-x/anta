@@ -1,5 +1,4 @@
 import 'dart:async';
-import '../database/crdt/merge_outcome.dart';
 import '../database/database.dart';
 import '../database/daos/note_dao.dart';
 import '../database/daos/content_chunk_dao.dart';
@@ -603,26 +602,6 @@ class NoteRepository {
 
   Future<List<Note>> getNotesSince(String hlcTimestamp) {
     return _noteDao.getNotesSince(hlcTimestamp);
-  }
-
-  /// The folder caches of the note's cached copy go too: a merge can move the
-  /// note away from it. Emits no [NoteChange]: a pull applies pages of rows,
-  /// and the caller refreshes what shows them once per page.
-  Future<MergeOutcome> mergeNoteDocument(
-    Note remote,
-    String? content, {
-    String? floor,
-  }) async {
-    final outcome = await _noteDao.mergeNoteDocument(
-      remote,
-      content,
-      floor: floor,
-    );
-    final cached = _noteCache.remove(remote.id);
-    _contentCache.remove(remote.id);
-    if (cached != null) _invalidateFolderCache(cached.folderId);
-    _invalidateFolderCache(remote.folderId);
-    return outcome;
   }
 
   /// Drops the caches keyed by [folderId], and always the `null` key with it:

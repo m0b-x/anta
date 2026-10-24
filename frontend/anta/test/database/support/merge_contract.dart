@@ -3,8 +3,11 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/crdt_write.dart';
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/crdt/synced_tables.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 
 import 'db_test_support.dart';
@@ -172,8 +175,13 @@ void runMergeContract<R>(
         c.remote(key, 'ffffffffffff:0000:remote', deleted: true),
       );
       expect(deleted.result, MergeResult.applied);
-      expect((await stored(key))!['is_deleted'], 1);
-      expect((await stored(key))!['deleted_at'], isNotNull);
+      final tombstone = (await stored(key))!;
+      expect(tombstone['is_deleted'], 1);
+      expect(tombstone['deleted_at'], isNotNull);
+      expect(tombstone['hlc_timestamp'], 'ffffffffffff:0000:remote');
+      expect(tombstone['owner_id'], 'uid-1');
+      expect(tombstone['device_id'], 'remote');
+      expect(tombstone['version'], 7);
 
       final back = await c.merge(db(), c.remote(key, newerHlc));
       expect(back.result, MergeResult.applied);
@@ -222,6 +230,54 @@ void runMergeContract<R>(
 
       expect(outcome.result, MergeResult.keptLocal);
       expect((await stored(key))!['hlc_timestamp'], stamp);
+    });
+
+    /// Ten minutes ahead of the wall clock: past anything the test clock has
+    /// minted, inside the drift guard, so the clock adopts it whole.
+    HlcTimestamp soon() => HlcTimestamp(
+      wallTime: DateTime.now()
+          .add(const Duration(minutes: 10))
+          .millisecondsSinceEpoch,
+      logicalCounter: 3,
+      nodeId: 'remote',
+    );
+
+    Future<void> expectClockAt(HlcTimestamp remote) async {
+      final last = db().hlc.last;
+      expect((last.wallTime, last.logicalCounter), (
+        remote.wallTime,
+        remote.logicalCounter,
+      ));
+      await db().persistClock();
+      final stored = HlcTimestamp.parse(
+        (await db().syncDao.getValue(SyncDao.keyLastHlc))!,
+      );
+      expect((stored.wallTime, stored.logicalCounter), (
+        remote.wallTime,
+        remote.logicalCounter,
+      ));
+    }
+
+    test('an inserted row moves the clock to its stamp', () async {
+      final remote = soon();
+
+      final outcome = await c.merge(
+        db(),
+        c.remote(c.freshKey, remote.toString()),
+      );
+
+      expect(outcome.result, MergeResult.inserted);
+      await expectClockAt(remote);
+    });
+
+    test('an applied row moves the clock to its stamp', () async {
+      final key = await c.seedLocal(db());
+      final remote = soon();
+
+      final outcome = await c.merge(db(), c.remote(key, remote.toString()));
+
+      expect(outcome.result, MergeResult.applied);
+      await expectClockAt(remote);
     });
 
     test('a merge moves the clock only through the remote stamp', () async {

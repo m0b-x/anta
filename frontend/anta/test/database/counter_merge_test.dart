@@ -159,6 +159,49 @@ void main() {
     expect(counter.name, 'Sets', reason: 'a tombstone carries no data');
   });
 
+  test('the value load matches whole keys, tombstones included', () async {
+    await db.batch((b) {
+      b.insertAll(db.counterValues, [
+        remoteValue('c1|', newerHlc),
+        remoteValue('c1|n1', newerHlc, deleted: true),
+        remoteValue('c1|n2', newerHlc),
+        remoteValue('c2|n1', newerHlc),
+        for (var i = 0; i < 600; i++) remoteValue('k$i|n$i', newerHlc),
+      ]);
+    });
+
+    final rows = await db.counterDao.getValuesByKeysIncludingDeleted([
+      (counterId: 'c1', noteId: ''),
+      (counterId: 'c1', noteId: 'n1'),
+      (counterId: 'c2', noteId: 'n9'),
+      for (var i = 0; i < 600; i++) (counterId: 'k$i', noteId: 'n$i'),
+    ]);
+
+    final keys = {for (final r in rows) '${r.counterId}|${r.noteId}'};
+    expect(keys, hasLength(602));
+    expect(keys, containsAll(['c1|', 'c1|n1', 'k599|n599']));
+    expect(keys, isNot(contains('c1|n2')), reason: 'only the keys asked for');
+    expect(keys, isNot(contains('c2|n1')));
+  });
+
+  test('the counter load reads tombstones', () async {
+    await db.into(db.counters).insert(remoteCounter('c1', newerHlc));
+    await db
+        .into(db.counters)
+        .insert(remoteCounter('c2', newerHlc, deleted: true));
+
+    final rows = await db.counterDao.getCountersByIdsIncludingDeleted([
+      'c1',
+      'c2',
+      'c3',
+    ]);
+
+    expect({for (final r in rows) r.id: r.isDeleted}, {
+      'c1': false,
+      'c2': true,
+    });
+  });
+
   test('a newer counter overwrites every data column', () async {
     await db.counterDao.insertCounter(local('c1'));
 

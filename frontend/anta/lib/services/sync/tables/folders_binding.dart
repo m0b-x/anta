@@ -18,11 +18,8 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
   SyncInvalidation get invalidation => SyncInvalidation.folders;
 
   @override
-  Future<List<Folder>> loadByKeys(AppDatabase db, Iterable<String> rowKeys) {
-    final keys = rowKeys.toList(growable: false);
-    if (keys.isEmpty) return Future.value(const []);
-    return (db.select(db.folders)..where((f) => f.id.isIn(keys))).get();
-  }
+  Future<List<Folder>> loadByKeys(AppDatabase db, Iterable<String> rowKeys) =>
+      db.folderDao.getByIdsIncludingDeleted(rowKeys.toList());
 
   @override
   String rowKeyOf(Folder row) => row.id;
@@ -58,19 +55,21 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
 
   @override
   Folder decode(SyncEnvelope envelope) {
-    final data = dataOf(envelope);
+    final f = WireFields(envelope)..expectSame(JsonKeys.id, envelope.rowKey);
     return Folder(
       id: envelope.rowKey,
       // The column refuses an empty name, and a data-less tombstone has none:
       // its id stands in, on a row nothing ever shows.
-      name: data[JsonKeys.name] as String? ?? envelope.rowKey,
-      parentId: data[JsonKeys.parentId] as String?,
-      position: data['position'] as int? ?? 0,
-      label: ItemLabel.fromName(data[JsonKeys.label] as String?).storageValue,
-      createdAt: fromMs(data['createdAtMs']),
-      updatedAt: fromMs(data['updatedAtMs']),
-      noteSortOrder: data[JsonKeys.noteSortOrder] as String?,
-      subfolderSortOrder: data[JsonKeys.subfolderSortOrder] as String?,
+      name: f.field<String>(JsonKeys.name, envelope.rowKey),
+      parentId: f.nullable<String>(JsonKeys.parentId),
+      position: f.field<int>('position', 0),
+      label: ItemLabel.fromName(
+        f.field<String>(JsonKeys.label, ItemLabel.none.storageName),
+      ).storageValue,
+      createdAt: f.fieldMs('createdAtMs'),
+      updatedAt: f.fieldMs('updatedAtMs'),
+      noteSortOrder: f.nullable<String>(JsonKeys.noteSortOrder),
+      subfolderSortOrder: f.nullable<String>(JsonKeys.subfolderSortOrder),
       hlcTimestamp: envelope.hlc,
       deviceId: envelope.deviceId,
       version: envelope.version,

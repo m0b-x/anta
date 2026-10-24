@@ -736,6 +736,15 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<Folder>> getByIdsIncludingDeleted(List<String> ids) {
+    return CrdtMerge.loadInChunks(
+      ids,
+      (chunk) => (select(folders)..where((f) => f.id.isIn(chunk))).get(),
+    );
+  }
+
   /// Merges one remote folder on the contract of [CrdtMerge.mergeRemoteRow]:
   /// every column as received, sort preferences and position included. A
   /// tombstone carries no data, so over a local row it writes the stamps, the

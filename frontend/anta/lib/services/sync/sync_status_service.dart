@@ -17,6 +17,11 @@ class SyncStatusService implements SyncStatusReader {
 
   SyncStatusService._(this._db, this._binding);
 
+  /// A service outside the singleton and the [DatabaseLifecycle] registry,
+  /// so one test can hold one per in-memory database. Never for app code.
+  @visibleForTesting
+  SyncStatusService.detached(this._db, this._binding);
+
   static Future<SyncStatusService> getInstance() async {
     final existing = _instance;
     if (existing != null) return existing;
@@ -50,28 +55,37 @@ class SyncStatusService implements SyncStatusReader {
     _instance = null;
   }
 
-  /// [SyncPause.quotaExhausted] is never set here: only Phase 02's push
-  /// learns of it (D19). Signed out is not a mismatch: there is no account
-  /// to sync as, and signing back in as the bound one resumes.
+  /// Only the pauses the stored state decides are set here; the engine's
+  /// own — quota, access, an outdated app — come from its stream (D19).
+  /// Signed out is not a mismatch: there is no account to sync as, and
+  /// signing back in as the bound one resumes.
   @override
   Future<SyncStatus> read({AppUser? user}) async {
     final binding = await _binding.read();
     final uid = user?.uid;
-    final pushedAt = int.tryParse(
-      await _db.syncDao.getValue(SyncDao.keyLastPushAt) ?? '',
-    );
     final ahead = _db.clockSeedAhead;
     return SyncStatus(
       pendingCount: await _db.syncOutboxDao.count(),
-      lastPushAt: pushedAt == null
-          ? null
-          : DateTime.fromMillisecondsSinceEpoch(pushedAt, isUtc: true),
-      pause: binding != null && uid != null && uid != binding.accountUid
+      lastPushAt: await _instantAt(SyncDao.keyLastPushAt),
+      lastPullAt: await _instantAt(SyncDao.keyLastPullAt),
+      pause: binding == null
+          ? SyncPause.none
+          : uid == null
+          ? SyncPause.signedOut
+          : uid != binding.accountUid
           ? SyncPause.accountMismatch
           : SyncPause.none,
       clockAhead: ahead > AppDatabase.clockMaxDrift ? ahead : Duration.zero,
       clampedRemotes: _db.clockClampedRemotes,
       binding: binding,
     );
+  }
+
+  /// A stored epoch-milliseconds instant, null until first written.
+  Future<DateTime?> _instantAt(String key) async {
+    final ms = int.tryParse(await _db.syncDao.getValue(key) ?? '');
+    return ms == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
   }
 }

@@ -116,15 +116,30 @@ void main() {
       expect(await db.contentChunkDao.loadContent(local.id), '');
     });
 
-    test('a tombstone leaves the chunks alone', () async {
-      final local = await seed(body: 'kept text');
+    test('a tombstone tombstones the chunks under the remote stamp', () async {
+      final local = await seed(body: 'gone text');
+      final queued = await db.syncOutboxDao.count();
 
       await merge(remote(local.id, newerHlc, deleted: true));
 
-      expect(await db.contentChunkDao.loadContent(local.id), 'kept text');
+      final chunks = await (db.select(
+        db.contentChunks,
+      )..where((c) => c.noteId.equals(local.id))).get();
+      expect(chunks, isNotEmpty);
+      for (final chunk in chunks) {
+        expect(chunk.isDeleted, isTrue);
+        expect(chunk.hlcTimestamp, newerHlc);
+        expect(chunk.deviceId, 'remote');
+      }
+      expect(await db.contentChunkDao.loadContent(local.id), '');
       final row = (await db.noteDao.getNoteById(local.id))!;
       expect(row.isDeleted, isTrue);
       expect(row.title, 'Squat log', reason: 'a tombstone carries no data');
+      expect(
+        await db.syncOutboxDao.count(),
+        queued - 1,
+        reason: 'the note entry retired, no chunk queued, nothing minted',
+      );
     });
 
     test('a kept local row keeps its chunks', () async {
@@ -173,9 +188,26 @@ void main() {
 
       expect(outcome.result, MergeResult.applied);
       expect(outcome.localHadPendingPush, isTrue);
-      expect((outcome.loser! as Note).id, local.id);
-      expect((outcome.loser! as Note).title, 'Squat log');
+      expect(outcome.loser!.id, local.id);
+      expect(outcome.loser!.title, 'Squat log');
       expect(outcome.loserContent, 'my unpushed set');
+    });
+
+    test('is never named on the floor branch', () async {
+      // A rebind's requeueAll queued every row: the pending entry here is no
+      // unpushed change, and the space wins under the floor.
+      final local = await seed(body: 'restored text');
+
+      final outcome = await merge(
+        remote(local.id, olderHlc),
+        floor: local.hlcTimestamp,
+      );
+
+      expect(outcome.result, MergeResult.applied);
+      expect(outcome.localHadPendingPush, isTrue);
+      expect(outcome.loser, isNull);
+      expect(outcome.loserContent, isNull);
+      expect(await db.contentChunkDao.loadContent(local.id), remoteBody);
     });
 
     test('is not named when the texts are the same', () async {

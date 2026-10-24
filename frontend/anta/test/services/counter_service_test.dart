@@ -1,5 +1,7 @@
 // `isNull` / `isNotNull` are SQL builders in drift and matchers in
 // flutter_test; this file wants the matchers.
+import 'dart:convert';
+
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -68,6 +70,76 @@ void main() {
       expect((await versions(''))[id], before);
     },
   );
+
+  group('the backup export', () {
+    const orphanHlc = 'ffffffffffff:0000:remote';
+
+    CounterValueRow orphanValue(String noteId) => CounterValueRow(
+      counterId: 'gone',
+      noteId: noteId,
+      value: 99,
+      position: 4,
+      isPinned: true,
+      hlcTimestamp: orphanHlc,
+      deviceId: 'remote',
+      version: 2,
+      isDeleted: false,
+      ownerId: 'uid-1',
+    );
+
+    test('writes no value whose counter is tombstoned', () async {
+      final sets = await service.addCounter(name: 'Sets', startValue: 3);
+      final laps = await service.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+      );
+      await service.increment(laps, noteId: 'n1');
+      await service.toggleNoteValuePin(laps, 'n1', true);
+      await service.flush();
+      final before = await service.exportData();
+      expect(jsonDecode(before['globalValues'] as String), {
+        sets: 3,
+        laps: 1,
+      });
+      expect(jsonDecode(before['noteValues'] as String), {
+        'n1': {laps: 2},
+      });
+
+      // A counter deleted on another device whose values arrived live: the
+      // merge stores both as received, the backup must not carry the values.
+      await db
+          .into(db.counters)
+          .insert(
+            CounterRow(
+              id: 'gone',
+              name: 'Gone',
+              startValue: 1,
+              step: 1,
+              scope: 'perNote',
+              position: 9,
+              isPinned: false,
+              createdAt: DateTime.utc(2026, 1, 1),
+              hlcTimestamp: orphanHlc,
+              deviceId: 'remote',
+              version: 2,
+              isDeleted: true,
+              ownerId: 'uid-1',
+            ),
+          );
+      await db.into(db.counterValues).insert(orphanValue(''));
+      await db.into(db.counterValues).insert(orphanValue('n1'));
+      final reloaded = await CounterService.forTesting(db);
+
+      final after = await reloaded.exportData();
+
+      // `counters` is left out: the reloaded service reads `createdAt` back
+      // at the column's precision, which this change does not touch.
+      for (final key in ['globalValues', 'noteValues', 'noteValueExtras']) {
+        expect(after[key], before[key], reason: '$key byte for byte');
+      }
+      expect(after['noteValueExtras'] as String, isNot(contains('gone')));
+    });
+  });
 
   test(
     'a flush pending when the counter is deleted leaves no live value',

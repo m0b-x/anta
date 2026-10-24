@@ -11,8 +11,8 @@ abstract final class CrdtMerge {
   /// effects, while the caller supplies the writes, inside its own
   /// `transaction`.
   ///
-  /// [localHlc] is null when the row is absent here, tombstones included.
-  /// Stamps compare as strings: the encoding is zero-padded hex, so string
+  /// [localHlc] is null only when no row with this key exists here; a
+  /// tombstone is a present row and passes its own stamp. Stamps compare as strings: the encoding is zero-padded hex, so string
   /// order is time order, and an empty stamp sorts below every floor.
   ///
   /// - Absent: [insert], stamps verbatim → [MergeResult.inserted].
@@ -56,5 +56,27 @@ abstract final class CrdtMerge {
     }
     db.hlc.update(HlcTimestamp.parse(remoteHlc));
     return outcome;
+  }
+
+  /// How many keys one `IN (…)` of a sync load binds: a push or a pulled page
+  /// can name more rows than an older SQLite accepts variables for.
+  static const int keysPerStatement = 500;
+
+  /// Runs [load] over [keys] [keysPerStatement] at a time and joins the
+  /// results, for the DAOs' `…IncludingDeleted` loads.
+  static Future<List<R>> loadInChunks<K, R>(
+    List<K> keys,
+    Future<List<R>> Function(List<K> chunk) load,
+  ) async {
+    if (keys.isEmpty) return const [];
+    if (keys.length <= keysPerStatement) return load(keys);
+    final rows = <R>[];
+    for (var start = 0; start < keys.length; start += keysPerStatement) {
+      final end = start + keysPerStatement < keys.length
+          ? start + keysPerStatement
+          : keys.length;
+      rows.addAll(await load(keys.sublist(start, end)));
+    }
+    return rows;
   }
 }

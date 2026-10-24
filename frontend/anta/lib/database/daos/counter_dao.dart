@@ -457,6 +457,38 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   // Remote merges
   // ---------------------------------------------------------------------------
 
+  /// The counters under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<CounterRow>> getCountersByIdsIncludingDeleted(List<String> ids) {
+    return CrdtMerge.loadInChunks(
+      ids,
+      (chunk) => (select(counters)..where((c) => c.id.isIn(chunk))).get(),
+    );
+  }
+
+  /// The value rows under [keys], tombstones included. Narrowed by counter id
+  /// on the primary key's prefix, then matched through [counterValueRowKey] —
+  /// the outbox's own key — so a key is never rebuilt another way.
+  Future<List<CounterValueRow>> getValuesByKeysIncludingDeleted(
+    List<({String counterId, String noteId})> keys,
+  ) {
+    return CrdtMerge.loadInChunks(keys, (chunk) async {
+      final wanted = {
+        for (final k in chunk) counterValueRowKey(k.counterId, k.noteId),
+      };
+      final rows =
+          await (select(counterValues)..where(
+                (v) => v.counterId.isIn({for (final k in chunk) k.counterId}),
+              ))
+              .get();
+      return [
+        for (final row in rows)
+          if (wanted.contains(counterValueRowKey(row.counterId, row.noteId)))
+            row,
+      ];
+    });
+  }
+
   /// Merges one remote counter on the contract of [CrdtMerge.mergeRemoteRow]. A
   /// tombstone carries no data, so over a local row it writes the stamps, the
   /// deletion and the owner and keeps the rest; its values arrive as their

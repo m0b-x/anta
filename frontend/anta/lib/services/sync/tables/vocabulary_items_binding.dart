@@ -19,11 +19,7 @@ final class VocabularyItemsBinding extends SyncTableBinding<VocabularyItemRow> {
   Future<List<VocabularyItemRow>> loadByKeys(
     AppDatabase db,
     Iterable<String> rowKeys,
-  ) {
-    final keys = rowKeys.toList(growable: false);
-    if (keys.isEmpty) return Future.value(const []);
-    return (db.select(db.vocabularyItems)..where((t) => t.id.isIn(keys))).get();
-  }
+  ) => db.vocabularyDao.getItemsByIdsIncludingDeleted(rowKeys.toList());
 
   @override
   String rowKeyOf(VocabularyItemRow row) => row.id;
@@ -56,14 +52,14 @@ final class VocabularyItemsBinding extends SyncTableBinding<VocabularyItemRow> {
 
   @override
   VocabularyItemRow decode(SyncEnvelope envelope) {
-    final data = dataOf(envelope);
+    final f = WireFields(envelope)..expectSame('id', envelope.rowKey);
     return VocabularyItemRow(
       id: envelope.rowKey,
-      vocabularyId: data['vocabularyId'] as String? ?? '',
-      term: data['term'] as String? ?? '',
-      sortOrder: data['sortOrder'] as int? ?? 0,
-      createdAt: fromMs(data['createdAtMs']),
-      updatedAt: fromMs(data['updatedAtMs']),
+      vocabularyId: f.field<String>('vocabularyId', ''),
+      term: f.field<String>('term', ''),
+      sortOrder: f.field<int>('sortOrder', 0),
+      createdAt: f.fieldMs('createdAtMs'),
+      updatedAt: f.fieldMs('updatedAtMs'),
       hlcTimestamp: envelope.hlc,
       deviceId: envelope.deviceId,
       version: envelope.version,

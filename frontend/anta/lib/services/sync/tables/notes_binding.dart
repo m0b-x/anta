@@ -22,11 +22,8 @@ final class NotesBinding extends SyncTableBinding<Note> {
   SyncInvalidation get invalidation => SyncInvalidation.notes;
 
   @override
-  Future<List<Note>> loadByKeys(AppDatabase db, Iterable<String> rowKeys) {
-    final keys = rowKeys.toList(growable: false);
-    if (keys.isEmpty) return Future.value(const []);
-    return (db.select(db.notes)..where((n) => n.id.isIn(keys))).get();
-  }
+  Future<List<Note>> loadByKeys(AppDatabase db, Iterable<String> rowKeys) =>
+      db.noteDao.getByIdsIncludingDeleted(rowKeys.toList());
 
   @override
   String rowKeyOf(Note row) => row.id;
@@ -65,19 +62,21 @@ final class NotesBinding extends SyncTableBinding<Note> {
 
   @override
   Note decode(SyncEnvelope envelope) {
-    final data = dataOf(envelope);
+    final f = WireFields(envelope)..expectSame(JsonKeys.id, envelope.rowKey);
     return Note(
       id: envelope.rowKey,
-      folderId: data[JsonKeys.folderId] as String? ?? '',
-      title: data[JsonKeys.title] as String? ?? '',
-      preview: data[JsonKeys.preview] as String? ?? '',
+      folderId: f.field<String>(JsonKeys.folderId, ''),
+      title: f.field<String>(JsonKeys.title, ''),
+      preview: f.field<String>(JsonKeys.preview, ''),
       contentLength: 0,
       chunkCount: 0,
       isCompressed: false,
-      position: data['position'] as int? ?? 0,
-      label: ItemLabel.fromName(data[JsonKeys.label] as String?).storageValue,
-      createdAt: fromMs(data['createdAtMs']),
-      updatedAt: fromMs(data['updatedAtMs']),
+      position: f.field<int>('position', 0),
+      label: ItemLabel.fromName(
+        f.field<String>(JsonKeys.label, ItemLabel.none.storageName),
+      ).storageValue,
+      createdAt: f.fieldMs('createdAtMs'),
+      updatedAt: f.fieldMs('updatedAtMs'),
       hlcTimestamp: envelope.hlc,
       deviceId: envelope.deviceId,
       version: envelope.version,
@@ -87,10 +86,12 @@ final class NotesBinding extends SyncTableBinding<Note> {
     );
   }
 
-  /// The body an envelope carries, `''` for a live note without one.
+  /// The body an envelope carries, null for a tombstone. A live note without
+  /// one is refused like any missing field: an empty body would replace the
+  /// real text here.
   String? contentOf(SyncEnvelope envelope) {
     if (isTombstone(envelope)) return null;
-    return dataOf(envelope)[JsonKeys.content] as String? ?? '';
+    return WireFields(envelope).field<String>(JsonKeys.content, '');
   }
 
   @override

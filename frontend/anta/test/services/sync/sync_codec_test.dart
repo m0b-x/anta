@@ -84,6 +84,54 @@ void main() {
     expect(envelope.data, isNull);
   }
 
+  /// The strict decode of a stored live row under [key]: without
+  /// [requiredKey], with it mistyped, or naming another row in [idKey], the
+  /// envelope is refused with the table and the key named — never decoded
+  /// to defaults over real data. [decode] stands in for the binding's own
+  /// when the key is read elsewhere (a note's body).
+  Future<void> expectStrict<R extends Object>(
+    SyncTableBinding<R> binding,
+    String key, {
+    required String requiredKey,
+    required String idKey,
+    Object? Function(SyncEnvelope envelope)? decode,
+  }) async {
+    final run = decode ?? binding.decode;
+    final envelope = await encodeStored(binding, key);
+    final live = envelope.data!;
+    SyncEnvelope carrying(Map<String, Object?> data) => SyncEnvelope(
+      table: envelope.table,
+      rowKey: envelope.rowKey,
+      hlc: envelope.hlc,
+      deviceId: envelope.deviceId,
+      version: envelope.version,
+      op: OutboxOp.upsert,
+      ownerId: envelope.ownerId,
+      data: data,
+    );
+    final refused = throwsA(
+      isA<FormatException>().having(
+        (e) => e.message,
+        'message',
+        allOf(contains(binding.table), contains(requiredKey)),
+      ),
+    );
+
+    expect(() => run(carrying({...live}..remove(requiredKey))), refused);
+    expect(() => run(carrying({...live, requiredKey: const []})), refused);
+    expect(
+      () => binding.decode(carrying({...live, idKey: 'another-row'})),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains(binding.table), contains(idKey)),
+        ),
+      ),
+    );
+    expect(() => run(carrying(const {})), throwsFormatException);
+  }
+
   group('folders', () {
     const binding = FoldersBinding();
     Folder row({bool deleted = false, String? ownerId}) => Folder(
@@ -148,6 +196,15 @@ void main() {
       expect(decoded.deletedAt, deletedAt);
       expect(decoded.hlcTimestamp, hlc);
       expect(decoded.name, isNotEmpty, reason: 'the column refuses empty');
+      expect(decoded.position, 0);
+      expect(decoded.label, 0);
+      expect(decoded.parentId, isNull);
+    });
+
+    test('a live envelope without a valid name is refused', () async {
+      await db.into(db.folders).insert(row(ownerId: uid));
+
+      await expectStrict(binding, 'f1', requiredKey: 'name', idKey: 'id');
     });
   });
 
@@ -224,6 +281,43 @@ void main() {
           HlcTimestamp.parse(envelope.hlc).wallTime,
         ),
       );
+      expect(decoded.title, '');
+      expect(decoded.folderId, '');
+    });
+
+    test('a live envelope without a valid title is refused', () async {
+      final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
+
+      await expectStrict(binding, note.id, requiredKey: 'title', idKey: 'id');
+    });
+
+    test('a live envelope without a body is refused, never emptied', () async {
+      final note = await db.noteDao.createNote(
+        folderId: 'f1',
+        title: 'Log',
+        content: 'real text',
+      );
+
+      await expectStrict(
+        binding,
+        note.id,
+        requiredKey: 'content',
+        idKey: 'id',
+        decode: binding.contentOf,
+      );
+      final envelope = await encodeStored(binding, note.id);
+      final bodyless = SyncEnvelope(
+        table: envelope.table,
+        rowKey: envelope.rowKey,
+        hlc: 'ffffffffffff:0000:remote',
+        deviceId: 'remote',
+        version: 9,
+        op: OutboxOp.upsert,
+        ownerId: envelope.ownerId,
+        data: {...envelope.data!}..remove('content'),
+      );
+      expect(() => binding.mergeRemote(db, bodyless), throwsFormatException);
+      expect(await db.contentChunkDao.loadContent(note.id), 'real text');
     });
   });
 
@@ -258,8 +352,31 @@ void main() {
       final envelope = await encodeStored(binding, 'c1');
 
       expectStamps(envelope, 'counters', 'c1');
-      expect(envelope.data!.keys.toSet(), {...exported.keys, 'position'});
+      // The backup's counter map, its ISO `createdAt` as epoch-ms (F7).
+      expect(envelope.data!.keys.toSet(), {
+        ...exported.keys.where((k) => k != 'createdAt'),
+        'createdAtMs',
+        'position',
+      });
+      expect(envelope.data!['createdAtMs'], created.millisecondsSinceEpoch);
       expect(binding.decode(envelope), row());
+    });
+
+    test('a live envelope without a valid name is refused', () async {
+      await db.into(db.counters).insert(row());
+
+      await expectStrict(binding, 'c1', requiredKey: 'name', idKey: 'id');
+    });
+
+    test('a live envelope without a valid createdAtMs is refused', () async {
+      await db.into(db.counters).insert(row());
+
+      await expectStrict(
+        binding,
+        'c1',
+        requiredKey: 'createdAtMs',
+        idKey: 'id',
+      );
     });
 
     test('a tombstone decodes to a deleted row', () async {
@@ -274,6 +391,9 @@ void main() {
       expect(decoded.deletedAt, deletedAt);
       expect(decoded.hlcTimestamp, hlc);
       expect(decoded.version, 5);
+      expect(decoded.name, '');
+      expect(decoded.startValue, 1);
+      expect(decoded.scope, 'global');
     });
   });
 
@@ -322,6 +442,19 @@ void main() {
       expect((decoded.counterId, decoded.noteId), ('c1', 'note-1'));
       expect(decoded.isDeleted, isTrue);
       expect(decoded.deletedAt, deletedAt);
+      expect(decoded.value, 0);
+    });
+
+    test('a live envelope without a valid value is refused', () async {
+      await db.into(db.counterValues).insert(row(''));
+
+      await expectStrict(binding, 'c1|', requiredKey: 'value', idKey: 'noteId');
+      await expectStrict(
+        binding,
+        'c1|',
+        requiredKey: 'isPinned',
+        idKey: 'counterId',
+      );
     });
 
     test('the key is the one a local write queues', () async {
@@ -385,6 +518,13 @@ void main() {
       expectTombstone(envelope);
       expect(binding.decode(envelope).isDeleted, isTrue);
       expect(binding.decode(envelope).deletedAt, deletedAt);
+      expect(binding.decode(envelope).isEnabled, isTrue);
+    });
+
+    test('a live envelope without a valid isEnabled is refused', () async {
+      await db.into(db.vocabularies).insert(row());
+
+      await expectStrict(binding, 'v1', requiredKey: 'isEnabled', idKey: 'id');
     });
   });
 
@@ -445,6 +585,18 @@ void main() {
       expectTombstone(envelope);
       expect(binding.decode(envelope).isDeleted, isTrue);
       expect(binding.decode(envelope).deletedAt, deletedAt);
+      expect(binding.decode(envelope).term, '');
+    });
+
+    test('a live envelope without a valid vocabularyId is refused', () async {
+      await db.into(db.vocabularyItems).insert(row());
+
+      await expectStrict(
+        binding,
+        'i1',
+        requiredKey: 'vocabularyId',
+        idKey: 'id',
+      );
     });
   });
 

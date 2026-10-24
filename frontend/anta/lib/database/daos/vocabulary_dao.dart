@@ -313,6 +313,28 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// The vocabularies under [ids], tombstones included: the sync push sends
+  /// the tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<VocabularyRow>> getVocabulariesByIdsIncludingDeleted(
+    List<String> ids,
+  ) {
+    return CrdtMerge.loadInChunks(
+      ids,
+      (chunk) => (select(vocabularies)..where((t) => t.id.isIn(chunk))).get(),
+    );
+  }
+
+  /// The terms under [ids], tombstones included, for the same reason.
+  Future<List<VocabularyItemRow>> getItemsByIdsIncludingDeleted(
+    List<String> ids,
+  ) {
+    return CrdtMerge.loadInChunks(
+      ids,
+      (chunk) =>
+          (select(vocabularyItems)..where((t) => t.id.isIn(chunk))).get(),
+    );
+  }
+
   /// Merges one remote vocabulary on the contract of
   /// [CrdtMerge.mergeRemoteRow]. A tombstone carries no data, so over a local
   /// row it writes the stamps, the deletion and the owner and keeps the rest;

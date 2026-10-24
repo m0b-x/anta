@@ -384,12 +384,18 @@ class CounterService {
   // Backup export / import
   // ---------------------------------------------------------------------------
 
+  /// Values are written only under live counters: a value merged from
+  /// another device under a counter tombstoned there is kept in the table for
+  /// the merge, but in a backup it would be an orphan no restore can show.
   Future<Map<String, dynamic>> exportData() async {
     await flush();
+    final liveCounters = await _dao.getAllCounters();
+    final liveIds = {for (final row in liveCounters) row.id};
     final allValues = await _dao.getAllValues();
     final noteValuesMap = <String, Map<String, int>>{};
     final noteValueExtras = <String, Map<String, dynamic>>{};
     for (final row in allValues) {
+      if (!liveIds.contains(row.counterId)) continue;
       // A value's ownership rides its extras entry, global values included
       // under an empty note id: the value maps hold bare ints an older
       // importer casts, and its extras loop reads only the keys it knows.
@@ -408,7 +414,7 @@ class CounterService {
       }
     }
     final counterOwners = {
-      for (final row in await _dao.getAllCounters())
+      for (final row in liveCounters)
         if (row.ownerId != null) row.id: row.ownerId,
     };
     return {
@@ -422,7 +428,10 @@ class CounterService {
             )
             .toList(),
       ),
-      'globalValues': jsonEncode(_globalValues),
+      'globalValues': jsonEncode({
+        for (final entry in _globalValues.entries)
+          if (liveIds.contains(entry.key)) entry.key: entry.value,
+      }),
       'noteValues': jsonEncode(noteValuesMap),
       'noteValueExtras': jsonEncode(noteValueExtras),
     };

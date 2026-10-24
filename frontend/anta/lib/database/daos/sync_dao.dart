@@ -27,6 +27,34 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// When the last push was acknowledged, as epoch milliseconds.
   static const String keyLastPushAt = 'last_push_at';
 
+  /// `'1'` from a bind until the engine's first complete pull of every
+  /// table: while set, a row at or below [keyBindFloor] yields to the space
+  /// (D15). Deleted, never set to another value.
+  static const String keyBindMergePending = 'bind_merge_pending';
+
+  /// When the last pull page was applied, as epoch milliseconds.
+  static const String keyLastPullAt = 'last_pull_at';
+
+  /// When the space's daily quota ran out, as epoch milliseconds; the engine
+  /// keeps `SyncPause.quotaExhausted` across a restart until a call succeeds
+  /// (D19).
+  static const String keyQuotaPausedAt = 'quota_paused_at';
+
+  /// The prefix every [keyPullCursor] shares, for [deleteByPrefix].
+  static const String pullCursorPrefix = 'pull_cursor.';
+
+  /// The prefix every [keyPullSeen] shares, for [deleteByPrefix].
+  static const String pullSeenPrefix = 'pull_seen.';
+
+  /// Where [table]'s pull resumes: the gateway's cursor after the last
+  /// applied page. A bind and an unbind delete every one, so a rebind pulls
+  /// from the beginning.
+  static String keyPullCursor(String table) => '$pullCursorPrefix$table';
+
+  /// The space document's `touched[table]` last pulled up to: a snapshot
+  /// whose value moved past it pulls the table. Deleted with the cursors.
+  static String keyPullSeen(String table) => '$pullSeenPrefix$table';
+
   Future<String?> getValue(String key) async {
     final result = await (select(
       syncMetadata,
@@ -46,6 +74,21 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
 
   Future<void> deleteValue(String key) async {
     await (delete(syncMetadata)..where((s) => s.key.equals(key))).go();
+  }
+
+  /// Deletes every key starting with [prefix] and returns how many went.
+  /// Matched as a literal prefix, never as a `LIKE` pattern: a `_` or `%` in
+  /// it — `pull_cursor.` holds one — must not match any character. An empty
+  /// prefix would empty the table, the clock and the floor with it, and is
+  /// refused.
+  Future<int> deleteByPrefix(String prefix) {
+    if (prefix.isEmpty) {
+      throw ArgumentError.value(prefix, 'prefix', 'must not be empty');
+    }
+    return (delete(syncMetadata)..where(
+          (s) => s.key.substr(1, prefix.length).equals(prefix),
+        ))
+        .go();
   }
 
   Future<String?> getLastSyncTimestamp() => getValue(keyLastSyncTimestamp);

@@ -883,6 +883,28 @@ void main() {
       expect(await db.syncOutboxDao.count(), 0);
     });
 
+    test('requeueRow refuses a table that is not queued on its own', () async {
+      final note = await db.noteDao.createNote(
+        folderId: 'f1',
+        title: 'Squat log',
+        content: 'body',
+      );
+      await db.syncOutboxDao.clear();
+
+      expect(
+        () => db.syncOutboxDao.requeueRow('nope', 'x'),
+        throwsArgumentError,
+      );
+      expect(
+        () => db.syncOutboxDao.requeueRow(
+          'content_chunks',
+          '${note.id}_chunk_0',
+        ),
+        throwsArgumentError,
+      );
+      expect(await db.syncOutboxDao.count(), 0);
+    });
+
     test('pending lists oldest change first and honours a limit', () async {
       final a = await db.folderDao.createFolder(name: 'A');
       final b = await db.folderDao.createFolder(name: 'B');

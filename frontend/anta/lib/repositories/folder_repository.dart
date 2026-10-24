@@ -1,5 +1,4 @@
 import 'dart:async';
-import '../database/crdt/merge_outcome.dart';
 import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
 import '../models/folder_change.dart';
@@ -485,16 +484,6 @@ class FolderRepository {
 
   Future<List<Folder>> getFoldersSince(String hlcTimestamp) {
     return _folderDao.getFoldersSince(hlcTimestamp);
-  }
-
-  /// The parent cache of the folder's cached copy goes too: a merge can move
-  /// the folder away from it.
-  Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) async {
-    final outcome = await _folderDao.mergeFolder(remote, floor: floor);
-    final cached = _folderCache.remove(remote.id);
-    if (cached != null) _invalidateParentCache(cached.parentId);
-    _invalidateParentCache(remote.parentId);
-    return outcome;
   }
 
   Stream<List<Folder>> watchFoldersByParent(String? parentId) {
