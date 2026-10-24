@@ -87,9 +87,10 @@ is reversible before the slice that builds it ships; the slice is named.
   **B:** merge only, no new-database path, no new spaces beyond the first
   (drops the multi-database part of D3 for now). A is one sheet more; B
   would leave a tablet with its own notes no way to keep them separate.
-- **D3 — The conflict copy** (S3). **A:** when a newer remote note arrives
-  over a note this device changed and has not pushed yet, and the texts
-  differ, the losing text is saved as a new note in the same folder titled
+- **D3 — The conflict copy** (S3). **A:** when a strictly newer remote
+  note arrives over a note this device changed and has not pushed yet, and
+  the texts differ (never during the initial merge under the bind floor),
+  the losing text is saved as a new note in the same folder titled
   "`<title>` (conflict copy, `<date time>`)", which syncs like any note, so
   both devices show the original and the copy. Without a device name on
   hand the title carries the time rather than readiness D7's `<device>`
@@ -273,7 +274,19 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    remote wins (the `saveContent` shape without stamping or queueing), keeps
    FTS in step as `mergeNote` does, and returns the overwritten row **and
    whether it had an unpushed outbox entry** — the conflict-copy condition
-   (D3). Folders and notes keep `createFolder`/`createNote`'s `ownerId`.
+   (D3). The loser is reported only when the remote is **strictly newer by
+   stamp**, never on the floor branch: at a rebind `requeueAll` has queued
+   every row, so a pending entry there is not an unpushed change and a
+   restore-then-rebind would otherwise file one copy per note (S2a review
+   F1). A remote tombstone soft-deletes the note's chunks under the remote
+   stamp, as a local delete does (F5). Folders and notes keep
+   `createFolder`/`createNote`'s `ownerId`.
+7. Decoding is strict for a live envelope: a missing or wrong-typed
+   required key throws `FormatException` and the engine parks that envelope;
+   only a tombstone (`data: null`) takes column defaults (F3). `loadByKeys`
+   queries live in DAO methods (tombstones included), never in a binding;
+   the notes and folders merges go through their repositories, which drop
+   the per-row caches (F2).
 6. Returns a `MergeOutcome` (`applied` | `keptLocal` | `unchanged`, plus
    the loser for notes). Nothing above the DAO sees a tombstone (readiness).
 
@@ -314,7 +327,21 @@ checks all four before every pull, push and bind (readiness §7).
   `AlertScheduler.reconcileAll(AlertReconcileReason.sync)`
   (`alert_scheduler.dart:341`) once per applied batch that touched events,
   alert definitions or digests. Envelopes whose `deviceId` is this device's
-  are applied like any other (the merge makes them no-ops).
+  are applied like any other (the merge makes them no-ops). **Counters:**
+  before a page that touches `counters` or `counter_values` the engine calls
+  `CounterService.flush()` — a pending tap flushed afterwards would be
+  stamped over the merged value — and after it `reload()` plus the service's
+  change signal (S3 adds `CounterService.changes`; the counter blocs reload
+  on it) (S2a review F4). **Merged notes and folders reach the UI** through
+  the storage services' change events emitted by the engine per merged row
+  — the browser, the search index and an open editor (§3.9) listen there.
+- **Per-envelope faults.** Decode and merge run per envelope under a catch:
+  a `FormatException` or `TypeError` (a live document missing a required
+  key, a wrong type) parks that envelope (`parkedCount`) and the page goes
+  on; an outbox entry whose row no longer exists (an import wipe) is
+  retired; a row whose encode fails (a corrupt chunk) or whose document
+  would exceed about 900 KB is parked before the push, so a Firestore
+  `invalid-argument` is the exception, not the rule (F11).
 - **The signal.** While running and the app is in the foreground, one
   listener on the space document (`watchSpace`). On every snapshot: a table
   whose `touched[table]` moved past `sync_metadata['pull_seen.<table>']` is
@@ -412,6 +439,19 @@ from `frontend/anta` after adding `"firestore": {"rules": "firestore.rules",
 "indexes": "firestore.indexes.json"}` to the gitignored `firebase.json`
 (today it holds only the `flutter` block). No composite index: the pull
 orders by `pushedAt` then the document id.
+
+### 3.9 The open editor (S4)
+
+The same note open in the editor on two devices is the one case where
+last-writer-wins alone loses text: device A's autosave would stamp a stale
+body over the row B just merged, and B's edit would vanish on both. So the
+editor page listens for the engine's change event on its note: with **no
+unsaved modification** since load it reloads the body in place (the caret
+kept where it still fits); with **unsaved modifications** it keeps the
+user's text and files the *arriving* text as a conflict copy with D3's
+title — the next autosave then wins and pushes, and the other device
+receives both the note and the copy. Nothing is lost either way. A widget
+test pins both branches; S6 drives it on two devices.
 
 ### 3.8 Firestore settings and the QA seam (S5)
 
@@ -743,6 +783,34 @@ plan, each sound:
   at these sizes); no test of its own for `CounterService.reload()` or the
   repository wrappers.
 
+**S2a review (2026-10-24, one independent reviewer; 0 high, 3 medium, 9
+low; "the commit stands"). Settled above and fixed at the head of the S3
+run:** F1 under the floor every differing note was a loser → the loser only
+when the remote is strictly newer, a note floor case pins it (§3.4 (5),
+D3); F2 the bindings built Drift queries in `lib/services` and skipped the
+repositories, whose cache-dropping wrappers had no caller → `loadByKeys`
+moves into DAO methods (`get…ByIdsIncludingDeleted`) for the six tables and
+the notes/folders merges go through `NoteRepository.mergeNoteDocument` /
+`FolderRepository.mergeFolder` (the engine still calls `invalidateAll` per
+class after a page) (§3.4 (7)); F3 decode defaulted live envelopes' missing
+keys (an empty body over real text) → strict decode, `FormatException`
+parked by the engine (§3.4 (7)); F4 `CounterService.reload()` → the engine
+flushes before a counters page and the service gains `changes` (§3.5); F5
+a remote note tombstone left its chunks live → soft-deleted under the
+remote stamp (§3.4 (5)); F6 a live value under a counter tombstoned
+elsewhere reached the backup as an orphan → `exportData` filters values to
+live counters, round-trip test; F7 counters sent `createdAt` as an ISO
+string → `createdAtMs`; F8 an orphan note under a tombstoned folder → §8;
+F9 tests: the clock advances on `inserted`/`applied`, `requeueRow`'s
+`ArgumentError`s, the tombstone path writes owner/device/version, the
+folder/note wire keys compared with `exportAllData`; F10 the
+`crdt_merge.dart` doc on absent rows, `MergeOutcome.loser` typed `Note?`,
+`///` on `MergeOutcome.result`, `SyncTableBinding.invalidation`, the
+`SyncInvalidation` values; F11 the engine items in §3.5 (per-envelope
+catch, retired entries for vanished rows, the size pre-check) and §3.9.
+S2b was told mid-run to apply F2's DAO rule and F3's strict decode to its
+eleven tables.
+
 ### S3 — The engine
 
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
@@ -785,6 +853,10 @@ plan, each sound:
   `untranslated.txt` empty; the Settings row title per D8.
 - The "download into a new database" path reuses the database page's
   create-and-switch; the new database binds with no local rows.
+- The editor's behaviour on a merged note (§3.9): the note editor page
+  listens to the storage service's change event for its note; clean →
+  reload in place; dirty → keep the text, file the arriving text as a
+  conflict copy through the same path S3 uses.
 - Tests: `sync_binding_service_test` (+ bind: keys, backfill on seventeen
   tables with `content_chunks` untouched, `requeueAll`, cursors cleared,
   the floor only when absent, the registry refusal, one transaction — a
@@ -792,7 +864,8 @@ plan, each sound:
   sync-now / mismatch / signed-out status); a widget suite for the Sync
   section and the picker against the robots in `test/widgets/support/`
   (every state line, the disabled row signed out, the picker's three
-  choices, semantics ids, text scale 2.0 without overflow).
+  choices, semantics ids, text scale 2.0 without overflow); the editor's
+  two §3.9 branches as widget tests against a fake storage change.
 - No `designer` run (the section is settings rows and a two-choice form
   sheet on existing primitives); a `design-reviewer` pass after the build.
   Skills: `ui-language`, `l10n`, `anta-context`, `flutter-principles`.
@@ -906,6 +979,11 @@ machine.
   arrival cursor with the ten-second overlap is the answer; the late-arrival
   test pins it. Residual: `serverTimestamp()` semantics beyond ten seconds
   of receive-to-commit skew — unseen in practice; the overlap is a constant.
+- **High — the same note open on two devices.** Without §3.9 an autosave
+  on one device overwrites a merged body with stale text and the other
+  device's edit vanishes on both. §3.9 keeps both texts (a clean editor
+  reloads, a dirty one keeps its text and files the arriving text as a
+  conflict copy); S4 pins it, S6 drives it.
 - **High — the first install on the phone migrates real data to v43.** The
   gate's migration suite is green on synthetic shapes; S3's rehearsal runs
   the migration on the owner's export first. The owner's export of
@@ -969,6 +1047,15 @@ machine.
   sync, one focused fix with a round-trip test when the owner wants it.
 - The readiness §8 items left as found (two HLCs per event-editor save, the
   held far-future remote, `restartable()`).
+- From the S2a review, accepted: a tap between the counters flush and the
+  reload of one pulled page can be lost (milliseconds; the real fix is
+  readiness D8 B's per-device ledger); a live note whose folder arrived as
+  a tombstone shows that folder's id as its name where `getFolderById` is
+  read without a tombstone filter (pre-existing for local tombstones);
+  concurrent creates give one folder two notes of the same title (the
+  per-folder uniqueness backstop does not run on merge; ids differ) and one
+  vocabulary two items for the same term (`saveItems` tombstones one later);
+  `requeueRow` on a composite key scans its table.
 
 ---
 
