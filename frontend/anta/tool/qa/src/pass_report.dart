@@ -247,6 +247,7 @@ class PassReport {
     this.quietSkipped,
     this.quietDevices,
     this.quietUncounted,
+    this.recycle,
   });
 
   factory PassReport.fromJson(Map<String, dynamic> json) {
@@ -256,6 +257,7 @@ class PassReport {
       );
     }
     final shard = json['shard'] as Map?;
+    final recycle = json['recycle'] as Map?;
     return PassReport(
       suite: json['suite'] as String,
       label: json['label'] as String?,
@@ -287,6 +289,9 @@ class PassReport {
       quietSkipped: json['quietSkipped'] as String?,
       quietDevices: json['quietDevices'] as int?,
       quietUncounted: json['quietUncounted'] as int?,
+      recycle: recycle == null
+          ? null
+          : (reason: recycle['reason'] as String, ms: recycle['ms'] as int),
     );
   }
 
@@ -347,6 +352,11 @@ class PassReport {
   final int? quietDevices;
   final int? quietUncounted;
 
+  /// Why `pass` recycled its fleet guest before the first reseed, and how
+  /// long that took; absent when it did not. The time is inside
+  /// [durationMs], so a recycled pass reads apart from a slow one.
+  final ({String reason, int ms})? recycle;
+
   int get durationMs => finished.difference(started).inMilliseconds;
 
   int count(FlowStatus status) => flows.where((f) => f.status == status).length;
@@ -377,6 +387,7 @@ class PassReport {
         'quietSkipped': quietSkipped,
         'quietDevices': quietDevices,
         'quietUncounted': quietUncounted,
+        if (recycle != null) 'recycle': {'reason': recycle!.reason, 'ms': recycle!.ms},
         'summary': {
           'flows': flows.length,
           'passed': count(FlowStatus.passed),
@@ -549,6 +560,10 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
   final seconds = (report.durationMs / 1000).toStringAsFixed(1);
   lines.add('pass: ${report.count(FlowStatus.passed)}/${report.flows.length} '
       'green in $seconds s on $ids — report $reportPath');
+  final recycle = report.recycle;
+  if (recycle != null) {
+    lines.add('recycled in ${(recycle.ms / 1000).toStringAsFixed(1)} s: ${recycle.reason}');
+  }
   if (report.partial) lines.add(partialLine);
   final quiet = quietLine(report);
   if (quiet != null) lines.add(quiet);

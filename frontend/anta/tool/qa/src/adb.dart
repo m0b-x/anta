@@ -103,6 +103,9 @@ class SdkTools {
   }
 }
 
+/// [Adb.bootId]'s read, one constant so the potent-verbs test can vet it.
+const List<String> bootIdArgs = ['shell', 'cat', '/proc/sys/kernel/random/boot_id'];
+
 /// Thin typed wrapper over the `adb` executable for one serial.
 class Adb {
   Adb({
@@ -185,6 +188,20 @@ class Adb {
   }) async {
     final result = await raw(['shell', ...args], timeout: timeout);
     return result.ok ? result.stdout : result.combined;
+  }
+
+  /// The kernel's id for the device's current boot, new at every boot and
+  /// the same until the next: what the launch counter is keyed by, so a
+  /// reboot by any route starts its count again. Null when unread, a
+  /// timeout included: bookkeeping never fails the verb that asked.
+  Future<String?> bootId() async {
+    try {
+      final result = await raw(bootIdArgs, timeout: const Duration(seconds: 10));
+      final id = result.stdout.trim();
+      return result.ok && RegExp(r'^[0-9a-f-]{32,36}$').hasMatch(id) ? id : null;
+    } on QaException {
+      return null;
+    }
   }
 
   Future<List<int>> execOutBytes(

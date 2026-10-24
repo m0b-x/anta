@@ -281,6 +281,33 @@ class QaContext {
   /// otherwise pay the 2 s probe on every one of them.
   UiDriver? _autoDriver;
 
+  /// The fleet's view of this host; a test's context hands back one over a
+  /// fake runner, so no verb under test reaches a real emulator.
+  FleetHost fleetHost() => fleetHostFor(this);
+
+  /// Runs this tool again with [arguments] (a fleet shard, a recycle's
+  /// boot), handing [onLine] every line it prints; a test's context
+  /// answers without starting a process.
+  Future<ChildOutcome> runSelf(
+    List<String> arguments, {
+    String? logPath,
+    required void Function(String line, bool isError) onLine,
+  }) {
+    final self = qaSelfCommand(
+      resolvedExecutable: Platform.resolvedExecutable,
+      qaExe: paths.qaExe,
+      qaExeExists: File(paths.qaExe).existsSync(),
+      script: joinPath(paths.toolQaDir, ['qa.dart']),
+    );
+    return runQaChild(
+      executable: self.executable,
+      arguments: [...self.leading, ...arguments],
+      workingDirectory: paths.projectRoot,
+      logPath: logPath,
+      onLine: onLine,
+    );
+  }
+
   /// Every adb row, or an empty list when adb is missing or not answering
   /// (which [adbFailure] then explains).
   Future<List<AdbDevice>> adbDevices() async {
@@ -1349,7 +1376,7 @@ class BootCommand extends QaCommand {
             'never restarts an emulator; drive it with -d ${device.serial}');
       }
     }
-    final host = fleetHostFor(ctx);
+    final host = ctx.fleetHost();
     final qemus = await host.qemuProcesses();
     final running = qemus.where((q) => q.avd == avd).firstOrNull;
     if (running != null) {
@@ -1848,12 +1875,14 @@ mixin InstalledLaunch on QaCommand {
       vmServicePort: port,
       previousVmServicePort: previous == null || previous == 0 ? null : previous,
     );
-    if (fleetIndexOfSerial(device.id) != null) {
-      final count = FleetLaunches.record(ctx.paths.launchesJsonFor(device.id), DateTime.now());
-      if (count.count == fleetRecycleLaunches + 1) {
-        warn('warning: ${count.label} app launches on ${device.id} since its '
-            'boot — the guest slows with every one; `qa fleet pass` recycles it');
-      }
+    if (device is AndroidDevice) {
+      final warning = await recordLaunch(
+        device.adb,
+        device.id,
+        ctx.paths,
+        fleetGuest: () => isFleetGuest(device.id, ctx.fleetHost().createdIndices()),
+      );
+      if (warning != null) warn(warning);
     }
     out('launched: ${launch.description}');
     final startedAt = DateTime.now();
@@ -3447,7 +3476,7 @@ typedef _Quiet = ({int ms, int? alarms, String? failure});
 /// `qa pass calendar` — a whole suite in one call, every flow from the
 /// state its `_suite.txt` names, with a `report.json` an agent can triage
 /// and `--shard i/n` to spread one suite over several devices.
-class PassCommand extends QaCommand with StepLoop {
+class PassCommand extends QaCommand with StepLoop, FleetChildren {
   PassCommand() {
     argParser
       ..addMultiOption('only',
@@ -3468,6 +3497,14 @@ class PassCommand extends QaCommand with StepLoop {
           help: 'Leave the app as the last flow left it, seed and armed '
               'alarms included (to look at a red flow by hand), instead of '
               'ending with `relaunch --fresh`.')
+      ..addFlag('recycle',
+          defaultsTo: true,
+          help: 'On a fleet guest past $fleetRecycleLaunches app launches or '
+              '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory, restart it '
+              'before the first reseed (fleet stop + fleet boot, ≈ 20 s): a '
+              'worn guest slows every verb and heads for a hang. Never with '
+              '--shard (its fleet pass recycled) or --no-reseed (the flows '
+              'run on what the app holds).')
       ..addOption('json', help: 'Also write the report to this path.')
       ..addOption('label', help: 'Free text stored in the report.')
       ..addOption('summary',
@@ -3492,7 +3529,8 @@ class PassCommand extends QaCommand with StepLoop {
   @override
   String get invocation =>
       'qa pass <suite>[/<flow>] [--only <flow>]… [--shard i/n] [--no-reseed] '
-      '[--stop-on-fail] [--keep-state] [--json <path>] [--label <text>]\n'
+      '[--no-recycle] [--stop-on-fail] [--keep-state] [--json <path>] '
+      '[--label <text>]\n'
       '       qa pass --summary <report.json>\n'
       '       qa pass --merge <a.json> <b.json>…';
 
@@ -3628,6 +3666,18 @@ class PassCommand extends QaCommand with StepLoop {
       out('pass: $suite — ${selected.length} flow(s)'
           '${shard == null ? '' : ' (shard ${shard.$1}/${shard.$2})'} on '
           '${device.id}, reseed ${reseed.name} — ${passDir.path}');
+      ({String reason, int ms})? recycled;
+      if (shard == null && reseed != ReseedMode.none && argResults!['recycle'] as bool) {
+        final guest = await _recycleOwnGuest(ctx, device);
+        if (!guest.ready) {
+          final name = fleetName(fleetIndexOfSerial(device.id)!);
+          warn('the guest did not come back after its recycle — '
+              '`qa fleet stop $name --force`, then `qa fleet boot $name`, '
+              'then run again');
+          return exitDevice;
+        }
+        recycled = guest.recycled;
+      }
 
       final reportFile = File(joinPath(passDir.path, ['report.json']));
       final copy = argResults!['json'] as String?;
@@ -3657,6 +3707,7 @@ class PassCommand extends QaCommand with StepLoop {
           quietAlarms: quiet?.alarms,
           quietFailure: quiet?.failure,
           quietSkipped: quietSkipped,
+          recycle: recycled,
         );
         final encoded = report.encode();
         reportFile.writeAsStringSync(encoded);
@@ -3705,6 +3756,60 @@ class PassCommand extends QaCommand with StepLoop {
       await log.flush();
       await log.close();
     }
+  }
+
+  /// Recycles [device] when it is a fleet guest due one, as `fleet pass`
+  /// recycles its own: a lone guest is past the threshold after one and a
+  /// half calendar passes, and a worn one ran the suite in 633 s against
+  /// 395 s fresh. Any other device is left alone without a word. Says
+  /// whether the guest is up to run on — false only when a recycle did not
+  /// bring it back — and, when one ran, why and how long it took. A wear
+  /// check that cannot read the guest warns and recycles nothing. The VM
+  /// URI a recycle leaves stale is replaced by the first reseed's
+  /// `relaunch`.
+  Future<({bool ready, ({String reason, int ms})? recycled})> _recycleOwnGuest(
+    QaContext ctx,
+    Device device,
+  ) async {
+    const untouched = (ready: true, recycled: null);
+    ({bool ready, ({String reason, int ms})? recycled}) unchecked(String why) {
+      warn('recycle: could not check the guest\'s wear, so it runs as it is — $why');
+      return untouched;
+    }
+
+    final index = fleetIndexOfSerial(device.id);
+    if (index == null) return untouched;
+    final FleetHost host;
+    final FleetMember member;
+    final String? reason;
+    try {
+      host = ctx.fleetHost();
+      final found = (await host.members(upTo: index, paths: ctx.paths))
+          .where((m) => m.index == index && m.ready)
+          .firstOrNull;
+      if (found == null) return untouched;
+      member = (await host.withGpu([found])).single;
+      reason = recycleReason(member);
+    } on QaException catch (e) {
+      return unchecked(e.message);
+    } on FileSystemException catch (e) {
+      return unchecked('${e.message} (${e.path})');
+    } on FormatException catch (e) {
+      return unchecked(e.message);
+    }
+    if (reason == null) return untouched;
+    final started = DateTime.now();
+    var ready = false;
+    try {
+      final after = await recycleMeasured(ctx, host, [member], enabled: true);
+      ready = after?.any((m) => m.index == index && m.ready) ?? false;
+    } on QaException catch (e) {
+      warn('recycle: ${member.name} could not be read after its boot — ${e.message}');
+    }
+    return (
+      ready: ready,
+      recycled: (reason: reason, ms: DateTime.now().difference(started).inMilliseconds),
+    );
   }
 
   /// How long the app's launch reconcile gets to cancel what the last seed
@@ -4265,8 +4370,10 @@ class FleetCommand extends QaCommand {
       'agents at once: create, boot, status, stop, install, pass.';
 }
 
-/// What every fleet verb shares: the host view and the child `qa` launcher.
-abstract class FleetSubcommand extends QaCommand {
+/// What every fleet verb and `pass` share: the child `qa` launcher and the
+/// recycle of a worn guest that runs on it, one implementation for both so
+/// `pass` on a fleet guest recycles exactly as `fleet pass` does.
+mixin FleetChildren on QaCommand {
   int get capacity => fleetCapacity(Platform.numberOfProcessors);
 
   String? get _parentVia =>
@@ -4282,24 +4389,15 @@ abstract class FleetSubcommand extends QaCommand {
     required String tag,
     String? logPath,
     bool Function(String line, bool isError)? echo,
-  }) {
-    final self = qaSelfCommand(
-      resolvedExecutable: Platform.resolvedExecutable,
-      qaExe: ctx.paths.qaExe,
-      qaExeExists: File(ctx.paths.qaExe).existsSync(),
-      script: joinPath(ctx.paths.toolQaDir, ['qa.dart']),
-    );
-    return runQaChild(
-      executable: self.executable,
-      arguments: [...self.leading, ...arguments],
-      workingDirectory: ctx.paths.projectRoot,
-      logPath: logPath,
-      onLine: (line, isError) {
-        if (echo != null && !echo(line, isError)) return;
-        isError ? warn('[$tag] $line') : out('[$tag] $line');
-      },
-    );
-  }
+  }) =>
+      ctx.runSelf(
+        arguments,
+        logPath: logPath,
+        onLine: (line, isError) {
+          if (echo != null && !echo(line, isError)) return;
+          isError ? warn('[$tag] $line') : out('[$tag] $line');
+        },
+      );
 
   /// Recycles each ready one of [members] past the health threshold
   /// ([planRecycle]) — `fleet stop`, then a `fleet boot` child, strictly
@@ -4313,19 +4411,28 @@ abstract class FleetSubcommand extends QaCommand {
     FleetHost host,
     List<FleetMember> members, {
     required bool enabled,
+  }) async =>
+      recycleMeasured(ctx, host, await host.withGpu(members), enabled: enabled);
+
+  /// [recycleWorn] over [measured], whose GPU counters were already read.
+  Future<List<FleetMember>?> recycleMeasured(
+    QaContext ctx,
+    FleetHost host,
+    List<FleetMember> measured, {
+    required bool enabled,
   }) async {
-    final measured = await host.withGpu(members);
     final plan = planRecycle(measured.where((m) => m.ready).toList(), enabled: enabled);
     for (final line in plan.lines) {
       line.startsWith('warning: ') ? warn(line) : out(line);
     }
     if (plan.recycle.isEmpty) return null;
     // Strictly one at a time, each boot complete before the next stop: on
-    // 2026-10-23 two worn guests (60 and 99 GB of GPU accounting) were
-    // recycled together, the display driver reset under the load (Windows
-    // Error Reporting LiveKernelEvent 117/193), and every emulator on the
-    // host hung until a reboot. A guest that does not come back ends the
-    // sequence, because the next one would not boot either.
+    // 2026-10-23 two worn guests recycled together hung in boot, and three
+    // cold starts at once after the host's reboot on 2026-10-24 hung the
+    // same way. Whether the trigger is the starts at once, the host's cold
+    // caches or both is still open; one at a time removes the first. A
+    // guest that does not come back ends the sequence, because the next one
+    // would not boot either.
     for (var index = 0; index < plan.recycle.length; index++) {
       final member = plan.recycle[index];
       if (await _recycle(ctx, host, member)) continue;
@@ -4351,7 +4458,11 @@ abstract class FleetSubcommand extends QaCommand {
     }
     final outcome = await runChild(
       ctx,
-      fleetBootChildArgs(member.name, verbose: _parentVerbose),
+      fleetBootChildArgs(
+        member.name,
+        verbose: _parentVerbose,
+        priority: priorityOptionOf(member.qemu),
+      ),
       tag: member.name,
     );
     final seconds = (DateTime.now().difference(started).inMilliseconds / 1000)
@@ -4364,7 +4475,11 @@ abstract class FleetSubcommand extends QaCommand {
         '— `qa fleet boot ${member.name}`');
     return false;
   }
+}
 
+/// What every fleet verb shares beyond [FleetChildren]: the AVDs its
+/// arguments name.
+abstract class FleetSubcommand extends QaCommand with FleetChildren {
   /// The fleet indices the verb's arguments name, or every created one
   /// with `--all`.
   List<int> namedIndices(FleetHost host, {required String verb}) {
@@ -4419,7 +4534,7 @@ class FleetCreateCommand extends FleetSubcommand {
   @override
   Future<int> run() async {
     final ctx = context;
-    final host = fleetHostFor(ctx);
+    final host = ctx.fleetHost();
     final threads = Platform.numberOfProcessors;
     final count = fleetCount(
       requested: intOption('count'),
@@ -4469,7 +4584,13 @@ class FleetBootCommand extends FleetSubcommand {
               'the scheduler alone.')
       ..addFlag('visible',
           negatable: false,
-          help: 'Windows: leave the emulator window up instead of minimizing it.');
+          help: 'Windows: leave the emulator window up instead of minimizing it.')
+      ..addOption('priority',
+          allowed: fleetPriorityClasses.keys.toList(),
+          defaultsTo: 'normal',
+          help: 'Windows: the qemu\'s priority class, set with the pin. '
+              '`below` lets a pass yield to the foreground; ignored off '
+              'Windows.');
   }
 
   @override
@@ -4477,19 +4598,22 @@ class FleetBootCommand extends FleetSubcommand {
 
   @override
   String get description =>
-      'Boot fleet AVDs on their own ports, in parallel, each in a window '
-      'that is minimized at once (a -no-window qemu spins a host core while '
-      'idle); wait until each is booted and provisioned, then pin it to the '
-      'P-cores. One that is already up is left running (pinned, minimized).';
+      'Boot fleet AVDs on their own ports, one at a time, the next once the '
+      'last is on adb (guests started together hung in boot on both days '
+      'the fleet ran), each in a window that is minimized at once (a '
+      '-no-window qemu spins a host core while idle); wait until each is '
+      'booted and provisioned, then pin it to the P-cores. One that is '
+      'already up is left running (pinned, minimized).';
 
   @override
   String get invocation =>
-      'qa fleet boot <anta_qa_N|N>… | --all [--no-affinity] [--visible]';
+      'qa fleet boot <anta_qa_N|N>… | --all [--no-affinity] [--visible] '
+      '[--priority normal|below]';
 
   @override
   Future<int> run() async {
     final ctx = context;
-    final host = fleetHostFor(ctx);
+    final host = ctx.fleetHost();
     final indices = namedIndices(host, verb: 'boot');
     for (final index in indices) {
       if (!host.isCreated(fleetName(index))) {
@@ -4511,15 +4635,36 @@ class FleetBootCommand extends FleetSubcommand {
     out(affinity.mask == null
         ? 'affinity: not pinning — ${affinity.reason}'
         : 'affinity: pinning to ${hexMask(affinity.mask!)} — ${affinity.reason}');
-    final devices = await host.adb.devices();
-    final qemus = await host.qemuProcesses();
+    final priority = fleetPriority(
+      windows: host.windows,
+      option: argResults!['priority'] as String,
+    );
+    out(priority.priority == null
+        ? 'priority: not set — ${priority.reason}'
+        : 'priority: ${priority.priority} — ${priority.reason}');
     final minimize = !(argResults!['visible'] as bool);
-    final booted = await Future.wait([
-      for (final index in indices)
-        _bootOne(ctx, host, emulator, index, devices, qemus, affinity.mask,
-            minimize: minimize),
-    ]);
-    return booted.every((ok) => ok) ? 0 : exitDevice;
+    for (var i = 0; i < indices.length; i++) {
+      final index = indices[i];
+      // Read before each guest, not once: the one before can take minutes,
+      // and a guest that dropped off adb meanwhile is not up any more.
+      final devices = await host.adb.devices();
+      final qemus = await host.qemuProcesses();
+      if (await _bootOne(ctx, host, emulator, index, devices, qemus,
+          affinity.mask, priority.priority, minimize: minimize)) {
+        continue;
+      }
+      // The next guest would start beside a hung qemu with a deadline of its
+      // own, which is how a host that cannot boot one spends half an hour
+      // not booting the rest.
+      final name = fleetName(index);
+      final rest = indices.skip(i + 1).map(fleetName).toList();
+      warn('stopped at $name'
+          '${rest.isEmpty ? '' : ' (${rest.join(', ')} not started)'} — '
+          '`qa fleet stop $name --force`, then '
+          '`qa fleet boot ${[name, ...rest].join(' ')}`');
+      return exitDevice;
+    }
+    return 0;
   }
 
   Future<bool> _bootOne(
@@ -4529,7 +4674,8 @@ class FleetBootCommand extends FleetSubcommand {
     int index,
     List<AdbDevice> devices,
     List<QemuProcess> qemus,
-    int? mask, {
+    int? mask,
+    String? priority, {
     required bool minimize,
   }) async {
     final name = fleetName(index);
@@ -4593,7 +4739,8 @@ class FleetBootCommand extends FleetSubcommand {
           pidPath: ctx.paths.emulatorPidFor(name),
         );
         out('[$name] starting on $serial (pid $pid, log $logPath)');
-        final early = _onceUp(host, name, mask: mask, minimize: minimize);
+        final early = _onceUp(host, name,
+            mask: mask, priority: priority, minimize: minimize);
         await awaitEmulatorBoot(ctx, host.adb, pid, name,
             serial: serial, fatalLogLines: false, progress: progress);
         await early;
@@ -4608,7 +4755,11 @@ class FleetBootCommand extends FleetSubcommand {
             'not $name — left alone');
       }
       if (how != 'already up') {
-        FleetLaunches.reset(ctx.paths.launchesJsonFor(serial), DateTime.now());
+        FleetLaunches.reset(
+          ctx.paths.launchesJsonFor(serial),
+          DateTime.now(),
+          bootId: await host.adb.withSerial(serial).bootId(),
+        );
       }
       try {
         await host.keepAwake(serial);
@@ -4616,8 +4767,8 @@ class FleetBootCommand extends FleetSubcommand {
         progress('the screen may still time out: ${e.message}');
       }
       final window = await _window(host, name, minimize: minimize);
-      final pinned = await _pin(host, name, mask);
-      out('ready: $name $serial window=$window pinned=$pinned ($how)');
+      final pinned = await _pin(host, name, mask, priority);
+      out('ready: $name $serial window=$window $pinned ($how)');
       return true;
     } on QaException catch (e) {
       warn('failed: $name $serial — ${e.message}');
@@ -4628,20 +4779,24 @@ class FleetBootCommand extends FleetSubcommand {
   /// Pins a just-started qemu the moment it shows up, so the boot itself
   /// runs on the P-cores too, and minimizes its window as soon as it opens,
   /// so it does not sit on the owner's desktop for the boot; [_pin] and
-  /// [_window] confirm both once the guest is up.
+  /// [_window] confirm both once the guest is up. The priority class is set
+  /// with the pin, so the boot already runs at it.
   Future<void> _onceUp(
     FleetHost host,
     String name, {
     required int? mask,
+    required String? priority,
     required bool minimize,
   }) async {
-    if (mask == null && (!minimize || !host.windows)) return;
+    if (mask == null && priority == null && (!minimize || !host.windows)) return;
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (DateTime.now().isBefore(deadline)) {
       final qemu =
           (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
       if (qemu != null) {
-        if (mask != null) await host.pin(qemu.pid, mask);
+        if (mask != null || priority != null) {
+          await host.pin(qemu.pid, mask: mask, priority: priority);
+        }
         if (minimize) await host.minimize(qemu.pid);
         return;
       }
@@ -4669,15 +4824,30 @@ class FleetBootCommand extends FleetSubcommand {
     return (await host.minimize(qemu.pid))?.name ?? '?';
   }
 
-  Future<String> _pin(FleetHost host, String name, int? mask) async {
-    if (mask == null) return 'no';
+  /// The `pinned=` (and, on Windows, `priority=`) words of the ready line,
+  /// setting whichever of the two the qemu lacks in one PowerShell call.
+  Future<String> _pin(FleetHost host, String name, int? mask, String? priority) async {
+    if (mask == null && priority == null) return 'pinned=no';
     final qemu =
         (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
-    if (qemu == null) return 'no (its qemu was not found)';
-    if (qemu.affinity == mask) return hexMask(mask);
-    final read = await host.pin(qemu.pid, mask);
-    if (read == mask) return hexMask(mask);
-    return 'no (Windows kept ${read == null ? 'its own mask' : hexMask(read)})';
+    if (qemu == null) return 'pinned=no (its qemu was not found)';
+    var readMask = qemu.affinity;
+    var readPriority = qemu.priority;
+    final setMask = mask != null && readMask != mask ? mask : null;
+    final setPriority = priority != null && readPriority != priority ? priority : null;
+    if (setMask != null || setPriority != null) {
+      final read = await host.pin(qemu.pid, mask: setMask, priority: setPriority);
+      readMask = read?.mask;
+      readPriority = read?.priority;
+    }
+    final pinned = mask == null
+        ? 'no'
+        : readMask == mask
+            ? hexMask(mask)
+            : 'no (Windows kept ${readMask == null ? 'its own mask' : hexMask(readMask)})';
+    return priority == null
+        ? 'pinned=$pinned'
+        : 'pinned=$pinned priority=${readPriority ?? '?'}';
   }
 }
 
@@ -4692,7 +4862,8 @@ class FleetStatusCommand extends FleetSubcommand {
   @override
   String get description =>
       'One line per fleet AVD: serial, state, the installed build (stale '
-      'when apk.json is newer), its qemu, that qemu\'s affinity and window '
+      'when apk.json is newer), its qemu, that qemu\'s affinity, priority '
+      'class and window '
       '(minimized, visible or headless), the app launches since its boot '
       'and (Windows) its host-GPU memory; the owner\'s AVDs follow as '
       '`owner`, never acted on.';
@@ -4703,7 +4874,7 @@ class FleetStatusCommand extends FleetSubcommand {
   @override
   Future<int> run() async {
     final ctx = context;
-    final host = fleetHostFor(ctx);
+    final host = ctx.fleetHost();
     final qemus = await host.qemuProcesses(windowStates: true);
     final members = await host.withGpu(
       await host.members(upTo: capacity, paths: ctx.paths, qemus: qemus),
@@ -4767,7 +4938,7 @@ class FleetStopCommand extends FleetSubcommand {
 
   @override
   Future<int> run() async {
-    final host = fleetHostFor(context);
+    final host = context.fleetHost();
     final force = argResults!['force'] as bool;
     var failed = false;
     for (final index in namedIndices(host, verb: 'stop')) {
@@ -4811,7 +4982,7 @@ class FleetInstallCommand extends FleetSubcommand {
   @override
   Future<int> run() async {
     final ctx = context;
-    final host = fleetHostFor(ctx);
+    final host = ctx.fleetHost();
     final found = await host.members(upTo: capacity, paths: ctx.paths);
     final members = await recycleWorn(
           ctx,
@@ -4927,7 +5098,7 @@ class FleetPassCommand extends FleetSubcommand {
             for (final part in devicesArg.split(','))
               if (part.trim().isNotEmpty) parseFleetArgument(part, serials: true),
           ];
-    final host = fleetHostFor(ctx);
+    final host = ctx.fleetHost();
     final built = ApkRecord.read(ctx.paths.apkJson);
     FleetPick pickFrom(List<FleetMember> members) => pickPassDevices(
           members: members,
@@ -5648,14 +5819,32 @@ class DoctorCommand extends QaCommand {
     ));
     final fleet = await _fleetCheck(ctx);
     if (fleet != null) results.add(fleet);
+    results.addAll(await _ownerEmulatorChecks(ctx));
     return results;
+  }
+
+  /// A warning per emulator outside the fleet worn past its recycle
+  /// threshold ([checkEmulatorLaunches]); only read from, never acted on.
+  Future<List<CheckResult>> _ownerEmulatorChecks(QaContext ctx) async {
+    if (ctx.sdk.findAdb() == null) return const [];
+    try {
+      final host = ctx.fleetHost();
+      return await ownerEmulatorLaunchChecks(
+        host.adb,
+        await ctx.adbDevices(),
+        ctx.paths,
+        created: host.createdIndices(),
+      );
+    } on QaException {
+      return const [];
+    }
   }
 
   /// The `fleet` line, or null on a host with no Android SDK or AVDs.
   Future<CheckResult?> _fleetCheck(QaContext ctx) async {
     if (ctx.sdk.findAdb() == null) return null;
     try {
-      final host = fleetHostFor(ctx);
+      final host = ctx.fleetHost();
       if (host.avdNames().isEmpty) return null;
       final topology = await host.cpuTopology();
       final affinity = fleetAffinity(

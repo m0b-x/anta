@@ -78,7 +78,10 @@ flows took. `build/qa/pass/latest_<suite>.txt` holds the newest report's
 path. Report keys: `schema`, `suite`, `label`, `device{id,label,platform}`,
 `host`, `started`, `finished`, `durationMs`, `partial`, `shard{index,count}`,
 `reseed`, `fixture`, `prelude`, `build{apk,gitHash,dirty,builtAt,defines,installedAt}`,
-`summary{flows,passed,failed,skipped}`, `flows[]{name,status,durationMs,
+`recycle{reason,ms}` (since 2026-10-24: present only when the pass recycled
+its worn fleet guest before the first reseed; `--summary` prints it as
+`recycled in 24.0 s: <reason>` under the `pass:` line; `durationMs` includes
+it), `summary{flows,passed,failed,skipped}`, `flows[]{name,status,durationMs,
 reseedMs,preludeMs,steps[]{n,line,verb,ms,status,output},failure{step,line,
 exitCode,message,shot,dump,errors}}` (`failure.step` 0 = the reseed or the
 prelude failed; stderr lines in `output` start with `! `), `verbStats{<verb>
@@ -117,6 +120,8 @@ ones (the capacity rule `max(1, (threads − 8 for flutter test − the owner's 
 vCPU) ÷ 4)` is 3 on the 24-thread machine and is the cap unless `--force`;
 drift from the spec is listed and rewritten only with `--retune`).
 `fleet boot <name|N>… | --all [--no-affinity] [--visible]` starts them
+one at a time (the next after the previous is on adb, ≈ 1 min for three —
+the parallel start is the shape that hung on 2026-10-23 and 2026-10-24)
 detached with `-no-audio -no-boot-anim -no-snapshot -no-metrics -gpu host`
 **and a window, which it minimizes** once it appears (`--visible` leaves it
 up): a qemu started with `-no-window` keeps one host thread spinning at
@@ -151,13 +156,40 @@ and the per-device wall times; exit 3 when a shard produced no report.
 Host load during a three-device pass: 32–52 % CPU, ≈ 4 GB per qemu.
 Fleet health (slice 5): the harness counts app launches per fleet serial
 since boot (`launches_<serial>.json`; `fleet status` shows `launches=N` and,
-on Windows, the qemu's GPU counter), and `fleet pass` / `fleet install`
-recycle a guest over 40 launches or 8 GiB of GPU accounting before starting,
-strictly one guest at a time (≈ 20 s each; the emulator's host-GPU allocation
-grows ≈ 400 MB per launch and never comes back, and two worn guests recycled
-together reset the display driver on 2026-10-23 — `traps.md`); `fleet stop <name> --force` is for a hung fleet qemu
-that is no longer on adb. A launch also removes the device's previous `adb
+on Windows, the qemu's GPU counter), and `pass` on a fleet serial,
+`fleet pass` and `fleet install` recycle a guest over 40 launches or 8 GiB
+of GPU accounting before starting (`--no-recycle` skips; a `--shard` child
+never recycles, its parent did), strictly one guest at a time; the launch
+count is keyed by the guest's `boot_id` (`/proc/sys/kernel/random/boot_id`),
+so a guest booted by hand or by `qa boot` counts from its own boot and a
+reboot resets it, and every Android device's launches are counted — the
+owner's `emulator-5554` included, where `doctor` warns past 40 and nothing
+ever acts. A recycle is ≈ 20–24 s (the emulator's host-GPU allocation
+grows ≈ 400 MB per launch and never comes back — one calendar pass takes a
+fresh guest from ≈ 1.1 to 14.2 GB on the counter, so with one guest a
+recycle precedes nearly every calendar pass; two worn guests recycled
+together on 2026-10-23 hung in boot, as did the first three cold starts
+after the host's reboot on 2026-10-24 — `traps.md`). The pass writes the
+recycle into its report (`recycle{reason,ms}`; `--summary` prints `recycled
+in 24.0 s: …` under the `pass:` line; `durationMs` includes it), and a guest
+that does not come back ends the pass before any flow with exit 3 and the
+recipe. `fleet boot` stops at the first guest that fails to boot, prints the
+same recipe naming the guests it did not start, and exits 3. `fleet boot
+--priority normal|below` (default `normal`) sets the qemu's priority class
+in the PowerShell call that pins it; `fleet status` shows `priority=` beside
+`affinity=`; a recycle's boot inherits the class the guest ran at; off
+Windows the option is accepted and ignored. `fleet stop <name> --force`
+is for a hung fleet qemu that is no longer on adb, and `fleet boot --all`
+after it brings the guests back without a reboot. A launch also removes the device's previous `adb
 forward` (one per relaunch otherwise piles up for the adb server's life).
+
+**The default since 2026-10-24 is one guest** (`docs/qa-pass-rework.md` §8):
+`fleet boot 1`, `fleet install --build`, then `qa pass <suite> -d
+emulator-5556` for every suite, each call in the background (the one-guest
+calendar pass is ≈ 395 s fresh and 633 s worn, around a foreground tool
+call's 600 s cap). The three-guest `fleet pass` is for the days the owner
+asks for it: a sharded pass pins 12 of the 16 P-core threads of a PC the
+owner shares with school and work.
 
 ## The `auto` driver choice (2026-10-23)
 

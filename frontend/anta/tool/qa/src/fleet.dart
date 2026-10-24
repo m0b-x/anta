@@ -405,23 +405,67 @@ const String fleetAffinityEnv = 'ANTA_QA_FLEET_AFFINITY';
       : (mask: mask, reason: 'P-cores of $cores cores / $threads threads');
 }
 
-/// PowerShell that prints every running qemu as its pid, affinity and
-/// command line, tab-separated. It holds no double quote, because the argument quoting
+/// PowerShell that prints every running qemu as its pid, affinity,
+/// priority class and command line, tab-separated. It holds no double quote, because the argument quoting
 /// on Windows escapes them in a way `powershell -Command` misreads.
 const String qemuListScript =
     r"Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'qemu-system*' } | "
-    r"ForEach-Object { $a = ''; try { $a = '{0:X}' -f [int64](Get-Process -Id $_.ProcessId -ErrorAction Stop).ProcessorAffinity } catch {}; "
-    r'($_.ProcessId, $a, $_.CommandLine) -join [char]9 }';
+    r"ForEach-Object { $a = ''; $r = ''; try { $g = Get-Process -Id $_.ProcessId -ErrorAction Stop; $a = '{0:X}' -f [int64]$g.ProcessorAffinity; $r = [string]$g.PriorityClass } catch {}; "
+    r'($_.ProcessId, $a, $r, $_.CommandLine) -join [char]9 }';
 
 /// PowerShell that prints the host's physical cores and logical CPUs.
 const String cpuTopologyScript =
     r"$c = 0; $t = 0; Get-CimInstance Win32_Processor | ForEach-Object { $c += $_.NumberOfCores; $t += $_.NumberOfLogicalProcessors }; '{0} {1}' -f $c, $t";
 
-/// PowerShell that sets one process's affinity and prints it back in hex.
-String pinScript(int pid, int mask) =>
+/// PowerShell that sets one process's affinity and its priority class,
+/// either or both in the one call, and prints both back: the affinity in
+/// hex, a space, the class ([parsePinReadback]).
+String pinScript(int pid, {int? mask, String? priority}) =>
     "\$p = Get-Process -Id $pid -ErrorAction Stop; "
-    '\$p.ProcessorAffinity = [IntPtr][int64]$mask; \$p.Refresh(); '
-    "'{0:X}' -f [int64]\$p.ProcessorAffinity";
+    '${mask == null ? '' : '\$p.ProcessorAffinity = [IntPtr][int64]$mask; '}'
+    "${priority == null ? '' : "\$p.PriorityClass = '$priority'; "}"
+    '\$p.Refresh(); '
+    "'{0:X} {1}' -f [int64]\$p.ProcessorAffinity, \$p.PriorityClass";
+
+/// [pinScript]'s readback; a field is null when it was unreadable.
+({int? mask, String? priority}) parsePinReadback(String output) {
+  final parts = output.trim().split(RegExp(r'\s+'));
+  return (
+    mask: parts.isEmpty ? null : int.tryParse(parts.first, radix: 16),
+    priority: parts.length < 2 || parts[1].isEmpty ? null : parts[1],
+  );
+}
+
+/// The Windows priority class `fleet boot` gives a fleet qemu for its
+/// `--priority` word. `below` lets a pass yield to the owner's foreground;
+/// `normal` stays the default until the owner's run beside a work day
+/// (M2) says the yield is unnoticed.
+const Map<String, String> fleetPriorityClasses = {
+  'normal': 'Normal',
+  'below': 'BelowNormal',
+};
+
+/// The class `fleet boot` sets for [option], and why, or a null class off
+/// Windows, where the option is accepted and ignored.
+({String? priority, String reason}) fleetPriority({
+  required bool windows,
+  required String option,
+}) {
+  if (!windows) return (priority: null, reason: 'never set off Windows');
+  return (priority: fleetPriorityClasses[option], reason: '--priority $option');
+}
+
+/// The `--priority` word that keeps [qemu]'s class across a recycle, so
+/// the guest boots again as its last `fleet boot` chose; null (the boot's
+/// default) for a class `fleet boot` never sets or one that was unread.
+String? priorityOptionOf(QemuProcess? qemu) {
+  final priority = qemu?.priority;
+  if (priority == null) return null;
+  for (final entry in fleetPriorityClasses.entries) {
+    if (entry.value == priority) return entry.key;
+  }
+  return null;
+}
 
 /// The `user32` calls the window scripts need. It holds double quotes, so
 /// those scripts go to PowerShell encoded ([encodePowerShell]).
@@ -560,6 +604,7 @@ class QemuProcess {
     this.port,
     this.affinity,
     this.window,
+    this.priority,
   });
 
   final int pid;
@@ -569,6 +614,10 @@ class QemuProcess {
   /// The process affinity mask; null off Windows or when it was not
   /// readable.
   final int? affinity;
+
+  /// The Windows priority class (`Normal`, `BelowNormal`, …); null off
+  /// Windows or when it was not readable.
+  final String? priority;
 
   /// [QemuWindow.headless] from the command line alone; whether a
   /// windowed one is minimized only once [FleetHost.qemuProcesses] was
@@ -581,10 +630,11 @@ class QemuProcess {
         port: port,
         affinity: affinity,
         window: value ?? window,
+        priority: priority,
       );
 }
 
-QemuProcess? _qemuFrom(int pid, String commandLine, int? affinity) {
+QemuProcess? _qemuFrom(int pid, String commandLine, int? affinity, {String? priority}) {
   if (!commandLine.contains('qemu-system')) return null;
   final avd = RegExp(r'-avd\s+"?([^\s"]+)').firstMatch(commandLine)?.group(1);
   if (avd == null) return null;
@@ -597,10 +647,12 @@ QemuProcess? _qemuFrom(int pid, String commandLine, int? affinity) {
     port: port == null ? null : int.parse(port),
     affinity: affinity,
     window: headless ? QemuWindow.headless : null,
+    priority: priority,
   );
 }
 
-/// Parses [qemuListScript]'s output (tab-separated) or `ps -o pid=,command=`
+/// Parses [qemuListScript]'s output (tab-separated; four columns, or the
+/// three it had before the priority class) or `ps -o pid=,command=`
 /// (space-separated) into the emulators it shows.
 List<QemuProcess> parseQemuList(String output) {
   final found = <QemuProcess>[];
@@ -613,10 +665,12 @@ List<QemuProcess> parseQemuList(String output) {
       final pid = int.tryParse(parts[0].trim());
       if (pid == null || parts.length < 3) continue;
       final hex = parts[1].trim();
+      final priority = parts.length >= 4 ? parts[2].trim() : '';
       qemu = _qemuFrom(
         pid,
-        parts.sublist(2).join('\t'),
+        parts.sublist(parts.length >= 4 ? 3 : 2).join('\t'),
         hex.isEmpty ? null : int.tryParse(hex, radix: 16),
+        priority: priority.isEmpty ? null : priority,
       );
     } else {
       final match = RegExp(r'^\s*(\d+)\s+(.*)$').firstMatch(line);
@@ -677,6 +731,7 @@ class FleetMember {
     this.heldBy,
     this.launches,
     this.gpuBytes,
+    this.bootId,
   });
 
   final int index;
@@ -691,11 +746,15 @@ class FleetMember {
   /// not this one.
   final String? heldBy;
 
-  /// The app launches counted on this guest; null when none was.
+  /// The app launches counted on this guest's current boot; null when none
+  /// was, or when the count on file belongs to an earlier boot.
   final FleetLaunches? launches;
 
   /// Its qemu's host-GPU dedicated memory; null off Windows or unread.
   final int? gpuBytes;
+
+  /// The guest's current boot id; null unless it is up as itself.
+  final String? bootId;
 
   FleetMember withGpu(int? bytes) => FleetMember(
         index: index,
@@ -706,6 +765,7 @@ class FleetMember {
         heldBy: heldBy,
         launches: launches,
         gpuBytes: bytes,
+        bootId: bootId,
       );
 
   String get name => fleetName(index);
@@ -728,10 +788,12 @@ class FleetMember {
         'installed': installed?.toJson(),
         'qemuPid': qemu?.pid,
         'affinity': qemu?.affinity == null ? null : hexMask(qemu!.affinity!),
+        'priority': qemu?.priority,
         'window': qemu?.window?.name,
         'launches': launches?.count,
         'launchesSinceBoot': launches?.sinceBoot,
         'gpuMb': gpuBytes == null ? null : megabytes(gpuBytes!),
+        'bootId': bootId,
       };
 }
 
@@ -751,38 +813,49 @@ const String notDriverBuildWarning =
 /// [bytes] in whole MB, as `fleet status` prints the GPU counter.
 int megabytes(int bytes) => bytes ~/ (1024 * 1024);
 
-/// The app launches after which `fleet pass` and `fleet install` recycle a
-/// guest (`fleet stop` + `fleet boot`, ≈ 20 s) before they start. Measured
-/// 2026-10-23: every launch grows the qemu's host-GPU allocation by
-/// ≈ 370–445 MB that only a reboot gives back, every verb slows with it (a
-/// reseed 5.6 s on a fresh guest, 10 s two hours later), and anta_qa_2 hung
-/// at ≈ 130 launches (58.7 GB). A sharded calendar pass is ≈ 10 launches per
-/// guest, so 40 is four passes, under a third of the way to that hang.
+/// The app launches after which `pass` on a fleet guest, `fleet pass` and
+/// `fleet install` recycle it (`fleet stop` + `fleet boot`, ≈ 20 s) before
+/// they start. Measured 2026-10-23: every launch grows the qemu's host-GPU
+/// allocation by ≈ 370–445 MB that only a reboot gives back, every verb
+/// slows with it (a reseed 5.6 s on a fresh guest, 10 s two hours later),
+/// and anta_qa_2 hung at ≈ 130 launches (58.7 GB). A one-guest calendar
+/// pass is 27 launches and a sharded one ≈ 10 per guest, so 40 is one and
+/// a half passes or four, under a third of the way to that hang.
 const int fleetRecycleLaunches = 40;
 
 /// The qemu GPU counter above which a guest is recycled however many
 /// launches were counted: about half of what [fleetRecycleLaunches] grows
-/// it to, and the guard for a guest whose launches nobody counted (booted
-/// before the counter existed, or driven by hand). 8 GiB, not 16: on
-/// 2026-10-23 two guests at 60 and 99 GB of this accounting were recycled
-/// together on a card with 12 GB of real memory and the display driver reset
-/// (Windows Error Reporting `LiveKernelEvent` 117 and 193 at 23:46), after
-/// which no emulator on the host — the owner's included — booted again
-/// until a reboot. The accounting is virtual, the driver's limit is not.
+/// it to (each launch adds ≈ 370–445 MB of host-GPU accounting that only a
+/// reboot gives back; anta_qa_2 hung at ≈ 130 launches and 58.7 GB), and
+/// the guard for a guest whose launches nobody counted — started by
+/// `flutter run` or by hand, or counted on an earlier boot.
 const int fleetRecycleGpuBytes = 8 * 1024 * 1024 * 1024;
 
-/// The app launches a fleet guest has served: since `fleet boot` started
-/// it ([sinceBoot]), or since the first one counted for a guest booted
-/// before the counter existed. `launchInstalled` is the one place the
-/// harness starts the app, and it counts every start there.
+/// The app launches an Android device has served since its boot, keyed by
+/// the kernel's boot id ([Adb.bootId]) rather than by who booted it, so a
+/// guest started by `fleet boot`, `qa boot`, a recycle or the owner's own
+/// hand counts from its own boot, and any reboot starts the count again.
+/// `launchInstalled` is the one place the harness starts the app, and it
+/// counts every start there. [sinceBoot] is false when the first launch
+/// the counter saw came on a boot already under way.
 class FleetLaunches {
-  const FleetLaunches({required this.count, required this.sinceBoot});
+  const FleetLaunches({required this.count, required this.sinceBoot, this.bootId});
 
   final int count;
   final bool sinceBoot;
 
+  /// The boot the count belongs to; null in a file from before the key.
+  final String? bootId;
+
   /// The count as `fleet status` prints it: `12+` when the boot predates it.
   String get label => sinceBoot ? '$count' : '$count+';
+
+  /// This count when it belongs to [current], the device's boot now, else
+  /// null: a count from an earlier boot says nothing about this one. A
+  /// count from before the key is taken for the current boot, as [record]
+  /// takes it, so a guest worn before the key still recycles by count.
+  FleetLaunches? ofBoot(String? current) =>
+      bootId == null || bootId == current ? this : null;
 
   static FleetLaunches? read(String path) {
     final file = File(path);
@@ -792,7 +865,12 @@ class FleetLaunches {
       if (json is! Map<String, dynamic>) return null;
       final count = json['launches'];
       if (count is! int) return null;
-      return FleetLaunches(count: count, sinceBoot: json['sinceBoot'] == true);
+      final bootId = json['bootId'];
+      return FleetLaunches(
+        count: count,
+        sinceBoot: json['sinceBoot'] == true,
+        bootId: bootId is String ? bootId : null,
+      );
     } on Object {
       return null;
     }
@@ -804,21 +882,31 @@ class FleetLaunches {
       ..writeAsStringSync(jsonEncode({
         'launches': value.count,
         'sinceBoot': value.sinceBoot,
+        'bootId': value.bootId,
         'updated': at.toUtc().toIso8601String(),
       }));
   }
 
   /// Zero, from a boot `fleet boot` just made.
-  static void reset(String path, DateTime at) =>
-      _write(path, const FleetLaunches(count: 0, sinceBoot: true), at);
+  static void reset(String path, DateTime at, {String? bootId}) => _write(
+      path, FleetLaunches(count: 0, sinceBoot: true, bootId: bootId), at);
 
-  /// One launch more; returns the new count.
-  static FleetLaunches record(String path, DateTime at) {
+  /// One launch more on the boot [bootId] names; returns the new count.
+  /// A different boot from the stored one starts again at one, not marked
+  /// [sinceBoot]: the counter first saw that boot already under way, as it
+  /// sees a device it never counted; only `fleet boot`'s [reset] knows it
+  /// watched the boot. An unread [bootId] keeps counting on the stored
+  /// boot, and a file from before the key is taken for this boot.
+  static FleetLaunches record(String path, DateTime at, {String? bootId}) {
     final before = read(path);
-    final after = FleetLaunches(
-      count: (before?.count ?? 0) + 1,
-      sinceBoot: before?.sinceBoot ?? false,
-    );
+    final rebooted = before?.bootId != null && bootId != null && before!.bootId != bootId;
+    final after = rebooted
+        ? FleetLaunches(count: 1, sinceBoot: false, bootId: bootId)
+        : FleetLaunches(
+            count: (before?.count ?? 0) + 1,
+            sinceBoot: before?.sinceBoot ?? false,
+            bootId: bootId ?? before?.bootId,
+          );
     _write(path, after, at);
     return after;
   }
@@ -894,7 +982,8 @@ String fleetStatusLine(
   final qemu = member.qemu;
   final affinity = !showAffinity || qemu == null
       ? ''
-      : ' affinity=${qemu.affinity == null ? '?' : hexMask(qemu.affinity!)}';
+      : ' affinity=${qemu.affinity == null ? '?' : hexMask(qemu.affinity!)}'
+          ' priority=${qemu.priority ?? '?'}';
   final window = qemu?.window == null ? '' : ' window=${qemu!.window!.name}';
   final launches = member.launches;
   final gpu = member.gpuBytes;
@@ -968,8 +1057,8 @@ CheckResult checkFleet(List<FleetMember> members, {int? pinMask}) {
       if (worn.isNotEmpty)
         '${worn.join(', ')} ${worn.length == 1 ? 'is' : 'are'} past the '
             'health threshold ($fleetRecycleLaunches launches or '
-            '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory) — `qa fleet '
-            'pass` and `qa fleet install` recycle it first; by hand: ${[
+            '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory) — `qa pass`, '
+            '`qa fleet pass` and `qa fleet install` recycle it first; by hand: ${[
           for (final name in worn) '`qa fleet stop $name`, `qa fleet boot $name`',
         ].join('; ')}',
       if (headless.isNotEmpty)
@@ -983,6 +1072,100 @@ CheckResult checkFleet(List<FleetMember> members, {int? pinMask}) {
             'the P-cores (${hexMask(pinMask!)}) without restarting it',
     ].join('; '),
   );
+}
+
+/// The `qa doctor` line for an emulator that is not a fleet guest — the
+/// owner's — once its launches since boot pass [fleetRecycleLaunches]: the
+/// same wear a fleet guest is recycled for, but the snapshot is the owner's,
+/// so the line names the owner's remedy and nothing acts on it. Null at or
+/// under the threshold, for a count from an earlier boot, and for a fleet
+/// guest ([isFleetGuest] over [created]) or a phone (snapshots and GPU
+/// accounting are emulator facts).
+CheckResult? checkEmulatorLaunches(
+  String serial,
+  FleetLaunches? launches, {
+  required String? bootId,
+  required List<int> created,
+  String? avd,
+}) {
+  if (!serial.startsWith('emulator-') || isFleetGuest(serial, created)) {
+    return null;
+  }
+  final current = launches?.ofBoot(bootId);
+  if (current == null || current.count <= fleetRecycleLaunches) return null;
+  return CheckResult(
+    name: 'launches',
+    status: CheckStatus.warn,
+    detail: '$serial: ${current.label} app launches since its boot — the '
+        'quick-boot snapshot and the GPU accounting degrade with every launch',
+    fix: 'the owner\'s hygiene: close the emulator, then `qa boot --avd '
+        '${avd ?? '<its AVD>'} --cold` (`boot` never restarts a running '
+        'one) — never a QA agent\'s',
+  );
+}
+
+/// Whether [serial] is a fleet guest: on a fleet port and its `anta_qa_N`
+/// AVD among [created]. The port alone would claim a second personal AVD
+/// that boots beside the others onto `emulator-5562`; the fleet verbs keep
+/// the port rule ([fleetIndexOfSerial]), since they refuse rather than warn.
+bool isFleetGuest(String serial, List<int> created) {
+  final index = fleetIndexOfSerial(serial);
+  return index != null && created.contains(index);
+}
+
+/// [checkEmulatorLaunches] for every usable emulator in [devices] that is
+/// not a fleet guest and has more than [fleetRecycleLaunches] on file. The
+/// boot id and the AVD name are the only things asked of such a serial.
+Future<List<CheckResult>> ownerEmulatorLaunchChecks(
+  Adb adb,
+  List<AdbDevice> devices,
+  QaPaths paths, {
+  required List<int> created,
+}) async {
+  final results = <CheckResult>[];
+  for (final device in devices) {
+    final serial = device.serial;
+    if (!device.usable || !serial.startsWith('emulator-')) continue;
+    if (isFleetGuest(serial, created)) continue;
+    final launches = FleetLaunches.read(paths.launchesJsonFor(serial));
+    if (launches == null || launches.count <= fleetRecycleLaunches) continue;
+    final on = adb.withSerial(serial);
+    final bootId = await on.bootId();
+    if (launches.ofBoot(bootId) == null) continue;
+    final name = await on.raw(emuAvdNameArgs);
+    final result = checkEmulatorLaunches(
+      serial,
+      launches,
+      bootId: bootId,
+      created: created,
+      avd: name.ok ? parseEmuAvdName(name.stdout) : null,
+    );
+    if (result != null) results.add(result);
+  }
+  return results;
+}
+
+/// Counts one app launch on Android [serial] (through [device], the [Adb]
+/// narrowed to it) against its current boot, and returns the warning to
+/// print when a fleet guest's count has just passed [fleetRecycleLaunches],
+/// or null. [fleetGuest] is asked only then, so a launch reads no AVD
+/// directory.
+Future<String?> recordLaunch(
+  Adb device,
+  String serial,
+  QaPaths paths, {
+  required bool Function() fleetGuest,
+  DateTime? at,
+}) async {
+  final count = FleetLaunches.record(
+    paths.launchesJsonFor(serial),
+    at ?? DateTime.now(),
+    bootId: await device.bootId(),
+  );
+  if (count.count != fleetRecycleLaunches + 1 || !fleetGuest()) return null;
+  return 'warning: ${count.label} app launches on $serial since its boot — '
+      'the guest slows with every one; the next reseeding `qa pass` on it '
+      'recycles it first';
 }
 
 /// What `fleet pass` runs on, and what it has to say about the rest.
@@ -1091,13 +1274,23 @@ List<String> fleetInstallChildArgs(
     [...qaChildGlobals(serial: serial, via: via, verbose: verbose), 'install'];
 
 /// The `qa fleet boot <name>` a recycle runs after its stop: the boot path
-/// with its pin, its minimized window and its launch-count reset.
-List<String> fleetBootChildArgs(String name, {bool verbose = false}) =>
-    [...qaChildGlobals(verbose: verbose), 'fleet', 'boot', name];
+/// with its pin, its minimized window and its launch-count reset, and the
+/// [priority] word the guest ran with ([priorityOptionOf]) so a recycle
+/// does not undo the owner's choice.
+List<String> fleetBootChildArgs(String name, {bool verbose = false, String? priority}) =>
+    [
+      ...qaChildGlobals(verbose: verbose),
+      'fleet',
+      'boot',
+      name,
+      if (priority != null) '--priority=$priority',
+    ];
 
 /// One shard of a fleet pass: `qa -d <serial> pass <suite> --shard i/n`,
 /// its report also written to [jsonPath] so the parent can merge it
-/// without parsing output.
+/// without parsing output. `--no-recycle` always, the one-shard pass
+/// included: the parent recycled what was due, one guest at a time, and a
+/// child that recycled too would stop its guest under the parent's plan.
 List<String> fleetPassChildArgs({
   required String serial,
   required String suite,
@@ -1115,6 +1308,7 @@ List<String> fleetPassChildArgs({
       suite,
       if (shard != null) '--shard=${shard.$1}/${shard.$2}',
       '--json=$jsonPath',
+      '--no-recycle',
       if (label != null && label.isNotEmpty) '--label=$label',
       if (stopOnFail) '--stop-on-fail',
       if (keepState) '--keep-state',
@@ -1387,12 +1581,15 @@ class FleetHost {
     return result.ok ? parseCpuTopology(result.stdout) : null;
   }
 
-  /// Pins [pid] to [mask] and returns the mask it reads back, or null
-  /// when Windows refused.
-  Future<int?> pin(int pid, int mask) async {
-    final result = await _powershell(pinScript(pid, mask));
-    if (!result.ok) return null;
-    return int.tryParse(result.stdout.trim(), radix: 16);
+  /// Pins [pid] to [mask] and sets its [priority] class, either or both,
+  /// and returns what it reads back, or null when Windows refused.
+  Future<({int? mask, String? priority})?> pin(
+    int pid, {
+    int? mask,
+    String? priority,
+  }) async {
+    final result = await _powershell(pinScript(pid, mask: mask, priority: priority));
+    return result.ok ? parsePinReadback(result.stdout) : null;
   }
 
   Future<String?> avdNameOn(String serial) async {
@@ -1433,6 +1630,7 @@ class FleetHost {
       final row = attached.where((d) => d.serial == serial).firstOrNull;
       String? heldBy;
       bool? bootCompleted;
+      String? bootId;
       if (row != null && row.usable) {
         final reported = await avdNameOn(serial);
         if (reported != name) {
@@ -1442,6 +1640,7 @@ class FleetHost {
               .withSerial(serial)
               .shellLenient(['getprop', 'sys.boot_completed']);
           bootCompleted = props.trim() == '1';
+          if (bootCompleted) bootId = await adb.withSerial(serial).bootId();
         }
       }
       final qemu = processes.where((q) => q.avd == name).firstOrNull;
@@ -1457,7 +1656,8 @@ class FleetHost {
         qemu: qemu,
         installed: ApkRecord.read(paths.installedJsonFor(serial)),
         heldBy: heldBy,
-        launches: FleetLaunches.read(paths.launchesJsonFor(serial)),
+        launches: FleetLaunches.read(paths.launchesJsonFor(serial))?.ofBoot(bootId),
+        bootId: bootId,
       ));
     }
     return members;

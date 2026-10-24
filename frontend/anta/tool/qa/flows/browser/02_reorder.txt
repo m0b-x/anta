@@ -7,14 +7,21 @@
 #   being 0: an import gives every folder a fresh id no step can spell.
 # - The handle starts the drag on touch (ReorderableDragStartListener), so
 #   the drag holds for 0 ms; a hold on the row would be its long press.
-# - The drag itself goes by points (the fleet's 1280 × 2856 screen): in
-#   selection mode the list's semantics rects sit one app bar (216 px)
-#   above the rows drawn (seen 2026-10-23, an app bug left to the owner),
-#   so `drag id:browser-drag-handle-3 "Inbox"` presses Money's handle and
-#   moves nothing. The handle ids are checked present; the points are
-#   Training's handle and Inbox's row on screen.
-# - No step reads an order: the two dumps around the drag are the evidence,
-#   Training's row first in the second one.
+# - The drag goes by points (the fleet's 1280 × 2856 screen at text scale
+#   1.0) because right after Select the list's semantics are stale: every
+#   row's rect is reported where it was before the selection bar pushed the
+#   body down by that bar's height (300 px here: the Scroll node still says
+#   [0,0], and the first rebuild moves it to [0,300]), on the agent's dump
+#   and on Android's own alike (seen 2026-10-23; the same on the 39b0c7d
+#   build on 2026-10-24, so pre-existing; an app a11y bug left to the
+#   owner). `drag id:browser-drag-handle-3 "Inbox"` would therefore press
+#   300 px above Training's handle; the points below are the handle's
+#   stale centre (1163,777) and Inbox's (640,484), each plus 300.
+# - The order is asserted: `expect --ordered` reads the dump's traversal
+#   order, which the stale rects do not touch — Inbox, Money, Training
+#   before the drag, Training first after it, and still first once
+#   selection is left. With the drag commented out the second assertion
+#   fails as out of order (proved 2026-10-24).
 wait "Training"
 longpress "Training"
 wait id:row-action-select
@@ -22,11 +29,12 @@ tap id:row-action-select
 wait id:browser-drag-handle-3
 wait id:row-action-select --gone
 expect id:browser-drag-handle-1 id:browser-drag-handle-2
-dump
-drag 1162,994 640,700 --hold 0
-dump
+expect --ordered "Inbox" "Money" "Training"
+drag 1163,1077 640,784 --hold 0
+expect --ordered "Training" "Inbox" "Money"
 look 02_reordered
 key back
 wait id:browser-drag-handle-3 --gone
-expect "Training" "Inbox" id:create-folder
+expect --ordered "Training" "Inbox" "Money"
+expect id:create-folder
 errors

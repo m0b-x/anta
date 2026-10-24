@@ -18,6 +18,7 @@ import '../../tool/qa/qa.dart'
         presentMatch,
         runLogSkipNote;
 import '../../tool/qa/src/errors.dart';
+import '../../tool/qa/src/adb.dart' show bootIdArgs;
 import '../../tool/qa/src/agent_client.dart';
 import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/device.dart';
@@ -352,7 +353,10 @@ void main() {
           'a pass child',
         );
         expectHarmless(fleetInstallChildArgs(fleetSerial(index)), 'an install child');
-        expectHarmless([pinScript(1000 + index, 0xFFFF)], 'the pin script');
+        expectHarmless(
+          [pinScript(1000 + index, mask: 0xFFFF, priority: 'BelowNormal')],
+          'the pin script',
+        );
         expectHarmless([minimizeWindowScript(1000 + index)], 'the minimize script');
       }
       expectHarmless([qemuWindowScript], 'the window script');
@@ -363,6 +367,7 @@ void main() {
       expectHarmless(fleetBootChildArgs(fleetName(1), verbose: true), 'the boot child');
       expectHarmless([gpuMemoryScript([1, 2]), cpuSecondsScript(1)], 'the health scripts');
       expectHarmless(emuAvdNameArgs, 'emu avd name');
+      expectHarmless(bootIdArgs, 'the boot id read');
       expectHarmless(emuKillArgs, 'emu kill');
       expectHarmless(
         [qemuListScript, cpuTopologyScript, avdCreateStdin],

@@ -1,9 +1,16 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/qa/src/adb.dart';
 import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/doctor.dart';
+import '../../tool/qa/src/fleet.dart';
+import '../../tool/qa/src/paths.dart';
+import '../../tool/qa/src/process_runner.dart';
+import 'fake_process_runner.dart';
 
 DeviceProbe _probe({
   String size = 'Physical size: 1280x2856',
@@ -25,6 +32,89 @@ DeviceProbe _probe({
 
 void main() {
   _newPlatformChecks();
+  group('launches on an emulator outside the fleet', () {
+    const boot = '0c3a9d5e-6f1b-4c2a-9e7d-1b2c3d4e5f60';
+    FleetLaunches worn(int count, {String bootId = boot}) =>
+        FleetLaunches(count: count, sinceBoot: true, bootId: bootId);
+
+    test('past 40 on this boot the owner\'s emulator warns with the owner\'s remedy', () {
+      final result = checkEmulatorLaunches('emulator-5554', worn(47),
+          bootId: boot, created: const [1], avd: 'Pixel_9_Pro')!;
+      expect(result.status, CheckStatus.warn);
+      expect(result.detail, startsWith('emulator-5554: 47 app launches since its boot'));
+      expect(result.fix, contains('close the emulator, then `qa boot --avd Pixel_9_Pro --cold`'));
+      expect(result.fix, contains('never a QA agent\'s'));
+      expect(result.fixVerb, isNull, reason: '--fix never acts on it');
+    });
+
+    test('silent at 40, for an earlier boot, on a phone and on a fleet guest', () {
+      CheckResult? check(String serial, FleetLaunches launches) =>
+          checkEmulatorLaunches(serial, launches, bootId: boot, created: const [1]);
+      expect(check('emulator-5554', worn(40)), isNull);
+      expect(check('emulator-5554', worn(47, bootId: 'stale')), isNull);
+      expect(check('R5CT30ABCDE', worn(47)), isNull);
+      expect(check('emulator-5556', worn(47)), isNull);
+    });
+
+    test('a fleet port without its anta_qa_N AVD is the owner\'s, not the fleet\'s', () {
+      expect(isFleetGuest('emulator-5556', const [1]), isTrue);
+      expect(isFleetGuest('emulator-5562', const [1, 2, 3]), isFalse);
+      expect(isFleetGuest('emulator-5554', const [1]), isFalse);
+      expect(
+        checkEmulatorLaunches('emulator-5562', worn(47), bootId: boot, created: const [1, 2, 3])
+            ?.detail,
+        startsWith('emulator-5562: 47 app launches'),
+      );
+    });
+
+    test('the doctor only reads the owner\'s emulators: their boot id and AVD name', () async {
+      final temp = Directory.systemTemp.createTempSync('anta_qa_doctor_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final paths = QaPaths(temp.path);
+      for (final (serial, count) in [
+        ('emulator-5554', 47),
+        ('emulator-5562', 40),
+        ('emulator-5564', 52),
+        ('R5CT30ABCDE', 47),
+        ('emulator-5556', 47),
+      ]) {
+        File(paths.launchesJsonFor(serial))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(jsonEncode({'launches': count, 'sinceBoot': true, 'bootId': boot}));
+      }
+      final runner = FakeProcessRunner();
+      for (final (serial, avd) in [('emulator-5554', 'Pixel_9_Pro'), ('emulator-5564', 'Pixel_7')]) {
+        runner
+          ..script('adb -s $serial shell cat /proc/sys/kernel/random/boot_id',
+              const RunOutcome(0, '$boot\n', ''))
+          ..script('adb -s $serial emu avd name', RunOutcome(0, '$avd\r\nOK', ''));
+      }
+      final results = await ownerEmulatorLaunchChecks(
+        Adb(executable: 'adb', runner: runner),
+        const [
+          AdbDevice('emulator-5554', 'device', null),
+          AdbDevice('emulator-5562', 'device', null),
+          AdbDevice('emulator-5564', 'device', null),
+          AdbDevice('R5CT30ABCDE', 'device', 'SM_S918B'),
+          AdbDevice('emulator-5556', 'device', null),
+        ],
+        paths,
+        created: const [1],
+      );
+      expect(results.map((r) => r.detail), [
+        startsWith('emulator-5554: 47 app launches'),
+        startsWith('emulator-5564: 52 app launches'),
+      ], reason: 'emulator-5562 is silent at 40, not skipped as the fleet\'s');
+      expect(results.first.fix, contains('qa boot --avd Pixel_9_Pro --cold'));
+      expect(runner.lines, [
+        'adb -s emulator-5554 shell cat /proc/sys/kernel/random/boot_id',
+        'adb -s emulator-5554 emu avd name',
+        'adb -s emulator-5564 shell cat /proc/sys/kernel/random/boot_id',
+        'adb -s emulator-5564 emu avd name',
+      ]);
+    });
+  });
+
   group('checkAdbServer', () {
     test('a missing binary fails and names the environment variables', () {
       final result = checkAdbServer(

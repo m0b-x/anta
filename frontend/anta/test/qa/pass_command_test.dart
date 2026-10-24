@@ -18,24 +18,30 @@ import '../../tool/qa/qa.dart'
         WaitCommand,
         passExitCode,
         shardIncompleteness;
+import '../../tool/qa/src/adb.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/device_select.dart';
 import '../../tool/qa/src/errors.dart';
+import '../../tool/qa/src/fleet.dart';
 import '../../tool/qa/src/pass_report.dart';
 import '../../tool/qa/src/paths.dart';
+import '../../tool/qa/src/process_runner.dart';
 import '../../tool/qa/src/ui_tree.dart';
+import 'fake_process_runner.dart';
 
 /// The one device a scripted pass runs on; everything else a verb could ask
 /// of it is a test bug, so it fails loudly.
 class _FakeDevice implements Device {
-  @override
-  DeviceKind get kind => DeviceKind.android;
+  _FakeDevice([this.id = 'emulator-5556']);
 
   @override
-  String get id => 'emulator-5556';
+  DeviceKind get kind => id == 'macos' ? DeviceKind.macos : DeviceKind.android;
 
   @override
-  String get label => 'Android emulator-5556';
+  final String id;
+
+  @override
+  String get label => '${kind == DeviceKind.macos ? 'macOS' : 'Android'} $id';
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -44,7 +50,16 @@ class _FakeDevice implements Device {
 /// A context with no device behind it: a fixed screen, a fixed tree, and a
 /// record of what `pass` asked for around each flow.
 class _FakeContext extends QaContext {
-  _FakeContext(super.globalResults, {required super.paths});
+  _FakeContext(super.globalResults, {required super.paths, this.deviceId = 'emulator-5556'});
+
+  final String deviceId;
+
+  /// The fleet a pass on a fleet serial reads; null is a host with no AVDs.
+  FleetHost? fleet;
+
+  /// Sees each child `qa` a verb starts, which never runs, and says how it
+  /// exited.
+  int Function(List<String> arguments)? onChild;
 
   int errorClears = 0;
   final List<String?> errorStamps = [];
@@ -57,7 +72,33 @@ class _FakeContext extends QaContext {
   static final List<int> _png = img.encodePng(img.Image(width: 8, height: 8));
 
   @override
-  Future<Device> device() async => _FakeDevice();
+  Future<Device> device() async => _FakeDevice(deviceId);
+
+  @override
+  FleetHost fleetHost() {
+    final inert = FakeProcessRunner();
+    return fleet ??
+        FleetHost(
+          runner: inert,
+          adb: Adb(executable: 'adb', runner: inert),
+          avdHome: joinPath(paths.projectRoot, ['no-avds']),
+          sdkRoot: null,
+          windows: false,
+        );
+  }
+
+  @override
+  Future<ChildOutcome> runSelf(
+    List<String> arguments, {
+    String? logPath,
+    required void Function(String line, bool isError) onLine,
+  }) async {
+    return ChildOutcome(
+      exitCode: onChild?.call(arguments) ?? 0,
+      took: Duration.zero,
+      started: true,
+    );
+  }
 
   @override
   Future<UiTree> dump({bool cache = true}) async => const UiTree([]);
@@ -102,6 +143,57 @@ class _Verb extends QaCommand {
   Future<int> run() => act(this, argResults!.rest);
 }
 
+const _bootId = '0c3a9d5e-6f1b-4c2a-9e7d-1b2c3d4e5f60';
+
+/// adb as fleet guest anta_qa_1 answers it on emulator-5556: up until its
+/// console is told to stop, then gone until the recycle's boot brings it
+/// back ([down]). Every line lands in [events].
+class _GuestRunner extends FakeProcessRunner {
+  _GuestRunner(this.events);
+
+  final List<String> events;
+  bool down = false;
+
+  @override
+  Future<RunOutcome> run(
+    String executable,
+    List<String> arguments, {
+    Duration timeout = const Duration(seconds: 30),
+    bool binary = false,
+    String? workingDirectory,
+    String? stdin,
+  }) async {
+    final request = RunRequest(executable, arguments, binary: binary, stdin: stdin);
+    calls.add(request);
+    events.add(request.line);
+    switch (request.line) {
+      case 'adb devices -l':
+        return RunOutcome(
+          0,
+          'List of devices attached\n${down ? '' : 'emulator-5556 device\n'}',
+          '',
+        );
+      case 'adb -s emulator-5556 emu avd name':
+        return const RunOutcome(0, 'anta_qa_1\r\nOK', '');
+      case 'adb -s emulator-5556 shell getprop sys.boot_completed':
+        return const RunOutcome(0, '1', '');
+      case 'adb -s emulator-5556 shell cat /proc/sys/kernel/random/boot_id':
+        return const RunOutcome(0, '$_bootId\n', '');
+      case 'adb -s emulator-5556 emu kill':
+        down = true;
+        return const RunOutcome(0, 'OK', '');
+    }
+    if (executable == 'powershell.exe' && arguments.last == qemuListScript) {
+      return RunOutcome(
+        0,
+        down ? '' : '4242\tFFFF\tBelowNormal\tqemu-system-x86_64.exe -avd anta_qa_1 -port 5556',
+        '',
+      );
+    }
+    return defaultOutcome;
+  }
+}
+
 class _World {
   _World({String reseed = 'flow', required Map<String, String> flows}) {
     root = Directory.systemTemp.createTempSync('anta_qa_pass_');
@@ -133,14 +225,70 @@ class _World {
   /// `report.json` as a `peek` step found it, mid-pass.
   final List<Map<String, dynamic>> peeks = [];
 
+  /// The device the pass runs on.
+  String deviceId = 'emulator-5556';
+
+  /// Every adb line the fleet answered, each child `qa` and each relaunch,
+  /// in the order the pass made them.
+  final List<String> events = [];
+
+  FleetHost? fleet;
+  _GuestRunner? guest;
+
+  /// The exit of the recycle's `fleet boot` child; non-zero leaves the
+  /// guest down.
+  int bootExit = 0;
+
+  /// anta_qa_1 up on emulator-5556 with 45 launches on its current boot —
+  /// due a recycle — and the same count on file for [others]. On a
+  /// [windows] host its qemu runs at `BelowNormal`.
+  void wearGuest({List<String> others = const [], bool windows = false}) {
+    final avds = Directory(joinPath(root.path, ['avd']))..createSync();
+    File(joinPath(avds.path, ['anta_qa_1.ini'])).writeAsStringSync('path=x\n');
+    final avd = Directory(joinPath(avds.path, ['anta_qa_1.avd']))..createSync();
+    File(joinPath(avd.path, ['config.ini'])).writeAsStringSync('hw.ramSize=2048\n');
+    for (final serial in ['emulator-5556', ...others]) {
+      File(paths.launchesJsonFor(serial))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode({'launches': 45, 'sinceBoot': true, 'bootId': _bootId}));
+    }
+    final runner = guest = _GuestRunner(events);
+    fleet = FleetHost(
+      runner: runner,
+      adb: Adb(executable: 'adb', runner: runner),
+      avdHome: avds.path,
+      sdkRoot: null,
+      windows: windows,
+      pollEvery: Duration.zero,
+    );
+  }
+
+  /// What the last pass logged.
+  String passLog() {
+    final report = File(paths.latestPassFor('demo')).readAsStringSync().trim();
+    return File(joinPath(File(report).parent.path, ['pass.log'])).readAsStringSync();
+  }
+
+  /// The one pass directory there is, for a pass that wrote no report.
+  Directory onlyPassDir() =>
+      Directory(paths.passRoot).listSync().whereType<Directory>().single;
+
   QaCommandRunner runner() => QaCommandRunner(
-        contextFactory: (ArgResults globals) =>
-            context = _FakeContext(globals, paths: paths)..armed = armed,
+        contextFactory: (ArgResults globals) => context =
+            _FakeContext(globals, paths: paths, deviceId: deviceId)
+              ..armed = armed
+              ..fleet = fleet
+              ..onChild = (arguments) {
+                events.add('child: ${arguments.join(' ')}');
+                if (bootExit == 0) guest?.down = false;
+                return bootExit;
+              },
         commands: [
           PassCommand(),
           ShotCommand(),
           StepsCommand(),
           _Verb('relaunch', (verb, _) async {
+            events.add('relaunch');
             if ((verb.argResults!['seed'] as List<String>).isEmpty) {
               quiets++;
               if (quietFails) throw DeviceFailure('the reset was refused');
@@ -557,6 +705,108 @@ void main() {
       expect(world.context!.alarmCounts, 0);
       expect(report.quietFailure, 'relaunch --fresh: the reset was refused');
       expect(report.quietAlarms, isNull);
+    });
+  });
+
+  group('a pass on a worn fleet guest', () {
+    test('recycles it — stop, then a fleet boot child — before the first reseed', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest();
+      addTearDown(world.dispose);
+      final (code, _) = await world.pass();
+      expect(code, 0);
+      final kill = world.events.indexOf('adb -s emulator-5556 emu kill');
+      final boot = world.events.indexOf('child: fleet boot anta_qa_1');
+      expect(kill, isNonNegative);
+      expect(boot, greaterThan(kill));
+      expect(world.events.indexOf('relaunch'), greaterThan(boot));
+      expect(world.passLog(),
+          contains('recycling anta_qa_1 (emulator-5556): 45 app launches since boot (over 40)'));
+      expect(world.passLog(), contains('recycled anta_qa_1 (emulator-5556)'));
+    });
+
+    test('the report and its summary say the pass recycled, why and how long', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest();
+      addTearDown(world.dispose);
+      final (_, report) = await world.pass();
+      expect(report.recycle?.reason, '45 app launches since boot (over 40)');
+      expect(report.recycle?.ms, isNonNegative);
+      expect(PassReport.decode(report.encode()).recycle, report.recycle);
+      expect(world.passLog(),
+          matches(RegExp(r'recycled in \d+\.\d s: 45 app launches since boot \(over 40\)')));
+      final other = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest();
+      addTearDown(other.dispose);
+      final (_, fresh) = await other.pass(['--no-recycle']);
+      expect(fresh.recycle, isNull);
+      expect(fresh.toJson().containsKey('recycle'), isFalse);
+    });
+
+    test('the boot child keeps the priority class the guest ran with', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest(windows: true);
+      addTearDown(world.dispose);
+      final (code, _) = await world.pass();
+      expect(code, 0);
+      expect(world.events, contains('child: fleet boot anta_qa_1 --priority=below'));
+    });
+
+    test('a guest that does not come back ends the pass before any flow', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})
+        ..wearGuest()
+        ..bootExit = exitDevice;
+      addTearDown(world.dispose);
+      final code = await world.runner().run(['-d', 'emulator-5556', 'pass', 'demo']);
+      expect(code, exitDevice);
+      expect(world.events, contains('child: fleet boot anta_qa_1'));
+      expect(world.events, isNot(contains('relaunch')), reason: 'no flow ran');
+      final dir = world.onlyPassDir();
+      expect(File(joinPath(dir.path, ['report.json'])).existsSync(), isFalse);
+      expect(File(world.paths.latestPassFor('demo')).existsSync(), isFalse);
+      expect(File(joinPath(dir.path, ['pass.log'])).readAsStringSync(),
+          contains('the guest did not come back after its recycle — '
+              '`qa fleet stop anta_qa_1 --force`, then `qa fleet boot anta_qa_1`'));
+    });
+
+    test('--no-recycle skips the wear check altogether', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest();
+      addTearDown(world.dispose);
+      final (code, _) = await world.pass(['--no-recycle']);
+      expect(code, 0);
+      expect(world.events.where((e) => e != 'relaunch'), isEmpty);
+      expect(world.passLog(), isNot(contains('recycl')));
+    });
+
+    test('--no-reseed keeps the guest it has: its flows run on what the app holds', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest();
+      addTearDown(world.dispose);
+      final (code, _) = await world.pass(['--no-reseed']);
+      expect(code, 0);
+      expect(world.events, isEmpty, reason: 'no fleet read, no reseed, no quiet relaunch');
+      expect(world.passLog(), isNot(contains('recycl')));
+    });
+
+    test('a shard never recycles: its fleet pass already did', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n', '02_b': 'tap "B"\n', '03_c': 'tap "C"\n'})
+        ..wearGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--shard', '1/3']);
+      expect(code, 0);
+      expect(report.flows.map((f) => f.name), ['01_a']);
+      expect(world.events.where((e) => e != 'relaunch'), isEmpty,
+          reason: 'not even the fleet is read');
+      expect(world.passLog(), isNot(contains('recycl')));
+    });
+
+    test('the owner\'s emulator, a phone and macOS are never recycled, silently', () async {
+      for (final device in ['emulator-5554', 'R5CT30ABCDE', 'macos']) {
+        final world = _World(flows: {'01_a': 'tap "A"\n'})
+          ..wearGuest(others: [device])
+          ..deviceId = device;
+        addTearDown(world.dispose);
+        final (code, report) = await world.pass();
+        expect(code, 0, reason: device);
+        expect(report.device?.id, device);
+        expect(world.events.where((e) => e != 'relaunch'), isEmpty, reason: device);
+        expect(world.passLog(), isNot(contains('recycl')), reason: device);
+      }
     });
   });
 

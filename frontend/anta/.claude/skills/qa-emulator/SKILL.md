@@ -36,14 +36,25 @@ The wrapper's self-rebuild, the exit codes, the pass report and the fleet in det
 
 ```bash
 q=./tool/qa/qa
-$q fleet status                        # what is up, what carries which build
-$q fleet boot --all                    # windowed but minimized, P-core pinned; ≈ 15 s each once booted before
-$q fleet install --build               # build the QA driver APK once (≈ 10–40 s), install everywhere (≈ 3 s each)
-$q fleet pass calendar                 # 26 flows sharded over the fleet: ≈ 4.5 min wall, one summary, one report
-$q fleet pass browser                  # the browser suite the same way
-$q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no)
-$q pass calendar --only 19_fasting_schedule -d emulator-5558   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
+$q fleet status                        # what is up, what carries which build, launches since boot
+$q fleet boot 1                        # ONE guest is the default: anta_qa_1 on emulator-5556 — windowed but minimized, P-core pinned; ≈ 16–20 s once booted before (--priority below makes its qemu yield to the owner's foreground; default normal until M2 is measured)
+$q fleet install --build               # build the QA driver APK once (≈ 10–40 s), install on every booted guest (≈ 3 s each)
+$q pass calendar -d emulator-5556      # 26 flows, a fresh seed before each: ≈ 6.6 min on a fresh guest — run it in the background (a worn guest took over 10 min, past a foreground tool call's cap)
+$q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
+$q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no): ≈ 4.5 min
+$q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
+```
+
+A `pass` on a fleet guest recycles it first when it is worn — over 40 launches since its boot, or over 8 GiB on the GPU counter: a cold `fleet stop` + `fleet boot` of that guest, ≈ 20 s, announced before the first reseed and written into the report (`recycle{reason,ms}`; `--summary` prints `recycled in 24.0 s: …` under the `pass:` line, and the pass's wall time includes it); `--no-recycle` skips the whole check. A guest that does not come back ends the pass before any flow with exit 3 and the recipe (`fleet stop anta_qa_1 --force`, then boot it again). A lone guest wears faster than a sharded one (27 launches per calendar pass against ≈ 10), so the recycle is what keeps the one-guest calendar pass at ≈ 395 s instead of the 633 s a two-hour-old guest took.
+
+**On a rework day** — when the owner asks for sharding ("shard it", "rework day", "fleet pass") — boot all three and shard; three guests are 12 of the 16 P-core threads, so never by default:
+
+```bash
+$q fleet boot --all                    # anta_qa_1..3, one at a time (≈ 1 min)
+$q fleet install --build
+$q fleet pass calendar                 # 26 flows sharded over the fleet: ≈ 2.5 min wall, one summary, one report
+$q fleet pass browser
 ```
 
 `pass` reseeds (`relaunch --fresh --seed <fixture>`) before every flow, runs the suite's `_prelude.txt` (the calendar's lands on the calendar page), keeps going after a red, captures a screenshot, the dump and the errors at a red flow's failing step, writes `report.json` after every flow (`"partial": true` until the end), and ends by leaving the device quiet — a seedless `relaunch --fresh` that cancels every alarm the seeds armed (`device left quiet (0 alarms armed)`; `--keep-state` skips it when you want the red flow's screen). Exit 0 all green, 2 any red, 3 the device or the reseed failed before anything ran. The report's keys and the directory layout: `references/harness-notes.md` "The pass and its report". A stale-build warning in the output means the installed APK predates a source change: `fleet install --build`, then run again.
@@ -116,7 +127,9 @@ The ones a pass hits most; all of them in `references/traps.md`.
 
 - **A stale-build warning** at the top of a pass: the APK on the device predates a source change. `fleet install --build`, run again.
 - **A fleet emulator that is uniformly slow** (first frame 9 s instead of 5, every tap half a second): its qemu is on the E-cores. `fleet boot` pins it; `fleet status` shows `affinity=0xFFFF`; an unpinned one is a `doctor` warn.
-- **A fleet guest degrades with every app launch** (the emulator's host-GPU allocation grows ≈ 400 MB per launch; reseeds go from 5.6 s to 10 s in two hours; a guest hung at ≈ 130 launches with "detected a hanging thread 'QEMU2 main loop'" and a crash dialog that blocks its reboot). `fleet pass` and `fleet install` recycle a guest over 40 launches since boot (`fleet status` shows `launches=`), `doctor` warns on it, and `fleet stop <name> --force` clears a hung fleet qemu that is no longer on adb. Measure on freshly booted guests, never on a fleet that has run for hours.
+- **A fleet guest degrades with every app launch** (the emulator's host-GPU allocation grows ≈ 400 MB per launch; reseeds go from 5.6 s to 10 s in two hours; a guest hung at ≈ 130 launches with "detected a hanging thread 'QEMU2 main loop'" and a crash dialog that blocks its reboot). `pass` on a fleet guest, `fleet pass` and `fleet install` recycle a guest over 40 launches since its boot (`fleet status` shows `launches=`; the count follows the guest's `boot_id`, so a hand boot or a reboot resets it), `doctor` warns on it, and `fleet stop <name> --force` clears a hung fleet qemu that is no longer on adb. Measure on freshly booted guests, never on a fleet that has run for hours.
+- **Every guest of a `fleet boot --all` hangs** (`fleet status` says `booting` for minutes, a second `fleet boot` says "not on adb and idle" for each): seen with several cold starts at once, on 2026-10-23 and right after the 2026-10-24 reboot. `fleet stop <name> --force` for each, then `fleet boot --all` again — the same guests booted in 16–20 s on the retry. The log's "detected a hanging thread" block is a previous crash's annotations, not this boot's (`references/traps.md`). Since 2026-10-24 `fleet boot --all` starts its guests one at a time; whether that removes the hang is still being observed (M3 in `docs/qa-pass-rework.md` §8.3).
+- **The owner's emulator wears the same way** (the quick-boot snapshot and the GPU accounting degrade with every launch): its launches since boot are counted too, and `doctor` warns past 40 — the hygiene is the owner's: close the emulator, then `qa boot --avd Pixel_9_Pro --cold`, now and then (`boot` never restarts a running emulator, so the close comes first); never a QA agent's — nothing ever acts on it.
 - **Never boot a fleet AVD with `-no-window`:** a windowless qemu keeps a host thread spinning at 100 % while the guest idles (1.2 cores at boot, 2.2 after hours), which doubled a pass's wall time; `fleet boot` opens a window and minimizes it (0.14 cores idle), `fleet status` says `window=minimized`, and `doctor` warns on a headless fleet qemu.
 - **The calendar's bottom panel restores its mode about a second after the page opens**, overwriting a tap on "Upcoming" (an app race, `lib/widgets/calendar_bottom_panel.dart`): the calendar prelude ends with `tap id:panel-mode-day --settle 2000` to ride it out. A flow that taps a panel mode right after landing without that settle is flaky by design until the app fixes it.
 - **`doctor` warns about markers left pending** (`qa_seed.json pending in the documents directory`): a non-QA build ignores them and the next QA launch would silently apply a stale seed.

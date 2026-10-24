@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../tool/qa/qa.dart' show FleetCommand, QaCommandRunner, QaContext;
 import '../../tool/qa/src/adb.dart';
 import '../../tool/qa/src/apk_build.dart';
 import '../../tool/qa/src/doctor.dart';
@@ -10,6 +11,7 @@ import '../../tool/qa/src/errors.dart';
 import '../../tool/qa/src/fleet.dart';
 import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/process_runner.dart';
+import '../../tool/qa/src/shell_batch.dart';
 import 'fake_process_runner.dart';
 
 /// A fake whose answers depend on the request and on what came before it,
@@ -40,6 +42,19 @@ const _qemuWindows =
     '-avd anta_qa_1 -port 5556 -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu host\r\n'
     '19584\tFFFFFF\tD:\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe '
     '-avd Pixel_9_Pro -no-snapshot-load\r\n';
+
+const _bootA = '0c3a9d5e-6f1b-4c2a-9e7d-1b2c3d4e5f60';
+const _bootB = '7d1e2f3a-4b5c-4d6e-8f90-a1b2c3d4e5f6';
+
+/// A context whose fleet is [host], so a fleet verb runs over a fake.
+class _FleetContext extends QaContext {
+  _FleetContext(super.globalResults, {required super.paths, required this.host});
+
+  final FleetHost host;
+
+  @override
+  FleetHost fleetHost() => host;
+}
 
 ApkRecord _record(
   DateTime builtAt, {
@@ -331,6 +346,7 @@ void main() {
           'calendar',
           '--shard=2/3',
           '--json=out/shard-2.json',
+          '--no-recycle',
           '--label=nightly',
           '--stop-on-fail',
           '--keep-state',
@@ -343,7 +359,8 @@ void main() {
           shard: null,
           jsonPath: 'a.json',
         ),
-        ['-d', 'emulator-5556', 'pass', 'alerts', '--json=a.json'],
+        ['-d', 'emulator-5556', 'pass', 'alerts', '--json=a.json', '--no-recycle'],
+        reason: 'a one-guest fleet pass has no --shard, and its child still never recycles',
       );
       expect(fleetInstallChildArgs('emulator-5560'), ['-d', 'emulator-5560', 'install']);
       expect(fleetBuildChildArgs(verbose: true), ['--verbose', 'build']);
@@ -554,7 +571,7 @@ void main() {
       const headless = QemuProcess(
           pid: 11712, avd: 'anta_qa_1', affinity: 0xFFFF, window: QemuWindow.headless);
       final line = fleetStatusLine(_member(3, qemu: minimized), null, showAffinity: true);
-      expect(line, endsWith('qemu 25780 affinity=0xFFFF window=minimized'));
+      expect(line, endsWith('qemu 25780 affinity=0xFFFF priority=? window=minimized'));
       expect(_member(3, qemu: minimized).toJson(null)['window'], 'minimized');
 
       expect(checkFleet([_member(3, qemu: minimized)], pinMask: 0xFFFF).status, CheckStatus.ok);
@@ -731,7 +748,8 @@ void main() {
       final line = fleetStatusLine(members.first, _record(built), showAffinity: true);
       expect(line, startsWith('anta_qa_1   emulator-5556   device'));
       expect(line, contains('app installed abc1234'));
-      expect(line, endsWith('qemu 11712 affinity=0xFFFF window=headless'));
+      expect(line, endsWith('qemu 11712 affinity=0xFFFF priority=? window=headless'),
+          reason: 'a list from before the priority column reads it as unknown');
       expect(fleetStatusLine(members[1], null, showAffinity: true), contains('app not installed'));
       expect(fleetStatusLine(members[2], null, showAffinity: true), contains('not created'));
       expect(ownerStatusLine('Pixel_9_Pro', parseQemuList(_qemuWindows).last),
@@ -1028,6 +1046,119 @@ void main() {
       expect((after.count, after.sinceBoot, after.label), (2, true, '2'));
     });
 
+    test('the launch count is keyed by the boot id: a new boot starts it again', () {
+      final dir = Directory.systemTemp.createTempSync('anta_fleet_launches_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = joinPath(dir.path, ['launches_emulator-5554.json']);
+      final now = DateTime.now();
+      FleetLaunches.record(path, now, bootId: _bootA);
+      final same = FleetLaunches.record(path, now, bootId: _bootA);
+      expect((same.count, same.sinceBoot, same.bootId), (2, false, _bootA));
+      final unread = FleetLaunches.record(path, now);
+      expect((unread.count, unread.bootId), (3, _bootA), reason: 'an unread id keeps counting');
+      final rebooted = FleetLaunches.record(path, now, bootId: _bootB);
+      expect((rebooted.count, rebooted.sinceBoot, rebooted.label), (1, false, '1+'),
+          reason: 'the counter saw that boot already under way, as it sees a new device');
+      expect(FleetLaunches.read(path)!.ofBoot(_bootB)?.count, 1);
+      expect(FleetLaunches.read(path)!.ofBoot(_bootA), isNull);
+      expect(FleetLaunches.read(path)!.ofBoot(null), isNull);
+      File(path).writeAsStringSync('{"launches": 30, "sinceBoot": true}');
+      final legacy = FleetLaunches.record(path, now, bootId: _bootB);
+      expect((legacy.count, legacy.bootId), (31, _bootB),
+          reason: 'a file from before the key is taken for this boot');
+      FleetLaunches.reset(path, now, bootId: _bootA);
+      expect(FleetLaunches.read(path)!.ofBoot(_bootA)?.count, 0);
+      expect(FleetLaunches.read(path)!.sinceBoot, isTrue, reason: 'only a reset watched the boot');
+    });
+
+    test('a launch is counted on its boot, and only a fleet guest\'s 41st warns', () async {
+      final dir = Directory.systemTemp.createTempSync('anta_fleet_launches_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final paths = QaPaths(dir.path);
+      var bootId = _bootA;
+      final runner = _RespondingRunner((r) =>
+          r.line == 'adb -s emulator-5556 shell cat /proc/sys/kernel/random/boot_id'
+              ? RunOutcome(0, '$bootId\n', '')
+              : null);
+      final device = Adb(executable: 'adb', runner: runner, serial: 'emulator-5556');
+      var asked = 0;
+      Future<String?> launch({required bool fleet}) => recordLaunch(
+            device,
+            'emulator-5556',
+            paths,
+            fleetGuest: () {
+              asked++;
+              return fleet;
+            },
+          );
+      File(paths.launchesJsonFor('emulator-5556'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode({'launches': 39, 'sinceBoot': true, 'bootId': _bootA}));
+      expect(await launch(fleet: true), isNull);
+      expect(asked, 0, reason: 'the AVD directory is read only at the threshold');
+      expect(await launch(fleet: true),
+          'warning: 41 app launches on emulator-5556 since its boot — the guest slows '
+          'with every one; the next reseeding `qa pass` on it recycles it first');
+      expect(FleetLaunches.read(paths.launchesJsonFor('emulator-5556'))!.bootId, _bootA);
+      File(paths.launchesJsonFor('emulator-5556'))
+          .writeAsStringSync(jsonEncode({'launches': 40, 'sinceBoot': true, 'bootId': _bootA}));
+      expect(await launch(fleet: false), isNull, reason: 'a port without its AVD is not the fleet\'s');
+      bootId = _bootB;
+      expect(await launch(fleet: true), isNull);
+      expect(FleetLaunches.read(paths.launchesJsonFor('emulator-5556'))!.count, 1,
+          reason: 'the device rebooted');
+    });
+
+    test('status shows a count only for the boot the guest is on now', () async {
+      final temp = Directory.systemTemp.createTempSync('anta_qa_fleet_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final avds = Directory(joinPath(temp.path, ['avd']))..createSync();
+      _writeAvd(avds, 'anta_qa_1', 'hw.ramSize=2048\n');
+      final paths = QaPaths(temp.path);
+      final runner = _RespondingRunner((r) => switch (r.line) {
+            'adb devices -l' => const RunOutcome(0, 'emulator-5556 device\n', ''),
+            'adb -s emulator-5556 emu avd name' => const RunOutcome(0, 'anta_qa_1\r\nOK', ''),
+            'adb -s emulator-5556 shell getprop sys.boot_completed' =>
+              const RunOutcome(0, '1', ''),
+            'adb -s emulator-5556 shell cat /proc/sys/kernel/random/boot_id' =>
+              const RunOutcome(0, '$_bootB\n', ''),
+            _ when r.executable == 'powershell.exe' => const RunOutcome(0, _qemuWindows, ''),
+            _ => null,
+          });
+      final host = FleetHost(
+        runner: runner,
+        adb: Adb(executable: 'adb', runner: runner),
+        avdHome: avds.path,
+        sdkRoot: null,
+        windows: true,
+      );
+      void onFile(String bootId) => File(paths.launchesJsonFor('emulator-5556'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode({'launches': 45, 'sinceBoot': true, 'bootId': bootId}));
+
+      onFile(_bootA);
+      var member = (await host.members(upTo: 1, paths: paths)).single;
+      expect(member.bootId, _bootB);
+      expect(member.launches, isNull);
+      expect(recycleReason(member), isNull, reason: 'an earlier boot\'s 45 are not this one\'s');
+      expect(fleetStatusLine(member, null, showAffinity: false), isNot(contains('launches=')));
+      expect(member.toJson(null), containsPair('bootId', _bootB));
+      expect(member.toJson(null), containsPair('launches', null));
+
+      onFile(_bootB);
+      member = (await host.members(upTo: 1, paths: paths)).single;
+      expect(member.launches?.count, 45);
+      expect(fleetStatusLine(member, null, showAffinity: false), contains('launches=45'));
+      expect(member.toJson(null), containsPair('launches', 45));
+      expect(recycleReason(member), startsWith('45 app launches'));
+
+      File(paths.launchesJsonFor('emulator-5556'))
+          .writeAsStringSync(jsonEncode({'launches': 45, 'sinceBoot': true}));
+      member = (await host.members(upTo: 1, paths: paths)).single;
+      expect(recycleReason(member), startsWith('45 app launches'),
+          reason: 'a count from before the key is this boot\'s, as record takes it');
+    });
+
     test('status and doctor show launches and GPU memory; doctor warns when worn', () {
       const qemu = QemuProcess(pid: 1, avd: 'anta_qa_1', port: 5556, window: QemuWindow.minimized);
       final worn = _member(1,
@@ -1057,6 +1188,132 @@ void main() {
       expect(isIdleQemu(0.5, 0.5), isTrue);
       expect(isIdleQemu(10.0, 13.2), isFalse);
       expect(isIdleQemu(null, 0.5), isFalse);
+    });
+  });
+
+  group('fleet boot', () {
+    /// `fleet boot` of [names] over guests that are already up, the first
+    /// answering its console as [firstReports]; what it ran and printed.
+    Future<(int, FakeProcessRunner, List<String>)> boot(
+      List<String> names, {
+      String firstReports = 'anta_qa_1',
+    }) async {
+      final temp = Directory.systemTemp.createTempSync('anta_qa_fleet_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final avds = Directory(joinPath(temp.path, ['avd']))..createSync();
+      for (final name in ['anta_qa_1', 'anta_qa_2', 'anta_qa_3']) {
+        _writeAvd(avds, name, 'hw.ramSize=2048\n');
+      }
+      final sdk = Directory(joinPath(temp.path, ['sdk', 'emulator']))..createSync(recursive: true);
+      File(joinPath(sdk.path, ['emulator'])).writeAsStringSync('');
+      final runner = _RespondingRunner((r) {
+        if (r.line == 'adb devices -l') {
+          return const RunOutcome(
+              0, 'emulator-5556 device\nemulator-5558 device\nemulator-5560 device\n', '');
+        }
+        for (final (serial, name) in [
+          ('emulator-5556', firstReports),
+          ('emulator-5558', 'anta_qa_2'),
+          ('emulator-5560', 'anta_qa_3'),
+        ]) {
+          if (r.line == 'adb -s $serial emu avd name') return RunOutcome(0, '$name\r\nOK', '');
+          if (r.line.startsWith('adb -s $serial shell ') && r.line.contains(batchSeparator)) {
+            return const RunOutcome(0, '1\n$batchSeparator\n1\n$batchSeparator\n', '');
+          }
+        }
+        return null;
+      });
+      final host = FleetHost(
+        runner: runner,
+        adb: Adb(executable: 'adb', runner: runner),
+        avdHome: avds.path,
+        sdkRoot: joinPath(temp.path, ['sdk']),
+        windows: false,
+      );
+      final lines = <String>[];
+      final qa = QaCommandRunner(
+        contextFactory: (globals) =>
+            _FleetContext(globals, paths: QaPaths(temp.path), host: host),
+        commands: [FleetCommand()],
+      )..lineSink = (line, {required prefix, required isError}) => lines.add(line);
+      final code = await qa.run(
+        ['fleet', 'boot', ...names, '--no-affinity', '--visible', '--priority', 'below'],
+      );
+      return (code ?? 0, runner as FakeProcessRunner, lines);
+    }
+
+    test('a failed guest ends the boot: the rest are not started, the recipe names them',
+        () async {
+      final (code, runner, lines) =
+          await boot(['anta_qa_1', 'anta_qa_2', 'anta_qa_3'], firstReports: 'Pixel_9_Pro');
+      expect(code, exitDevice);
+      expect(runner.lines.where((l) => l.contains('emulator-5558') || l.contains('emulator-5560')),
+          isEmpty);
+      expect(lines, contains(startsWith('failed: anta_qa_1 emulator-5556')));
+      expect(lines, contains('stopped at anta_qa_1 (anta_qa_2, anta_qa_3 not started) — '
+          '`qa fleet stop anta_qa_1 --force`, then '
+          '`qa fleet boot anta_qa_1 anta_qa_2 anta_qa_3`'));
+      expect(lines, contains('priority: not set — never set off Windows'),
+          reason: 'the option is accepted and ignored off Windows');
+    });
+
+    test('boots the guests one at a time, the next once the last is up', () async {
+      final (code, runner, lines) = await boot(['anta_qa_1', 'anta_qa_2']);
+      expect(code, 0);
+      final calls = runner.lines;
+      final lastOfFirst = calls.lastIndexWhere((l) => l.contains('emulator-5556'));
+      final firstOfSecond = calls.indexWhere((l) => l.contains('emulator-5558'));
+      expect(firstOfSecond, greaterThan(lastOfFirst),
+          reason: 'anta_qa_2 is not asked anything before anta_qa_1 is ready');
+      final ready = lines.where((l) => l.startsWith('ready: ')).toList();
+      expect(ready, [
+        startsWith('ready: anta_qa_1 emulator-5556'),
+        startsWith('ready: anta_qa_2 emulator-5558'),
+      ]);
+    });
+  });
+
+  group('priority', () {
+    test('the pin sets the class in the same PowerShell call and reads both back', () {
+      final both = pinScript(42, mask: 0xFFFF, priority: 'BelowNormal');
+      expect(both, contains('ProcessorAffinity = [IntPtr][int64]65535'));
+      expect(both, contains("PriorityClass = 'BelowNormal'"));
+      expect(both, isNot(contains('"')), reason: '-Command mangles double quotes');
+      final classOnly = pinScript(42, priority: 'Normal');
+      expect(classOnly, isNot(contains('ProcessorAffinity = ')));
+      expect(classOnly, contains("PriorityClass = 'Normal'"));
+      expect(parsePinReadback('FFFF BelowNormal\r\n'), (mask: 0xFFFF, priority: 'BelowNormal'));
+      expect(parsePinReadback(''), (mask: null, priority: null));
+    });
+
+    test('the option maps to a class on Windows and is ignored elsewhere', () {
+      expect(fleetPriority(windows: true, option: 'below').priority, 'BelowNormal');
+      expect(fleetPriority(windows: true, option: 'normal').priority, 'Normal');
+      final mac = fleetPriority(windows: false, option: 'below');
+      expect((mac.priority, mac.reason), (null, 'never set off Windows'));
+    });
+
+    test('status shows the class the process list reads', () {
+      final qemu = parseQemuList(
+        '4242\tFFFF\tBelowNormal\tqemu-system-x86_64.exe -avd anta_qa_1 -port 5556 -gpu host\r\n',
+      ).single;
+      expect((qemu.pid, qemu.avd, qemu.affinity, qemu.priority), (4242, 'anta_qa_1', 0xFFFF, 'BelowNormal'));
+      final member = _member(1, qemu: qemu);
+      expect(fleetStatusLine(member, null, showAffinity: true),
+          contains('qemu 4242 affinity=0xFFFF priority=BelowNormal'));
+      expect(member.toJson(null), containsPair('priority', 'BelowNormal'));
+    });
+
+    test('a recycle\'s boot child keeps the class the guest ran with', () {
+      const below = QemuProcess(pid: 1, avd: 'anta_qa_1', priority: 'BelowNormal');
+      const high = QemuProcess(pid: 1, avd: 'anta_qa_1', priority: 'High');
+      expect(fleetBootChildArgs('anta_qa_1', priority: priorityOptionOf(below)),
+          ['fleet', 'boot', 'anta_qa_1', '--priority=below']);
+      expect(priorityOptionOf(const QemuProcess(pid: 1, avd: 'anta_qa_1', priority: 'Normal')),
+          'normal');
+      expect(priorityOptionOf(high), isNull, reason: 'a class fleet boot never sets');
+      expect(fleetBootChildArgs('anta_qa_1', priority: priorityOptionOf(null)),
+          ['fleet', 'boot', 'anta_qa_1']);
     });
   });
 
