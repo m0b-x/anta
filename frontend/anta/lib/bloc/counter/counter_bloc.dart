@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -11,10 +13,16 @@ export 'counter_state.dart';
 
 class CounterBloc extends Bloc<CounterEvent, CounterState> {
   final CounterService _counterService;
+  late final StreamSubscription<void> _serviceChanges;
 
+  /// Follows [CounterService.changes]: counters a sync pull or a restore
+  /// re-read beneath the service are refreshed into a loaded state at once.
   CounterBloc({required CounterService counterService})
     : _counterService = counterService,
       super(const CounterInitial()) {
+    _serviceChanges = counterService.changes.listen(
+      (_) => add(const RefreshCounters()),
+    );
     on<LoadCounters>(_onLoad);
     on<AddCounter>(_onAddCounter);
     on<UpdateCounter>(_onUpdateCounter);
@@ -357,5 +365,11 @@ class CounterBloc extends Bloc<CounterEvent, CounterState> {
         pickedNoteValues: current.pickedNoteValues,
       ),
     );
+  }
+
+  @override
+  Future<void> close() async {
+    await _serviceChanges.cancel();
+    return super.close();
   }
 }

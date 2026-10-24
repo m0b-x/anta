@@ -152,7 +152,7 @@ void main() {
 
       expect(a().scheduler.pending, isEmpty);
       expect(callsAfterPushOfB(), isEmpty);
-      expect((await a().engine.syncNow()).skipped, SyncRunSkip.suspended);
+      expect((await a().engine.syncNow()).skipped, SyncRunSkip.stopped);
     });
 
     test('the outbox trigger drains after the debounce', () async {

@@ -55,6 +55,8 @@ class CounterService {
   Timer? _flushTimer;
   static const _flushDelay = Duration(milliseconds: 300);
 
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -91,12 +93,19 @@ class CounterService {
 
   List<Counter> get counters => List.unmodifiable(_counters);
 
+  /// Fires after the cache was re-read wholesale — [reload] after a sync
+  /// pull, [importData] after a restore — so a counter bloc already showing
+  /// values rebuilds them; the service's own writes do not fire it, their
+  /// callers already hold the new value.
+  Stream<void> get changes => _changes.stream;
+
   /// Re-reads both tables after rows arrived beneath the service — a sync
   /// pull. Pending counts are flushed first, or the re-read would drop them
   /// from memory before they reach the database.
   Future<void> reload() async {
     await flush();
     await _load();
+    _changes.add(null);
   }
 
   // ---------------------------------------------------------------------------
@@ -387,11 +396,16 @@ class CounterService {
   /// Values are written only under live counters: a value merged from
   /// another device under a counter tombstoned there is kept in the table for
   /// the merge, but in a backup it would be an orphan no restore can show.
+  ///
+  /// Everything is read from the database after [flush], never from the
+  /// cache: a counter a sync merged but the service has not reloaded yet is
+  /// in the table, not in memory (S3a review F6).
   Future<Map<String, dynamic>> exportData() async {
     await flush();
     final liveCounters = await _dao.getAllCounters();
     final liveIds = {for (final row in liveCounters) row.id};
     final allValues = await _dao.getAllValues();
+    final globalValues = <String, int>{};
     final noteValuesMap = <String, Map<String, int>>{};
     final noteValueExtras = <String, Map<String, dynamic>>{};
     for (final row in allValues) {
@@ -404,7 +418,10 @@ class CounterService {
           'ownerId': row.ownerId,
         };
       }
-      if (row.noteId.isEmpty) continue;
+      if (row.noteId.isEmpty) {
+        globalValues[row.counterId] = row.value;
+        continue;
+      }
       noteValuesMap.putIfAbsent(row.noteId, () => {})[row.counterId] =
           row.value;
       if (row.isPinned || row.position != 0) {
@@ -413,25 +430,15 @@ class CounterService {
           ..['position'] = row.position;
       }
     }
-    final counterOwners = {
-      for (final row in liveCounters)
-        if (row.ownerId != null) row.id: row.ownerId,
-    };
     return {
-      'counters': jsonEncode(
-        _counters
-            .map(
-              (c) => {
-                ...c.toJson(),
-                if (counterOwners[c.id] != null) 'ownerId': counterOwners[c.id],
-              },
-            )
-            .toList(),
-      ),
-      'globalValues': jsonEncode({
-        for (final entry in _globalValues.entries)
-          if (liveIds.contains(entry.key)) entry.key: entry.value,
-      }),
+      'counters': jsonEncode([
+        for (final row in liveCounters)
+          {
+            ..._rowToCounter(row).toJson(),
+            if (row.ownerId != null) 'ownerId': row.ownerId,
+          },
+      ]),
+      'globalValues': jsonEncode(globalValues),
       'noteValues': jsonEncode(noteValuesMap),
       'noteValueExtras': jsonEncode(noteValueExtras),
     };
@@ -550,6 +557,7 @@ class CounterService {
     }
 
     await _load();
+    _changes.add(null);
   }
 
   // ---------------------------------------------------------------------------

@@ -7612,6 +7612,12 @@ abstract class AppLocalizations {
   /// **'Sharing works on Android and iOS. Your data stays on this device.'**
   String get syncUnavailablePlatformDesc;
 
+  /// Title of the note sync files when another device's newer edit replaced an unsynced local edit; the local text is kept under this title
+  ///
+  /// In en, this message translates to:
+  /// **'{title} (conflict copy, {dateTime})'**
+  String syncConflictCopyTitle(String title, DateTime dateTime);
+
   /// Error title when the sign-in flow throws
   ///
   /// In en, this message translates to:

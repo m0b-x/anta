@@ -30,11 +30,25 @@ enum SyncPause {
 }
 
 /// What the engine is doing right now.
-enum SyncActivity { idle, pulling, pushing }
+enum SyncActivity {
+  /// No run in flight: the page shows the last sync times.
+  idle,
+
+  /// Reading the space's rows and merging them, the initial download
+  /// included — `downloadedRows` counts its progress.
+  pulling,
+
+  /// Sending the outbox to the space.
+  pushing,
+}
 
 /// The last failed sync call, kept for the settings page to explain a stall.
 class SyncFailureInfo extends Equatable {
+  /// What kind of failure, which decides the reason the page shows and
+  /// whether the engine retries, waits for the quota or stops.
   final SyncGatewayFailure failure;
+
+  /// When the call failed, in UTC, so the page can say how long ago.
   final DateTime at;
 
   /// The gateway's own wording, for a diagnostic line; never shown as the

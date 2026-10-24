@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
+import '../../services/sync/sync_status.dart';
 
 sealed class SyncEvent extends Equatable {
   const SyncEvent();
@@ -25,6 +26,22 @@ final class SignOutRequested extends SyncEvent {
 /// outbox or the binding changed.
 final class RefreshSyncStatus extends SyncEvent {
   const RefreshSyncStatus();
+}
+
+/// "Sync now": one full run of the engine — pull every table, then drain.
+final class SyncNowRequested extends SyncEvent {
+  const SyncNowRequested();
+}
+
+/// Fed from the engine's status stream, so a run's progress, pause or
+/// failure reaches the page while the account stays as it is.
+final class SyncEngineStatusChanged extends SyncEvent {
+  final SyncStatus status;
+
+  const SyncEngineStatusChanged(this.status);
+
+  @override
+  List<Object?> get props => [status];
 }
 
 /// Fed from the [AuthService] subscription rather than the UI, so a sign-in

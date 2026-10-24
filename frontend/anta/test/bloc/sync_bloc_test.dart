@@ -9,6 +9,8 @@ import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/utils/auth_error.dart';
 
+import '../support/fake_sync_engine.dart';
+
 const _user = AppUser(uid: 'uid-1', displayName: 'Alex', email: 'a@b.c');
 const _partner = AppUser(uid: 'uid-2', email: 'p@b.c');
 
@@ -71,6 +73,7 @@ class _FakeAuthService implements AuthService {
 /// can tell which account a state's status was read for.
 class _FakeStatusReader implements SyncStatusReader {
   int pendingCount = 0;
+  SyncPause pause = SyncPause.none;
   Object? error;
 
   /// When set, the next read waits for it, then clears it.
@@ -84,7 +87,7 @@ class _FakeStatusReader implements SyncStatusReader {
     gate = null;
     if (waiting != null) await waiting.future;
     if (error != null) throw error!;
-    return SyncStatus(pendingCount: pendingCount);
+    return SyncStatus(pendingCount: pendingCount, pause: pause);
   }
 }
 
@@ -92,11 +95,13 @@ Future<(SyncBloc, _FakeAuthService, List<SyncState>)> _pumpBloc({
   bool available = true,
   AppUser? user,
   SyncStatusReader? reader,
+  FakeSyncEngine? engine,
 }) async {
   final fake = _FakeAuthService(available: available, user: user);
   final bloc = SyncBloc(
     authService: fake,
     statusReader: reader == null ? null : () => reader,
+    engine: engine == null ? null : () async => engine,
   );
   final states = <SyncState>[];
   bloc.stream.listen(states.add);
@@ -413,6 +418,188 @@ void main() {
 
       expect(states, [const SyncSignedIn(_user)]);
       expect(reader.reads, hasLength(2));
+      await bloc.close();
+    });
+
+    test('a bound database with no one signed in reaches the signed-out '
+        'state as the signedOut pause', () async {
+      final reader = _FakeStatusReader()..pause = SyncPause.signedOut;
+      final (bloc, _, states) = await _pumpBloc(reader: reader);
+
+      expect(
+        states.last,
+        const SyncSignedOut(status: SyncStatus(pause: SyncPause.signedOut)),
+      );
+      await bloc.close();
+    });
+  });
+
+  group('the engine', () {
+    const pulling = SyncStatus(activity: SyncActivity.pulling);
+
+    test('its status reaches the signed-in state', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
+
+      engine.emit(pulling);
+      await pumpEventQueue();
+
+      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      await bloc.close();
+    });
+
+    test('its status reaches the signed-out state', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(engine: engine);
+      const signedOut = SyncStatus(pause: SyncPause.signedOut);
+
+      engine.emit(signedOut);
+      await pumpEventQueue();
+
+      expect(states.last, const SyncSignedOut(status: signedOut));
+      await bloc.close();
+    });
+
+    test('is followed from a sign-in when no load came first', () async {
+      final engine = FakeSyncEngine();
+      final fake = _FakeAuthService()..signInResult = _user;
+      final bloc = SyncBloc(authService: fake, engine: () async => engine);
+      final states = <SyncState>[];
+      bloc.stream.listen(states.add);
+
+      bloc.add(const SignInRequested());
+      await pumpEventQueue();
+      engine.emit(pulling);
+      await pumpEventQueue();
+
+      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      await bloc.close();
+    });
+
+    test('a status is dropped while a sign-in owns the screen', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, fake, states) = await _pumpBloc(engine: engine);
+      fake.signInGate = Completer<AppUser?>();
+      bloc.add(const SignInRequested());
+      await pumpEventQueue();
+
+      engine.emit(pulling);
+      await pumpEventQueue();
+
+      expect(states.last, const SyncSigningIn());
+      fake.signInGate!.complete(null);
+      await pumpEventQueue();
+      await bloc.close();
+    });
+
+    test('a status is dropped once the shown account is no longer the '
+        'current one', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, fake, states) = await _pumpBloc(user: _user, engine: engine);
+      // The identity moved on; its stream event has not been handled yet.
+      fake.signInResult = _partner;
+      await fake.signInWithGoogle();
+
+      engine.emit(pulling);
+      await pumpEventQueue();
+
+      expect(states, [const SyncSignedIn(_user)]);
+      await bloc.close();
+    });
+
+    test('starts from the status the engine already holds', () async {
+      final engine = FakeSyncEngine()..current = pulling;
+      final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
+
+      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      await bloc.close();
+    });
+
+    test('a load after a database switch follows the new engine, not the '
+        'old', () async {
+      final old = FakeSyncEngine();
+      final fresh = FakeSyncEngine();
+      var engine = old;
+      final fake = _FakeAuthService(user: _user);
+      final bloc = SyncBloc(authService: fake, engine: () async => engine);
+      final states = <SyncState>[];
+      bloc.stream.listen(states.add);
+      bloc.add(const LoadSyncStatus());
+      await pumpEventQueue();
+
+      engine = fresh;
+      bloc.add(const LoadSyncStatus());
+      await pumpEventQueue();
+      old.emit(const SyncStatus(pendingCount: 1));
+      await pumpEventQueue();
+      expect(states.last, const SyncSignedIn(_user));
+      expect(old.statuses.hasListener, isFalse);
+
+      fresh.emit(pulling);
+      await pumpEventQueue();
+      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      await bloc.close();
+    });
+
+    test('a dead engine leaves the account as it is, and the next load '
+        'follows it again', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
+      await engine.dispose();
+      await pumpEventQueue();
+      expect(states.last, const SyncSignedIn(_user));
+
+      bloc.add(const LoadSyncStatus());
+      await pumpEventQueue();
+
+      expect(states.last, const SyncSignedIn(_user));
+      await bloc.close();
+    });
+
+    test('"Sync now" runs the engine', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, _) = await _pumpBloc(user: _user, engine: engine);
+
+      bloc.add(const SyncNowRequested());
+      await pumpEventQueue();
+
+      expect(engine.calls, ['syncNow']);
+      await bloc.close();
+    });
+
+    test('"Sync now" without an engine does nothing', () async {
+      final (bloc, _, states) = await _pumpBloc(user: _user);
+
+      bloc.add(const SyncNowRequested());
+      await pumpEventQueue();
+
+      expect(states, [const SyncSignedIn(_user)]);
+      await bloc.close();
+    });
+
+    test('closing stops following the status', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, _) = await _pumpBloc(user: _user, engine: engine);
+      expect(engine.statuses.hasListener, isTrue);
+
+      await bloc.close();
+
+      expect(engine.statuses.hasListener, isFalse);
+    });
+
+    test('is never resolved on an unavailable binding', () async {
+      var asked = 0;
+      final bloc = SyncBloc(
+        authService: _FakeAuthService(available: false),
+        engine: () async {
+          asked++;
+          return FakeSyncEngine();
+        },
+      );
+      bloc.add(const LoadSyncStatus());
+      await pumpEventQueue();
+
+      expect(asked, 0);
       await bloc.close();
     });
   });

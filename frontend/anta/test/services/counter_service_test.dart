@@ -145,6 +145,90 @@ void main() {
       }
       expect(after['noteValueExtras'] as String, isNot(contains('gone')));
     });
+
+    test('carries a counter merged live but not yet reloaded, with its '
+        'values', () async {
+      final sets = await service.addCounter(name: 'Sets', startValue: 3);
+      await service.flush();
+      // A pull stored these beneath the service; its cache has not reloaded.
+      await db
+          .into(db.counters)
+          .insert(
+            CounterRow(
+              id: 'merged',
+              name: 'Merged',
+              startValue: 1,
+              step: 1,
+              scope: 'perNote',
+              position: 9,
+              isPinned: false,
+              createdAt: DateTime.utc(2026, 1, 1),
+              hlcTimestamp: orphanHlc,
+              deviceId: 'remote',
+              version: 2,
+              isDeleted: false,
+              ownerId: 'uid-1',
+            ),
+          );
+      await db
+          .into(db.counterValues)
+          .insert(orphanValue('').copyWith(counterId: 'merged', value: 7));
+      await db
+          .into(db.counterValues)
+          .insert(orphanValue('n1').copyWith(counterId: 'merged', value: 5));
+      expect(service.counters.map((c) => c.id), [sets]);
+
+      final exported = await service.exportData();
+
+      final counters = (jsonDecode(exported['counters'] as String) as List)
+          .cast<Map<String, dynamic>>();
+      expect(counters.map((c) => c['id']), containsAll([sets, 'merged']));
+      expect(
+        counters.firstWhere((c) => c['id'] == 'merged')['ownerId'],
+        'uid-1',
+      );
+      expect(jsonDecode(exported['globalValues'] as String), {
+        sets: 3,
+        'merged': 7,
+      });
+      expect(jsonDecode(exported['noteValues'] as String), {
+        'n1': {'merged': 5},
+      });
+    });
+  });
+
+  group('the changes signal', () {
+    test('fires after a reload, with the merged rows read', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      var fired = 0;
+      final subscription = service.changes.listen((_) {
+        fired++;
+        expect(service.getGlobalValue(id), 8);
+      });
+      addTearDown(subscription.cancel);
+
+      await db.counterDao.upsertValue(id, '', 8);
+      await service.reload();
+      await pumpEventQueue();
+
+      expect(fired, 1);
+    });
+
+    test('fires after an import, never after a local write', () async {
+      var fired = 0;
+      final subscription = service.changes.listen((_) => fired++);
+      addTearDown(subscription.cancel);
+
+      final id = await service.addCounter(name: 'Sets');
+      await service.incrementGlobal(id);
+      await service.flush();
+      await pumpEventQueue();
+      expect(fired, 0);
+
+      await service.importData(await service.exportData());
+      await pumpEventQueue();
+      expect(fired, 1);
+    });
   });
 
   test(

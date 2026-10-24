@@ -23,7 +23,11 @@ class SyncBindingService {
 
   /// A service outside the singleton and the [DatabaseLifecycle] registry,
   /// so one test can hold one per in-memory database — the two devices of a
-  /// sync test. Never for app code.
+  /// sync test. Never for app code. [settings] must read and write [_db]: the
+  /// binding keys live in the settings table, so a service paired with
+  /// another database's settings would bind that database instead of this
+  /// one. `SettingsService` exposes no handle to compare, so this holds by
+  /// construction only.
   @visibleForTesting
   SyncBindingService.detached(this._db, this._settings);
 
@@ -84,7 +88,7 @@ class SyncBindingService {
   /// Attaches this database to [space] for [accountUid], in one transaction
   /// so a failure anywhere leaves it unbound (record §3.6):
   ///
-  /// - the binding stored, replacing any earlier one;
+  /// - the binding stored;
   /// - every unowned row of the seventeen queued tables owned by
   ///   [accountUid], the owner the rules require (readiness D17) —
   ///   `content_chunks` travel inside their note and stay unowned;
@@ -98,7 +102,10 @@ class SyncBindingService {
   ///   which its rows are older than the space's (D15).
   ///
   /// Refused while [SyncSuspension] holds: a restore is rewriting the rows
-  /// this would queue.
+  /// this would queue. Refused while a binding exists: a direct rebind would
+  /// leave the first account's rows owned by it, unqueued and foreign to the
+  /// new space (readiness D17) — [unbind] floors and clears the queue first
+  /// (S3a review F1).
   Future<void> bind({
     required SyncSpaceRef space,
     required String accountUid,
@@ -107,6 +114,11 @@ class SyncBindingService {
       throw StateError(
         'Cannot bind while sync is suspended: a restore or import is '
         'rewriting this database.',
+      );
+    }
+    if (await read() != null) {
+      throw StateError(
+        'Cannot bind while this database is bound: stop syncing first.',
       );
     }
     await _db.transaction(() async {
@@ -151,10 +163,14 @@ class SyncBindingService {
     });
   }
 
-  /// The cursors, the `pull_seen` marks and the initial-merge switch.
+  /// The cursors, the `pull_seen` marks, the initial-merge switch, and the
+  /// quota pause and last-run times — they describe the previous space (F7).
   Future<void> _deletePullState() async {
     await _db.syncDao.deleteByPrefix(SyncDao.pullCursorPrefix);
     await _db.syncDao.deleteByPrefix(SyncDao.pullSeenPrefix);
     await _db.syncDao.deleteValue(SyncDao.keyBindMergePending);
+    await _db.syncDao.deleteValue(SyncDao.keyQuotaPausedAt);
+    await _db.syncDao.deleteValue(SyncDao.keyLastPullAt);
+    await _db.syncDao.deleteValue(SyncDao.keyLastPushAt);
   }
 }

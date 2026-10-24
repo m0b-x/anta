@@ -210,6 +210,35 @@ void main() {
       expect(await db.contentChunkDao.loadContent(local.id), remoteBody);
     });
 
+    test('is not named for a strictly newer remote over a local row at the '
+        'floor', () async {
+      // A restore-then-rebind: the space has this note newer, and the pending
+      // entry is requeueAll's, not an unpushed edit.
+      final local = await seed(body: 'restored text');
+
+      final outcome = await merge(
+        remote(local.id, newerHlc),
+        floor: local.hlcTimestamp,
+      );
+
+      expect(outcome.result, MergeResult.applied);
+      expect(outcome.localHadPendingPush, isTrue);
+      expect(outcome.loser, isNull);
+      expect(outcome.loserContent, isNull);
+      expect(await db.contentChunkDao.loadContent(local.id), remoteBody);
+    });
+
+    test('is named above the floor', () async {
+      final local = await seed(body: 'edited after the unbind');
+
+      final outcome = await merge(
+        remote(local.id, newerHlc),
+        floor: olderHlc,
+      );
+
+      expect(outcome.loserContent, 'edited after the unbind');
+    });
+
     test('is not named when the texts are the same', () async {
       final local = await seed(body: remoteBody);
 

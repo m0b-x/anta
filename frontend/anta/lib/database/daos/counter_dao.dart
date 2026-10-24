@@ -467,8 +467,10 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   }
 
   /// The value rows under [keys], tombstones included. Narrowed by counter id
-  /// on the primary key's prefix, then matched through [counterValueRowKey] —
-  /// the outbox's own key — so a key is never rebuilt another way.
+  /// and note id on the primary key's columns — a global counter otherwise
+  /// brings every note's value along — then matched through
+  /// [counterValueRowKey], the outbox's own key, so a key is never rebuilt
+  /// another way.
   Future<List<CounterValueRow>> getValuesByKeysIncludingDeleted(
     List<({String counterId, String noteId})> keys,
   ) {
@@ -478,7 +480,9 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
       };
       final rows =
           await (select(counterValues)..where(
-                (v) => v.counterId.isIn({for (final k in chunk) k.counterId}),
+                (v) =>
+                    v.counterId.isIn({for (final k in chunk) k.counterId}) &
+                    v.noteId.isIn({for (final k in chunk) k.noteId}),
               ))
               .get();
       return [

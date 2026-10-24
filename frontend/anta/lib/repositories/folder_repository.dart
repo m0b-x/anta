@@ -516,6 +516,36 @@ class FolderRepository {
     _countCache.clear();
   }
 
+  /// Tells [folderChanges] about folders a sync pull merged beneath the
+  /// repository, as `NoteRepository.announceMerged` does for notes: each row
+  /// re-read (tombstones included), its cached copy dropped first, then
+  /// announced — `deleted` for a tombstone, `created` for an id in
+  /// [inserted], `updated` otherwise.
+  Future<void> announceMerged(
+    List<String> ids, {
+    Set<String> inserted = const {},
+  }) async {
+    if (ids.isEmpty) return;
+    final rows = await _folderDao.getByIdsIncludingDeleted(ids);
+    for (final folder in rows) {
+      final previous = _folderCache.remove(folder.id);
+      _invalidateParentCache(folder.parentId);
+      if (previous != null) _invalidateParentCache(previous.parentId);
+      _folderChangesController.add(
+        FolderChange(
+          type: folder.isDeleted
+              ? FolderChangeType.deleted
+              : inserted.contains(folder.id)
+              ? FolderChangeType.created
+              : FolderChangeType.updated,
+          folderId: folder.id,
+          parentId: folder.parentId,
+          folder: folder.isDeleted ? null : folder,
+        ),
+      );
+    }
+  }
+
   void _trimFolderCache() {
     if (_folderCache.length > _maxFolderCacheSize) {
       final keysToRemove = _folderCache.keys

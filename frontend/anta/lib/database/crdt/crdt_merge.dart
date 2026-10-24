@@ -12,8 +12,9 @@ abstract final class CrdtMerge {
   /// `transaction`.
   ///
   /// [localHlc] is null only when no row with this key exists here; a
-  /// tombstone is a present row and passes its own stamp. Stamps compare as strings: the encoding is zero-padded hex, so string
-  /// order is time order, and an empty stamp sorts below every floor.
+  /// tombstone is a present row and passes its own stamp. Stamps compare as
+  /// strings: the encoding is zero-padded hex, so string order is time order,
+  /// and an empty stamp sorts below every floor.
   ///
   /// - Absent: [insert], stamps verbatim → [MergeResult.inserted].
   /// - Same stamp: the same write seen again → [MergeResult.unchanged].

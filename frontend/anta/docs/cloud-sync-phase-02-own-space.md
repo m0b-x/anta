@@ -357,12 +357,20 @@ checks all four before every pull, push and bind (readiness §7).
   the storage services' change events emitted by the engine per merged row
   — the browser, the search index and an open editor (§3.9) listen there.
 - **Per-envelope faults.** Decode and merge run per envelope under a catch:
-  a `FormatException` or `TypeError` (a live document missing a required
-  key, a wrong type) parks that envelope (`parkedCount`) and the page goes
-  on; an outbox entry whose row no longer exists (an import wipe) is
-  retired; a row whose encode fails (a corrupt chunk) or whose document
-  would exceed about 900 KB is parked before the push, so a Firestore
-  `invalid-argument` is the exception, not the rule (F11).
+  **any exception that is not a `SyncGatewayException`** (a
+  `FormatException`, a `TypeError`, drift's `InvalidDataException`, a
+  `StateError`, a `SqliteException` on a constraint) parks that envelope
+  (`parkedCount`, logged with its type) and the page goes on — an exception
+  that escaped would roll the page back and the next run would hit the same
+  cursor forever, stalling every later table and every push (S3b review
+  M3); a gateway failure ends the pull. A table whose pull failed for a
+  non-gateway reason does not cancel the other tables or the drain. An
+  outbox entry whose row no longer exists (an import wipe) is retired; a
+  row whose encode fails (a corrupt chunk) or whose document would exceed
+  about 900 KB is parked before the push, so a Firestore `invalid-argument`
+  is the exception, not the rule (F11). Parked push rows are keyed with
+  their stamp, so a shortened note is retried at once (L7); a parked pull
+  envelope is skipped for good at that cursor (§8).
 - **The signal.** While running and the app is in the foreground, one
   listener on the space document (`watchSpace`). On every snapshot: a table
   whose `touched[table]` moved past `sync_metadata['pull_seen.<table>']` is
@@ -399,10 +407,33 @@ checks all four before every pull, push and bind (readiness §7).
   (the rules denied an outdated app's write, by design); otherwise the rules
   refused a row's shape → the same bisect-and-park as `invalidData`, bounded:
   more than twenty parked rows in one drain means the rules themselves
-  changed → `noAccess`. `permissionDenied` on a pull or on `watchSpace` →
-  `noAccess` directly.
+  changed → `noAccess`. Inside the bisect `invalidData` and
+  `permissionDenied` are both refusals to isolate (a batch holding one of
+  each must not escape the bisect as a bare denial — M5); the diagnosis runs
+  once per drain, on the first denial. `permissionDenied` on a pull or on
+  `watchSpace` → `noAccess` directly. The gate that decides whether a run
+  may start sits inside the run's own error handling, so a thrown gate (a
+  closed database) completes the request with a failure instead of hanging
+  `syncNow` or the background drain (M4).
 - **Order within a run:** pull, then push — so a push never carries a row
-  the device would have lost to a newer remote a moment later.
+  the device would have lost to a newer remote a moment later. **While
+  `bind_merge_pending` is set every run is a full run** (all tables pulled
+  before any push) and a run that cannot complete the pull does not drain:
+  a drain before the floor pull would push the pre-bind rows over the space
+  and the floor rule could never undo it (S3b review H1). Without a signal
+  yet, every table counts as stale. A background drain (the app leaving the
+  foreground) is drain-only and bounded: it never waits for a pull in flight
+  beyond the current page, and a never-started engine ignores it.
+- **The conflict copy is filed inside the page transaction**, before the
+  cursor write: a copy that fails rolls the page back, so the losing text is
+  never dropped (H2). The hook therefore only writes through the storage
+  path (drift nests the transaction as a savepoint); invalidations stay in
+  `afterRun`.
+- **Halting re-checks everything cheap:** before each page and each batch
+  the engine re-reads the binding and the user besides `stopped` and the
+  suspension (an unbind during a run must not let merges, cursors or a
+  re-queue land in an unbound database — M6); S4 stops the engine before it
+  unbinds anyway.
 - **Status.** `SyncStatus` (`sync_status.dart:20`) gains `activity` ∈
   {idle, pulling, pushing}, `lastPullAt`, `lastFailure` (failure + time),
   `parkedCount`, `downloadedRows` (the initial pull's progress), and
@@ -907,7 +938,9 @@ fake with the convergence suite, its app-facing effects behind an injected
 (the invalidations, the storage services' change events for merged rows,
 counters flush/reload/`changes`, the conflict copy with its l10n title),
 `SyncBloc`, DI behind `canSync` and a registered gateway, the lifecycle
-triggers and timers, and the rehearsal on the owner's export.
+triggers and timers, and the rehearsal on the owner's export; **S3d** (added
+after the S3b review) the engine fixes H1–H2, M3–M6 and the lows, with the
+tests the review named, before S4 builds on the engine.
 
 **S3a as built (2026-10-24, one implementer at medium; gate: `dart analyze
 lib test` clean, whole suite once — 10,272 passed, the one Windows-only
@@ -1033,6 +1066,92 @@ accountMismatch, sign-back-in, unbound, `lastFailure` cleared);
 `fake_sync_gateway_test` 27. Noted: a row created after the bind keeps
 `owner_id` NULL locally while the merging device stores the uid — both mean
 "mine" (readiness D12), the comparator ignores the key; §8.
+
+**S3b review (2026-10-24, one independent reviewer on a snapshot, five
+mutations, six behaviour probes against real in-memory databases; 2 high,
+4 medium, 17 low; "the commit can stay as the base, fix 1 and 2 before the
+hooks and the lifecycle are wired").** Both highs are data-loss paths that
+need a trigger S3b's tests never produced: **H1** a run with no signal yet
+(`onAppBackgrounded`, the debounced drain, any run before the first
+snapshot) pulled nothing and drained, so under the bind floor a device's
+pre-unbind rows overwrote the space and a newer edit vanished everywhere
+(probe: the unbound-then-rebound case with a background drain in place of
+`sync` ends with the stale text on both devices); **H2** the conflict copy
+was filed after its page committed, so a copy that failed (a title clash,
+a storage error, a database switch mid-run) lost the losing text for good
+(probe: a throwing hook, zero chunks of the lost text afterwards). Mediums:
+M3 an exception outside the park list stalls the table and every push
+forever (probe: a `StateError` from one planted row, three runs at cursor
+null); M4 the run gate outside the error handling hangs `syncNow` on a
+closed database; M5 the bisect rethrows a refusal of another kind, so a
+batch with one `invalidData` and one `permissionDenied` row ends in
+`noAccess`; M6 the halt check ignores the binding and the user, so an
+unbind during a run still writes cursors and merges into the unbound
+database. All six are rules in §3.5 now. **Fixed in a dedicated run (S3d)
+right after S3c, before anything else builds on the engine:** H1, H2, M3,
+M4, M5, M6 and the lows — L7 parked push rows keyed with their stamp; L9
+`quota_paused_at` deleted on any success; L10 a `stop()` during `start()`'s
+first await leaks subscriptions; L11 the signal subscription needs
+`onDone`; L12 a never-started engine answers the lifecycle calls; L13 the
+signal's re-attach shares the run back-off; L14 `onAppBackgrounded` is
+unbounded; L15 moot under H1's rule; L16 `ArgumentError` on the park list
+also swallows programming errors — park but log at warning; L17 a throwing
+`afterRun` in the `finally` masks a halt; L18 tests for every item above
+plus a page that fails part-way (the cursor stays) and a halted table (no
+`pull_seen`); L19 the comparator also ignores `deviceId`/`version` — say so
+in its doc; L20 `///` on the `SyncRunSkip` values, the untrue comment at the
+bisect, and the file split into `part` files. L8 (a parked pull envelope is
+skipped for good) → §8. Handed to S3c mid-run: the bloc reads `current` and
+survives a dead engine; hooks resolve per call; the copy hook must be
+transaction-safe; the bridge is a no-op before `start()`.
+
+**S3c as built (2026-10-24, one implementer; gate: `dart analyze lib test`
+clean, gen-l10n with `untranslated.txt` = `{}`, whole suite once — 10,369
+passed, the one Windows-only failure; review pending, fixes at the head of
+S4).** The S3a fix pass F1–F13 landed (F9 as a doc line only —
+`SettingsService` exposes no database handle), plus `SyncRunSkip.stopped`.
+**Wiring:** `lib/services/sync/app_sync_apply_hooks.dart` — every target
+resolved per call through injectable thunks (GetIt for repositories and
+storage, `getInstance()` for the singletons); `beforePage` flushes counters;
+`afterPage` announces merged notes and folders through the new
+`NoteRepository.announceMerged(ids, inserted:)` /
+`FolderRepository.announceMerged` (re-read the row, drop its caches, emit
+`created` / `updated` / `deleted` — a remote folder move is announced as
+`updated` under the new folder, the drift streams refresh the old list);
+`afterRun` invalidates the repositories, reloads the ten calendar services
+in order then `notifyExternalChange()`, reloads alerts and digests, one
+`reconcileAll(sync)` for `calendar` or `alerts`, `CounterService.reload()`
+(which fires the new `changes` stream the counter blocs refresh on, the
+per-note bloc in place without a loading state), `VocabularyService.reload()`
+— each cache effect guarded so one failing service is logged and the rest
+run; `fileConflictCopy` is unguarded and transaction-safe (settings
+language, the title check, the insert through `NoteStorageService.createNote`
+with the loser's folder and label, the folder's next free position, a
+` (n)` suffix when the same minute already holds the title), titled with
+the new `syncConflictCopyTitle` (en/de/ro, placeholders `title`,
+`dateTime` `yMd`+`Hm`) in the app's stored language, else the device
+locale, else English. `SyncBloc`: an optional `engine` thunk resolved on
+every load and sign-in (a generation counter drops an overtaken
+resolution), starts from `engine.current`, applies an engine status only to
+the shown account's state, `SyncNowRequested`, `SyncEngineStatusChanged`,
+unsubscribes on close. `SyncEngine.getInstance()` (GetIt for the gateway and
+identity, `StateError` without a gateway) and `isStarted`; `reset()`
+disposes the bridge. `lib/services/sync/sync_lifecycle_bridge.dart` on
+`PermissionService.appLifecycle()`: resumed → `onAppResumed`, one
+`onAppBackgrounded` per leave, nothing before `start()` or after `stop()`.
+DI: `_syncEngineEnabled` = a registered gateway ∧ `AuthService.isAvailable`
+(false on `NoOpAuthService`, so it also covers a failed Firebase init);
+the engine starts unawaited after auth and pairing; the bloc factory
+passes the thunk or null; `resetDependencies()` resets the engine first.
+Nothing registers a gateway until S5, so the app does not sync yet. Tests:
+`app_sync_apply_hooks_test` 15, `sync_lifecycle_bridge_test` 6,
+`counter_bloc_test` 3, `counter_per_note_bloc_test` 2,
+`counter_service_test` 7, `sync_bloc_test` 35 (+14),
+`test/support/fake_sync_engine.dart`. Noted for S4: `RefreshSyncStatus`
+replaces the engine's own fields until its next emit — the reader should
+merge `engine.current`; a conflict copy goes into the loser's folder even
+when that folder was meanwhile tombstoned (S3d files it at the root then).
+**The rehearsal** is in §11.
 
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`
   if it reads better; `SyncStatus` / `SyncPause` additions; the
@@ -1277,6 +1396,10 @@ machine.
   per-folder uniqueness backstop does not run on merge; ids differ) and one
   vocabulary two items for the same term (`saveItems` tombstones one later);
   `requeueRow` on a composite key scans its table.
+- A pull envelope that parks (a malformed document) is skipped at that
+  cursor for good and `parkedCount` resets at the next launch, so the
+  device silently lacks that one row until the row is pushed again — the
+  persistent park list above would make it visible and retryable.
 - A row created after the bind keeps `owner_id` NULL locally (NULL means
   "mine", readiness D12) while the device that merges it stores the uid;
   harmless in Phase 02, and Phase 03 — which needs foreign rows told apart
@@ -1341,3 +1464,19 @@ the signal). A day of two hundred edits on two devices stays under a
 thousand reads and writes. The listener adds nothing while idle. Daily
 quotas reset at midnight Pacific time; the engine retries hourly when
 paused.
+
+**As rehearsed (S3c, 2026-10-24, a copy of the export, local only):** the
+v43 migration ran on open in 66 ms — `user_version` 42 → 43, `sync_metadata`
+gained only `last_hlc` (no floor), `sync_outbox` empty, the `deleted_at`
+repair fixed the one folder tombstone above 10^12; no table changed its
+live/tombstoned counts (folders 2/1, notes 11/28, chunks 14/25, counters
+2/0, values 2/0, events 64/12, categories 22/0, occurrences 4/1, absences
+90/1, alerts 5/9, templates 1/0, presets 4/2, overview views 1/0,
+vocabularies 2/1, items 41/6; category alerts, skips and digests 0/0). The
+bind queued **312 rows**; A's first drain pushed all 312 in **one batch in
+92 ms**; B (empty) pulled the 312 in **179 ms**; every table's live and
+tombstoned counts equal on B except `content_chunks` 14/0 — a tombstoned
+note arrives without chunks, by design; all 39 notes' texts, the counter
+values and the category names equal; an edit on B reached A on the next
+run (A read its own 312 rows back once, the read-back §11 accepts). Two
+`pushBatch` calls in all.

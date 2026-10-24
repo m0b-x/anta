@@ -621,6 +621,39 @@ class NoteRepository {
     _countCache.clear();
   }
 
+  /// Tells [noteChanges] about notes a sync pull merged beneath the
+  /// repository, so the browser, the search index and an open editor hear of
+  /// them as of a local write: each row is re-read (tombstones included), its
+  /// cached copy and body dropped first so a listener reads the merged ones,
+  /// then announced — `deleted` for a tombstone, `created` for an id in
+  /// [inserted], `updated` otherwise.
+  Future<void> announceMerged(
+    List<String> ids, {
+    Set<String> inserted = const {},
+  }) async {
+    if (ids.isEmpty) return;
+    final rows = await _noteDao.getByIdsIncludingDeleted(ids);
+    for (final note in rows) {
+      final previous = _noteCache.get(note.id);
+      _noteCache.remove(note.id);
+      _contentCache.remove(note.id);
+      _invalidateFolderCache(note.folderId);
+      if (previous != null) _invalidateFolderCache(previous.folderId);
+      _noteChangesController.add(
+        NoteChange(
+          type: note.isDeleted
+              ? NoteChangeType.deleted
+              : inserted.contains(note.id)
+              ? NoteChangeType.created
+              : NoteChangeType.updated,
+          noteId: note.id,
+          folderId: note.folderId,
+          note: note.isDeleted ? null : note,
+        ),
+      );
+    }
+  }
+
   void _cleanCacheIfNeeded() {
     final now = DateTime.now();
     if (_lastCacheClean == null ||

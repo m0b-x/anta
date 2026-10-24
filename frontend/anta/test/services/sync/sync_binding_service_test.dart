@@ -19,10 +19,11 @@ import '../../database/support/db_test_support.dart';
 
 class _ScriptedFailure implements Exception {}
 
-/// Fails the write of one `sync_metadata` key once armed — a failure from
-/// inside the bind's transaction, with no seam in the service.
+/// Fails, once armed, the write of one `sync_metadata` key — or, with no key,
+/// the first `owner_id` backfill `UPDATE` — a failure from inside the bind's
+/// transaction, with no seam in the service.
 class _FailOnKey extends QueryInterceptor {
-  final String key;
+  final String? key;
   bool armed = false;
 
   _FailOnKey(this.key);
@@ -33,8 +34,20 @@ class _FailOnKey extends QueryInterceptor {
     String statement,
     List<Object?> args,
   ) {
-    if (armed && args.contains(key)) throw _ScriptedFailure();
+    if (armed && key != null && args.contains(key)) throw _ScriptedFailure();
     return super.runInsert(executor, statement, args);
+  }
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (armed && key == null && statement.contains('SET owner_id = ?')) {
+      throw _ScriptedFailure();
+    }
+    return super.runUpdate(executor, statement, args);
   }
 }
 
@@ -43,6 +56,12 @@ const _bindingKeys = [
   SettingsKeys.syncSpaceOwnerUid,
   SettingsKeys.syncSpaceAccountUid,
   SettingsKeys.syncSpaceBoundAt,
+];
+
+const _runKeys = [
+  SyncDao.keyQuotaPausedAt,
+  SyncDao.keyLastPullAt,
+  SyncDao.keyLastPushAt,
 ];
 
 void main() {
@@ -241,12 +260,32 @@ void main() {
       expect((await db.folderDao.getFolderById(folder.id))!.ownerId, 'partner');
     });
 
-    test('over an existing binding replaces it', () async {
+    test('over an existing binding is refused, and writes nothing', () async {
       await settings.setSyncBinding(binding);
+      await db.folderDao.createFolder(name: 'Training');
+      await db.syncOutboxDao.clear();
 
-      await service.bind(space: space, accountUid: 'account-2');
+      await expectLater(
+        service.bind(space: space, accountUid: 'account-2'),
+        throwsStateError,
+      );
 
-      expect((await service.read())!.accountUid, 'account-2');
+      expect(await service.read(), binding);
+      expect(await unowned('folders'), 1);
+      expect(await db.syncOutboxDao.count(), 0);
+      expect(await db.syncDao.getValue(SyncDao.keyBindMergePending), isNull);
+    });
+
+    test('clears the quota pause and the last-run times', () async {
+      await db.syncDao.setValue(SyncDao.keyQuotaPausedAt, '1');
+      await db.syncDao.setValue(SyncDao.keyLastPullAt, '2');
+      await db.syncDao.setValue(SyncDao.keyLastPushAt, '3');
+
+      await service.bind(space: space, accountUid: 'account-1');
+
+      for (final key in _runKeys) {
+        expect(await db.syncDao.getValue(key), isNull, reason: key);
+      }
     });
 
     test('is refused while sync is suspended, and writes nothing', () async {
@@ -263,47 +302,69 @@ void main() {
       expect(await unowned('folders'), 1);
     });
 
-    test('a failure inside leaves nothing bound', () async {
-      final failing = _FailOnKey(SyncDao.keyBindMergePending);
-      final other = await openTestDatabase(interceptor: failing);
-      addTearDown(other.close);
-      SettingsService.reset();
-      final otherSettings = SettingsService.forTesting(other);
-      final otherService = SyncBindingService.detached(other, otherSettings);
-      await other.folderDao.createFolder(name: 'Training');
-      await other.syncOutboxDao.clear();
-      await other.syncDao.setValue(SyncDao.keyPullCursor('notes'), 'cursor');
-      failing.armed = true;
+    // The first backfill UPDATE, the flag's insert and the floor's insert:
+    // the start, the middle and the end of the transaction.
+    for (final (label, key) in [
+      ('the first backfill', null),
+      ('the merge flag', SyncDao.keyBindMergePending),
+      ('the floor', SyncDao.keyBindFloor),
+    ]) {
+      test('a failure at $label leaves nothing bound', () async {
+        final failing = _FailOnKey(key);
+        final other = await openTestDatabase(interceptor: failing);
+        addTearDown(other.close);
+        SettingsService.reset();
+        final otherSettings = SettingsService.forTesting(other);
+        final otherService = SyncBindingService.detached(other, otherSettings);
+        await other.folderDao.createFolder(name: 'Training');
+        await other.syncOutboxDao.clear();
+        await other.syncDao.setValue(SyncDao.keyPullCursor('notes'), 'cursor');
+        failing.armed = true;
 
-      await expectLater(
-        otherService.bind(space: space, accountUid: 'account-1'),
-        throwsA(isA<_ScriptedFailure>()),
-      );
+        await expectLater(
+          otherService.bind(space: space, accountUid: 'account-1'),
+          throwsA(isA<_ScriptedFailure>()),
+        );
 
-      expect(await otherService.read(), isNull);
-      final unownedRow = await other
-          .customSelect(
-            'SELECT COUNT(*) AS n FROM folders WHERE owner_id IS NULL',
-          )
-          .getSingle();
-      expect(unownedRow.read<int>('n'), 1, reason: 'the backfill rolled back');
-      expect(await other.syncOutboxDao.count(), 0, reason: 'nothing queued');
-      expect(
-        await other.syncDao.getValue(SyncDao.keyPullCursor('notes')),
-        'cursor',
-      );
-      expect(await other.syncDao.getValue(SyncDao.keyBindMergePending), isNull);
-      expect(await otherService.bindFloor(), isNull);
-    });
+        expect(await otherService.read(), isNull);
+        final unownedRow = await other
+            .customSelect(
+              'SELECT COUNT(*) AS n FROM folders WHERE owner_id IS NULL',
+            )
+            .getSingle();
+        expect(
+          unownedRow.read<int>('n'),
+          1,
+          reason: 'the backfill rolled back',
+        );
+        expect(await other.syncOutboxDao.count(), 0, reason: 'nothing queued');
+        expect(
+          await other.syncDao.getValue(SyncDao.keyPullCursor('notes')),
+          'cursor',
+        );
+        expect(
+          await other.syncDao.getValue(SyncDao.keyBindMergePending),
+          isNull,
+        );
+        expect(await otherService.bindFloor(), isNull);
+      });
+    }
 
-    test('unbind deletes the pull state and the merge switch', () async {
+    test('unbind deletes the pull state, the merge switch, the quota pause '
+        'and the last-run times', () async {
       await service.bind(space: space, accountUid: 'account-1');
       await seedPullState();
+      for (final key in _runKeys) {
+        await db.syncDao.setValue(key, '1');
+      }
 
       await service.unbind();
 
       await expectNoPullState();
       expect(await db.syncDao.getValue(SyncDao.keyBindMergePending), isNull);
+      for (final key in _runKeys) {
+        expect(await db.syncDao.getValue(key), isNull, reason: key);
+      }
       expect(await service.read(), isNull);
     });
 

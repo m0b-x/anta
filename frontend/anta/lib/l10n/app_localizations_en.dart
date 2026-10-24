@@ -4433,6 +4433,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Sharing works on Android and iOS. Your data stays on this device.';
 
   @override
+  String syncConflictCopyTitle(String title, DateTime dateTime) {
+    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMd(
+      localeName,
+    ).add_Hm();
+    final String dateTimeString = dateTimeDateFormat.format(dateTime);
+
+    return '$title (conflict copy, $dateTimeString)';
+  }
+
+  @override
   String get signInFailed => 'Sign-in failed';
 
   @override

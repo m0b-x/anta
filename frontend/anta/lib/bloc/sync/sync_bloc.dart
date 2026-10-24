@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/app_user.dart';
 import '../../services/auth_service.dart';
+import '../../services/sync/sync_engine.dart';
 import '../../services/sync/sync_status.dart';
 import '../../utils/auth_error.dart';
 import 'sync_event.dart';
@@ -16,8 +17,15 @@ export 'sync_state.dart';
 class SyncBloc extends Bloc<SyncEvent, SyncState> {
   final AuthService _authService;
   final FutureOr<SyncStatusReader> Function()? _statusReader;
+  final Future<SyncEngine?> Function()? _engine;
 
   StreamSubscription<AppUser?>? _authSubscription;
+  StreamSubscription<SyncStatus>? _engineSubscription;
+  SyncEngine? _followedEngine;
+
+  /// Bumped per [_followEngine], so a slow resolution that a later one
+  /// overtook does not subscribe over it.
+  int _engineGeneration = 0;
 
   /// How long an account state waits for its status before showing none: a
   /// database still opening must not leave the account behind a spinner.
@@ -26,17 +34,26 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// Without a [statusReader] every state carries [SyncStatus.empty]. It is
   /// called only when a status is read, so a platform that never shows one
   /// never opens the database for it, and a failure lands in a handler.
+  ///
+  /// [engine] is null where no engine runs (no gateway bound); otherwise it
+  /// is resolved on the first load or sign-in, its status stream followed
+  /// and "Sync now" sent to it — a thunk for the same reason as
+  /// [statusReader].
   SyncBloc({
     required AuthService authService,
     FutureOr<SyncStatusReader> Function()? statusReader,
+    Future<SyncEngine?> Function()? engine,
   }) : _authService = authService,
        _statusReader = statusReader,
+       _engine = engine,
        super(const SyncInitial()) {
     on<LoadSyncStatus>(_onLoad);
     on<SignInRequested>(_onSignIn);
     on<SignOutRequested>(_onSignOut);
     on<AuthStateChanged>(_onAuthStateChanged);
     on<RefreshSyncStatus>(_onRefresh);
+    on<SyncNowRequested>(_onSyncNow);
+    on<SyncEngineStatusChanged>(_onEngineStatus);
   }
 
   Future<void> _onLoad(LoadSyncStatus event, Emitter<SyncState> emit) async {
@@ -54,6 +71,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     _authSubscription ??= _authService.authStateChanges.listen(
       (user) => add(AuthStateChanged(user)),
     );
+    _followEngine();
     await _emitStatus(shown, user, emit);
   }
 
@@ -64,6 +82,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     }
 
     emit(const SyncSigningIn());
+    _followEngine();
     try {
       // A null user means the flow was dismissed, which the stream never
       // reports — fall back to the account we already had.
@@ -127,6 +146,78 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     }
   }
 
+  Future<void> _onSyncNow(
+    SyncNowRequested event,
+    Emitter<SyncState> emit,
+  ) async {
+    final thunk = _engine;
+    if (thunk == null) return;
+    try {
+      // The run's progress and outcome arrive through the status stream.
+      await (await thunk())?.syncNow();
+    } catch (e, st) {
+      debugPrint('[SyncBloc] sync now failed: $e\n$st');
+    }
+  }
+
+  /// The engine's status, into the account state on screen — unless that
+  /// state has moved on: a sign-in in flight or a failure owns the screen,
+  /// and an account the identity no longer reports is about to be replaced,
+  /// while the engine reads its status for the current one.
+  void _onEngineStatus(
+    SyncEngineStatusChanged event,
+    Emitter<SyncState> emit,
+  ) {
+    final current = _authService.currentUser;
+    switch (state) {
+      case SyncSignedIn(:final user) when user.uid == current?.uid:
+        emit(SyncSignedIn(user, status: event.status));
+      case SyncSignedOut() when current == null:
+        emit(SyncSignedOut(status: event.status));
+      default:
+        break;
+    }
+  }
+
+  /// Resolves the engine and follows its status stream, starting from its
+  /// [SyncEngine.current] — the stream does not replay. Asked again on every
+  /// load and sign-in: after a database switch the thunk answers with a new
+  /// engine, and the old one's stream simply goes quiet (its reset does not
+  /// close it). Never awaited by a handler, so an engine that is dead or
+  /// never emits leaves the account state as it is.
+  void _followEngine() {
+    final thunk = _engine;
+    if (thunk == null) return;
+    final generation = ++_engineGeneration;
+    unawaited(() async {
+      try {
+        final engine = await thunk();
+        if (engine == null || isClosed || generation != _engineGeneration) {
+          return;
+        }
+        if (identical(engine, _followedEngine) && _engineSubscription != null) {
+          return;
+        }
+        await _engineSubscription?.cancel();
+        _engineSubscription = null;
+        if (isClosed || generation != _engineGeneration) return;
+        _followedEngine = engine;
+        _engineSubscription = engine.status.listen(
+          (status) => add(SyncEngineStatusChanged(status)),
+          onDone: () {
+            if (identical(_followedEngine, engine)) _engineSubscription = null;
+          },
+        );
+        // An engine that has not emitted yet has nothing to add to the
+        // reader's status, and its empty one would wipe it.
+        final current = engine.current;
+        if (current != SyncStatus.empty) add(SyncEngineStatusChanged(current));
+      } catch (e, st) {
+        debugPrint('[SyncBloc] the sync engine is unavailable: $e\n$st');
+      }
+    }());
+  }
+
   /// Shows [user]'s account at once and returns the state emitted, for
   /// [_emitStatus] to recognise. The status already on screen is carried
   /// only while the user is the same one: the queue belongs to the database,
@@ -180,6 +271,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   @override
   Future<void> close() {
     _authSubscription?.cancel();
+    _engineSubscription?.cancel();
     return super.close();
   }
 }

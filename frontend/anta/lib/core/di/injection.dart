@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:get_it/get_it.dart';
 import '../../database/database.dart';
 import '../../repositories/note_repository.dart';
@@ -29,6 +29,8 @@ import '../../services/pairing_gateway.dart';
 import '../../services/permission_gateway.dart';
 import '../../services/permission_service.dart';
 import '../../services/sync_availability.dart';
+import '../../services/sync/sync_engine.dart';
+import '../../services/sync/sync_gateway.dart';
 import '../../services/sync/sync_status_service.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../../bloc/optimized_note/optimized_note_bloc.dart';
@@ -156,6 +158,13 @@ Future<void> _registerServices() async {
     canSync ? FirestorePairingGateway() : const NoOpPairingGateway(),
   );
 
+  // The engine follows the identity, so it starts once the auth service is
+  // up — and only where a gateway is bound, which nothing does until the
+  // Firestore gateway lands (record S5): until then the app never syncs.
+  // Not awaited: the first run reaches the network, and launch must not wait
+  // on it.
+  if (_syncEngineEnabled) unawaited(_startSyncEngine());
+
   // Stateless and global for the same reason the two above are: it holds no
   // database reference, so a database switch has nothing to reset here. The
   // scheduler that drives it is the opposite — a `DatabaseLifecycle`
@@ -246,6 +255,7 @@ void _registerBlocs() {
     () => SyncBloc(
       authService: getIt<AuthService>(),
       statusReader: SyncStatusService.getInstance,
+      engine: _syncEngineEnabled ? SyncEngine.getInstance : null,
     ),
   );
 
@@ -261,6 +271,22 @@ void _registerBlocs() {
   );
 }
 
+/// `canSync` as the bound identity reports it — the no-op binding is
+/// unavailable — and a gateway bound behind it.
+bool get _syncEngineEnabled =>
+    getIt.isRegistered<SyncGateway>() && getIt<AuthService>().isAvailable;
+
+Future<void> _startSyncEngine() async {
+  try {
+    await (await SyncEngine.getInstance()).start();
+  } catch (e, st) {
+    debugPrint('[DI] sync engine not started: $e\n$st');
+  }
+}
+
 Future<void> resetDependencies() async {
+  // Before the registrations go: the engine resolves the gateway and the
+  // identity through them.
+  SyncEngine.reset();
   await getIt.reset();
 }

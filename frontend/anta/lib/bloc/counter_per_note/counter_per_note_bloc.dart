@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -11,6 +13,7 @@ class CounterPerNoteBloc
     extends Bloc<CounterPerNoteEvent, CounterPerNoteState> {
   final CounterService _counterService;
   final NoteRepository _noteRepository;
+  late final StreamSubscription<void> _serviceChanges;
 
   String _counterId = '';
 
@@ -20,7 +23,11 @@ class CounterPerNoteBloc
   }) : _counterService = counterService,
        _noteRepository = noteRepository,
        super(const CounterPerNoteInitial()) {
+    _serviceChanges = counterService.changes.listen(
+      (_) => add(const CounterPerNoteRefreshed()),
+    );
     on<CounterPerNoteOpened>(_onOpened);
+    on<CounterPerNoteRefreshed>(_onRefreshed);
     on<CounterPerNoteAddNote>(_onAddNote);
     on<CounterPerNoteRemoveNote>(_onRemoveNote);
     on<CounterPerNoteIncrement>(_onIncrement);
@@ -39,6 +46,14 @@ class CounterPerNoteBloc
     _counterId = event.counterId;
     emit(const CounterPerNoteLoading());
     await _counterService.flush();
+    await _loadEntries(emit);
+  }
+
+  Future<void> _onRefreshed(
+    CounterPerNoteRefreshed event,
+    Emitter<CounterPerNoteState> emit,
+  ) async {
+    if (state is! CounterPerNoteLoaded) return;
     await _loadEntries(emit);
   }
 
@@ -282,5 +297,11 @@ class CounterPerNoteBloc
   static int _entrySortComparator(NoteValueEntry a, NoteValueEntry b) {
     if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
     return 0;
+  }
+
+  @override
+  Future<void> close() async {
+    await _serviceChanges.cancel();
+    return super.close();
   }
 }

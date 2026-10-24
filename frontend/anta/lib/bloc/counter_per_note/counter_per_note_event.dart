@@ -16,6 +16,13 @@ final class CounterPerNoteOpened extends CounterPerNoteEvent {
   List<Object?> get props => [counterId];
 }
 
+/// Re-reads the open counter's entries in place, without the loading state:
+/// fed from `CounterService.changes` when a sync pull or a restore re-read
+/// the counters beneath the page.
+final class CounterPerNoteRefreshed extends CounterPerNoteEvent {
+  const CounterPerNoteRefreshed();
+}
+
 final class CounterPerNoteAddNote extends CounterPerNoteEvent {
   final String noteId;
 

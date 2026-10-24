@@ -5531,6 +5531,19 @@
   "@syncUnavailablePlatformDesc": {
     "description": "Explains that desktop remains local-only"
   },
+  "syncConflictCopyTitle": "{title} (conflict copy, {dateTime})",
+  "@syncConflictCopyTitle": {
+    "description": "Title of the note sync files when another device's newer edit replaced an unsynced local edit; the local text is kept under this title",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "dateTime": {
+        "type": "DateTime",
+        "format": "yMd+Hm"
+      }
+    }
+  },
   "signInFailed": "Sign-in failed",
   "@signInFailed": {
     "description": "Error title when the sign-in flow throws"

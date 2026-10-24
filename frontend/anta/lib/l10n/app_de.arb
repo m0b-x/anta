@@ -2444,6 +2444,18 @@
   "signingIn": "Anmeldung läuft…",
   "syncUnavailablePlatform": "Auf dieser Plattform nicht verfügbar",
   "syncUnavailablePlatformDesc": "Teilen funktioniert auf Android und iOS. Deine Daten bleiben auf diesem Gerät.",
+  "syncConflictCopyTitle": "{title} (Konfliktkopie, {dateTime})",
+  "@syncConflictCopyTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "dateTime": {
+        "type": "DateTime",
+        "format": "yMd+Hm"
+      }
+    }
+  },
   "signInFailed": "Anmeldung fehlgeschlagen",
   "authErrorOffline": "Keine Verbindung. Prüf dein Netzwerk und versuch es erneut.",
   "authErrorUnavailable": "Anmeldung ist hier nicht verfügbar",

@@ -4516,6 +4516,16 @@ class AppLocalizationsRo extends AppLocalizations {
       'Partajarea funcționează pe Android și iOS. Datele tale rămân pe acest dispozitiv.';
 
   @override
+  String syncConflictCopyTitle(String title, DateTime dateTime) {
+    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMd(
+      localeName,
+    ).add_Hm();
+    final String dateTimeString = dateTimeDateFormat.format(dateTime);
+
+    return '$title (copie de conflict, $dateTimeString)';
+  }
+
+  @override
   String get signInFailed => 'Conectare eșuată';
 
   @override

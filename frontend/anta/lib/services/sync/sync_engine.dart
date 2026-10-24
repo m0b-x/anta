@@ -4,16 +4,22 @@ import 'dart:convert';
 import 'package:drift/drift.dart' show InvalidDataException;
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'package:get_it/get_it.dart';
 
 import '../../database/crdt/crdt_write.dart';
 import '../../database/daos/sync_dao.dart';
 import '../../database/database.dart';
 import '../../database/database_lifecycle.dart';
+import '../../database/migrations/database_schema.dart';
 import '../../models/app_user.dart';
 import '../../models/sync_binding.dart';
+import '../auth_service.dart';
+import '../permission_service.dart';
+import 'app_sync_apply_hooks.dart';
 import 'sync_apply_hooks.dart';
 import 'sync_binding_service.dart';
 import 'sync_gateway.dart';
+import 'sync_lifecycle_bridge.dart';
 import 'sync_scheduler.dart';
 import 'sync_status.dart';
 import 'sync_status_service.dart';
@@ -28,8 +34,12 @@ enum SyncRunSkip {
   accountMismatch,
 
   /// A restore or import holds [SyncSuspension] — at the start of the run or
-  /// before one of its pages or batches — or the engine was stopped.
+  /// before one of its pages or batches.
   suspended,
+
+  /// The engine was stopped — a database switch, or the dependencies torn
+  /// down — before the run or one of its pages or batches.
+  stopped,
 
   /// The quota ran out and its retry has not fired yet; a resume or "Sync
   /// now" lifts the hold.
@@ -107,6 +117,9 @@ class SyncEngineTiming {
 /// through [SyncApplyHooks], so it never reaches a service above it.
 class SyncEngine {
   static SyncEngine? _instance;
+
+  /// The lifecycle feed of the app's engine, ended with it by [reset].
+  static SyncLifecycleBridge? _bridge;
 
   final AppDatabase _db;
   final SyncGateway _gateway;
@@ -192,6 +205,40 @@ class SyncEngine {
        _timing = timing,
        _tables = tables ?? syncTableBindings;
 
+  /// The app's engine over the active database, built once: the gateway and
+  /// the identity come from GetIt (global, like the `AlertScheduler`'s
+  /// gateway), the database and the sync services from their own
+  /// singletons, and the app's lifecycle is bridged in. Throws [StateError]
+  /// — touching nothing — when no [SyncGateway] is registered, which DI
+  /// checks before calling.
+  static Future<SyncEngine> getInstance() async {
+    final existing = _instance;
+    if (existing != null) return existing;
+    if (!GetIt.I.isRegistered<SyncGateway>()) {
+      throw StateError('SyncGateway is not registered');
+    }
+    final gateway = GetIt.I<SyncGateway>();
+    final auth = GetIt.I<AuthService>();
+    final db = await AppDatabase.getInstance();
+    final binding = await SyncBindingService.getInstance();
+    final status = await SyncStatusService.getInstance();
+    final raced = _instance;
+    if (raced != null) return raced;
+    final engine = SyncEngine.detached(
+      db: db,
+      gateway: gateway,
+      binding: binding,
+      status: status,
+      hooks: AppSyncApplyHooks(),
+      deviceId: db.deviceId,
+      schema: DatabaseSchema.currentVersion,
+      currentUser: () => auth.currentUser,
+      authChanges: auth.authStateChanges,
+    );
+    _bridge = SyncLifecycleBridge(engine, PermissionService.appLifecycle());
+    return _register(engine);
+  }
+
   static SyncEngine _register(SyncEngine engine) {
     _instance = engine;
     DatabaseLifecycle.registerResetHandler(reset);
@@ -209,7 +256,10 @@ class SyncEngine {
   /// Invoked by [DatabaseLifecycle].
   static void reset() {
     final engine = _instance;
+    final bridge = _bridge;
     _instance = null;
+    _bridge = null;
+    if (bridge != null) unawaited(bridge.dispose());
     if (engine != null) unawaited(engine.stop());
   }
 
@@ -219,6 +269,10 @@ class SyncEngine {
 
   /// The last status emitted.
   SyncStatus get current => _current;
+
+  /// Between [start] and [stop]: the lifecycle bridge feeds only a started
+  /// engine, so an app event before DI starts it runs nothing.
+  bool get isStarted => _started;
 
   /// Completes once no run is active, queued or about to be requested, and
   /// the status of the last one has been emitted.
@@ -383,7 +437,9 @@ class SyncEngine {
       if (tally.calls > 0) await _succeeded();
       return report();
     } on _Halted {
-      return report(skipped: SyncRunSkip.suspended);
+      return report(
+        skipped: _stopped ? SyncRunSkip.stopped : SyncRunSkip.suspended,
+      );
     } on _AccessLost catch (lost) {
       _recordFailure(lost.cause);
       _loseAccess(lost.pause);
@@ -409,7 +465,7 @@ class SyncEngine {
 
   /// The binding to sync when the engine may run now, else why not.
   Future<(SyncBinding?, SyncRunSkip?)> _gate() async {
-    if (_stopped) return (null, SyncRunSkip.suspended);
+    if (_stopped) return (null, SyncRunSkip.stopped);
     final binding = await _binding.read();
     if (binding == null) return (null, SyncRunSkip.unbound);
     final user = _currentUser();

@@ -4468,6 +4468,16 @@ class AppLocalizationsDe extends AppLocalizations {
       'Teilen funktioniert auf Android und iOS. Deine Daten bleiben auf diesem Gerät.';
 
   @override
+  String syncConflictCopyTitle(String title, DateTime dateTime) {
+    final intl.DateFormat dateTimeDateFormat = intl.DateFormat.yMd(
+      localeName,
+    ).add_Hm();
+    final String dateTimeString = dateTimeDateFormat.format(dateTime);
+
+    return '$title (Konfliktkopie, $dateTimeString)';
+  }
+
+  @override
   String get signInFailed => 'Anmeldung fehlgeschlagen';
 
   @override

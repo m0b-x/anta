@@ -940,10 +940,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   ///
   /// When the remote is strictly newer than a live local note whose change
   /// was still unpushed and whose text differs, the outcome carries that row
-  /// and its text as the loser, for the engine's conflict copy (D3). Never on
-  /// the floor branch: a rebind's `requeueAll` queued every row, so a pending
-  /// entry there is no unpushed change, and a restore-then-rebind would file
-  /// one copy per note.
+  /// and its text as the loser, for the engine's conflict copy (D3). Never for
+  /// a local row at or below [floor], whichever side is newer: a rebind's
+  /// `requeueAll` queued every row, so a pending entry there is no unpushed
+  /// change, and a restore-then-rebind would file one copy per note (S3a
+  /// review F2).
   ///
   /// The index is `content=notes`, so an entry is removed while the row still
   /// holds the text it was indexed from and added back after the write; a
@@ -972,7 +973,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           var outcome = applied;
           if (!local!.isDeleted) {
             if (applied.localHadPendingPush &&
-                remote.hlcTimestamp.compareTo(local.hlcTimestamp) > 0) {
+                remote.hlcTimestamp.compareTo(local.hlcTimestamp) > 0 &&
+                (floor == null || local.hlcTimestamp.compareTo(floor) > 0)) {
               final text = await db.contentChunkDao.loadContent(local.id);
               if (text != (body ?? '')) {
                 outcome = MergeOutcome(
