@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/event_skips_table.dart';
@@ -251,6 +253,66 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   /// [CalendarEventDao.deleteById] is.
   Future<void> deleteForEvent(String eventId) {
     return (delete(eventSkips)..where((a) => a.eventId.equals(eventId))).go();
+  }
+
+  /// The rows under [keys], tombstones included: the sync push sends the
+  /// tombstone a delete queued. Narrowed by event id on the primary key's
+  /// prefix, then matched through [dayRowKey] — the outbox's own key — so a
+  /// caller's milliseconds cannot miss the stored second.
+  Future<List<EventSkipRow>> getByDayKeysIncludingDeleted(
+    List<({String eventId, DateTime day})> keys,
+  ) async {
+    if (keys.isEmpty) return const [];
+    final wanted = {for (final k in keys) dayRowKey(k.eventId, k.day)};
+    final rows = await (select(
+      eventSkips,
+    )..where((s) => s.eventId.isIn({for (final k in keys) k.eventId}))).get();
+    return [
+      for (final row in rows)
+        if (wanted.contains(dayRowKey(row.eventId, row.day))) row,
+    ];
+  }
+
+  /// Merges one remote skip, keyed [dayRowKey], on the contract of
+  /// [CrdtMerge.mergeRemoteRow]. Stored as received even under an event
+  /// tombstoned here: the parent's tombstone is its own row, and the service
+  /// shows skips only for the events it lists. A tombstone writes the stamps,
+  /// the deletion and the owner and keeps the rest.
+  Future<MergeOutcome> mergeRemoteSkip(EventSkipRow remote, {String? floor}) {
+    return transaction(() async {
+      final local = await _byKey(remote.eventId, remote.day);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: eventSkips,
+        rowKey: dayRowKey(remote.eventId, remote.day),
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(eventSkips).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(eventSkips)..where(
+                  (a) =>
+                      a.eventId.equals(remote.eventId) &
+                      a.day.equals(remote.day),
+                ))
+                .write(
+                  EventSkipsCompanion(
+                    hlcTimestamp: Value(remote.hlcTimestamp),
+                    deviceId: Value(remote.deviceId),
+                    version: Value(remote.version),
+                    isDeleted: const Value(true),
+                    deletedAt: Value(remote.deletedAt),
+                    ownerId: Value(remote.ownerId),
+                  ),
+                );
+          } else {
+            await update(eventSkips).replace(remote);
+          }
+          return applied;
+        },
+      );
+    });
   }
 
   Future<void> deleteAll() {

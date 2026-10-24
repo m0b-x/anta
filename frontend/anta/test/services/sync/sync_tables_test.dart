@@ -12,16 +12,27 @@ import '../../database/support/db_test_support.dart';
 /// Pins the binding registry to the table registry: every binding names a
 /// synced table that queues on its own, and keys its rows exactly as the
 /// outbox's `rowKeySql` does — a key built two ways would address one row
-/// under two documents. S2b adds the completeness pin once every table has
-/// its binding.
+/// under two documents — and every table that queues on its own has exactly
+/// one binding.
 void main() {
   late AppDatabase db;
 
   setUp(() async => db = await openTestDatabase());
   tearDown(() async => db.close());
 
-  test('the browser tables pull parents first', () {
+  test('the tables pull parents first, the calendar before the browser', () {
     expect(syncTableBindings.map((b) => b.table), [
+      'calendar_categories',
+      'calendar_event_templates',
+      'calendar_events',
+      'calendar_event_occurrences',
+      'calendar_event_absences',
+      'calendar_event_skips',
+      'calendar_event_alerts',
+      'calendar_category_alerts',
+      'event_digests',
+      'calendar_filter_presets',
+      'overview_views',
       'folders',
       'notes',
       'counters',
@@ -31,21 +42,38 @@ void main() {
     ]);
   });
 
-  test('every binding names a synced table queued on its own', () {
-    final queued = {
+  test('every table queued on its own has exactly one binding', () {
+    final queued = [
       for (final t in syncedTables)
         if (!t.travelsWithParent) t.name,
-    };
-    for (final binding in syncTableBindings) {
-      expect(queued, contains(binding.table));
+    ];
+    final bound = syncTableBindings.map((b) => b.table).toList();
+
+    for (final table in queued) {
+      expect(bound.where((b) => b == table), hasLength(1), reason: table);
     }
-    expect(syncTableBindings.map((b) => b.table).toSet(), hasLength(6));
+    for (final table in bound) {
+      expect(queued, contains(table), reason: '$table is not a synced table');
+    }
   });
+
+  // The EU spring-forward day: a day key read back through a local midnight
+  // would land an hour off.
+  final day = DateTime.utc(2026, 3, 29);
+  const dayTables = {
+    'calendar_event_occurrences',
+    'calendar_event_absences',
+    'calendar_event_skips',
+  };
 
   for (final binding in syncTableBindings) {
     test('${binding.table} keys a row as its rowKeySql does', () async {
       final synced = syncedTables.singleWhere((t) => t.name == binding.table);
-      final key = binding.table == 'counter_values' ? 'c1|note-1' : 'row-1';
+      final key = switch (binding.table) {
+        'counter_values' => 'c1|note-1',
+        final t when dayTables.contains(t) => dayRowKey('e1', day),
+        _ => 'row-1',
+      };
       // A data-less tombstone stores a row of column defaults under the key
       // alone — enough to read the key back both ways.
       await binding.mergeRemote(
@@ -73,6 +101,14 @@ void main() {
       expect(rows, hasLength(1), reason: 'tombstones load too');
       expect(binding.rowKeyOf(rows.single), sql.read<String>('k'));
       expect(binding.rowKeyOf(rows.single), key);
+      if (dayTables.contains(binding.table)) {
+        // Stored as unix seconds, keyed as epoch milliseconds.
+        final stored = await db
+            .customSelect('SELECT day FROM ${binding.table}')
+            .getSingle();
+        expect(stored.read<int>('day'), day.millisecondsSinceEpoch ~/ 1000);
+        expect(key, 'e1|${day.millisecondsSinceEpoch}');
+      }
     });
   }
 }

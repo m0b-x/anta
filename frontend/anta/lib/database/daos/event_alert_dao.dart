@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/event_alerts_table.dart';
@@ -241,6 +243,54 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
   /// orphan in every export.
   Future<void> deleteForEvent(String eventId) {
     return (delete(eventAlerts)..where((a) => a.eventId.equals(eventId))).go();
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<EventAlertRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(eventAlerts)..where((a) => a.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote alert on the contract of [CrdtMerge.mergeRemoteRow],
+  /// its columns as received — a mode this build does not know is kept for
+  /// the build that wrote it. A tombstone writes the stamps, the deletion
+  /// and the owner and keeps the rest. Nothing here arms or cancels: the
+  /// device-local `alert_registrations` follow from the engine's reconcile.
+  Future<MergeOutcome> mergeRemoteAlert(EventAlertRow remote, {String? floor}) {
+    return transaction(() async {
+      final local = await (select(
+        eventAlerts,
+      )..where((a) => a.id.equals(remote.id))).getSingleOrNull();
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: eventAlerts,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(eventAlerts).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              eventAlerts,
+            )..where((a) => a.id.equals(remote.id))).write(
+              EventAlertsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(eventAlerts).replace(remote);
+          }
+          return applied;
+        },
+      );
+    });
   }
 
   Future<void> deleteAll() {

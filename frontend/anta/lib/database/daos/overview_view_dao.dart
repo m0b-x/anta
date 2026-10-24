@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/overview_views_table.dart';
 
@@ -166,6 +168,53 @@ class OverviewViewDao extends DatabaseAccessor<AppDatabase>
           db.enqueueIn(b, overviewViews, entry.id.value, stamp.hlc);
         }
       });
+    });
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<OverviewViewRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(overviewViews)..where((t) => t.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote view on the contract of [CrdtMerge.mergeRemoteRow],
+  /// its payload verbatim. A tombstone writes the stamps, the deletion and
+  /// the owner and keeps the rest; the cap is the service's, not a merge's.
+  Future<MergeOutcome> mergeRemoteView(
+    OverviewViewRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _byId(remote.id);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: overviewViews,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(overviewViews).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              overviewViews,
+            )..where((t) => t.id.equals(remote.id))).write(
+              OverviewViewsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(overviewViews).replace(remote);
+          }
+          return applied;
+        },
+      );
     });
   }
 

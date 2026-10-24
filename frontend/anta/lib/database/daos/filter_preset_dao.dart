@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/calendar_filter_presets_table.dart';
 
@@ -186,6 +188,56 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
           db.enqueueIn(b, calendarFilterPresets, entry.id.value, stamp.hlc);
         }
       });
+    });
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<CalendarFilterPresetRow>> getByIdsIncludingDeleted(
+    List<String> ids,
+  ) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(calendarFilterPresets)..where((t) => t.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote preset on the contract of [CrdtMerge.mergeRemoteRow].
+  /// The filter blob is stored verbatim, so a field a newer build wrote
+  /// survives. A tombstone writes the stamps, the deletion and the owner and
+  /// keeps the rest; the 50-preset cap is the service's, not a merge's.
+  Future<MergeOutcome> mergeRemotePreset(
+    CalendarFilterPresetRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _byId(remote.id);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: calendarFilterPresets,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(calendarFilterPresets).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              calendarFilterPresets,
+            )..where((t) => t.id.equals(remote.id))).write(
+              CalendarFilterPresetsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(calendarFilterPresets).replace(remote);
+          }
+          return applied;
+        },
+      );
     });
   }
 

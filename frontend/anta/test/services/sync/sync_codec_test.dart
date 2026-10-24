@@ -7,23 +7,45 @@ import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/note_metadata.dart';
+import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/event_digest_service.dart';
+import 'package:anta/services/event_occurrence_service.dart';
+import 'package:anta/services/event_presence_service.dart';
+import 'package:anta/services/event_skip_service.dart';
+import 'package:anta/services/event_template_service.dart';
+import 'package:anta/services/filter_preset_service.dart';
+import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
+import 'package:anta/services/sync/tables/calendar_categories_binding.dart';
+import 'package:anta/services/sync/tables/calendar_category_alerts_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_absences_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_alerts_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_occurrences_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_skips_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_templates_binding.dart';
+import 'package:anta/services/sync/tables/calendar_events_binding.dart';
+import 'package:anta/services/sync/tables/calendar_filter_presets_binding.dart';
 import 'package:anta/services/sync/tables/counter_values_binding.dart';
 import 'package:anta/services/sync/tables/counters_binding.dart';
+import 'package:anta/services/sync/tables/event_digests_binding.dart';
 import 'package:anta/services/sync/tables/folders_binding.dart';
 import 'package:anta/services/sync/tables/notes_binding.dart';
+import 'package:anta/services/sync/tables/overview_views_binding.dart';
 import 'package:anta/services/sync/tables/vocabularies_binding.dart';
 import 'package:anta/services/sync/tables/vocabulary_items_binding.dart';
 import 'package:anta/services/vocabulary_service.dart';
 
 import '../../database/support/db_test_support.dart';
 
-/// Guards the wire codec of S2a's six tables: a row encodes to the envelope
-/// the outbox and the rules expect, its `data` under the backup's keys, and
-/// decodes back to the same row — so a row that crosses the wire and merges
-/// lands as the row that left.
+/// Guards the wire codec of every synced table: a row encodes to the
+/// envelope the outbox and the rules expect, its `data` under the backup's
+/// keys, and decodes back to the same row — so a row that crosses the wire
+/// and merges lands as the row that left. The calendar tables also pin the
+/// strict decode: a live envelope missing a required field is refused.
 void main() {
   late AppDatabase db;
 
@@ -89,14 +111,14 @@ void main() {
 
       expectStamps(envelope, 'folders', 'f1');
       expect(envelope.op, OutboxOp.upsert);
-      // `BackupService.exportAllData`'s folder keys.
+      // `BackupService.exportAllData`'s folder keys, dates as epoch-ms.
       expect(envelope.data!.keys.toSet(), {
         'id',
         'name',
         'parentId',
         'position',
-        'createdAt',
-        'updatedAt',
+        'createdAtMs',
+        'updatedAtMs',
         'noteSortOrder',
         'subfolderSortOrder',
         'label',
@@ -151,15 +173,16 @@ void main() {
       expect(envelope.rowKey, note.id);
       expect(envelope.hlc, note.hlcTimestamp);
       expect(envelope.op, OutboxOp.upsert);
-      // `BackupService.exportAllData`'s note keys, plus `position`.
+      // `BackupService.exportAllData`'s note keys, dates as epoch-ms, plus
+      // `position`.
       expect(envelope.data!.keys.toSet(), {
         'id',
         'folderId',
         'title',
         'content',
         'preview',
-        'createdAt',
-        'updatedAt',
+        'createdAtMs',
+        'updatedAtMs',
         'label',
         'ownerId',
         'position',
@@ -423,5 +446,425 @@ void main() {
       expect(binding.decode(envelope).isDeleted, isTrue);
       expect(binding.decode(envelope).deletedAt, deletedAt);
     });
+  });
+
+  /// One calendar table's codec: the live row's wire map is its service's
+  /// real `exportData` entry, value for value, and decodes back to every
+  /// column; a data-less tombstone still decodes; a live envelope missing
+  /// [requiredKey], or carrying it under the wrong type, is refused with the
+  /// table and the key named.
+  void calendarTable<R extends Object>(
+    SyncTableBinding<R> binding, {
+    required String key,
+    required R Function({bool deleted}) row,
+    required Future<void> Function(R row) insert,
+    required Future<Map<String, dynamic>> Function() exported,
+    required String requiredKey,
+    required void Function() reset,
+  }) {
+    group(binding.table, () {
+      tearDown(reset);
+
+      test('a live row carries the export map and decodes whole', () async {
+        await insert(row());
+
+        final envelope = await encodeStored(binding, key);
+
+        expectStamps(envelope, binding.table, key);
+        expect(envelope.op, OutboxOp.upsert);
+        expect(envelope.data, await exported());
+        expect(binding.decode(envelope), row());
+      });
+
+      test('a tombstone without data decodes to a deleted row', () async {
+        await insert(row(deleted: true));
+
+        final envelope = await encodeStored(binding, key);
+
+        expectStamps(envelope, binding.table, key);
+        expectTombstone(envelope);
+        final tombstone = binding.decode(envelope);
+        expect(binding.rowKeyOf(tombstone), key);
+        // Every drift row carries the CRDT fields; R does not say so.
+        final dynamic decoded = tombstone;
+        expect(decoded.isDeleted, isTrue);
+        expect(decoded.deletedAt, deletedAt);
+        expect(decoded.hlcTimestamp, hlc);
+      });
+
+      test('a live envelope without a valid $requiredKey is refused', () async {
+        await insert(row());
+        final live = await encodeStored(binding, key);
+        SyncEnvelope carrying(Map<String, Object?> data) => SyncEnvelope(
+          table: live.table,
+          rowKey: live.rowKey,
+          hlc: live.hlc,
+          deviceId: live.deviceId,
+          version: live.version,
+          op: OutboxOp.upsert,
+          ownerId: live.ownerId,
+          data: data,
+        );
+        final refused = throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains(binding.table), contains(requiredKey)),
+          ),
+        );
+
+        expect(
+          () => binding.decode(carrying({...live.data!}..remove(requiredKey))),
+          refused,
+        );
+        expect(
+          () =>
+              binding.decode(carrying({...live.data!, requiredKey: const []})),
+          refused,
+        );
+        expect(() => binding.decode(carrying(const {})), throwsFormatException);
+      });
+    });
+  }
+
+  calendarTable(
+    const CalendarCategoriesBinding(),
+    key: 'c1',
+    row: ({bool deleted = false}) => CalendarCategoryRow(
+      id: 'c1',
+      name: 'Climb',
+      colorValue: 0xFF00FF00,
+      iconKey: 'event',
+      sortOrder: 9,
+      isBuiltIn: false,
+      isHidden: true,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.calendarCategories).insert(row),
+    exported: () async => (await (await CategoryService.forTesting(
+      db,
+    )).exportData()).singleWhere((m) => m['id'] == 'c1'),
+    requiredKey: 'name',
+    reset: CategoryService.reset,
+  );
+
+  calendarTable(
+    const CalendarEventTemplatesBinding(),
+    key: 't1',
+    row: ({bool deleted = false}) => EventTemplateRow(
+      id: 't1',
+      name: 'Push day',
+      category: 'gym',
+      sortOrder: 2,
+      ruleKind: 'weekly',
+      rulePayload: '{"weekdays":[1,3]}',
+      startMinute: 540,
+      durationMinutes: 90,
+      description: 'Warm up',
+      iconKey: 'bolt',
+      colorValue: 0xFF445566,
+      tintIcon: false,
+      priority: 1,
+      retroactive: true,
+      countOccurrences: true,
+      countStyle: 'ordinal',
+      tracksPresence: true,
+      assumeAbsent: true,
+      perOccurrenceDescriptions: true,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.eventTemplates).insert(row),
+    exported: () async =>
+        (await (await EventTemplateService.forTesting(db)).exportData()).single,
+    requiredKey: 'category',
+    reset: EventTemplateService.reset,
+  );
+
+  calendarTable(
+    const CalendarEventsBinding(),
+    key: 'e1',
+    row: ({bool deleted = false}) => CalendarEventRow(
+      id: 'e1',
+      title: 'Leg day',
+      category: 'gym',
+      startDate: DateTime.utc(2026, 4, 1).toLocal(),
+      allDay: false,
+      iconKey: 'bolt',
+      ruleKind: 'weekly',
+      rulePayload: '{"weekdays":[2]}',
+      endDate: DateTime.utc(2026, 9, 1).toLocal(),
+      startMinute: 600,
+      durationMinutes: 45,
+      description: 'Bring chalk',
+      noteId: 'n1',
+      colorValue: 0xFF778899,
+      tintIcon: false,
+      priority: 2,
+      retroactive: true,
+      countOccurrences: true,
+      countStyle: 'ordinal',
+      tracksPresence: true,
+      perOccurrenceDescriptions: true,
+      showInDayRail: false,
+      assumeAbsent: true,
+      assumeAbsentFrom: DateTime.utc(2026, 5, 1).toLocal(),
+      removeAfterAlert: true,
+      categoryAlerts: false,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.calendarEvents).insert(row),
+    exported: () async =>
+        (await (await CalendarEventService.forTesting(db)).exportData()).single,
+    requiredKey: 'startDateMs',
+    reset: CalendarEventService.reset,
+  );
+
+  // The EU spring-forward day: the day keys must survive a DST switch.
+  final day = DateTime.utc(2026, 3, 29);
+  final dayKey = dayRowKey('e1', day);
+
+  calendarTable(
+    const CalendarEventOccurrencesBinding(),
+    key: dayKey,
+    row: ({bool deleted = false}) => EventOccurrenceRow(
+      eventId: 'e1',
+      day: day.toLocal(),
+      description: 'Felt strong',
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.eventOccurrenceDescriptions).insert(row),
+    exported: () async => (await (await EventOccurrenceService.forTesting(
+      db,
+    )).exportData()).single,
+    requiredKey: 'dayMs',
+    reset: EventOccurrenceService.reset,
+  );
+
+  calendarTable(
+    const CalendarEventAbsencesBinding(),
+    key: dayKey,
+    row: ({bool deleted = false}) => EventAbsenceRow(
+      eventId: 'e1',
+      day: day.toLocal(),
+      status: 'present',
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.eventAbsences).insert(row),
+    exported: () async =>
+        (await (await EventPresenceService.forTesting(db)).exportData()).single,
+    requiredKey: 'eventId',
+    reset: EventPresenceService.reset,
+  );
+
+  calendarTable(
+    const CalendarEventSkipsBinding(),
+    key: dayKey,
+    row: ({bool deleted = false}) => EventSkipRow(
+      eventId: 'e1',
+      day: day.toLocal(),
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.eventSkips).insert(row),
+    exported: () async =>
+        (await (await EventSkipService.forTesting(db)).exportData()).single,
+    requiredKey: 'createdAtMs',
+    reset: EventSkipService.reset,
+  );
+
+  calendarTable(
+    const CalendarEventAlertsBinding(),
+    key: 'a1',
+    row: ({bool deleted = false}) => EventAlertRow(
+      id: 'a1',
+      eventId: 'e1',
+      mode: 'ring',
+      offsetMinutes: 15,
+      daysBefore: 1,
+      dayMinute: 480,
+      sound: 'chime',
+      enabled: false,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.eventAlerts).insert(row),
+    exported: () async =>
+        (await (await EventAlertService.forTesting(db)).exportData()).single,
+    requiredKey: 'offsetMinutes',
+    reset: EventAlertService.reset,
+  );
+
+  calendarTable(
+    const CalendarCategoryAlertsBinding(),
+    key: 'ca1',
+    row: ({bool deleted = false}) => CategoryAlertRow(
+      id: 'ca1',
+      categoryId: 'climb',
+      mode: 'ring',
+      offsetMinutes: 30,
+      daysBefore: 2,
+      dayMinute: 1200,
+      sound: 'bell',
+      enabled: false,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.calendarCategoryAlerts).insert(row),
+    exported: () async => (await (await EventAlertService.forTesting(
+      db,
+    )).exportCategoryAlerts()).single,
+    requiredKey: 'categoryId',
+    reset: EventAlertService.reset,
+  );
+
+  calendarTable(
+    const EventDigestsBinding(),
+    key: 'd1',
+    row: ({bool deleted = false}) => EventDigestRow(
+      id: 'd1',
+      name: 'Weekly',
+      payload: '{"cadence":"weekly","fromTheFuture":true}',
+      enabled: false,
+      sortOrder: 3,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.eventDigests).insert(row),
+    exported: () async =>
+        (await (await EventDigestService.forTesting(db)).exportData()).single,
+    requiredKey: 'payload',
+    reset: EventDigestService.reset,
+  );
+
+  calendarTable(
+    const CalendarFilterPresetsBinding(),
+    key: 'p1',
+    row: ({bool deleted = false}) => CalendarFilterPresetRow(
+      id: 'p1',
+      name: 'Tracked',
+      filters: '{"trackedOnly":true}',
+      sortOrder: 5,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.calendarFilterPresets).insert(row),
+    exported: () async =>
+        (await (await FilterPresetService.forTesting(db)).exportData()).single,
+    requiredKey: 'filters',
+    reset: FilterPresetService.reset,
+  );
+
+  calendarTable(
+    const OverviewViewsBinding(),
+    key: 'v1',
+    row: ({bool deleted = false}) => OverviewViewRow(
+      id: 'v1',
+      name: 'This year',
+      payload: '{"period":{"kind":"thisYear"}}',
+      sortOrder: 6,
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.overviewViews).insert(row),
+    exported: () async =>
+        (await (await OverviewViewService.forTesting(db)).exportData()).single,
+    requiredKey: 'name',
+    reset: OverviewViewService.reset,
+  );
+
+  test('a live day row whose dayMs names another day is refused', () {
+    const binding = CalendarEventSkipsBinding();
+
+    expect(
+      () => binding.decode(
+        SyncEnvelope(
+          table: binding.table,
+          rowKey: dayKey,
+          hlc: hlc,
+          deviceId: 'dev-a',
+          version: 5,
+          op: OutboxOp.upsert,
+          ownerId: uid,
+          data: {
+            'eventId': 'e1',
+            'dayMs': day.millisecondsSinceEpoch + 86400000,
+            'createdAtMs': 0,
+            'updatedAtMs': 0,
+          },
+        ),
+      ),
+      throwsFormatException,
+    );
   });
 }

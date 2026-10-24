@@ -1,7 +1,9 @@
 import 'package:drift/drift.dart';
 
 import '../../models/calendar_event.dart' show CalendarEventCategory;
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/calendar_categories_table.dart';
 
@@ -249,6 +251,57 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
         version: Value(existing.version + 1),
       ),
     );
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<CalendarCategoryRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(calendarCategories)..where((c) => c.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote category on the contract of [CrdtMerge.mergeRemoteRow].
+  /// A built-in's fixed id merges like any other, `is_built_in` included as
+  /// received; a tombstone writes the stamps, the deletion and the owner and
+  /// keeps the rest, and reassigns no event — the events moved by the delete
+  /// elsewhere arrive as their own rows.
+  Future<MergeOutcome> mergeRemoteCategory(
+    CalendarCategoryRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await (select(
+        calendarCategories,
+      )..where((c) => c.id.equals(remote.id))).getSingleOrNull();
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: calendarCategories,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(calendarCategories).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              calendarCategories,
+            )..where((c) => c.id.equals(remote.id))).write(
+              CalendarCategoriesCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(calendarCategories).replace(remote);
+          }
+          return applied;
+        },
+      );
+    });
   }
 
   /// Hard wipe, tombstones included — the backup import's replace-everything

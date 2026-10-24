@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/calendar_events_table.dart';
@@ -261,6 +263,57 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
         for (final row in moved) row.read<String>('id'),
       ], shared.hlc);
       return moved.length;
+    });
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<CalendarEventRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(calendarEvents)..where((e) => e.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote event on the contract of [CrdtMerge.mergeRemoteRow].
+  ///
+  /// A tombstone touches this row alone — its stamps, the deletion and the
+  /// owner — and never runs [tombstoneEventCascade]: the delete elsewhere
+  /// queued every day row and alert it tombstoned, so they arrive as their
+  /// own envelopes, and the device-local `alert_registrations` follow from
+  /// the engine's reconcile.
+  Future<MergeOutcome> mergeRemoteEvent(
+    CalendarEventRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _byId(remote.id);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: calendarEvents,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(calendarEvents).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              calendarEvents,
+            )..where((e) => e.id.equals(remote.id))).write(
+              CalendarEventsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(calendarEvents).replace(remote);
+          }
+          return applied;
+        },
+      );
     });
   }
 

@@ -23,7 +23,9 @@ enum SyncInvalidation {
 ///
 /// The envelope's `data` is the table's backup map — the backup format is the
 /// wire format — so a field the backup writes crosses under the backup's key
-/// and in the backup's shape; the CRDT fields ride the envelope itself.
+/// and in the backup's shape, dates excepted: they always cross as epoch
+/// milliseconds (`*Ms`), the shape every calendar table's backup already
+/// uses. The CRDT fields ride the envelope itself.
 abstract class SyncTableBinding<R> {
   const SyncTableBinding();
 
@@ -101,19 +103,78 @@ DateTime? deletedAtOf(SyncEnvelope envelope) {
 /// The envelope's data, or an empty map for a tombstone without any.
 Map<String, Object?> dataOf(SyncEnvelope envelope) => envelope.data ?? const {};
 
-/// An instant written as an ISO-8601 string, in UTC so two devices in
-/// different zones read the same instant back — the backup's key, the
-/// backup's `DateTime.parse`.
-String isoOf(DateTime instant) => instant.toUtc().toIso8601String();
-
-/// The instant [isoOf] wrote, as the local time the database reads back; the
-/// epoch when absent, as a data-less tombstone's dates are.
-DateTime fromIso(Object? value) {
-  final parsed = value is String ? DateTime.tryParse(value) : null;
-  return (parsed ?? DateTime.fromMillisecondsSinceEpoch(0)).toLocal();
-}
-
-/// An instant the backup writes as epoch milliseconds, read back; the epoch
-/// when absent.
+/// An instant written as epoch milliseconds — the wire's one date shape —
+/// read back; the epoch when absent, as a data-less tombstone's dates are.
 DateTime fromMs(Object? value) =>
     DateTime.fromMillisecondsSinceEpoch(value is int ? value : 0);
+
+/// An envelope's data read field by field, strictly for a live row and
+/// leniently for a tombstone.
+///
+/// A live envelope missing a required field, or carrying one of the wrong
+/// type, throws a [FormatException] naming the table and the key, so the
+/// engine can park that envelope instead of writing an empty row over real
+/// data. A tombstone carries no data at all, so every field takes the
+/// column's default and the row is stored only to be out-stamped.
+final class WireFields {
+  final String table;
+  final Map<String, Object?> data;
+  final bool live;
+
+  WireFields(SyncEnvelope envelope)
+    : table = envelope.table,
+      data = dataOf(envelope),
+      live = !isTombstone(envelope);
+
+  /// A non-nullable column: required on a live row, [tombstoneDefault] on a
+  /// tombstone.
+  T field<T extends Object>(String key, T tombstoneDefault) {
+    final value = data[key];
+    if (value is T) return value;
+    if (live) throw _bad(key, T);
+    return tombstoneDefault;
+  }
+
+  /// A nullable column: absent or null is null; a value of another type is
+  /// refused on a live row.
+  T? nullable<T extends Object>(String key) {
+    final value = data[key];
+    if (value == null || value is T) return value as T?;
+    if (live) throw _bad(key, T);
+    return null;
+  }
+
+  /// A non-nullable date, written as epoch milliseconds.
+  DateTime fieldMs(String key) =>
+      DateTime.fromMillisecondsSinceEpoch(field<int>(key, 0));
+
+  /// A nullable date, written as epoch milliseconds.
+  DateTime? nullableMs(String key) {
+    final ms = nullable<int>(key);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  /// Refuses a live row whose data names another row than its key — the
+  /// merge would store it under the key, apart from what it describes.
+  void expectSame(String key, Object? expected) {
+    if (live && data[key] != expected) {
+      throw FormatException('$table: "$key" does not match the row key');
+    }
+  }
+
+  FormatException _bad(String key, Type type) =>
+      FormatException('$table: "$key" is missing or not a $type');
+}
+
+/// The `{eventId, day}` a day table's key names — `dayRowKey` read back. The
+/// key is all a data-less tombstone carries, so identity comes from it. The
+/// day follows the last `|`: it is digits only, whatever the event id holds.
+({String eventId, DateTime day}) dayKeyOf(String rowKey) {
+  final split = rowKey.lastIndexOf('|');
+  return (
+    eventId: rowKey.substring(0, split),
+    day: DateTime.fromMillisecondsSinceEpoch(
+      int.tryParse(rowKey.substring(split + 1)) ?? 0,
+    ),
+  );
+}

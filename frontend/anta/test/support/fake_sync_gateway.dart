@@ -8,13 +8,23 @@ import 'package:anta/services/sync/sync_gateway.dart';
 class FakeSyncGateway implements SyncGateway {
   final Map<SyncSpaceRef, Map<String, Map<String, _Arrival>>> _store = {};
   final Map<SyncSpaceRef, Map<String, int>> _sequences = {};
+
+  /// The created spaces, in creation order — the order [listSpaces] answers.
   final Map<SyncSpaceRef, _Space> _spaces = {};
   final Map<SyncSpaceRef, StreamController<SyncSpaceSignal>> _signals = {};
-  final List<SyncSpaceRef> _created = [];
   var _clock = 0;
 
   /// Every batch accepted, in order.
   final List<List<SyncEnvelope>> pushes = [];
+
+  /// How many arrival numbers before the cursor a resumed pull starts, so the
+  /// engine's tests see the repeats Firestore's resume overlap delivers.
+  int replayOnResume = 0;
+
+  /// When true, `hasMore` is `page.length == limit`, as the Firestore gateway
+  /// answers without looking further — so the engine's tests meet "hasMore,
+  /// then an empty page".
+  bool looseHasMore = false;
 
   SyncGatewayFailure? _nextFailure;
 
@@ -38,8 +48,14 @@ class FakeSyncGateway implements SyncGateway {
   /// A clock that moves on every call, so no two writes share an instant.
   DateTime _tick() => DateTime.utc(2026, 1, 1).add(Duration(seconds: ++_clock));
 
-  _Space _spaceOf(SyncSpaceRef space) =>
-      _spaces.putIfAbsent(space, () => _Space(space));
+  SyncSpaceSignal _signalNow(SyncSpaceRef space) =>
+      _spaces[space]?.signal ??
+      const SyncSpaceSignal(
+        exists: false,
+        touched: {},
+        lastWriter: null,
+        schema: 0,
+      );
 
   StreamController<SyncSpaceSignal> _signalOf(SyncSpaceRef space) =>
       _signals.putIfAbsent(space, StreamController<SyncSpaceSignal>.broadcast);
@@ -58,10 +74,22 @@ class FakeSyncGateway implements SyncGateway {
     if (batch.length > maxBatch) {
       throw ArgumentError.value(batch.length, 'batch', 'over the batch limit');
     }
+    final record = _spaces[space];
+    if (record == null) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'no such space',
+      );
+    }
+    if (schema < record.schema) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'schema below the space',
+      );
+    }
     final now = _tick();
     final tables = _store.putIfAbsent(space, () => {});
     final sequences = _sequences.putIfAbsent(space, () => {});
-    final record = _spaceOf(space);
     for (final envelope in batch) {
       final seq = sequences[envelope.table] =
           (sequences[envelope.table] ?? 0) + 1;
@@ -74,7 +102,7 @@ class FakeSyncGateway implements SyncGateway {
     record
       ..lastWriter = pushedBy
       ..lastWriteAt = now
-      ..schema = schema > record.schema ? schema : record.schema;
+      ..schema = schema;
     pushes.add(List.unmodifiable(batch));
     _signalOf(space).add(record.signal);
   }
@@ -85,18 +113,25 @@ class FakeSyncGateway implements SyncGateway {
     String table, {
     SyncCursor? after,
     int? limit,
+    bool resumed = false,
   }) async {
     _throwIfScripted();
-    final from = after == null ? 0 : int.parse(after.value);
+    var from = after == null ? 0 : int.parse(after.value);
+    if (resumed && after != null) {
+      from = from > replayOnResume ? from - replayOnResume : 0;
+    }
     final pending = [
       for (final arrival in (_store[space]?[table] ?? const {}).values)
         if (arrival.seq > from) arrival,
     ]..sort((a, b) => a.seq.compareTo(b.seq));
-    final page = pending.take(limit ?? maxBatch).toList();
+    final take = limit ?? maxBatch;
+    final page = pending.take(take).toList();
     return SyncPullPage(
       envelopes: [for (final arrival in page) arrival.envelope],
       next: page.isEmpty ? after : SyncCursor('${page.last.seq}'),
-      hasMore: pending.length > page.length,
+      hasMore: looseHasMore
+          ? page.length == take
+          : pending.length > page.length,
     );
   }
 
@@ -110,30 +145,31 @@ class FakeSyncGateway implements SyncGateway {
     _throwIfScripted();
     final ref = SyncSpaceRef(
       ownerUid: ownerUid,
-      spaceId: 'space-${_created.length + 1}',
+      spaceId: 'space-${_spaces.length + 1}',
     );
-    _spaceOf(ref)
+    final record = _Space(ref)
       ..name = name
       ..createdAt = _tick()
       ..createdBy = deviceId
       ..schema = schema;
-    _created.add(ref);
-    return _spaces[ref]!.info;
+    _spaces[ref] = record;
+    _signals[ref]?.add(record.signal);
+    return record.info;
   }
 
   @override
   Future<List<SyncSpaceInfo>> listSpaces(String ownerUid) async {
     _throwIfScripted();
     return [
-      for (final ref in _created)
-        if (ref.ownerUid == ownerUid) _spaces[ref]!.info,
+      for (final record in _spaces.values)
+        if (record.ref.ownerUid == ownerUid) record.info,
     ];
   }
 
   @override
   Future<SyncSpaceInfo?> readSpace(SyncSpaceRef space) async {
     _throwIfScripted();
-    return _created.contains(space) ? _spaces[space]!.info : null;
+    return _spaces[space]?.info;
   }
 
   @override
@@ -141,10 +177,13 @@ class FakeSyncGateway implements SyncGateway {
     try {
       _throwIfScripted();
     } on SyncGatewayException catch (error) {
-      return Stream.error(error);
+      return Stream.multi((listener) {
+        listener.addError(error);
+        listener.close();
+      }, isBroadcast: true);
     }
     return Stream.multi((listener) {
-      listener.add(_spaceOf(space).signal);
+      listener.add(_signalNow(space));
       final subscription = _signalOf(
         space,
       ).stream.listen(listener.add, onError: listener.addError);
@@ -160,8 +199,7 @@ class _Arrival {
   const _Arrival(this.envelope, this.seq);
 }
 
-/// The space document; a space pushed to without being created keeps an
-/// empty name and schema 0 and stays out of [FakeSyncGateway.listSpaces].
+/// The space document of a created space.
 class _Space {
   final SyncSpaceRef ref;
   String name = '';
@@ -175,6 +213,7 @@ class _Space {
   _Space(this.ref);
 
   SyncSpaceSignal get signal => SyncSpaceSignal(
+    exists: true,
     touched: Map.unmodifiable(touched),
     lastWriter: lastWriter,
     schema: schema,

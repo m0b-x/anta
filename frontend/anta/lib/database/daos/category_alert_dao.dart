@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/calendar_category_alerts_table.dart';
 
@@ -166,6 +168,57 @@ class CategoryAlertDao extends DatabaseAccessor<AppDatabase>
         [for (final row in tombstoned) row.read<String>('id')],
         shared.hlc,
         op: OutboxOp.tombstone,
+      );
+    });
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<CategoryAlertRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(calendarCategoryAlerts)..where((a) => a.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote category alert on the contract of
+  /// [CrdtMerge.mergeRemoteRow], its columns as received. Unlike
+  /// [replaceForCategory] it never refuses an id another category owns: the
+  /// newest stamp decides, as for every row. A tombstone writes the stamps,
+  /// the deletion and the owner and keeps the rest.
+  Future<MergeOutcome> mergeRemoteCategoryAlert(
+    CategoryAlertRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await (select(
+        calendarCategoryAlerts,
+      )..where((a) => a.id.equals(remote.id))).getSingleOrNull();
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: calendarCategoryAlerts,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(calendarCategoryAlerts).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              calendarCategoryAlerts,
+            )..where((a) => a.id.equals(remote.id))).write(
+              CalendarCategoryAlertsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(calendarCategoryAlerts).replace(remote);
+          }
+          return applied;
+        },
       );
     });
   }

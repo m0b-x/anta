@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/event_digests_table.dart';
 
@@ -187,6 +189,54 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
           db.enqueueIn(b, eventDigests, entry.id.value, stamp.hlc);
         }
       });
+    });
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<EventDigestRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(eventDigests)..where((t) => t.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote digest on the contract of [CrdtMerge.mergeRemoteRow],
+  /// its payload verbatim. A tombstone writes the stamps, the deletion and
+  /// the owner and keeps the rest; what the planner arms follows from the
+  /// engine's reconcile, never from here.
+  Future<MergeOutcome> mergeRemoteDigest(
+    EventDigestRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _byId(remote.id);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: eventDigests,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(eventDigests).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              eventDigests,
+            )..where((t) => t.id.equals(remote.id))).write(
+              EventDigestsCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(eventDigests).replace(remote);
+          }
+          return applied;
+        },
+      );
     });
   }
 

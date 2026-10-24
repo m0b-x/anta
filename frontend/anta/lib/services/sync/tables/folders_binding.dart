@@ -4,7 +4,10 @@ import '../../../models/item_label.dart';
 import '../sync_gateway.dart';
 import '../sync_table_binding.dart';
 
-/// `folders` on the wire: the folder map of `BackupService.exportAllData`.
+/// `folders` on the wire: the folder map of `BackupService.exportAllData`,
+/// except its dates, which cross as epoch milliseconds under `createdAtMs` /
+/// `updatedAtMs` as every calendar table writes them — the backup's local
+/// ISO strings carry no offset, so two zones would read different instants.
 final class FoldersBinding extends SyncTableBinding<Folder> {
   const FoldersBinding();
 
@@ -43,8 +46,8 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
         JsonKeys.name: row.name,
         JsonKeys.parentId: row.parentId,
         'position': row.position,
-        JsonKeys.createdAt: isoOf(row.createdAt),
-        JsonKeys.updatedAt: isoOf(row.updatedAt),
+        'createdAtMs': row.createdAt.millisecondsSinceEpoch,
+        'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         JsonKeys.noteSortOrder: row.noteSortOrder,
         JsonKeys.subfolderSortOrder: row.subfolderSortOrder,
         JsonKeys.label: ItemLabel.fromStorage(row.label).storageName,
@@ -64,8 +67,8 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
       parentId: data[JsonKeys.parentId] as String?,
       position: data['position'] as int? ?? 0,
       label: ItemLabel.fromName(data[JsonKeys.label] as String?).storageValue,
-      createdAt: fromIso(data[JsonKeys.createdAt]),
-      updatedAt: fromIso(data[JsonKeys.updatedAt]),
+      createdAt: fromMs(data['createdAtMs']),
+      updatedAt: fromMs(data['updatedAtMs']),
       noteSortOrder: data[JsonKeys.noteSortOrder] as String?,
       subfolderSortOrder: data[JsonKeys.subfolderSortOrder] as String?,
       hlcTimestamp: envelope.hlc,

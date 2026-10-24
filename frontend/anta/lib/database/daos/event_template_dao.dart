@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/event_templates_table.dart';
 
@@ -143,6 +145,53 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
           db.enqueueIn(b, eventTemplates, entry.id.value, stamp.hlc);
         }
       });
+    });
+  }
+
+  /// The rows under [ids], tombstones included: the sync push sends the
+  /// tombstone a delete queued, so it reads past the live-row filter.
+  Future<List<EventTemplateRow>> getByIdsIncludingDeleted(List<String> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return (select(eventTemplates)..where((t) => t.id.isIn(ids))).get();
+  }
+
+  /// Merges one remote template on the contract of [CrdtMerge.mergeRemoteRow].
+  /// A tombstone carries no data, so over a local row it writes the stamps,
+  /// the deletion and the owner and keeps the rest.
+  Future<MergeOutcome> mergeRemoteTemplate(
+    EventTemplateRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _byId(remote.id);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: eventTemplates,
+        rowKey: remote.id,
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(eventTemplates).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(
+              eventTemplates,
+            )..where((t) => t.id.equals(remote.id))).write(
+              EventTemplatesCompanion(
+                hlcTimestamp: Value(remote.hlcTimestamp),
+                deviceId: Value(remote.deviceId),
+                version: Value(remote.version),
+                isDeleted: const Value(true),
+                deletedAt: Value(remote.deletedAt),
+                ownerId: Value(remote.ownerId),
+              ),
+            );
+          } else {
+            await update(eventTemplates).replace(remote);
+          }
+          return applied;
+        },
+      );
     });
   }
 

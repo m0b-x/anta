@@ -811,6 +811,35 @@ catch, retired entries for vanished rows, the size pre-check) and §3.9.
 S2b was told mid-run to apply F2's DAO rule and F3's strict decode to its
 eleven tables.
 
+**S2b as built (2026-10-24, one implementer; gate: `dart analyze lib test`
+clean, whole suite once — 10,209 passed, the one Windows-only failure;
+review pending, fixes at the head of S3b).** The S1 fix pass a–j landed as
+specified (`pullPage(…, resumed:)`, `ownerId` required, the schema and
+missing-space denials in the fake, `SyncSpaceSignal.exists`,
+`replayOnResume` / `looseHasMore`, the 23-case fake suite, `emulators.cmd`
+with `setlocal`/`pushd`, note and folder dates as `createdAtMs` /
+`updatedAtMs`). The eleven calendar tables: one `mergeRemote<Row>` per DAO
+through `CrdtMerge.mergeRemoteRow` (unchanged — no table needed more),
+`mergeRemoteEvent` never cascading; each id-keyed DAO gained
+`getByIdsIncludingDeleted`, each day DAO `getByDayKeysIncludingDeleted`
+(narrowed by `event_id IN`, the primary-key prefix, then matched through
+`dayRowKey` in Dart); eleven bindings under `lib/services/sync/tables/`
+whose wire `data` equals each service's real `exportData` map value for
+value (no `sortOrder` had to be added — every table that has one exports
+it); **`WireFields`** in `sync_table_binding.dart` is the strict decoder: on
+a live envelope a missing or wrong-typed non-nullable field, a wrong-typed
+nullable one, or an `id` / `eventId` / `dayMs` that disagrees with the row
+key throws `FormatException('<table>: "<key>" is missing or not a
+<Type>')`; a tombstone takes the column defaults; `dayKeyOf(rowKey)` splits
+at the last `|`. Alert bindings write the raw columns under `EventAlertKeys`
+so a mode this build does not know crosses unchanged. `sync_tables.dart`
+holds the seventeen bindings in pull order; the completeness pin runs both
+ways. Tests: eleven `<table>_merge_test` files (140 cases, each with the
+eleven-case contract and a DST-day key for the day tables), `sync_codec_test`
+48, `sync_tables_test` 19, `fake_sync_gateway_test` 23. Left for the S3
+head pass, as planned: S2a's six bindings (`loadByKeys` into DAOs, strict
+decode) and the counters' `createdAt` as epoch-ms.
+
 ### S3 — The engine
 
 - `sync_engine.dart` per §3.5, with `sync_puller.dart` / `sync_pusher.dart`

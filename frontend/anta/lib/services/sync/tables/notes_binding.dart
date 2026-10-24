@@ -7,7 +7,8 @@ import '../sync_table_binding.dart';
 /// `notes` on the wire: the note map of `BackupService.exportAllData`, the
 /// body under `content` — a note and its chunks are one document (D14) —
 /// plus the folder map's `position`, which the backup leaves to the restore
-/// but two devices must agree on.
+/// but two devices must agree on. Dates cross as epoch milliseconds under
+/// `createdAtMs` / `updatedAtMs`, as for folders.
 ///
 /// Preview, length, chunk count and compression are derived from the body
 /// on arrival, so only `preview` crosses, as the backup writes it.
@@ -53,8 +54,8 @@ final class NotesBinding extends SyncTableBinding<Note> {
         JsonKeys.title: row.title,
         JsonKeys.content: content,
         JsonKeys.preview: row.preview,
-        JsonKeys.createdAt: isoOf(row.createdAt),
-        JsonKeys.updatedAt: isoOf(row.updatedAt),
+        'createdAtMs': row.createdAt.millisecondsSinceEpoch,
+        'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         JsonKeys.label: ItemLabel.fromStorage(row.label).storageName,
         if (row.ownerId != null) JsonKeys.ownerId: row.ownerId,
         'position': row.position,
@@ -75,8 +76,8 @@ final class NotesBinding extends SyncTableBinding<Note> {
       isCompressed: false,
       position: data['position'] as int? ?? 0,
       label: ItemLabel.fromName(data[JsonKeys.label] as String?).storageValue,
-      createdAt: fromIso(data[JsonKeys.createdAt]),
-      updatedAt: fromIso(data[JsonKeys.updatedAt]),
+      createdAt: fromMs(data['createdAtMs']),
+      updatedAt: fromMs(data['updatedAtMs']),
       hlcTimestamp: envelope.hlc,
       deviceId: envelope.deviceId,
       version: envelope.version,

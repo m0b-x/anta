@@ -1,7 +1,9 @@
 import 'package:drift/drift.dart';
 
 import '../../constants/event_presence.dart';
+import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
+import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/event_absences_table.dart';
@@ -275,6 +277,69 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     return (delete(
       eventAbsences,
     )..where((a) => a.eventId.equals(eventId))).go();
+  }
+
+  /// The rows under [keys], tombstones included: the sync push sends the
+  /// tombstone a delete queued. Narrowed by event id on the primary key's
+  /// prefix, then matched through [dayRowKey] — the outbox's own key — so a
+  /// caller's milliseconds cannot miss the stored second.
+  Future<List<EventAbsenceRow>> getByDayKeysIncludingDeleted(
+    List<({String eventId, DateTime day})> keys,
+  ) async {
+    if (keys.isEmpty) return const [];
+    final wanted = {for (final k in keys) dayRowKey(k.eventId, k.day)};
+    final rows = await (select(
+      eventAbsences,
+    )..where((a) => a.eventId.isIn({for (final k in keys) k.eventId}))).get();
+    return [
+      for (final row in rows)
+        if (wanted.contains(dayRowKey(row.eventId, row.day))) row,
+    ];
+  }
+
+  /// Merges one remote presence mark, keyed [dayRowKey], on the contract of
+  /// [CrdtMerge.mergeRemoteRow], its `status` as received. Stored even under
+  /// an event tombstoned here, the parent's tombstone being its own row. A
+  /// tombstone writes the stamps, the deletion and the owner and keeps the
+  /// rest.
+  Future<MergeOutcome> mergeRemoteAbsence(
+    EventAbsenceRow remote, {
+    String? floor,
+  }) {
+    return transaction(() async {
+      final local = await _byKey(remote.eventId, remote.day);
+      return CrdtMerge.mergeRemoteRow(
+        db,
+        table: eventAbsences,
+        rowKey: dayRowKey(remote.eventId, remote.day),
+        remoteHlc: remote.hlcTimestamp,
+        localHlc: local?.hlcTimestamp,
+        floor: floor,
+        insert: () => into(eventAbsences).insert(remote),
+        overwrite: (applied) async {
+          if (remote.isDeleted) {
+            await (update(eventAbsences)..where(
+                  (a) =>
+                      a.eventId.equals(remote.eventId) &
+                      a.day.equals(remote.day),
+                ))
+                .write(
+                  EventAbsencesCompanion(
+                    hlcTimestamp: Value(remote.hlcTimestamp),
+                    deviceId: Value(remote.deviceId),
+                    version: Value(remote.version),
+                    isDeleted: const Value(true),
+                    deletedAt: Value(remote.deletedAt),
+                    ownerId: Value(remote.ownerId),
+                  ),
+                );
+          } else {
+            await update(eventAbsences).replace(remote);
+          }
+          return applied;
+        },
+      );
+    });
   }
 
   Future<void> deleteAll() {
