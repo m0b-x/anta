@@ -271,12 +271,21 @@ class SyncEngine {
   /// unawaited, when [autoStart] is set. Throws [StateError] — touching
   /// nothing — when no [SyncGateway] is registered, which DI checks before
   /// calling.
-  static Future<SyncEngine> getInstance() async {
+  ///
+  /// A database switch landing between its awaits makes it start over once
+  /// (S4b-1 review L10): the database it awaited first may be the one being
+  /// closed, and an engine registered over it would keep
+  /// [_rebuildAfterSwitch] from building the new database's. A second switch
+  /// inside the retry throws rather than register anything.
+  static Future<SyncEngine> getInstance() => _build(mayRetry: true);
+
+  static Future<SyncEngine> _build({required bool mayRetry}) async {
     final existing = _instance;
     if (existing != null) return existing;
     if (!GetIt.I.isRegistered<SyncGateway>()) {
       throw StateError('SyncGateway is not registered');
     }
+    final generation = DatabaseLifecycle.generation;
     final gateway = GetIt.I<SyncGateway>();
     final auth = GetIt.I<AuthService>();
     final db = await AppDatabase.getInstance();
@@ -284,6 +293,10 @@ class SyncEngine {
     final status = await SyncStatusService.getInstance();
     final raced = _instance;
     if (raced != null) return raced;
+    if (DatabaseLifecycle.generation != generation) {
+      if (mayRetry) return _build(mayRetry: false);
+      throw StateError('the database switched while the engine was built');
+    }
     final engine = SyncEngine.detached(
       db: db,
       gateway: gateway,

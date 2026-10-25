@@ -728,6 +728,21 @@ void main() {
       expect(a().engine.current.pause, SyncPause.none);
     });
 
+    test('the emitted pause follows pauseOver: a sign-out shows over the '
+        'no-access pause the engine still holds (S4b-1 review L14)', () async {
+      await a().engine.start();
+      await a().settle();
+      pair.gateway.deleteSpace(pair.space);
+      await a().settle();
+      expect(a().engine.current.pause, SyncPause.noAccess);
+
+      a().user = null;
+      a().auth.add(null);
+      await a().settle();
+
+      expect(a().engine.current.pause, SyncPause.signedOut);
+    });
+
     test('an unbound database skips as unbound', () async {
       await a().binding.unbind();
 

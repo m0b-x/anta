@@ -490,6 +490,84 @@ void main() {
     });
   });
 
+  group('a write that waits', () {
+    test('a keystroke made while it waits stays pending and is written '
+        'next, never marked saved (S4b-1 review H1)', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        // Its debounce runs out while v1 is still in flight and is dropped.
+        h.type('v2');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 1);
+
+        h.saver.gate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(h.service.hasPendingChanges, isTrue);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+        expect(h.service.isSavedContent('v1'), isTrue);
+
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.calls.map((c) => c.content), ['v1', 'v2']);
+        expect(h.service.hasPendingChanges, isFalse);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.saved);
+
+        h.dispose();
+      });
+    });
+
+    test('a title-only write leaves a body baseline adopted meanwhile '
+        '(M6)', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(title: 'Title', initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        h.service.onContentChanged('Renamed');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.last.content, isNull);
+        h.content = 'theirs';
+        h.service.adoptSavedContent('theirs');
+
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(h.service.isSavedContent('theirs'), isTrue);
+        expect(h.service.hasPendingChanges, isFalse);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.saved);
+
+        h.dispose();
+      });
+    });
+
+    test('a stopped service does not re-arm over text a write did not '
+        'carry', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        h.content = 'v2';
+        h.service.stopTracking();
+        gate.complete();
+        async.flushMicrotasks();
+        async.elapse(h.service.debounceDelay * 4);
+
+        expect(h.saver.callCount, 1);
+
+        h.dispose();
+      });
+    });
+  });
+
   group('retry ladder', () {
     _Harness failing() =>
         _Harness(saveInterval: const Duration(minutes: 10))

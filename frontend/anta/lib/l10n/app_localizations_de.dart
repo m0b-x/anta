@@ -4499,6 +4499,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Kopie konnte nicht gespeichert werden – dein Text bleibt, das nächste Speichern versucht es erneut';
 
   @override
+  String get syncNoteKeptAsNewFailed =>
+      'Auf einem anderen Gerät gelöscht – dein Text konnte noch nicht als neue Notiz behalten werden; das nächste Speichern versucht es erneut';
+
+  @override
   String get signInFailed => 'Anmeldung fehlgeschlagen';
 
   @override

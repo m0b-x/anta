@@ -2462,6 +2462,7 @@
   "syncNoteDeletedElsewhere": "Auf einem anderen Gerät gelöscht",
   "syncNoteKeptAsNew": "Auf einem anderen Gerät gelöscht – dein Text wurde als neue Notiz behalten",
   "syncNoteConflictCopyFailed": "Kopie konnte nicht gespeichert werden – dein Text bleibt, das nächste Speichern versucht es erneut",
+  "syncNoteKeptAsNewFailed": "Auf einem anderen Gerät gelöscht – dein Text konnte noch nicht als neue Notiz behalten werden; das nächste Speichern versucht es erneut",
   "signInFailed": "Anmeldung fehlgeschlagen",
   "authErrorOffline": "Keine Verbindung. Prüf dein Netzwerk und versuch es erneut.",
   "authErrorUnavailable": "Anmeldung ist hier nicht verfügbar",

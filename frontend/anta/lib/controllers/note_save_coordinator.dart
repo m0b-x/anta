@@ -38,7 +38,7 @@ class NoteSaveCoordinator {
     titleExists,
     required void Function(OptimizedNoteEvent event) dispatch,
     required void Function(String title) onDuplicateTitle,
-    FutureOr<bool> Function()? beforeWrite,
+    FutureOr<bool> Function({required bool leaving})? beforeWrite,
     AutoSaveFactory? autoSaveFactory,
   }) : _effectiveNoteId = noteId,
        _originalTitle = originalTitle,
@@ -81,14 +81,26 @@ class NoteSaveCoordinator {
   /// while a copy that failed is not yet filed (M3). A held write throws, so
   /// auto-save keeps the text unsaved and retries on its own schedule. A
   /// plain `bool` answers without an extra async hop.
-  final FutureOr<bool> Function()? _beforeWrite;
+  ///
+  /// `leaving` is true for the flush of [saveBeforeExit] and of
+  /// [saveOnLifecyclePause] only — never for a debounced write that happens
+  /// to run meanwhile — so the page can decide which holds a last write may
+  /// pass (record §3.9, M3).
+  final FutureOr<bool> Function({required bool leaving})? _beforeWrite;
 
-  /// Set while the page is leaving or the app is pausing: a write the page
-  /// still holds then goes ahead anyway. A copy that could not be filed even
-  /// on that last retry costs the other device's text; holding the write
-  /// would cost the user's — the one on screen, about to be gone.
+  /// Set from [saveBeforeExit] until the page is gone or [exitAborted] says
+  /// it stayed: every write started meanwhile is the exit's own flush.
   bool _exiting = false;
-  bool _pausing = false;
+
+  /// The lifecycle flushes still running, counted because a second pause can
+  /// arrive before the first one's write lands (S4b-1 review L9).
+  int _pauses = 0;
+
+  /// Writes started so far, and the first one a running pause owns: a
+  /// debounced write already under way when the pause began is not the
+  /// pause's flush and must not pass a hold as one.
+  int _writes = 0;
+  int _pauseFirstWrite = 0;
 
   late final AutoSaveService _autoSave;
 
@@ -261,20 +273,35 @@ class NoteSaveCoordinator {
   void saveOnLifecyclePause() {
     if (_savesDisabled) return;
     if (_effectiveNoteId != null) {
-      _pausing = true;
-      unawaited(forceSave().whenComplete(() => _pausing = false));
+      // The pause's own write is the next one to start: one in flight now
+      // finishes first, and auto-save starts no other while this one runs.
+      if (_pauses++ == 0) _pauseFirstWrite = _writes + 1;
+      unawaited(forceSave().whenComplete(() => _pauses--));
     } else {
       _startCreateNewNoteEarly();
     }
   }
 
-  /// The user is leaving the page: flush an existing note, or create a
-  /// brand-new one when it holds anything. An empty new note is
-  /// deliberately not created — opening the editor and backing out must
-  /// not litter the folder.
+  /// The user is leaving the page: [flush], with the write marked as the
+  /// exit's own (see [_beforeWrite]) until the page is gone or
+  /// [exitAborted] reports it stayed.
   Future<void> saveBeforeExit() async {
     if (_savesDisabled) return;
     _exiting = true;
+    await flush();
+  }
+
+  /// The exit [saveBeforeExit] flushed for did not happen — the page is
+  /// still showing, and its writes are ordinary ones again.
+  void exitAborted() => _exiting = false;
+
+  /// Writes everything now: flushes an existing note, or creates a brand-new
+  /// one when it holds anything — for an exit, or for a menu row that hands
+  /// the stored note to another layer (move, share). An empty new note is
+  /// deliberately not created — opening the editor and backing out must not
+  /// litter the folder.
+  Future<void> flush() async {
+    if (_savesDisabled) return;
     if (_effectiveNoteId != null) {
       await forceSave();
       return;
@@ -328,11 +355,13 @@ class NoteSaveCoordinator {
   /// once, mirroring the rename dialog instead of raising a snackbar per
   /// save.
   Future<void> _save(String? title, String? content) async {
+    final write = ++_writes;
+    final leaving = _exiting || (_pauses > 0 && write >= _pauseFirstWrite);
     // Before the id is read: a write the page held while it moved the note
     // to a new id ([retarget]) has to land on that id.
-    final gate = _beforeWrite?.call();
+    final gate = _beforeWrite?.call(leaving: leaving);
     final mayWrite = gate is Future<bool> ? await gate : (gate ?? true);
-    if (!mayWrite && !_exiting && !_pausing) throw const _WriteHeld();
+    if (!mayWrite) throw const _WriteHeld();
 
     final noteId = _effectiveNoteId;
     if (noteId == null || _savesDisabled) return;

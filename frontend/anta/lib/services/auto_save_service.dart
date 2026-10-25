@@ -121,15 +121,39 @@ class AutoSaveService {
         contentChanged ? currentContent : null,
       );
 
-      _savedTitle = currentTitle;
-      _savedContentHash = currentContent.hashCode;
-      _savedContentLength = currentContent.length;
-      _hasPendingChanges = false;
+      // Only what the write carried becomes the baseline: a title-only write
+      // must not stamp the body it read as saved, since a sync merge may
+      // have adopted a newer one while the write was held (record §3.9, M6).
+      if (titleChanged) _savedTitle = currentTitle;
+      if (contentChanged) {
+        _savedContentHash = currentContent.hashCode;
+        _savedContentLength = currentContent.length;
+      }
       _retryCount = 0;
       _retryTimer?.cancel();
 
-      _updateStatus(SaveStatus.saved);
-      onChangeDetected?.call(false);
+      // A write can wait a long time — the page holds it while a synced
+      // change is filed — and keystrokes made meanwhile were dropped by the
+      // `_isSaving` guard. Reading the page clean over them would let the
+      // next reload wipe them (S4b-1 review H1), so they stay pending.
+      final live = _contentProvider?.call();
+      if (_latestTitle != _savedTitle ||
+          (live != null && !isSavedContent(live))) {
+        _hasPendingChanges = true;
+        _updateStatus(SaveStatus.unsaved);
+        // Re-armed only while tracking: a stopped service (saves disabled
+        // for a delete) writes nothing, and re-arming would loop.
+        if (!_disposed && _intervalTimer != null) {
+          _debounceTimer?.cancel();
+          _debounceTimer = Timer(debounceDelay, () async {
+            await _checkAndSave();
+          });
+        }
+      } else {
+        _hasPendingChanges = false;
+        _updateStatus(SaveStatus.saved);
+        onChangeDetected?.call(false);
+      }
     } catch (e, stackTrace) {
       debugPrint('[AutoSaveService] Save failed: $e');
       debugPrintStack(stackTrace: stackTrace, maxFrames: 5);

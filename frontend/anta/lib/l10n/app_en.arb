@@ -5566,7 +5566,11 @@
   },
   "syncNoteConflictCopyFailed": "Couldn't save a copy — your text is kept and the next save tries again",
   "@syncNoteConflictCopyFailed": {
-    "description": "Snackbar in the note editor when saving a sync conflict copy (or the text of a note deleted on another device as a new note) failed; saving waits and retries"
+    "description": "Snackbar in the note editor when saving a sync conflict copy failed; saving waits and retries"
+  },
+  "syncNoteKeptAsNewFailed": "Deleted on another device — couldn't keep your text as a new note yet; the next save tries again",
+  "@syncNoteKeptAsNewFailed": {
+    "description": "Snackbar in the note editor when the open note, with unsaved changes, was deleted on another device and saving the typed text as a new note failed; the editor stays open with the text and retries"
   },
   "signInFailed": "Sign-in failed",
   "@signInFailed": {

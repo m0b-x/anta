@@ -4464,6 +4464,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Couldn\'t save a copy — your text is kept and the next save tries again';
 
   @override
+  String get syncNoteKeptAsNewFailed =>
+      'Deleted on another device — couldn\'t keep your text as a new note yet; the next save tries again';
+
+  @override
   String get signInFailed => 'Sign-in failed';
 
   @override

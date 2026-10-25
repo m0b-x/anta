@@ -7648,11 +7648,17 @@ abstract class AppLocalizations {
   /// **'Deleted on another device — your text was kept as a new note'**
   String get syncNoteKeptAsNew;
 
-  /// Snackbar in the note editor when saving a sync conflict copy (or the text of a note deleted on another device as a new note) failed; saving waits and retries
+  /// Snackbar in the note editor when saving a sync conflict copy failed; saving waits and retries
   ///
   /// In en, this message translates to:
   /// **'Couldn\'t save a copy — your text is kept and the next save tries again'**
   String get syncNoteConflictCopyFailed;
+
+  /// Snackbar in the note editor when the open note, with unsaved changes, was deleted on another device and saving the typed text as a new note failed; the editor stays open with the text and retries
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted on another device — couldn\'t keep your text as a new note yet; the next save tries again'**
+  String get syncNoteKeptAsNewFailed;
 
   /// Error title when the sign-in flow throws
   ///

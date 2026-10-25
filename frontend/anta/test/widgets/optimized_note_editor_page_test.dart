@@ -99,7 +99,7 @@ void main() {
   late ImportExportBloc exportBloc;
   late _TestNoteBloc noteBloc;
   late MarkdownBarBloc barBloc;
-  late CounterBloc counterBloc;
+  late _FlakyCounterBloc counterBloc;
 
   final metadata = NoteMetadata(
     id: noteId,
@@ -178,7 +178,7 @@ void main() {
     barBloc = MarkdownBarBloc(
       barService: await MarkdownBarService.getInstance(),
     );
-    counterBloc = CounterBloc(
+    counterBloc = _FlakyCounterBloc(
       counterService: await CounterService.getInstance(),
     );
     // A real export bloc over the real service, with only the share sheet
@@ -3884,6 +3884,7 @@ void main() {
             BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
             BlocProvider<MarkdownBarBloc>.value(value: barBloc),
             BlocProvider<CounterBloc>.value(value: counterBloc),
+            BlocProvider<ImportExportBloc>.value(value: exportBloc),
           ],
           child: MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -3923,6 +3924,66 @@ void main() {
         offset: 0,
       );
       controller.replaceSelection(text);
+    }
+
+    /// The live notes in the folder that are neither the seeded two nor a
+    /// conflict copy — a deleted note's text kept as a new note.
+    Future<List<Note>> keptAsNew(WidgetTester tester) async =>
+        (await tester.runAsync(
+              () => db.noteDao.getNotesByFolder(syncFolder.id),
+            ))!
+            .where(
+              (n) =>
+                  n.id != sibling.id &&
+                  n.id != synced.id &&
+                  !n.title.startsWith('Squat log (conflict'),
+            )
+            .toList();
+
+    /// Routes the page's storage through [flakyStorage] for this test.
+    void useFlakyStorage() {
+      flakyStorage
+        ..failCreates = 0
+        ..createGate = null
+        ..readGate = null;
+      GetIt.I.unregister<NoteStorageService>();
+      GetIt.I.registerSingleton<NoteStorageService>(flakyStorage);
+      addTearDown(() {
+        flakyStorage
+          ..failCreates = 0
+          ..createGate = null
+          ..readGate = null;
+        GetIt.I.unregister<NoteStorageService>();
+        GetIt.I.registerSingleton<NoteStorageService>(storageService);
+      });
+    }
+
+    Finder shown(String text) => find.text(text);
+
+    Future<void> until(WidgetTester tester, String text) =>
+        settleUntil(tester, () => shown(text).evaluate().isNotEmpty);
+
+    NavigatorState navigatorOf(WidgetTester tester) =>
+        tester.state<NavigatorState>(find.byType(Navigator));
+
+    Future<void> pushDialog(WidgetTester tester) async {
+      final navigator = navigatorOf(tester);
+      unawaited(
+        navigator.push(
+          DialogRoute<void>(
+            context: navigator.context,
+            builder: (_) => const AlertDialog(content: Text('a dialog')),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> popTop(WidgetTester tester) async {
+      navigatorOf(tester).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
     }
 
     testWidgets('a clean editor reloads the merged text in place, the caret '
@@ -4043,10 +4104,10 @@ void main() {
       final controller = await open(tester);
       type(controller, 'mine ');
       await tester.pump();
-      // The page's read of the merged row is held until the debounced save
-      // has had every chance to land first.
+      // The page's copy is held mid-create until the debounced save has had
+      // every chance to land first.
       final read = Completer<void>();
-      flakyStorage.readGate = read;
+      flakyStorage.createGate = read;
       GetIt.I.unregister<NoteStorageService>();
       GetIt.I.registerSingleton<NoteStorageService>(flakyStorage);
       try {
@@ -4068,7 +4129,7 @@ void main() {
         expect(await storedBody(tester, synced.id), 'mine $body');
         expect(controller.text, 'mine $body');
       } finally {
-        flakyStorage.readGate = null;
+        flakyStorage.createGate = null;
         GetIt.I.unregister<NoteStorageService>();
         GetIt.I.registerSingleton<NoteStorageService>(storageService);
       }
@@ -4245,6 +4306,412 @@ void main() {
       expect(await copies(tester), isEmpty);
       await teardownPage(tester);
     });
+
+    testWidgets('a second merge during a held save is waited for too: a copy '
+        "holds the second merge's text, the note the user's (S4b-1 review "
+        'H2)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      final first = Completer<void>();
+      flakyStorage.createGate = first;
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs 1',
+        settleAfter: false,
+      );
+      // The debounced save asks the gate while the first copy is held.
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs 2',
+        settleAfter: false,
+      );
+      final second = Completer<void>();
+      flakyStorage.createGate = second;
+      first.complete();
+      await settle(tester);
+
+      expect(
+        await storedBody(tester, synced.id),
+        'theirs 2',
+        reason: 'the save still waits for the second merge to be handled',
+      );
+
+      flakyStorage.createGate = null;
+      second.complete();
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      await settle(tester);
+
+      final filed = await copies(tester);
+      final bodies = [
+        for (final copy in filed) await storedBody(tester, copy.id),
+      ];
+      expect(bodies, unorderedEquals(['theirs 1', 'theirs 2']));
+      expect(await storedBody(tester, synced.id), 'mine $body');
+      expect(controller.text, 'mine $body');
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a delete arriving during a held save is waited for too: the '
+        'save lands on the note that keeps the text, never on the tombstone '
+        '(S4b-1 review H2)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      final held = Completer<void>();
+      flakyStorage.createGate = held;
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs',
+        settleAfter: false,
+      );
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
+      noteBloc.clearDispatched();
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        delete: true,
+        settleAfter: false,
+      );
+      flakyStorage.createGate = null;
+      held.complete();
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNew);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      await settle(tester);
+
+      final kept = (await keptAsNew(tester)).single;
+      expect(noteBloc.updates.where((u) => u.noteId == synced.id), isEmpty);
+      expect(await storedBody(tester, kept.id), 'mine $body');
+      expect((await copies(tester)).single.id, isNot(kept.id));
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a save already in flight when the merge arrives cannot hide '
+        'it: the copy holds the merged text, carried on the event', (
+      tester,
+    ) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      // A page reading the row back would read it only after the write.
+      final read = Completer<void>();
+      flakyStorage.readGate = read;
+      final landed = Completer<void>();
+      noteBloc.updateGate = landed;
+      await tester.pump(const Duration(seconds: 6));
+      await settleUntil(tester, () => noteBloc.updates.isNotEmpty);
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs',
+        settleAfter: false,
+      );
+      // The write the page started before the merge commits after it.
+      noteBloc.updateGate = null;
+      landed.complete();
+      await settle(tester);
+      expect(await storedBody(tester, synced.id), 'mine $body');
+      flakyStorage.readGate = null;
+      read.complete();
+      // Filing the copy after the write landed re-arms one more save of the
+      // user's text, which the row already holds.
+      await autosave(tester);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      await settle(tester);
+
+      final filed = await copies(tester);
+      expect(filed, hasLength(1));
+      expect(await storedBody(tester, filed.single.id), 'theirs');
+      expect(await storedBody(tester, synced.id), 'mine $body');
+      expect(controller.text, 'mine $body');
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets("leaving with a deleted note's text unfiled tries the filing "
+        'again: failing, the page stays and nothing reaches the tombstone; '
+        'filed, the page leaves (M3)', (tester) async {
+      await openOverAPage(tester);
+      type(editorOf(tester).controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      flakyStorage.failCreates = 1000;
+      final failed = AppLocalizationsEn().syncNoteKeptAsNewFailed;
+
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await until(tester, failed);
+      OverlaySnackbar.hide();
+      await tester.pump();
+      noteBloc.clearDispatched();
+
+      unawaited(navigatorOf(tester).maybePop());
+      await until(tester, failed);
+      await settle(tester);
+
+      expect(pages(), findsOneWidget);
+      expect(noteBloc.updates, isEmpty, reason: 'no write to the tombstone');
+      expect(await keptAsNew(tester), isEmpty);
+      OverlaySnackbar.hide();
+      await tester.pump();
+
+      flakyStorage.failCreates = 0;
+      unawaited(navigatorOf(tester).maybePop());
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      final kept = (await keptAsNew(tester)).single;
+      expect(await storedBody(tester, kept.id), 'mine $body');
+      expect(noteBloc.updates.where((u) => u.noteId == synced.id), isEmpty);
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('a delete arriving while the page is already leaving dirty '
+        'still keeps the text as a new note (M3)', (tester) async {
+      await openOverAPage(tester);
+      type(editorOf(tester).controller, 'mine ');
+      await tester.pump();
+      final landed = Completer<void>();
+      noteBloc.updateGate = landed;
+
+      unawaited(navigatorOf(tester).maybePop());
+      await settleUntil(tester, () => noteBloc.updates.isNotEmpty);
+      expect(pages(), findsOneWidget, reason: 'the exit write is in flight');
+
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNew);
+      noteBloc.updateGate = null;
+      landed.complete();
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      final kept = (await keptAsNew(tester)).single;
+      expect(await storedBody(tester, kept.id), 'mine $body');
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets("after a share the page's writes still wait for a failed "
+        'copy: the share flushes, it does not leave (M4)', (tester) async {
+      await openOverAPage(tester);
+      final controller = editorOf(tester).controller;
+      exportService.shared.clear();
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppLocalizationsEn().shareNote));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppLocalizationsEn().exportAsMarkdown));
+      await tester.pumpAndSettle();
+      await settleUntil(tester, () => exportService.shared.isNotEmpty);
+
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      flakyStorage.failCreates = 1000;
+      await mergeFromElsewhere(tester, synced.id, text: 'theirs');
+      await until(tester, AppLocalizationsEn().syncNoteConflictCopyFailed);
+      OverlaySnackbar.hide();
+      await autosave(tester);
+
+      expect(
+        await storedBody(tester, synced.id),
+        'theirs',
+        reason: 'the write waits for the copy',
+      );
+      expect(controller.text, 'mine $body');
+
+      flakyStorage.failCreates = 0;
+      await autosave(tester);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      expect(await storedBody(tester, synced.id), 'mine $body');
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('a delete waiting behind a route that edited the page as it '
+        'closed keeps the text as a new note instead of closing (M5)', (
+      tester,
+    ) async {
+      await openOverAPage(tester);
+      final controller = editorOf(tester).controller;
+      await pushDialog(tester);
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+      expect(pages(), findsOneWidget);
+
+      // The dialog edits the page as it closes.
+      type(controller, 'mine ');
+      await popTop(tester);
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNew);
+      OverlaySnackbar.hide();
+      await settle(tester);
+
+      expect(pages(), findsOneWidget);
+      expect(find.text('Deleted on another device'), findsNothing);
+      final kept = (await keptAsNew(tester)).single;
+      expect(await storedBody(tester, kept.id), 'mine $body');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('a pending title edit is no body conflict: the merged body '
+        'reloads in place and the title is saved on the next write (M6)', (
+      tester,
+    ) async {
+      final controller = await open(tester);
+      await tester.tap(find.text(synced.title));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        'Squat log, renamed',
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(AppLocalizationsEn().save),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(appBar(tester).hasChanges, isTrue);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 3,
+      );
+      await tester.pump();
+
+      const merged = 'first line\nsecond line, edited\nthird';
+      await mergeFromElsewhere(tester, synced.id, text: merged);
+      await settleUntil(tester, () => controller.text == merged);
+
+      expect(controller.selection.baseIndex, 1);
+      expect(controller.selection.baseOffset, 3);
+      expect(await copies(tester), isEmpty);
+      expect(appBar(tester).hasChanges, isTrue, reason: 'the title waits');
+
+      OverlaySnackbar.hide();
+      await autosave(tester);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      final stored = await tester.runAsync(
+        () => db.noteDao.getNoteById(synced.id),
+      );
+      expect(stored!.title, 'Squat log, renamed');
+      expect(await storedBody(tester, synced.id), merged);
+      await teardownPage(tester);
+    });
+
+    testWidgets("failed filings wait in order: a delete's keep-as-new joins "
+        'behind a failed copy, and the copy is still filed (L7)', (
+      tester,
+    ) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      // The copy at the event and its retry at the head of the delete fail.
+      flakyStorage.failCreates = 2;
+
+      await mergeFromElsewhere(tester, synced.id, text: 'theirs');
+      await until(tester, AppLocalizationsEn().syncNoteConflictCopyFailed);
+      OverlaySnackbar.hide();
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNew);
+      OverlaySnackbar.hide();
+      await settle(tester);
+
+      type(controller, 'more ');
+      await tester.pump();
+      await autosave(tester);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      await settle(tester);
+
+      final filed = await copies(tester);
+      expect(filed, hasLength(1));
+      expect(await storedBody(tester, filed.single.id), 'theirs');
+      final kept = (await keptAsNew(tester)).single;
+      expect(await storedBody(tester, kept.id), 'more mine $body');
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a copy that fails under a dialog shows its notice once the '
+        'page is current again, and only once (L8)', (tester) async {
+      await openOverAPage(tester);
+      final controller = editorOf(tester).controller;
+      type(controller, 'mine ');
+      await tester.pump();
+      await pushDialog(tester);
+      useFlakyStorage();
+      flakyStorage.failCreates = 1000;
+      final failed = shown(AppLocalizationsEn().syncNoteConflictCopyFailed);
+
+      await mergeFromElsewhere(tester, synced.id, text: 'theirs');
+      expect(failed, findsNothing);
+
+      await popTop(tester);
+      await settleUntil(tester, () => failed.evaluate().isNotEmpty);
+      OverlaySnackbar.hide();
+      await tester.pump();
+
+      await pushDialog(tester);
+      await popTop(tester);
+      await settle(tester);
+      expect(failed, findsNothing);
+
+      flakyStorage.failCreates = 0;
+      await autosave(tester);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      expect(await copies(tester), hasLength(1));
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('a keep-as-new filing that fails after its create re-uses '
+        'that note on the retry (L11)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      counterBloc.failNoteContexts = 1;
+      addTearDown(() => counterBloc.failNoteContexts = 0);
+
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNewFailed);
+      OverlaySnackbar.hide();
+      await settle(tester);
+
+      type(controller, 'more ');
+      await tester.pump();
+      await autosave(tester);
+      await settleUntil(tester, () => appBar(tester).hasChanges == false);
+      await settle(tester);
+
+      final kept = await keptAsNew(tester);
+      expect(kept, hasLength(1), reason: 'one note, created once');
+      expect(await storedBody(tester, kept.single.id), 'more mine $body');
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
   });
 }
 
@@ -4283,13 +4750,15 @@ class _ThrowingStorage extends NoteStorageService {
 }
 
 /// A [NoteStorageService] whose next [failCreates] creates throw, for the
-/// conflict copy that fails once, and whose body reads wait for [readGate],
-/// for the window between a merge and the page's read of it. Everything else
-/// is the real service.
+/// conflict copy that fails once; whose creates wait for [createGate], for a
+/// merge handler held mid-filing; and whose body reads wait for [readGate],
+/// so a page that re-read the merged row would read it only after a save
+/// landed. Everything else is the real service.
 class _FlakyStorage extends NoteStorageService {
   _FlakyStorage({required super.repository});
 
   int failCreates = 0;
+  Completer<void>? createGate;
   Completer<void>? readGate;
 
   @override
@@ -4306,6 +4775,8 @@ class _FlakyStorage extends NoteStorageService {
     required String content,
     ItemLabel label = ItemLabel.none,
   }) async {
+    final gate = createGate;
+    if (gate != null) await gate.future;
     if (failCreates > 0) {
       failCreates--;
       throw StateError('createNote failed');
@@ -4316,6 +4787,26 @@ class _FlakyStorage extends NoteStorageService {
       content: content,
       label: label,
     );
+  }
+}
+
+/// The real [CounterBloc], whose next [failNoteContexts] note-context
+/// switches throw — a step of the keep-as-new filing that fails after its
+/// create landed.
+class _FlakyCounterBloc extends CounterBloc {
+  _FlakyCounterBloc({required super.counterService});
+
+  int failNoteContexts = 0;
+
+  @override
+  void add(CounterEvent event) {
+    if (failNoteContexts > 0 &&
+        event is SetNoteContext &&
+        event.noteId != null) {
+      failNoteContexts--;
+      throw StateError('SetNoteContext failed');
+    }
+    super.add(event);
   }
 }
 
@@ -4333,17 +4824,27 @@ class _TestNoteBloc extends OptimizedNoteBloc {
   List<UpdateOptimizedNote> get updates =>
       dispatched.whereType<UpdateOptimizedNote>().toList();
 
+  /// When set, an update reaches the real handler only once it completes:
+  /// the page's write stays in flight until the test releases it.
+  Completer<void>? updateGate;
+
   void clearDispatched() => dispatched.clear();
 
   @override
   void add(OptimizedNoteEvent event) {
     dispatched.add(event);
     if (event is LoadNoteContent) return;
+    final gate = updateGate;
+    if (gate != null && event is UpdateOptimizedNote) {
+      gate.future.then((_) => super.add(event));
+      return;
+    }
     super.add(event);
   }
 
   void reset() {
     dispatched.clear();
+    updateGate = null;
     emit(OptimizedNoteInitial());
   }
 

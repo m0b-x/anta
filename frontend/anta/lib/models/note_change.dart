@@ -21,6 +21,13 @@ class NoteChange {
   /// remote change and must not on its own autosave (record §3.9).
   final bool remote;
 
+  /// The body a sync merge wrote, read as the merge was announced: set for a
+  /// remote `created` / `updated` of a note whose body could be read, null
+  /// otherwise. An open editor files it as the conflict copy instead of
+  /// re-reading a row that a save already in flight may have overwritten
+  /// since (record §3.9).
+  final String? remoteContent;
+
   const NoteChange({
     required this.type,
     required this.noteId,
@@ -28,5 +35,6 @@ class NoteChange {
     this.sourceFolderId,
     this.note,
     this.remote = false,
+    this.remoteContent,
   });
 }

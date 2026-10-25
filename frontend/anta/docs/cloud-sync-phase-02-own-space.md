@@ -639,11 +639,13 @@ never told a listener about a row that does not exist (F10).
   `ANTA_QA_ACCOUNT` first field is the Google `sub`; the Auth emulator
   assigns its own Firebase uid, so nothing in a flow may assume
   `users/<sub>/…` (L12).
-- `tool/firebase/firebase.json` (tracked): the emulator suite — auth 9099,
-  firestore 8080 with `../../firestore.rules`, UI 4000 — and
+- `firebase.emulators.json` at the package root (tracked; the CLI refuses
+  rules outside the config's folder — S1 as built): the emulator suite —
+  auth 9099, firestore 8080 with `firestore.rules`, UI 4000 — and
   `tool/firebase/emulators.cmd` / `.sh` running `firebase emulators:start
-  --project demo-anta --config tool/firebase/firebase.json`. Node 26, Java
-  25 and firebase-tools 15.27 are on the Windows machine.
+  --project <id> --config firebase.emulators.json`, the project id
+  defaulting to the app's real one (§3.8, S5b). Node 26, Java 25 and
+  firebase-tools 15.27 are on the Windows machine.
 
 ---
 
@@ -1558,7 +1560,7 @@ navigator's root route pops the only route (as before).
 
 **S4b-1 review (2026-10-25, one independent reviewer on a snapshot, a
 probe of `AutoSaveService`, two mutants; 2 high, 4 medium, 8 low; "keep
-the commit as a base, fix the highs before S4b-2").** **H1** text typed
+the commit as a base, fix the highs before S4b-2"; fixed in S4b-1b below).** **H1** text typed
 while a write is held is marked saved but never written (`_performSave`
 reads the text, `onSave` now waits for the whole remote chain, success sets
 the baseline to the text it read and clears pending — probe: writes `[A]`,
@@ -1589,6 +1591,49 @@ doc); L14 the busy-counter mutant survives and the engine side of
 editor run right after S5b, no letters needed): H1, H2, M3–M6, L7–L11,
 L13, L14, plus the merged-body hash on `announceMerged`; L12 noted for
 S4b-2's in-place switch.
+
+**S4b-1b as built (2026-10-25, one implementer; gate: `dart analyze lib
+test` clean, gen-l10n `{}`, whole suite — 10,509 passed, the one
+Windows-only failure; the suite ran twice because the first run exposed a
+missing autosave wait in the implementer's own new test; review pending,
+fixes at the head of S4b-2).** H1 — `AutoSaveService` compares the live
+text and title with what a successful write carried and, while tracking,
+stays unsaved and re-arms the debounce when they differ. H2 — the gate's
+final rule: `do { while (_remoteBusy > 0) await _remoteWork; await
+_retryUnfiled(); } while (_remoteBusy > 0); return _unfiled.isEmpty ||
+(leaving && !_holdsDeletedNotesText);` — a filing is listed before it runs,
+so that alone holds a write. **The merged body rides the event as
+`NoteChange.remoteContent`** (a string, not a hash — the page files the
+copy from it and never re-reads the row); `announceMerged` reads all live
+bodies in one `loadContentForNotes` call before the first event. M3 — the
+leave/pause path never bypasses a keep-as-new filing: the exit retries it
+once (`_keptDeletedNotesText`) and keeps the page with
+`syncNoteKeptAsNewFailed` if it fails; a delete arriving while already
+leaving still files dirty text; the wrong "reads as null" comment fixed.
+M4 — the coordinator's `flush()` for move/share and `exitAborted()` when the
+pop does not happen. M5 — a deferred delete re-checks dirtiness and files
+instead of closing (`_deletedWhileCovered` holds the change). M6 —
+`_adoptLoadedContent(titlePending: true)` reloads the body in place and
+keeps the title pending; the autosave makes only what a write carried the
+baseline. L7 — `List<_Filing>` retried in order, a retry joining a running
+attempt; L8 — a failure while covered owes one notice shown when current
+(keep-as-new wins over copy); L9 — a pause counter and a write-sequence
+number decide whether a write is the pause's own; L10 —
+`DatabaseLifecycle.generation` (bumped in `notifyDatabaseSwitching`),
+`getInstance()` retries once when it changed and throws `StateError` on a
+second change; L11 — the created note remembered across retries; L13 the
+docs; L14 the busy counter kept (the wait loop depends on it) and an
+engine-level `pauseOver` test. The gate is `beforeWrite({required bool
+leaving})` with the bypass policy in the page. **Residual, for S4b-2's
+head:** the body is read when the merge is *announced* (after the page
+commits); an autosave that reaches the database while the merge
+transaction is still open commits before that read and the copy is missed
+— the merge already holds the remote content (`mergeNoteDocument(note,
+content)`), so `SyncAppliedRow` carries it to `announceMerged` (a hooks +
+puller change). Also noted: every DB-backed singleton's `getInstance` has
+the race L10 fixed for the engine, so the engine's retry can still pick a
+binding or status service bound to the closing database; `announceMerged`
+now reads every live body per pulled page (one batched query).
 
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
@@ -1785,6 +1830,43 @@ real id instead. The probe gained four cases and a port-free check (exit
 failures +3 (incl. `sync_pair.open(background:)` on temp files), lifecycle
 +4, bridge +1, `test/core/qa/qa_mode_test.dart` new. Noted: `_prepare` holds
 up to 499 encoded rows in memory (pre-existing).
+
+**S5b review (2026-10-25, one independent reviewer on a snapshot, six
+mutations — five killed, one survived — the plugin sources read from the
+pub cache; 0 high, 3 medium, 7 low; "the commit stands").** Mediums, all
+S6 wiring: M1 the `demo-anta` branch in `main.dart` and
+`QaMode.emulatorFirebaseOptions()` is dead on Android and, where Dart
+creates the default app itself (iOS, no tracked plist), would reintroduce
+the mismatch the other way; its doc comments say the opposite of the
+record → delete it, initialise with `DefaultFirebaseOptions.currentPlatform`
+on every path, drop the `firebase_core` import from `lib/core/qa` (L8); M2
+the tooling still hard-codes `demo-anta` (`tool/firebase/emulators.cmd|sh`,
+`rules_probe.ps1` with no `-Project` parameter, `test/firestore/rules_test.dart`)
+→ a project argument defaulting to `alexs-note-tracking-app`, and confirm
+firebase-tools starts a non-demo project offline and logged out; M3 the
+emulator port is a const 8080 and the strays hold it — a guest's `10.0.2.2`
+is the host's loopback, so the app would talk to a stray suite of unknown
+project and rules → S6 stops the strays first and checks the suite's own
+PIDs own 8080 and 9099 before installing. Lows: L4 `createSpace` on a slow
+link (the Android transaction timeout bounds only the native wait for Dart's
+commands) can report failure after the commit landed → one server `get` of
+the drawn id before giving up; L5 a `pushBatch` commit stalled over 90 s
+can land after the back-off re-push and overwrite a newer version (the
+real fix, a monotonic `hlc` in the rules, is must-not-change — recorded as
+a risk); L6 `_regainsAccess` lifts the pause on a readable space whose
+`schema` is above ours (one wasted pull and a denied push before
+`appOutdated`) → set `appOutdated` there; L7 the `watchSpace` call site is
+untested (`isFromCache: false` survived) → S6 drives an offline launch with
+a bound database: the pause stays `none`, the first server snapshot starts
+a stale run; L9 whether the old 500-writes-per-commit limit counts
+transforms (one 499-row drain in S6); L10 record drift (`tool/firebase/firebase.json`
+→ `firebase.emulators.json` at the package root; the define doc). Decision C
+agreed. Verified: the Android listener errors then ends the stream and the
+engine's detach makes `onDone` a no-op; a duplicate server snapshot is a
+no-op run; `Transaction.set` carries `merge`; a handler with no reads is
+allowed; `_Queued.bytes` is UTF-8 bytes; per-write overhead ≈ 0.25 MiB on a
+full batch. **S6 carries** M1–M3, L4, L6, L10 and the two device checks L7,
+L9.
 
 ### S6 — Gate, device pass, docs
 

@@ -46,6 +46,15 @@ class DatabaseLifecycle {
 
   static final List<VoidCallback> _resetHandlers = [];
 
+  static int _generation = 0;
+
+  /// Bumped by every [notifyDatabaseSwitching]. A `getInstance()` that awaits
+  /// several things compares it before and after: a reset that landed
+  /// between them means what it awaited first may belong to a database that
+  /// is closing, and registering a singleton over it would outlive the reset
+  /// meant to drop it.
+  static int get generation => _generation;
+
   /// Registers a reset callback. Callbacks are invoked once per
   /// [notifyDatabaseSwitching] call in registration order, then cleared.
   ///
@@ -68,6 +77,7 @@ class DatabaseLifecycle {
   /// interrupt the rest of the cleanup — one misbehaving service must not
   /// leave others bound to a closed database.
   static void notifyDatabaseSwitching() {
+    _generation++;
     final handlers = List<VoidCallback>.from(_resetHandlers);
     _resetHandlers.clear();
     for (final handler in handlers) {

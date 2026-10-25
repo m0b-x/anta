@@ -1323,6 +1323,7 @@
   "syncNoteDeletedElsewhere": "Ștearsă pe alt dispozitiv",
   "syncNoteKeptAsNew": "Ștearsă pe alt dispozitiv — textul tău a fost păstrat ca notiță nouă",
   "syncNoteConflictCopyFailed": "Copia nu a putut fi salvată — textul tău rămâne, următoarea salvare încearcă din nou",
+  "syncNoteKeptAsNewFailed": "Ștearsă pe alt dispozitiv — textul tău nu a putut fi păstrat încă ca notiță nouă; următoarea salvare încearcă din nou",
   "signInFailed": "Conectare eșuată",
   "authErrorOffline": "Fără conexiune. Verifică rețeaua și încearcă din nou.",
   "authErrorUnavailable": "Conectarea nu este disponibilă aici",

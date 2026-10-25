@@ -4547,6 +4547,10 @@ class AppLocalizationsRo extends AppLocalizations {
       'Copia nu a putut fi salvată — textul tău rămâne, următoarea salvare încearcă din nou';
 
   @override
+  String get syncNoteKeptAsNewFailed =>
+      'Ștearsă pe alt dispozitiv — textul tău nu a putut fi păstrat încă ca notiță nouă; următoarea salvare încearcă din nou';
+
+  @override
   String get signInFailed => 'Conectare eșuată';
 
   @override

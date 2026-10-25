@@ -121,6 +121,13 @@ class FolderStorageService {
     return folders.map(_folderToModel).toList();
   }
 
+  /// The live folder a note from [folderId] can be filed into: see
+  /// [FolderRepository.nearestLiveFolderId].
+  Future<String> nearestLiveFolderId(String folderId) async {
+    await initialize();
+    return _repository.nearestLiveFolderId(folderId);
+  }
+
   /// The folder row for [folderId], or null if there is none.
   ///
   /// A soft-deleted folder is still returned by default: the row survives the
@@ -129,12 +136,6 @@ class FolderStorageService {
   /// [includeDeleted] false to ask the narrower question "is this folder still
   /// a place the user can be taken to?", which is what launch restore needs
   /// before it rebuilds a route onto it.
-  /// See [FolderRepository.nearestLiveFolderId].
-  Future<String> nearestLiveFolderId(String folderId) async {
-    await initialize();
-    return _repository.nearestLiveFolderId(folderId);
-  }
-
   Future<model.Folder?> getFolderById(
     String folderId, {
     bool includeDeleted = true,

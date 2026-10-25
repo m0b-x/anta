@@ -648,6 +648,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // The route's scope notifies when a route above it comes or goes — a
     // dialog included, which [didPopNext] never hears of.
     _leaveIfDeletedWhileCovered();
+    _showFilingNoticeOwed();
 
     // Swap the localized "no content yet" placeholder on a locale
     // change. Only an empty note is showing it, and the bloc's own
@@ -1003,7 +1004,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// held, clamped to the new document. The reload path needs it: coming
   /// back to a note that changed underneath must not also throw the reader
   /// back to the top of it.
-  void _adoptLoadedContent(String content, {bool keepCaret = false}) {
+  ///
+  /// [titlePending] re-baselines the body alone: a title edit not yet saved
+  /// stays pending and the next write carries it (record §3.9, M6).
+  void _adoptLoadedContent(
+    String content, {
+    bool keepCaret = false,
+    bool titlePending = false,
+  }) {
     final previous = keepCaret ? _contentController.selection : null;
     // Counted from the string rather than asked of the editor: it is
     // exact and already in hand.
@@ -1038,7 +1046,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // the note was edited into this. Re-baseline before the debounce
     // rewrites what was just read back, with a new `updatedAt`, version and
     // HLC.
-    _saves.contentLoaded();
+    if (titlePending) {
+      _saves.adoptStoredContent(content);
+    } else {
+      _saves.contentLoaded();
+    }
     _pushPreviewContent(content);
     _markEditorReady();
   }
@@ -1057,8 +1069,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// text and auto-save will write it, so it is left exactly as it is.
   ///
   /// Layering: Page -> Service, like every other read this page owns. A
-  /// note that has been deleted meanwhile reads as null and changes
-  /// nothing — the page keeps its text rather than blanking under the user.
+  /// note that has been deleted meanwhile still reads — the row survives as
+  /// a tombstone — so its text may be adopted here; the delete itself
+  /// reaches the page as a change event ([_onRemoteDelete]), and a note
+  /// that is gone outright reads as null and changes nothing.
   ///
   /// Answers true when the title or the text was adopted, false when the
   /// row held what the page shows, and null when nothing was read or the
@@ -1112,15 +1126,17 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// overwritten it first (record §3.9, M4).
   Future<void> _remoteWork = Future<void>.value();
 
-  /// The links of [_remoteWork] not yet finished, so [_writesMayProceed]
-  /// answers synchronously while nothing is pending.
+  /// The links of [_remoteWork] not yet finished: [_writesMayProceed]
+  /// answers synchronously at zero, and otherwise waits until it is zero
+  /// again — a change arriving during that wait is waited for too.
   int _remoteBusy = 0;
 
-  /// What a remote change left to file and could not (M3): the arriving
-  /// text's conflict copy, or the text of a note deleted elsewhere as a new
-  /// note. Retried at the head of the next remote change and before the next
-  /// write; writes stay held until it is filed.
-  Future<void> Function()? _unfiled;
+  /// What remote changes left to file and could not (M3), oldest first: an
+  /// arriving text's conflict copy, or the text of a note deleted elsewhere
+  /// as a new note. Each is retried, in order, at the head of the next
+  /// remote change and before the next write; writes stay held until all
+  /// are filed (S4b-1 review L7).
+  final List<_Filing> _unfiled = [];
 
   /// The retry of [_unfiled] in flight, shared so a write and a change event
   /// arriving together file once.
@@ -1128,7 +1144,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// A remote delete that reached this page while another route covered it:
   /// acted on once the page is current again (H2).
-  bool _deletedWhileCovered = false;
+  NoteChange? _deletedWhileCovered;
 
   /// The open-editor rule (record §3.9) for a change a sync pull merged
   /// into this page's note. Filtered here, off the typing path: only a
@@ -1165,44 +1181,110 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   /// The save coordinator's gate: true at once while no remote change is
-  /// pending, otherwise once the pending ones are handled and nothing is
-  /// left unfiled.
-  FutureOr<bool> _writesMayProceed() {
-    if (_remoteBusy == 0 && _unfiled == null) return true;
-    return _awaitRemoteWork();
+  /// pending and nothing is unfiled; otherwise once no remote change is
+  /// pending at all — not merely the ones pending when the write asked, or a
+  /// merge arriving during the wait lets the write overwrite the row it just
+  /// wrote before its handler reads it (S4b-1 review H2) — and every filing
+  /// has had its retry.
+  ///
+  /// An exit or pause flush ([leaving]) still passes a failed conflict copy
+  /// — the other device's text is lost then, but holding would lose the
+  /// user's, the one on screen and about to be gone — never a failed
+  /// keep-as-new filing: the write would land on the tombstone, which
+  /// refuses it silently, and the text would be gone (M3).
+  FutureOr<bool> _writesMayProceed({required bool leaving}) {
+    if (_remoteBusy == 0 && _unfiled.isEmpty) return true;
+    return _awaitRemoteWork(leaving: leaving);
   }
 
-  Future<bool> _awaitRemoteWork() async {
-    await _remoteWork;
-    await _retryUnfiled();
-    return _unfiled == null;
+  Future<bool> _awaitRemoteWork({required bool leaving}) async {
+    do {
+      while (_remoteBusy > 0) {
+        await _remoteWork;
+      }
+      await _retryUnfiled();
+    } while (_remoteBusy > 0);
+    return _unfiled.isEmpty || (leaving && !_holdsDeletedNotesText);
   }
+
+  /// Whether the text of a note deleted elsewhere is still waiting to be
+  /// filed as a new note.
+  bool get _holdsDeletedNotesText => _unfiled.any((f) => f.keepsText);
 
   Future<void> _retryUnfiled() {
-    final unfiled = _unfiled;
-    if (unfiled == null) return Future<void>.value();
-    return _filing ??= _fileOrHold(unfiled).whenComplete(() => _filing = null);
+    if (_unfiled.isEmpty) return Future<void>.value();
+    return _filing ??= _retryEachUnfiled().whenComplete(() => _filing = null);
   }
 
-  /// Runs [file]; when it fails, keeps it as [_unfiled] — writes held, the
-  /// message shown the first time — rather than letting the error reach the
-  /// zone and the next auto-save write over the text it was keeping (M3).
-  Future<void> _fileOrHold(Future<void> Function() file) async {
-    final firstTry = !identical(_unfiled, file);
-    _unfiled = file;
+  Future<void> _retryEachUnfiled() async {
+    for (final filing in List.of(_unfiled)) {
+      if (!mounted) return;
+      await _attempt(filing);
+    }
+  }
+
+  /// Files [run] now; when it fails, keeps it in [_unfiled] — writes held —
+  /// rather than letting the error reach the zone and the next auto-save
+  /// write over the text it was keeping (M3). [keepsText] marks the filing
+  /// that keeps the text of a note deleted elsewhere.
+  Future<void> _fileOrHold(
+    Future<void> Function() run, {
+    bool keepsText = false,
+  }) {
+    final filing = _Filing(run, keepsText: keepsText);
+    // Listed before it runs: a write asking meanwhile is held by it.
+    _unfiled.add(filing);
+    return _attempt(filing);
+  }
+
+  /// Runs [filing] once — a retry asked while an attempt is still running
+  /// joins that attempt, so one filing never creates its note twice.
+  Future<void> _attempt(_Filing filing) =>
+      filing.attempt ??= _run(filing).whenComplete(() => filing.attempt = null);
+
+  Future<void> _run(_Filing filing) async {
     try {
-      await file();
-      if (identical(_unfiled, file)) _unfiled = null;
+      await filing.run();
+      _unfiled.remove(filing);
     } catch (error, stack) {
       debugPrint('[NoteEditor] filing the synced text failed: $error\n$stack');
-      if (firstTry && mounted && _isCurrentRoute) {
-        CustomSnackbar.showError(
-          context,
-          AppLocalizations.of(context)!.syncNoteConflictCopyFailed,
-          withToolbarOffset: true,
-        );
+      if (filing.failed) return;
+      filing.failed = true;
+      // Shown once: now when the page is on top, else when it is again
+      // ([_showFilingNoticeOwed]) — a failure under a dialog is still news
+      // once the dialog is gone (L8).
+      if (mounted && _isCurrentRoute) {
+        _showFilingFailed(filing);
+      } else {
+        filing.noticeOwed = true;
       }
     }
+  }
+
+  void _showFilingFailed(_Filing filing) {
+    final l10n = AppLocalizations.of(context)!;
+    CustomSnackbar.showError(
+      context,
+      filing.keepsText
+          ? l10n.syncNoteKeptAsNewFailed
+          : l10n.syncNoteConflictCopyFailed,
+      withToolbarOffset: true,
+    );
+  }
+
+  /// Shows the failure a filing hit while the page was covered, once the
+  /// page is current again — the deleted note's text first, the more urgent
+  /// of the two — and only while it is still unfiled.
+  void _showFilingNoticeOwed() {
+    final owed = _unfiled.where((f) => f.noticeOwed).toList();
+    if (owed.isEmpty || !_isCurrentRoute) return;
+    for (final filing in owed) {
+      filing.noticeOwed = false;
+    }
+    final shown = owed.firstWhere((f) => f.keepsText, orElse: () => owed.first);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _unfiled.contains(shown)) _showFilingFailed(shown);
+    });
   }
 
   /// A clean page reloads the merged text in place, the caret kept where it
@@ -1212,7 +1294,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// changed the body. The arriving body is judged against the text the
   /// page last loaded or saved, never the live text, which differs by
   /// definition while the page is dirty: a remote move, rename, label or
-  /// re-save files nothing (H1).
+  /// re-save files nothing (H1). The arriving body is the one the merge
+  /// announced ([NoteChange.remoteContent]), never a re-read: a save already
+  /// in flight at the event may have overwritten the row since. A page whose
+  /// only pending edit is its title has no body to defend: the body reloads
+  /// in place and the title stays pending (S4b-1 review M6).
   Future<void> _adoptRemoteUpdate(NoteChange change) async {
     final folderId = change.note?.folderId;
     if (folderId != null && folderId != _folderId) {
@@ -1238,14 +1324,24 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       // Nothing was read, or a keystroke landed during the read.
       if (!_hasUnsavedText) return;
     }
-    final arriving = await GetIt.I<NoteStorageService>().loadNoteContent(
-      change.noteId,
-    );
-    if (!mounted) return;
-    // Equal to the live text too: a write already in flight at the event
-    // put the user's own text there, and a copy of it would be a duplicate.
+    final arriving = change.remoteContent;
+    // An unreadable body gives nothing to compare or to keep.
+    if (arriving == null) return;
+    // Equal to the live text too: the user typed what the other device
+    // wrote, and a copy of it would be a duplicate.
     if (_saves.isSavedContent(arriving) ||
         arriving == _contentController.text) {
+      return;
+    }
+    if (_saves.isSavedContent(_contentController.text)) {
+      _adoptLoadedContent(arriving, keepCaret: true, titlePending: true);
+      if (_isCurrentRoute) {
+        CustomSnackbar.show(
+          context,
+          AppLocalizations.of(context)!.syncNoteUpdatedElsewhere,
+          withToolbarOffset: true,
+        );
+      }
       return;
     }
     final l10n = AppLocalizations.of(context)!;
@@ -1300,13 +1396,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// A clean page closes; a dirty one keeps its text as a new note — a save
   /// into the deleted one is refused by design, so the text cannot ride the
-  /// next auto-save.
+  /// next auto-save. Even while the page is already leaving: its last write,
+  /// held behind this handler, would otherwise land on the tombstone (M3).
   Future<void> _onRemoteDelete(NoteChange change) async {
-    if (_isExiting) return;
     if (_hasUnsavedText) {
       await _keepTextAsNewNote(change);
-    } else {
-      _leaveRemotelyDeleted();
+    } else if (!_isExiting) {
+      _leaveRemotelyDeleted(change);
     }
   }
 
@@ -1324,27 +1420,34 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
-    await _fileOrHold(() async {
-      final title = _titleController.text;
-      final content = _contentController.text;
-      final created = await _createWithFreeTitle(
-        folderId: folderId,
-        title: (copy) => _numberedTitle(title, copy),
-        content: content,
-        label: deleted?.label ?? ItemLabel.none,
-      );
+    // Kept across retries: a step after the create that throws must not
+    // make the retry create a second note (S4b-1 review L11).
+    NoteMetadata? created;
+    late String content;
+    await _fileOrHold(keepsText: true, () async {
+      if (created == null) {
+        final title = _titleController.text;
+        content = _contentController.text;
+        created = await _createWithFreeTitle(
+          folderId: folderId,
+          title: (copy) => _numberedTitle(title, copy),
+          content: content,
+          label: deleted?.label ?? ItemLabel.none,
+        );
+      }
+      final kept = created!;
       if (!mounted) return;
       // Before the retarget: the title listener marks the old id dirty, and
       // the retarget re-baselines on what the create wrote.
-      if (_titleController.text != created.title) {
-        _titleController.text = created.title;
+      if (_titleController.text != kept.title) {
+        _titleController.text = kept.title;
       }
-      _saves.retarget(created.id, title: created.title, content: content);
-      _position.noteId = created.id;
-      _counterBloc.add(SetNoteContext(noteId: created.id));
-      ShortcutHandlerFactory.counterHandler.setActiveNoteId(created.id);
+      _saves.retarget(kept.id, title: kept.title, content: content);
+      _position.noteId = kept.id;
+      _counterBloc.add(SetNoteContext(noteId: kept.id));
+      ShortcutHandlerFactory.counterHandler.setActiveNoteId(kept.id);
       setState(() {
-        _folderId = created.folderId;
+        _folderId = kept.folderId;
         _folderName = null;
       });
       unawaited(_loadFolderName());
@@ -1374,13 +1477,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// page with its saves off (H2): the delete waits until the page is current
   /// again ([didChangeDependencies], [didPopNext]), and nothing is switched
   /// off before the pop really targets this page.
-  void _leaveRemotelyDeleted() {
+  void _leaveRemotelyDeleted(NoteChange change) {
     if (!mounted || _isExiting) return;
     if (!_isCurrentRoute) {
-      _deletedWhileCovered = true;
+      _deletedWhileCovered = change;
       return;
     }
-    _deletedWhileCovered = false;
+    _deletedWhileCovered = null;
     _isExiting = true;
     _saves.disableSaves();
     CustomSnackbar.show(
@@ -1392,11 +1495,21 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// Runs a delete [_leaveRemotelyDeleted] deferred, after the frame that
   /// made this page current again — never from inside the navigator's own
-  /// update.
+  /// update. The page is asked again whether it is clean: the route that
+  /// covered it may have edited it as it closed — a heading menu, the
+  /// rename dialog — and closing would lose that edit; its text is kept as
+  /// a new note instead (S4b-1 review M5).
   void _leaveIfDeletedWhileCovered() {
-    if (!_deletedWhileCovered || !_isCurrentRoute) return;
+    if (_deletedWhileCovered == null || !_isCurrentRoute) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _deletedWhileCovered) _leaveRemotelyDeleted();
+      final change = _deletedWhileCovered;
+      if (!mounted || change == null) return;
+      if (_hasUnsavedText) {
+        _deletedWhileCovered = null;
+        _queueRemote(() => _keepTextAsNewNote(change));
+      } else {
+        _leaveRemotelyDeleted(change);
+      }
     });
   }
 
@@ -1734,6 +1847,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     unawaited(_reloadSettings());
     unawaited(_reloadContentIfChanged());
     _leaveIfDeletedWhileCovered();
+    _showFilingNoticeOwed();
   }
 
   /// Called when a route is pushed above the editor. The drawer's settings
@@ -2318,10 +2432,17 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
               debugPrint('[NoteEditor] save before exit failed: $e');
             }
             if (!context.mounted) return;
+            if (!await _keptDeletedNotesText()) {
+              _isExiting = false;
+              _saves.exitAborted();
+              return;
+            }
+            if (!context.mounted) return;
             AppNavigator.pop(context);
             if (context.mounted &&
                 (ModalRoute.of(context)?.isCurrent ?? false)) {
               _isExiting = false;
+              _saves.exitAborted();
             }
           },
           child: Scaffold(
@@ -2750,6 +2871,34 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     await _saves.saveBeforeExit();
   }
 
+  /// The way out's last word on the text of a note deleted elsewhere that
+  /// is still not filed as a new note: one more try, and when that fails too
+  /// the page stays, the notice up — leaving would take the only copy of the
+  /// text with it, since the exit's write to the tombstone is refused (M3).
+  Future<bool> _keptDeletedNotesText() async {
+    if (!_holdsDeletedNotesText) return true;
+    await _retryUnfiled();
+    if (!mounted) return false;
+    if (_holdsDeletedNotesText) {
+      if (_isCurrentRoute) {
+        CustomSnackbar.showError(
+          context,
+          AppLocalizations.of(context)!.syncNoteKeptAsNewFailed,
+          withToolbarOffset: true,
+        );
+      }
+      return false;
+    }
+    // Filed with the text as it stands; anything the retarget still reads
+    // as unsaved goes into the new note before the page leaves.
+    try {
+      await _saves.saveBeforeExit();
+    } catch (e) {
+      debugPrint('[NoteEditor] save before exit failed: $e');
+    }
+    return mounted;
+  }
+
   Future<void> _loadFolderName() async {
     try {
       final folder = await GetIt.I<FolderStorageService>().getFolderById(
@@ -2767,9 +2916,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// Every menu row that hands the note to another layer — move, share —
   /// needs the persisted row, not the editor's text: the move writes a new
   /// `folderId` onto it, and the export re-reads the content by id. So the
-  /// editor flushes first and reads back what landed.
+  /// editor flushes first and reads back what landed — a plain flush, not
+  /// an exit's: the page stays, and its writes keep every hold (M4).
   Future<NoteMetadata?> _currentNoteMetadata() async {
-    await _saves.saveBeforeExit();
+    await _saves.flush();
     final noteId = _saves.effectiveNoteId ?? widget.noteId;
     if (noteId == null) return null;
     return GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
@@ -2784,11 +2934,17 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       debugPrint('[NoteEditor] save before open folder failed: $e');
     }
     if (!mounted) return;
+    if (!await _keptDeletedNotesText()) {
+      _saves.exitAborted();
+      return;
+    }
+    if (!mounted) return;
     await AppNavigator.popToFolder(
       context,
       folderId: _folderId,
       title: _folderName ?? '',
     );
+    if (mounted && _isCurrentRoute) _saves.exitAborted();
   }
 
   Future<void> _moveNote() async {
@@ -3277,4 +3433,23 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       ResolveBarForNote(noteId: _saves.effectiveNoteId ?? widget.noteId),
     );
   }
+}
+
+/// One thing a remote change left the editor to file (record §3.9): a
+/// conflict copy, or — [keepsText] — the text of a note deleted elsewhere,
+/// kept as a new note. Retried until [run] completes.
+class _Filing {
+  _Filing(this.run, {required this.keepsText});
+
+  final Future<void> Function() run;
+  final bool keepsText;
+
+  /// The attempt running now, if any.
+  Future<void>? attempt;
+
+  /// Set at the first failure, so the notice is shown once.
+  bool failed = false;
+
+  /// That failure happened while another route covered the page.
+  bool noticeOwed = false;
 }

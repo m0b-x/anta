@@ -634,6 +634,11 @@ class NoteRepository {
   /// A note merged live over its own tombstone is announced as `updated`,
   /// not `created`: every listener treats the two alike, and the row is the
   /// same note with a history, not a new one.
+  ///
+  /// Every live row's body is read before the first announcement and rides
+  /// on it as [NoteChange.remoteContent]: an editor holding the note compares
+  /// against what the merge wrote, which a re-read after its own save in
+  /// flight landed would no longer show.
   Future<void> announceMerged(
     List<String> ids, {
     Set<String> inserted = const {},
@@ -649,6 +654,13 @@ class NoteRepository {
       if (previous != null) _invalidateFolderCache(previous.folderId);
       final source = previousParents[note.id];
       if (source != null) _invalidateFolderCache(source);
+    }
+    final bodies = await loadContentForNotes([
+      for (final note in rows)
+        if (!note.isDeleted) note.id,
+    ]);
+    for (final note in rows) {
+      final source = previousParents[note.id];
       _noteChangesController.add(
         NoteChange(
           type: note.isDeleted
@@ -660,6 +672,7 @@ class NoteRepository {
           folderId: note.folderId,
           note: note.isDeleted ? null : note,
           remote: true,
+          remoteContent: bodies[note.id],
         ),
       );
       if (source != null && !note.isDeleted) {

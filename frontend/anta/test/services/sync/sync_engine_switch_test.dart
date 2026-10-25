@@ -6,6 +6,7 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/database/database.dart';
+import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/sync/sync_engine.dart';
@@ -78,5 +79,56 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
     expect(SyncEngine.instanceForTesting, isNull);
+  });
+
+  group('a reset landing while getInstance awaits (S4b-1 review L10)', () {
+    /// Swaps the gateway for a factory that runs [onResolve] each time a
+    /// build resolves it — once per pass, after the pass noted the lifecycle
+    /// generation and before its first await: a reset arriving there is a
+    /// switch landing in the middle of the build.
+    void resolvingGateway(void Function() onResolve) {
+      GetIt.I.unregister<SyncGateway>();
+      GetIt.I.registerFactory<SyncGateway>(() {
+        onResolve();
+        return FakeSyncGateway();
+      });
+      addTearDown(() {
+        GetIt.I.unregister<SyncGateway>();
+        GetIt.I.registerSingleton<SyncGateway>(FakeSyncGateway());
+      });
+    }
+
+    setUp(() async {
+      SyncEngine.autoStart = false;
+      await switchTo('fourth');
+      SyncEngine.reset();
+    });
+
+    test('one reset makes the build start over, so what it registers was '
+        'read after the reset', () async {
+      var passes = 0;
+      resolvingGateway(() {
+        if (passes++ == 0) DatabaseLifecycle.notifyDatabaseSwitching();
+      });
+
+      final engine = await SyncEngine.getInstance();
+
+      expect(passes, 2, reason: 'the first pass was overtaken and redone');
+      expect(SyncEngine.instanceForTesting, same(engine));
+    });
+
+    test('a reset in the retry too fails the build, registering '
+        'nothing', () async {
+      var passes = 0;
+      resolvingGateway(() {
+        passes++;
+        DatabaseLifecycle.notifyDatabaseSwitching();
+      });
+
+      await expectLater(SyncEngine.getInstance(), throwsStateError);
+
+      expect(passes, 2);
+      expect(SyncEngine.instanceForTesting, isNull);
+    });
   });
 }

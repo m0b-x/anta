@@ -311,6 +311,148 @@ void main() {
         h.dispose();
       });
     });
+
+    test('a keystroke made while a write waits at the gate stays unsaved and '
+        'lands in a second write (S4b-1 review H1)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        final release = Completer<bool>();
+        h.gate = (_) => release.future;
+
+        h.type('v1');
+        async.elapse(_Harness.debounce);
+        // Typed while the write waits; its own debounce runs out meanwhile
+        // and is dropped by the write in flight.
+        h.type('v2');
+        async.elapse(_Harness.debounce);
+        expect(h.updates, isEmpty);
+
+        h.gate = null;
+        release.complete(true);
+        async.flushMicrotasks();
+
+        expect(h.updates.single.content, 'v1');
+        expect(
+          h.coordinator.hasChanges.value,
+          isTrue,
+          reason: 'v2 is on screen and not written: a reload must not run',
+        );
+        expect(h.coordinator.saveStatus.value, SaveStatus.unsaved);
+
+        async.elapse(_Harness.debounce);
+        expect(h.updates.map((u) => u.content), ['v1', 'v2']);
+        expect(h.coordinator.hasChanges.value, isFalse);
+        h.dispose();
+      });
+    });
+
+    test('a held title-only write keeps the body a merge adopted meanwhile '
+        'as the baseline (M6)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        final release = Completer<bool>();
+        h.gate = (_) => release.future;
+
+        h.rename('Renamed');
+        async.elapse(_Harness.debounce);
+        // The page reloads the merged body in place, the title pending.
+        h.type('theirs');
+        h.coordinator.adoptStoredContent('theirs');
+        h.gate = null;
+        release.complete(true);
+        async.flushMicrotasks();
+        async.elapse(_Harness.debounce);
+
+        expect(h.updates.single.title, 'Renamed');
+        expect(h.updates.single.content, isNull);
+        expect(h.coordinator.isSavedContent('theirs'), isTrue);
+        expect(h.coordinator.hasChanges.value, isFalse);
+        h.dispose();
+      });
+    });
+
+    test('a plain flush is no exit: a write it makes keeps the hold, and so '
+        'does every later one (M4)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.mayWrite = false;
+
+        h.type('v1');
+        unawaited(h.coordinator.flush());
+        async.flushMicrotasks();
+        h.type('v2');
+        async.elapse(_Harness.debounce);
+
+        expect(h.updates, isEmpty);
+        expect(h.leavingAsked, everyElement(isFalse));
+        h.dispose();
+      });
+    });
+
+    test('an exit that did not happen ends the exit\'s pass (M4)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.type('v1');
+        unawaited(h.coordinator.saveBeforeExit());
+        async.flushMicrotasks();
+        expect(h.leavingAsked, [true]);
+
+        h.coordinator.exitAborted();
+        h.mayWrite = false;
+        h.type('v2');
+        async.elapse(_Harness.debounce);
+
+        expect(h.leavingAsked, [true, false]);
+        expect(h.updates.map((u) => u.content), ['v1']);
+        h.dispose();
+      });
+    });
+
+    test('a second pause arriving before the first one\'s write lands still '
+        'passes its own write (L9)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.mayWrite = false;
+        final landed = Completer<void>();
+        h.updateGate = landed;
+
+        h.type('v1');
+        h.coordinator.saveOnLifecyclePause();
+        async.flushMicrotasks();
+        expect(h.updates.single.content, 'v1');
+
+        h.type('v2');
+        h.coordinator.saveOnLifecyclePause();
+        h.updateGate = null;
+        landed.complete();
+        async.flushMicrotasks();
+
+        expect(h.updates.map((u) => u.content), ['v1', 'v2']);
+        expect(h.leavingAsked, [true, true]);
+        h.dispose();
+      });
+    });
+
+    test('a debounced write already at the gate when a pause begins is not '
+        'the pause\'s: it is held, the pause\'s own write passes (L9)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        final debounced = Completer<bool>();
+        h.gate = (leaving) => leaving ? true : debounced.future;
+
+        h.type('v1');
+        async.elapse(_Harness.debounce);
+        expect(h.leavingAsked, [false]);
+
+        h.coordinator.saveOnLifecyclePause();
+        debounced.complete(false);
+        async.flushMicrotasks();
+
+        expect(h.leavingAsked, [false, true]);
+        expect(h.updates.single.content, 'v1');
+        h.dispose();
+      });
+    });
   });
 
   group('updates', () {
@@ -995,7 +1137,12 @@ class _Harness {
       },
       dispatch: _dispatch,
       onDuplicateTitle: warnings.add,
-      beforeWrite: () => mayWrite,
+      beforeWrite: ({required bool leaving}) {
+        leavingAsked.add(leaving);
+        final custom = gate;
+        if (custom != null) return custom(leaving);
+        return mayWrite || leaving;
+      },
       autoSaveFactory: ({required onSave, required onChangeDetected}) =>
           AutoSaveService(
             onSave: onSave,
@@ -1033,9 +1180,20 @@ class _Harness {
   String title;
   String content = '';
 
-  /// The page's gate: false holds every write, as while a synced change is
-  /// being handled.
+  /// The page's gate: false holds every write but an exit's or a pause's
+  /// own flush, as while a failed conflict copy waits to be filed.
   bool mayWrite = true;
+
+  /// When set, answers the gate instead of [mayWrite] — a test that has to
+  /// park a write at the gate returns a future from it.
+  FutureOr<bool> Function(bool leaving)? gate;
+
+  /// The `leaving` flag of every gate call, in order.
+  final List<bool> leavingAsked = <bool>[];
+
+  /// When set, every update's completer waits for it: the write stays in
+  /// flight at the bloc until the test releases it.
+  Completer<void>? updateGate;
 
   List<CreateOptimizedNote> get creates =>
       events.whereType<CreateOptimizedNote>().toList();
@@ -1047,7 +1205,13 @@ class _Harness {
   /// completer, which is what unblocks the auto-save write.
   void _dispatch(OptimizedNoteEvent event) {
     events.add(event);
-    if (event is UpdateOptimizedNote) event.completer?.complete();
+    if (event is! UpdateOptimizedNote) return;
+    final held = updateGate;
+    if (held == null) {
+      event.completer?.complete();
+    } else {
+      held.future.then((_) => event.completer?.complete());
+    }
   }
 
   void type(String next) {
