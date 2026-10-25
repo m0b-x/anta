@@ -537,7 +537,22 @@ receives both the note and the copy. Nothing is lost either way. A remote
 **delete** of the open note: a clean editor closes with a notice; a dirty
 one files its text as a new note it keeps editing (a save to a deleted
 note is refused by design, so the text cannot ride the next autosave). A
-widget test pins every branch; S6 drives it on two devices. The editor tells a
+widget test pins every branch; S6 drives it on two devices. **What counts
+as "arriving text"** (S4a review H1): the merged body is compared with the
+text the editor last loaded or saved — never with the live unsaved text,
+which differs by definition when the page is dirty — so a remote move,
+rename, label, reorder or re-save that left the body alone files nothing;
+the body is carried with the event (or captured at the event) and saves are
+held until the copy is filed, because a debounced autosave landing in the
+window between the page commit and the copy would otherwise overwrite the
+merged row and the remote text would be gone on both devices (M4); a copy
+that fails is caught, shown and holds the autosave rather than escaping
+(M3). **The pop on a remote delete** acts only when the editor's route is
+current; buried under a dialog or another page it defers to `didPopNext`
+and never marks itself exiting or disables saves until the pop really
+targets it — `Navigator.pop(context)` pops the navigator's top route
+whatever the context (H2); the notice is shown only on the current route
+(L6). The editor tells a
 merge from its own autosave by the change event's origin: `NoteChange`
 carries `remote: true` only when `announceMerged` emits it (S3c review F5);
 a remote move is announced as `moved` with its source folder beside the
@@ -1342,7 +1357,10 @@ editor rule §3.9 with `NoteChange.remote`, the bloc's refresh overlay, the
 engine restarted after a reset; **S4b** needs D1, D2, D4, D5, D6 and D8 —
 the Sharing page's Sync section, the picker, the install registry, the
 space service, the strings. S5 (the Firestore gateway) runs between them if
-the letters are still out.
+the letters are still out. After S5: **S4b-1** (no letters) carries the
+S4a-review fixes, the dirty-delete branch, the engine restart after a
+switch and the test gaps; **S4b-2** (letters) the Sync section, the picker,
+the registry, the space service, the strings.
 
 **S4a as built (2026-10-24, one implementer resumed once at its turn cap;
 gate: `dart analyze lib test` clean, gen-l10n `{}`, the implementer's
@@ -1396,6 +1414,44 @@ keeps editing; **S4b builds that branch.** Tests: five editor cases in
 `optimized_note_editor_page_test` driving the real DAO merge +
 `announceMerged`; the counter, hooks, engine, bloc, bridge and vocabulary
 suites listed in the implementer's report.
+
+**S4a review (2026-10-25, one independent reviewer on a snapshot, three
+editor probes against the real DAO merge and `announceMerged`; 2 high, 3
+medium, 7 low; "the commit stands as a base").** **H1** a dirty editor
+filed a conflict copy whenever any remote change arrived — it compared the
+merged body with the live unsaved text (probe: type, then merge the same
+body under a newer stamp → one junk copy of the user's own old text, synced
+everywhere; every reorder on the other device re-stamps the folder's
+notes); **H2** a remote delete of a clean note whose editor was under a
+dialog or another page popped the wrong route (`AppNavigator.pop` =
+`Navigator.pop(context)`) and left the editor marked exiting with saves off
+— anything typed afterwards silently unsaved (probes with a dialog and
+with a page above). Mediums: M3 a failure while filing the copy was an
+uncaught async error and the next autosave then lost the arriving text;
+M4 a debounced autosave landing between the page commit and the copy's
+`loadNoteContent` reads back the user's own text or overwrites the merged
+row first — no copy, remote text lost; M5 nothing calls
+`SyncEngine.getInstance()` after a lifecycle reset except the bloc thunk,
+so a switched database does not sync until the Sharing page loads (S4b's
+in-place switch meets it). Lows: L6 a buried editor shows the notice over
+the page on top; L7 a save in flight that already committed counts as
+dirty (a copy identical to the note; with an engine copy, three notes for
+one conflict) — removed by H1's baseline; L8 `_flushDirty` clears the
+pending map before its try, so a thrown transaction drops every delta →
+merge the snapshot back on catch; L9 a flush onto a remotely tombstoned
+*value* row resurrects it (LWW; recorded as accepted); L10 `_withEngine`
+only on `RefreshSyncStatus` and its precedence inverted against the
+engine's `_emit` → one rule in both places; L11 `_liveFolderFor` fills the
+folder cache inside the page transaction (a rolled-back page leaves a
+tombstone in the cache) → read through the DAO; L12 the vocabulary page
+keeps listening to an old instance across a switch; the merged copy is
+announced `remote: true` though local (S4b must not key on it);
+`SyncEngine.getInstance` racing a database switch keeps an engine on the
+closed database as `_instance`. All in §3.9 now where they are rules.
+**Fixed at the head of S4b** (after S5; the editor, the bloc, the hooks and
+the counter service are outside S5's files): H1–H2, M3–M5, L6, L8, L10,
+L11, L12, plus the dirty-delete branch (the text filed as a new note the
+page keeps editing) and the F6/F12/F13 test gaps.
 
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
@@ -1455,6 +1511,63 @@ suites listed in the implementer's report.
   denied, equal and higher allowed; a push to a missing space denied; an
   unknown table denied; `pushedAt` not `request.time` denied.
 - Skills: `anta-context`, `qa-emulator` (for the defines), `flutter-principles`.
+
+**S5 as built (2026-10-25, one implementer; gate: `dart analyze lib test`
+clean, whole suite once — 10,451 passed, the one Windows-only failure;
+review pending, fixes at the head of S4b-2).** **Part 1, the S3d-review
+fixes**, each confirmed by breaking it and watching its test go red: H1
+`_abortsTransaction` (`CouldNotRollBackException`, or a `SqliteException`
+whose `resultCode != 19`) rethrows out of the per-merge catch — the
+disk-full test uses `PRAGMA max_page_count`; H2 `_yieldToFloor` retires the
+local entry at its stamp when at or below the floor, and the pusher keeps
+every pull-parked key out of the drain (not only floor runs — the device
+lacks the space's version either way); M3 `_PullOutcome.cut` / `reached`,
+a run drains when `!initial || pulled.reached`, the flag clears only on a
+complete pull; M4 the lifecycle calls set the foreground before the
+started check and the bridge drops its `isStarted` guard; L5–L10 as the
+record states (`_signalOf(space)` for stale tables and `pull_seen`, a cut
+pull defers `afterRun` until after the drain, a healthy snapshot clears a
+signal failure, `onDone` re-attaches on the signal's back-off, a merged
+envelope leaves the parked set); T1–T5 pinned (`_FaultyMerge.partWay`,
+`FakeSyncGateway.readSpaceCalls` outside `calls`).
+`SyncRunReport.parked` now counts newly parked keys through an engine
+counter (the set-size difference went negative once keys could leave).
+**Part 2:** `lib/services/sync/firestore_sync_gateway.dart` —
+`FirestoreSyncGateway` (lazy instance, `maxBatch` 499, §3.1 paths, one
+`WriteBatch` with the space document merged in, the ten-second overlap on
+`resumed`, the error mapping; `_guard` adds a **60 s timeout mapped to
+`offline`** since the engine runs one request at a time; a malformed
+document is skipped with a debug log and the cursor moves past it —
+gateway decoding sits outside the engine's per-envelope catch;
+`invalid-argument` alone maps to `invalidData`, `failed-precondition` to
+`unknown`; `createSpace` reads the document back for the real `createdAt`,
+one extra read) with the pure helpers in `FirestoreSyncWire` and a static
+`configure({emulatorHost})` that sets the emulator and
+`persistenceEnabled: false`, so DI never imports `cloud_firestore`; DI
+registers `SyncGateway` before the engine-start line when `canSync`;
+`QaMode.firebaseEmulatorHost` (`ANTA_QA_FIREBASE_EMULATOR`), `qaAccount`
+(`ANTA_QA_ACCOUNT`, `uid:email`) and the const `useFirebaseEmulator`;
+`FirebaseAuthService.useEmulator(host)` and `_signInQaAccount()` with the
+**unsigned JSON id token** `GoogleAuthProvider.credential(idToken:
+jsonEncode({sub, email, email_verified: true}))` — the documented form
+(firebase.google.com/docs/emulator-suite/connect_auth); no email/password
+fallback. `qa build --define K=V` / `qa run --define` feed the defines.
+**The rules probe** `tool/firebase/rules_probe.ps1` starts the emulator on
+18080 (the strays hold 8080), signs requests with unsigned JWTs in the
+`rules-unit-testing` form and judged 16 cases, **all PASS**: owner create /
+read / push / read row / list; stranger read and push denied; signed-out
+denied; tombstone with `data: null` allowed and without the key denied;
+`ownerId` null denied; lower-schema merge denied, equal and higher allowed;
+a push to a missing space denied; an unknown table denied; `pushedAt` not
+`request.time` denied. One INFO row: a row written alone under a missing
+space, with no space write, is allowed — the rules never check the parent
+exists; the gateway always writes the space document in the same batch,
+which is what the denial rests on. Tests: `firestore_sync_gateway_test` 12
+(cursor codec incl. row keys containing `|`, overlap, both document
+mappings, the merge payload, error codes, `maxBatch`, the `cloud_firestore`
+import scan). Not run from the app yet: the emulator sign-in and the live
+gateway — S6. Every Android build with Firebase now constructs and starts
+the engine; it syncs only a bound database, and binding arrives in S4b-2.
 
 ### S6 — Gate, device pass, docs
 

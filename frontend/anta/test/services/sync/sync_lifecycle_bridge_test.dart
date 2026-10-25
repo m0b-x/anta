@@ -77,17 +77,22 @@ void main() {
     expect(engine.calls, isEmpty);
   });
 
-  test('before the engine starts, and after it stops, nothing reaches it', () async {
+  test('a stopped engine hears the leave and the return, so a later start '
+      'knows the foreground', () async {
     engine.isStarted = false;
     await send([AppLifecycleState.paused]);
-    engine.isStarted = true;
-    // The leave seen before the start is owed no resume.
     await send([AppLifecycleState.resumed]);
-    expect(engine.calls, isEmpty);
+    expect(engine.calls, ['backgrounded', 'resumed']);
 
     await engine.stop();
     await send([AppLifecycleState.paused, AppLifecycleState.resumed]);
-    expect(engine.calls, ['stop']);
+    expect(engine.calls, [
+      'backgrounded',
+      'resumed',
+      'stop',
+      'backgrounded',
+      'resumed',
+    ]);
   });
 
   test('after dispose nothing reaches the engine', () async {

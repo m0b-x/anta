@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../core/qa/qa_mode.dart';
 import '../models/app_user.dart';
 import '../utils/auth_error.dart';
 import 'auth_service.dart';
@@ -25,6 +28,14 @@ class FirebaseAuthService implements AuthService {
   FirebaseAuthService({FirebaseAuth? auth}) : _injectedAuth = auth;
 
   FirebaseAuth get _auth => _injectedAuth ?? FirebaseAuth.instance;
+
+  /// The Auth emulator's port, as `firebase.emulators.json` declares it.
+  static const int emulatorAuthPort = 9099;
+
+  /// Points Firebase Auth at the emulator suite on [host]: once, in DI,
+  /// before any sign-in, and only in a QA build ([QaMode.useFirebaseEmulator]).
+  static Future<void> useEmulator(String host) =>
+      FirebaseAuth.instance.useAuthEmulator(host, emulatorAuthPort);
 
   @override
   bool get isAvailable => true;
@@ -52,6 +63,7 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<AppUser?> signInWithGoogle() => _guard(() async {
+    if (QaMode.useFirebaseEmulator) return _signInQaAccount();
     await _ensureInitialized();
 
     if (!GoogleSignIn.instance.supportsAuthenticate()) {
@@ -75,6 +87,27 @@ class FirebaseAuthService implements AuthService {
     final result = await _auth.signInWithCredential(credential);
     return _toAppUser(result.user);
   });
+
+  /// Signs in as [QaMode.qaAccount] on the Auth emulator, without Google:
+  /// the emulator takes an unsigned JSON "ID token" as a Google credential,
+  /// its `sub` the account's key (Firebase docs, "Connect your app to the
+  /// Authentication Emulator").
+  Future<AppUser?> _signInQaAccount() async {
+    final account = QaMode.qaAccount;
+    final colon = account.indexOf(':');
+    if (colon <= 0) {
+      throw StateError('ANTA_QA_ACCOUNT must be <uid>:<email>, got "$account"');
+    }
+    final token = jsonEncode({
+      'sub': account.substring(0, colon),
+      'email': account.substring(colon + 1),
+      'email_verified': true,
+    });
+    final result = await _auth.signInWithCredential(
+      GoogleAuthProvider.credential(idToken: token),
+    );
+    return _toAppUser(result.user);
+  }
 
   @override
   Future<void> signOut() async {

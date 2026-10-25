@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:get_it/get_it.dart';
 import '../../database/database.dart';
+import '../qa/qa_mode.dart';
 import '../../repositories/note_repository.dart';
 import '../../repositories/folder_repository.dart';
 import '../../services/folder_storage_service.dart';
@@ -29,6 +30,7 @@ import '../../services/pairing_gateway.dart';
 import '../../services/permission_gateway.dart';
 import '../../services/permission_service.dart';
 import '../../services/sync_availability.dart';
+import '../../services/sync/firestore_sync_gateway.dart';
 import '../../services/sync/sync_engine.dart';
 import '../../services/sync/sync_gateway.dart';
 import '../../services/sync/sync_status_service.dart';
@@ -147,6 +149,19 @@ Future<void> _registerServices() async {
   // down the auth stream. `Firebase.apps` guards the case where init failed
   // in `main.dart`: degrade to the no-op binding instead of crashing here.
   final canSync = SyncAvailability.isSupported && Firebase.apps.isNotEmpty;
+  if (canSync) {
+    // A QA run against the local emulator suite with fake accounts (record
+    // §3.8); compiled out of every other build.
+    if (QaMode.useFirebaseEmulator) {
+      await FirebaseAuthService.useEmulator(QaMode.firebaseEmulatorHost);
+    }
+    // Before any Firestore use, pairing's included.
+    FirestoreSyncGateway.configure(
+      emulatorHost: QaMode.useFirebaseEmulator
+          ? QaMode.firebaseEmulatorHost
+          : '',
+    );
+  }
   getIt.registerSingleton<AuthService>(
     canSync ? FirebaseAuthService() : NoOpAuthService(),
     dispose: (s) => s.dispose(),
@@ -158,9 +173,14 @@ Future<void> _registerServices() async {
     canSync ? FirestorePairingGateway() : const NoOpPairingGateway(),
   );
 
+  // Stateless and global like the two above; the engine resolves it through
+  // GetIt, so it is bound before the engine starts.
+  if (canSync) {
+    getIt.registerSingleton<SyncGateway>(FirestoreSyncGateway());
+  }
+
   // The engine follows the identity, so it starts once the auth service is
-  // up — and only where a gateway is bound, which nothing does until the
-  // Firestore gateway lands (record S5): until then the app never syncs.
+  // up, and only where a gateway is bound. It syncs only a bound database.
   // Not awaited: the first run reaches the network, and launch must not wait
   // on it.
   if (_syncEngineEnabled) unawaited(_startSyncEngine());

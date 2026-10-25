@@ -28,6 +28,24 @@ abstract final class QaMode {
   /// project. `--dart-define=ANTA_QA_CLOUD=true` opts a run in on purpose.
   static const bool allowCloud = bool.fromEnvironment('ANTA_QA_CLOUD');
 
+  /// The host of the local Firebase emulator suite
+  /// (`--dart-define=ANTA_QA_FIREBASE_EMULATOR=10.0.2.2` from an Android
+  /// guest); empty means none. With it a cloud QA run talks to fake accounts
+  /// on the emulator instead of the production project (record §3.8).
+  static const String firebaseEmulatorHost = String.fromEnvironment(
+    'ANTA_QA_FIREBASE_EMULATOR',
+  );
+
+  /// The identity "Sign in with Google" takes on the emulator, as
+  /// `<uid>:<email>` (`--dart-define=ANTA_QA_ACCOUNT=qa1:qa1@example.com`).
+  static const String qaAccount = String.fromEnvironment('ANTA_QA_ACCOUNT');
+
+  /// Whether this build talks to the emulator suite: a QA build that may
+  /// reach Firebase and names a host. Const, so a normal build drops every
+  /// branch behind it.
+  static const bool useFirebaseEmulator =
+      enabled && allowCloud && firebaseEmulatorHost != '';
+
   static const bool permissionPrompt = bool.fromEnvironment(
     'ANTA_QA_PERMISSION_PROMPT',
   );

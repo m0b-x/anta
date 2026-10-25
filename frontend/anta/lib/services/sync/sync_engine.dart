@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:drift/drift.dart' show InvalidDataException;
+import 'package:drift/drift.dart'
+    show CouldNotRollBackException, InvalidDataException;
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:get_it/get_it.dart';
+import 'package:sqlite3/common.dart' show SqliteException;
 
 import '../../database/crdt/crdt_write.dart';
 import '../../database/daos/sync_dao.dart';
@@ -177,7 +179,15 @@ class SyncEngine {
 
   bool _started = false;
   bool _stopped = false;
+
+  /// Tracked whether or not the engine is started, so a [start] after a
+  /// return made while stopped neither cuts every pull nor goes without a
+  /// signal (S3d review M4).
   bool _foreground = true;
+
+  /// Whether [_lastFailure] is the signal's: a healthy snapshot clears it,
+  /// while a run's failure waits for a run that succeeds.
+  bool _failureFromSignal = false;
 
   /// Moved by every [start] and [stop], so a [start] that a [stop] overtook
   /// during its first await attaches nothing.
@@ -316,8 +326,8 @@ class SyncEngine {
   /// The last status emitted.
   SyncStatus get current => _current;
 
-  /// Between [start] and [stop]: the lifecycle bridge feeds only a started
-  /// engine, so an app event before DI starts it runs nothing.
+  /// Between [start] and [stop]. The lifecycle calls run nothing outside it;
+  /// they only track the foreground.
   bool get isStarted => _started;
 
   /// Completes once no run is active, queued or about to be requested, and
@@ -399,11 +409,11 @@ class SyncEngine {
   }
 
   /// The app came back: the signal is followed again and a full run starts
-  /// now, skipping whatever back-off or quota wait was pending. Ignored
-  /// unless started.
+  /// now, skipping whatever back-off or quota wait was pending. Unless
+  /// started, only the foreground is noted.
   void onAppResumed() {
-    if (!_started) return;
     _foreground = true;
+    if (!_started) return;
     _backoffStep = 0;
     _signalBackoffStep = 0;
     _quotaHeld = false;
@@ -419,11 +429,11 @@ class SyncEngine {
   /// enough for it (readiness D19). Bounded: the drain pulls nothing, and a
   /// run in flight stops pulling before its next page. Completes when that
   /// drain has run or was skipped — skipped while the initial merge is
-  /// pending, which only a full pull may end (record §3.5). Ignored unless
-  /// started.
+  /// pending, which only a full pull may end (record §3.5). Unless started,
+  /// only the leave is noted.
   Future<void> onAppBackgrounded() async {
-    if (!_started) return;
     _foreground = false;
+    if (!_started) return;
     _debounce?.cancel();
     _debounce = null;
     _retry?.cancel();
@@ -476,17 +486,20 @@ class SyncEngine {
   /// in this run, for the same reason.
   ///
   /// While the initial merge is pending every run that pulls pulls
-  /// everything, and one whose pull fell short — or a drain-only run —
-  /// pushes nothing: a push before the floor pull would put the pre-bind
-  /// rows over the space, where the floor could never undo it (record §3.5).
+  /// everything, and one whose pull was cut short by a leave — or a
+  /// drain-only run — pushes nothing: a push before the floor pull would put
+  /// the pre-bind rows over the space, where the floor could never undo it.
+  /// A pull that reached every table drains the tables that did not fault,
+  /// each pulled in full under the floor, so one table that keeps faulting
+  /// does not hold every push (record §3.5, S3d review M3).
   Future<SyncRunReport> _run(_RunMode mode) async {
     final tally = _RunTally();
-    final parkedBefore = _parkedCount;
+    final parkedBefore = _parks;
     SyncRunReport report({SyncGatewayFailure? failure, SyncRunSkip? skipped}) =>
         SyncRunReport(
           pulledRows: tally.pulled,
           pushedRows: tally.pushed,
-          parked: _parkedCount - parkedBefore,
+          parked: _parks - parkedBefore,
           failure: failure,
           skipped: skipped,
         );
@@ -506,14 +519,20 @@ class SyncEngine {
         full
             ? _tables
             : mode == _RunMode.stale
-            ? await _staleTables()
+            ? await _staleTables(_spaceOf(binding))
             : const [],
         initial: initial,
         everyTable: full,
         tally: tally,
       );
-      if (!initial || pulled.complete) {
-        await _pusher.drain(binding, tally, skipTables: pulled.failedTables);
+      try {
+        if (!initial || pulled.reached) {
+          await _pusher.drain(binding, tally, skipTables: pulled.failedTables);
+        }
+      } finally {
+        // A leave cut the pull: the drain the leave exists for went first,
+        // the caches hear of the pages after it (S3d review L7).
+        if (pulled.cut) await _puller.notifyRun(pulled.touched);
       }
       final tableFault = pulled.fault;
       if (tableFault != null) {
@@ -594,8 +613,10 @@ class SyncEngine {
   /// The tables whose `touched` moved past their stored `pull_seen` — or
   /// that were never seen — in the latest signal; every table before one
   /// arrived, since nothing then says which tables are current.
-  Future<List<SyncTableBinding<Object>>> _staleTables() async {
-    final signal = _signal;
+  Future<List<SyncTableBinding<Object>>> _staleTables(
+    SyncSpaceRef space,
+  ) async {
+    final signal = _signalOf(space);
     if (signal == null) return _tables;
     final stale = <SyncTableBinding<Object>>[];
     for (final table in _tables) {
@@ -620,6 +641,11 @@ class SyncEngine {
 
   int get _parkedCount => _puller.parked.length + _pusher.parked.length;
 
+  /// Keys parked this session, counted as they are set aside and never
+  /// lowered when one lets go — what a run reports as parked, apart from
+  /// [_parkedCount], which shrinks as rows land.
+  int _parks = 0;
+
   // ---------------------------------------------------------------------------
   // Outcomes
 
@@ -636,6 +662,7 @@ class SyncEngine {
   /// over.
   void _succeeded() {
     _lastFailure = null;
+    _failureFromSignal = false;
     _backoffStep = 0;
     _retry?.cancel();
     _retry = null;
@@ -669,7 +696,8 @@ class SyncEngine {
     }
   }
 
-  void _recordFailure(SyncGatewayException error) {
+  void _recordFailure(SyncGatewayException error, {bool signal = false}) {
+    _failureFromSignal = signal;
     _lastFailure = SyncFailureInfo(
       error.failure,
       at: DateTime.now().toUtc(),
@@ -750,8 +778,15 @@ class SyncEngine {
 
   /// The debounced push, skipped when the run that followed the trigger has
   /// already emptied the outbox — a merge's re-queue arms the trigger too.
+  /// A closed database ends it quietly: it runs from a timer, where a throw
+  /// would surface as an uncaught error through [whenIdle] (S3d review L5).
   Future<void> _drainIfQueued() async {
-    if (_stopped || await _db.syncOutboxDao.count() == 0) return;
+    try {
+      if (_stopped || await _db.syncOutboxDao.count() == 0) return;
+    } catch (error) {
+      debugPrint('[SyncEngine] debounced drain skipped: $error');
+      return;
+    }
     await _request(_RunMode.stale);
   }
 
@@ -763,23 +798,38 @@ class SyncEngine {
     subscription = _gateway
         .watchSpace(space)
         .listen(
-          _onSignal,
+          (signal) {
+            if (identical(_signalSubscription, subscription)) _onSignal(signal);
+          },
           onError: _onSignalError,
-          // A stream that ended is not a listener: the next run attaches a
-          // fresh one instead of taking the dead one for current.
+          // A stream that ended is not a listener: it is dropped and attached
+          // afresh on the signal's back-off, so an idle session does not go
+          // deaf until its next edit or resume (S3d review L9).
           onDone: () {
-            if (identical(_signalSubscription, subscription)) _detachSignal();
+            if (!identical(_signalSubscription, subscription)) return;
+            _detachSignal();
+            _scheduleSignalRetry();
           },
         );
     _signalSubscription = subscription;
   }
 
+  /// Drops the listener and the snapshot it delivered: a snapshot outlives
+  /// neither its listener nor its space, so a stale one never picks the
+  /// tables to pull nor writes the `pull_seen` of another space (S3d review
+  /// L6).
   void _detachSignal() {
     final subscription = _signalSubscription;
     _signalSubscription = null;
     _signalSpace = null;
+    _signal = null;
     if (subscription != null) unawaited(subscription.cancel());
   }
+
+  /// The latest snapshot of [space], null when the listener follows another
+  /// space or none.
+  SyncSpaceSignal? _signalOf(SyncSpaceRef space) =>
+      _signalSpace == space ? _signal : null;
 
   void _onSignal(SyncSpaceSignal signal) {
     if (_stopped) return;
@@ -787,6 +837,12 @@ class SyncEngine {
     if (signal.schema > _schema) return _loseAccess(SyncPause.appOutdated);
     _signal = signal;
     _signalBackoffStep = 0;
+    // The listener is healthy again; a run's failure waits for a run.
+    if (_failureFromSignal) {
+      _lastFailure = null;
+      _failureFromSignal = false;
+      _emit();
+    }
     unawaited(_request(_RunMode.stale));
   }
 
@@ -795,7 +851,7 @@ class SyncEngine {
     final failure = error is SyncGatewayException
         ? error
         : SyncGatewayException(SyncGatewayFailure.unknown, '$error');
-    _recordFailure(failure);
+    _recordFailure(failure, signal: true);
     if (failure.failure == SyncGatewayFailure.permissionDenied) {
       return _loseAccess(SyncPause.noAccess);
     }

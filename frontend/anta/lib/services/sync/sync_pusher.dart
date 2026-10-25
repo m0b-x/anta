@@ -34,11 +34,15 @@ class _Pusher {
     // until an edit raises it.
     final pushed = <(String, String), String>{};
     final drain = _DrainState();
+    // A key whose pull envelope parked this session is held back too: this
+    // device lacks the space's version of that row, which may be the newer
+    // one (S3d review H2).
     bool eligible(SyncOutboxRow entry) {
       final key = (entry.syncedTable, entry.rowKey);
       return !skipTables.contains(entry.syncedTable) &&
           parked[key] != entry.hlc &&
-          pushed[key] != entry.hlc;
+          pushed[key] != entry.hlc &&
+          !_e._puller.parked.contains(key);
     }
 
     while (true) {
@@ -257,6 +261,8 @@ class _Pusher {
     debugPrint(
       '[SyncEngine] parked ${entry.syncedTable}/${entry.rowKey}: $reason',
     );
-    parked[(entry.syncedTable, entry.rowKey)] = entry.hlc;
+    final key = (entry.syncedTable, entry.rowKey);
+    if (!parked.containsKey(key)) _e._parks++;
+    parked[key] = entry.hlc;
   }
 }

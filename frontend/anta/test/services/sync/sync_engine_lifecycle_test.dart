@@ -9,6 +9,7 @@ import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
+import 'package:anta/services/sync/sync_tables.dart';
 
 import 'support/sync_pair.dart';
 
@@ -112,6 +113,122 @@ void main() {
         Duration(minutes: 2),
       ]);
       expect(pair.gateway.calls, isEmpty);
+    });
+
+    test('a signal stream that ends is attached afresh on the signal\'s '
+        'back-off, without waiting for a run', () async {
+      await a().engine.start();
+      await a().settle();
+
+      pair.gateway.endWatches(pair.space);
+      await a().settle();
+      expect(a().scheduler.pending, [const Duration(seconds: 30)]);
+      a().scheduler.fire();
+      await a().settle();
+      await b().db.folderDao.createFolder(name: 'From B');
+      pair.gateway.calls.clear();
+      await b().sync();
+      await a().settle();
+
+      expect(callsAfterPushOfB(), ['pull:folders']);
+    });
+
+    test('a healthy snapshot after a signal error clears the error', () async {
+      await a().engine.start();
+      await a().settle();
+
+      pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
+      await a().settle();
+      expect(
+        a().engine.current.lastFailure?.failure,
+        SyncGatewayFailure.unknown,
+      );
+      a().scheduler.fire();
+      await a().settle();
+
+      expect(a().engine.current.lastFailure, isNull);
+    });
+
+    test('a dropped listener\'s last snapshot does not pick the tables of a '
+        'later run', () async {
+      await pair.close();
+      pair = await SyncPair.open(
+        timing: const SyncEngineTiming(pushDebounce: Duration(minutes: 7)),
+      );
+      await a().engine.start();
+      await a().settle();
+      await b().db.folderDao.createFolder(name: 'First from B');
+      await b().sync();
+      await a().settle();
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullSeen('folders')),
+        isNotNull,
+      );
+
+      pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
+      await a().settle();
+      final second = await b().db.folderDao.createFolder(name: 'Second from B');
+      await b().sync();
+      await a().db.folderDao.createFolder(name: 'Mine');
+      await pumpEventQueue();
+      // The run's own attach fails too, so no fresh snapshot can arrive.
+      pair.gateway.failNextWith(SyncGatewayFailure.unknown);
+      expect(a().scheduler.fire(const Duration(minutes: 7)), 1);
+      await a().settle();
+
+      expect(await a().db.folderDao.getFolderById(second.id), isNotNull);
+    });
+
+    test('a debounced drain without a snapshot pulls every table first', () async {
+      await pair.close();
+      pair = await SyncPair.open(
+        timing: const SyncEngineTiming(pushDebounce: Duration(minutes: 7)),
+      );
+      await a().engine.start();
+      await a().settle();
+      pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
+      await a().settle();
+      await a().db.folderDao.createFolder(name: 'Queued');
+      await pumpEventQueue();
+      pair.gateway.calls.clear();
+
+      // The run's own attach fails too, so no snapshot arrives before it.
+      pair.gateway.failNextWith(SyncGatewayFailure.unknown);
+      expect(a().scheduler.fire(const Duration(minutes: 7)), 1);
+      await a().settle();
+
+      expect(pair.gateway.calls, [
+        for (final binding in syncTableBindings) 'pull:${binding.table}',
+        'push:A',
+      ]);
+    });
+
+    test('the signal keeps its own back-off apart from the runs\'', () async {
+      await pair.close();
+      pair = await SyncPair.open(
+        timing: const SyncEngineTiming(pushDebounce: Duration(minutes: 7)),
+      );
+      await a().engine.start();
+      await a().settle();
+      final folder = await a().db.folderDao.createFolder(name: 'Stuck');
+      pair.gateway.refuse('folders', folder.id, SyncGatewayFailure.offline);
+
+      await a().sync();
+      await a().sync();
+      pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
+      await a().settle();
+      await a().sync();
+
+      final waits = [
+        for (final timer in a().scheduler.timers)
+          if (timer.delay != const Duration(minutes: 7)) timer.delay,
+      ];
+      expect(waits.take(4), const [
+        Duration(seconds: 30),
+        Duration(minutes: 1),
+        Duration(seconds: 30),
+        Duration(minutes: 2),
+      ]);
     });
 
     test('a table halted after a signal stores no pull_seen', () async {
@@ -266,6 +383,90 @@ void main() {
       expect(pair.gateway.rowsOf(pair.space, 'folders'), contains(mine.id));
       expect(pair.gateway.calls.where((c) => c.startsWith('pull')), isEmpty);
       expect(await a().db.select(a().db.counterValues).get(), isEmpty);
+    });
+
+    test('a leave cutting a pull drains before the caches hear of the pull', () async {
+      await a().sync();
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().db.counterDao.upsertValue('c1', '', 3);
+      await b().sync();
+      final hold = Completer<void>();
+      var held = false;
+      a().hooks.onBeforePage = (table) async {
+        if (table != 'folders' || held) return;
+        held = true;
+        await hold.future;
+      };
+      int? pushesAtAfterRun;
+      a().hooks.onAfterRun = () async => pushesAtAfterRun ??= pair.gateway.calls
+          .where((c) => c == 'push:A')
+          .length;
+      await a().engine.start();
+      while (!held) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await a().db.folderDao.createFolder(name: 'Mine');
+      pair.gateway.calls.clear();
+
+      final background = a().engine.onAppBackgrounded();
+      hold.complete();
+      await background.timeout(const Duration(seconds: 5));
+      await a().settle();
+
+      expect(a().hooks.runs.single, contains(SyncInvalidation.folders));
+      expect(pushesAtAfterRun, 1);
+    });
+
+    test('a stop and a start across a leave and a return follow the space '
+        'again', () async {
+      await a().engine.start();
+      await a().settle();
+      await a().engine.onAppBackgrounded();
+      await a().engine.stop();
+      a().engine.onAppResumed();
+      await a().engine.start();
+      await a().settle();
+
+      await b().db.folderDao.createFolder(name: 'From B');
+      pair.gateway.calls.clear();
+      await b().sync();
+      await a().settle();
+      expect(callsAfterPushOfB(), ['pull:folders'], reason: 'the signal');
+
+      pair.gateway.calls.clear();
+      await a().sync();
+      expect(pair.gateway.calls, contains('pull:folders'));
+    });
+
+    test('a debounced drain over a closed database ends quietly', () async {
+      await a().engine.start();
+      await a().settle();
+      await a().db.folderDao.createFolder(name: 'Queued');
+      await pumpEventQueue();
+      await a().db.close();
+
+      expect(a().scheduler.fire(const Duration(seconds: 30)), 1);
+      await a().engine.whenIdle;
+    });
+
+    test('a sign-out or another account during a run ends it before the '
+        'next page', () async {
+      await b().db.folderDao.createFolder(name: 'Folder');
+      await b().sync();
+      for (final (user, skip) in [
+        (null, SyncRunSkip.signedOut),
+        (const AppUser(uid: 'someone-else'), SyncRunSkip.accountMismatch),
+      ]) {
+        a().hooks.onBeforePage = (table) async {
+          if (table == 'folders') a().user = user;
+        };
+
+        final report = await a().sync();
+
+        expect(report.skipped, skip);
+        expect(await a().db.select(a().db.folders).get(), isEmpty);
+        a().user = const AppUser(uid: syncUid);
+      }
     });
 
     test('resume and background do nothing before start and after stop', () async {

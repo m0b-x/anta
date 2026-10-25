@@ -22,6 +22,10 @@ class FakeSyncGateway implements SyncGateway {
   /// run made its calls in, and which tables a pull touched.
   final List<String> calls = [];
 
+  /// How many [readSpace] calls were made, scripted failures included — kept
+  /// out of [calls] so the suites' exact call lists stay as they are.
+  int readSpaceCalls = 0;
+
   /// How many arrival numbers before the cursor a resumed pull starts, so the
   /// engine's tests see the repeats Firestore's resume overlap delivers.
   int replayOnResume = 0;
@@ -233,6 +237,7 @@ class FakeSyncGateway implements SyncGateway {
 
   @override
   Future<SyncSpaceInfo?> readSpace(SyncSpaceRef space) async {
+    readSpaceCalls++;
     _throwIfScripted();
     return _spaces[space]?.info;
   }
