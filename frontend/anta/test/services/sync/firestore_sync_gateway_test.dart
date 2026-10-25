@@ -44,14 +44,23 @@ void main() {
       final cursors = [
         FirestoreSyncWire.encodeCursor(20, 'a'),
         FirestoreSyncWire.encodeCursor(10, 'z'),
+        FirestoreSyncWire.encodeCursor(9, 'zz|1'),
         FirestoreSyncWire.encodeCursor(10, 'b'),
-      ];
-      final decoded = cursors.map(FirestoreSyncWire.decodeCursor).toList()
-        ..sort((x, y) {
-          final byTime = x.$1.compareTo(y.$1);
-          return byTime != 0 ? byTime : x.$2.compareTo(y.$2);
-        });
-      expect(decoded, [(10, 'b'), (10, 'z'), (20, 'a')]);
+      ]..sort(FirestoreSyncWire.compareCursors);
+
+      expect(cursors.map(FirestoreSyncWire.decodeCursor), [
+        (9, 'zz|1'),
+        (10, 'b'),
+        (10, 'z'),
+        (20, 'a'),
+      ]);
+      expect(
+        FirestoreSyncWire.compareCursors(
+          FirestoreSyncWire.encodeCursor(10, 'b'),
+          FirestoreSyncWire.encodeCursor(10, 'b'),
+        ),
+        0,
+      );
     });
 
     test('refuses a value it did not write', () {
@@ -165,6 +174,50 @@ void main() {
     );
   });
 
+  test('a new space carries its name, creator and schema, createdAt the '
+      'server time', () {
+    expect(
+      FirestoreSyncWire.spaceCreateOf(
+        name: 'Main',
+        deviceId: 'A',
+        schema: 43,
+        serverTime: serverTime,
+      ),
+      {'name': 'Main', 'createdAt': serverTime, 'createdBy': 'A', 'schema': 43},
+    );
+  });
+
+  test('only a server snapshot without pending writes reaches the engine', () {
+    expect(
+      {
+        for (final fromCache in [false, true])
+          for (final pending in [false, true])
+            (fromCache, pending): FirestoreSyncWire.shouldForwardSnapshot(
+              isFromCache: fromCache,
+              hasPendingWrites: pending,
+            ),
+      },
+      {
+        (false, false): true,
+        (false, true): false,
+        (true, false): false,
+        (true, true): false,
+      },
+    );
+  });
+
+  test('an empty batch is refused before Firestore is touched', () {
+    expect(
+      () => FirestoreSyncGateway().pushBatch(
+        const SyncSpaceRef(ownerUid: 'u1', spaceId: 's1'),
+        const [],
+        pushedBy: 'A',
+        schema: 43,
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('error codes map onto the engine\'s failures', () {
     expect(
       {
@@ -199,7 +252,8 @@ void main() {
     expect(FirestoreSyncGateway().maxBatch, 499);
   });
 
-  test('no file outside the two gateways imports cloud_firestore', () {
+  test('no file outside the two gateways imports cloud_firestore or its '
+      'platform interface', () {
     const allowed = {
       'lib/services/pairing_gateway.dart',
       'lib/services/sync/firestore_sync_gateway.dart',
@@ -208,7 +262,9 @@ void main() {
       for (final file in Directory('lib').listSync(recursive: true))
         if (file is File &&
             file.path.endsWith('.dart') &&
-            file.readAsStringSync().contains('package:cloud_firestore/'))
+            RegExp(
+              r'package:cloud_firestore(_platform_interface)?/',
+            ).hasMatch(file.readAsStringSync()))
           file.path.replaceAll(r'\', '/'),
     ]..sort();
 

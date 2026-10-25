@@ -571,7 +571,24 @@ current; buried under a dialog or another page it defers to `didPopNext`
 and never marks itself exiting or disables saves until the pop really
 targets it — `Navigator.pop(context)` pops the navigator's top route
 whatever the context (H2); the notice is shown only on the current route
-(L6). The editor tells a
+(L6). **Rules from the S4b-1 review:** a held or slow save that returns
+success re-checks the live text — keystrokes made while the write waited
+stay pending and re-arm the debounce, otherwise the page reads clean with
+unsaved text and the next reload wipes it (H1; a pre-existing window the
+hold widened); the gate waits until no remote work is pending at all
+(`while busy`), not for the chain it first saw, or a second merge during the
+wait reopens the race (H2); the leave/pause bypass never applies while the
+unfiled item is the keep-as-new filing — a write to a deleted note returns
+normally and vanishes (M3), and a delete arriving while the page is already
+exiting still files a dirty page's text; the exit flag is cleared when the
+pop does not happen, and move/share use a plain flush (M4); a delete that
+waited behind a covering route re-checks dirtiness before closing (M5); a
+pending **title-only** edit is not a body conflict: when the body equals
+the saved baseline the body reloads in place and the title stays pending
+(M6); unfiled filings are a list, not one slot (L7); the merged body's hash
+travels on `announceMerged` so the page compares against what the merge
+wrote rather than re-reading a row a save in flight may already have
+overwritten (the S4b-1 known limit and H2 share this fix). The editor tells a
 merge from its own autosave by the change event's origin: `NoteChange`
 carries `remote: true` only when `announceMerged` emits it (S3c review F5);
 a remote move is announced as `moved` with its source folder beside the
@@ -607,9 +624,21 @@ never told a listener about a row that does not exist (F10).
   mints tokens for it, and Firestore requests under the app's real project
   id are only warned about — whether the startup rules apply to that second
   id is unverified, so a pass under the real id would prove nothing about the
-  rules (S5 review H2). The `ANTA_QA_ACCOUNT` first field is the Google
-  `sub`; the Auth emulator assigns its own Firebase uid, so nothing in a
-  flow may assume `users/<sub>/…` (L12).
+  rules (S5 review H2). **Superseded by S5b:** on Android the native
+  default app is created by the google-services plugin from
+  `google-services.json` before Dart runs, and `Firebase.initializeApp(options:)`
+  hands back that existing app (it compares only apiKey, databaseURL and
+  storageBucket), so a Dart-side `projectId: 'demo-anta'` changes nothing.
+  **The emulator suite therefore runs under the app's real project id**
+  (`firebase emulators:start --project alexs-note-tracking-app`, and the
+  probe with `-Project alexs-note-tracking-app`): the id is a label the
+  local emulator serves, nothing reaches the real backend while the app
+  points at the emulator host, and the rules load for that id. A QA build
+  with `ANTA_QA_CLOUD=true` and NO emulator host would talk to the real
+  project with a real account — S6 always passes both defines. The
+  `ANTA_QA_ACCOUNT` first field is the Google `sub`; the Auth emulator
+  assigns its own Firebase uid, so nothing in a flow may assume
+  `users/<sub>/…` (L12).
 - `tool/firebase/firebase.json` (tracked): the emulator suite — auth 9099,
   firestore 8080 with `../../firestore.rules`, UI 4000 — and
   `tool/firebase/emulators.cmd` / `.sh` running `firebase emulators:start
@@ -1527,6 +1556,40 @@ is to carry the merged body (or its hash) on `announceMerged` and compare
 against it. Also noted: a clean remote delete of an editor that is the
 navigator's root route pops the only route (as before).
 
+**S4b-1 review (2026-10-25, one independent reviewer on a snapshot, a
+probe of `AutoSaveService`, two mutants; 2 high, 4 medium, 8 low; "keep
+the commit as a base, fix the highs before S4b-2").** **H1** text typed
+while a write is held is marked saved but never written (`_performSave`
+reads the text, `onSave` now waits for the whole remote chain, success sets
+the baseline to the text it read and clears pending — probe: writes `[A]`,
+pending false, status saved, "AB" on screen); a later reload wipes it; **H2**
+the gate reads `_remoteWork` once, so a second merge during the wait lets
+the held save overwrite the row the second merge wrote before its handler
+reads it. Mediums: M3 decision A's bypass writes to the deleted note when
+the unfiled item is the keep-as-new filing (`NoteDao.updateNote` returns
+normally for a deleted row, so the page reads clean and the text is gone;
+the same when the delete arrives after `_isExiting` is set); M4 `_exiting`
+is set and never cleared, and `saveBeforeExit` is also the flush behind
+move and share, so after any move or share the hold is off for the page's
+life; M5 a delete deferred behind a covering route closes a page that
+became dirty meanwhile (a heading menu or rename dialog edits as it
+closes); M6 a pending title-only edit counts as a body conflict (the
+remote body is reverted on both devices and survives only as a copy).
+Lows: L7 a second failed filing replaces the first; L8 the failure notice
+only once and only when current, `syncNoteConflictCopyFailed` says "copy"
+for a failed keep-as-new; L9 overlapping pauses clear `_pausing` early;
+L10 the `getInstance` race is worse with `_rebuildAfterSwitch` (a stale
+call can register an engine on the closed database — compare a generation
+after the awaits); L11 a throw after `createNote` in the keep-as-new closure
+makes the retry create a second note; L12 a vocabularies page open across a
+switch keeps the old service until something calls `getInstance()`; L13 a
+misplaced `///` in `folder_storage_service.dart` (`getFolderById` lost its
+doc); L14 the busy-counter mutant survives and the engine side of
+`pauseOver` is unpinned. All rules in §3.9 now. **Fixed in S4b-1b** (an
+editor run right after S5b, no letters needed): H1, H2, M3–M6, L7–L11,
+L13, L14, plus the merged-body hash on `announceMerged`; L12 noted for
+S4b-2's in-place switch.
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
@@ -1682,7 +1745,46 @@ Verified: `startAfter` takes a plain string for the document-id component
 `Settings.copyWith` keeps the emulator host; the watch error path; `ackThrough`
 only after a returned push; `pushBatch` the only row writer. All settled in
 §3.3, §3.5 and §3.8. **Fixed in S5b** (a short gateway run after S4b-1,
-before S4b-2): H1, H2, M3–M7, L11, L12, L15; L9/L10/L13 accepted.
+before S4b-2): H1, H2, M3–M7, L11, L12, L15; L9/L10 accepted, L13 as a
+log line.
+
+**S5b as built (2026-10-25, one implementer; gate: `dart analyze lib test
+test_driver` clean, whole suite once — 10,486 passed, the one Windows-only
+failure; review pending, fixes at the head of S6).** `watchSpace` listens
+with `includeMetadataChanges: true` and forwards only server snapshots
+without pending writes (so the server's first answer arrives even when it
+equals the cache; `FirestoreSyncWire.shouldForwardSnapshot`); `pushBatch`
+and `createSpace` write through a write-only `runTransaction` with
+`maxAttempts: 1` (nothing to re-read; the engine's back-off is the retry;
+the 60 s guard stays a backstop) — the plugin documents "transactions must
+be performed while online … the final commit will fail", read from
+`firestore.dart:254`; fail-fast offline rests on that contract and is not
+yet device-verified; the empty-batch `ArgumentError`; `failed-precondition`
+logs its own line; `pullPage` takes `next` by `compareCursors`. The puller
+unwraps nested `DriftRemoteException.remoteCause` before the abort test
+(`package:drift/isolate.dart`); the disk-full case passes on a background
+database even without the unwrap (SQLite aborts the whole transaction and
+`CouldNotRollBackException` arrives), so the pinning test is a statement
+SQLite refuses (`SELECT` from a missing table) — without the unwrap the row
+was parked, with it the page fails whole. The pusher caps a batch at
+`maxBatchBytes` = 8 MiB in order (ten 850 KB notes go out as nine and one;
+a 3 MiB row is parked by the 900 KB check first). `noAccess` is re-checked
+by `syncNow()` and `onAppResumed()` with one `readSpace` — only a pause a
+readable space can disprove (missing or unreadable space, a pull or watch
+denial); "more than twenty refused rows" keeps holding (`recheckable:
+false`). `start()` seeds the foreground from an optional `lifecycleState`
+reader (the singleton passes `WidgetsBinding.instance.lifecycleState`; null
+keeps what the lifecycle calls tracked) and the bridge takes `initial:`
+through the shared `isLeave` (hidden or paused). `QaMode.firebaseEmulatorProject`
+/ `emulatorFirebaseOptions()` and the main.dart demo-options branch were
+built as briefed but are **ineffective on Android** (above) — a warning
+prints when the returned app keeps another id; S6 runs the suite under the
+real id instead. The probe gained four cases and a port-free check (exit
+101 naming the held ports): 20 judged cases PASS plus the INFO row, on
+18080; its emulator stopped, the six strays remain. Tests: gateway +5,
+failures +3 (incl. `sync_pair.open(background:)` on temp files), lifecycle
++4, bridge +1, `test/core/qa/qa_mode_test.dart` new. Noted: `_prepare` holds
+up to 499 encoded rows in memory (pre-existing).
 
 ### S6 — Gate, device pass, docs
 

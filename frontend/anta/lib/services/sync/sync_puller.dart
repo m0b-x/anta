@@ -346,10 +346,17 @@ const int _sqliteConstraint = 19;
 /// I/O error: the merge's savepoint is gone, so parking the envelope would
 /// run the rest of the page, the cursor and the clock in autocommit past
 /// rows that were rolled back. Such a page fails whole and is retried (S3d
-/// review H1).
-bool _abortsTransaction(Object error) =>
-    error is CouldNotRollBackException ||
-    (error is SqliteException && error.resultCode != _sqliteConstraint);
+/// review H1). The app's database runs in a background isolate, which hands
+/// a SQLite error over wrapped, so the cause is unwrapped first (S5 review
+/// M3).
+bool _abortsTransaction(Object error) {
+  var cause = error;
+  while (cause is DriftRemoteException) {
+    cause = cause.remoteCause;
+  }
+  return cause is CouldNotRollBackException ||
+      (cause is SqliteException && cause.resultCode != _sqliteConstraint);
+}
 
 /// What one malformed document raises: a missing or mistyped key, a value a
 /// column refuses (drift checks lengths on write), a key that names no row.

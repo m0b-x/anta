@@ -20,7 +20,8 @@ class FirestoreSyncGateway implements SyncGateway {
   /// Every call is bounded: the engine runs one request at a time, so a call
   /// that never answers would hold every later run. Long enough for a full
   /// batch of large notes over a slow link; a commit that lands after it is
-  /// pushed again, which writes the same documents.
+  /// pushed again, which writes the same documents. A backstop: offline, a
+  /// transaction fails on its own long before it.
   static const Duration _timeout = Duration(seconds: 60);
 
   final FirebaseFirestore? _injected;
@@ -60,6 +61,9 @@ class FirestoreSyncGateway implements SyncGateway {
     required String pushedBy,
     required int schema,
   }) async {
+    if (batch.isEmpty) {
+      throw ArgumentError.value(batch.length, 'batch', 'no rows');
+    }
     if (batch.length > maxBatch) {
       throw ArgumentError.value(batch.length, 'batch', 'over $maxBatch rows');
     }
@@ -72,33 +76,44 @@ class FirestoreSyncGateway implements SyncGateway {
         );
       }
     }
-    await _guard(() {
-      final now = FieldValue.serverTimestamp();
-      final write = _db.batch();
-      final spaceDoc = _space(space);
-      for (final envelope in batch) {
-        write.set(
-          spaceDoc.collection(envelope.table).doc(envelope.rowKey),
-          FirestoreSyncWire.documentOf(
-            envelope,
+    await _guard(
+      () => _writeOnly((transaction) {
+        final now = FieldValue.serverTimestamp();
+        final spaceDoc = _space(space);
+        for (final envelope in batch) {
+          transaction.set(
+            spaceDoc.collection(envelope.table).doc(envelope.rowKey),
+            FirestoreSyncWire.documentOf(
+              envelope,
+              pushedBy: pushedBy,
+              serverTime: now,
+            ),
+          );
+        }
+        transaction.set(
+          spaceDoc,
+          FirestoreSyncWire.spaceMergeOf(
+            {for (final envelope in batch) envelope.table},
             pushedBy: pushedBy,
+            schema: schema,
             serverTime: now,
           ),
+          SetOptions(merge: true),
         );
-      }
-      write.set(
-        spaceDoc,
-        FirestoreSyncWire.spaceMergeOf(
-          {for (final envelope in batch) envelope.table},
-          pushedBy: pushedBy,
-          schema: schema,
-          serverTime: now,
-        ),
-        SetOptions(merge: true),
-      );
-      return write.commit();
-    });
+      }),
+    );
   }
+
+  /// Commits [write]'s sets as one write-only transaction, never a
+  /// `WriteBatch`: the SDK queues a batch in memory while offline even with
+  /// persistence off, so it would time out as `offline`, land on reconnect
+  /// anyway and gain a copy on every retry; a transaction is never queued and
+  /// fails at once offline (S5 review M4). One attempt: with nothing read
+  /// there is nothing to re-read, and the engine's back-off is the retry.
+  Future<void> _writeOnly(void Function(Transaction transaction) write) =>
+      _db.runTransaction<void>((transaction) async {
+        write(transaction);
+      }, maxAttempts: 1);
 
   @override
   Future<SyncPullPage> pullPage(
@@ -132,16 +147,23 @@ class FirestoreSyncGateway implements SyncGateway {
           .get(const GetOptions(source: Source.server));
       final envelopes = <SyncEnvelope>[];
       var next = after;
+      // The page's latest position in the cursor's own order — the query's
+      // order, so the cursor cannot step back inside a page.
+      SyncCursor? latest;
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final pushedAt = data['pushedAt'];
         // A pending server timestamp — never from a server read, but a
         // cursor cannot be made from it.
         if (pushedAt is! Timestamp) continue;
-        next = FirestoreSyncWire.encodeCursor(
+        final position = FirestoreSyncWire.encodeCursor(
           pushedAt.microsecondsSinceEpoch,
           doc.id,
         );
+        if (latest == null ||
+            FirestoreSyncWire.compareCursors(position, latest) > 0) {
+          latest = next = position;
+        }
         final envelope = FirestoreSyncWire.envelopeOf(table, doc.id, data);
         if (envelope == null) {
           // The rules admit no such document; skipped like a parked
@@ -169,13 +191,20 @@ class FirestoreSyncGateway implements SyncGateway {
     required int schema,
   }) {
     return _guard(() async {
+      // The id is drawn once, before the write: a repeated call is a new
+      // space, never a second write of this one.
       final doc = _spaces(ownerUid).doc();
-      await doc.set({
-        'name': name,
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdBy': deviceId,
-        'schema': schema,
-      });
+      await _writeOnly(
+        (transaction) => transaction.set(
+          doc,
+          FirestoreSyncWire.spaceCreateOf(
+            name: name,
+            deviceId: deviceId,
+            schema: schema,
+            serverTime: FieldValue.serverTimestamp(),
+          ),
+        ),
+      );
       // Read back rather than guess: `createdAt` is the server's.
       final created = await doc.get(const GetOptions(source: Source.server));
       final ref = SyncSpaceRef(ownerUid: ownerUid, spaceId: doc.id);
@@ -213,13 +242,25 @@ class FirestoreSyncGateway implements SyncGateway {
   Stream<SyncSpaceSignal> watchSpace(SyncSpaceRef space) {
     // Broadcast on every path, each listener its own Firestore listener; a
     // failure arrives as a gateway error before the stream ends, never as a
-    // bare completion.
+    // bare completion. Metadata changes are asked for so the server's first
+    // answer arrives even when it matches what the cache said; only server
+    // snapshots reach the engine.
     return Stream.multi((listener) {
-      final subscription = _space(space).snapshots().listen(
-        (snapshot) => listener.add(_signalOf(snapshot.data())),
-        onError: (Object error) => listener.addError(_mapError(error)),
-        onDone: listener.close,
-      );
+      final subscription = _space(space)
+          .snapshots(includeMetadataChanges: true)
+          .listen(
+            (snapshot) {
+              final metadata = snapshot.metadata;
+              if (FirestoreSyncWire.shouldForwardSnapshot(
+                isFromCache: metadata.isFromCache,
+                hasPendingWrites: metadata.hasPendingWrites,
+              )) {
+                listener.add(_signalOf(snapshot.data()));
+              }
+            },
+            onError: (Object error) => listener.addError(_mapError(error)),
+            onDone: listener.close,
+          );
       listener.onCancel = subscription.cancel;
     }, isBroadcast: true);
   }
@@ -288,9 +329,9 @@ class FirestoreSyncGateway implements SyncGateway {
 
   SyncGatewayException _mapError(Object error) => switch (error) {
     SyncGatewayException() => error,
-    FirebaseException(:final code, :final message) => SyncGatewayException(
-      FirestoreSyncWire.failureOf(code),
-      message ?? code,
+    FirebaseException(:final code, :final message) => _firebaseFailure(
+      code,
+      message,
     ),
     TimeoutException() => const SyncGatewayException(
       SyncGatewayFailure.offline,
@@ -298,6 +339,21 @@ class FirestoreSyncGateway implements SyncGateway {
     ),
     _ => SyncGatewayException(SyncGatewayFailure.unknown, '$error'),
   };
+
+  SyncGatewayException _firebaseFailure(String code, String? message) {
+    // Retried like any unknown failure, so without its own line a query
+    // missing its index would fail quietly forever.
+    if (code == 'failed-precondition') {
+      debugPrint(
+        '[FirestoreSyncGateway] failed-precondition, possibly a missing '
+        'index: $message',
+      );
+    }
+    return SyncGatewayException(
+      FirestoreSyncWire.failureOf(code),
+      message ?? code,
+    );
+  }
 }
 
 /// The pure half of [FirestoreSyncGateway]: how a cursor, a row and the space
@@ -328,9 +384,28 @@ abstract final class FirestoreSyncWire {
     return (micros, value.substring(bar + 1));
   }
 
+  /// The order a pull reads rows in, as the query states it: `pushedAt`
+  /// first, then the row key.
+  static int compareCursors(SyncCursor a, SyncCursor b) {
+    final (aMicros, aKey) = decodeCursor(a);
+    final (bMicros, bKey) = decodeCursor(b);
+    final byTime = aMicros.compareTo(bMicros);
+    return byTime != 0 ? byTime : aKey.compareTo(bKey);
+  }
+
   /// Where a pull resumed from a cursor at [pushedAtMicros] starts.
   static int overlapStart(int pushedAtMicros) =>
       pushedAtMicros - pullOverlap.inMicroseconds;
+
+  /// Whether a space snapshot reaches the engine: only the server's word.
+  /// Offline, the first snapshot of a document never read says it does not
+  /// exist, which would pause the engine for good as a deleted space (S5
+  /// review H1); a snapshot of the device's own write carries null server
+  /// timestamps (L8).
+  static bool shouldForwardSnapshot({
+    required bool isFromCache,
+    required bool hasPendingWrites,
+  }) => !isFromCache && !hasPendingWrites;
 
   /// A row's document. `data` is always present — null for a tombstone — and
   /// [serverTime] (Firestore's server-timestamp sentinel) stamps `pushedAt`,
@@ -397,6 +472,20 @@ abstract final class FirestoreSyncWire {
     'touched': {for (final table in tables) table: serverTime},
     'lastWriter': pushedBy,
     'lastWriteAt': serverTime,
+    'schema': schema,
+  };
+
+  /// A new space document; the rules require `createdAt` to be the request's
+  /// time, so [serverTime] stamps it.
+  static Map<String, Object?> spaceCreateOf({
+    required String name,
+    required String deviceId,
+    required int schema,
+    required Object serverTime,
+  }) => {
+    'name': name,
+    'createdAt': serverTime,
+    'createdBy': deviceId,
     'schema': schema,
   };
 

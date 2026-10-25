@@ -109,6 +109,18 @@ function Case([string]$name, [string]$expect, [int]$status, [switch]$Info) {
     $results.Add([pscustomobject]@{ Result = $verdict; Expected = $expect; Actual = $actual; Case = $name })
 }
 
+# A port another process holds would make the emulator fail to start, or —
+# worse — the probe talk to someone else's emulator and judge its rules.
+$busy = @(foreach ($port in @($FirestorePort, $WebsocketPort, $HubPort, $LoggingPort)) {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)
+        try { $listener.Start() } catch { $port } finally { $listener.Stop() }
+    })
+if ($busy.Count -gt 0) {
+    Write-Host "Port(s) $($busy -join ', ') already in use; pass free ones with -FirestorePort, -WebsocketPort, -HubPort, -LoggingPort."
+    Remove-Item -Recurse -Force $scratch -ErrorAction SilentlyContinue
+    exit 101
+}
+
 $emulator = $null
 try {
     $log = Join-Path $scratch 'emulator.log'
@@ -150,6 +162,15 @@ try {
     Case 'a stranger pushes into the space' 'deny' (Commit $stranger @((Row 'u1' 's1' 'folders' 'f9' -set @{ ownerId = (Str 'u2') })))
     Case 'a tombstone with data null' 'allow' (Commit $owner @((Row 'u1' 's1' 'folders' 'f2' -set @{ op = (Str 'tombstone'); data = (Nul) }), (SpaceMerge 'u1' 's1' 43)))
     Case 'a tombstone without the data key' 'deny' (Commit $owner @((Row 'u1' 's1' 'folders' 'f3' -set @{ op = (Str 'tombstone') } -omit @('data')), (SpaceMerge 'u1' 's1' 43)))
+    Case 'a tombstone with map data' 'deny' (Commit $owner @((Row 'u1' 's1' 'folders' 'f11' -set @{ op = (Str 'tombstone') }), (SpaceMerge 'u1' 's1' 43)))
+    Case 'an upsert with data null' 'deny' (Commit $owner @((Row 'u1' 's1' 'folders' 'f12' -set @{ data = (Nul) }), (SpaceMerge 'u1' 's1' 43)))
+    Case 'a space created with a client createdAt' 'deny' (Commit $owner @(@{
+                update = @{ name = "$docRoot/users/u1/spaces/s2"; fields = @{ name = (Str 'Other'); createdBy = (Str 'A'); schema = (Int 43); createdAt = (Ts '2026-01-01T00:00:00Z') } }
+            }))
+    Case 'a space update changing createdAt' 'deny' (Commit $owner @(@{
+                update     = @{ name = "$docRoot/users/u1/spaces/s1"; fields = @{ createdAt = (Ts '2020-01-01T00:00:00Z') } }
+                updateMask = @{ fieldPaths = @('createdAt') }
+            }))
     Case 'ownerId null' 'deny' (Commit $owner @((Row 'u1' 's1' 'folders' 'f4' -set @{ ownerId = (Nul) }), (SpaceMerge 'u1' 's1' 43)))
     Case 'a space merge at a lower schema' 'deny' (Commit $owner @((Row 'u1' 's1' 'folders' 'f5'), (SpaceMerge 'u1' 's1' 42)))
     Case 'a push to a missing space' 'deny' (Commit $owner @((Row 'u1' 'missing' 'folders' 'f6'), (SpaceMerge 'u1' 'missing' 43)))

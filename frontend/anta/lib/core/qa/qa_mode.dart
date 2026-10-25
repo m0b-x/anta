@@ -1,3 +1,5 @@
+import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+
 /// Compile-time switches for the QA/automation build.
 ///
 /// A normal build never defines any of these, so [enabled] const-folds to
@@ -37,7 +39,9 @@ abstract final class QaMode {
   );
 
   /// The identity "Sign in with Google" takes on the emulator, as
-  /// `<uid>:<email>` (`--dart-define=ANTA_QA_ACCOUNT=qa1:qa1@example.com`).
+  /// `<sub>:<email>` (`--dart-define=ANTA_QA_ACCOUNT=qa1:qa1@example.com`).
+  /// The first field is the Google `sub`, not the Firebase uid: the Auth
+  /// emulator assigns its own uid, so nothing may assume `users/<sub>/…`.
   static const String qaAccount = String.fromEnvironment('ANTA_QA_ACCOUNT');
 
   /// Whether this build talks to the emulator suite: a QA build that may
@@ -45,6 +49,19 @@ abstract final class QaMode {
   /// branch behind it.
   static const bool useFirebaseEmulator =
       enabled && allowCloud && firebaseEmulatorHost != '';
+
+  /// The project the emulator suite runs as (`--project demo-anta`): the
+  /// suite's rules, the Auth emulator's tokens and the rules probe all use
+  /// it.
+  static const String firebaseEmulatorProject = 'demo-anta';
+
+  /// [options] as the app initialises Firebase under the emulator: the real
+  /// options with the emulator's project id. Under the real id the Firestore
+  /// emulator only warns, and whether the suite's rules apply to that second
+  /// id is unverified — a pass under it would prove nothing about the rules
+  /// (record §3.8, S5 review H2).
+  static FirebaseOptions emulatorFirebaseOptions(FirebaseOptions options) =>
+      options.copyWith(projectId: firebaseEmulatorProject);
 
   static const bool permissionPrompt = bool.fromEnvironment(
     'ANTA_QA_PERMISSION_PROMPT',

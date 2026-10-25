@@ -95,6 +95,23 @@ void main() {
     ]);
   });
 
+  test('a bridge built while the app is away hears the return as one', () async {
+    for (final initial in [AppLifecycleState.hidden, AppLifecycleState.paused]) {
+      final away = StreamController<AppLifecycleState>();
+      final seeded = FakeSyncEngine()..isStarted = true;
+      final built = SyncLifecycleBridge(seeded, away.stream, initial: initial);
+
+      away
+        ..add(AppLifecycleState.inactive)
+        ..add(AppLifecycleState.resumed);
+      await pumpEventQueue();
+
+      expect(seeded.calls, ['resumed'], reason: '$initial');
+      await built.dispose();
+      await away.close();
+    }
+  });
+
   test('after dispose nothing reaches the engine', () async {
     await bridge.dispose();
 

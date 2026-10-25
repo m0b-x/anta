@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/daos/sync_dao.dart';
@@ -75,6 +76,51 @@ void main() {
       await a().settle();
 
       expect(a().engine.current.pause, SyncPause.noAccess);
+    });
+
+    test('a resume reads a deleted space once and keeps the pause; once the '
+        'space is back, the next resume lifts it and runs', () async {
+      await a().engine.start();
+      await a().settle();
+      pair.gateway.deleteSpace(pair.space);
+      await a().settle();
+      expect(a().engine.current.pause, SyncPause.noAccess);
+      final reads = pair.gateway.readSpaceCalls;
+
+      a().engine.onAppResumed();
+      await a().settle();
+
+      expect(a().engine.current.pause, SyncPause.noAccess);
+      expect(pair.gateway.readSpaceCalls, reads + 1);
+
+      final back = await pair.gateway.createSpace(
+        ownerUid: syncUid,
+        name: 'Main',
+        deviceId: 'C',
+        schema: syncSchema,
+      );
+      expect(back.ref, pair.space);
+      pair.gateway.calls.clear();
+      a().engine.onAppResumed();
+      await a().settle();
+
+      expect(a().engine.current.pause, SyncPause.none);
+      expect(pair.gateway.readSpaceCalls, reads + 2);
+      expect(pair.gateway.calls, contains('pull:folders'));
+    });
+
+    test('"Sync now" lifts a pull\'s denial once the space reads', () async {
+      pair.gateway.failNextWith(SyncGatewayFailure.permissionDenied);
+      final denied = await a().sync();
+      expect(denied.failure, SyncGatewayFailure.permissionDenied);
+      expect(a().engine.current.pause, SyncPause.noAccess);
+
+      final next = await a().sync();
+
+      expect(next.skipped, isNull);
+      expect(next.failure, isNull);
+      expect(a().engine.current.pause, SyncPause.none);
+      expect(pair.gateway.readSpaceCalls, 1);
     });
 
     test('a signal stream that ends is attached afresh by the next run', () async {
@@ -436,6 +482,44 @@ void main() {
       pair.gateway.calls.clear();
       await a().sync();
       expect(pair.gateway.calls, contains('pull:folders'));
+    });
+
+    test('a leave heard while stopped holds through the next start: "Sync '
+        'now" pulls nothing and no signal is followed', () async {
+      await a().engine.start();
+      await a().settle();
+      await a().engine.stop();
+      await a().engine.onAppBackgrounded();
+      await a().engine.start();
+      await a().settle();
+      pair.gateway.calls.clear();
+
+      await a().sync();
+      expect(pair.gateway.calls.where((c) => c.startsWith('pull:')), isEmpty);
+
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().sync();
+      await a().settle();
+      expect(callsAfterPushOfB(), isEmpty, reason: 'no signal while away');
+    });
+
+    test('an engine started while the app is away starts away, until the '
+        'return', () async {
+      a().lifecycleState = AppLifecycleState.paused;
+      await a().engine.start();
+      await a().settle();
+
+      await a().sync();
+      expect(pair.gateway.calls.where((c) => c.startsWith('pull:')), isEmpty);
+
+      final folder = await b().db.folderDao.createFolder(name: 'From B');
+      await b().sync();
+      await a().settle();
+      expect(callsAfterPushOfB(), isEmpty, reason: 'no signal while away');
+
+      a().engine.onAppResumed();
+      await a().settle();
+      expect(await a().db.folderDao.getFolderById(folder.id), isNotNull);
     });
 
     test('a debounced drain over a closed database ends quietly', () async {

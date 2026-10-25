@@ -96,7 +96,7 @@ class FirebaseAuthService implements AuthService {
     final account = QaMode.qaAccount;
     final colon = account.indexOf(':');
     if (colon <= 0) {
-      throw StateError('ANTA_QA_ACCOUNT must be <uid>:<email>, got "$account"');
+      throw StateError('ANTA_QA_ACCOUNT must be <sub>:<email>, got "$account"');
     }
     final token = jsonEncode({
       'sub': account.substring(0, colon),

@@ -19,13 +19,25 @@ import 'sync_engine.dart';
 class SyncLifecycleBridge {
   final SyncEngine _engine;
   late final StreamSubscription<AppLifecycleState> _subscription;
-  bool _away = false;
+  bool _away;
 
   /// [lifecycle] is `PermissionService.appLifecycle()` in the app — one
   /// `AppLifecycleListener` while subscribed — and a controller in a test.
-  SyncLifecycleBridge(this._engine, Stream<AppLifecycleState> lifecycle) {
+  /// [initial] is the state the app is in now: the listener reports changes
+  /// only, and a bridge built while away must still hear the return as one
+  /// (S5 review M7).
+  SyncLifecycleBridge(
+    this._engine,
+    Stream<AppLifecycleState> lifecycle, {
+    AppLifecycleState? initial,
+  }) : _away = isLeave(initial) {
     _subscription = lifecycle.listen(_onState);
   }
+
+  /// Whether [state] means the app left the foreground — the bridge's rule
+  /// and the one the engine's [SyncEngine.start] reads the current state by.
+  static bool isLeave(AppLifecycleState? state) =>
+      state == AppLifecycleState.hidden || state == AppLifecycleState.paused;
 
   void _onState(AppLifecycleState state) {
     switch (state) {

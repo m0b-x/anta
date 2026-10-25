@@ -3,8 +3,10 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart'
     show CouldNotRollBackException, InvalidDataException;
+import 'package:drift/isolate.dart' show DriftRemoteException;
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:get_it/get_it.dart';
 import 'package:sqlite3/common.dart' show SqliteException;
 
@@ -152,6 +154,7 @@ class SyncEngine {
   final SyncScheduler _scheduler;
   final SyncEngineTiming _timing;
   final List<SyncTableBinding<Object>> _tables;
+  final AppLifecycleState? Function()? _lifecycleState;
   late final _Puller _puller = _Puller(this);
   late final _Pusher _pusher = _Pusher(this);
 
@@ -165,6 +168,15 @@ class SyncEngine {
   /// The pauses the engine decides: `noAccess`, `appOutdated` and
   /// `quotaExhausted`; the status service decides the account ones.
   SyncPause _pause = SyncPause.none;
+
+  /// Whether one read of the space may lift a `noAccess` pause: a space gone
+  /// or unreadable may come back, while rules that refused too many rows are
+  /// not disproved by a readable space.
+  bool _accessRecheckable = false;
+
+  /// Set by a resume and by "Sync now": the next gate reads the space once
+  /// before it believes a `noAccess` pause (record §3.3).
+  bool _recheckAccess = false;
 
   /// Whether the quota pause still blocks runs: its retry, a resume and
   /// "Sync now" lift it, while [_pause] stays until a call succeeds.
@@ -214,7 +226,9 @@ class SyncEngine {
   /// the two devices of a convergence test each hold one. [schema] is this
   /// build's `DatabaseSchema.currentVersion`, what the space's schema is
   /// compared against; [tables] defaults to every synced table in pull
-  /// order.
+  /// order. [lifecycleState] reads the app's lifecycle as [start] finds it;
+  /// without one, or before the first lifecycle message, the foreground is
+  /// what the lifecycle calls tracked.
   SyncEngine.detached({
     required AppDatabase db,
     required SyncGateway gateway,
@@ -228,6 +242,7 @@ class SyncEngine {
     SyncScheduler? scheduler,
     SyncEngineTiming timing = const SyncEngineTiming(),
     List<SyncTableBinding<Object>>? tables,
+    AppLifecycleState? Function()? lifecycleState,
   }) : _db = db,
        _gateway = gateway,
        _binding = binding,
@@ -239,7 +254,8 @@ class SyncEngine {
        _authChanges = authChanges,
        _scheduler = scheduler ?? const TimerSyncScheduler(),
        _timing = timing,
-       _tables = tables ?? syncTableBindings;
+       _tables = tables ?? syncTableBindings,
+       _lifecycleState = lifecycleState;
 
   /// Set by DI once it decided the app syncs: every engine [getInstance]
   /// builds then starts itself, the one built after a database switch
@@ -278,8 +294,13 @@ class SyncEngine {
       schema: DatabaseSchema.currentVersion,
       currentUser: () => auth.currentUser,
       authChanges: auth.authStateChanges,
+      lifecycleState: () => WidgetsBinding.instance.lifecycleState,
     );
-    _bridge = SyncLifecycleBridge(engine, PermissionService.appLifecycle());
+    _bridge = SyncLifecycleBridge(
+      engine,
+      PermissionService.appLifecycle(),
+      initial: WidgetsBinding.instance.lifecycleState,
+    );
     _register(engine);
     // Not awaited: the first run reaches the network, and neither the launch
     // nor a database switch waits on it.
@@ -372,6 +393,10 @@ class SyncEngine {
     if (_started) return;
     _started = true;
     _stopped = false;
+    // An engine built while the app is away has heard no leave (S5 review
+    // M7).
+    final state = _lifecycleState?.call();
+    if (state != null) _foreground = !SyncLifecycleBridge.isLeave(state);
     final generation = ++_startGeneration;
     final quotaPaused =
         await _db.syncDao.getValue(SyncDao.keyQuotaPausedAt) != null;
@@ -421,22 +446,26 @@ class SyncEngine {
   }
 
   /// Pulls every table, then drains — "Sync now". Lifts a quota hold: the
-  /// user asked, so the space is tried once more. A request during a run is
-  /// served by the one run that follows it.
+  /// user asked, so the space is tried once more; a `noAccess` pause is
+  /// re-checked with one read of the space. A request during a run is served
+  /// by the one run that follows it.
   Future<SyncRunReport> syncNow() {
     _quotaHeld = false;
+    _recheckAccess = true;
     return _request(_RunMode.full);
   }
 
   /// The app came back: the signal is followed again and a full run starts
-  /// now, skipping whatever back-off or quota wait was pending. Unless
-  /// started, only the foreground is noted.
+  /// now, skipping whatever back-off or quota wait was pending, after one
+  /// read of the space when a `noAccess` pause holds. Unless started, only
+  /// the foreground is noted.
   void onAppResumed() {
     _foreground = true;
     if (!_started) return;
     _backoffStep = 0;
     _signalBackoffStep = 0;
     _quotaHeld = false;
+    _recheckAccess = true;
     _retry?.cancel();
     _retry = null;
     _signalRetry?.cancel();
@@ -566,7 +595,7 @@ class SyncEngine {
       return report(skipped: halted.skip);
     } on _AccessLost catch (lost) {
       _recordFailure(lost.cause);
-      _loseAccess(lost.pause);
+      _loseAccess(lost.pause, recheckable: lost.recheckable);
       return report(failure: lost.cause.failure);
     } on SyncGatewayException catch (error) {
       await _failed(error);
@@ -598,12 +627,31 @@ class SyncEngine {
       return (null, SyncRunSkip.accountMismatch);
     }
     if (SyncSuspension.isSuspended) return (null, SyncRunSkip.suspended);
-    if (_pause == SyncPause.noAccess) return (null, SyncRunSkip.noAccess);
+    if (_pause == SyncPause.noAccess && !await _regainsAccess(binding)) {
+      return (null, SyncRunSkip.noAccess);
+    }
     if (_pause == SyncPause.appOutdated) {
       return (null, SyncRunSkip.appOutdated);
     }
     if (_quotaHeld) return (null, SyncRunSkip.paused);
     return (binding, null);
+  }
+
+  /// Whether a `noAccess` pause lifts now: only when a resume or "Sync now"
+  /// asked and the pause is one a readable space disproves — then one
+  /// [SyncGateway.readSpace]; a space that answers lifts it, a missing one or
+  /// any failure keeps it. A transient refusal must not hold sync until the
+  /// next sign-in or launch (record §3.3).
+  Future<bool> _regainsAccess(SyncBinding binding) async {
+    if (!_recheckAccess || !_accessRecheckable) return false;
+    _recheckAccess = false;
+    try {
+      if (await _gateway.readSpace(_spaceOf(binding)) == null) return false;
+    } on SyncGatewayException {
+      return false;
+    }
+    _pause = SyncPause.none;
+    return true;
   }
 
   SyncSpaceRef _spaceOf(SyncBinding binding) =>
@@ -725,10 +773,14 @@ class SyncEngine {
     );
   }
 
-  /// Holds sync for [pause] until the next sign-in or launch: nothing is
-  /// pulled, pushed or listened to.
-  void _loseAccess(SyncPause pause) {
+  /// Holds sync for [pause] until the next sign-in or launch — or, when
+  /// [recheckable], until a resume or "Sync now" finds the space readable:
+  /// nothing is pulled, pushed or listened to.
+  void _loseAccess(SyncPause pause, {bool recheckable = true}) {
     _pause = pause;
+    _accessRecheckable = recheckable;
+    // Only a resume or "Sync now" after this pause asks again.
+    _recheckAccess = false;
     _retry?.cancel();
     _retry = null;
     _detachSignal();
@@ -1001,7 +1053,10 @@ class _Queued {
   final SyncOutboxRow entry;
   final SyncEnvelope envelope;
 
-  const _Queued(this.entry, this.envelope);
+  /// The row data's size as JSON, which the batch's byte cap adds up.
+  final int bytes;
+
+  const _Queued(this.entry, this.envelope, this.bytes);
 }
 
 class _Halted implements Exception {
@@ -1015,5 +1070,9 @@ class _AccessLost implements Exception {
   final SyncPause pause;
   final SyncGatewayException cause;
 
-  const _AccessLost(this.pause, this.cause);
+  /// Whether a readable space disproves the pause; see
+  /// [SyncEngine._accessRecheckable].
+  final bool recheckable;
+
+  const _AccessLost(this.pause, this.cause, {this.recheckable = true});
 }

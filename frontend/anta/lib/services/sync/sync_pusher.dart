@@ -17,6 +17,11 @@ class _Pusher {
   /// than refused for its whole batch.
   static const int maxDocumentBytes = 900000;
 
+  /// About 8 MiB of row data per push, under Firestore's 10 MiB request: a
+  /// batch near the cap on a slow uplink would time out and be retried whole
+  /// forever (S5 review M5).
+  static const int maxBatchBytes = 8 * 1024 * 1024;
+
   /// More rows than this refused by the rules in one drain means the rules
   /// changed, not the rows (record §3.5).
   static const int maxRefusedPerDrain = 20;
@@ -57,8 +62,29 @@ class _Pusher {
         pushed[(queued.entry.syncedTable, queued.entry.rowKey)] =
             queued.entry.hlc;
       }
-      await _push(bound, batch, tally, drain);
+      for (final part in _byBytes(batch)) {
+        await _push(bound, part, tally, drain);
+      }
     }
+  }
+
+  /// [batch] cut, in order, into runs of at most [maxBatchBytes] of row
+  /// data; a row is never left out, so a run holds at least one.
+  static List<List<_Queued>> _byBytes(List<_Queued> batch) {
+    final parts = <List<_Queued>>[];
+    var part = <_Queued>[];
+    var bytes = 0;
+    for (final queued in batch) {
+      if (part.isNotEmpty && bytes + queued.bytes > maxBatchBytes) {
+        parts.add(part);
+        part = [];
+        bytes = 0;
+      }
+      part.add(queued);
+      bytes += queued.bytes;
+    }
+    if (part.isNotEmpty) parts.add(part);
+    return parts;
   }
 
   /// The oldest [maxBatch] entries [eligible] lets through, reading further
@@ -117,12 +143,12 @@ class _Pusher {
           continue;
         }
         final data = envelope.data;
-        if (data != null &&
-            utf8.encode(jsonEncode(data)).length > maxDocumentBytes) {
+        final bytes = data == null ? 0 : utf8.encode(jsonEncode(data)).length;
+        if (bytes > maxDocumentBytes) {
           _park(entry, 'over $maxDocumentBytes bytes');
           continue;
         }
-        batch.add(_Queued(entry, envelope));
+        batch.add(_Queued(entry, envelope, bytes));
       }
     }
     return batch;
@@ -206,7 +232,9 @@ class _Pusher {
       _park(batch.single.entry, refusal);
       if (refusal.failure == SyncGatewayFailure.permissionDenied &&
           ++drain.refused > maxRefusedPerDrain) {
-        throw _AccessLost(SyncPause.noAccess, refusal);
+        // The space reads fine — the rules changed — so reading it again
+        // proves nothing.
+        throw _AccessLost(SyncPause.noAccess, refusal, recheckable: false);
       }
       return;
     }

@@ -73,6 +73,37 @@ List<SyncTableBinding<Object>> _foldersFaulting(
         : binding,
 ];
 
+/// Every synced table, the folders' merge first running a statement SQLite
+/// refuses for the row keys in [refused] — an error that is neither a
+/// constraint nor the end of the transaction, so the savepoint rolls back
+/// and only the error's type decides the page.
+List<SyncTableBinding<Object>> _foldersRefusingStatement(Set<String> refused) =>
+    [
+      for (final binding in syncTableBindings)
+        binding.table == 'folders'
+            ? _RefusedStatement(binding, refused)
+            : binding,
+    ];
+
+class _RefusedStatement extends _FaultyMerge {
+  final Set<String> _refused;
+
+  _RefusedStatement(SyncTableBinding<Object> inner, this._refused)
+    : super(inner, const {});
+
+  @override
+  Future<MergeOutcome> mergeRemote(
+    AppDatabase db,
+    SyncEnvelope envelope, {
+    String? floor,
+  }) async {
+    if (_refused.contains(envelope.rowKey)) {
+      await db.customSelect('SELECT * FROM no_such_table').get();
+    }
+    return super.mergeRemote(db, envelope, floor: floor);
+  }
+}
+
 /// [length] characters of a note body that fills many database pages.
 String _noise(int length) => String.fromCharCodes([
   for (var i = 0; i < length; i++) 33 + (i * 7919 + i ~/ 13 * 104729) % 90,
@@ -497,9 +528,10 @@ void main() {
       expect(a().engine.current.parkedCount, 0);
     });
 
-    test('a merge that fills the disk fails its page whole: the run reports '
-        'it, the cursor stays, and the next run applies the page once there '
-        'is room', () async {
+    // Every wait is the engine's own (`sync` awaits `whenIdle`): a background
+    // database answers a round trip later than an in-memory one, which a
+    // fixed settle does not cover.
+    Future<void> diskFull() async {
       final b = pair.b;
       final folder = await b.db.folderDao.createFolder(name: 'Big');
       await b.sync();
@@ -538,7 +570,52 @@ void main() {
       expect(next.failure, isNull);
       expect(await a().db.noteDao.getNoteById(note.id), isNotNull);
       expect(a().engine.current.parkedCount, 0);
-    });
+    }
+
+    for (final background in [false, true]) {
+      final where = background ? ' — on background-isolate databases' : '';
+
+      test('a merge that fills the disk fails its page whole: the run reports '
+          'it, the cursor stays, and the next run applies the page once there '
+          'is room$where', () async {
+        if (background) {
+          await pair.close();
+          pair = await SyncPair.open(background: true);
+        }
+        await diskFull();
+      });
+
+      test('a merge whose statement SQLite refuses fails its page whole, the '
+          'error unwrapped from the isolate$where', () async {
+        final refused = <String>{};
+        await pair.close();
+        pair = await SyncPair.open(
+          background: background,
+          tables: _foldersRefusingStatement(refused),
+        );
+        final b = pair.b;
+        final folder = await b.db.folderDao.createFolder(name: 'Refused');
+        await b.sync();
+        refused.add(folder.id);
+
+        final failed = await a().sync();
+
+        expect(failed.failure, SyncGatewayFailure.unknown);
+        expect(failed.parked, 0);
+        expect(
+          await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+          isNull,
+        );
+        expect(await a().db.folderDao.getFolderById(folder.id), isNull);
+
+        refused.clear();
+        final next = await a().sync();
+
+        expect(next.failure, isNull);
+        expect(await a().db.folderDao.getFolderById(folder.id), isNotNull);
+        expect(a().engine.current.parkedCount, 0);
+      });
+    }
 
     test('an entry whose row was hard-deleted is retired, nothing pushed', () async {
       final folder = await a().db.folderDao.createFolder(name: 'Wiped');
@@ -572,6 +649,54 @@ void main() {
       expect(
         (await a().db.syncOutboxDao.pending()).single.rowKey,
         note.id,
+      );
+    });
+
+    test('a drain cuts its batch at about 8 MiB of row data: ten notes of '
+        '850 KB go out as nine and one', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Big');
+      for (var i = 0; i < 10; i++) {
+        await writeNote(
+          a(),
+          folderId: folder.id,
+          title: 'Big $i',
+          body: 'x' * 850000,
+        );
+      }
+
+      final report = await a().sync();
+
+      expect(report.failure, isNull);
+      expect(report.parked, 0);
+      expect([for (final batch in pair.gateway.pushes) batch.length], [10, 1]);
+      expect(pair.gateway.rowsOf(pair.space, 'notes'), hasLength(10));
+      expect(await a().db.syncOutboxDao.count(), 0);
+    });
+
+    test('a key parked on pull keeps its local edit out of the drain', () async {
+      final faults = <String, Object Function()>{};
+      await pair.close();
+      pair = await SyncPair.open(tables: _foldersFaulting(faults));
+      final b = pair.b;
+      final folder = await a().db.folderDao.createFolder(name: 'Y');
+      await a().sync();
+      await b.sync();
+      await b.db.folderDao.updateFolder(id: folder.id, name: 'Y from B');
+      await b.sync();
+      await a().db.folderDao.updateFolder(id: folder.id, name: 'Y from A');
+      faults[folder.id] = () => StateError('a local fault on A');
+
+      final report = await a().sync();
+
+      expect(report.parked, 1);
+      expect(
+        spaceFolders()[folder.id]?.data?[JsonKeys.name],
+        'Y from B',
+        reason: 'A lacks the space\'s version, which may be the newer one',
+      );
+      expect(
+        [for (final entry in await a().db.syncOutboxDao.pending()) entry.rowKey],
+        [folder.id],
       );
     });
   });

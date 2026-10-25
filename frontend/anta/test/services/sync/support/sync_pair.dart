@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 
 import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
@@ -59,6 +61,10 @@ class SyncDevice {
   /// Who `currentUser` answers with; a test signs out by setting null.
   AppUser? user = const AppUser(uid: syncUid);
 
+  /// What the app's lifecycle reads as when the engine starts; null, as with
+  /// no binding, leaves the foreground to the lifecycle calls.
+  AppLifecycleState? lifecycleState;
+
   /// Every status the engine emitted, in order.
   final List<SyncStatus> statuses = [];
   late final SyncEngine engine;
@@ -86,6 +92,7 @@ class SyncDevice {
       scheduler: scheduler,
       timing: timing,
       tables: tables,
+      lifecycleState: () => lifecycleState,
     );
     _statusSubscription = engine.status.listen(statuses.add);
   }
@@ -121,23 +128,35 @@ class SyncPair {
   final SyncDevice a;
   final SyncDevice b;
 
-  SyncPair._(this.gateway, this.space, this.a, this.b);
+  /// The files of a [open] with `background: true`, deleted by [close].
+  final Directory? _files;
+
+  SyncPair._(this.gateway, this.space, this.a, this.b, this._files);
 
   /// Opens both databases and creates the space; binds both unless [bind]
   /// is false, for a test that writes before the bind. [tables] replaces
   /// both engines' table bindings, for a test that wraps one to make its
-  /// merge fail.
+  /// merge fail. [background] opens each database on a file in its own
+  /// isolate, as the app does, where a SQLite error reaches the engine
+  /// wrapped in a `DriftRemoteException`.
   static Future<SyncPair> open({
     bool bind = true,
+    bool background = false,
     SyncEngineTiming timing = const SyncEngineTiming(),
     List<SyncTableBinding<Object>>? tables,
   }) async {
     final gateway = FakeSyncGateway();
     final clock = _SharedClock();
+    final files = background
+        ? await Directory.systemTemp.createTemp('anta_sync_pair_')
+        : null;
     Future<SyncDevice> device(String id) async {
       final statements = StatementCounter();
+      final executor = files == null
+          ? NativeDatabase.memory()
+          : NativeDatabase.createInBackground(File('${files.path}/$id.sqlite'));
       final db = AppDatabase.forTesting(
-        NativeDatabase.memory().interceptWith(statements),
+        executor.interceptWith(statements),
         deviceId: id,
         wallClock: clock.call,
       );
@@ -165,7 +184,7 @@ class SyncPair {
       deviceId: 'A',
       schema: syncSchema,
     )).ref;
-    final pair = SyncPair._(gateway, space, a, b);
+    final pair = SyncPair._(gateway, space, a, b, files);
     if (bind) {
       await pair.bind(a);
       await pair.bind(b);
@@ -180,6 +199,7 @@ class SyncPair {
     await a._close();
     await b._close();
     SettingsService.reset();
+    await _files?.delete(recursive: true);
   }
 
   /// Every synced row of [device] as the push would send it, keyed
