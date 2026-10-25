@@ -1635,6 +1635,38 @@ the race L10 fixed for the engine, so the engine's retry can still pick a
 binding or status service bound to the closing database; `announceMerged`
 now reads every live body per pulled page (one batched query).
 
+**S4b-1b review (2026-10-25, one independent reviewer on a snapshot, two
+mutants, one exit/delete race probe; 0 high, 3 medium, 9 low; "the
+commit stands as a base").** Mediums: M1 `_keptDeletedNotesText` checks
+`_holdsDeletedNotesText` at once and never waits for `_remoteBusy`, so an
+exit write landing before the delete handler has listed its filing lets
+the page leave and the text is never kept (probe: the only write went to
+the tombstone, no kept-as-new note); M2 a write that lands on the
+tombstone between the delete merge's commit and its event is lost —
+`NoteDao.updateNote` returns normally for a deleted row, the autosave
+marks the page clean, the event finds a clean page → `updateNote` must
+*report* the refused write (the refusal itself stays) so the page stays
+dirty; M3 `announceMerged` reads and decompresses every live body of every
+pulled page and puts each in the 50-entry content LRU (evicting the user's
+working cache; up to 499 bodies held at once) — the `SyncAppliedRow` carry
+removes the read, and the cache put goes. Lows: L4 `_retryEachUnfiled`
+re-runs a filing that finished during its iteration (a duplicate copy or
+notice); L5 filings completing out of order move the baseline backwards →
+stop at the first failure; L6 the exit path shows the keep-as-new failure
+twice; L7 the title-pending reload replaces the body's undo history and a
+concurrent remote rename loses to the pending local title silently (LWW,
+to be stated); L8 a held write burns the autosave's retry ladder and shows
+`SaveStatus.error` for a hold that is on purpose → a typed hold that
+re-arms without counting; L9 the residual's wording (the window runs from
+the merge commit to the end of `announceMerged`'s reads, not only while
+the transaction is open); L10 the gate-once mutant is killed by one delete
+case only; L11 no widget test pins H1 end to end; L12 a `readGate` that now
+gates nothing and no repository test for `remoteContent` (null for a
+tombstone, `''` for an empty body, absent on `moved`). Decision A kept
+(a copy failing on exit lets the write through; one last attempt from
+`remoteContent` first). **Fixed at the head of S4b-2:** M1–M3, L4–L8,
+L10–L12, with the merge handing the body to `SyncAppliedRow`.
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
