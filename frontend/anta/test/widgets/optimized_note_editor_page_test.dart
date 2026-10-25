@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
@@ -53,6 +54,7 @@ import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/note_editor_chrome.dart';
+import 'package:anta/widgets/note_overflow_menu.dart';
 import 'package:anta/widgets/note_search_bar.dart';
 import 'package:anta/widgets/unified_app_bars.dart';
 
@@ -90,6 +92,7 @@ void main() {
   late NoteRepository noteRepository;
   late NoteStorageService storageService;
   late _ThrowingStorage throwingStorage;
+  late _FlakyStorage flakyStorage;
   late FolderSearchService searchService;
   late FolderStorageService folderService;
   late _TestExportService exportService;
@@ -148,6 +151,10 @@ void main() {
       repository: NoteRepository(database: db),
     );
     await throwingStorage.initialize();
+    // Over the page's own repository, so the merge announcements it emits
+    // are the ones the page hears.
+    flakyStorage = _FlakyStorage(repository: noteRepository);
+    await flakyStorage.initialize();
     searchService = FolderSearchService(storageService: storageService);
     await searchService.initialize();
     folderService = FolderStorageService(
@@ -3822,6 +3829,8 @@ void main() {
       String id, {
       String? text,
       bool delete = false,
+      String? folderId,
+      bool settleAfter = true,
     }) async {
       await tester.runAsync(() async {
         final local = (await db.noteDao.getNoteById(id))!;
@@ -3834,13 +3843,26 @@ void main() {
           local.copyWith(
             hlcTimestamp: newer.toString(),
             deviceId: 'other-device',
+            folderId: folderId ?? local.folderId,
             isDeleted: delete,
             deletedAt: Value(delete ? DateTime.now() : null),
           ),
           delete ? null : text,
         );
-        await noteRepository.announceMerged([id]);
+        await noteRepository.announceMerged(
+          [id],
+          previousParents: folderId == null ? const {} : {id: local.folderId},
+        );
       });
+      if (settleAfter) await settle(tester);
+    }
+
+    Future<String?> storedBody(WidgetTester tester, String id) =>
+        tester.runAsync(() => db.contentChunkDao.loadContent(id));
+
+    /// Lets the auto-save debounce run out, then the write it starts land.
+    Future<void> autosave(WidgetTester tester) async {
+      await tester.pump(const Duration(seconds: 6));
       await settle(tester);
     }
 
@@ -3953,6 +3975,141 @@ void main() {
         findsOneWidget,
       );
       OverlaySnackbar.hide();
+      await autosave(tester);
+      expect(await storedBody(tester, synced.id), 'mine $body');
+      await teardownPage(tester);
+    });
+
+    testWidgets('a dirty editor files no copy when the merge re-stamped the '
+        'body it last loaded (S4a review H1)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+
+      await mergeFromElsewhere(tester, synced.id, text: body);
+      await settle(tester);
+
+      expect(await copies(tester), isEmpty);
+      expect(controller.text, 'mine $body');
+      expect(appBar(tester).hasChanges, isTrue);
+      await autosave(tester);
+      expect(await storedBody(tester, synced.id), 'mine $body');
+      await teardownPage(tester);
+    });
+
+    testWidgets('a dirty editor files no copy for a remote move, and follows '
+        'the note to its folder', (tester) async {
+      final elsewhere = await tester.runAsync(
+        () => db.folderDao.createFolder(name: 'Elsewhere'),
+      );
+      addTearDown(
+        () => tester.runAsync(
+          () => db.folderDao.hardDeleteFolder(elsewhere!.id),
+        ),
+      );
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: body,
+        folderId: elsewhere!.id,
+      );
+      await settleUntil(
+        tester,
+        () =>
+            tester.widget<NoteOverflowMenu>(find.byType(NoteOverflowMenu))
+                .folderName ==
+            'Elsewhere',
+      );
+
+      final moved = (await tester.runAsync(
+        () => db.noteDao.getNotesByFolder(elsewhere.id),
+      ))!;
+      expect(moved.map((n) => n.title), ['Squat log'], reason: 'no copy');
+      expect(await copies(tester), isEmpty);
+      expect(controller.text, 'mine $body');
+      await autosave(tester);
+      await tester.runAsync(() => db.noteDao.hardDeleteNote(synced.id));
+      await teardownPage(tester);
+    });
+
+    testWidgets('an auto-save due while the merge is handled waits: the copy '
+        "holds the other device's text, the note the user's (M4)", (
+      tester,
+    ) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      // The page's read of the merged row is held until the debounced save
+      // has had every chance to land first.
+      final read = Completer<void>();
+      flakyStorage.readGate = read;
+      GetIt.I.unregister<NoteStorageService>();
+      GetIt.I.registerSingleton<NoteStorageService>(flakyStorage);
+      try {
+        await mergeFromElsewhere(
+          tester,
+          synced.id,
+          text: 'theirs',
+          settleAfter: false,
+        );
+        await tester.pump(const Duration(seconds: 6));
+        await settle(tester);
+        read.complete();
+        await settleUntil(tester, () => appBar(tester).hasChanges == false);
+        await settle(tester);
+
+        final filed = await copies(tester);
+        expect(filed, hasLength(1));
+        expect(await storedBody(tester, filed.single.id), 'theirs');
+        expect(await storedBody(tester, synced.id), 'mine $body');
+        expect(controller.text, 'mine $body');
+      } finally {
+        flakyStorage.readGate = null;
+        GetIt.I.unregister<NoteStorageService>();
+        GetIt.I.registerSingleton<NoteStorageService>(storageService);
+      }
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a copy that fails is shown, holds the auto-save, and is '
+        'filed by the next save (M3)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      flakyStorage.failCreates = 1;
+      GetIt.I.unregister<NoteStorageService>();
+      GetIt.I.registerSingleton<NoteStorageService>(flakyStorage);
+      try {
+        await mergeFromElsewhere(tester, synced.id, text: 'theirs');
+        await settleUntil(
+          tester,
+          () => find
+              .text(AppLocalizationsEn().syncNoteConflictCopyFailed)
+              .evaluate()
+              .isNotEmpty,
+        );
+        expect(await copies(tester), isEmpty);
+        expect(await storedBody(tester, synced.id), 'theirs');
+        OverlaySnackbar.hide();
+
+        await autosave(tester);
+        await settleUntil(tester, () => appBar(tester).hasChanges == false);
+
+        final filed = await copies(tester);
+        expect(filed, hasLength(1));
+        expect(await storedBody(tester, filed.single.id), 'theirs');
+        expect(await storedBody(tester, synced.id), 'mine $body');
+        expect(controller.text, 'mine $body');
+      } finally {
+        GetIt.I.unregister<NoteStorageService>();
+        GetIt.I.registerSingleton<NoteStorageService>(storageService);
+      }
+      OverlaySnackbar.hide();
       await teardownPage(tester);
     });
 
@@ -3973,17 +4130,103 @@ void main() {
       await tester.pump();
     });
 
+    /// A delete reaching the editor under [above]: the route above stays,
+    /// no notice shows over it, and the editor leaves once it is popped
+    /// (S4a review H2, L6).
+    Future<void> deleteWhileCovered(
+      WidgetTester tester,
+      Route<void> Function(NavigatorState navigator) above,
+      String aboveText,
+    ) async {
+      await openOverAPage(tester);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      unawaited(navigator.push(above(navigator)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text(aboveText), findsOneWidget);
+
+      await mergeFromElsewhere(tester, synced.id, delete: true);
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+
+      expect(find.text(aboveText), findsOneWidget, reason: 'not popped');
+      expect(pages(), findsOneWidget);
+      expect(find.text('Deleted on another device'), findsNothing);
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text(aboveText), findsNothing);
+      expect(find.text('beneath'), findsOneWidget);
+      expect(find.text('Deleted on another device'), findsOneWidget);
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    }
+
+    testWidgets('a delete under a dialog leaves the dialog up and closes the '
+        'editor once the dialog is gone', (tester) async {
+      await deleteWhileCovered(
+        tester,
+        (navigator) => DialogRoute<void>(
+          context: navigator.context,
+          builder: (_) => const AlertDialog(content: Text('a dialog')),
+        ),
+        'a dialog',
+      );
+    });
+
+    testWidgets('a delete under another page leaves that page and closes the '
+        'editor once it is current again', (tester) async {
+      await deleteWhileCovered(
+        tester,
+        (_) => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('a page above')),
+        ),
+        'a page above',
+      );
+    });
+
     testWidgets('a dirty editor whose note was deleted elsewhere keeps its '
-        'text and stays', (tester) async {
+        'text as a new note and goes on saving into it', (tester) async {
       final controller = await open(tester);
       type(controller, 'mine ');
       await tester.pump();
 
       await mergeFromElsewhere(tester, synced.id, delete: true);
+      // Waited for on screen: a read through `runAsync` while the page's
+      // create transaction is still open in fake time would never return.
+      await settleUntil(
+        tester,
+        () => find
+            .text(AppLocalizationsEn().syncNoteKeptAsNew)
+            .evaluate()
+            .isNotEmpty,
+      );
+      OverlaySnackbar.hide();
+      await settle(tester);
+      final live = (await tester.runAsync(
+        () => db.noteDao.getNotesByFolder(syncFolder.id),
+      ))!;
+      final kept = live.where((n) => n.id != sibling.id).single;
 
       expect(pages(), findsOneWidget);
-      expect(controller.text, 'mine $body');
-      expect(find.text('Deleted on another device'), findsNothing);
+      expect(kept.id, isNot(synced.id));
+      expect(kept.title, startsWith('Squat log'));
+      expect(await storedBody(tester, kept.id), 'mine $body');
+
+      type(controller, 'more ');
+      await tester.pump();
+      await autosave(tester);
+
+      expect(await storedBody(tester, kept.id), 'more mine $body');
+      final old = await tester.runAsync(
+        () => db.noteDao.getNoteById(synced.id),
+      );
+      expect(old!.isDeleted, isTrue, reason: 'the old id stays a tombstone');
       await teardownPage(tester);
     });
 
@@ -4036,6 +4279,43 @@ class _ThrowingStorage extends NoteStorageService {
     String? preferFolderId,
   }) async {
     throw StateError('resolveNoteByTitle failed');
+  }
+}
+
+/// A [NoteStorageService] whose next [failCreates] creates throw, for the
+/// conflict copy that fails once, and whose body reads wait for [readGate],
+/// for the window between a merge and the page's read of it. Everything else
+/// is the real service.
+class _FlakyStorage extends NoteStorageService {
+  _FlakyStorage({required super.repository});
+
+  int failCreates = 0;
+  Completer<void>? readGate;
+
+  @override
+  Future<String> loadNoteContent(String noteId) async {
+    final gate = readGate;
+    if (gate != null) await gate.future;
+    return super.loadNoteContent(noteId);
+  }
+
+  @override
+  Future<NoteMetadata> createNote({
+    required String folderId,
+    required String title,
+    required String content,
+    ItemLabel label = ItemLabel.none,
+  }) async {
+    if (failCreates > 0) {
+      failCreates--;
+      throw StateError('createNote failed');
+    }
+    return super.createNote(
+      folderId: folderId,
+      title: title,
+      content: content,
+      label: label,
+    );
   }
 }
 

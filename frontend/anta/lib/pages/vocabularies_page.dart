@@ -33,7 +33,8 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
   List<Vocabulary> _vocabularies = const [];
   bool _isLoading = true;
 
-  /// The lists re-read beneath the page — a sync pull, a restore.
+  /// The lists re-read beneath the page — a sync pull, a restore, another
+  /// database's service taking over after a switch.
   StreamSubscription<void>? _changes;
 
   @override
@@ -51,9 +52,7 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
   Future<void> _load() async {
     final service = await VocabularyService.getInstance();
     if (!mounted) return;
-    _changes = service.changes.listen((_) {
-      if (mounted) _refresh();
-    });
+    _changes = service.changes.listen((_) => unawaited(_reresolve()));
     setState(() {
       _service = service;
       _vocabularies = service.vocabularies;
@@ -65,6 +64,17 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
     final service = _service;
     if (service == null) return;
     setState(() => _vocabularies = service.vocabularies);
+  }
+
+  /// The singleton as it is now: after a database switch the instance this
+  /// page loaded through answers for the closed database.
+  Future<void> _reresolve() async {
+    final service = await VocabularyService.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _service = service;
+      _vocabularies = service.vocabularies;
+    });
   }
 
   Future<void> _create() async {

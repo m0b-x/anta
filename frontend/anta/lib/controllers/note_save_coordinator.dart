@@ -31,20 +31,23 @@ class NoteSaveCoordinator {
   NoteSaveCoordinator({
     required this.folderId,
     required String? noteId,
-    required this.originalTitle,
+    required String? originalTitle,
     required String Function() title,
     required String Function() content,
     required Future<bool> Function({required String title, String? excludeId})
     titleExists,
     required void Function(OptimizedNoteEvent event) dispatch,
     required void Function(String title) onDuplicateTitle,
+    FutureOr<bool> Function()? beforeWrite,
     AutoSaveFactory? autoSaveFactory,
   }) : _effectiveNoteId = noteId,
+       _originalTitle = originalTitle,
        _title = title,
        _content = content,
        _titleExists = titleExists,
        _dispatch = dispatch,
-       _onDuplicateTitle = onDuplicateTitle {
+       _onDuplicateTitle = onDuplicateTitle,
+       _beforeWrite = beforeWrite {
     _autoSave = (autoSaveFactory ?? _defaultAutoSave)(
       onSave: _save,
       onChangeDetected: _setHasChanges,
@@ -58,10 +61,11 @@ class NoteSaveCoordinator {
   final String folderId;
 
   /// The note's persisted title when the page opened (`null` for a new
-  /// note). A save whose title would collide falls back to exactly this
-  /// one, so a rename that cannot be applied never rewrites what is
-  /// stored.
-  final String? originalTitle;
+  /// note), or the one [retarget] created. A save whose title would collide
+  /// falls back to exactly this one, so a rename that cannot be applied
+  /// never rewrites what is stored.
+  String? get originalTitle => _originalTitle;
+  String? _originalTitle;
 
   final String Function() _title;
   final String Function() _content;
@@ -69,6 +73,22 @@ class NoteSaveCoordinator {
   _titleExists;
   final void Function(OptimizedNoteEvent event) _dispatch;
   final void Function(String title) _onDuplicateTitle;
+
+  /// Asked before every write; false holds it. The page answers false while
+  /// a change merged from another device is still being handled — a write
+  /// landing between the merge and the conflict copy would overwrite the
+  /// merged row and lose the other device's text (record §3.9, M4) — and
+  /// while a copy that failed is not yet filed (M3). A held write throws, so
+  /// auto-save keeps the text unsaved and retries on its own schedule. A
+  /// plain `bool` answers without an extra async hop.
+  final FutureOr<bool> Function()? _beforeWrite;
+
+  /// Set while the page is leaving or the app is pausing: a write the page
+  /// still holds then goes ahead anyway. A copy that could not be filed even
+  /// on that last retry costs the other device's text; holding the write
+  /// would cost the user's — the one on screen, about to be gone.
+  bool _exiting = false;
+  bool _pausing = false;
 
   late final AutoSaveService _autoSave;
 
@@ -177,6 +197,39 @@ class NoteSaveCoordinator {
     }
   }
 
+  /// Whether [content] is the text last loaded or written — never the live
+  /// text, which differs by definition while the page is dirty. A sync merge
+  /// whose body equals it changed something else (record §3.9, H1).
+  bool isSavedContent(String content) => _autoSave.isSavedContent(content);
+
+  /// A sync merge wrote [content] into the row while the editor holds other
+  /// text, and the merged text was kept as a conflict copy: the next save
+  /// compares against what the row holds now and writes the editor's text
+  /// over it — even when that text is the old baseline again.
+  void adoptStoredContent(String content) {
+    _autoSave.adoptSavedContent(content);
+    if (_content() != content) markChanged();
+  }
+
+  /// Points every later save at [noteId] — the note the page created to keep
+  /// its text when the one it was editing was deleted on another device
+  /// (record §3.9) — baselined on the [title] and [content] that create
+  /// wrote, so anything typed since still reads as unsaved.
+  void retarget(
+    String noteId, {
+    required String title,
+    required String content,
+  }) {
+    _effectiveNoteId = noteId;
+    _originalTitle = title;
+    _autoSave.startTracking(title, content, contentProvider: _content);
+    if (_title() != title || _content() != content) {
+      markChanged();
+    } else {
+      _setHasChanges(false);
+    }
+  }
+
   /// Marks the note dirty for the edits that bypass the text listener — a
   /// checkbox toggled through the tap interceptor, a search-and-replace
   /// applied by the find controller — and arms auto-save so they are
@@ -208,7 +261,8 @@ class NoteSaveCoordinator {
   void saveOnLifecyclePause() {
     if (_savesDisabled) return;
     if (_effectiveNoteId != null) {
-      unawaited(forceSave());
+      _pausing = true;
+      unawaited(forceSave().whenComplete(() => _pausing = false));
     } else {
       _startCreateNewNoteEarly();
     }
@@ -220,6 +274,7 @@ class NoteSaveCoordinator {
   /// not litter the folder.
   Future<void> saveBeforeExit() async {
     if (_savesDisabled) return;
+    _exiting = true;
     if (_effectiveNoteId != null) {
       await forceSave();
       return;
@@ -273,6 +328,12 @@ class NoteSaveCoordinator {
   /// once, mirroring the rename dialog instead of raising a snackbar per
   /// save.
   Future<void> _save(String? title, String? content) async {
+    // Before the id is read: a write the page held while it moved the note
+    // to a new id ([retarget]) has to land on that id.
+    final gate = _beforeWrite?.call();
+    final mayWrite = gate is Future<bool> ? await gate : (gate ?? true);
+    if (!mayWrite && !_exiting && !_pausing) throw const _WriteHeld();
+
     final noteId = _effectiveNoteId;
     if (noteId == null || _savesDisabled) return;
 
@@ -287,7 +348,7 @@ class NoteSaveCoordinator {
     } else {
       final exists = await _titleExists(title: trimmed, excludeId: noteId);
       if (exists) {
-        titleToSave = originalTitle ?? '';
+        titleToSave = _originalTitle ?? '';
         if (!_warnedDuplicateTitle && !_disposed) {
           _warnedDuplicateTitle = true;
           _onDuplicateTitle(trimmed);
@@ -429,4 +490,13 @@ class NoteSaveCoordinator {
       })
       ..ensureVisualUpdate();
   }
+}
+
+/// A write [NoteSaveCoordinator] held: thrown into auto-save, which keeps the
+/// text unsaved and tries again on its retry and interval ticks.
+class _WriteHeld implements Exception {
+  const _WriteHeld();
+
+  @override
+  String toString() => 'held until the synced change is handled';
 }

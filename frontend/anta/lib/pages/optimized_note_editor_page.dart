@@ -404,6 +404,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           ),
       dispatch: context.read<OptimizedNoteBloc>().add,
       onDuplicateTitle: _showDuplicateTitleWarning,
+      beforeWrite: _writesMayProceed,
     );
     _position = NoteEditorPositionController(
       noteId: widget.noteId,
@@ -644,6 +645,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (route is PageRoute) {
       AppNavigator.routeObserver.subscribe(this, route);
     }
+    // The route's scope notifies when a route above it comes or goes — a
+    // dialog included, which [didPopNext] never hears of.
+    _leaveIfDeletedWhileCovered();
 
     // Swap the localized "no content yet" placeholder on a locale
     // change. Only an empty note is showing it, and the bloc's own
@@ -1101,6 +1105,31 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       _saves.hasChanges.value ||
       _saves.saveStatus.value == SaveStatus.saving;
 
+  /// The remote changes still being handled, chained so each reads the row
+  /// after the one before it. Every write the save coordinator makes waits
+  /// for the chain ([_writesMayProceed]): that is what lets a handler read
+  /// the merged row after an await without a debounced auto-save having
+  /// overwritten it first (record §3.9, M4).
+  Future<void> _remoteWork = Future<void>.value();
+
+  /// The links of [_remoteWork] not yet finished, so [_writesMayProceed]
+  /// answers synchronously while nothing is pending.
+  int _remoteBusy = 0;
+
+  /// What a remote change left to file and could not (M3): the arriving
+  /// text's conflict copy, or the text of a note deleted elsewhere as a new
+  /// note. Retried at the head of the next remote change and before the next
+  /// write; writes stay held until it is filed.
+  Future<void> Function()? _unfiled;
+
+  /// The retry of [_unfiled] in flight, shared so a write and a change event
+  /// arriving together file once.
+  Future<void>? _filing;
+
+  /// A remote delete that reached this page while another route covered it:
+  /// acted on once the page is current again (H2).
+  bool _deletedWhileCovered = false;
+
   /// The open-editor rule (record §3.9) for a change a sync pull merged
   /// into this page's note. Filtered here, off the typing path: only a
   /// remote `updated` or `deleted` of this note reaches the handlers.
@@ -1109,9 +1138,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (change.noteId != (_saves.effectiveNoteId ?? widget.noteId)) return;
     switch (change.type) {
       case NoteChangeType.updated:
-        unawaited(_adoptRemoteUpdate(change));
+        _queueRemote(() => _adoptRemoteUpdate(change));
       case NoteChangeType.deleted:
-        _leaveRemotelyDeleted();
+        _queueRemote(() => _onRemoteDelete(change));
       case NoteChangeType.created:
       case NoteChangeType.moved:
       case NoteChangeType.labelled:
@@ -1119,10 +1148,71 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
   }
 
+  /// Holds writes from this moment — synchronously, inside the change event
+  /// — until [handle] has run; nothing it throws escapes to the zone.
+  void _queueRemote(Future<void> Function() handle) {
+    _remoteBusy++;
+    _remoteWork = _remoteWork.then((_) async {
+      try {
+        if (mounted) await _retryUnfiled();
+        if (mounted) await handle();
+      } catch (error, stack) {
+        debugPrint('[NoteEditor] synced change not handled: $error\n$stack');
+      } finally {
+        _remoteBusy--;
+      }
+    });
+  }
+
+  /// The save coordinator's gate: true at once while no remote change is
+  /// pending, otherwise once the pending ones are handled and nothing is
+  /// left unfiled.
+  FutureOr<bool> _writesMayProceed() {
+    if (_remoteBusy == 0 && _unfiled == null) return true;
+    return _awaitRemoteWork();
+  }
+
+  Future<bool> _awaitRemoteWork() async {
+    await _remoteWork;
+    await _retryUnfiled();
+    return _unfiled == null;
+  }
+
+  Future<void> _retryUnfiled() {
+    final unfiled = _unfiled;
+    if (unfiled == null) return Future<void>.value();
+    return _filing ??= _fileOrHold(unfiled).whenComplete(() => _filing = null);
+  }
+
+  /// Runs [file]; when it fails, keeps it as [_unfiled] — writes held, the
+  /// message shown the first time — rather than letting the error reach the
+  /// zone and the next auto-save write over the text it was keeping (M3).
+  Future<void> _fileOrHold(Future<void> Function() file) async {
+    final firstTry = !identical(_unfiled, file);
+    _unfiled = file;
+    try {
+      await file();
+      if (identical(_unfiled, file)) _unfiled = null;
+    } catch (error, stack) {
+      debugPrint('[NoteEditor] filing the synced text failed: $error\n$stack');
+      if (firstTry && mounted && _isCurrentRoute) {
+        CustomSnackbar.showError(
+          context,
+          AppLocalizations.of(context)!.syncNoteConflictCopyFailed,
+          withToolbarOffset: true,
+        );
+      }
+    }
+  }
+
   /// A clean page reloads the merged text in place, the caret kept where it
   /// still fits. A dirty one keeps what the user typed — its next auto-save
   /// wins and pushes — and files the arriving text as a conflict copy, so
-  /// the other device's text is not lost either.
+  /// the other device's text is not lost either; but only when the merge
+  /// changed the body. The arriving body is judged against the text the
+  /// page last loaded or saved, never the live text, which differs by
+  /// definition while the page is dirty: a remote move, rename, label or
+  /// re-save files nothing (H1).
   Future<void> _adoptRemoteUpdate(NoteChange change) async {
     final folderId = change.note?.folderId;
     if (folderId != null && folderId != _folderId) {
@@ -1136,67 +1226,178 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       final reloaded = await _reloadContentIfChanged();
       if (!mounted || reloaded == false) return;
       if (reloaded == true) {
-        CustomSnackbar.show(
-          context,
-          AppLocalizations.of(context)!.syncNoteUpdatedElsewhere,
-          withToolbarOffset: true,
-        );
+        if (_isCurrentRoute) {
+          CustomSnackbar.show(
+            context,
+            AppLocalizations.of(context)!.syncNoteUpdatedElsewhere,
+            withToolbarOffset: true,
+          );
+        }
         return;
       }
       // Nothing was read, or a keystroke landed during the read.
       if (!_hasUnsavedText) return;
     }
-    await _fileArrivingTextAsCopy(change);
-  }
-
-  /// Saves the text the merge brought as a new note beside this one, under
-  /// D3's title, through the storage service's normal create — a local
-  /// write like any other, so it is announced and synced.
-  Future<void> _fileArrivingTextAsCopy(NoteChange change) async {
-    final storage = GetIt.I<NoteStorageService>();
-    final arriving = await storage.loadNoteContent(change.noteId);
-    if (!mounted || arriving == _contentController.text) return;
+    final arriving = await GetIt.I<NoteStorageService>().loadNoteContent(
+      change.noteId,
+    );
+    if (!mounted) return;
+    // Equal to the live text too: a write already in flight at the event
+    // put the user's own text there, and a copy of it would be a duplicate.
+    if (_saves.isSavedContent(arriving) ||
+        arriving == _contentController.text) {
+      return;
+    }
     final l10n = AppLocalizations.of(context)!;
     final merged = change.note;
     final at = DateTime.now();
+    await _fileOrHold(() async {
+      await _createWithFreeTitle(
+        folderId: merged?.folderId ?? _folderId,
+        title: (copy) => conflictCopyTitle(
+          l10n,
+          merged?.title ?? _titleController.text,
+          at,
+          copy: copy,
+        ),
+        content: arriving,
+        label: ItemLabel.fromStorage(merged?.label ?? 0),
+      );
+      _saves.adoptStoredContent(arriving);
+      if (mounted && _isCurrentRoute) {
+        CustomSnackbar.show(
+          context,
+          l10n.syncNoteConflictCopyFiled,
+          withToolbarOffset: true,
+        );
+      }
+    });
+  }
+
+  /// Creates a note through the storage service's normal create — a local
+  /// write like any other, so it is announced and synced — taking the first
+  /// of [title]'s numbered forms the folder does not hold yet.
+  Future<NoteMetadata> _createWithFreeTitle({
+    required String folderId,
+    required String Function(int copy) title,
+    required String content,
+    required ItemLabel label,
+  }) async {
+    final storage = GetIt.I<NoteStorageService>();
     for (var copy = 1; ; copy++) {
       try {
-        await storage.createNote(
-          folderId: merged?.folderId ?? _folderId,
-          title: conflictCopyTitle(
-            l10n,
-            merged?.title ?? _titleController.text,
-            at,
-            copy: copy,
-          ),
-          content: arriving,
-          label: ItemLabel.fromStorage(merged?.label ?? 0),
+        return await storage.createNote(
+          folderId: folderId,
+          title: title(copy),
+          content: content,
+          label: label,
         );
-        break;
       } on DuplicateNameException {
         continue;
       }
     }
-    if (!mounted) return;
-    CustomSnackbar.show(
-      context,
-      l10n.syncNoteConflictCopyFiled,
-      withToolbarOffset: true,
+  }
+
+  /// A clean page closes; a dirty one keeps its text as a new note — a save
+  /// into the deleted one is refused by design, so the text cannot ride the
+  /// next auto-save.
+  Future<void> _onRemoteDelete(NoteChange change) async {
+    if (_isExiting) return;
+    if (_hasUnsavedText) {
+      await _keepTextAsNewNote(change);
+    } else {
+      _leaveRemotelyDeleted();
+    }
+  }
+
+  /// Files the editor's title and text as a new note — the deleted one's
+  /// label, in its folder while that is live, else the nearest live ancestor,
+  /// else the root — and points the page's saves, reading position and
+  /// counters at it, so editing simply continues there.
+  Future<void> _keepTextAsNewNote(NoteChange change) async {
+    final storage = GetIt.I<NoteStorageService>();
+    // The tombstone, read past the cache the merge announcement dropped.
+    final deleted = (await storage.loadNoteWithContent(change.noteId))
+        ?.metadata;
+    final folderId = await GetIt.I<FolderStorageService>().nearestLiveFolderId(
+      deleted?.folderId ?? change.folderId ?? _folderId,
     );
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    await _fileOrHold(() async {
+      final title = _titleController.text;
+      final content = _contentController.text;
+      final created = await _createWithFreeTitle(
+        folderId: folderId,
+        title: (copy) => _numberedTitle(title, copy),
+        content: content,
+        label: deleted?.label ?? ItemLabel.none,
+      );
+      if (!mounted) return;
+      // Before the retarget: the title listener marks the old id dirty, and
+      // the retarget re-baselines on what the create wrote.
+      if (_titleController.text != created.title) {
+        _titleController.text = created.title;
+      }
+      _saves.retarget(created.id, title: created.title, content: content);
+      _position.noteId = created.id;
+      _counterBloc.add(SetNoteContext(noteId: created.id));
+      ShortcutHandlerFactory.counterHandler.setActiveNoteId(created.id);
+      setState(() {
+        _folderId = created.folderId;
+        _folderName = null;
+      });
+      unawaited(_loadFolderName());
+      if (_isCurrentRoute) {
+        CustomSnackbar.show(
+          context,
+          l10n.syncNoteKeptAsNew,
+          withToolbarOffset: true,
+        );
+      }
+    });
+  }
+
+  /// [title], then ` (n)` from the second try on, cut so the whole fits the
+  /// title column.
+  static String _numberedTitle(String title, int copy) {
+    if (copy < 2) return title;
+    final suffix = ' ($copy)';
+    final room = AppConstants.maxNoteTitleLength - suffix.length;
+    return '${title.length > room ? title.substring(0, room) : title}$suffix';
   }
 
   /// A clean page has nothing left to show and closes, the message raised
-  /// before the pop so it stays up over the page beneath. A dirty one keeps
-  /// the user's text on screen.
+  /// before the pop so it stays up over the page beneath — but only from the
+  /// top of its navigator. `Navigator.pop` takes whatever route is on top, so
+  /// under a dialog or another page it would close that one and strand this
+  /// page with its saves off (H2): the delete waits until the page is current
+  /// again ([didChangeDependencies], [didPopNext]), and nothing is switched
+  /// off before the pop really targets this page.
   void _leaveRemotelyDeleted() {
-    if (_hasUnsavedText || _isExiting) return;
+    if (!mounted || _isExiting) return;
+    if (!_isCurrentRoute) {
+      _deletedWhileCovered = true;
+      return;
+    }
+    _deletedWhileCovered = false;
     _isExiting = true;
     _saves.disableSaves();
     CustomSnackbar.show(
       context,
       AppLocalizations.of(context)!.syncNoteDeletedElsewhere,
     );
-    AppNavigator.pop(context);
+    Navigator.of(context).pop();
+  }
+
+  /// Runs a delete [_leaveRemotelyDeleted] deferred, after the frame that
+  /// made this page current again — never from inside the navigator's own
+  /// update.
+  void _leaveIfDeletedWhileCovered() {
+    if (!_deletedWhileCovered || !_isCurrentRoute) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _deletedWhileCovered) _leaveRemotelyDeleted();
+    });
   }
 
   /// The document [_onContentNotified] last reported, so a notification
@@ -1532,6 +1733,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   void didPopNext() {
     unawaited(_reloadSettings());
     unawaited(_reloadContentIfChanged());
+    _leaveIfDeletedWhileCovered();
   }
 
   /// Called when a route is pushed above the editor. The drawer's settings

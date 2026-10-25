@@ -219,6 +219,17 @@ class CounterService {
       }
     } catch (e) {
       debugPrint('[CounterService] Flush error: $e');
+      // The transaction rolled back, so nothing in [pending] was written:
+      // put it back under any tap made while it ran, for the next flush.
+      for (final MapEntry(key: (cid, nid), value: change) in pending.entries) {
+        if (nid.isEmpty) {
+          _dirtyGlobalValues[cid] = change.then(_dirtyGlobalValues[cid]);
+        } else {
+          _dirtyNoteValues[(cid, nid)] = change.then(
+            _dirtyNoteValues[(cid, nid)],
+          );
+        }
+      }
     }
   }
 
@@ -720,4 +731,14 @@ class _PendingCount {
   int delta = 0;
 
   int over(int base) => (absolute ?? base) + delta;
+
+  /// This change followed by [later]: a later set or reset replaces it, later
+  /// taps add to it.
+  _PendingCount then(_PendingCount? later) {
+    if (later == null) return this;
+    if (later.absolute != null) return later;
+    return _PendingCount()
+      ..absolute = absolute
+      ..delta = delta + later.delta;
+  }
 }

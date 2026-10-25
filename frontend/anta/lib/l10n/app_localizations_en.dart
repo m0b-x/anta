@@ -4456,6 +4456,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncNoteDeletedElsewhere => 'Deleted on another device';
 
   @override
+  String get syncNoteKeptAsNew =>
+      'Deleted on another device — your text was kept as a new note';
+
+  @override
+  String get syncNoteConflictCopyFailed =>
+      'Couldn\'t save a copy — your text is kept and the next save tries again';
+
+  @override
   String get signInFailed => 'Sign-in failed';
 
   @override

@@ -5560,6 +5560,14 @@
   "@syncNoteDeletedElsewhere": {
     "description": "Snackbar after the note editor closes because the open note, with no unsaved changes, was deleted on another device"
   },
+  "syncNoteKeptAsNew": "Deleted on another device — your text was kept as a new note",
+  "@syncNoteKeptAsNew": {
+    "description": "Snackbar in the note editor when the open note, with unsaved changes, was deleted on another device: the typed text is saved as a new note the editor keeps editing"
+  },
+  "syncNoteConflictCopyFailed": "Couldn't save a copy — your text is kept and the next save tries again",
+  "@syncNoteConflictCopyFailed": {
+    "description": "Snackbar in the note editor when saving a sync conflict copy (or the text of a note deleted on another device as a new note) failed; saving waits and retries"
+  },
   "signInFailed": "Sign-in failed",
   "@signInFailed": {
     "description": "Error title when the sign-in flow throws"

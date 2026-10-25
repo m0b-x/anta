@@ -298,8 +298,28 @@ class SyncEngine {
   static SyncEngine _register(SyncEngine engine) {
     _instance = engine;
     DatabaseLifecycle.registerResetHandler(reset);
+    DatabaseLifecycle.registerSwitchedHandler(_rebuildAfterSwitch);
     return engine;
   }
+
+  /// The switched-to database has opened: with [autoStart] set, build its
+  /// engine — which starts itself — rather than waiting for the Sharing
+  /// page's bloc to ask for one, which left a switched database unsynced
+  /// until that page loaded (S4a review M5).
+  static void _rebuildAfterSwitch() {
+    if (!autoStart || _instance != null) return;
+    unawaited(
+      getInstance().then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stack) =>
+            _warn('rebuild after a database switch failed: $error\n$stack'),
+      ),
+    );
+  }
+
+  /// The singleton, or null while none is built — read without building one.
+  @visibleForTesting
+  static SyncEngine? get instanceForTesting => _instance;
 
   /// Makes [engine] the singleton [reset] stops, so a test can prove the
   /// lifecycle contract before DI builds one. Never for app code.
@@ -885,6 +905,27 @@ class SyncEngine {
     _emit();
   }
 
+  /// The one rule for which pause a status shows, used here and by
+  /// `SyncBloc` over a refreshed read (S4a review L10): the reader's
+  /// [SyncPause.signedOut] / [SyncPause.accountMismatch] win — no user, or
+  /// the wrong one, makes any pause the engine stored for the run stale —
+  /// otherwise the engine's own [SyncPause.noAccess] /
+  /// [SyncPause.appOutdated] / [SyncPause.quotaExhausted]; otherwise none.
+  static SyncPause pauseOver({
+    required SyncPause read,
+    required SyncPause engine,
+  }) {
+    if (read == SyncPause.signedOut || read == SyncPause.accountMismatch) {
+      return read;
+    }
+    return switch (engine) {
+      SyncPause.noAccess ||
+      SyncPause.appOutdated ||
+      SyncPause.quotaExhausted => engine,
+      _ => SyncPause.none,
+    };
+  }
+
   /// Emits the stored status overlaid with the engine's own fields, as they
   /// stand now. Serialized, so a slow read never lands after a newer one.
   void _emit() {
@@ -904,7 +945,7 @@ class SyncEngine {
       }
       final next = stored.copyWith(
         activity: activity,
-        pause: stored.pause == SyncPause.none ? pause : stored.pause,
+        pause: pauseOver(read: stored.pause, engine: pause),
         lastFailure: failure,
         clearLastFailure: failure == null,
         parkedCount: parked,

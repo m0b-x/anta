@@ -4491,6 +4491,14 @@ class AppLocalizationsDe extends AppLocalizations {
   String get syncNoteDeletedElsewhere => 'Auf einem anderen Gerät gelöscht';
 
   @override
+  String get syncNoteKeptAsNew =>
+      'Auf einem anderen Gerät gelöscht – dein Text wurde als neue Notiz behalten';
+
+  @override
+  String get syncNoteConflictCopyFailed =>
+      'Kopie konnte nicht gespeichert werden – dein Text bleibt, das nächste Speichern versucht es erneut';
+
+  @override
   String get signInFailed => 'Anmeldung fehlgeschlagen';
 
   @override

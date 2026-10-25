@@ -243,6 +243,21 @@ follow arrival order. So:
   reports as `invalid-argument` (a document over 1 MiB). A rule refusal of a
   malformed row arrives as `permission-denied`, so the engine tells the two
   apart by reading the space document after a denied push (§3.5) *(F4)*.
+- **Firestore specifics settled by the S5 review:** `watchSpace` forwards
+  only snapshots that are neither from the cache nor carrying pending
+  writes — offline, the SDK's first snapshot for an unwatched document says
+  `exists: false, fromCache: true`, which would read as a missing space and
+  pause the engine for good (H1); and the device's own write snapshot
+  carries null server timestamps (L8). `pushBatch` and `createSpace` write
+  through `runTransaction`, never a plain `WriteBatch.commit()`: with
+  persistence off the SDK still queues a write in memory while offline, the
+  commit waits until the 60 s timeout, is reported as `offline`, lands on
+  reconnect anyway and every retry adds a copy — a transaction fails fast
+  offline and is never queued (M4). The pusher also caps a batch by bytes
+  (about 8 MiB; the request cap is 10 MiB) so a slow uplink cannot time a
+  valid batch out forever (M5). A `noAccess` pause is re-checked with one
+  `readSpace` on resume and on "Sync now", so a transient refusal does not
+  hold until a relaunch.
 
 ### 3.4 The merge (S2)
 
@@ -375,7 +390,11 @@ checks all four before every pull, push and bind (readiness §7).
   I/O error aborts SQLite's whole transaction, so the savepoint is gone,
   the remaining statements would run in autocommit and the cursor would
   commit past rows that were rolled back; such a page fails as a whole and
-  is retried (S3d review H1). **Under the bind floor a parked envelope
+  is retried (S3d review H1). The app opens its database with
+  `NativeDatabase.createInBackground`, so a SQLite error reaches the engine
+  wrapped in drift's `DriftRemoteException` — the check unwraps
+  `remoteCause` first, and one engine case runs on a background-isolate
+  database (S5 review M3). **Under the bind floor a parked envelope
   retires the local row's outbox entry when the local stamp is at or below
   the floor** (the floor says the local row loses; pushing it would
   overwrite the space with the loser), and pull-parked keys stay out of the
@@ -582,7 +601,15 @@ never told a listener about a row that does not exist (F10).
   emulator accepts without Google (`ANTA_QA_ACCOUNT=<uid>:<email>`; the
   implementer verifies the emulator's fake-token form against the Firebase
   docs and falls back to the emulator's email sign-in). Compiled out
-  without `ANTA_QA`.
+  without `ANTA_QA`. **Under the emulator the app initialises Firebase with
+  `projectId: 'demo-anta'`** (`DefaultFirebaseOptions.currentPlatform` copied
+  with the demo id): the suite runs `--project demo-anta`, the Auth emulator
+  mints tokens for it, and Firestore requests under the app's real project
+  id are only warned about — whether the startup rules apply to that second
+  id is unverified, so a pass under the real id would prove nothing about the
+  rules (S5 review H2). The `ANTA_QA_ACCOUNT` first field is the Google
+  `sub`; the Auth emulator assigns its own Firebase uid, so nothing in a
+  flow may assume `users/<sub>/…` (L12).
 - `tool/firebase/firebase.json` (tracked): the emulator suite — auth 9099,
   firestore 8080 with `../../firestore.rules`, UI 4000 — and
   `tool/firebase/emulators.cmd` / `.sh` running `firebase emulators:start
@@ -1453,6 +1480,53 @@ the counter service are outside S5's files): H1–H2, M3–M5, L6, L8, L10,
 L11, L12, plus the dirty-delete branch (the text filed as a new note the
 page keeps editing) and the F6/F12/F13 test gaps.
 
+**S4b-1 as built (2026-10-25, one implementer resumed once at its turn
+cap; gate: `dart analyze lib test` clean, gen-l10n `{}`, whole suite once —
+10,472 passed, the one Windows-only failure; review pending, fixes at the
+head of S4b-2).** Every S4a-review item landed with a named test (eleven
+editor cases in `optimized_note_editor_page_test`, a coordinator group, bloc,
+hooks, counter, database-instance, two new page suites and
+`sync_engine_switch_test`). **The editor:** the baseline is
+`AutoSaveService`'s saved hash + length exposed as
+`NoteSaveCoordinator.isSavedContent`; a dirty page files nothing when the
+merged body equals the baseline or the live text, and after filing a copy
+`adoptStoredContent(arriving)` makes the merged text the new baseline and
+re-arms the save so the user's text overwrites it; the coordinator takes a
+`beforeWrite` gate asked at the top of every write (before the note id is
+read, so a held write lands on a retargeted id), the page raises the hold
+synchronously inside the change event (`_remoteBusy`) and runs handlers one
+after another on `_remoteWork`; a held write throws `_WriteHeld` and
+`AutoSaveService` keeps the text unsaved and retries on its own steps; a
+failed copy shows `syncNoteConflictCopyFailed` once, holds the save, and is
+retried at the next change event and before the next write; **a write is
+let through on leave and on lifecycle pause even with an unfiled copy** (a
+copy that failed even then costs the other device's text, holding the
+write would cost the on-screen text — the implementer's call A, kept); the
+remote delete acts only when `ModalRoute.of(context).isCurrent` (then
+`Navigator.of(context).pop()` can only take this route), otherwise sets
+`_deletedWhileCovered` and acts later from `didChangeDependencies` and
+`didPopNext`; notices only on the current route; the kept-as-new note
+takes the editor's current title (` (n)` on a clash, the field updated),
+the tombstone's label, and the page re-points its save target, reading
+position, counter context and shortcut handler to the new id
+(`syncNoteKeptAsNew`). **Elsewhere:** `SyncEngine.pauseOver` is the one
+pause rule used by the engine's `_emit` and the bloc's `_withEngine`, now
+applied in `_emitStatus` too; `FolderRepository.nearestLiveFolderId` reads
+through the DAO and caches nothing (the hooks and the page use it);
+`CounterService._flushDirty` puts the pending snapshot back under any taps
+made meanwhile when the write fails; `VocabularyService`'s change stream
+is shared by all instances and a new instance announces itself, the page
+re-resolves `getInstance()` on every event; `DatabaseLifecycle.registerSwitchedHandler`
+/ `notifyDatabaseSwitched` fired by `AppDatabase._open` after a switched-to
+database opens, and `SyncEngine._register` adds `_rebuildAfterSwitch`
+(builds and starts when `autoStart` is set and no engine exists).
+**Known limit, for S4b-2:** a save already in flight when the event arrives
+can still commit after the merge and overwrite the merged row before the
+page reads it — the page then sees its own text and files nothing; the fix
+is to carry the merged body (or its hash) on `announceMerged` and compare
+against it. Also noted: a clean remote delete of an editor that is the
+navigator's root route pops the only route (as before).
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
@@ -1493,8 +1567,9 @@ page keeps editing) and the F6/F12/F13 test gaps.
   `FirestorePairingGateway._guard` does (`pairing_gateway.dart:134-159`):
   `unavailable` / `deadline-exceeded` → `offline`, `resource-exhausted` →
   `quotaExhausted`, `permission-denied` / `unauthenticated` →
-  `permissionDenied`, `invalid-argument` / `failed-precondition` →
-  `invalidData`, else `unknown`. Persistence off in DI (§3.8). DI binds the
+  `permissionDenied`, `invalid-argument` → `invalidData`,
+  `failed-precondition` (a missing index) → `unknown` with its own log
+  line, else `unknown`. Persistence off in DI (§3.8). DI binds the
   gateway behind `canSync`.
 - The QA seam and `tool/firebase/` (§3.8); `qa build` already passes extra
   defines (`tool/qa/src/apk_build.dart:20-21`, `runner.dart:11-12`).
@@ -1568,6 +1643,46 @@ mappings, the merge payload, error codes, `maxBatch`, the `cloud_firestore`
 import scan). Not run from the app yet: the emulator sign-in and the live
 gateway — S6. Every Android build with Firebase now constructs and starts
 the engine; it syncs only a bound database, and binding arrives in S4b-2.
+
+**S5 review (2026-10-25, one independent reviewer on a snapshot, twelve
+mutations, the suites also run on background-isolate databases, the
+plugin's cursor code read; 2 high, 5 medium, 8 low; "the commit stands as
+the base").** **H1** `watchSpace` forwarded cache snapshots: offline, the
+first snapshot of an unwatched document is `exists: false, fromCache: true`
+→ `noAccess` with the listener detached and nothing to lift it (launch
+offline with a bound database, or leave the app, lose signal, come back);
+**H2** the emulator pass would run under the app's real project id while
+the suite, the Auth tokens and the probe use `demo-anta` — the rules might
+not apply, and the pass would prove nothing. Mediums: M3 the
+`SqliteException` branch of the disk-full fix can never match in the app —
+the production database runs in a background isolate and the error
+arrives as `DriftRemoteException` (probe; the whole-transaction case is
+still caught through `CouldNotRollBackException`, a statement-level error
+is not); M4 offline, the SDK queues a `commit()` in memory even with
+persistence off, the call waits out the 60 s timeout, is reported
+`offline`, lands on reconnect and every retry adds a copy — `createSpace`
+the same, giving duplicate spaces; M5 a multi-MiB batch on a slow uplink
+times out and is retried whole forever (the request cap is 10 MiB); M6 the
+pusher's pull-parked exclusion and M7 the `onAppBackgrounded` foreground
+write are surviving mutants (no test), and `start()` does not read the real
+lifecycle state. Lows: L8 the device's own write snapshot has null server
+timestamps (covered by H1's filter); L9 a page of only skipped documents is
+re-read every pull (unreachable past the rules); L10 a resumed page's
+`next` can fall below the stored cursor when 499+ documents share the 10 s
+window (progress-safe); L11 no empty-batch guard; L12 the define's "uid" is
+the Google `sub`; L13 a missing-index error (`failed-precondition`) is
+retried quietly; L14 the S5 plan text said `failed-precondition →
+invalidData`, the build and §3.3 say `invalid-argument` alone (the plan is
+corrected here); L15 a vacuous ordering test, the import scan missing
+`cloud_firestore_platform_interface`, four probe cases missing (upsert with
+`data: null`, tombstone with map data, a client `createdAt`, a `createdAt`
+change), no port-free check, indexes never enforced by the emulator.
+Verified: `startAfter` takes a plain string for the document-id component
+(the plugin's `_assertQueryCursorSnapshot` / `_assertQueryCursorValues`);
+`Settings.copyWith` keeps the emulator host; the watch error path; `ackThrough`
+only after a returned push; `pushBatch` the only row writer. All settled in
+§3.3, §3.5 and §3.8. **Fixed in S5b** (a short gateway run after S4b-1,
+before S4b-2): H1, H2, M3–M7, L11, L12, L15; L9/L10/L13 accepted.
 
 ### S6 — Gate, device pass, docs
 

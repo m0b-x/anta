@@ -79,6 +79,35 @@ class DatabaseLifecycle {
     }
   }
 
+  static final List<VoidCallback> _switchedHandlers = [];
+
+  /// Registers [handler] to run each time a switched-to database has opened.
+  /// Unlike a reset handler it is kept across switches: it is how something
+  /// that must run without anyone asking for it — the sync engine — comes
+  /// back on the new database (S4a review M5). Registering twice is a no-op.
+  static void registerSwitchedHandler(VoidCallback handler) {
+    if (_switchedHandlers.contains(handler)) return;
+    _switchedHandlers.add(handler);
+  }
+
+  /// Invokes every switched handler, after [notifyDatabaseSwitching] and the
+  /// new database's open. Called by [AppDatabase]; failures are logged and
+  /// do not stop the others.
+  static void notifyDatabaseSwitched() {
+    for (final handler in List<VoidCallback>.from(_switchedHandlers)) {
+      try {
+        handler();
+      } catch (e, stack) {
+        debugPrint('[DatabaseLifecycle] switched handler threw: $e\n$stack');
+      }
+    }
+  }
+
+  /// Test-only: drops a switched handler a test registered.
+  @visibleForTesting
+  static void unregisterSwitchedHandler(VoidCallback handler) =>
+      _switchedHandlers.remove(handler);
+
   /// Test-only: number of currently registered handlers.
   @visibleForTesting
   static int get registeredHandlerCount => _resetHandlers.length;

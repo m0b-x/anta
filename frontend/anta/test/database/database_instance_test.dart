@@ -101,4 +101,20 @@ void main() {
     final reopened = await AppDatabase.getInstance(databaseName: 'fifth');
     expect(await reopened.syncDao.getValue(SyncDao.keyLastHlc), isNotNull);
   });
+
+  test('a switched handler runs after every switch, is kept across them, and '
+      'never runs for the same database twice', () async {
+    var switched = 0;
+    void onSwitched() => switched++;
+    DatabaseLifecycle.registerSwitchedHandler(onSwitched);
+    DatabaseLifecycle.registerSwitchedHandler(onSwitched);
+    addTearDown(() => DatabaseLifecycle.unregisterSwitchedHandler(onSwitched));
+
+    await AppDatabase.getInstance(databaseName: 'sixth');
+    await AppDatabase.getInstance(databaseName: 'sixth');
+    expect(switched, 1);
+
+    await AppDatabase.getInstance(databaseName: 'seventh');
+    expect(switched, 2);
+  });
 }

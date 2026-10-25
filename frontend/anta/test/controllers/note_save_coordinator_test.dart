@@ -226,6 +226,93 @@ void main() {
     });
   });
 
+  group('a synced change (record §3.9)', () {
+    test('a held write leaves the text unsaved and lands once released', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.mayWrite = false;
+
+        h.type('v1');
+        async.elapse(_Harness.debounce);
+
+        expect(h.updates, isEmpty);
+        expect(h.coordinator.hasChanges.value, isTrue);
+        expect(h.coordinator.saveStatus.value, SaveStatus.error);
+
+        h.mayWrite = true;
+        async.elapse(const Duration(seconds: 2));
+
+        expect(h.updates.single.content, 'v1');
+        expect(h.coordinator.hasChanges.value, isFalse);
+        h.dispose();
+      });
+    });
+
+    test('leaving the page writes even while held', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.mayWrite = false;
+
+        h.type('v1');
+        unawaited(h.coordinator.saveBeforeExit());
+        async.flushMicrotasks();
+
+        expect(h.updates.single.content, 'v1');
+        h.dispose();
+      });
+    });
+
+    test('the baseline is the text last loaded or saved, never the live '
+        'text', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        h.type('v1');
+        expect(h.coordinator.isSavedContent('v0'), isTrue);
+        expect(h.coordinator.isSavedContent('v1'), isFalse);
+        async.elapse(_Harness.debounce);
+        expect(h.coordinator.isSavedContent('v1'), isTrue);
+        h.dispose();
+      });
+    });
+
+    test('after a merge kept as a copy the next save writes the editor\'s '
+        'text, even when it is the old baseline again', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.type('v1');
+        h.type('v0');
+
+        h.coordinator.adoptStoredContent('theirs');
+        async.elapse(_Harness.debounce);
+
+        expect(h.updates.single.content, 'v0');
+        h.dispose();
+      });
+    });
+
+    test('a retarget points later saves at the new id, baselined on what '
+        'its create wrote', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.type('v1');
+
+        h.coordinator.retarget('note-2', title: 'Original', content: 'v1');
+        async.elapse(_Harness.debounce);
+        expect(h.updates, isEmpty, reason: 'the create already wrote v1');
+        expect(h.coordinator.hasChanges.value, isFalse);
+
+        h.type('v2');
+        async.elapse(_Harness.debounce);
+
+        expect(h.coordinator.effectiveNoteId, 'note-2');
+        expect(h.updates.single.noteId, 'note-2');
+        expect(h.updates.single.content, 'v2');
+        h.dispose();
+      });
+    });
+  });
+
   group('updates', () {
     test('a change auto-saves against the note id', () {
       fakeAsync((async) {
@@ -908,6 +995,7 @@ class _Harness {
       },
       dispatch: _dispatch,
       onDuplicateTitle: warnings.add,
+      beforeWrite: () => mayWrite,
       autoSaveFactory: ({required onSave, required onChangeDetected}) =>
           AutoSaveService(
             onSave: onSave,
@@ -944,6 +1032,10 @@ class _Harness {
 
   String title;
   String content = '';
+
+  /// The page's gate: false holds every write, as while a synced change is
+  /// being handled.
+  bool mayWrite = true;
 
   List<CreateOptimizedNote> get creates =>
       events.whereType<CreateOptimizedNote>().toList();

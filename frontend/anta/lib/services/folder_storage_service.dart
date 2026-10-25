@@ -129,6 +129,12 @@ class FolderStorageService {
   /// [includeDeleted] false to ask the narrower question "is this folder still
   /// a place the user can be taken to?", which is what launch restore needs
   /// before it rebuilds a route onto it.
+  /// See [FolderRepository.nearestLiveFolderId].
+  Future<String> nearestLiveFolderId(String folderId) async {
+    await initialize();
+    return _repository.nearestLiveFolderId(folderId);
+  }
+
   Future<model.Folder?> getFolderById(
     String folderId, {
     bool includeDeleted = true,

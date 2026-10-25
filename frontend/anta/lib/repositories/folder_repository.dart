@@ -58,6 +58,26 @@ class FolderRepository {
     return folder;
   }
 
+  /// [folderId] while it is live, else its nearest live ancestor, else the
+  /// root (`''`) — where a sync conflict copy or a note deleted under an open
+  /// editor is filed (record §3.9). Read through the DAO, tombstones
+  /// included, and never cached: a pulled page calls this inside its
+  /// transaction, and a page that rolls back must not leave a folder it
+  /// merged as deleted cached as such (S4a review L11). A folder this device
+  /// never received is not known to be deleted, so it is kept.
+  Future<String> nearestLiveFolderId(String folderId) async {
+    final seen = <String>{};
+    String? id = folderId;
+    while (id != null && id.isNotEmpty && seen.add(id)) {
+      final rows = await _folderDao.getByIdsIncludingDeleted([id]);
+      if (rows.isEmpty) return id == folderId ? folderId : '';
+      final folder = rows.single;
+      if (!folder.isDeleted) return id;
+      id = folder.parentId;
+    }
+    return '';
+  }
+
   Future<List<Folder>> getAllFolders({
     bool includeDeleted = false,
     bool forceRefresh = false,

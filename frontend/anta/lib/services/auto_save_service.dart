@@ -175,6 +175,22 @@ class AutoSaveService {
 
   bool get hasPendingChanges => _hasPendingChanges;
 
+  /// Whether [content] is the text last loaded or written — the baseline a
+  /// sync merge is judged against: a merged body equal to it is a remote
+  /// move, rename or re-save that left the text alone (record §3.9, H1).
+  bool isSavedContent(String content) =>
+      content.length == _savedContentLength &&
+      content.hashCode == _savedContentHash;
+
+  /// Makes [content] the baseline without touching the title's or the
+  /// pending flag: the row now holds it (a sync merge wrote it), so the next
+  /// save must compare the editor's text against it, not against the text it
+  /// replaced.
+  void adoptSavedContent(String content) {
+    _savedContentHash = content.hashCode;
+    _savedContentLength = content.length;
+  }
+
   void _updateStatus(SaveStatus status) {
     if (_disposed) return;
     if (saveStatusNotifier.value != status) {

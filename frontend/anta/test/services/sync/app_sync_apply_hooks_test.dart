@@ -528,6 +528,24 @@ void main() {
       expect(await db.contentChunkDao.loadContent(copy.id), 'mine');
     });
 
+    test('a page that rolls back leaves no folder it read cached as '
+        'deleted (S4a review L11)', () async {
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      final note = await noteIn(folder.id);
+
+      await expectLater(
+        db.transaction(() async {
+          // The page merged the folder as deleted, then filed the copy.
+          await tombstone(folder.id);
+          expect((await copyOf(note)).folderId, '');
+          throw StateError('the page failed');
+        }),
+        throwsStateError,
+      );
+
+      expect((await folders.getFolderById(folder.id))!.isDeleted, isFalse);
+    });
+
     test('files the copy at the root when no ancestor is live', () async {
       final top = await db.folderDao.createFolder(name: 'Old');
       final folder = await db.folderDao.createFolder(

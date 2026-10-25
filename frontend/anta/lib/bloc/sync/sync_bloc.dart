@@ -148,19 +148,16 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
 
   /// [read] with the fields only the engine knows laid over it from the
   /// followed engine's last status: the reader sees the database, not the
-  /// run, and a refresh that replaced them would drop a showing `noAccess`
+  /// run, and a read that replaced them would drop a showing `noAccess`
   /// until the engine's next emit (S3c review F7). The sync times come from
-  /// the engine only once it has them; the pause only when it is one the
-  /// engine decides.
+  /// the engine only once it has them; the pause by
+  /// [SyncEngine.pauseOver], the rule the engine's own emits follow, so a
+  /// sign-out is never shown under a `noAccess` the engine stored for the
+  /// account before it (S4a review L10).
   SyncStatus _withEngine(SyncStatus read) {
     final engine = _followedEngine?.current;
     if (engine == null || engine == SyncStatus.empty) return read;
-    final pause = switch (engine.pause) {
-      SyncPause.noAccess ||
-      SyncPause.appOutdated ||
-      SyncPause.quotaExhausted => engine.pause,
-      _ => null,
-    };
+    final pause = SyncEngine.pauseOver(read: read.pause, engine: engine.pause);
     return read.copyWith(
       activity: engine.activity,
       lastFailure: engine.lastFailure,
@@ -271,7 +268,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     AppUser? user,
     Emitter<SyncState> emit,
   ) async {
-    final status = await _readStatus(user);
+    final status = _withEngine(await _readStatus(user));
     if (emit.isDone || !identical(state, shown)) return;
     emit(_stateFor(user, status));
   }

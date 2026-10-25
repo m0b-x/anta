@@ -4539,6 +4539,14 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncNoteDeletedElsewhere => 'Ștearsă pe alt dispozitiv';
 
   @override
+  String get syncNoteKeptAsNew =>
+      'Ștearsă pe alt dispozitiv — textul tău a fost păstrat ca notiță nouă';
+
+  @override
+  String get syncNoteConflictCopyFailed =>
+      'Copia nu a putut fi salvată — textul tău rămâne, următoarea salvare încearcă din nou';
+
+  @override
   String get signInFailed => 'Conectare eșuată';
 
   @override

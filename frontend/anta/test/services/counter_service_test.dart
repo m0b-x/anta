@@ -286,6 +286,35 @@ void main() {
     });
   });
 
+  test('a flush whose transaction fails keeps every pending change for the '
+      'next one, taps made meanwhile on top (S4a review L8)', () async {
+    final writes = _FailCounterValueWrites();
+    final failing = await openTestDatabase(interceptor: writes);
+    addTearDown(failing.close);
+    final counters = await CounterService.forTesting(failing);
+    final sets = await counters.addCounter(name: 'Sets', startValue: 3);
+    final laps = await counters.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    await counters.incrementGlobal(sets);
+    await counters.setValueForNote(laps, 7, noteId: 'n1');
+
+    writes.armed = true;
+    await counters.flush();
+    expect(writes.refused, isPositive);
+    expect(await failing.counterDao.getValue(sets, ''), isNot(4));
+
+    await counters.incrementGlobal(sets);
+    await counters.increment(laps, noteId: 'n1');
+    writes.armed = false;
+    await counters.flush();
+
+    expect(await failing.counterDao.getValue(sets, ''), 5);
+    expect(await failing.counterDao.getValue(laps, 'n1'), 8);
+    expect(counters.getGlobalValue(sets), 5);
+  });
+
   group('the changes signal', () {
     test('fires after a reload, with the merged rows read', () async {
       final id = await service.addCounter(name: 'Sets', startValue: 3);
@@ -341,4 +370,38 @@ void main() {
       expect(live, isEmpty);
     },
   );
+}
+
+/// Refuses every write to `counter_values` while [armed], as a failing disk
+/// would: the flush's transaction throws and rolls back.
+class _FailCounterValueWrites extends QueryInterceptor {
+  bool armed = false;
+  int refused = 0;
+
+  void _check(String statement) {
+    if (armed && statement.contains('counter_values')) {
+      refused++;
+      throw StateError('counter_values refused');
+    }
+  }
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    _check(statement);
+    return super.runInsert(executor, statement, args);
+  }
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    _check(statement);
+    return super.runUpdate(executor, statement, args);
+  }
 }

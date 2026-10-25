@@ -575,6 +575,50 @@ void main() {
       await bloc.close();
     });
 
+    test('after a sign-out a stale engine noAccess does not show, neither in '
+        'the account state nor on a refresh (S4a review L10)', () async {
+      final reader = _FakeStatusReader();
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(
+        user: _user,
+        reader: reader,
+        engine: engine,
+      );
+      engine.emit(const SyncStatus(pause: SyncPause.noAccess));
+      await pumpEventQueue();
+      expect((states.last as SyncSignedIn).status.pause, SyncPause.noAccess);
+
+      reader.pause = SyncPause.signedOut;
+      bloc.add(const SignOutRequested());
+      await pumpEventQueue();
+      expect((states.last as SyncSignedOut).status.pause, SyncPause.signedOut);
+
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+      expect((states.last as SyncSignedOut).status.pause, SyncPause.signedOut);
+      await bloc.close();
+    });
+
+    test('a showing noAccess survives a re-read of the same account', () async {
+      final reader = _FakeStatusReader();
+      final engine = FakeSyncEngine();
+      final (bloc, fake, states) = await _pumpBloc(
+        user: _user,
+        reader: reader,
+        engine: engine,
+      );
+      engine.emit(const SyncStatus(pause: SyncPause.noAccess));
+      await pumpEventQueue();
+
+      // The identity re-reports the same account: its status is read anew.
+      fake.emitAuth(_user);
+      await pumpEventQueue();
+
+      expect(reader.reads, hasLength(2));
+      expect((states.last as SyncSignedIn).status.pause, SyncPause.noAccess);
+      await bloc.close();
+    });
+
     test('a load after a database switch follows the new engine, not the '
         'old', () async {
       final old = FakeSyncEngine();

@@ -56,6 +56,9 @@ class VocabularyService {
     await service._load();
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
+    // A page still showing the lists of the database before a switch hears
+    // that another instance answers now.
+    _changes.add(null);
     return service;
   }
 
@@ -67,7 +70,10 @@ class VocabularyService {
     Vocabularies.resetCache();
   }
 
-  final StreamController<void> _changes = StreamController<void>.broadcast();
+  /// Shared by every instance, so a subscription outlives the singleton a
+  /// database switch replaces (S4a review L12).
+  static final StreamController<void> _changes =
+      StreamController<void>.broadcast();
 
   List<Vocabulary> get vocabularies => _cache;
 
@@ -75,6 +81,9 @@ class VocabularyService {
   /// — [reload] after a sync pull, [importData] and [clearAllForImport] after
   /// a restore — so an open vocabularies page shows them; the service's own
   /// writes do not fire it, their callers already refresh (S3c review F12).
+  /// It also fires when a new instance — over a switched-to database — takes
+  /// the singleton's place, so a listener re-resolves [getInstance] on every
+  /// event rather than keeping the instance it subscribed through.
   Stream<void> get changes => _changes.stream;
 
   Future<void> reload() async {

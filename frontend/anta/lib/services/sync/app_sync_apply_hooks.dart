@@ -175,7 +175,10 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   Future<String?> fileConflictCopy(SyncNoteConflict conflict) async {
     final loser = conflict.loser;
     final storage = _noteStorage();
-    final folderId = await _liveFolderFor(loser.folderId);
+    // Past the cache: a folder merged as deleted earlier in this run is still
+    // cached as live until [afterRun], and this read runs inside the page's
+    // transaction, so it must not cache what it reads either.
+    final folderId = await _folders().nearestLiveFolderId(loser.folderId);
     final strings = await _strings();
     final now = _now();
     var title = conflictCopyTitle(strings, loser.title, now);
@@ -194,23 +197,6 @@ class AppSyncApplyHooks implements SyncApplyHooks {
       label: ItemLabel.fromStorage(loser.label),
     );
     return copy.id;
-  }
-
-  /// [folderId] while it is live, else its nearest live ancestor, else the
-  /// root. Read past the cache, tombstones included: a folder merged as
-  /// deleted earlier in this run is still cached as live until [afterRun].
-  Future<String> _liveFolderFor(String folderId) async {
-    final seen = <String>{};
-    String? id = folderId;
-    while (id != null && id.isNotEmpty && seen.add(id)) {
-      final folder = await _folders().getFolderById(id, forceRefresh: true);
-      // A folder this device never received is not known to be deleted:
-      // the copy stays beside its note, as the note itself does.
-      if (folder == null) return id == folderId ? folderId : '';
-      if (!folder.isDeleted) return id;
-      id = folder.parentId;
-    }
-    return '';
   }
 
   Future<void> _guard(String what, Future<void> Function() effect) async {
