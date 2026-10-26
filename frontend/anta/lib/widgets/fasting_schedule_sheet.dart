@@ -14,11 +14,11 @@ import '../services/recurrence_formatter.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'form_rows.dart';
 
-/// Editor for the personal fasting practice: the weekdays kept, the months
-/// kept, what a disabled month suppresses, and the exception dates — a
+/// Editor for the personal fasting practice: the weekdays kept and what a
+/// disabled weekday suppresses, the months kept, and the exception dates — a
 /// sub-sheet of the UI language (Tier 3, D15–D17): two labelled groups of
-/// chips with their bulk actions and scope, then the two exception lists as
-/// picker rows with one removable sub-row per date.
+/// chips with their bulk actions (the weekdays with their scope), then the
+/// two exception lists as picker rows with one removable sub-row per date.
 ///
 /// Applies **live** through [onChanged] rather than gating behind a Save,
 /// exactly like [FastingStyleSheet] — every control is a settings toggle and
@@ -260,27 +260,6 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
                         onNone: () =>
                             _apply(_schedule.copyWith(months: const {})),
                       ),
-                      // Stays with all twelve months ticked: the user has to
-                      // see what turning a month off will do before turning
-                      // one off.
-                      _buildScopeRow(
-                        label: l10n.fastingMonthScopeTitle,
-                        weekly:
-                            _schedule.monthScope ==
-                            FastingMonthScope.weeklyOnly,
-                        weeklyHint: l10n.fastingMonthScopeHintWeekly,
-                        allHint: l10n.fastingMonthScopeHintAll,
-                        chips: [
-                          for (final scope in FastingMonthScope.values)
-                            FormChip(
-                              label: _scopeLabel(scope, l10n),
-                              selected: _schedule.monthScope == scope,
-                              identifier: _monthScopeId(scope),
-                              onTap: () =>
-                                  _apply(_schedule.copyWith(monthScope: scope)),
-                            ),
-                        ],
-                      ),
                     ],
                   ),
                   FormRowGroup(
@@ -330,12 +309,14 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
             onTap: () => _toggleMonth(month),
           ),
       ],
+      caption: FormCaption(text: l10n.fastingMonthsDesc),
     );
   }
 
   /// Select all and None as two action rows under a chip run, each disabled
   /// **in place** while it would change nothing (the category picker's
-  /// rule): a row that vanished would move the scope row under the finger.
+  /// rule): a row that vanished would move whatever sits below it under the
+  /// finger.
   List<Widget> _buildBulkRows(
     AppLocalizations l10n, {
     required String allIdentifier,
@@ -361,9 +342,9 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
     ];
   }
 
-  /// A scope as a labelled chip pair over the line that reads the choice
-  /// back. The line sits in a slot as tall as the longer of the two hints,
-  /// so switching the scope never moves the rows under it.
+  /// The weekday scope as a labelled chip pair over the line that reads the
+  /// choice back. The line sits in a slot as tall as the longer of the two
+  /// hints, so switching the scope never moves the rows under it.
   Widget _buildScopeRow({
     required String label,
     required bool weekly,
@@ -443,37 +424,21 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
     return toBeginningOfSentenceCase(name, localeName) ?? name;
   }
 
-  String _scopeLabel(FastingMonthScope scope, AppLocalizations l10n) {
-    return switch (scope) {
-      FastingMonthScope.weeklyOnly => l10n.fastingMonthScopeWeekly,
-      FastingMonthScope.allFasts => l10n.fastingMonthScopeAll,
-    };
-  }
-
-  static String _monthScopeId(FastingMonthScope scope) => switch (scope) {
-    FastingMonthScope.weeklyOnly => SemanticsIds.fastingMonthScopeWeekly,
-    FastingMonthScope.allFasts => SemanticsIds.fastingMonthScopeAll,
-  };
-
   static String _weekdayScopeId(FastingWeekdayScope scope) => switch (scope) {
     FastingWeekdayScope.weeklyOnly => SemanticsIds.fastingWeekdayScopeWeekly,
     FastingWeekdayScope.allFasts => SemanticsIds.fastingWeekdayScopeAll,
   };
 
-  /// Shares the month scope's option labels: the two scopes answer the same
-  /// question about a different axis, and inventing a second wording for
-  /// "weekly fast only" would read as a different meaning.
-  ///
-  /// The hint under each pair has to describe the **selected** scope, not
-  /// the section: under `weeklyOnly` a multi-day fast still marks every one
-  /// of its days, so a flat "a day you turn off is never marked" told the
-  /// exact opposite of what the default configuration does — which is what
-  /// made a Wed/Fri practice look broken every August, when the Dormition
-  /// fast covers half the month. The month twin was wrong in the same way.
+  /// The hint under the pair has to describe the **selected** scope, not the
+  /// section: under `weeklyOnly` a multi-day fast still marks every one of
+  /// its days, so a flat "a day you turn off is never marked" told the exact
+  /// opposite of what the default configuration does — which is what made a
+  /// Wed/Fri practice look broken every August, when the Dormition fast
+  /// covers half the month.
   String _weekdayScopeLabel(FastingWeekdayScope scope, AppLocalizations l10n) {
     return switch (scope) {
-      FastingWeekdayScope.weeklyOnly => l10n.fastingMonthScopeWeekly,
-      FastingWeekdayScope.allFasts => l10n.fastingMonthScopeAll,
+      FastingWeekdayScope.weeklyOnly => l10n.fastingWeekdayScopeWeekly,
+      FastingWeekdayScope.allFasts => l10n.fastingWeekdayScopeAll,
     };
   }
 }

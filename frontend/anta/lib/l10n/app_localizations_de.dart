@@ -1190,6 +1190,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get fastingMonthsTitle => 'Monate, die du hältst';
 
   @override
+  String get fastingMonthsDesc => 'Ein ausgeschalteter Monat wird nie markiert';
+
+  @override
   String fastingMonthsCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1212,21 +1215,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ein abgewählter Tag wird nie markiert';
 
   @override
-  String get fastingMonthScopeTitle => 'Monate gelten für';
+  String get fastingWeekdayScopeWeekly => 'Nur wöchentliches Fasten';
 
   @override
-  String get fastingMonthScopeWeekly => 'Nur wöchentliches Fasten';
-
-  @override
-  String get fastingMonthScopeAll => 'Alle Fastenzeiten';
-
-  @override
-  String get fastingMonthScopeHintWeekly =>
-      'Mehrtägige Fastenzeiten erscheinen auch in einem ausgeschalteten Monat';
-
-  @override
-  String get fastingMonthScopeHintAll =>
-      'Ein ausgeschalteter Monat wird nie markiert';
+  String get fastingWeekdayScopeAll => 'Alle Fastenzeiten';
 
   @override
   String get fastingExceptionsSkipTitle => 'Freie Tage';

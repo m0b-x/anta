@@ -1187,6 +1187,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fastingMonthsTitle => 'Months you keep';
 
   @override
+  String get fastingMonthsDesc => 'A month you turn off is never marked';
+
+  @override
   String fastingMonthsCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1208,20 +1211,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fastingWeekdayScopeHintAll => 'A day you turn off is never marked';
 
   @override
-  String get fastingMonthScopeTitle => 'Months apply to';
+  String get fastingWeekdayScopeWeekly => 'Weekly fast only';
 
   @override
-  String get fastingMonthScopeWeekly => 'Weekly fast only';
-
-  @override
-  String get fastingMonthScopeAll => 'All fasts';
-
-  @override
-  String get fastingMonthScopeHintWeekly =>
-      'Multi-day fasts still show in a month you turn off';
-
-  @override
-  String get fastingMonthScopeHintAll => 'A month you turn off is never marked';
+  String get fastingWeekdayScopeAll => 'All fasts';
 
   @override
   String get fastingExceptionsSkipTitle => 'Days off';

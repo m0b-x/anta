@@ -844,31 +844,40 @@ same shape as the agenda search field in `CalendarBottomPanel`.
 - *Weekdays* — default Wednesday+Friday, but any set works (some keep only
   Wednesday, some add Monday) and clearing them all disables the weekly rule.
   The harți (fast-free) weeks still suppress whatever days are chosen.
-- *Weekday scope* (2026-08-22) — the exact mirror of the month scope.
-  `weeklyOnly` (default, and everything that shipped before it) gates only the
-  year-round weekly rule, so Great Lent keeps its Thursdays; `allFasts` gates
-  every mark, so a Wed/Fri practice keeps Great Lent on Wednesdays and Fridays
-  only. Applied in the same `_buildYear` `merge` closure beside the month
-  probe, one set probe per produced entry. Subtract-only like everything else
-  here: it removes days, never invents one, and `forceDates` still wins on a
-  weekday that is turned off.
-- *Months* — which months the practice is kept in, default all twelve.
-- *Month scope* — `weeklyOnly` (default) gates only the weekly rule, so a
-  great fast still shows in a month the weekly fast is not kept in;
-  `allFasts` gates every mark, other traditions included. Applied inside
-  `_buildYear`'s `merge` closure, so it costs one set probe per produced
-  entry and never a second traversal.
+- *Weekday scope* (2026-08-22) — `weeklyOnly` (default, and everything that
+  shipped before it) gates only the year-round weekly rule, so Great Lent
+  keeps its Thursdays; `allFasts` gates every mark, so a Wed/Fri practice
+  keeps Great Lent on Wednesdays and Fridays only. Subtract-only like
+  everything else here: it removes days, never invents one, and `forceDates`
+  still wins on a weekday that is turned off.
+- *Months* — which months the practice is kept in, default all twelve. **A
+  month turned off is never marked, whatever the fast** (2026-10-26). Until
+  then a month scope mirrored the weekday one, `weeklyOnly` by default, and a
+  December turned off still filled with the Nativity Fast — read as a bug
+  twice; `decode` ignores the `monthScope` key and `encode` keeps writing it
+  as `allFasts`, the value under which those builds draw this engine's grid.
 - *Exception dates* — `skipDates` (never marked) and `forceDates` (always
   marked, emitted as `FastingPeriod.personalFast` attributed to the first
-  enabled tradition). Applied last, in `_applyExceptions`, by walking the
-  date sets rather than the year map; each is capped at 200 and the two are
-  kept disjoint, force winning.
+  enabled tradition); each is capped at 200 and the two are kept disjoint,
+  force winning — over a month turned off too.
+
+**Where the practice is applied (2026-10-26):** every `_build<Tradition>`
+returns the tradition's own calendar untouched by the practice — the Orthodox
+weekly rule on every unclaimed, non-harți day, the Catholic abstinence on every
+unclaimed Friday — and `FastingSchedule.keeps(day, weeklyRule:)` is the **one**
+place it subtracts: a month turned off or a skipped date refuses the day; a
+weekday turned off refuses the weekly rule (`FastingPeriod.isWeeklyRule`:
+`weekdayFast`, `fridayAbstinence`) and, under `allFasts`, everything else.
+`_buildYear`'s `merge` probes it once per produced entry (no second
+traversal); `_applyForcedDays` adds the forced dates after. Never read the
+schedule inside a tradition builder again — that is how a month turned off
+could still fill with a great fast.
 
 The schedule may **subtract** from a tradition's own weekly rule but never
-**invent** days it does not have: dropping Friday silences the Catholic
-year-round abstinence, while adding Monday must not fabricate a Catholic
-Monday abstinence. Lent/Advent Fridays and Good Friday are seasonal, not
-weekly, and survive either way.
+**invent** days it does not have, by construction: the Catholic builder only
+ever emits Fridays, so dropping Friday silences the year-round abstinence
+while adding Monday marks nothing Catholic. Lent/Advent Fridays and Good Friday
+are seasonal, not weekly, and survive either way.
 
 Migration: an absent `calendar_fasting_schedule` falls back to the retired
 `calendar_fasting_weekdays` CSV, which is read but never written again. That

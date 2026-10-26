@@ -1206,6 +1206,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get fastingMonthsTitle => 'Lunile pe care le ții';
 
   @override
+  String get fastingMonthsDesc => 'O lună dezactivată nu e marcată niciodată';
+
+  @override
   String fastingMonthsCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1229,21 +1232,10 @@ class AppLocalizationsRo extends AppLocalizations {
       'O zi debifată nu este niciodată marcată';
 
   @override
-  String get fastingMonthScopeTitle => 'Lunile se aplică la';
+  String get fastingWeekdayScopeWeekly => 'Doar postul săptămânal';
 
   @override
-  String get fastingMonthScopeWeekly => 'Doar postul săptămânal';
-
-  @override
-  String get fastingMonthScopeAll => 'Toate posturile';
-
-  @override
-  String get fastingMonthScopeHintWeekly =>
-      'Posturile de mai multe zile apar și într-o lună dezactivată';
-
-  @override
-  String get fastingMonthScopeHintAll =>
-      'O lună dezactivată nu e marcată niciodată';
+  String get fastingWeekdayScopeAll => 'Toate posturile';
 
   @override
   String get fastingExceptionsSkipTitle => 'Zile libere';

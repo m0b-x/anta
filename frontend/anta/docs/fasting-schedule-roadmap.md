@@ -5,12 +5,72 @@ behaviour is described in `docs/calendar-events-feature.md` §4.5 — read that
 first; this file is kept as the design record (why each decision was made, and
 what was deliberately left out).
 
-**What shipped:** one personal *schedule* — weekdays + months + a month scope +
-exception dates — persisted in a single `calendar_fasting_schedule` JSON key
-with a fallback read of the retired weekday CSV; 42 engine and model unit tests
+**What shipped:** one personal *schedule* — weekdays + a weekday scope + months
++ exception dates — persisted in a single `calendar_fasting_schedule` JSON key
+with a fallback read of the retired weekday CSV; the engine and model unit tests
 (`test/constants/fasting_calendar_test.dart`,
 `test/models/fasting_schedule_test.dart`); and the `FastingCalendar`
-reset hook, wired through `SettingsService.reset`.
+reset hook, wired through `SettingsService.reset`. **2026-10-26:** the month
+scope is retired (first addendum below) — a month you turn off is never marked,
+and `FastingSchedule.keeps` is the one place the practice subtracts.
+
+## Addendum — the month scope retired (2026-10-26)
+
+Reported as "I keep Monday and Saturday in every month except December, and
+December shows every day as fasting". It reproduced, and the engine was again
+right by its own design: under the default `weeklyOnly` month scope the month
+set gated only the weekly rule, so the Nativity Fast (Nov 15 – Dec 24) filled
+the month the user had turned off. The same shape as the 2026-08-23 report on
+the weekday axis, and the second time the default read as a bug — which answers
+open question 1 of that fix for the month axis: **a month you turn off is never
+marked, whatever the fast.**
+
+`FastingMonthScope` is gone. `FastingSchedule` keeps `weekdays`, `weekdayScope`,
+`months`, `skipDates` and `forceDates`; `decode` ignores the `monthScope` key
+(a saved `allFasts` and a saved `weeklyOnly` both decode to the same schedule —
+the set of months is honoured, the scope is not), and `encode` keeps writing
+it, pinned to `allFasts`: the review proved this engine equal to the old one
+under that scope over 29,400 configuration-years, so a build from before this
+date reading the row (a downgrade, a device not yet updated) paints the same
+calendar instead of the bug. Nothing else in the row changes and the key stays
+`calendar_fasting_schedule`.
+
+The owner also asked for the schedule logic to be centralised. Until now the
+practice was applied in four places — the month and weekday sets inside the
+Orthodox weekly loop, Friday ∈ weekdays and the month set inside the Catholic
+Friday loop, the two `allFasts` probes in `_buildYear`'s `merge`, and the
+exception dates in `_applyExceptions`. Now every `_build<Tradition>` returns
+the tradition's own calendar untouched by the practice (the Orthodox weekly
+rule for every unclaimed, non-harți day; the Catholic abstinence for every
+unclaimed Friday), and **`FastingSchedule.keeps(day, weeklyRule:)` is the one
+place the practice subtracts**: a month turned off refuses the day, a skipped
+date refuses it, a weekday turned off refuses the weekly rule
+(`FastingPeriod.isWeeklyRule`: `weekdayFast`, `fridayAbstinence`) and, under
+`FastingWeekdayScope.allFasts`, everything else. `_buildYear`'s `merge` probes
+it once per produced entry; `_applyForcedDays` (the renamed `_applyExceptions`)
+adds the forced dates after, so force still wins over every rule, a month
+turned off included. "Never invent" holds by construction: the Catholic
+builder only ever emits Fridays, so a Monday the Orthodox side keeps marks
+nothing Catholic.
+
+The sheet lost the "Months apply to" row; the month chips carry the caption
+"A month you turn off is never marked" (`fastingMonthsDesc`, the former
+`allFasts` hint). The weekday scope row stays, its option labels on their own
+keys at last (`fastingWeekdayScopeWeekly` / `fastingWeekdayScopeAll`, closing
+open question 2 of the 2026-08-23 fix); `fasting-month-scope-weekly` / `-all`
+are retired and flow `19_fasting_schedule` expects the caption instead.
+
+Cost is unchanged in shape: one O(365) pass per tradition per year, one
+predicate per produced entry (the Orthodox intermediate map is larger before
+the merge — every unclaimed day — and the merged year map is the same size as
+before), O(1) lookups.
+
+**Left alone, deliberately:** the weekday scope and its `weeklyOnly` default.
+"Wednesday and Friday, and the great fasts in full" is the common Orthodox
+practice, and the owner has not asked for the weekday axis to change. If a
+weekday turned off should likewise never be marked, the fix is one line in
+`keeps` (drop the `weeklyOnly` branch) plus retiring `FastingWeekdayScope` the
+way the month scope went.
 
 ## Addendum — weekday scope (2026-08-22)
 
@@ -70,7 +130,8 @@ is a static singleton with **no reset hook** on a database switch, and the engin
 
 1. The month filter carries a **scope selector**: `weeklyOnly` (default — only
    the weekly rule) vs `allFasts` (a disabled month hides every fasting mark,
-   all traditions included).
+   all traditions included). **Superseded 2026-10-26** (addendum above): a
+   month you turn off is never marked, whatever the fast; the selector is gone.
 2. **One shared schedule**, shown whenever any tradition is enabled.
 3. Exception dates support both **skip** and **force**.
 
@@ -529,8 +590,11 @@ pins each scope to its hint, in both axes and across a chip tap.
    of every install that already set weekdays. If "Wednesdays and Fridays,
    whatever the season" is the practice most people mean when they pick
    weekdays, `allFasts` is arguably the better default — but that is a product
-   decision with a data-visible blast radius, not a bug fix.
+   decision with a data-visible blast radius, not a bug fix. *Answered for the
+   month axis on 2026-10-26 (the scope is gone; a month off is never marked);
+   still open for the weekday axis — see that addendum's last paragraph.*
 2. **`_weekdayScopeLabel` still reuses `fastingMonthScopeWeekly` /
    `fastingMonthScopeAll`** for the option labels. Correct today ("Weekly fast
    only" / "All fasts" read fine on both axes), but it means rewording the
-   month options silently rewords the weekday ones.
+   month options silently rewords the weekday ones. *Closed 2026-10-26: the
+   weekday scope has its own keys, `fastingWeekdayScopeWeekly` / `-All`.*

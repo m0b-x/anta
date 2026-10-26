@@ -10,6 +10,9 @@
 #   scroll-to needs no --in here.
 # - The months' Select all is disabled in place with all twelve ticked: it
 #   is checked present, never tapped.
+# - The months' caption is the one line under the month chips (the month
+#   scope row went with the month scope); it is checked by the first expect,
+#   where the chips around it are already on screen.
 tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
@@ -17,7 +20,7 @@ wait id:calendar-add-event --gone
 scroll-to id:calendar-fasting-schedule-open
 tap id:calendar-fasting-schedule-open
 wait id:fasting-schedule-close
-expect id:fasting-weekday-1 id:fasting-weekday-7 id:fasting-weekdays-all id:fasting-weekdays-none id:fasting-weekday-scope-weekly id:fasting-weekday-scope-all id:fasting-month-1 id:fasting-month-12 id:fasting-months-all id:fasting-months-none "Multi-day fasts still mark every one of their days"
+expect id:fasting-weekday-1 id:fasting-weekday-7 id:fasting-weekdays-all id:fasting-weekdays-none id:fasting-weekday-scope-weekly id:fasting-weekday-scope-all id:fasting-month-1 id:fasting-month-12 id:fasting-months-all id:fasting-months-none "Multi-day fasts still mark every one of their days" "A month you turn off is never marked"
 shot 19_fasting_schedule
 tap id:fasting-weekday-1
 tap id:fasting-weekday-1
@@ -26,7 +29,7 @@ expect "A day you turn off is never marked"
 tap id:fasting-weekday-scope-weekly
 expect "Multi-day fasts still mark every one of their days"
 scroll-to id:fasting-days-off
-expect id:fasting-extra-days id:fasting-month-scope-weekly id:fasting-month-scope-all
+expect id:fasting-extra-days
 shot 19_fasting_exceptions
 tap id:fasting-days-off
 wait id:date-picker-cancel

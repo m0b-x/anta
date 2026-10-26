@@ -331,8 +331,8 @@ class SettingsKeys {
   /// them all, and the two must stay distinguishable.
   static const String calendarFastingWeekdays = 'calendar_fasting_weekdays';
 
-  /// The personal fasting practice — weekly days, the months kept, what a
-  /// disabled month suppresses, and exception dates — encoded by
+  /// The personal fasting practice — the weekdays and what a disabled weekday
+  /// suppresses, the months kept, and exception dates — encoded by
   /// `FastingSchedule` as a JSON object. Malformed fields degrade to their
   /// defaults on read; an absent key falls back to [calendarFastingWeekdays].
   static const String calendarFastingSchedule = 'calendar_fasting_schedule';

@@ -93,7 +93,26 @@ void main() {
     });
   });
 
-  group('months, weeklyOnly scope', () {
+  group('months', () {
+    test('a month turned off is never marked, whatever the fast', () {
+      // The owner's case (2026-10-26): Monday and Saturday in every month but
+      // December, with the great fasts on. The Nativity fast used to fill
+      // December under the retired month scope's default.
+      _configureOrthodox(
+        greatFasts: true,
+        schedule: const FastingSchedule().copyWith(
+          weekdays: {DateTime.monday, DateTime.saturday},
+          months: FastingSchedule.allMonths.difference({12}),
+        ),
+      );
+      for (final day in _daysOf(2026).where((day) => day.month == 12)) {
+        expect(FastingCalendar.on(day), isEmpty, reason: '$day');
+      }
+      expect(_periodsOn(_d(2026, 11, 20)), [FastingPeriod.nativityFast]);
+      expect(_d(2026, 11, 2).weekday, DateTime.monday);
+      expect(_periodsOn(_d(2026, 11, 2)), [FastingPeriod.weekdayFast]);
+    });
+
     test('a disabled month drops the weekly fast there only', () {
       _configureOrthodox(
         schedule: const FastingSchedule().copyWith(
@@ -109,45 +128,65 @@ void main() {
       expect(_periodsOn(_d(2026, 2, 11)), [FastingPeriod.weekdayFast]);
     });
 
-    test('great fasts survive a month the weekly fast is not kept in', () {
+    test('no months at all blanks the year — a legitimate state', () {
       _configureOrthodox(
         greatFasts: true,
-        schedule: const FastingSchedule().copyWith(
-          months: FastingSchedule.allMonths.where((m) => m != 12).toSet(),
-        ),
+        schedule: const FastingSchedule().copyWith(months: const {}),
       );
-      expect(_periodsOn(_d(2026, 12, 1)), [FastingPeriod.nativityFast]);
-    });
-  });
-
-  group('months, allFasts scope', () {
-    FastingSchedule withoutDecember() => const FastingSchedule().copyWith(
-      months: FastingSchedule.allMonths.where((m) => m != 12).toSet(),
-      monthScope: FastingMonthScope.allFasts,
-    );
-
-    test('a disabled month drops every fast, great fasts included', () {
-      _configureOrthodox(greatFasts: true, schedule: withoutDecember());
-      for (final day in _daysOf(2026).where((day) => day.month == 12)) {
+      for (final day in _daysOf(2026)) {
         expect(FastingCalendar.on(day), isEmpty, reason: '$day');
       }
     });
 
-    test('neighbouring months are untouched', () {
-      _configureOrthodox(greatFasts: true, schedule: withoutDecember());
-      expect(_periodsOn(_d(2026, 11, 20)), [FastingPeriod.nativityFast]);
-    });
-
-    test('no months at all blanks the year — a legitimate state', () {
+    test('a forced date still wins in a month turned off', () {
       _configureOrthodox(
         greatFasts: true,
         schedule: const FastingSchedule().copyWith(
-          months: const {},
-          monthScope: FastingMonthScope.allFasts,
+          months: FastingSchedule.allMonths.difference({12}),
+          forceDates: {_d(2026, 12, 10)},
         ),
       );
-      for (final day in _daysOf(2026)) {
+      expect(_periodsOn(_d(2026, 12, 10)), [FastingPeriod.personalFast]);
+      for (final day in _daysOf(2026).where((day) => day.month == 12)) {
+        if (day == _d(2026, 12, 10)) continue;
         expect(FastingCalendar.on(day), isEmpty, reason: '$day');
+      }
+    });
+
+    test('a month turned off silences the Catholic Friday abstinence', () {
+      _configureCatholic(
+        schedule: const FastingSchedule().copyWith(
+          months: FastingSchedule.allMonths.difference({7}),
+        ),
+      );
+      expect(_d(2026, 7, 3).weekday, DateTime.friday);
+      expect(FastingCalendar.on(_d(2026, 7, 3)), isEmpty);
+      expect(_d(2026, 8, 7).weekday, DateTime.friday);
+      expect(_periodsOn(_d(2026, 8, 7)), [FastingPeriod.fridayAbstinence]);
+    });
+
+    test('a month turned off gates the traditions without a weekly rule', () {
+      // Ramadan and the Jewish fasts have no weekly rule, so the month set is
+      // the only part of the practice that reaches them. The marked days come
+      // from an all-months run rather than from a date looked up by hand.
+      FastingCalendar.configure(
+        traditions: const {FastingTradition.muslim, FastingTradition.jewish},
+      );
+      final marked = _daysOf(2026).where(FastingCalendar.isFastingDay).toList();
+      expect(marked, isNotEmpty);
+      final offMonth = marked.first.month;
+      FastingCalendar.configure(
+        traditions: const {FastingTradition.muslim, FastingTradition.jewish},
+        schedule: const FastingSchedule().copyWith(
+          months: FastingSchedule.allMonths.difference({offMonth}),
+        ),
+      );
+      for (final day in marked) {
+        expect(
+          FastingCalendar.on(day),
+          day.month == offMonth ? isEmpty : isNotEmpty,
+          reason: '$day',
+        );
       }
     });
   });
@@ -198,7 +237,6 @@ void main() {
         schedule: const FastingSchedule().copyWith(
           weekdays: {DateTime.wednesday, DateTime.friday},
           weekdayScope: FastingWeekdayScope.allFasts,
-          monthScope: FastingMonthScope.allFasts,
         ),
       );
       // December is kept, so the Nativity Fast survives on its Wednesdays…
@@ -263,6 +301,27 @@ void main() {
       expect(_periodsOn(ashWednesday.add(const Duration(days: 1))), [
         FastingPeriod.lent,
       ]);
+    });
+
+    test('allFasts with Friday off drops the seasonal Fridays too', () {
+      // The Friday loop runs unconditionally since 2026-10-26; what drops a
+      // Friday is `keeps`, and under allFasts it drops Lent's as well.
+      _configureCatholic(
+        schedule: const FastingSchedule().copyWith(
+          weekdays: const {DateTime.wednesday},
+          weekdayScope: FastingWeekdayScope.allFasts,
+        ),
+      );
+      final lentFriday = easter2026.subtract(const Duration(days: 9));
+      final lentWednesday = easter2026.subtract(const Duration(days: 11));
+      expect(lentFriday.weekday, DateTime.friday);
+      expect(lentWednesday.weekday, DateTime.wednesday);
+      expect(FastingCalendar.on(lentFriday), isEmpty);
+      expect(
+        FastingCalendar.on(easter2026.subtract(const Duration(days: 2))),
+        isEmpty,
+      );
+      expect(_periodsOn(lentWednesday), [FastingPeriod.lent]);
     });
   });
 

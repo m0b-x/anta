@@ -2,37 +2,13 @@ import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
 
-/// What a month the user turned off actually suppresses.
-///
-/// Exposed as a choice rather than assumed because the two readings are both
-/// legitimate and lead to opposite calendars: someone who keeps the great
-/// fasts but not the weekly one in summer wants [weeklyOnly], while someone
-/// who simply does not fast in August wants [allFasts].
-enum FastingMonthScope {
-  /// The month set gates only the year-round weekly rule (default). A great
-  /// fast still shows in a month the user does not keep the weekly fast in.
-  weeklyOnly,
-
-  /// The month set gates every fasting mark, multi-day fasts and the other
-  /// traditions included. A disabled month renders as if fasting were off.
-  allFasts;
-
-  /// Forward-compatible parsing: unknown/null values fall back to
-  /// [weeklyOnly].
-  static FastingMonthScope fromName(String? name) {
-    for (final scope in values) {
-      if (scope.name == name) return scope;
-    }
-    return weeklyOnly;
-  }
-}
-
 /// What a weekday the user turned off actually suppresses.
 ///
-/// The exact mirror of [FastingMonthScope], and exposed for the same reason:
-/// someone who keeps Great Lent in full but fasts weekly only on Wednesday
-/// and Friday wants [weeklyOnly], while someone whose whole practice is
-/// "Wednesdays and Fridays, whatever the season" wants [allFasts].
+/// Exposed as a choice rather than assumed because the two readings are both
+/// legitimate and lead to opposite calendars: someone who keeps Great Lent in
+/// full but fasts weekly only on Wednesday and Friday wants [weeklyOnly],
+/// while someone whose whole practice is "Wednesdays and Fridays, whatever
+/// the season" wants [allFasts].
 enum FastingWeekdayScope {
   /// The weekday set gates only the year-round weekly rule (default, and the
   /// behaviour that shipped first). A multi-day fast still marks every one of
@@ -53,9 +29,10 @@ enum FastingWeekdayScope {
   }
 }
 
-/// The personal fasting practice: which weekdays are kept, which months, what
-/// a disabled weekday or month suppresses, and the exact dates that override
-/// all of them.
+/// The personal fasting practice: the weekdays kept and what a disabled
+/// weekday suppresses ([weekdayScope]), the months kept — a month turned off
+/// is never marked, whatever the fast — and the exact dates that are never
+/// or always marked.
 ///
 /// One schedule covers every enabled tradition. It may **subtract** from a
 /// tradition's own weekly rule but never **invent** days that tradition does
@@ -74,9 +51,10 @@ class FastingSchedule extends Equatable {
   static const Set<int> allMonths = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
   /// Cap per exception set. Hand-picked dates are the only unbounded field
-  /// here, and `_applyExceptions` walks them on every year build — a runaway
-  /// list would turn an O(365) build into an O(n) one and bloat the settings
-  /// row for no practice anyone actually keeps.
+  /// here: the skip set is probed for every entry a year build produces
+  /// ([keeps]) and the force set is walked by the engine on every year build
+  /// — a runaway list would bloat both and the settings row for no practice
+  /// anyone actually keeps.
   static const int maxExceptionDates = 200;
 
   /// `DateTime.weekday` values (1=Mon..7=Sun) the weekly fast falls on. Empty
@@ -86,10 +64,8 @@ class FastingSchedule extends Equatable {
   final FastingWeekdayScope weekdayScope;
 
   /// Months (1..12) the practice is kept in. Empty is legitimate and blanks
-  /// whatever [monthScope] covers.
+  /// every mark but the forced dates.
   final Set<int> months;
-
-  final FastingMonthScope monthScope;
 
   /// Dates never marked, whatever the calendar works out. Date-only UTC.
   final Set<DateTime> skipDates;
@@ -102,7 +78,6 @@ class FastingSchedule extends Equatable {
     this.weekdays = defaultWeekdays,
     this.weekdayScope = FastingWeekdayScope.weeklyOnly,
     this.months = allMonths,
-    this.monthScope = FastingMonthScope.weeklyOnly,
     this.skipDates = const {},
     this.forceDates = const {},
   });
@@ -110,6 +85,28 @@ class FastingSchedule extends Equatable {
   bool get keepsEveryMonth => months.length == allMonths.length;
 
   int get exceptionCount => skipDates.length + forceDates.length;
+
+  /// The one place the practice subtracts from a tradition's calendar: every
+  /// builder in `FastingCalendar` computes the tradition's own days, and
+  /// `_buildYear` hands each one here before it reaches the year map.
+  ///
+  /// A month turned off is never marked, whatever the fast (2026-10-26; until
+  /// then a month scope let the multi-day fasts through by default, and a
+  /// December full of the Nativity fast read as a bug). A weekday turned off
+  /// silences the weekly rule — [weeklyRule] is the Orthodox weekday fast and
+  /// the Catholic Friday abstinence — and, under
+  /// [FastingWeekdayScope.allFasts], every other mark too; under
+  /// [FastingWeekdayScope.weeklyOnly] a multi-day fast keeps every one of its
+  /// days. A skipped date is never marked. Forced dates are not decided here:
+  /// they can mark a day no tradition computed, which a predicate over
+  /// computed days cannot express — the engine adds them after this.
+  ///
+  /// [day] is date-only UTC, as every builder produces it.
+  bool keeps(DateTime day, {required bool weeklyRule}) {
+    if (!months.contains(day.month) || skipDates.contains(day)) return false;
+    if (weekdays.contains(day.weekday)) return true;
+    return !weeklyRule && weekdayScope == FastingWeekdayScope.weeklyOnly;
+  }
 
   /// Returns a normalized copy: weekdays clamped to 1..7, months to 1..12,
   /// dates reduced to UTC midnight, [skipDates] stripped of anything forced,
@@ -122,7 +119,6 @@ class FastingSchedule extends Equatable {
     Set<int>? weekdays,
     FastingWeekdayScope? weekdayScope,
     Set<int>? months,
-    FastingMonthScope? monthScope,
     Set<DateTime>? skipDates,
     Set<DateTime>? forceDates,
   }) {
@@ -130,7 +126,6 @@ class FastingSchedule extends Equatable {
       weekdays: weekdays ?? this.weekdays,
       weekdayScope: weekdayScope ?? this.weekdayScope,
       months: months ?? this.months,
-      monthScope: monthScope ?? this.monthScope,
       skipDates: skipDates ?? this.skipDates,
       forceDates: forceDates ?? this.forceDates,
     );
@@ -140,7 +135,6 @@ class FastingSchedule extends Equatable {
     required Set<int> weekdays,
     required FastingWeekdayScope weekdayScope,
     required Set<int> months,
-    required FastingMonthScope monthScope,
     required Set<DateTime> skipDates,
     required Set<DateTime> forceDates,
   }) {
@@ -156,7 +150,6 @@ class FastingSchedule extends Equatable {
         for (final month in months)
           if (month >= 1 && month <= 12) month,
       },
-      monthScope: monthScope,
       skipDates: skip,
       forceDates: force,
     );
@@ -175,14 +168,25 @@ class FastingSchedule extends Equatable {
     return sorted.take(maxExceptionDates).toSet();
   }
 
-  /// JSON object. The four structural fields are always written (their
+  /// What every build before 2026-10-26 reads as "a month turned off gates
+  /// every fast" — the one value of the retired month scope under which the
+  /// old engine drew exactly what this one draws.
+  static const String _retiredMonthScope = 'allFasts';
+
+  /// JSON object. The three structural fields are always written (their
   /// absence means "default" on read, which is not the same as an empty set);
   /// empty date lists are omitted to keep the stored row small.
+  ///
+  /// `monthScope` is retired but still written, pinned to
+  /// [_retiredMonthScope]: a build from before 2026-10-26 reading this row (a
+  /// downgrade, a device not yet updated) then paints the same calendar
+  /// instead of filling a month turned off with a great fast again. [decode]
+  /// ignores the key.
   String encode() => jsonEncode({
     'weekdays': (weekdays.toList()..sort()),
     'weekdayScope': weekdayScope.name,
     'months': (months.toList()..sort()),
-    'monthScope': monthScope.name,
+    'monthScope': _retiredMonthScope,
     if (skipDates.isNotEmpty) 'skip': _encodeDates(skipDates),
     if (forceDates.isNotEmpty) 'force': _encodeDates(forceDates),
   });
@@ -200,7 +204,10 @@ class FastingSchedule extends Equatable {
   /// Decodes [encode]'s output, falling back to the retired weekday CSV.
   ///
   /// Every field degrades independently, and nothing here throws: a corrupt
-  /// settings row must never keep the calendar from opening.
+  /// settings row must never keep the calendar from opening. Unknown keys are
+  /// ignored — among them `monthScope`, retired on 2026-10-26 and still
+  /// written for the builds before it (see [encode]); whatever value a row
+  /// carries, the month set alone decides.
   ///
   /// [legacyWeekdayCsv] carries the retired `calendar_fasting_weekdays` value
   /// **including the empty string**, which is why it is nullable: an absent
@@ -221,11 +228,6 @@ class FastingSchedule extends Equatable {
                   : null,
             ),
             months: _parseInts(decoded['months']) ?? allMonths,
-            monthScope: FastingMonthScope.fromName(
-              decoded['monthScope'] is String
-                  ? decoded['monthScope'] as String
-                  : null,
-            ),
             skipDates: _parseDates(decoded['skip']),
             forceDates: _parseDates(decoded['force']),
           );
@@ -294,7 +296,6 @@ class FastingSchedule extends Equatable {
     weekdays,
     weekdayScope,
     months,
-    monthScope,
     skipDates,
     forceDates,
   ];

@@ -10,7 +10,6 @@ void main() {
       const schedule = FastingSchedule();
       expect(schedule.weekdays, {DateTime.wednesday, DateTime.friday});
       expect(schedule.months, FastingSchedule.allMonths);
-      expect(schedule.monthScope, FastingMonthScope.weeklyOnly);
       expect(schedule.weekdayScope, FastingWeekdayScope.weeklyOnly);
       expect(schedule.skipDates, isEmpty);
       expect(schedule.forceDates, isEmpty);
@@ -25,7 +24,6 @@ void main() {
         weekdays: {DateTime.monday, DateTime.saturday},
         weekdayScope: FastingWeekdayScope.allFasts,
         months: {1, 6, 12},
-        monthScope: FastingMonthScope.allFasts,
         skipDates: {_utc(2026, 3, 15), _utc(2026, 4, 2)},
         forceDates: {_utc(2026, 5, 1)},
       );
@@ -45,7 +43,9 @@ void main() {
       expect(encoded, contains('"weekdays"'));
       expect(encoded, contains('"weekdayScope"'));
       expect(encoded, contains('"months"'));
-      expect(encoded, contains('"monthScope"'));
+      // Retired, but pinned for the builds before 2026-10-26 that still read
+      // it: `allFasts` is the value under which they draw this engine's grid.
+      expect(encoded, contains('"monthScope":"allFasts"'));
       expect(encoded, isNot(contains('"skip"')));
       expect(encoded, isNot(contains('"force"')));
     });
@@ -60,7 +60,6 @@ void main() {
       final schedule = FastingSchedule.decode(null, legacyWeekdayCsv: '3,5');
       expect(schedule.weekdays, {DateTime.wednesday, DateTime.friday});
       expect(schedule.months, FastingSchedule.allMonths);
-      expect(schedule.monthScope, FastingMonthScope.weeklyOnly);
     });
 
     test(
@@ -97,14 +96,20 @@ void main() {
       expect(schedule.weekdays, {DateTime.monday});
     });
 
-    test('an unknown month scope falls back to weeklyOnly', () {
-      final schedule = FastingSchedule.decode(
-        '{"monthScope":"someFutureScope"}',
-      );
-      expect(schedule.monthScope, FastingMonthScope.weeklyOnly);
-      expect(schedule.weekdays, FastingSchedule.defaultWeekdays);
-      expect(schedule.months, FastingSchedule.allMonths);
-    });
+    test(
+      'a blob carrying the retired monthScope key decodes and ignores it',
+      () {
+        final allFasts = FastingSchedule.decode(
+          '{"months":[1,2],"monthScope":"allFasts"}',
+        );
+        final weeklyOnly = FastingSchedule.decode(
+          '{"months":[1,2],"monthScope":"weeklyOnly"}',
+        );
+        expect(allFasts, weeklyOnly);
+        expect(allFasts.months, {1, 2});
+        expect(allFasts.weekdays, FastingSchedule.defaultWeekdays);
+      },
+    );
 
     test('an unknown weekday scope falls back to weeklyOnly', () {
       final schedule = FastingSchedule.decode(
@@ -124,7 +129,6 @@ void main() {
           '"monthScope":"allFasts"}',
         );
         expect(schedule.weekdayScope, FastingWeekdayScope.weeklyOnly);
-        expect(schedule.monthScope, FastingMonthScope.allFasts);
       },
     );
 
@@ -186,6 +190,80 @@ void main() {
         schedule.skipDates,
         isNot(contains(_utc(2026, 1, 1).add(const Duration(days: 225)))),
       );
+    });
+  });
+
+  group('keeps', () {
+    final wednesday = _utc(2026, 2, 11);
+    final monday = _utc(2026, 2, 9);
+
+    setUpAll(() {
+      expect(wednesday.weekday, DateTime.wednesday);
+      expect(monday.weekday, DateTime.monday);
+    });
+
+    test('a month turned off refuses a weekly and a seasonal entry alike', () {
+      for (final scope in FastingWeekdayScope.values) {
+        final schedule = const FastingSchedule().copyWith(
+          weekdayScope: scope,
+          months: FastingSchedule.allMonths.difference({2}),
+        );
+        expect(schedule.keeps(wednesday, weeklyRule: true), isFalse);
+        expect(schedule.keeps(wednesday, weeklyRule: false), isFalse);
+      }
+    });
+
+    test('a kept weekday is kept under both scopes and both kinds', () {
+      for (final scope in FastingWeekdayScope.values) {
+        final schedule = FastingSchedule(weekdayScope: scope);
+        expect(schedule.keeps(wednesday, weeklyRule: true), isTrue);
+        expect(schedule.keeps(wednesday, weeklyRule: false), isTrue);
+      }
+    });
+
+    test('an off weekday refuses a weekly entry under both scopes', () {
+      for (final scope in FastingWeekdayScope.values) {
+        final schedule = FastingSchedule(weekdayScope: scope);
+        expect(schedule.keeps(monday, weeklyRule: true), isFalse);
+      }
+    });
+
+    test('an off weekday keeps a seasonal entry under weeklyOnly only', () {
+      const weeklyOnly = FastingSchedule();
+      const allFasts = FastingSchedule(
+        weekdayScope: FastingWeekdayScope.allFasts,
+      );
+      expect(weeklyOnly.keeps(monday, weeklyRule: false), isTrue);
+      expect(allFasts.keeps(monday, weeklyRule: false), isFalse);
+    });
+
+    test('a skipped date is refused on a kept weekday in a kept month', () {
+      final schedule = const FastingSchedule().copyWith(skipDates: {wednesday});
+      expect(schedule.keeps(wednesday, weeklyRule: true), isFalse);
+      expect(schedule.keeps(wednesday, weeklyRule: false), isFalse);
+    });
+
+    test('no weekdays under weeklyOnly refuses the weekly rule only', () {
+      const schedule = FastingSchedule(weekdays: {});
+      expect(schedule.keeps(wednesday, weeklyRule: true), isFalse);
+      expect(schedule.keeps(wednesday, weeklyRule: false), isTrue);
+    });
+
+    test('no weekdays under allFasts refuses everything', () {
+      const schedule = FastingSchedule(
+        weekdays: {},
+        weekdayScope: FastingWeekdayScope.allFasts,
+      );
+      expect(schedule.keeps(wednesday, weeklyRule: true), isFalse);
+      expect(schedule.keeps(wednesday, weeklyRule: false), isFalse);
+    });
+
+    test('no months refuses everything', () {
+      const schedule = FastingSchedule(months: {});
+      for (final day in [wednesday, monday]) {
+        expect(schedule.keeps(day, weeklyRule: true), isFalse);
+        expect(schedule.keeps(day, weeklyRule: false), isFalse);
+      }
     });
   });
 

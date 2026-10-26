@@ -642,8 +642,8 @@ abstract final class SemanticsIds {
   static const String swatchMenuManage = 'swatch-menu-manage';
 
   /// The fasting schedule's ✕, its weekday chips (ISO 1–7) and month chips
-  /// (1–12), the Select all / None rows under each, the two scope pairs, the
-  /// two exception rows, and each exception date's remove button keyed by
+  /// (1–12), the Select all / None rows under each, the weekday scope pair,
+  /// the two exception rows, and each exception date's remove button keyed by
   /// the list it is in (`skip` or `force`) and the date.
   static const String fastingScheduleClose = 'fasting-schedule-close';
   static String fastingWeekday(int weekday) => 'fasting-weekday-$weekday';
@@ -655,8 +655,6 @@ abstract final class SemanticsIds {
   static String fastingMonth(int month) => 'fasting-month-$month';
   static const String fastingMonthsAll = 'fasting-months-all';
   static const String fastingMonthsNone = 'fasting-months-none';
-  static const String fastingMonthScopeWeekly = 'fasting-month-scope-weekly';
-  static const String fastingMonthScopeAll = 'fasting-month-scope-all';
   static const String fastingDaysOff = 'fasting-days-off';
   static const String fastingExtraDays = 'fasting-extra-days';
   static String fastingDateRemove(String kind, DateTime date) =>

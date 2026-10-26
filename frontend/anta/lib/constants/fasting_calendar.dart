@@ -60,7 +60,13 @@ enum FastingPeriod {
   // ── Personal ──
   /// A day the user forced on through their own schedule, where no tradition
   /// computes a fast.
-  personalFast,
+  personalFast;
+
+  /// The year-round weekly rule — the one part of a tradition's calendar the
+  /// personal weekday set shapes directly (`FastingSchedule.keeps`); every
+  /// other period is seasonal and yields to that set only under
+  /// `FastingWeekdayScope.allFasts`.
+  bool get isWeeklyRule => this == weekdayFast || this == fridayAbstinence;
 }
 
 /// One tradition's verdict for one day.
@@ -421,23 +427,15 @@ abstract final class FastingCalendar {
 
   static Map<DateTime, List<FastingInfo>> _buildYear(int year) {
     final out = <DateTime, List<FastingInfo>>{};
-    // A month the user turned off drops every tradition's mark only in the
-    // "all fasts" scope. In the default scope the month filter lives inside
-    // the weekly loops instead, so a great fast still shows in a month the
-    // weekly fast is not kept in. Filtering here rather than in a pass over
-    // the merged map keeps it O(1) per entry already being visited.
-    final filterEveryFast = _schedule.monthScope == FastingMonthScope.allFasts;
-    // The weekday twin of the month scope, and subtract-only in the same way:
-    // a weekday the user turned off is never marked in the "all fasts" scope,
-    // so a Wed/Fri practice keeps Great Lent on Wednesdays and Fridays only
-    // instead of every one of its forty days. One probe per produced entry —
-    // never a second pass over the merged map.
-    final filterEveryWeekday =
-        _schedule.weekdayScope == FastingWeekdayScope.allFasts;
+    // Every builder returns the tradition's own calendar, untouched by the
+    // practice; the practice subtracts here, in one probe per produced entry,
+    // and adds its forced dates after. Until 2026-10-26 the weekly loops read
+    // the month and weekday sets themselves and this closure filtered months
+    // only under the retired `allFasts` scope — so by default a month turned
+    // off still filled with a great fast.
     void merge(Map<DateTime, FastingInfo> tradition) {
       tradition.forEach((day, info) {
-        if (filterEveryFast && !_schedule.months.contains(day.month)) return;
-        if (filterEveryWeekday && !_schedule.weekdays.contains(day.weekday)) {
+        if (!_schedule.keeps(day, weeklyRule: info.period.isWeeklyRule)) {
           return;
         }
         (out[day] ??= []).add(info);
@@ -456,21 +454,20 @@ abstract final class FastingCalendar {
     if (_traditions.contains(FastingTradition.jewish)) {
       merge(_buildJewish(year));
     }
-    _applyExceptions(year, out);
+    _applyForcedDays(year, out);
     return out;
   }
 
-  /// Personal exception dates, applied last so they override every computed
-  /// rule. Walks the (hand-picked, capped) date sets rather than the merged
-  /// map, so the cost is proportional to the exceptions and not to the year.
+  /// Forced dates, added last so they win over every rule, the month and
+  /// weekday sets included. Walks the (hand-picked, capped) date set rather
+  /// than the merged map, so the cost is proportional to the forced dates and
+  /// not to the year. A day a tradition computed keeps its entry; a day none
+  /// did becomes a [FastingPeriod.personalFast].
   ///
   /// A forced day no tradition claimed is attributed to the first enabled
   /// tradition in declaration order — the same one whose colour and icon the
   /// grid already uses for a day only one tradition marks.
-  static void _applyExceptions(int year, Map<DateTime, List<FastingInfo>> out) {
-    for (final day in _schedule.skipDates) {
-      if (day.year == year) out.remove(day);
-    }
+  static void _applyForcedDays(int year, Map<DateTime, List<FastingInfo>> out) {
     if (_schedule.forceDates.isEmpty) return;
     FastingTradition? owner;
     for (final tradition in FastingTradition.values) {
@@ -495,8 +492,8 @@ abstract final class FastingCalendar {
 
   /// Orthodox year: the four multi-day fasts (weekday pattern + customary
   /// feast dispensations), the three strict single days, Cheesefare week's
-  /// dairy days, and the year-round Wednesday/Friday fast — suppressed in
-  /// the fast-free (harți) weeks that follow the great feasts.
+  /// dairy days, and the year-round weekly fast on every unclaimed day —
+  /// suppressed in the fast-free (harți) weeks that follow the great feasts.
   static Map<DateTime, FastingInfo> _buildOrthodox(int year) {
     final map = <DateTime, FastingInfo>{};
     final pascha = LiturgicalComputus.easterSundayOrthodox(year);
@@ -531,13 +528,12 @@ abstract final class FastingCalendar {
       _buildOrthodoxGreatFasts(pascha, at, set);
     }
 
-    // Weekly fast on the configured days (traditionally Wed/Fri, but a
-    // personal practice can be any set — or none) in the configured months,
-    // wherever nothing above applies. The fast-free weeks still win: harți
-    // suspend the weekly fast for every practice.
+    // The weekly fast, built for all seven weekdays wherever nothing above
+    // applies: which of them the practice keeps (traditionally Wed/Fri, but
+    // any set — or none) is `FastingSchedule.keeps`'s call in `_buildYear`,
+    // never this builder's. The fast-free weeks still win: harți suspend the
+    // weekly fast for every practice.
     for (var d = at(1, 1); d.year == year; d = d.add(_oneDay)) {
-      if (!_schedule.weekdays.contains(d.weekday)) continue;
-      if (!_schedule.months.contains(d.month)) continue;
       if (map.containsKey(d) || fastFree.contains(d)) continue;
       map[d] = const FastingInfo(
         t,
@@ -704,27 +700,19 @@ abstract final class FastingCalendar {
       );
     }
 
-    // Friday abstinence outside Lent and Advent, in the configured months.
-    // The personal schedule may *subtract* from a tradition's own weekly rule
-    // but never invent days it does not have: dropping Friday silences this
-    // loop, while adding Monday is an Orthodox-side choice that must not
-    // fabricate a Catholic Monday abstinence. Lent and Advent Fridays are
-    // seasonal rather than weekly and are already in the map above, so they
-    // stay either way.
-    if (_schedule.weekdays.contains(DateTime.friday)) {
-      for (
-        var d = DateTime.utc(year, 1, 1);
-        d.year == year;
-        d = d.add(_oneDay)
-      ) {
-        if (d.weekday != DateTime.friday || map.containsKey(d)) continue;
-        if (!_schedule.months.contains(d.month)) continue;
-        map[d] = const FastingInfo(
-          t,
-          FastingPeriod.fridayAbstinence,
-          FastingRegime.fish,
-        );
-      }
+    // Friday abstinence outside Lent and Advent — Fridays only. The practice
+    // may silence this rule (Friday turned off drops every entry here through
+    // `FastingSchedule.keeps`) but can never widen it, because this builder
+    // never emits any other weekday: a Monday the Orthodox side keeps marks
+    // nothing Catholic. Lent and Advent Fridays are seasonal rather than
+    // weekly and are already in the map above, so they stay either way.
+    for (var d = DateTime.utc(year, 1, 1); d.year == year; d = d.add(_oneDay)) {
+      if (d.weekday != DateTime.friday || map.containsKey(d)) continue;
+      map[d] = const FastingInfo(
+        t,
+        FastingPeriod.fridayAbstinence,
+        FastingRegime.fish,
+      );
     }
     return map;
   }

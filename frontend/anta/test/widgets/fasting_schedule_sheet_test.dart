@@ -18,7 +18,8 @@ import 'support/layout_errors.dart';
 /// August, where the Dormition fast covers Aug 1–14 no matter which weekdays
 /// are picked.
 ///
-/// These pin the hint to the **selected** scope, in both axes; the group
+/// These pin the hint to the **selected** scope, and the months' caption to
+/// the one rule a month has since its scope was retired; the group
 /// after them pins what every control writes, live, through `onChanged`; the
 /// last group pins the sub-sheet of the UI language the sheet became in
 /// Tier 3 (slice 4): chips that never change width, bulk rows disabled in
@@ -40,8 +41,7 @@ void main() {
 
   const weekdayWeekly = 'Multi-day fasts still mark every one of their days';
   const weekdayAll = 'A day you turn off is never marked';
-  const monthWeekly = 'Multi-day fasts still show in a month you turn off';
-  const monthAll = 'A month you turn off is never marked';
+  const monthsCaption = 'A month you turn off is never marked';
 
   testWidgets('the default scope admits that multi-day fasts still mark', (
     tester,
@@ -49,7 +49,6 @@ void main() {
     final robot = await pumpSheet(tester, const FastingSchedule());
 
     expect(robot.weekdayScopeHint, weekdayWeekly);
-    expect(robot.monthScopeHint, monthWeekly);
   });
 
   testWidgets('the all-fasts weekday scope claims the stronger rule', (
@@ -61,20 +60,16 @@ void main() {
     );
 
     expect(robot.weekdayScopeHint, weekdayAll);
-    // The two axes are independent: the month scope is still weeklyOnly here.
-    expect(robot.monthScopeHint, monthWeekly);
   });
 
-  testWidgets('the all-fasts month scope claims the stronger rule', (
-    tester,
-  ) async {
-    final robot = await pumpSheet(
-      tester,
-      const FastingSchedule(monthScope: FastingMonthScope.allFasts),
-    );
+  testWidgets('the months group says that a month turned off is never '
+      'marked', (tester) async {
+    final robot = await pumpSheet(tester, const FastingSchedule());
+    expect(robot.monthsCaption, monthsCaption);
 
-    expect(robot.monthScopeHint, monthAll);
-    expect(robot.weekdayScopeHint, weekdayWeekly);
+    await robot.toggleMonth(12);
+    expect(robot.monthSelected(12), isFalse);
+    expect(robot.monthsCaption, monthsCaption);
   });
 
   testWidgets('tapping a scope chip moves its hint with it', (tester) async {
@@ -157,28 +152,23 @@ void main() {
 
       await robot.monthsNone();
       expect(writes.last.months, isEmpty);
-      // An empty month set is legal, and the scope stays on offer.
-      expect(robot.monthScope, FastingMonthScope.weeklyOnly);
+      // An empty month set is legal, and the caption still says what it does.
+      expect(robot.monthsCaption, monthsCaption);
 
       await robot.monthsSelectAll();
       expect(writes.last.months, FastingSchedule.allMonths);
       expect(writes.last.weekdays, FastingSchedule.defaultWeekdays);
     });
 
-    testWidgets('a scope chip writes its scope and only its axis', (
+    testWidgets('a scope chip writes its scope and leaves the months alone', (
       tester,
     ) async {
       final (robot, writes) = await open(tester);
 
       await robot.pickWeekdayScope(FastingWeekdayScope.allFasts);
       expect(writes.last.weekdayScope, FastingWeekdayScope.allFasts);
-      expect(writes.last.monthScope, FastingMonthScope.weeklyOnly);
+      expect(writes.last.months, FastingSchedule.allMonths);
       expect(robot.weekdayScope, FastingWeekdayScope.allFasts);
-
-      await robot.pickMonthScope(FastingMonthScope.allFasts);
-      expect(writes.last.monthScope, FastingMonthScope.allFasts);
-      expect(writes.last.weekdayScope, FastingWeekdayScope.allFasts);
-      expect(robot.monthScope, FastingMonthScope.allFasts);
     });
 
     testWidgets('Days off adds the picked dates and takes them out of the '
@@ -301,8 +291,6 @@ void main() {
     const scopeIds = [
       SemanticsIds.fastingWeekdayScopeWeekly,
       SemanticsIds.fastingWeekdayScopeAll,
-      SemanticsIds.fastingMonthScopeWeekly,
-      SemanticsIds.fastingMonthScopeAll,
     ];
     const bulkIds = [
       SemanticsIds.fastingWeekdaysAll,
@@ -378,33 +366,22 @@ void main() {
       expect(writes, hasLength(3));
     });
 
-    testWidgets('the scope caption slot keeps its height across the scope on '
-        'both axes, so nothing under it moves', (tester) async {
+    testWidgets('the weekday scope caption slot keeps its height across the '
+        'scope, so nothing under it moves', (tester) async {
       final (robot, _) = await open(tester, surface: phone);
       final weekdayLabel = robot.l10n.fastingWeekdayScopeTitle;
-      final monthLabel = robot.l10n.fastingMonthScopeTitle;
       final weekdaySlot = robot.scopeSlotHeight(weekdayLabel);
-      final monthSlot = robot.scopeSlotHeight(monthLabel);
-      // How far the next section's first row sits under each scope's chips:
+      // How far the next section's first row sits under the scope's chips:
       // the body may scroll to reach a chip, the distance may not change.
       double underWeekdays() =>
           robot.targetOf(SemanticsIds.fastingMonthsAll).top -
           robot.targetOf(SemanticsIds.fastingWeekdayScopeWeekly).top;
-      double underMonths() =>
-          robot.targetOf(SemanticsIds.fastingDaysOff).top -
-          robot.targetOf(SemanticsIds.fastingMonthScopeWeekly).top;
       final underWeekdaysBefore = underWeekdays();
-      final underMonthsBefore = underMonths();
 
       await robot.pickWeekdayScope(FastingWeekdayScope.allFasts);
       expect(robot.weekdayScopeHint, weekdayAll);
       expect(robot.scopeSlotHeight(weekdayLabel), weekdaySlot);
       expect(underWeekdays(), moreOrLessEquals(underWeekdaysBefore));
-
-      await robot.pickMonthScope(FastingMonthScope.allFasts);
-      expect(robot.monthScopeHint, monthAll);
-      expect(robot.scopeSlotHeight(monthLabel), monthSlot);
-      expect(underMonths(), moreOrLessEquals(underMonthsBefore));
     });
 
     testWidgets('the exception rows and each date\'s remove carry ids, and a '
@@ -485,7 +462,10 @@ void main() {
         expect(robot.sectionLabelWhole('Monate, die du hältst'), isTrue);
         expect(robot.textWhole('Alle auswählen'), isTrue);
         expect(robot.textWhole('Wochentage gelten für'), isTrue);
-        expect(robot.textWhole('Monate gelten für'), isTrue);
+        expect(
+          robot.textWhole('Ein ausgeschalteter Monat wird nie markiert'),
+          isTrue,
+        );
         expect(robot.textWhole('Nur wöchentliches Fasten'), isTrue);
         expect(robot.textWhole('Alle Fastenzeiten'), isTrue);
         expect(robot.textWhole('Freie Tage'), isTrue);

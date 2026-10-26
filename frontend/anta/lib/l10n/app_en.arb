@@ -1446,6 +1446,10 @@
   "@fastingMonthsTitle": {
     "description": "Label above the month chips in the fasting schedule sheet"
   },
+  "fastingMonthsDesc": "A month you turn off is never marked",
+  "@fastingMonthsDesc": {
+    "description": "Caption under the month chips of the fasting schedule sheet: what turning a month off does"
+  },
   "fastingMonthsCount": "{count, plural, =1{1 month} other{{count} months}}",
   "@fastingMonthsCount": {
     "description": "Schedule summary fragment: how many months are kept",
@@ -1468,25 +1472,13 @@
   "@fastingWeekdayScopeHintAll": {
     "description": "Hint under the weekday scope chips while the weekday set gates every fast"
   },
-  "fastingMonthScopeTitle": "Months apply to",
-  "@fastingMonthScopeTitle": {
-    "description": "Label above the month scope chips"
+  "fastingWeekdayScopeWeekly": "Weekly fast only",
+  "@fastingWeekdayScopeWeekly": {
+    "description": "Weekday scope option: the weekday set gates only the weekly fast"
   },
-  "fastingMonthScopeWeekly": "Weekly fast only",
-  "@fastingMonthScopeWeekly": {
-    "description": "Month scope option: the month set gates only the weekly fast"
-  },
-  "fastingMonthScopeAll": "All fasts",
-  "@fastingMonthScopeAll": {
-    "description": "Month scope option: the month set gates every fast"
-  },
-  "fastingMonthScopeHintWeekly": "Multi-day fasts still show in a month you turn off",
-  "@fastingMonthScopeHintWeekly": {
-    "description": "Hint under the month scope chips while the month set gates only the weekly fast"
-  },
-  "fastingMonthScopeHintAll": "A month you turn off is never marked",
-  "@fastingMonthScopeHintAll": {
-    "description": "Hint under the month scope chips while the month set gates every fast"
+  "fastingWeekdayScopeAll": "All fasts",
+  "@fastingWeekdayScopeAll": {
+    "description": "Weekday scope option: the weekday set gates every fast"
   },
   "fastingExceptionsSkipTitle": "Days off",
   "@fastingExceptionsSkipTitle": {

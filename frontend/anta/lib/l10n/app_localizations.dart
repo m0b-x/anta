@@ -2032,6 +2032,12 @@ abstract class AppLocalizations {
   /// **'Months you keep'**
   String get fastingMonthsTitle;
 
+  /// Caption under the month chips of the fasting schedule sheet: what turning a month off does
+  ///
+  /// In en, this message translates to:
+  /// **'A month you turn off is never marked'**
+  String get fastingMonthsDesc;
+
   /// Schedule summary fragment: how many months are kept
   ///
   /// In en, this message translates to:
@@ -2056,35 +2062,17 @@ abstract class AppLocalizations {
   /// **'A day you turn off is never marked'**
   String get fastingWeekdayScopeHintAll;
 
-  /// Label above the month scope chips
-  ///
-  /// In en, this message translates to:
-  /// **'Months apply to'**
-  String get fastingMonthScopeTitle;
-
-  /// Month scope option: the month set gates only the weekly fast
+  /// Weekday scope option: the weekday set gates only the weekly fast
   ///
   /// In en, this message translates to:
   /// **'Weekly fast only'**
-  String get fastingMonthScopeWeekly;
+  String get fastingWeekdayScopeWeekly;
 
-  /// Month scope option: the month set gates every fast
+  /// Weekday scope option: the weekday set gates every fast
   ///
   /// In en, this message translates to:
   /// **'All fasts'**
-  String get fastingMonthScopeAll;
-
-  /// Hint under the month scope chips while the month set gates only the weekly fast
-  ///
-  /// In en, this message translates to:
-  /// **'Multi-day fasts still show in a month you turn off'**
-  String get fastingMonthScopeHintWeekly;
-
-  /// Hint under the month scope chips while the month set gates every fast
-  ///
-  /// In en, this message translates to:
-  /// **'A month you turn off is never marked'**
-  String get fastingMonthScopeHintAll;
+  String get fastingWeekdayScopeAll;
 
   /// Label above the skipped fasting dates list
   ///

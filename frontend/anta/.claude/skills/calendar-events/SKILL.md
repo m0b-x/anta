@@ -110,7 +110,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 
 - **Built-in holidays are computed, never stored**: the table holds custom + suppressed rows; never a seeding pass or "years covered" window.
 - Accuracy lives in the builders (`if (year >= NNNN)`, substitutes in `forYear`); observed dates via `publicHolidayObserved`, never a bare duplicate.
-- Fasting **subtracts, never invents**; `forceDates` wins; `calendar_fasting_weekdays` is never written; the hint follows the **selected** scope.
+- Fasting **subtracts, never invents**, in one place — `FastingSchedule.keeps`; tradition builders never read the schedule; a month turned off is never marked (no month scope since 2026-10-26); `forceDates` wins; `calendar_fasting_weekdays` is never written; the weekday hint follows the **selected** scope.
 - `CalendarBounds` (1900–2100) is the one navigable domain.
 
 ## Recurrence, dates, times

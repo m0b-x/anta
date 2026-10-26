@@ -25,9 +25,10 @@ enum FastingDateKind { skip, force }
 /// suite that pinned the old chrome: the rebuild rewrote this file and left
 /// the bodies alone, but for the behaviour that record changes on purpose.
 /// The finders are the sub-sheet's: the ✕, every chip, the Select all / None
-/// rows, the scope chips, the two exception rows and each date's remove
-/// button by their ids; a scope's hint as the caption its slot shows; the
-/// dates as the sub-rows between the two exception rows.
+/// rows, the weekday scope chips, the two exception rows and each date's
+/// remove button by their ids; the weekday scope's hint as the caption its
+/// slot shows, the months' line as the caption of their chip row; the dates
+/// as the sub-rows between the two exception rows.
 ///
 /// The Dates sheet the exception rows open has been on the UI language since
 /// Tier 1 and is driven through its own ids.
@@ -95,11 +96,6 @@ class FastingScheduleRobot {
   static String _weekdayScopeId(FastingWeekdayScope scope) => switch (scope) {
     FastingWeekdayScope.weeklyOnly => SemanticsIds.fastingWeekdayScopeWeekly,
     FastingWeekdayScope.allFasts => SemanticsIds.fastingWeekdayScopeAll,
-  };
-
-  static String _monthScopeId(FastingMonthScope scope) => switch (scope) {
-    FastingMonthScope.weeklyOnly => SemanticsIds.fastingMonthScopeWeekly,
-    FastingMonthScope.allFasts => SemanticsIds.fastingMonthScopeAll,
   };
 
   static String _addId(FastingDateKind kind) => switch (kind) {
@@ -235,15 +231,29 @@ class FastingScheduleRobot {
 
   Future<void> monthsNone() => _tap(_byId(SemanticsIds.fastingMonthsNone));
 
-  Future<void> pickMonthScope(FastingMonthScope scope) =>
-      _tap(_byId(_monthScopeId(scope)));
-
-  FastingMonthScope get monthScope => FastingMonthScope.values.singleWhere(
-    (scope) => _chip(_monthScopeId(scope)).selected,
-  );
-
-  String get monthScopeHint =>
-      _shownCaption(_chipRow(_l10n.fastingMonthScopeTitle));
+  /// The line under the month chips: the caption their row was built with,
+  /// which has to be drawn — once, and where it can be hit — under that row.
+  String get monthsCaption {
+    final row = _in(
+      find.ancestor(
+        of: find.byWidgetPredicate(
+          (widget) =>
+              widget is FormChip &&
+              widget.identifier == SemanticsIds.fastingMonth(1),
+        ),
+        matching: find.byType(FormChipRow),
+      ),
+    ).first;
+    final shown = (tester.widget<FormChipRow>(row).caption as FormCaption).text;
+    final drawn = find
+        .descendant(of: row, matching: find.text(shown).hitTestable())
+        .evaluate()
+        .length;
+    if (drawn != 1) {
+      fail('The months caption "$shown" is drawn $drawn times under its row');
+    }
+    return shown;
+  }
 
   /// The caption the slot under [row] shows — the one that is drawn and can
   /// be hit, where every candidate (the shown one's twin included) is laid
