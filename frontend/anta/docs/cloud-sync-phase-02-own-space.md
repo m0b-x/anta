@@ -14,6 +14,13 @@ stand; where this record refines one it says so. No migration is expected
 ownership, consent) described what is now Phase 03; its one still-live
 point — the resurrection trap of a restore — became readiness D9/R4.
 
+**Review (planned 2026-10-26):** `docs/cloud-sync-phase-02-review-2026-10-26.md`
+reads everything built so far as a whole — the pre-existing app with no
+bound space, the engine, the wire, the gateway, the cross-module
+scenarios — in overnight sessions A0–A9, then builds the fixes, the two
+unbuilt review lists (S4b-1b, S5b) among them. Its ledger is the truth
+for what the review changed; A9 adds one paragraph at the end of §4.
+
 **The line this phase draws:** Firestore enters the app here, behind the
 gateway only — `lib/services/sync/firestore_sync_gateway.dart` and the
 existing `pairing_gateway.dart` are the only files that import it. The
