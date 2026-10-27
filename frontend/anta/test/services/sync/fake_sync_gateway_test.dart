@@ -564,4 +564,39 @@ void main() {
     expect(read.lastWriteAt, isNotNull);
     expect(read.name, 'Main');
   });
+
+  test('a space name outside the rules 1..100 is denied', () async {
+    for (final name in ['', 'x' * 101]) {
+      await expectLater(
+        gateway.createSpace(
+          ownerUid: 'owner',
+          name: name,
+          deviceId: 'dev',
+          schema: 43,
+        ),
+        failsWith(SyncGatewayFailure.permissionDenied),
+        reason: 'a name of ${name.length} characters fails validSpace()',
+      );
+    }
+    expect(await gateway.listSpaces('owner'), [created]);
+
+    final edge = await gateway.createSpace(
+      ownerUid: 'owner',
+      name: 'x' * FakeSyncGateway.maxSpaceNameLength,
+      deviceId: 'dev',
+      schema: 43,
+    );
+    expect(edge.name.length, 100);
+
+    // CEL's `size()` counts code points, so 60 emoji are 60 to the rules and
+    // 120 to `String.length`: the fake must accept what production accepts,
+    // or a picker test asserts a refusal that never happens (A8 R154).
+    final emoji = await gateway.createSpace(
+      ownerUid: 'owner',
+      name: '😀' * 60,
+      deviceId: 'dev',
+      schema: 43,
+    );
+    expect(emoji.name.runes.length, 60);
+  });
 }

@@ -245,7 +245,11 @@ follow arrival order. So:
   broadcast on every path, errors included). A push to a space that does
   not exist is **denied** — Firestore's `set(merge: true)` on a missing
   document is a create that fails `validSpace()`; the fake denies the same
-  *(F5, F8, F11)*.
+  *(F5, F8, F11)*. A space **name is 1..100 code points** (CEL's `size()`,
+  which the fake counts with `runes`, not `String.length`) —
+  `validSpace()` is the only place that cap lives, so a name outside it is
+  refused as `permissionDenied`, and the fake refuses it the same way *(A8
+  R95, R154)*.
 - `SyncGatewayFailure` gains `invalidData` — strictly what the server
   reports as `invalid-argument` (a document over 1 MiB). A rule refusal of a
   malformed row arrives as `permission-denied`, so the engine tells the two
@@ -686,7 +690,10 @@ pulled page of up to 499 bodies out of the 50-slot content cache (R6).
   confirm nothing new surfaces.
 - `QaMode.firebaseEmulatorHost` (`ANTA_QA_FIREBASE_EMULATOR`, e.g.
   `10.0.2.2` from a guest) beside `allowCloud` (`qa_mode.dart:29`): when set,
-  DI points Auth at `:9099` and Firestore at `:8080`
+  DI points Auth and Firestore at the ports
+  `ANTA_QA_FIREBASE_AUTH_PORT` / `ANTA_QA_FIREBASE_FIRESTORE_PORT` name,
+  `:9099` and `:8080` by default — defines rather than constants so a stray
+  emulator holding one does not need a rebuild (A8 R93)
   (`useAuthEmulator` / `useFirestoreEmulator`) and
   `FirebaseAuthService.signInWithGoogle` signs in with a QA identity the
   emulator accepts without Google (`ANTA_QA_ACCOUNT=<uid>:<email>`; the

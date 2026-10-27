@@ -73,6 +73,24 @@ void main() {
       }
     });
 
+    test('a stored value it did not write reads as no cursor at all, so the '
+        'pull reads the table again instead of failing forever', () {
+      for (final value in ['', '42', 'abc|row', '|row']) {
+        expect(
+          FirestoreSyncWire.tryDecodeCursor(SyncCursor(value)),
+          isNull,
+          reason: value,
+        );
+      }
+      expect(FirestoreSyncWire.tryDecodeCursor(null), isNull);
+      expect(
+        FirestoreSyncWire.tryDecodeCursor(
+          FirestoreSyncWire.encodeCursor(7, 'e1|1767225600000'),
+        ),
+        (7, 'e1|1767225600000'),
+      );
+    });
+
     test('a resumed pull starts ten seconds before the cursor', () {
       expect(FirestoreSyncWire.pullOverlap, const Duration(seconds: 10));
       expect(FirestoreSyncWire.overlapStart(60000000), 50000000);

@@ -11,10 +11,13 @@ tags:
   # Firestore security rules, exercised against the real rules engine in the
   # emulator. Excluded from the default run because it is the one suite with an
   # external dependency — everything else runs against NativeDatabase.memory()
-  # and needs no setup. Run it whenever `firestore.rules` changes:
+  # and needs no setup. The project id is the app's own: on a device the app's
+  # traffic arrives under it, so rules judged under another id prove nothing
+  # (record cloud-sync-phase-02 §3.8). Run it whenever `firestore.rules`
+  # changes:
   #
-  #   firebase emulators:start --only firestore --project demo-anta \
-  #     --config firebase.firestore.json
+  #   firebase emulators:start --only firestore \
+  #     --project alexs-note-tracking-app --config firebase.emulators.json
   #   flutter test --tags firestore-rules --run-skipped
   firestore-rules:
     skip: "needs the Firestore emulator; see dart_test.yaml for the command"

@@ -1,5 +1,3 @@
-import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
-
 /// Compile-time switches for the QA/automation build.
 ///
 /// A normal build never defines any of these, so [enabled] const-folds to
@@ -50,18 +48,22 @@ abstract final class QaMode {
   static const bool useFirebaseEmulator =
       enabled && allowCloud && firebaseEmulatorHost != '';
 
-  /// The project the emulator suite runs as (`--project demo-anta`): the
-  /// suite's rules, the Auth emulator's tokens and the rules probe all use
-  /// it.
-  static const String firebaseEmulatorProject = 'demo-anta';
+  /// The Firestore emulator's port, `firebase.emulators.json`'s unless a run
+  /// names another (`--dart-define=ANTA_QA_FIREBASE_FIRESTORE_PORT=8085`).
+  /// A guest's `10.0.2.2` is the host's loopback, so a stray suite holding
+  /// the default port would otherwise take the pass, under rules and a
+  /// project nobody chose, with no way out short of a rebuild (A8 review
+  /// R93).
+  static const int firebaseFirestorePort = int.fromEnvironment(
+    'ANTA_QA_FIREBASE_FIRESTORE_PORT',
+    defaultValue: 8080,
+  );
 
-  /// [options] as the app initialises Firebase under the emulator: the real
-  /// options with the emulator's project id. Under the real id the Firestore
-  /// emulator only warns, and whether the suite's rules apply to that second
-  /// id is unverified — a pass under it would prove nothing about the rules
-  /// (record §3.8, S5 review H2).
-  static FirebaseOptions emulatorFirebaseOptions(FirebaseOptions options) =>
-      options.copyWith(projectId: firebaseEmulatorProject);
+  /// The Auth emulator's port, as [firebaseFirestorePort] for Firestore.
+  static const int firebaseAuthPort = int.fromEnvironment(
+    'ANTA_QA_FIREBASE_AUTH_PORT',
+    defaultValue: 9099,
+  );
 
   static const bool permissionPrompt = bool.fromEnvironment(
     'ANTA_QA_PERMISSION_PROMPT',

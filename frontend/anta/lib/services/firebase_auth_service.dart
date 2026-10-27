@@ -29,8 +29,9 @@ class FirebaseAuthService implements AuthService {
 
   FirebaseAuth get _auth => _injectedAuth ?? FirebaseAuth.instance;
 
-  /// The Auth emulator's port, as `firebase.emulators.json` declares it.
-  static const int emulatorAuthPort = 9099;
+  /// The Auth emulator's port, as `firebase.emulators.json` declares it
+  /// unless a QA run names another ([QaMode.firebaseAuthPort]).
+  static const int emulatorAuthPort = QaMode.firebaseAuthPort;
 
   /// Points Firebase Auth at the emulator suite on [host]: once, in DI,
   /// before any sign-in, and only in a QA build ([QaMode.useFirebaseEmulator]).

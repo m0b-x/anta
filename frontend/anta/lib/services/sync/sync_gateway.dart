@@ -267,6 +267,11 @@ abstract interface class SyncGateway {
   /// Creates a space for [ownerUid]; the gateway mints its id. Listeners
   /// already watching that ref hear it at once (`exists` true), as a
   /// Firestore snapshot listener on the document would.
+  ///
+  /// [name] is 1..100 code points — the rules' own cap, and the one thing
+  /// about a space a caller can get wrong: a name outside it comes back as
+  /// [SyncGatewayFailure.permissionDenied], not as a validation error of
+  /// ours (record §3.3).
   Future<SyncSpaceInfo> createSpace({
     required String ownerUid,
     required String name,

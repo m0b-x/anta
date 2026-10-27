@@ -11,10 +11,15 @@ import 'package:flutter_test/flutter_test.dart';
 /// CRITICAL holes were found here by review alone, so these run the real rules
 /// engine in the Firestore emulator rather than reasoning about them.
 ///
-///   firebase emulators:start --only firestore --project demo-anta \
-///     --config firebase.firestore.json
+///   firebase emulators:start --only firestore \
+///     --project alexs-note-tracking-app --config firebase.emulators.json
 ///   flutter test --tags firestore-rules --run-skipped
-const String _project = 'demo-anta';
+///
+/// The project id is the app's own: on Android the google-services plugin
+/// creates the native default app, so a QA build's traffic arrives under
+/// `alexs-note-tracking-app` and rules judged under another id would say
+/// nothing about the device pass (record cloud-sync-phase-02 §3.8).
+const String _project = 'alexs-note-tracking-app';
 const String _origin = 'http://127.0.0.1:8080';
 const String _base =
     '$_origin/v1/projects/$_project/databases/(default)/documents';
@@ -234,6 +239,121 @@ Future<void> _seedPair(
   expect(result, 200, reason: 'admin seed of pair $id failed');
 }
 
+// Phase 02 — one account's own spaces (`users/{owner}/spaces`, §3.7).
+
+Map<String, Object?> _int(int v) => {'integerValue': '$v'};
+
+Map<String, Object?> _serverTime(String path) => {
+  'fieldPath': path,
+  'setToServerValue': 'REQUEST_TIME',
+};
+
+String _spaceDoc(String owner, String spaceId) =>
+    'users/$owner/spaces/$spaceId';
+
+/// A space create as `createSpace` sends it: `createdAt` rides as a server
+/// timestamp, which is the only form the rules accept.
+Map<String, Object?> _createSpace(
+  String owner,
+  String spaceId, {
+  String name = 'Main',
+  int schema = 43,
+  Map<String, Object?> extra = const {},
+  bool serverCreatedAt = true,
+}) => {
+  'update': {
+    'name': '$_docRoot/${_spaceDoc(owner, spaceId)}',
+    'fields': {
+      'name': _s(name),
+      'createdBy': _s('A'),
+      'schema': _int(schema),
+      ...extra,
+    },
+  },
+  if (serverCreatedAt) 'updateTransforms': [_serverTime('createdAt')],
+};
+
+/// The space document a push merges, as `set(…, merge: true)` sends it: the
+/// mask carries the two plain fields, the stamps ride as transforms.
+Map<String, Object?> _spaceMerge(
+  String owner,
+  String spaceId,
+  int schema, {
+  String table = 'folders',
+}) => {
+  'update': {
+    'name': '$_docRoot/${_spaceDoc(owner, spaceId)}',
+    'fields': {'lastWriter': _s('A'), 'schema': _int(schema)},
+  },
+  'updateMask': {
+    'fieldPaths': ['lastWriter', 'schema'],
+  },
+  'updateTransforms': [
+    _serverTime('touched.$table'),
+    _serverTime('lastWriteAt'),
+  ],
+};
+
+/// A row document as the gateway writes it; [fields] overrides some, [omit]
+/// drops some, [pushedAt] writes a client time instead of the server's.
+Map<String, Object?> _row(
+  String owner,
+  String spaceId,
+  String table,
+  String rowKey, {
+  Map<String, Object?> fields = const {},
+  List<String> omit = const [],
+  DateTime? pushedAt,
+}) {
+  final envelope = <String, Object?>{
+    'hlc': _s('000000000001:0000:A'),
+    'deviceId': _s('A'),
+    'version': _int(3),
+    'op': _s('upsert'),
+    'ownerId': _s(owner),
+    'pushedBy': _s('A'),
+    'data': _map({'id': _s(rowKey), 'name': _s('Training')}),
+    ...fields,
+  };
+  for (final field in omit) {
+    envelope.remove(field);
+  }
+  if (pushedAt != null) envelope['pushedAt'] = _ts(pushedAt);
+  return {
+    'update': {
+      'name': '$_docRoot/${_spaceDoc(owner, spaceId)}/$table/$rowKey',
+      'fields': envelope,
+    },
+    if (pushedAt == null) 'updateTransforms': [_serverTime('pushedAt')],
+  };
+}
+
+/// A push as the gateway makes it: the rows and the space merge in one batch.
+Future<int> _push(
+  List<Map<String, Object?>> rows, {
+  String owner = uidA,
+  String spaceId = 's1',
+  int schema = 43,
+  String table = 'folders',
+}) => _commit([
+  ...rows,
+  _spaceMerge(owner, spaceId, schema, table: table),
+], uid: owner);
+
+/// Seeds a space through the rules themselves — the create is allowed, and
+/// going that way leaves `createdAt` the server timestamp the update clauses
+/// compare against.
+Future<void> _seedSpace({
+  String owner = uidA,
+  String spaceId = 's1',
+  int schema = 43,
+}) async {
+  final status = await _commit([
+    _createSpace(owner, spaceId, schema: schema),
+  ], uid: owner);
+  expect(status, 200, reason: 'seed of space $owner/$spaceId failed');
+}
+
 void main() {
   setUpAll(() async {
     try {
@@ -244,7 +364,7 @@ void main() {
         'Firestore emulator not reachable on $_origin.\n'
         'Start it with:\n'
         '  firebase emulators:start --only firestore --project $_project '
-        '--config firebase.firestore.json',
+        '--config firebase.emulators.json',
       );
     }
   });
@@ -793,6 +913,237 @@ void main() {
           {'delete': '$_docRoot/invites/$code'},
         ], uid: uidB),
         200,
+      );
+    });
+  });
+
+  /// Case for case the same set as `tool/firebase/rules_probe.ps1`, which is
+  /// a Windows convenience — it brings its own emulator and needs
+  /// `taskkill.exe` — while these are the coverage: they run in the gate on
+  /// either machine whenever `firestore.rules` changes.
+  group('spaces', () {
+    test('owner creates a space', () async {
+      expect(await _commit([_createSpace(uidA, 's1')], uid: uidA), 200);
+    });
+
+    test('owner reads the space', () async {
+      await _seedSpace();
+      expect(await _get(_spaceDoc(uidA, 's1'), uid: uidA), 200);
+    });
+
+    test('a stranger reads the space', () async {
+      await _seedSpace();
+      expect(await _get(_spaceDoc(uidA, 's1'), uid: uidB), 403);
+    });
+
+    test('signed out reads the space', () async {
+      await _seedSpace();
+      expect(await _get(_spaceDoc(uidA, 's1')), 403);
+    });
+
+    test('owner pushes an upsert, space merged at an equal schema', () async {
+      await _seedSpace();
+      expect(await _push([_row(uidA, 's1', 'folders', 'f1')]), 200);
+    });
+
+    test('owner reads the row', () async {
+      await _seedSpace();
+      expect(await _push([_row(uidA, 's1', 'folders', 'f1')]), 200);
+      expect(await _get('${_spaceDoc(uidA, 's1')}/folders/f1', uid: uidA), 200);
+    });
+
+    test('owner lists the table in pull order', () async {
+      await _seedSpace();
+      expect(await _push([_row(uidA, 's1', 'folders', 'f1')]), 200);
+
+      final result = await _call(
+        'POST',
+        '$_base/${_spaceDoc(uidA, 's1')}:runQuery',
+        uid: uidA,
+        body: {
+          'structuredQuery': {
+            'from': [
+              {'collectionId': 'folders'},
+            ],
+            'orderBy': [
+              {
+                'field': {'fieldPath': 'pushedAt'},
+              },
+              {
+                'field': {'fieldPath': '__name__'},
+              },
+            ],
+            'limit': 499,
+          },
+        },
+      );
+
+      expect(result.status, 200);
+      expect(result.body, contains('folders/f1'));
+    });
+
+    test('a stranger pushes into the space', () async {
+      await _seedSpace();
+      expect(
+        await _commit([
+          _row(uidA, 's1', 'folders', 'f9', fields: {'ownerId': _s(uidB)}),
+        ], uid: uidB),
+        403,
+      );
+    });
+
+    test('a tombstone with data null', () async {
+      await _seedSpace();
+      expect(
+        await _push([
+          _row(
+            uidA,
+            's1',
+            'folders',
+            'f2',
+            fields: {'op': _s('tombstone'), 'data': _nul},
+          ),
+        ]),
+        200,
+      );
+    });
+
+    test('a tombstone without the data key', () async {
+      await _seedSpace();
+      expect(
+        await _push([
+          _row(
+            uidA,
+            's1',
+            'folders',
+            'f3',
+            fields: {'op': _s('tombstone')},
+            omit: const ['data'],
+          ),
+        ]),
+        403,
+        reason: 'a merge on an existing row would leave the old data behind',
+      );
+    });
+
+    test('a tombstone with map data', () async {
+      await _seedSpace();
+      expect(
+        await _push([
+          _row(uidA, 's1', 'folders', 'f11', fields: {'op': _s('tombstone')}),
+        ]),
+        403,
+      );
+    });
+
+    test('an upsert with data null', () async {
+      await _seedSpace();
+      expect(
+        await _push([
+          _row(uidA, 's1', 'folders', 'f12', fields: {'data': _nul}),
+        ]),
+        403,
+      );
+    });
+
+    test('a space created with a client createdAt', () async {
+      expect(
+        await _commit([
+          _createSpace(
+            uidA,
+            's2',
+            name: 'Other',
+            serverCreatedAt: false,
+            extra: {'createdAt': _ts(DateTime.utc(2026))},
+          ),
+        ], uid: uidA),
+        403,
+        reason: 'a backdated space would sit below every cursor',
+      );
+    });
+
+    test('a space update changing createdAt', () async {
+      await _seedSpace();
+      expect(
+        await _commit([
+          {
+            'update': {
+              'name': '$_docRoot/${_spaceDoc(uidA, 's1')}',
+              'fields': {'createdAt': _ts(DateTime.utc(2020))},
+            },
+            'updateMask': {
+              'fieldPaths': ['createdAt'],
+            },
+          },
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('ownerId null', () async {
+      await _seedSpace();
+      expect(
+        await _push([
+          _row(uidA, 's1', 'folders', 'f4', fields: {'ownerId': _nul}),
+        ]),
+        403,
+      );
+    });
+
+    test('a space merge at a lower schema', () async {
+      await _seedSpace();
+      expect(
+        await _push([_row(uidA, 's1', 'folders', 'f5')], schema: 42),
+        403,
+        reason: 'an outdated device must not write rows lacking columns',
+      );
+    });
+
+    test('a push to a missing space', () async {
+      expect(
+        await _push([
+          _row(uidA, 'missing', 'folders', 'f6'),
+        ], spaceId: 'missing'),
+        403,
+      );
+    });
+
+    test('an unknown table', () async {
+      await _seedSpace();
+      expect(
+        await _push([_row(uidA, 's1', 'secrets', 'x1')], table: 'secrets'),
+        403,
+      );
+    });
+
+    test('pushedAt not the request time', () async {
+      await _seedSpace();
+      expect(
+        await _push([
+          _row(uidA, 's1', 'folders', 'f7', pushedAt: DateTime.utc(2026)),
+        ]),
+        403,
+        reason: 'a backdated row would sit below every puller cursor',
+      );
+    });
+
+    // Recorded, not judged: the rules check no parent, so a row alone under a
+    // space that does not exist is allowed. What a denial rests on is the
+    // gateway writing the space document in the same batch (§3.3) — never on
+    // the rules, so this expectation is the rules as they are, not a wish.
+    test('a row alone, no space write, under a missing space', () async {
+      expect(
+        await _commit([_row(uidA, 'missing', 'folders', 'f8')], uid: uidA),
+        200,
+      );
+    });
+
+    test('a space merge at a higher schema', () async {
+      await _seedSpace();
+      expect(
+        await _push([_row(uidA, 's1', 'folders', 'f10')], schema: 44),
+        200,
+        reason: 'the schema only ever rises, and a newer device raises it',
       );
     });
   });

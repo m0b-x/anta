@@ -1,14 +1,22 @@
 # Probes firestore.rules on the Firestore emulator through its REST API: the
 # allow/deny cases of the sync space (record cloud-sync-phase-02 §3.7, S5).
 #
+# A Windows convenience, not the coverage: the same cases run in the gate as
+# `test/firestore/rules_test.dart` (tag `firestore-rules`), which is what a
+# rules change has to answer to on either machine. This probe is the one-call
+# version — it brings its own emulator.
+#
 # Starts its own emulator on free ports from a scratch copy of the config, so
 # it never collides with a suite already running on 8080, and stops it on the
-# way out. Run from anywhere:
+# way out. The project id defaults to the app's own: on Android the app's
+# traffic arrives under it, so rules judged under another id prove nothing
+# (§3.8). Run from anywhere:
 #
 #   powershell -ExecutionPolicy Bypass -File tool\firebase\rules_probe.ps1
 #
 # Exit code: the number of cases that did not answer as expected.
 param(
+    [string]$Project = 'alexs-note-tracking-app',
     [int]$FirestorePort = 18080,
     [int]$WebsocketPort = 19150,
     [int]$HubPort = 14400,
@@ -17,7 +25,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$project = 'demo-anta'
 $rules = Join-Path $PSScriptRoot '..\..\firestore.rules' | Resolve-Path
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ("anta-rules-probe-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch | Out-Null

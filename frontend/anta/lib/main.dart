@@ -234,29 +234,14 @@ void main() async {
   // `google-services.json` must still start, just without sync.
   if (SyncAvailability.isSupported) {
     try {
-      if (QaMode.useFirebaseEmulator) {
-        // The emulator suite runs as `demo-anta`; under the app's real id a
-        // pass would prove nothing about the rules. Const-guarded, so a
-        // normal build keeps only the branch below.
-        final app = await Firebase.initializeApp(
-          options: QaMode.emulatorFirebaseOptions(
-            DefaultFirebaseOptions.currentPlatform,
-          ),
-        );
-        // firebase_core hands back an app the platform already created from
-        // its config files when apiKey and storageBucket match, ignoring the
-        // project id — say so rather than pass silently under the real one.
-        if (app.options.projectId != QaMode.firebaseEmulatorProject) {
-          debugPrint(
-            '[main] warning: the emulator run uses project '
-            '${app.options.projectId}, not ${QaMode.firebaseEmulatorProject}',
-          );
-        }
-      } else {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
-      }
+      // The app's own project id on every path, a QA run included: the
+      // emulator suite is started under it (`--project
+      // alexs-note-tracking-app`), so its rules are the ones a pass proves,
+      // and nothing reaches the real backend while the app points at the
+      // emulator host (record §3.8, S5b).
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
     } catch (e) {
       debugPrint('[main] Firebase init failed, continuing offline: $e');
     }

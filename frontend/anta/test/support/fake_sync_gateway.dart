@@ -6,6 +6,12 @@ import 'package:anta/services/sync/sync_gateway.dart';
 /// table, keyed by row key, holding the newest envelope pushed for each row
 /// with its arrival sequence number — the fake's cursor.
 class FakeSyncGateway implements SyncGateway {
+  /// The longest space name `validSpace()` accepts (`firestore.rules`), in
+  /// code points; an empty one is refused too. The cap lives only in the
+  /// rules, so a picker tested against a fake that stored any string would
+  /// pass here and meet `permission-denied` in production.
+  static const int maxSpaceNameLength = 100;
+
   final Map<SyncSpaceRef, Map<String, Map<String, _Arrival>>> _store = {};
   final Map<SyncSpaceRef, Map<String, int>> _sequences = {};
 
@@ -227,6 +233,15 @@ class FakeSyncGateway implements SyncGateway {
     required int schema,
   }) async {
     _throwIfScripted();
+    // Runes, not `length`: CEL's `size()` counts code points, so a name of
+    // 60 emoji is 60 to the rules and 120 to `String.length` (A8 review R154).
+    final size = name.runes.length;
+    if (size == 0 || size > maxSpaceNameLength) {
+      throw SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'space name of $size code points',
+      );
+    }
     final ref = SyncSpaceRef(
       ownerUid: ownerUid,
       spaceId: 'space-${_spaces.length + 1}',

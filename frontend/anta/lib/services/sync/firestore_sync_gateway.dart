@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 
+import '../../core/qa/qa_mode.dart';
 import '../../database/crdt/crdt_write.dart';
 import 'sync_gateway.dart';
 
@@ -14,8 +15,9 @@ import 'sync_gateway.dart';
 /// (a source scan pins it); every Firestore failure leaves it as a
 /// [SyncGatewayException].
 class FirestoreSyncGateway implements SyncGateway {
-  /// The emulator suite's ports, as `firebase.emulators.json` declares them.
-  static const int emulatorFirestorePort = 8080;
+  /// The emulator suite's Firestore port, as `firebase.emulators.json`
+  /// declares it unless a QA run names another ([QaMode.firebaseFirestorePort]).
+  static const int emulatorFirestorePort = QaMode.firebaseFirestorePort;
 
   /// Every call is bounded: the engine runs one request at a time, so a call
   /// that never answers would hold every later run. Long enough for a full
@@ -23,6 +25,18 @@ class FirestoreSyncGateway implements SyncGateway {
   /// pushed again, which writes the same documents. A backstop: offline, a
   /// transaction fails on its own long before it.
   static const Duration _timeout = Duration(seconds: 60);
+
+  /// What [_createdSpace] gets: short, because the failed [createSpace] it
+  /// follows has already spent [_timeout], and the caller is waiting on an
+  /// answer it can act on.
+  static const Duration _createdReadTimeout = Duration(seconds: 10);
+
+  /// Attempts the SDK gives a push's write-only transaction. Its default: the
+  /// whole initial upload of a large database merges the one space document,
+  /// batch after batch, over Firestore's sustained single-document rate, and
+  /// one contention `ABORTED` the SDK does not retry fails all 499 rows and
+  /// sends the run to the engine's back-off (A8 review R97).
+  static const int _writeAttempts = 5;
 
   final FirebaseFirestore? _injected;
 
@@ -108,12 +122,23 @@ class FirestoreSyncGateway implements SyncGateway {
   /// `WriteBatch`: the SDK queues a batch in memory while offline even with
   /// persistence off, so it would time out as `offline`, land on reconnect
   /// anyway and gain a copy on every retry; a transaction is never queued and
-  /// fails at once offline (S5 review M4). One attempt: with nothing read
-  /// there is nothing to re-read, and the engine's back-off is the retry.
-  Future<void> _writeOnly(void Function(Transaction transaction) write) =>
-      _db.runTransaction<void>((transaction) async {
-        write(transaction);
-      }, maxAttempts: 1);
+  /// fails at once offline (S5 review M4). [attempts] of them, [_writeAttempts]
+  /// by default: with nothing read there is nothing to re-read, so every
+  /// attempt commits the same sets, and the SDK absorbs a contention `ABORTED`
+  /// the engine's back-off would answer a second too late; a repeated attempt
+  /// writes the same documents, so one landing twice is a no-op. That last
+  /// clause is only true where a second `set` is still a *create*: a caller
+  /// whose document the first attempt already wrote passes 1, because the
+  /// rules judge the retry as an update against what landed ([createSpace],
+  /// A8 review R149). Offline the commit is still never queued, it only fails
+  /// after the SDK's attempts rather than on the first, and [_timeout] bounds
+  /// all of them together.
+  Future<void> _writeOnly(
+    void Function(Transaction transaction) write, {
+    int attempts = _writeAttempts,
+  }) => _db.runTransaction<void>((transaction) async {
+    write(transaction);
+  }, maxAttempts: attempts);
 
   @override
   Future<SyncPullPage> pullPage(
@@ -124,12 +149,25 @@ class FirestoreSyncGateway implements SyncGateway {
     bool resumed = false,
   }) {
     final take = limit ?? maxBatch;
+    // A stored cursor no gateway of this kind wrote (a hand-edited or
+    // corrupted database, a gateway swapped out) would fail every run of
+    // this table identically and forever; the table is read from the start
+    // instead, which the merge makes a no-op (A8 review R92).
+    var from = after;
+    final start = FirestoreSyncWire.tryDecodeCursor(from);
+    if (from != null && start == null) {
+      debugPrint(
+        '[FirestoreSyncGateway] unreadable $table cursor "${from.value}", '
+        'reading the table from the start',
+      );
+      from = null;
+    }
     return _guard(() async {
       Query<Map<String, dynamic>> query = _space(
         space,
       ).collection(table).orderBy('pushedAt').orderBy(FieldPath.documentId);
-      if (after != null) {
-        final (micros, rowKey) = FirestoreSyncWire.decodeCursor(after);
+      if (start != null) {
+        final (micros, rowKey) = start;
         query = resumed
             ? query.where(
                 'pushedAt',
@@ -146,14 +184,14 @@ class FirestoreSyncGateway implements SyncGateway {
           .limit(take)
           .get(const GetOptions(source: Source.server));
       final envelopes = <SyncEnvelope>[];
-      var next = after;
+      var next = from;
       // The page's latest position in the cursor's own order — the query's
       // order, so the cursor cannot step back inside a page. Seeded with
       // the cursor the page resumed from: a `resumed` page re-reads the
       // ten-second overlap, so every document in it can sit under that
       // cursor, and the page's own maximum would move it backwards (A7
       // review R137).
-      SyncCursor? latest = after;
+      SyncCursor? latest = from;
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final pushedAt = data['pushedAt'];
@@ -193,34 +231,76 @@ class FirestoreSyncGateway implements SyncGateway {
     required String name,
     required String deviceId,
     required int schema,
-  }) {
-    return _guard(() async {
-      // The id is drawn once, before the write: a repeated call is a new
-      // space, never a second write of this one.
-      final doc = _spaces(ownerUid).doc();
-      await _writeOnly(
-        (transaction) => transaction.set(
-          doc,
-          FirestoreSyncWire.spaceCreateOf(
-            name: name,
-            deviceId: deviceId,
-            schema: schema,
-            serverTime: FieldValue.serverTimestamp(),
+  }) async {
+    // The id is drawn once, before the write: a repeated call is a new
+    // space, never a second write of this one. So a call that fails after
+    // its commit landed — the reply lost, or the read-back past the budget —
+    // reads the drawn id back once before it gives up: the id dies with the
+    // call, and a retry that drew a fresh one would leave the first space
+    // orphaned in `listSpaces`, indistinguishable by name (A8 review R87).
+    // Drawing it goes through [_guard] as well: it touches `_db`, which
+    // throws where Firebase never initialised (`main.dart` degrades to
+    // local-only on purpose), and every failure of this file must reach the
+    // caller as a [SyncGatewayException] (A8 review R151).
+    final doc = await _guard(() async => _spaces(ownerUid).doc());
+    final ref = SyncSpaceRef(ownerUid: ownerUid, spaceId: doc.id);
+    SyncSpaceInfo unread() => SyncSpaceInfo(
+      ref: ref,
+      name: name,
+      createdAt: null,
+      createdBy: deviceId,
+      schema: schema,
+    );
+    try {
+      return await _guard(() async {
+        await _writeOnly(
+          (transaction) => transaction.set(
+            doc,
+            FirestoreSyncWire.spaceCreateOf(
+              name: name,
+              deviceId: deviceId,
+              schema: schema,
+              serverTime: FieldValue.serverTimestamp(),
+            ),
           ),
-        ),
-      );
-      // Read back rather than guess: `createdAt` is the server's.
-      final created = await doc.get(const GetOptions(source: Source.server));
-      final ref = SyncSpaceRef(ownerUid: ownerUid, spaceId: doc.id);
-      return _infoOf(ref, created.data()) ??
-          SyncSpaceInfo(
-            ref: ref,
-            name: name,
-            createdAt: null,
-            createdBy: deviceId,
-            schema: schema,
-          );
-    });
+          // One attempt, where a push takes [_writeAttempts]: a retry re-runs
+          // this handler, so `createdAt` resolves to the later attempt's
+          // `request.time` and the set lands on the document the first
+          // attempt wrote — an update the rules deny
+          // (`createdAt == resource.data.createdAt`), which would turn a lost
+          // reply into `permissionDenied`. It also keeps the rescue read
+          // below honest: nothing of this call is still in flight when it
+          // asks whether the space is there (A8 review R149, R150).
+          attempts: 1,
+        );
+        // Read back rather than guess: `createdAt` is the server's.
+        final created = await doc.get(const GetOptions(source: Source.server));
+        return _infoOf(ref, created.data()) ?? unread();
+      });
+    } on SyncGatewayException {
+      final created = await _createdSpace(doc);
+      if (created == null) rethrow;
+      return _infoOf(ref, created) ?? unread();
+    }
+  }
+
+  /// The space document [createSpace] drew, read once after its call failed,
+  /// or null when the server does not hold it or cannot be asked in time. Its
+  /// own short budget: the call has already spent the gateway's. A failure
+  /// here is the expected answer — the commit did not land — so the failure
+  /// that brought us here is the one the caller sees.
+  Future<Map<String, dynamic>?> _createdSpace(
+    DocumentReference<Map<String, dynamic>> doc,
+  ) async {
+    try {
+      final snapshot = await doc
+          .get(const GetOptions(source: Source.server))
+          .timeout(_createdReadTimeout);
+      return snapshot.data();
+    } catch (error) {
+      debugPrint('[FirestoreSyncGateway] create not read back: $error');
+      return null;
+    }
   }
 
   @override
@@ -386,6 +466,18 @@ abstract final class FirestoreSyncWire {
       throw FormatException('not a Firestore sync cursor', value);
     }
     return (micros, value.substring(bar + 1));
+  }
+
+  /// [cursor] decoded, or null when there is none or it holds a value no
+  /// gateway of this kind wrote: a pull reads the table from the start
+  /// rather than failing on a cursor forever (A8 review R92).
+  static (int, String)? tryDecodeCursor(SyncCursor? cursor) {
+    if (cursor == null) return null;
+    try {
+      return decodeCursor(cursor);
+    } on FormatException {
+      return null;
+    }
   }
 
   /// The order a pull reads rows in, as the query states it: `pushedAt`
