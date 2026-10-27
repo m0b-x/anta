@@ -2,8 +2,10 @@ import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/vocabularies.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/pages/vocabularies_page.dart';
 import 'package:anta/services/vocabulary_service.dart';
 
@@ -40,6 +42,22 @@ void main() {
         ),
       );
 
+  /// A term written beneath the service, as a pull writes one.
+  Future<void> writeItem(
+    AppDatabase into,
+    String id,
+    String vocabularyId,
+    String term,
+  ) => into.vocabularyDao.importItem(
+    VocabularyItemsCompanion(
+      id: Value(id),
+      vocabularyId: Value(vocabularyId),
+      term: Value(term),
+      createdAt: Value(DateTime.utc(2026, 1, 1)),
+      updatedAt: Value(DateTime.utc(2026, 1, 1)),
+    ),
+  );
+
   Future<void> pumpPage(WidgetTester tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -64,6 +82,51 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Exercises'), findsOneWidget);
+  });
+
+  /// The merge-created duplicate the phase record §8 accepts: both devices
+  /// added the same term and both rows arrived. It must read as one term in
+  /// the suggestions, collapse on the next save, and delete whole
+  /// (A1b review R31).
+  testWidgets('a term two live rows hold reads as one through the list, the '
+      'suggestions, an edit and a delete', (tester) async {
+    final en = AppLocalizationsEn();
+    await tester.runAsync(() async {
+      await writeList(db, 'v1', 'Exercises');
+      await writeItem(db, 'i1', 'v1', 'Bench Press');
+      await writeItem(db, 'i2', 'v1', 'Bench Press');
+      await service.reload();
+    });
+    await pumpPage(tester);
+
+    // The list counts lines, which is what the editor opens on.
+    expect(find.text('Exercises'), findsOneWidget);
+    expect(find.text(en.vocabularyTermCount(2)), findsOneWidget);
+    // The pills take one candidate per folded term (A1b review R35).
+    expect([for (final c in Vocabularies.candidates) c.term], ['Bench Press']);
+
+    // An edit: the save collapses the pair and keeps the term.
+    await tester.tap(find.text('Exercises'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(en.save));
+    await tester.pumpAndSettle();
+
+    final live = await tester.runAsync(() => db.vocabularyDao.getAllItems());
+    expect([for (final row in live!) row.term], ['Bench Press']);
+    expect(find.text(en.vocabularyTermCount(1)), findsOneWidget);
+
+    // A delete: the surviving row and the tombstone both go.
+    await tester.tap(find.byTooltip(en.deleteVocabulary));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(en.delete));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Exercises'), findsNothing);
+    expect(
+      await tester.runAsync(() => db.vocabularyDao.getAllItems()),
+      isEmpty,
+    );
+    expect(Vocabularies.candidates, isEmpty);
   });
 
   testWidgets("after a database switch the page shows the new database's "

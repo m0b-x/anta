@@ -399,11 +399,15 @@ class BackupService {
 
       for (final map in _foldersParentsFirst(folders)) {
         final archivedParent = map[JsonKeys.parentId] as String?;
-        final folder = await _db.folderDao.createFolder(
+        final folder = await _db.folderDao.importFolder(
           name: map[JsonKeys.name] as String,
           parentId: archivedParent == null
               ? null
               : folderIdMap[archivedParent] ?? archivedParent,
+          createdAt: _archivedDate(map[JsonKeys.createdAt]) ?? DateTime.now(),
+          updatedAt: _archivedDate(map[JsonKeys.updatedAt]),
+          noteSortOrder: map[JsonKeys.noteSortOrder] as String?,
+          subfolderSortOrder: map[JsonKeys.subfolderSortOrder] as String?,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
           ownerId: JsonKeys.ownerIdOf(map),
         );
@@ -418,13 +422,16 @@ class BackupService {
         final preview = NoteMetadata.generatePreview(content);
         final archivedFolderId = map[JsonKeys.folderId] as String;
 
-        final note = await _db.noteDao.createNote(
+        final now = DateTime.now();
+        final note = await _db.noteDao.importNote(
           folderId: folderIdMap[archivedFolderId] ?? archivedFolderId,
           title: map[JsonKeys.title] as String,
           preview: preview,
           contentLength: content.length,
           chunkCount: 1,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
+          createdAt: _archivedDate(map[JsonKeys.createdAt]) ?? now,
+          updatedAt: _archivedDate(map[JsonKeys.updatedAt]) ?? now,
           content: content,
           ownerId: JsonKeys.ownerIdOf(map),
         );
@@ -682,6 +689,13 @@ class BackupService {
       return ImportResult(success: false, error: e.toString());
     }
   }
+
+  /// An archived `createdAt` / `updatedAt`, or null when the archive does not
+  /// carry it or carries something no `DateTime` can read — a backup written
+  /// before the field existed, or hand-edited. The caller then stamps the
+  /// restore's own time, as `createFolder` / `createNote` always did.
+  static DateTime? _archivedDate(Object? raw) =>
+      raw is String ? DateTime.tryParse(raw) : null;
 
   /// The archive's folder rows, ordered so a parent always precedes its
   /// children.

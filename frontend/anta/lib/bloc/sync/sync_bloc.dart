@@ -71,7 +71,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     _authSubscription ??= _authService.authStateChanges.listen(
       (user) => add(AuthStateChanged(user)),
     );
-    _followEngine();
+    unawaited(_followEngine());
     await _emitStatus(shown, user, emit);
   }
 
@@ -82,7 +82,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     }
 
     emit(const SyncSigningIn());
-    _followEngine();
+    unawaited(_followEngine());
     try {
       // A null user means the flow was dismissed, which the stream never
       // reports — fall back to the account we already had.
@@ -133,6 +133,17 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       default:
         return;
     }
+    // A bloc that outlived a database switch still follows the engine the
+    // switch dropped, and would lay that space's status over the new
+    // database's fresh read on every refresh (A1c review R40). Idempotent
+    // while the engine is the same one.
+    //
+    // Awaited, unlike on a load or a sign-in: `_withEngine` below reads the
+    // followed engine, so a follow still resolving would leave the dropped
+    // space's times over this read and only the next refresh clean (A6
+    // review R112). Bounded by the same timeout as the read — an engine that
+    // never resolves must not keep the refresh from emitting.
+    await _followEngine().timeout(statusTimeout, onTimeout: () {});
     final status = _withEngine(await _readStatus(user));
     // Re-read after the await: an account change while reading owns the
     // state now, and its own read already carries a status.
@@ -208,38 +219,38 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// load and sign-in: after a database switch the thunk answers with a new
   /// engine, and the old one's stream simply goes quiet (its reset does not
   /// close it). Never awaited by a handler, so an engine that is dead or
-  /// never emits leaves the account state as it is.
-  void _followEngine() {
+  /// never emits leaves the account state as it is — except on a refresh,
+  /// which awaits it under a timeout because it reads the followed engine on
+  /// the next line (A6 review R112).
+  Future<void> _followEngine() async {
     final thunk = _engine;
     if (thunk == null) return;
     final generation = ++_engineGeneration;
-    unawaited(() async {
-      try {
-        final engine = await thunk();
-        if (engine == null || isClosed || generation != _engineGeneration) {
-          return;
-        }
-        if (identical(engine, _followedEngine) && _engineSubscription != null) {
-          return;
-        }
-        await _engineSubscription?.cancel();
-        _engineSubscription = null;
-        if (isClosed || generation != _engineGeneration) return;
-        _followedEngine = engine;
-        _engineSubscription = engine.status.listen(
-          (status) => add(SyncEngineStatusChanged(status)),
-          onDone: () {
-            if (identical(_followedEngine, engine)) _engineSubscription = null;
-          },
-        );
-        // An engine that has not emitted yet has nothing to add to the
-        // reader's status, and its empty one would wipe it.
-        final current = engine.current;
-        if (current != SyncStatus.empty) add(SyncEngineStatusChanged(current));
-      } catch (e, st) {
-        debugPrint('[SyncBloc] the sync engine is unavailable: $e\n$st');
+    try {
+      final engine = await thunk();
+      if (engine == null || isClosed || generation != _engineGeneration) {
+        return;
       }
-    }());
+      if (identical(engine, _followedEngine) && _engineSubscription != null) {
+        return;
+      }
+      await _engineSubscription?.cancel();
+      _engineSubscription = null;
+      if (isClosed || generation != _engineGeneration) return;
+      _followedEngine = engine;
+      _engineSubscription = engine.status.listen(
+        (status) => add(SyncEngineStatusChanged(status)),
+        onDone: () {
+          if (identical(_followedEngine, engine)) _engineSubscription = null;
+        },
+      );
+      // An engine that has not emitted yet has nothing to add to the
+      // reader's status, and its empty one would wipe it.
+      final current = engine.current;
+      if (current != SyncStatus.empty) add(SyncEngineStatusChanged(current));
+    } catch (e, st) {
+      debugPrint('[SyncBloc] the sync engine is unavailable: $e\n$st');
+    }
   }
 
   /// Shows [user]'s account at once and returns the state emitted, for

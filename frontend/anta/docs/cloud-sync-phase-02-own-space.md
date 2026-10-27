@@ -2055,13 +2055,24 @@ machine.
 - The readiness §8 items left as found (two HLCs per event-editor save, the
   held far-future remote, `restartable()`).
 - From the S2a review, accepted: a tap between the counters flush and the
-  reload of one pulled page can be lost (milliseconds; the real fix is
-  readiness D8 B's per-device ledger); a live note whose folder arrived as
-  a tombstone shows that folder's id as its name where `getFolderById` is
-  read without a tombstone filter (pre-existing for local tombstones);
-  concurrent creates give one folder two notes of the same title (the
-  per-folder uniqueness backstop does not run on merge; ids differ) and one
-  vocabulary two items for the same term (`saveItems` tombstones one later);
+  reload of one pulled page shows the pre-merge number for a few
+  milliseconds — the tap itself is **not** lost, on either the global or
+  the per-note path, because the delta path re-applies it over the merged
+  row (review 2026-10-26, R34, probe-confirmed and pinned by
+  `test/services/counter_service_test.dart:200-287`); the one real loss in
+  that window is `resetGlobal`'s memory guard (R24, fixed in A6); a live
+  note whose folder arrived as a tombstone shows that folder's id as its
+  name where `getFolderById` is read without a tombstone filter
+  (pre-existing for local tombstones); concurrent creates give one folder
+  two notes of the same title (the per-folder uniqueness backstop does not
+  run on merge; ids differ) **and the two rows the same `position`**, which
+  travels verbatim, so the order flaps between devices until someone
+  reorders the folder (review 2026-10-26, R71; the fix, if it is ever
+  wanted, is a `hlc_timestamp` tiebreaker in the browser's sort, not a
+  merge-side renumber) and one vocabulary two items for the same term
+  (`saveItems` tombstones one later; the suggestion bar offers the term
+  once either way since review 2026-10-26 R35 deduped `updateCache` on the
+  folded term, so the pair is invisible until the next save collapses it);
   `requeueRow` on a composite key scans its table.
 - A pull envelope that parks (a malformed document) is skipped at that
   cursor for good and `parkedCount` resets at the next launch, so the

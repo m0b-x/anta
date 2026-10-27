@@ -98,6 +98,22 @@ void main() {
       expect(Vocabularies.hasCandidates, isTrue);
     });
 
+    test('a term two rows hold is offered once', () async {
+      // The merge-created pair the phase record §8 accepts: this device had
+      // "Bench Press", a pull brought the other device's "bench press".
+      // Offering both would show the same suggestion twice (A1b review R35).
+      await service.createVocabulary(
+        name: 'Exercises',
+        terms: const ['Bench Press', 'bench press', 'Deadlift'],
+      );
+
+      expect(service.vocabularies.single.items, hasLength(3));
+      expect(
+        [for (final c in Vocabularies.candidates) c.term],
+        ['Bench Press', 'Deadlift'],
+      );
+    });
+
     test('section headers organise the list but are never suggested', () async {
       await service.createVocabulary(
         name: 'Exercises',

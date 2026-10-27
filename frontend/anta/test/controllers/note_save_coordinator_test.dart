@@ -4,6 +4,8 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart'
+    show NoteWriteRefusedException;
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/controllers/note_save_coordinator.dart';
 import 'package:anta/services/auto_save_service.dart';
@@ -237,10 +239,14 @@ void main() {
 
         expect(h.updates, isEmpty);
         expect(h.coordinator.hasChanges.value, isTrue);
-        expect(h.coordinator.saveStatus.value, SaveStatus.error);
+        expect(
+          h.coordinator.saveStatus.value,
+          SaveStatus.unsaved,
+          reason: 'a deliberate hold is not a failure (L8)',
+        );
 
         h.mayWrite = true;
-        async.elapse(const Duration(seconds: 2));
+        async.elapse(_Harness.debounce);
 
         expect(h.updates.single.content, 'v1');
         expect(h.coordinator.hasChanges.value, isFalse);
@@ -1016,6 +1022,33 @@ void main() {
     });
   });
 
+  group('a write the row refuses', () {
+    test('stays unsaved, with no error status, no rung and no re-armed '
+        'debounce (A6 review R115)', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.refuseUpdates = true;
+
+        h.type('mine');
+        async.elapse(_Harness.debounce);
+        async.flushMicrotasks();
+
+        expect(h.updates, hasLength(1));
+        expect(h.coordinator.saveStatus.value, SaveStatus.unsaved);
+        expect(h.coordinator.hasChanges.value, isTrue);
+
+        // Past the whole retry ladder, short of the interval sweep: every
+        // rung would land on the same tombstone, and the page's delete
+        // handler owns the text from here.
+        async.elapse(const Duration(seconds: 20));
+        expect(h.updates, hasLength(1));
+        expect(h.coordinator.saveStatus.value, SaveStatus.unsaved);
+
+        h.dispose();
+      });
+    });
+  });
+
   group('dispose', () {
     test('a pending save never reaches the bloc', () {
       fakeAsync((async) {
@@ -1195,6 +1228,10 @@ class _Harness {
   /// flight at the bloc until the test releases it.
   Completer<void>? updateGate;
 
+  /// When set, every update is answered with the bloc's own refusal: the row
+  /// is a tombstone a delete merged from another device (record §3.9, M2).
+  bool refuseUpdates = false;
+
   List<CreateOptimizedNote> get creates =>
       events.whereType<CreateOptimizedNote>().toList();
 
@@ -1206,11 +1243,22 @@ class _Harness {
   void _dispatch(OptimizedNoteEvent event) {
     events.add(event);
     if (event is! UpdateOptimizedNote) return;
+    void answer() {
+      if (refuseUpdates) {
+        event.completer?.completeError(
+          NoteWriteRefusedException(event.noteId),
+          StackTrace.current,
+        );
+      } else {
+        event.completer?.complete();
+      }
+    }
+
     final held = updateGate;
     if (held == null) {
-      event.completer?.complete();
+      answer();
     } else {
-      held.future.then((_) => event.completer?.complete());
+      held.future.then((_) => answer());
     }
   }
 

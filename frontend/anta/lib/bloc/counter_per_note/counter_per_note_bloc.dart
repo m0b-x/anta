@@ -11,7 +11,14 @@ import 'counter_per_note_state.dart';
 
 class CounterPerNoteBloc
     extends Bloc<CounterPerNoteEvent, CounterPerNoteState> {
-  final CounterService _counterService;
+  CounterService _service;
+
+  /// Whether the constructor was handed the live singleton — the DI case. A
+  /// `DatabaseLifecycle` switch replaces that singleton beneath this bloc, so
+  /// [_counterService] re-resolves it per event; a suite's `forTesting`
+  /// service is not the singleton and is kept as it is (A1b review R22).
+  final bool _followsSingleton;
+
   final NoteRepository _noteRepository;
   late final StreamSubscription<void> _serviceChanges;
 
@@ -20,12 +27,10 @@ class CounterPerNoteBloc
   CounterPerNoteBloc({
     required CounterService counterService,
     required NoteRepository noteRepository,
-  }) : _counterService = counterService,
+  }) : _service = counterService,
+       _followsSingleton = counterService == CounterService.instanceOrNull,
        _noteRepository = noteRepository,
        super(const CounterPerNoteInitial()) {
-    _serviceChanges = counterService.changes.listen(
-      (_) => add(const CounterPerNoteRefreshed()),
-    );
     on<CounterPerNoteOpened>(_onOpened);
     on<CounterPerNoteRefreshed>(_onRefreshed);
     on<CounterPerNoteAddNote>(_onAddNote);
@@ -37,6 +42,18 @@ class CounterPerNoteBloc
     on<CounterPerNoteResetAll>(_onResetAll);
     on<CounterPerNoteTogglePin>(_onTogglePin);
     on<CounterPerNoteReorder>(_onReorder);
+    // Below the registrations: a broadcast stream that already held an event
+    // would otherwise reach `add` before `CounterPerNoteRefreshed` has a
+    // handler (A1b review R30).
+    _serviceChanges = counterService.changes.listen(
+      (_) => add(const CounterPerNoteRefreshed()),
+    );
+  }
+
+  /// The service a handler runs against — see [_followsSingleton].
+  CounterService get _counterService {
+    if (!_followsSingleton) return _service;
+    return _service = CounterService.instanceOrNull ?? _service;
   }
 
   Future<void> _onOpened(
@@ -53,12 +70,15 @@ class CounterPerNoteBloc
     CounterPerNoteRefreshed event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    if (state is! CounterPerNoteLoaded) return;
+    final current = state;
+    if (current is! CounterPerNoteLoaded) return;
     // The entries are read from the table, and a reload keeps this page's
     // taps pending in the service; the flush writes them over the merged
     // values first.
     await _counterService.flush();
-    await _loadEntries(emit);
+    // A refresh now arrives from a sync pull as well as from the page, and
+    // must not clear a mutation error before it was read (A1b review R29).
+    await _loadEntries(emit, lastError: current.lastError);
   }
 
   Future<void> _onAddNote(
@@ -258,7 +278,10 @@ class CounterPerNoteBloc
     }
   }
 
-  Future<void> _loadEntries(Emitter<CounterPerNoteState> emit) async {
+  Future<void> _loadEntries(
+    Emitter<CounterPerNoteState> emit, {
+    String? lastError,
+  }) async {
     final counter = _counterService.getCounterById(_counterId);
     if (counter == null) {
       emit(const CounterPerNoteError(CounterPerNoteFailure.counterNotFound));
@@ -271,7 +294,13 @@ class CounterPerNoteBloc
       );
 
       if (rows.isEmpty) {
-        emit(CounterPerNoteLoaded(counter: counter, entries: const []));
+        emit(
+          CounterPerNoteLoaded(
+            counter: counter,
+            entries: const [],
+            lastError: lastError,
+          ),
+        );
         return;
       }
 
@@ -291,7 +320,13 @@ class CounterPerNoteBloc
         );
       }
 
-      emit(CounterPerNoteLoaded(counter: counter, entries: entries));
+      emit(
+        CounterPerNoteLoaded(
+          counter: counter,
+          entries: entries,
+          lastError: lastError,
+        ),
+      );
     } catch (e) {
       debugPrint('[CounterPerNoteBloc] Load error: $e');
       emit(const CounterPerNoteError(CounterPerNoteFailure.loadFailed));

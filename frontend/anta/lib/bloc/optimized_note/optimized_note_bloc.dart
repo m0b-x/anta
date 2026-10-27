@@ -8,6 +8,22 @@ import '../../services/folder_search_service.dart';
 import 'optimized_note_event.dart';
 import 'optimized_note_state.dart';
 
+/// The answer to an [UpdateOptimizedNote] the storage layer refused: the note
+/// is gone, or it is a tombstone — a delete merged from another device under
+/// an open editor, which the DAO must not write over (record §3.9, M2).
+///
+/// It is the editor's signal that its text is still only on screen: auto-save
+/// keeps it unsaved and the page stays dirty, so the remote delete's handler
+/// files the text as a new note instead of closing over it.
+class NoteWriteRefusedException implements Exception {
+  const NoteWriteRefusedException(this.noteId);
+
+  final String noteId;
+
+  @override
+  String toString() => 'NoteWriteRefusedException(noteId: $noteId)';
+}
+
 class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   final NoteStorageService _storageService;
   final FolderSearchService _searchService;
@@ -288,6 +304,17 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         _scheduleRefresh(_currentFolderId);
       }
 
+      if (metadata == null) {
+        // The service refused the write: the note is gone, or a delete merged
+        // from another device tombstoned it under an open editor. Reported,
+        // not swallowed — completing normally let auto-save stamp the text as
+        // saved and the editor close with it (record §3.9, M2 / R2).
+        event.completer?.completeError(
+          NoteWriteRefusedException(event.noteId),
+          StackTrace.current,
+        );
+        return;
+      }
       event.completer?.complete();
     } catch (e, stackTrace) {
       _logError('Failed to update note', e, stackTrace);

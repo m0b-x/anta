@@ -1,13 +1,21 @@
+import 'dart:ui' show Locale;
+
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/repositories/folder_repository.dart';
+import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/sync/app_sync_apply_hooks.dart';
+import 'package:anta/services/sync/conflict_copy_title.dart';
 import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
@@ -328,6 +336,49 @@ void main() {
         contains(note.id),
       );
       expect(report.failure, isNull);
+    });
+
+    /// The one engine case that runs the **production** copy rather than a
+    /// hand-written one: `AppSyncApplyHooks.fileConflictCopy` is the app's
+    /// only unguarded hook, so nothing above it catches what it throws
+    /// (A5 review R106).
+    test("the production hook files the copy with D3's title, beside the "
+        'note it came from, and the engine announces and queues it', () async {
+      initializeDateFormatting('en');
+      final strings = lookupAppLocalizations(const Locale('en'));
+      final filedAt = DateTime(2026, 10, 27, 9, 30);
+      final notes = NoteRepository(database: a().db);
+      final production = AppSyncApplyHooks(
+        notes: () => notes,
+        folders: () => FolderRepository(database: a().db),
+        noteStorage: () => NoteStorageService(repository: notes),
+        strings: () async => strings,
+        now: () => filedAt,
+      );
+      a().hooks.clear();
+      a().hooks.onConflict = production.fileConflictCopy;
+
+      final report = await a().sync();
+
+      expect(report.failure, isNull);
+      final announced = [
+        for (final (table, rows) in a().hooks.pages)
+          if (table == 'notes')
+            for (final row in rows)
+              if (row.rowKey != note.id) row,
+      ];
+      expect(announced, hasLength(1));
+      expect(announced.single.result, MergeResult.inserted);
+      final copy = (await a().db.noteDao.getNoteById(announced.single.rowKey))!;
+      expect(copy.title, conflictCopyTitle(strings, 'Log', filedAt));
+      expect(copy.folderId, folder.id);
+      expect(await a().db.contentChunkDao.loadContent(copy.id), 'typed on A');
+      // Stamped and queued like any local note, so the same run pushed it and
+      // the other device receives the losing text too (record §3.9).
+      expect(
+        pair.gateway.rowsOf(pair.space, 'notes').keys,
+        contains(copy.id),
+      );
     });
 
     test('a page that rolls back hands its copy to no afterPage', () async {

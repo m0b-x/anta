@@ -12,7 +12,7 @@ import '../utils/lru_cache.dart';
 export '../models/note_change.dart';
 
 class NoteRepository {
-  final AppDatabase _db;
+  AppDatabase _db;
 
   late final LruCache<String, Note> _noteCache;
   late final LruCache<String, String> _contentCache;
@@ -52,6 +52,19 @@ class NoteRepository {
 
   NoteDao get _noteDao => _db.noteDao;
   ContentChunkDao get _chunkDao => _db.contentChunkDao;
+
+  /// Points this repository at the database a switch opened and drops the
+  /// caches, which belonged to the one that closed.
+  ///
+  /// The object itself survives the switch: the storage service, the search
+  /// index, every mounted page and the sync apply hooks resolved it long ago
+  /// and listen on [noteChanges], so a replacement registered in its place
+  /// would leave all of them writing to a closed database and announcing on
+  /// a stream nobody reads (A5 review R100/R101).
+  void rebindDatabase(AppDatabase database) {
+    _db = database;
+    invalidateAll();
+  }
 
   Future<List<Note>> getNotesByIds(List<String> ids) {
     return _noteDao.getNotesByIds(ids);

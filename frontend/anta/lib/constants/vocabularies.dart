@@ -86,12 +86,20 @@ class Vocabularies {
     final candidates = <VocabularyCandidate>[];
     for (final vocabulary in vocabularies) {
       if (!vocabulary.isEnabled) continue;
+      // One folded term is one suggestion. Two rows can hold the same term —
+      // a merge adds the term another device added beside the one this device
+      // already had (phase record §8) — and the bar would then offer it twice
+      // until the list is next saved (A1b review R35). The first row wins, so
+      // the user's own list order still decides.
+      final folded = <String>{};
       // Section headers organise the list; they are never offered as terms.
       for (final item in vocabulary.suggestibleItems) {
+        final foldedTerm = normalizeForSearch(item.term);
+        if (!folded.add(foldedTerm)) continue;
         candidates.add(
           VocabularyCandidate(
             term: item.term,
-            foldedTerm: normalizeForSearch(item.term),
+            foldedTerm: foldedTerm,
             vocabularyId: vocabulary.id,
             vocabularyName: vocabulary.name,
             vocabularySortOrder: vocabulary.sortOrder,

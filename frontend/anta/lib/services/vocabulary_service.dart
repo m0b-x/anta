@@ -144,11 +144,16 @@ class VocabularyService {
         );
   }
 
+  /// [snapshot] is the term list the editor loaded, passed straight to
+  /// [VocabularyDao.saveItems]: a term a pull merged under the open editor is
+  /// in neither list and survives the save instead of being tombstoned
+  /// everywhere (A1b review R23).
   Future<void> updateVocabulary({
     required String id,
     required String name,
     required List<String> terms,
     required bool isEnabled,
+    List<String>? snapshot,
   }) async {
     await _dao.upsertVocabulary(
       VocabulariesCompanion(
@@ -157,7 +162,11 @@ class VocabularyService {
         isEnabled: Value(isEnabled),
       ),
     );
-    await _dao.saveItems(vocabularyId: id, terms: terms);
+    await _dao.saveItems(
+      vocabularyId: id,
+      terms: terms,
+      snapshot: snapshot,
+    );
     await _load();
   }
 

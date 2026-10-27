@@ -102,6 +102,10 @@ class _VocabularyEditorPageState extends State<VocabularyEditorPage> {
         name: name,
         terms: terms,
         isEnabled: _isEnabled,
+        // The list this page opened on: a term a pull merged meanwhile is in
+        // neither it nor the field, and must survive the save (A1b review
+        // R23).
+        snapshot: initial.terms,
       );
       saved = initial.copyWith(name: name, isEnabled: _isEnabled);
     }

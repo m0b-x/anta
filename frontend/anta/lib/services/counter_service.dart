@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:drift/isolate.dart' show DriftRemoteException;
 import 'package:flutter/foundation.dart';
+import 'package:sqlite3/common.dart' show SqliteException;
 import 'package:uuid/uuid.dart';
 
 import '../constants/json_keys.dart';
@@ -61,7 +63,11 @@ class CounterService {
   /// memory after the flush updated it.
   Future<void> _serial = Future.value();
 
-  final StreamController<void> _changes = StreamController<void>.broadcast();
+  /// Shared by every instance, as `VocabularyService._changes` is, so a
+  /// subscription outlives the singleton a database switch replaces (A1b
+  /// review R22).
+  static final StreamController<void> _changes =
+      StreamController<void>.broadcast();
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -76,13 +82,26 @@ class CounterService {
       _instance!._dao = _instance!._db.counterDao;
       await _instance!._load();
       DatabaseLifecycle.registerResetHandler(reset);
+      // A page still showing the values of the database before a switch hears
+      // that another instance answers now.
+      _changes.add(null);
     }
     return _instance!;
   }
 
+  /// The loaded singleton, or null before the first [getInstance] and after a
+  /// [reset] — so a listener that outlives a database switch can re-resolve
+  /// the instance that took its place without forcing one into existence
+  /// (A1b review R22).
+  static CounterService? get instanceOrNull => _instance;
+
   /// A service over [db] for tests, the `CategoryService.forTesting` seam: the
   /// real flush and DAO against an in-memory database. Not the singleton and
   /// never registered with `DatabaseLifecycle`.
+  ///
+  /// [changes] is static, so one of these and the singleton — or two of these
+  /// — emit into the same stream: a test that builds both calls [reset] in
+  /// its tear-down, or a bloc over one hears the other's reload.
   @visibleForTesting
   static Future<CounterService> forTesting(AppDatabase db) async {
     final service = CounterService._();
@@ -111,24 +130,27 @@ class CounterService {
   /// before the page would stamp that stale number over the merged one on
   /// every device (record §3.5, S3c review H1).
   Future<void> reload() async {
-    await _serialized(() async {
-      await _load();
-      _dirtyNoteValues.removeWhere(
-        (pair, _) => !_counterIndex.containsKey(pair.$1),
-      );
-      for (final MapEntry(key: id, value: pending)
-          in _dirtyGlobalValues.entries.toList()) {
-        final counter = _counterIndex[id];
-        if (counter == null) {
-          _dirtyGlobalValues.remove(id);
-          continue;
-        }
-        _globalValues[id] = pending.over(
-          _globalValues[id] ?? counter.startValue,
-        );
-      }
-    });
+    await _serialized(_reloadLocked);
     _changes.add(null);
+  }
+
+  /// [reload]'s body, already inside the [_serialized] queue — the flush's
+  /// own recovery path calls it from within its turn, where re-entering the
+  /// queue would wait on itself.
+  Future<void> _reloadLocked() async {
+    await _load();
+    _dirtyNoteValues.removeWhere(
+      (pair, _) => !_counterIndex.containsKey(pair.$1),
+    );
+    for (final MapEntry(key: id, value: pending)
+        in _dirtyGlobalValues.entries.toList()) {
+      final counter = _counterIndex[id];
+      if (counter == null) {
+        _dirtyGlobalValues.remove(id);
+        continue;
+      }
+      _globalValues[id] = pending.over(_globalValues[id] ?? counter.startValue);
+    }
   }
 
   Future<void> _serialized(Future<void> Function() body) {
@@ -203,7 +225,14 @@ class CounterService {
         for (final MapEntry(key: (cid, nid), value: change)
             in pending.entries) {
           final counter = _counterIndex[cid];
-          if (counter == null) continue;
+          if (counter == null) {
+            // Every path that drops a counter from the index clears its dirty
+            // entries too, so this is defensive — and silent, which is why a
+            // future path that rebuilt the index alone would lose taps with
+            // no trace (A1b review R28).
+            debugPrint('[CounterService] Flush dropped $cid/$nid: no counter');
+            continue;
+          }
           final stored = await _dao.getValue(cid, nid) ?? counter.startValue;
           final value = change.over(stored);
           await _dao.upsertValue(cid, nid, value);
@@ -219,6 +248,20 @@ class CounterService {
       }
     } catch (e) {
       debugPrint('[CounterService] Flush error: $e');
+      if (_abortsTransaction(e)) {
+        // The rollback itself failed, so the writes may be durable: putting
+        // [pending] back would apply the same taps a second time. The table
+        // is read again instead, and the taps made while the write ran are
+        // re-applied over what it holds (A1b review R26).
+        await _reloadLocked();
+        _changes.add(null);
+        // The taps made while the write ran are dirty again after the reload,
+        // and the timer that would have written them is cancelled — as on the
+        // branch below, they wait for a tap that may never come (A6 review
+        // R108).
+        _scheduleDirtyFlush();
+        return;
+      }
       // The transaction rolled back, so nothing in [pending] was written:
       // put it back under any tap made while it ran, for the next flush.
       for (final MapEntry(key: (cid, nid), value: change) in pending.entries) {
@@ -230,6 +273,10 @@ class CounterService {
           );
         }
       }
+      // [flush] already cancelled the timer and the debounce fired its own,
+      // so without this the restored delta waits for the next tap and a
+      // process death takes it (A1b review R21).
+      _scheduleDirtyFlush();
     }
   }
 
@@ -331,16 +378,43 @@ class CounterService {
     return next;
   }
 
+  /// A Reset is recorded even when memory already shows the start value: in
+  /// the window between a pull's page committing and its reload, memory still
+  /// holds the pre-merge number, and an early return there would drop the
+  /// Reset and let the reload put the merged count back (A1b review R24).
+  ///
+  /// The table, not memory, is what says there is nothing to reset: no value
+  /// row means every device reads the counter at its start value already, so
+  /// recording the Reset would write a row and an outbox entry where an
+  /// unbound database had neither (A6 review R117). A merged page has
+  /// committed its row by the time memory goes stale, so R24's window stays
+  /// closed — and the look is taken inside the flush queue, or a flush in
+  /// flight with the first tap for this counter would still be writing the
+  /// row this read answers for.
   Future<void> resetGlobal(String counterId) async {
     final counter = _counterIndex[counterId];
     if (counter == null) throw StateError('Counter not found: $counterId');
-    if ((_globalValues[counterId] ?? counter.startValue) ==
-        counter.startValue) {
-      return;
-    }
     _globalValues[counterId] = counter.startValue;
-    _recordAbsolute(_dirtyGlobalValues, counterId, counter.startValue);
-    _scheduleDirtyFlush();
+    await _serialized(() async {
+      if (!_dirtyGlobalValues.containsKey(counterId) &&
+          !await _hasStoredGlobalValue(counterId)) {
+        return;
+      }
+      _recordAbsolute(_dirtyGlobalValues, counterId, counter.startValue);
+      _scheduleDirtyFlush();
+    });
+  }
+
+  /// Whether the table holds a live global value row for [counterId]. A read
+  /// that failed answers true: a Reset recorded for nothing is one write the
+  /// DAO suppresses, a Reset dropped is gone.
+  Future<bool> _hasStoredGlobalValue(String counterId) async {
+    try {
+      return await _dao.getValue(counterId, '') != null;
+    } catch (e) {
+      debugPrint('[CounterService] Reset read failed: $e');
+      return true;
+    }
   }
 
   Future<int> decrementGlobal(String counterId) async {
@@ -529,7 +603,16 @@ class CounterService {
     };
   }
 
+  /// Runs inside the flush queue: a `_flushDirty` that had already copied its
+  /// pending changes and was awaiting its transaction would otherwise write
+  /// them after the restore's `deleteAll` and inserts, resurrecting a value
+  /// row the backup never carried (A1b review R25).
   Future<void> importData(Map<String, dynamic> data) async {
+    await _serialized(() => _importData(data));
+    _changes.add(null);
+  }
+
+  Future<void> _importData(Map<String, dynamic> data) async {
     await _dao.deleteAll();
     _noteValuesCache.clear();
     _dirtyGlobalValues.clear();
@@ -642,7 +725,6 @@ class CounterService {
     }
 
     await _load();
-    _changes.add(null);
   }
 
   // ---------------------------------------------------------------------------
@@ -721,6 +803,36 @@ class CounterService {
       createdAt: Value(c.createdAt),
     );
   }
+}
+
+/// The SQLite primary result codes that leave no transaction to roll back —
+/// a full disk, an I/O error, a corrupt file.
+const Set<int> _sqliteAbortingCodes = {
+  10, // SQLITE_IOERR
+  11, // SQLITE_CORRUPT
+  13, // SQLITE_FULL
+};
+
+/// Whether [error] took SQLite's whole transaction with it: the savepoint is
+/// gone, so what the flush wrote before the throw may be durable and must not
+/// be written a second time. The unwrap is part of it — the database runs in a
+/// background isolate, which hands a SQLite error over wrapped.
+///
+/// An allow-list, unlike the pull's `_abortsTransaction` (record §3.5, S3d
+/// review H1), which answers true for everything but a constraint violation.
+/// It can: its caller rethrows and the page is pulled again at the same
+/// cursor. This one's caller throws the taps away, and `SQLITE_BUSY`,
+/// `SQLITE_LOCKED` and `SQLITE_READONLY` all roll back cleanly with nothing
+/// written — a tap lost to a database another connection held is strictly
+/// worse than writing it twice (A6 review R107).
+bool _abortsTransaction(Object error) {
+  var cause = error;
+  while (cause is DriftRemoteException) {
+    cause = cause.remoteCause;
+  }
+  return cause is CouldNotRollBackException ||
+      (cause is SqliteException &&
+          _sqliteAbortingCodes.contains(cause.resultCode));
 }
 
 /// A value's change since its last flush: the taps as a [delta], so a count

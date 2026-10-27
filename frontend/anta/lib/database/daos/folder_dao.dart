@@ -188,13 +188,21 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// still appended to the parent so the folder shows up at the end and
   /// doesn't fight existing ordering. Identity is stamped fresh and the
   /// folder is queued: an imported folder is a new local row.
+  ///
+  /// [updatedAt] is for a backup restore, which replays rows the sync merge
+  /// converges and so has to carry their archived mtime (A3a review R62);
+  /// the folder-archive path leaves it null and the row records the import
+  /// as its own write event. [ownerId] is for the same restore, whose copy
+  /// keeps the archived ownership under its fresh id (D16).
   Future<Folder> importFolder({
     required String name,
     String? parentId,
     required DateTime createdAt,
+    DateTime? updatedAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
     ItemLabel label = ItemLabel.none,
+    String? ownerId,
   }) {
     return transaction(() async {
       final now = DateTime.now();
@@ -219,15 +227,16 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         label: Value(label.storageValue),
         position: Value(maxPos + 1),
         createdAt: Value(createdAt),
-        // updatedAt records when this row was written locally; the import
-        // is a fresh write event so `now` is the correct semantic.
-        updatedAt: Value(now),
+        // updatedAt records when this row was written locally, so an import
+        // that carries no mtime of its own is a fresh write event.
+        updatedAt: Value(updatedAt ?? now),
         noteSortOrder: noteSortOrder != null
             ? Value(noteSortOrder)
             : const Value.absent(),
         subfolderSortOrder: subfolderSortOrder != null
             ? Value(subfolderSortOrder)
             : const Value.absent(),
+        ownerId: Value(ownerId),
         hlcTimestamp: Value(stamp.hlc),
         deviceId: Value(stamp.deviceId),
         version: const Value(1),

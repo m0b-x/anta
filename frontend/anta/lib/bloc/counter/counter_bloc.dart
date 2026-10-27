@@ -12,17 +12,23 @@ export 'counter_event.dart';
 export 'counter_state.dart';
 
 class CounterBloc extends Bloc<CounterEvent, CounterState> {
-  final CounterService _counterService;
+  CounterService _service;
+
+  /// Whether the constructor was handed the live singleton — the DI case. A
+  /// `DatabaseLifecycle` switch replaces that singleton while this bloc (the
+  /// app-level one in `main.dart`, never closed) stays alive, so
+  /// [_counterService] re-resolves it per event; a suite's `forTesting`
+  /// service is not the singleton and is kept as it is (A1b review R22).
+  final bool _followsSingleton;
+
   late final StreamSubscription<void> _serviceChanges;
 
   /// Follows [CounterService.changes]: counters a sync pull or a restore
   /// re-read beneath the service are refreshed into a loaded state at once.
   CounterBloc({required CounterService counterService})
-    : _counterService = counterService,
+    : _service = counterService,
+      _followsSingleton = counterService == CounterService.instanceOrNull,
       super(const CounterInitial()) {
-    _serviceChanges = counterService.changes.listen(
-      (_) => add(const RefreshCounters()),
-    );
     on<LoadCounters>(_onLoad);
     on<AddCounter>(_onAddCounter);
     on<UpdateCounter>(_onUpdateCounter);
@@ -36,11 +42,23 @@ class CounterBloc extends Bloc<CounterEvent, CounterState> {
     on<LoadCounterForNote>(_onLoadCounterForNote);
     on<PinCounter>(_onPinCounter);
     on<SetNoteContext>(_onSetNoteContext);
+    // Below the registrations: a broadcast stream that already held an event
+    // would otherwise reach `add` before `RefreshCounters` has a handler
+    // (A1b review R30).
+    _serviceChanges = counterService.changes.listen(
+      (_) => add(const RefreshCounters()),
+    );
   }
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  /// The service a handler runs against — see [_followsSingleton].
+  CounterService get _counterService {
+    if (!_followsSingleton) return _service;
+    return _service = CounterService.instanceOrNull ?? _service;
+  }
 
   /// Builds the main [CounterLoaded.counterValues] map for the given [noteId]
   /// context. For per-note counters the per-note stored value is used; for
@@ -292,6 +310,10 @@ class CounterBloc extends Bloc<CounterEvent, CounterState> {
         counterValues: await _buildCounterValues(noteId),
         loadedNoteId: noteId,
         pickedNoteValues: await _rereadPicked(current.pickedNoteValues),
+        // A refresh now arrives from a sync pull as well as from the page,
+        // and must not clear a mutation error before it was read (A1b review
+        // R29).
+        lastError: current.lastError,
       ),
     );
   }

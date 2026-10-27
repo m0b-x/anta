@@ -105,7 +105,11 @@ void main() {
   test('a switched handler runs after every switch, is kept across them, and '
       'never runs for the same database twice', () async {
     var switched = 0;
-    void onSwitched() => switched++;
+    final seen = <AppDatabase>[];
+    void onSwitched(AppDatabase database) {
+      switched++;
+      seen.add(database);
+    }
     DatabaseLifecycle.registerSwitchedHandler(onSwitched);
     DatabaseLifecycle.registerSwitchedHandler(onSwitched);
     addTearDown(() => DatabaseLifecycle.unregisterSwitchedHandler(onSwitched));
@@ -114,7 +118,10 @@ void main() {
     await AppDatabase.getInstance(databaseName: 'sixth');
     expect(switched, 1);
 
-    await AppDatabase.getInstance(databaseName: 'seventh');
+    final seventh = await AppDatabase.getInstance(databaseName: 'seventh');
     expect(switched, 2);
+    // The notice carries the database it announces, so a handler can rebind
+    // without awaiting the open it is called from (A6 review R113).
+    expect(seen.last, same(seventh));
   });
 }

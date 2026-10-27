@@ -1219,7 +1219,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   Future<void> _retryEachUnfiled() async {
     for (final filing in List.of(_unfiled)) {
       if (!mounted) return;
+      // A filing that completed during the iteration is off the list, and its
+      // `attempt` is null again: running it a second time would file a second
+      // copy, or retarget a second time over a title typed since (L4).
+      if (!_unfiled.contains(filing)) continue;
       await _attempt(filing);
+      // Oldest first, and no further than the first failure: a later filing
+      // landing before an earlier one moves the baseline backwards through
+      // `adoptStoredContent` (L5).
+      if (_unfiled.contains(filing)) return;
     }
   }
 
@@ -1248,16 +1256,24 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       _unfiled.remove(filing);
     } catch (error, stack) {
       debugPrint('[NoteEditor] filing the synced text failed: $error\n$stack');
-      if (filing.failed) return;
-      filing.failed = true;
-      // Shown once: now when the page is on top, else when it is again
-      // ([_showFilingNoticeOwed]) — a failure under a dialog is still news
-      // once the dialog is gone (L8).
-      if (mounted && _isCurrentRoute) {
-        _showFilingFailed(filing);
-      } else {
-        filing.noticeOwed = true;
-      }
+      _raiseFilingFailure(filing);
+    }
+  }
+
+  /// Says that [filing] did not land, once: now when the page is on top, else
+  /// when it is again ([_showFilingNoticeOwed]) — a failure under a dialog is
+  /// still news once the dialog is gone (L8).
+  ///
+  /// The exit and the menu rows call it too, as a backstop for a retry that
+  /// joined an attempt which had already failed this filing and so said
+  /// nothing (A6 review R110/R111/R127).
+  void _raiseFilingFailure(_Filing filing) {
+    if (filing.failed) return;
+    filing.failed = true;
+    if (mounted && _isCurrentRoute) {
+      _showFilingFailed(filing);
+    } else {
+      filing.noticeOwed = true;
     }
   }
 
@@ -1299,6 +1315,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// in flight at the event may have overwritten the row since. A page whose
   /// only pending edit is its title has no body to defend: the body reloads
   /// in place and the title stays pending (S4b-1 review M6).
+  ///
+  /// That reload is last-writer-wins on the title, by design: the merge's own
+  /// title is not applied, because the pending local one is written next and
+  /// with a newer HLC, so it would win the very next merge anyway. The undo
+  /// history restarts at the merged body, as every reload does
+  /// ([_adoptLoadedContent]) — splicing the body in instead would mean a
+  /// second whole-document edit path on the typing path (R9).
   Future<void> _adoptRemoteUpdate(NoteChange change) async {
     final folderId = change.note?.folderId;
     if (folderId != null && folderId != _folderId) {
@@ -1370,9 +1393,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     });
   }
 
+  /// How many numbered forms of a filing's title are tried before the filing
+  /// is failed. A folder holding twenty copies of one title is already past
+  /// anything the numbering explains; spinning on past it would cost a
+  /// database round trip per turn with every write on the page held behind it
+  /// (R16).
+  static const int _freeTitleAttempts = 20;
+
   /// Creates a note through the storage service's normal create — a local
   /// write like any other, so it is announced and synced — taking the first
   /// of [title]'s numbered forms the folder does not hold yet.
+  ///
+  /// The last attempt's [DuplicateNameException] is the filing's failure: it
+  /// holds the text and the page's writes, and tries again.
   Future<NoteMetadata> _createWithFreeTitle({
     required String folderId,
     required String Function(int copy) title,
@@ -1380,7 +1413,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     required ItemLabel label,
   }) async {
     final storage = GetIt.I<NoteStorageService>();
-    for (var copy = 1; ; copy++) {
+    for (var copy = 1; copy < _freeTitleAttempts; copy++) {
       try {
         return await storage.createNote(
           folderId: folderId,
@@ -1392,6 +1425,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         continue;
       }
     }
+    return storage.createNote(
+      folderId: folderId,
+      title: title(_freeTitleAttempts),
+      content: content,
+      label: label,
+    );
   }
 
   /// A clean page closes; a dirty one keeps its text as a new note — a save
@@ -1472,11 +1511,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// A clean page has nothing left to show and closes, the message raised
   /// before the pop so it stays up over the page beneath — but only from the
-  /// top of its navigator. `Navigator.pop` takes whatever route is on top, so
-  /// under a dialog or another page it would close that one and strand this
-  /// page with its saves off (H2): the delete waits until the page is current
-  /// again ([didChangeDependencies], [didPopNext]), and nothing is switched
-  /// off before the pop really targets this page.
+  /// top of its navigator. Every pop here takes whatever route is on top —
+  /// `AppNavigator.pop` is `Navigator.pop`, so the call used changes nothing
+  /// — and under a dialog or another page that would close *that* one and
+  /// strand this page with its saves off (H2). The [_isCurrentRoute] guard is
+  /// the whole fix: the delete waits until the page is current again
+  /// ([didChangeDependencies], [didPopNext]), and nothing is switched off
+  /// before the pop really targets this page.
   void _leaveRemotelyDeleted(NoteChange change) {
     if (!mounted || _isExiting) return;
     if (!_isCurrentRoute) {
@@ -2875,18 +2916,31 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// is still not filed as a new note: one more try, and when that fails too
   /// the page stays, the notice up — leaving would take the only copy of the
   /// text with it, since the exit's write to the tombstone is refused (M3).
+  ///
+  /// The remote chain as it stands is waited for, not just the list: a
+  /// delete handler already queued has not listed its filing yet, and an
+  /// exit that read the list a tick earlier would leave with the text (M1).
+  /// One turn of it and one retry, never [_awaitRemoteWork]'s "until nothing
+  /// is pending at all": a pull streaming page after page keeps something
+  /// pending, and the exit would never resolve — with `canPop` false and
+  /// [_isExiting] true, the back presses after it are swallowed in silence
+  /// (A6 review R109).
   Future<bool> _keptDeletedNotesText() async {
-    if (!_holdsDeletedNotesText) return true;
-    await _retryUnfiled();
+    if (_remoteBusy == 0 && !_holdsDeletedNotesText) return true;
+    // This try is its own news: the filing's notice bookkeeping is re-armed
+    // so `_run` raises it once, instead of the exit raising the same error a
+    // second time beside it (L6).
+    for (final filing in _unfiled) {
+      if (filing.keepsText) filing.failed = false;
+    }
+    await _remoteWork;
+    if (mounted) await _retryUnfiled();
     if (!mounted) return false;
     if (_holdsDeletedNotesText) {
-      if (_isCurrentRoute) {
-        CustomSnackbar.showError(
-          context,
-          AppLocalizations.of(context)!.syncNoteKeptAsNewFailed,
-          withToolbarOffset: true,
-        );
-      }
+      // The retry can join an attempt that had already failed this filing,
+      // where `_run` says nothing — then the page stays with no word at all
+      // (A6 review R111).
+      _raiseFilingFailure(_unfiled.firstWhere((f) => f.keepsText));
       return false;
     }
     // Filed with the text as it stands; anything the retarget still reads
@@ -2918,16 +2972,53 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// `folderId` onto it, and the export re-reads the content by id. So the
   /// editor flushes first and reads back what landed — a plain flush, not
   /// an exit's: the page stays, and its writes keep every hold (M4).
+  ///
+  /// So the row can be older than the editor, and nothing is handed on while
+  /// it is: the flush is held until every synced change is filed, and a
+  /// filing that keeps failing would otherwise let the move carry the stored
+  /// body and the export ship it, silently (R18). The filing's own notice
+  /// says why instead.
+  ///
+  /// Null is always reported before it is returned — the filing's notice, or
+  /// "note not found" — so a caller only has to stop.
   Future<NoteMetadata?> _currentNoteMetadata() async {
+    if (!await _awaitRemoteWork(leaving: false)) {
+      // The deleted note's text first, the more urgent of the two, as
+      // [_showFilingNoticeOwed] prefers it (R127) — and only when the wait's
+      // own retry did not already raise it, which is the ordinary case here:
+      // the user taps Move while the merge handler is filing, so `_run` saw
+      // that filing's first failure (R110).
+      _raiseFilingFailure(
+        _unfiled.firstWhere((f) => f.keepsText, orElse: () => _unfiled.first),
+      );
+      return null;
+    }
+    if (!mounted) return null;
     await _saves.flush();
+    if (!mounted) return null;
     final noteId = _saves.effectiveNoteId ?? widget.noteId;
-    if (noteId == null) return null;
-    return GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
+    final metadata = noteId == null
+        ? null
+        : await GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
+    if (metadata == null && mounted) {
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.noteNotFound,
+      );
+    }
+    return metadata;
   }
 
   /// Returns to the folder this note lives in, playing one transition even
   /// when the note was reached through a chain of wiki links.
+  ///
+  /// [_isExiting] is held for the whole way out, as the `PopScope` handler
+  /// holds it: a remote delete arriving while `popToFolder` runs would
+  /// otherwise still reach [_leaveRemotelyDeleted] and pop a second route
+  /// (R19).
   Future<void> _openFolder() async {
+    if (_isExiting) return;
+    _isExiting = true;
     try {
       await _saveBeforeExit();
     } catch (e) {
@@ -2935,6 +3026,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
     if (!mounted) return;
     if (!await _keptDeletedNotesText()) {
+      _isExiting = false;
       _saves.exitAborted();
       return;
     }
@@ -2944,19 +3036,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       folderId: _folderId,
       title: _folderName ?? '',
     );
-    if (mounted && _isCurrentRoute) _saves.exitAborted();
+    if (mounted && _isCurrentRoute) {
+      _isExiting = false;
+      _saves.exitAborted();
+    }
   }
 
   Future<void> _moveNote() async {
     final metadata = await _currentNoteMetadata();
-    if (!mounted) return;
-    if (metadata == null) {
-      CustomSnackbar.showError(
-        context,
-        AppLocalizations.of(context)!.noteNotFound,
-      );
-      return;
-    }
+    if (!mounted || metadata == null) return;
     await MoveCoordinator.moveNote(
       context,
       metadata: metadata,
@@ -3030,14 +3118,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final format = await NoteExportDialog.chooseFormat(context);
     if (format == null || !mounted) return;
     final metadata = await _currentNoteMetadata();
-    if (!mounted) return;
-    if (metadata == null) {
-      CustomSnackbar.showError(
-        context,
-        AppLocalizations.of(context)!.noteNotFound,
-      );
-      return;
-    }
+    if (!mounted || metadata == null) return;
     context.read<ImportExportBloc>().add(
       ExportNoteRequested(metadata: metadata, format: format, share: true),
     );

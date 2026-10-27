@@ -110,9 +110,22 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
   /// [terms] is expected to be trimmed, blank-free and duplicate-free — the
   /// service owns that normalization. A repeat is skipped rather than mapped
   /// onto the same row twice.
+  ///
+  /// [snapshot] is the term list the caller started from. A live row whose
+  /// term is in neither list arrived *after* that snapshot — a pull merged
+  /// the term another device added while the editor was open — so it is kept
+  /// instead of tombstoned: the user never saw the term, so its absence from
+  /// [terms] is not a deletion, and tombstoning it would push the term's
+  /// removal to every device (A1b review R23). A caller that passes nothing
+  /// replaces the list outright, which is what a fresh vocabulary does.
+  ///
+  /// A *duplicate* of a term that is still listed — the merge-created pair the
+  /// phase record §8 accepts — is tombstoned as before: the term stays, only
+  /// its second row goes.
   Future<void> saveItems({
     required String vocabularyId,
     required List<String> terms,
+    List<String>? snapshot,
   }) {
     return transaction(() async {
       final existing = await (select(
@@ -177,8 +190,14 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
         written.add(row.id);
       }
 
+      final known = snapshot?.toSet();
       for (final row in existing) {
         if (row.isDeleted || kept.contains(row.id)) continue;
+        if (known != null &&
+            !known.contains(row.term) &&
+            !seen.contains(row.term)) {
+          continue;
+        }
         await _tombstoneItem(row, now, stamp);
         tombstoned.add(row.id);
       }

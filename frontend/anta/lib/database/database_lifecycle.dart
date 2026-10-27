@@ -1,5 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import 'database.dart';
+
+/// Runs when a switched-to database has opened, with that database.
+typedef DatabaseSwitchedHandler = void Function(AppDatabase database);
+
 /// Coordinates cleanup of database-scoped singleton state when the active
 /// [AppDatabase] is closed or replaced (e.g. user switches between multiple
 /// local databases on the settings page).
@@ -89,24 +94,31 @@ class DatabaseLifecycle {
     }
   }
 
-  static final List<VoidCallback> _switchedHandlers = [];
+  static final List<DatabaseSwitchedHandler> _switchedHandlers = [];
 
   /// Registers [handler] to run each time a switched-to database has opened.
   /// Unlike a reset handler it is kept across switches: it is how something
   /// that must run without anyone asking for it — the sync engine — comes
   /// back on the new database (S4a review M5). Registering twice is a no-op.
-  static void registerSwitchedHandler(VoidCallback handler) {
+  static void registerSwitchedHandler(DatabaseSwitchedHandler handler) {
     if (_switchedHandlers.contains(handler)) return;
     _switchedHandlers.add(handler);
   }
 
-  /// Invokes every switched handler, after [notifyDatabaseSwitching] and the
-  /// new database's open. Called by [AppDatabase]; failures are logged and
-  /// do not stop the others.
-  static void notifyDatabaseSwitched() {
-    for (final handler in List<VoidCallback>.from(_switchedHandlers)) {
+  /// Invokes every switched handler with [database], after
+  /// [notifyDatabaseSwitching] and that database's open. Called by
+  /// [AppDatabase]; failures are logged and do not stop the others.
+  ///
+  /// The handle is passed rather than looked up: a handler that asked
+  /// [AppDatabase.getInstance] for it would join the open it is announced
+  /// from and only rebind a turn later, racing every other handler's first
+  /// await (A6 review R113).
+  static void notifyDatabaseSwitched(AppDatabase database) {
+    for (final handler in List<DatabaseSwitchedHandler>.from(
+      _switchedHandlers,
+    )) {
       try {
-        handler();
+        handler(database);
       } catch (e, stack) {
         debugPrint('[DatabaseLifecycle] switched handler threw: $e\n$stack');
       }
@@ -115,7 +127,7 @@ class DatabaseLifecycle {
 
   /// Test-only: drops a switched handler a test registered.
   @visibleForTesting
-  static void unregisterSwitchedHandler(VoidCallback handler) =>
+  static void unregisterSwitchedHandler(DatabaseSwitchedHandler handler) =>
       _switchedHandlers.remove(handler);
 
   /// Test-only: number of currently registered handlers.

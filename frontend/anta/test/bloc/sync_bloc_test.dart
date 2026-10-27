@@ -645,6 +645,47 @@ void main() {
       await bloc.close();
     });
 
+    test('a refresh after a database switch follows the new engine, not the '
+        'old (A1c review R40)', () async {
+      final old = FakeSyncEngine();
+      final fresh = FakeSyncEngine();
+      var engine = old;
+      final fake = _FakeAuthService(user: _user);
+      final bloc = SyncBloc(authService: fake, engine: () async => engine);
+      final states = <SyncState>[];
+      bloc.stream.listen(states.add);
+      bloc.add(const LoadSyncStatus());
+      await pumpEventQueue();
+
+      // The dropped space's own times, which the bloc is showing when the
+      // switch happens: laid over the new database's read they would be the
+      // other space's sync history (A6 review R112).
+      old.emit(SyncStatus(lastPullAt: DateTime.utc(2026, 10, 20)));
+      await pumpEventQueue();
+
+      // The Sharing page left mounted under the database settings page: the
+      // switch drops the engine, the thunk answers with the new database's,
+      // and the page only ever refreshes from here on.
+      engine = fresh;
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+
+      expect(
+        (states.last as SyncSignedIn).status.lastPullAt,
+        isNull,
+        reason: "the first refresh already reads the new engine's status",
+      );
+      old.emit(const SyncStatus(pendingCount: 1));
+      await pumpEventQueue();
+      expect(old.statuses.hasListener, isFalse);
+      expect(states.last, const SyncSignedIn(_user));
+
+      fresh.emit(pulling);
+      await pumpEventQueue();
+      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      await bloc.close();
+    });
+
     test('a dead engine leaves the account as it is, and the next load '
         'follows it again', () async {
       final engine = FakeSyncEngine();

@@ -30,6 +30,18 @@ class _FakeSaver {
   /// Number of upcoming saves that should throw. `-1` fails forever.
   int failures = 0;
 
+  /// Number of upcoming saves that should raise [SaveHeld] — the page holding
+  /// a write while a synced change is filed. `-1` holds forever.
+  int holds = 0;
+
+  /// Number of upcoming saves that should raise [SaveRefused] — the row the
+  /// write was for is a tombstone. `-1` refuses forever.
+  int refusals = 0;
+
+  /// Runs after each save is recorded and before it answers, so a test can
+  /// move the baseline exactly while a write is in flight.
+  void Function()? duringSave;
+
   /// When set, every save suspends on this completer, which lets a test hold
   /// a write in flight and observe what the service does meanwhile.
   Completer<void>? gate;
@@ -40,8 +52,17 @@ class _FakeSaver {
 
   Future<void> call(String? title, String? content) async {
     calls.add(_RecordedSave(title, content));
+    duringSave?.call();
     final pending = gate;
     if (pending != null) await pending.future;
+    if (holds != 0) {
+      if (holds > 0) holds--;
+      throw const SaveHeld('held by the test');
+    }
+    if (refusals != 0) {
+      if (refusals > 0) refusals--;
+      throw const SaveRefused('refused by the test');
+    }
     if (failures != 0) {
       if (failures > 0) failures--;
       throw StateError('save failed');
@@ -546,6 +567,130 @@ void main() {
       });
     });
 
+    test('a body write in flight leaves the baseline a merge adopted '
+        'meanwhile, and its own text stays unsaved (R1)', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        // Through the seam, where the coordinator calls it: inside `onSave`,
+        // past the hold and the title lookup, just before the dispatch.
+        h.saver.duringSave = h.service.writeIssued;
+
+        h.type('mine');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.last.content, 'mine');
+        // The write has gone out, and the merge is filed and adopted while
+        // the save is still finishing: the row holds the merged body.
+        h.service.adoptSavedContent('theirs');
+
+        h.saver.gate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(
+          h.service.isSavedContent('theirs'),
+          isTrue,
+          reason: 'the row holds the merged body, not the written one',
+        );
+        expect(h.service.isSavedContent('mine'), isFalse);
+        expect(h.service.hasPendingChanges, isTrue);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.calls.map((c) => c.content), ['mine', 'mine']);
+
+        h.dispose();
+      });
+    });
+
+    test('a baseline adopted before the write went out is replaced by what '
+        'the write landed (R1)', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        // The page held this write while it filed a merge, so the adoption
+        // is older than the row the write then wrote — both inside `onSave`,
+        // in the coordinator's own order.
+        h.saver.duringSave = () {
+          h.service.adoptSavedContent('theirs');
+          h.service.writeIssued();
+        };
+
+        h.type('mine');
+        async.elapse(h.service.debounceDelay);
+
+        h.saver.gate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(h.service.isSavedContent('mine'), isTrue);
+        expect(h.service.hasPendingChanges, isFalse);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.saved);
+
+        async.elapse(h.service.debounceDelay);
+        expect(
+          h.saver.callCount,
+          1,
+          reason: 'no second write of the same text',
+        );
+
+        h.dispose();
+      });
+    });
+
+    test('a keystroke made while it waits keeps its own debounce deadline '
+        '(R14)', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        // Typed the moment the write started, so its deadline is a whole
+        // debounce away and the write lands well before it.
+        h.type('v2');
+        async.elapse(const Duration(seconds: 2));
+        h.saver.gate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 3));
+        expect(
+          h.saver.calls.map((c) => c.content),
+          ['v1', 'v2'],
+          reason: "v2's own deadline, not a fresh debounce from the landing",
+        );
+
+        h.dispose();
+      });
+    });
+
+    test('the text it keeps pending is announced as a change (R15)', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        h.content = 'v2';
+        h.changeFlags.clear();
+
+        h.saver.gate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(h.changeFlags, [true]);
+
+        h.dispose();
+      });
+    });
+
     test('a stopped service does not re-arm over text a write did not '
         'carry', () {
       fakeAsync((async) {
@@ -711,6 +856,77 @@ void main() {
 
         expect(h.saver.last.content, 'v2');
         expect(h.service.saveStatusNotifier.value, SaveStatus.saved);
+
+        h.dispose();
+      });
+    });
+
+    test('a refused write stays unsaved, spends no rung and arms nothing '
+        '(A6 review R115)', () {
+      fakeAsync((async) {
+        final h = failing();
+        h.saver.refusals = -1;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 1);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+        expect(h.service.hasPendingChanges, isTrue);
+        expect(h.changeFlags.last, isTrue);
+
+        // The row is a tombstone: the delete handler owns the text now, and
+        // nothing may write it again — no rung, no re-armed debounce.
+        async.elapse(const Duration(seconds: 30));
+        expect(h.saver.callCount, 1);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+
+        // And the ladder is untouched, so a real failure still gets three.
+        h.saver.refusals = 0;
+        h.saver.failures = -1;
+        h.type('v2');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 2);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.error);
+        async.elapse(const Duration(seconds: 2));
+        expect(h.saver.callCount, 3);
+        async.elapse(const Duration(seconds: 4));
+        expect(h.saver.callCount, 4);
+        async.elapse(const Duration(seconds: 8));
+        expect(h.saver.callCount, 5);
+
+        h.dispose();
+      });
+    });
+
+    test('a held write stays unsaved without the error status, re-arms the '
+        'debounce and spends no rung (L8)', () {
+      fakeAsync((async) {
+        final h = failing();
+        h.saver.holds = 3;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 1);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+        expect(h.service.hasPendingChanges, isTrue);
+
+        async.elapse(h.service.debounceDelay);
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 3, reason: 'the debounce keeps trying');
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+
+        // The ladder was never entered, so a real failure after three holds
+        // still gets all three rungs.
+        h.saver.failures = -1;
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 4);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.error);
+        async.elapse(const Duration(seconds: 2));
+        expect(h.saver.callCount, 5);
+        async.elapse(const Duration(seconds: 4));
+        expect(h.saver.callCount, 6);
+        async.elapse(const Duration(seconds: 8));
+        expect(h.saver.callCount, 7);
 
         h.dispose();
       });

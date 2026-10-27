@@ -3,6 +3,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/database_migrations.dart';
 import 'package:anta/database/migrations/database_schema.dart';
@@ -317,6 +318,92 @@ void main() {
         items.map((item) => item.term),
         containsAll(['Oats', 'Bench Press']),
       );
+    });
+
+    /// The editor opens on a list and re-submits it whole, so without the
+    /// snapshot a term a pull merged under it reads as a deletion and is
+    /// tombstoned on every device (A1b review R23).
+    group("against the editor's snapshot", () {
+      test('a term merged after the snapshot survives the save', () async {
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press', 'Deadlift'],
+        );
+        // The pull, while the editor sat on the two terms above.
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press', 'Deadlift', 'Squat'],
+        );
+
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press', 'Deadlift'],
+          snapshot: const ['Bench Press', 'Deadlift'],
+        );
+
+        expect(
+          [for (final item in await db.vocabularyDao.getAllItems()) item.term],
+          ['Bench Press', 'Deadlift', 'Squat'],
+        );
+        final squat = (await allItems()).firstWhere(
+          (row) => row.term == 'Squat',
+        );
+        expect(squat.version, 1, reason: 'the merged row is left alone');
+      });
+
+      test('a term the user removed is still tombstoned', () async {
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press', 'Deadlift'],
+        );
+
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press'],
+          snapshot: const ['Bench Press', 'Deadlift'],
+        );
+
+        expect(
+          [for (final item in await db.vocabularyDao.getAllItems()) item.term],
+          ['Bench Press'],
+        );
+        final dead = (await allItems()).firstWhere(
+          (row) => row.term == 'Deadlift',
+        );
+        expect(dead.isDeleted, isTrue);
+      });
+
+      test('a merged duplicate of a listed term still collapses', () async {
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press'],
+        );
+        final stamp = db.newStamp();
+        final now = DateTime.now();
+        await db.into(db.vocabularyItems).insert(
+          VocabularyItemsCompanion.insert(
+            id: 'merged-duplicate',
+            vocabularyId: 'v1',
+            term: 'Bench Press',
+            sortOrder: const Value(9),
+            createdAt: now,
+            updatedAt: now,
+            hlcTimestamp: stamp.hlc,
+            deviceId: stamp.deviceId,
+          ),
+        );
+
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Bench Press'],
+          snapshot: const ['Bench Press'],
+        );
+
+        expect(await db.vocabularyDao.getAllItems(), hasLength(1));
+        final rows = await allItems();
+        expect(rows, hasLength(2));
+        expect(rows.where((row) => row.isDeleted), hasLength(1));
+      });
     });
   });
 

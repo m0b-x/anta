@@ -48,6 +48,8 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_position_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/app_sync_apply_hooks.dart';
+import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
@@ -3822,6 +3824,26 @@ void main() {
       await db.folderDao.hardDeleteFolder(syncFolder.id);
     });
 
+    /// The engine's second step on its own: the merge has committed, and the
+    /// page hears of it now. [mergeFromElsewhere] with `announce: false`
+    /// leaves the window between the two open, which is where a write that
+    /// lands on the merged row belongs.
+    Future<void> announceMerge(
+      WidgetTester tester,
+      String id, {
+      String? previousParent,
+    }) async {
+      await tester.runAsync(
+        () => noteRepository.announceMerged(
+          [id],
+          previousParents: previousParent == null
+              ? const {}
+              : {id: previousParent},
+        ),
+      );
+      await settle(tester);
+    }
+
     /// What the engine does for a pulled page: the merge beneath the
     /// repository, then `announceMerged`, which emits with `remote` set.
     Future<void> mergeFromElsewhere(
@@ -3831,6 +3853,7 @@ void main() {
       bool delete = false,
       String? folderId,
       bool settleAfter = true,
+      bool announce = true,
     }) async {
       await tester.runAsync(() async {
         final local = (await db.noteDao.getNoteById(id))!;
@@ -3849,10 +3872,12 @@ void main() {
           ),
           delete ? null : text,
         );
-        await noteRepository.announceMerged(
-          [id],
-          previousParents: folderId == null ? const {} : {id: local.folderId},
-        );
+        if (announce) {
+          await noteRepository.announceMerged(
+            [id],
+            previousParents: folderId == null ? const {} : {id: local.folderId},
+          );
+        }
       });
       if (settleAfter) await settle(tester);
     }
@@ -3864,6 +3889,16 @@ void main() {
     Future<void> autosave(WidgetTester tester) async {
       await tester.pump(const Duration(seconds: 6));
       await settle(tester);
+    }
+
+    /// [autosave] until the page is clean. A write that waited at the gate
+    /// takes a round of its own, and the keystroke it kept pending is only
+    /// re-armed once that write has landed — so one round is not always one
+    /// write.
+    Future<void> autosaveUntilSaved(WidgetTester tester) async {
+      for (var i = 0; i < 6 && appBar(tester).hasChanges; i++) {
+        await autosave(tester);
+      }
     }
 
     Future<CodeLineEditingController> open(WidgetTester tester) async {
@@ -3945,14 +3980,16 @@ void main() {
       flakyStorage
         ..failCreates = 0
         ..createGate = null
-        ..readGate = null;
+        ..loadGate = null
+        ..loads = 0;
       GetIt.I.unregister<NoteStorageService>();
       GetIt.I.registerSingleton<NoteStorageService>(flakyStorage);
       addTearDown(() {
         flakyStorage
           ..failCreates = 0
           ..createGate = null
-          ..readGate = null;
+          ..loadGate = null
+          ..loads = 0;
         GetIt.I.unregister<NoteStorageService>();
         GetIt.I.registerSingleton<NoteStorageService>(storageService);
       });
@@ -4041,6 +4078,61 @@ void main() {
       await teardownPage(tester);
     });
 
+    testWidgets("the engine's own hooks file the losing stored text inside "
+        'the page, before the announcement reaches a dirty editor '
+        '(A5 review R106)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      // The autosave the engine's loser rule needs: the stored text is
+      // queued for a push that has not drained when the newer remote lands.
+      await autosave(tester);
+      type(controller, 'and more ');
+      await tester.pump();
+      final loser = (await tester.runAsync(
+        () => db.noteDao.getNoteById(synced.id),
+      ))!;
+      final losingText = (await storedBody(tester, synced.id))!;
+
+      // The engine's page, in its order: the merge commits, the production
+      // hook files the loser inside the transaction, and only then is the
+      // page told. How many copies one conflict leaves is R99's question,
+      // not this test's — this one pins that the typed text survives the
+      // sequence and the losing text is on disk.
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs',
+        announce: false,
+      );
+      await tester.runAsync(
+        () => AppSyncApplyHooks(
+          notes: () => noteRepository,
+          folders: () => FolderRepository(database: db),
+          noteStorage: () => storageService,
+          strings: () async => AppLocalizationsEn(),
+          now: () => DateTime(2026, 10, 27, 9, 30),
+        ).fileConflictCopy(
+          SyncNoteConflict(loser: loser, loserContent: losingText),
+        ),
+      );
+      await announceMerge(tester, synced.id);
+
+      expect(controller.text, 'and more mine $body');
+      final filed = await copies(tester);
+      final bodies = [
+        for (final copy in filed)
+          await tester.runAsync(
+            () => db.contentChunkDao.loadContent(copy.id),
+          ),
+      ];
+      expect(bodies, contains(losingText));
+      OverlaySnackbar.hide();
+      await autosaveUntilSaved(tester);
+      expect(await storedBody(tester, synced.id), 'and more mine $body');
+      await teardownPage(tester);
+    });
+
     testWidgets('a dirty editor files no copy when the merge re-stamped the '
         'body it last loaded (S4a review H1)', (tester) async {
       final controller = await open(tester);
@@ -4064,9 +4156,8 @@ void main() {
         () => db.folderDao.createFolder(name: 'Elsewhere'),
       );
       addTearDown(
-        () => tester.runAsync(
-          () => db.folderDao.hardDeleteFolder(elsewhere!.id),
-        ),
+        () =>
+            tester.runAsync(() => db.folderDao.hardDeleteFolder(elsewhere!.id)),
       );
       final controller = await open(tester);
       type(controller, 'mine ');
@@ -4081,7 +4172,8 @@ void main() {
       await settleUntil(
         tester,
         () =>
-            tester.widget<NoteOverflowMenu>(find.byType(NoteOverflowMenu))
+            tester
+                .widget<NoteOverflowMenu>(find.byType(NoteOverflowMenu))
                 .folderName ==
             'Elsewhere',
       );
@@ -4406,9 +4498,6 @@ void main() {
       type(controller, 'mine ');
       await tester.pump();
       useFlakyStorage();
-      // A page reading the row back would read it only after the write.
-      final read = Completer<void>();
-      flakyStorage.readGate = read;
       final landed = Completer<void>();
       noteBloc.updateGate = landed;
       await tester.pump(const Duration(seconds: 6));
@@ -4425,8 +4514,6 @@ void main() {
       landed.complete();
       await settle(tester);
       expect(await storedBody(tester, synced.id), 'mine $body');
-      flakyStorage.readGate = null;
-      read.complete();
       // Filing the copy after the write landed re-arms one more save of the
       // user's text, which the row already holds.
       await autosave(tester);
@@ -4712,6 +4799,178 @@ void main() {
       OverlaySnackbar.hide();
       await teardownPage(tester);
     });
+
+    testWidgets('a write the tombstone refused leaves the text unsaved, so '
+        'the delete behind it keeps it as a new note (M2)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      // The delete has committed and its announcement has not arrived yet:
+      // the debounced write lands on the tombstone, which refuses it.
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        delete: true,
+        announce: false,
+      );
+      await autosave(tester);
+
+      expect(
+        appBar(tester).hasChanges,
+        isTrue,
+        reason: 'a refused write must not read as saved',
+      );
+
+      await announceMerge(tester, synced.id);
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNew);
+      OverlaySnackbar.hide();
+      await settle(tester);
+
+      final kept = (await keptAsNew(tester)).single;
+      expect(await storedBody(tester, kept.id), 'mine $body');
+      expect(controller.text, 'mine $body');
+      await teardownPage(tester);
+    });
+
+    testWidgets('leaving while a delete is still being handled waits for its '
+        'filing instead of taking the text along (M1)', (tester) async {
+      await openOverAPage(tester);
+      final controller = editorOf(tester).controller;
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      final landed = Completer<void>();
+      noteBloc.updateGate = landed;
+
+      // The exit write passes the gate — nothing is being handled yet — and
+      // the delete arrives while it is in flight.
+      unawaited(navigatorOf(tester).maybePop());
+      await settleUntil(tester, () => noteBloc.updates.isNotEmpty);
+      final reading = Completer<void>();
+      flakyStorage.loadGate = reading;
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        delete: true,
+        settleAfter: false,
+      );
+      // The handler is inside the read it takes before listing its filing,
+      // so the list the exit used to read answers for a past moment.
+      await settleUntil(tester, () => flakyStorage.loads > 0);
+      noteBloc.updateGate = null;
+      landed.complete();
+      await settle(tester);
+
+      expect(
+        pages(),
+        findsOneWidget,
+        reason: 'the exit waits for the queued delete',
+      );
+
+      flakyStorage.loadGate = null;
+      reading.complete();
+      await until(tester, AppLocalizationsEn().syncNoteKeptAsNew);
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      final kept = (await keptAsNew(tester)).single;
+      expect(await storedBody(tester, kept.id), 'mine $body');
+      OverlaySnackbar.hide();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('a keystroke made while the save waits for a filing reaches '
+        'the row once the filing lands (H1)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      final held = Completer<void>();
+      flakyStorage.createGate = held;
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs',
+        settleAfter: false,
+      );
+      // The debounced write asks the gate while the copy is held.
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
+      // Typed while that write waits: the `_isSaving` guard drops its own
+      // debounce, so only the re-check after the write keeps it.
+      type(controller, 'more ');
+      await tester.pump();
+
+      flakyStorage.createGate = null;
+      held.complete();
+      // One round for the write that was waiting, a second for the save the
+      // keystroke is re-armed into once that one has landed.
+      await autosaveUntilSaved(tester);
+
+      expect(appBar(tester).hasChanges, isFalse);
+      expect(await storedBody(tester, synced.id), 'more mine $body');
+      expect(controller.text, 'more mine $body');
+      expect(
+        await storedBody(tester, (await copies(tester)).single.id),
+        'theirs',
+      );
+      // The writes themselves, not only what they left behind: R1's whole
+      // subject is an extra identical write — and its push and its outbox
+      // row — which a body assertion cannot see (A6 review R120).
+      expect(
+        noteBloc.updates.map((u) => u.content).toList(),
+        ['mine $body', 'more mine $body'],
+      );
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a merge arriving during the retry of a failed filing is '
+        'filed behind it, and each filing runs once (L4/L10)', (tester) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      useFlakyStorage();
+      flakyStorage.failCreates = 1;
+
+      await mergeFromElsewhere(tester, synced.id, text: 'theirs 1');
+      await until(tester, AppLocalizationsEn().syncNoteConflictCopyFailed);
+      OverlaySnackbar.hide();
+      await settle(tester);
+
+      // The next write retries that filing and is held inside it; a second
+      // merge arrives during the retry, which the outer wait has to pick up.
+      final held = Completer<void>();
+      flakyStorage.createGate = held;
+      type(controller, 'more ');
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs 2',
+        settleAfter: false,
+      );
+      flakyStorage.createGate = null;
+      held.complete();
+      await settle(tester);
+      await autosaveUntilSaved(tester);
+      await settle(tester);
+
+      expect(appBar(tester).hasChanges, isFalse);
+      final filed = await copies(tester);
+      final bodies = [
+        for (final copy in filed) await storedBody(tester, copy.id),
+      ];
+      expect(bodies, unorderedEquals(['theirs 1', 'theirs 2']));
+      expect(await storedBody(tester, synced.id), 'more mine $body');
+      expect(controller.text, 'more mine $body');
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
   });
 }
 
@@ -4751,21 +5010,24 @@ class _ThrowingStorage extends NoteStorageService {
 
 /// A [NoteStorageService] whose next [failCreates] creates throw, for the
 /// conflict copy that fails once; whose creates wait for [createGate], for a
-/// merge handler held mid-filing; and whose body reads wait for [readGate],
-/// so a page that re-read the merged row would read it only after a save
-/// landed. Everything else is the real service.
+/// merge handler held mid-filing; and whose note reads wait for [loadGate]
+/// and are counted in [loads], so a test can hold a remote-change handler at
+/// the read it takes before it lists its filing. Everything else is the real
+/// service.
 class _FlakyStorage extends NoteStorageService {
   _FlakyStorage({required super.repository});
 
   int failCreates = 0;
   Completer<void>? createGate;
-  Completer<void>? readGate;
+  Completer<void>? loadGate;
+  int loads = 0;
 
   @override
-  Future<String> loadNoteContent(String noteId) async {
-    final gate = readGate;
+  Future<LazyNote?> loadNoteWithContent(String noteId) async {
+    loads++;
+    final gate = loadGate;
     if (gate != null) await gate.future;
-    return super.loadNoteContent(noteId);
+    return super.loadNoteWithContent(noteId);
   }
 
   @override

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../bloc/optimized_note/optimized_note_bloc.dart'
+    show NoteWriteRefusedException;
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../services/auto_save_service.dart';
 
@@ -78,9 +80,10 @@ class NoteSaveCoordinator {
   /// a change merged from another device is still being handled — a write
   /// landing between the merge and the conflict copy would overwrite the
   /// merged row and lose the other device's text (record §3.9, M4) — and
-  /// while a copy that failed is not yet filed (M3). A held write throws, so
-  /// auto-save keeps the text unsaved and retries on its own schedule. A
-  /// plain `bool` answers without an extra async hop.
+  /// while a copy that failed is not yet filed (M3). A held write raises
+  /// [SaveHeld], so auto-save keeps the text unsaved and tries again on the
+  /// debounce without spending the retry ladder on it (L8). A plain `bool`
+  /// answers without an extra async hop.
   ///
   /// `leaving` is true for the flush of [saveBeforeExit] and of
   /// [saveOnLifecyclePause] only — never for a debounced write that happens
@@ -361,7 +364,9 @@ class NoteSaveCoordinator {
     // to a new id ([retarget]) has to land on that id.
     final gate = _beforeWrite?.call(leaving: leaving);
     final mayWrite = gate is Future<bool> ? await gate : (gate ?? true);
-    if (!mayWrite) throw const _WriteHeld();
+    if (!mayWrite) {
+      throw const SaveHeld('held until the synced change is handled');
+    }
 
     final noteId = _effectiveNoteId;
     if (noteId == null || _savesDisabled) return;
@@ -391,6 +396,9 @@ class NoteSaveCoordinator {
 
     final completer = Completer<void>();
     if (_disposed) return;
+    // The hold and the title lookup above are behind us: from here on, a body
+    // the page adopts is newer than the one this write carries (R1).
+    _autoSave.writeIssued();
     _dispatch(
       UpdateOptimizedNote(
         noteId: noteId,
@@ -399,7 +407,16 @@ class NoteSaveCoordinator {
         completer: completer,
       ),
     );
-    await completer.future;
+    try {
+      await completer.future;
+    } on NoteWriteRefusedException catch (refused) {
+      // The row is a tombstone — a delete merged from another device under
+      // the open editor. Reported as a refusal, not a failure: the text stays
+      // unsaved for the delete handler to keep as a new note, and the retry
+      // ladder would spend all three rungs on the same tombstone behind an
+      // error dot (A6 review R115).
+      throw SaveRefused('$refused');
+    }
   }
 
   /// Persists a brand-new note as soon as it has any title or content, so
@@ -519,13 +536,4 @@ class NoteSaveCoordinator {
       })
       ..ensureVisualUpdate();
   }
-}
-
-/// A write [NoteSaveCoordinator] held: thrown into auto-save, which keeps the
-/// text unsaved and tries again on its retry and interval ticks.
-class _WriteHeld implements Exception {
-  const _WriteHeld();
-
-  @override
-  String toString() => 'held until the synced change is handled';
 }

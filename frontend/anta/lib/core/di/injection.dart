@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart'
+    show debugPrint, kIsWeb, visibleForTesting;
 import 'package:get_it/get_it.dart';
 import '../../database/database.dart';
+import '../../database/database_lifecycle.dart';
 import '../qa/qa_mode.dart';
 import '../../repositories/note_repository.dart';
 import '../../repositories/folder_repository.dart';
@@ -48,7 +50,7 @@ final getIt = GetIt.instance;
 
 Future<void> configureDependencies() async {
   await _registerDatabase();
-  _registerRepositories();
+  registerRepositorySingletons();
   await _registerServices();
   _registerBlocs();
 }
@@ -58,12 +60,48 @@ Future<void> _registerDatabase() async {
   getIt.registerSingleton<AppDatabase>(database);
 }
 
-void _registerRepositories() {
+/// Registers the two repository singletons and keeps them bound to the active
+/// database for the rest of the session. Public so a test can wire this seam
+/// alone and switch databases under it.
+void registerRepositorySingletons() {
   final db = getIt<AppDatabase>();
 
   getIt.registerSingleton<NoteRepository>(NoteRepository(database: db));
 
   getIt.registerSingleton<FolderRepository>(FolderRepository(database: db));
+
+  // A switched handler, not a reset handler: nothing re-runs
+  // `configureDependencies` (`resetDependencies` has no caller in the app), so
+  // a repository dropped on a switch would have nothing to rebuild it. The
+  // objects therefore outlive the switch and only their database moves —
+  // `NoteStorageService`, `FolderStorageService`, `FolderSearchService`, every
+  // mounted page and the sync apply hooks hold these two instances and listen
+  // on their change streams (A5 review R100/R101).
+  DatabaseLifecycle.registerSwitchedHandler(_rebindRepositoriesAfterSwitch);
+}
+
+/// Hands the switched-to [database] to the repository singletons, inside the
+/// notice itself: a rebind that awaited anything would let another handler's
+/// first continuation — the sync engine's — reach a repository still on the
+/// closed database (A6 review R113).
+///
+/// `deleteAllData` is not covered: it notifies switching and never switched,
+/// so the two repositories keep the closed handle and the app is expected to
+/// be restarted.
+void _rebindRepositoriesAfterSwitch(AppDatabase database) =>
+    rebindRepositoriesTo(database);
+
+/// Points the repository singletons at [database]. Guarded by `isRegistered`:
+/// a switch can land on a container that never registered them (a test, a
+/// launch that failed before DI finished).
+@visibleForTesting
+void rebindRepositoriesTo(AppDatabase database) {
+  if (getIt.isRegistered<NoteRepository>()) {
+    getIt<NoteRepository>().rebindDatabase(database);
+  }
+  if (getIt.isRegistered<FolderRepository>()) {
+    getIt<FolderRepository>().rebindDatabase(database);
+  }
 }
 
 Future<void> _registerServices() async {

@@ -197,9 +197,9 @@ class AppDatabase extends _$AppDatabase {
       await db.close();
       rethrow;
     }
-    // A handler that asks for the database joins this open, which completes
-    // with [db] the moment this returns.
-    if (previous != null) DatabaseLifecycle.notifyDatabaseSwitched();
+    // The handle goes with the notice: a handler that asked for the database
+    // instead would join this open, which completes only once this returns.
+    if (previous != null) DatabaseLifecycle.notifyDatabaseSwitched(db);
     return db;
   }
 

@@ -8,7 +8,7 @@ import '../constants/app_constants.dart';
 export '../models/folder_change.dart';
 
 class FolderRepository {
-  final AppDatabase _db;
+  AppDatabase _db;
 
   final Map<String, Folder> _folderCache = {};
   final Map<String?, List<Folder>> _parentFoldersCache = {};
@@ -42,6 +42,16 @@ class FolderRepository {
   FolderRepository({required AppDatabase database}) : _db = database;
 
   FolderDao get _folderDao => _db.folderDao;
+
+  /// Points this repository at the database a switch opened and drops the
+  /// caches, which belonged to the one that closed — the folder twin of
+  /// `NoteRepository.rebindDatabase`, and for the same reason: the object is
+  /// held and listened to all over the app, so it survives the switch
+  /// (A5 review R100/R101).
+  void rebindDatabase(AppDatabase database) {
+    _db = database;
+    invalidateAll();
+  }
 
   Future<Folder?> getFolderById(String id, {bool forceRefresh = false}) async {
     _cleanCacheIfNeeded();

@@ -222,7 +222,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// Used by the import pipeline so a round-tripped note keeps the
   /// `createdAt` and `updatedAt` it carried in its source archive. Identity
   /// is stamped fresh and the note is queued: an imported note is a new
-  /// local row. [content] as in [createNote].
+  /// local row. [content] as in [createNote]. [ownerId] is for a backup
+  /// restore, whose copy keeps the archived ownership under its fresh id
+  /// (D16).
   Future<Note> importNote({
     required String folderId,
     required String title,
@@ -234,6 +236,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     required DateTime createdAt,
     required DateTime updatedAt,
     String? content,
+    String? ownerId,
   }) {
     return transaction(() async {
       final id = db.generateId();
@@ -257,6 +260,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         position: Value(maxPos + 1),
         createdAt: Value(createdAt),
         updatedAt: Value(updatedAt),
+        ownerId: Value(ownerId),
         hlcTimestamp: Value(stamp.hlc),
         deviceId: Value(stamp.deviceId),
         version: const Value(1),

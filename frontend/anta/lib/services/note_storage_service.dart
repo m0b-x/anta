@@ -215,6 +215,10 @@ class NoteStorageService {
     return _noteToMetadata(note);
   }
 
+  /// Writes a note's title and body. Null means the write was refused — the
+  /// note is gone, or it is a tombstone — and the caller has to treat the
+  /// text as still unsaved: `OptimizedNoteBloc` turns it into a
+  /// [NoteWriteRefusedException] for the editor (record §3.9, M2).
   Future<NoteMetadata?> updateNote({
     required String noteId,
     String? title,

@@ -1,9 +1,11 @@
 // `isNull` / `isNotNull` are SQL builders in drift and matchers in
 // flutter_test; this file wants the matchers.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/common.dart' show SqliteException;
 
 import 'package:anta/database/database.dart';
 import 'package:anta/models/counter.dart';
@@ -273,6 +275,22 @@ void main() {
       expect(await db.counterDao.getValue(id, ''), 4);
     });
 
+    test('a Reset while memory still shows the start value survives the '
+        'merge (A1b review R24)', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 3);
+      await service.flush();
+      // The page merged another device's 8; memory still holds the start
+      // value, so a Reset reads as a no-op and would be dropped.
+      await db.counterDao.upsertValue(id, '', 8);
+
+      await service.resetGlobal(id);
+      await service.reload();
+
+      expect(service.getGlobalValue(id), 3);
+      await service.flush();
+      expect(await db.counterDao.getValue(id, ''), 3);
+    });
+
     test('a tap on a counter the page deleted is dropped', () async {
       final id = await service.addCounter(name: 'Sets', startValue: 3);
       await service.incrementGlobal(id);
@@ -314,6 +332,162 @@ void main() {
     expect(await failing.counterDao.getValue(laps, 'n1'), 8);
     expect(counters.getGlobalValue(sets), 5);
   });
+
+  test('a flush whose writes outlived its rollback is not applied twice '
+      '(A1b review R26)', () async {
+    final commit = _ThrowAfterCommit();
+    final failing = await openTestDatabase(interceptor: commit);
+    addTearDown(failing.close);
+    final counters = await CounterService.forTesting(failing);
+    final sets = await counters.addCounter(name: 'Sets', startValue: 3);
+    await counters.incrementGlobal(sets);
+
+    commit.armed = true;
+    await counters.flush();
+    // The transaction committed before the throw, so the 4 is durable: a
+    // restored snapshot would put the same tap on top of it again.
+    expect(await failing.counterDao.getValue(sets, ''), 4);
+    expect(counters.getGlobalValue(sets), 4);
+
+    await counters.flush();
+    expect(await failing.counterDao.getValue(sets, ''), 4);
+  });
+
+  test('a flush a locked database refused keeps the tap for the next one '
+      '(A6 review R107)', () async {
+    final locked = _FailCounterValueWrites(
+      // SQLITE_BUSY: another connection holds the database. The statement
+      // fails, the transaction rolls back clean, and nothing was written.
+      error: () =>
+          SqliteException(extendedResultCode: 5, message: 'database is locked'),
+    );
+    final failing = await openTestDatabase(interceptor: locked);
+    addTearDown(failing.close);
+    final counters = await CounterService.forTesting(failing);
+    final sets = await counters.addCounter(name: 'Sets', startValue: 3);
+    await counters.incrementGlobal(sets);
+
+    locked.armed = true;
+    await counters.flush();
+    expect(locked.refused, isPositive);
+    expect(
+      await failing.counterDao.getValue(sets, ''),
+      3,
+      reason: 'the transaction rolled back',
+    );
+
+    locked.armed = false;
+    await counters.flush();
+
+    expect(await failing.counterDao.getValue(sets, ''), 4);
+    expect(counters.getGlobalValue(sets), 4);
+  });
+
+  test('a tap made during a flush whose rollback failed reaches the table '
+      'with no further tap (A6 review R108)', () async {
+    final commit = _ThrowAfterCommit();
+    final failing = await openTestDatabase(interceptor: commit);
+    addTearDown(failing.close);
+    final counters = await CounterService.forTesting(failing);
+    final sets = await counters.addCounter(name: 'Sets', startValue: 3);
+    await counters.incrementGlobal(sets);
+
+    // Tapped while the write the flush had already copied was in flight: the
+    // recovery re-applies it to memory and leaves it pending.
+    commit.duringCommit = () => unawaited(counters.incrementGlobal(sets));
+    commit.armed = true;
+    await counters.flush();
+    expect(counters.getGlobalValue(sets), 5);
+
+    // No further tap and no `flush()`.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    expect(await failing.counterDao.getValue(sets, ''), 5);
+  });
+
+  test('a Reset on a counter with no value row writes nothing, bound or not '
+      '(A6 review R117/R119)', () async {
+    await db
+        .into(db.counters)
+        .insert(
+          CounterRow(
+            id: 'merged',
+            name: 'Merged',
+            startValue: 3,
+            step: 1,
+            scope: 'global',
+            position: 0,
+            isPinned: false,
+            createdAt: DateTime.utc(2026, 1, 1),
+            hlcTimestamp: 'ffffffffffff:0000:remote',
+            deviceId: 'remote',
+            version: 2,
+            isDeleted: false,
+          ),
+        );
+    // A counter whose value row never arrived: the merge carried the
+    // `counters` row alone.
+    final reloaded = await CounterService.forTesting(db);
+    await db.syncOutboxDao.clear();
+
+    await reloaded.resetGlobal('merged');
+    await reloaded.flush();
+
+    expect(await db.syncOutboxDao.pending(), isEmpty);
+    expect(await db.counterDao.getValue('merged', ''), isNull);
+    expect(reloaded.getGlobalValue('merged'), 3);
+  });
+
+  test('a flush that failed arms the next one itself, with no further tap '
+      'and no explicit flush (A1b review R21)', () async {
+    final writes = _FailCounterValueWrites();
+    final failing = await openTestDatabase(interceptor: writes);
+    addTearDown(failing.close);
+    final counters = await CounterService.forTesting(failing);
+    final sets = await counters.addCounter(name: 'Sets', startValue: 3);
+
+    writes.armed = true;
+    await counters.incrementGlobal(sets);
+    // Past the 300 ms debounce: the timer's own flush ran and failed.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(writes.refused, isPositive);
+    expect(await failing.counterDao.getValue(sets, ''), 3);
+
+    // No further tap and no `flush()` — the failed flush has to have armed
+    // the next one, or the tap waits for a tap that may never come.
+    writes.armed = false;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    expect(await failing.counterDao.getValue(sets, ''), 4);
+    expect(counters.getGlobalValue(sets), 4);
+  });
+
+  test(
+    'an import waits for a flush already in flight (A1b review R25)',
+    () async {
+      final slow = _HoldFirstTransaction();
+      final held = await openTestDatabase(interceptor: slow);
+      addTearDown(held.close);
+      final counters = await CounterService.forTesting(held);
+      final sets = await counters.addCounter(name: 'Sets', startValue: 3);
+      final archive = await counters.exportData();
+
+      await counters.incrementGlobal(sets);
+      slow.armed = true;
+      final flushing = counters.flush();
+      // The flush has copied its pending tap and is waiting for its BEGIN.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await counters.importData(archive);
+      await flushing;
+
+      expect(
+        await held.counterDao.getValue(sets, ''),
+        3,
+        reason: 'the restore is the last writer, not the tap before it',
+      );
+      expect(counters.getGlobalValue(sets), 3);
+    },
+  );
 
   group('the changes signal', () {
     test('fires after a reload, with the merged rows read', () async {
@@ -372,16 +546,78 @@ void main() {
   );
 }
 
+/// Commits, then throws a SQLite I/O error while [armed]: the writes are
+/// durable and the flush still sees a failure, which is what
+/// `CouldNotRollBackException` and a post-commit fault both leave behind.
+class _ThrowAfterCommit extends QueryInterceptor {
+  bool armed = false;
+
+  /// The DAO opens its own transaction inside the flush's, and only the
+  /// outermost commit makes the writes durable.
+  int _depth = 0;
+
+  @override
+  TransactionExecutor beginTransaction(QueryExecutor parent) {
+    _depth++;
+    return super.beginTransaction(parent);
+  }
+
+  @override
+  Future<void> rollbackTransaction(TransactionExecutor inner) {
+    _depth--;
+    return super.rollbackTransaction(inner);
+  }
+
+  /// Runs inside the flush's own turn, just before the throw, so a test can
+  /// make a tap the flush has already copied past.
+  void Function()? duringCommit;
+
+  @override
+  Future<void> commitTransaction(TransactionExecutor inner) async {
+    await inner.send();
+    if (--_depth > 0 || !armed) return;
+    armed = false;
+    duringCommit?.call();
+    throw SqliteException(extendedResultCode: 10, message: 'disk I/O error');
+  }
+}
+
+/// Delays the first transaction opened while [armed], as a busy database
+/// would: the flush has copied its pending changes and is waiting for its
+/// `BEGIN`, so another writer — a backup restore — can still get in front of
+/// it unless they share a queue.
+class _HoldFirstTransaction extends QueryInterceptor {
+  bool armed = false;
+
+  @override
+  Future<bool> ensureOpen(
+    QueryExecutor executor,
+    QueryExecutorUser user,
+  ) async {
+    if (armed && executor is TransactionExecutor) {
+      armed = false;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    return super.ensureOpen(executor, user);
+  }
+}
+
 /// Refuses every write to `counter_values` while [armed], as a failing disk
 /// would: the flush's transaction throws and rolls back.
 class _FailCounterValueWrites extends QueryInterceptor {
+  _FailCounterValueWrites({this.error});
+
+  /// What a refused write throws, for a test that cares about the SQLite
+  /// result code behind it; a plain failure by default.
+  final Object Function()? error;
+
   bool armed = false;
   int refused = 0;
 
   void _check(String statement) {
     if (armed && statement.contains('counter_values')) {
       refused++;
-      throw StateError('counter_values refused');
+      throw error?.call() ?? StateError('counter_values refused');
     }
   }
 

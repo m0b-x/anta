@@ -340,7 +340,7 @@ class SyncEngine {
   /// engine — which starts itself — rather than waiting for the Sharing
   /// page's bloc to ask for one, which left a switched database unsynced
   /// until that page loaded (S4a review M5).
-  static void _rebuildAfterSwitch() {
+  static void _rebuildAfterSwitch(AppDatabase _) {
     if (!autoStart || _instance != null) return;
     unawaited(
       getInstance().then<void>(
