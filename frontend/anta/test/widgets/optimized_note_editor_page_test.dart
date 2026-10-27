@@ -3832,6 +3832,7 @@ void main() {
       WidgetTester tester,
       String id, {
       String? previousParent,
+      String? mergedBody,
     }) async {
       await tester.runAsync(
         () => noteRepository.announceMerged(
@@ -3839,6 +3840,7 @@ void main() {
           previousParents: previousParent == null
               ? const {}
               : {id: previousParent},
+          bodies: mergedBody == null ? const {} : {id: mergedBody},
         ),
       );
       await settle(tester);
@@ -3873,9 +3875,12 @@ void main() {
           delete ? null : text,
         );
         if (announce) {
+          // The body the merge wrote rides with the announcement, as the
+          // engine's `SyncAppliedRow` carries it (R4).
           await noteRepository.announceMerged(
             [id],
             previousParents: folderId == null ? const {} : {id: local.folderId},
+            bodies: delete ? const {} : {id: text ?? ''},
           );
         }
       });
@@ -4078,9 +4083,9 @@ void main() {
       await teardownPage(tester);
     });
 
-    testWidgets("the engine's own hooks file the losing stored text inside "
-        'the page, before the announcement reaches a dirty editor '
-        '(A5 review R106)', (tester) async {
+    testWidgets('one conflict on an open dirty note leaves exactly one copy: '
+        'the engine stands back and the editor files the arriving text '
+        '(A5 review R106, R99)', (tester) async {
       final controller = await open(tester);
       type(controller, 'mine ');
       await tester.pump();
@@ -4095,17 +4100,18 @@ void main() {
       final losingText = (await storedBody(tester, synced.id))!;
 
       // The engine's page, in its order: the merge commits, the production
-      // hook files the loser inside the transaction, and only then is the
-      // page told. How many copies one conflict leaves is R99's question,
-      // not this test's — this one pins that the typed text survives the
-      // sequence and the losing text is on disk.
+      // hook is offered the loser inside the transaction, and only then is
+      // the page told. The hook files nothing — this page holds the note
+      // with unsaved text and files the arriving body itself, and its next
+      // save puts the live text back on the row, so a copy of the
+      // intermediate autosave would be a second one (D3, R99).
       await mergeFromElsewhere(
         tester,
         synced.id,
         text: 'theirs',
         announce: false,
       );
-      await tester.runAsync(
+      final hookCopy = await tester.runAsync(
         () => AppSyncApplyHooks(
           notes: () => noteRepository,
           folders: () => FolderRepository(database: db),
@@ -4116,17 +4122,137 @@ void main() {
           SyncNoteConflict(loser: loser, loserContent: losingText),
         ),
       );
-      await announceMerge(tester, synced.id);
+      await announceMerge(tester, synced.id, mergedBody: 'theirs');
 
+      expect(hookCopy, isNull, reason: 'the editor files this one');
       expect(controller.text, 'and more mine $body');
       final filed = await copies(tester);
-      final bodies = [
-        for (final copy in filed)
-          await tester.runAsync(
-            () => db.contentChunkDao.loadContent(copy.id),
-          ),
-      ];
-      expect(bodies, contains(losingText));
+      expect(filed, hasLength(1));
+      expect(
+        await tester.runAsync(
+          () => db.contentChunkDao.loadContent(filed.single.id),
+        ),
+        'theirs',
+      );
+      OverlaySnackbar.hide();
+      await autosaveUntilSaved(tester);
+      expect(await storedBody(tester, synced.id), 'and more mine $body');
+      await teardownPage(tester);
+    });
+
+    /// Renames the note through the app-bar title dialog, which leaves the
+    /// page dirty with nothing but the title pending.
+    Future<void> renameFromAppBar(WidgetTester tester, String title) async {
+      await tester.tap(find.text(synced.title));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        title,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(AppLocalizationsEn().save),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// The production hook as the engine builds it, asked for the copy
+    /// inside the merge's transaction — through the real [OpenNoteRegistry],
+    /// so the page's own claim is what answers.
+    Future<String?> engineFilesCopy(
+      WidgetTester tester,
+      Note loser,
+      String loserContent,
+    ) async => (await tester.runAsync<String?>(
+      () => AppSyncApplyHooks(
+        notes: () => noteRepository,
+        folders: () => FolderRepository(database: db),
+        noteStorage: () => storageService,
+        strings: () async => AppLocalizationsEn(),
+        now: () => DateTime(2026, 10, 27, 9, 30),
+      ).fileConflictCopy(
+        SyncNoteConflict(loser: loser, loserContent: loserContent),
+      ),
+    ));
+
+    testWidgets('a pending title edit claims no copy: the engine files the '
+        'body the merge overwrote (A7 review R129, M6)', (tester) async {
+      final controller = await open(tester);
+      await renameFromAppBar(tester, 'Squat log, renamed');
+      expect(appBar(tester).hasChanges, isTrue);
+      final loser = (await tester.runAsync(
+        () => db.noteDao.getNoteById(synced.id),
+      ))!;
+      final losingText = (await storedBody(tester, synced.id))!;
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs',
+        announce: false,
+      );
+      final hookCopy = await engineFilesCopy(tester, loser, losingText);
+      await announceMerge(tester, synced.id, mergedBody: 'theirs');
+
+      // The page has no body to defend and reloads the merged one in place,
+      // so the body it lost is kept only if the engine files it.
+      expect(hookCopy, isNotNull, reason: 'the page claims nothing');
+      expect(controller.text, 'theirs');
+      final filed = await copies(tester);
+      expect(filed, hasLength(1));
+      expect(
+        await tester.runAsync(
+          () => db.contentChunkDao.loadContent(filed.single.id),
+        ),
+        losingText,
+      );
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a page that claimed the copy files it even when its save '
+        'landed first and left it reading clean (A7 review R129)', (
+      tester,
+    ) async {
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+      await autosave(tester);
+      type(controller, 'and more ');
+      await tester.pump();
+      final loser = (await tester.runAsync(
+        () => db.noteDao.getNoteById(synced.id),
+      ))!;
+      final losingText = (await storedBody(tester, synced.id))!;
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'theirs',
+        announce: false,
+      );
+      final hookCopy = await engineFilesCopy(tester, loser, losingText);
+      // The window the claim is made for: the page's own save lands over the
+      // merged row before the announcement reaches it, so nothing it reads
+      // then says it was ever dirty.
+      await autosaveUntilSaved(tester);
+      expect(appBar(tester).hasChanges, isFalse);
+      await announceMerge(tester, synced.id, mergedBody: 'theirs');
+
+      expect(hookCopy, isNull, reason: 'the editor claimed this one');
+      final filed = await copies(tester);
+      expect(filed, hasLength(1));
+      expect(
+        await tester.runAsync(
+          () => db.contentChunkDao.loadContent(filed.single.id),
+        ),
+        'theirs',
+      );
       OverlaySnackbar.hide();
       await autosaveUntilSaved(tester);
       expect(await storedBody(tester, synced.id), 'and more mine $body');

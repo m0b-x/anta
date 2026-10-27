@@ -19,7 +19,7 @@ final class CalendarEventSkipsBinding extends SyncTableBinding<EventSkipRow> {
     AppDatabase db,
     Iterable<String> rowKeys,
   ) => db.eventSkipDao.getByDayKeysIncludingDeleted([
-    for (final key in rowKeys) dayKeyOf(key),
+    for (final key in rowKeys) localDayKeyOf(key),
   ]);
 
   @override
@@ -33,7 +33,7 @@ final class CalendarEventSkipsBinding extends SyncTableBinding<EventSkipRow> {
   }) async {
     return envelopeOf(
       table: table,
-      rowKey: rowKeyOf(row),
+      rowKey: dayEnvelopeKey(row.eventId, row.day),
       hlc: row.hlcTimestamp,
       deviceId: row.deviceId,
       version: row.version,
@@ -41,7 +41,7 @@ final class CalendarEventSkipsBinding extends SyncTableBinding<EventSkipRow> {
       ownerId: row.ownerId ?? boundUid,
       data: () => {
         'eventId': row.eventId,
-        'dayMs': row.day.millisecondsSinceEpoch,
+        'dayMs': dayEnvelopeMs(row.day),
         'createdAtMs': row.createdAt.millisecondsSinceEpoch,
         'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         if (row.ownerId != null) 'ownerId': row.ownerId,

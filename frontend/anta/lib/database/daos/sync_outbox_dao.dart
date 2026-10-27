@@ -5,6 +5,10 @@ import '../tables/sync_outbox_table.dart';
 
 part 'sync_outbox_dao.g.dart';
 
+/// One entry's place in the queue's `(hlc, table, rowKey)` order — where
+/// [SyncOutboxDao.pending] resumes from.
+typedef SyncOutboxKey = ({String hlc, String table, String rowKey});
+
 /// The push side's view of `sync_outbox`. Entries are written only by
 /// `CrdtWrite`, inside the transaction of the write they describe; this class
 /// reads and retires them. It holds no cache, so a database switch leaves
@@ -17,15 +21,42 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// The queued rows, oldest change first, so a push that stops part-way has
   /// sent a prefix of history rather than a random sample. The HLC encoding
   /// sorts lexicographically in time order.
-  Future<List<SyncOutboxRow>> pending({int? limit}) {
+  ///
+  /// [after] resumes from an entry already read, so a drain that holds many
+  /// of them back pages forward instead of re-reading the queue's head for
+  /// every batch.
+  Future<List<SyncOutboxRow>> pending({int? limit, SyncOutboxKey? after}) {
     final query = select(syncOutbox)
       ..orderBy([
         (o) => OrderingTerm.asc(o.hlc),
         (o) => OrderingTerm.asc(o.syncedTable),
         (o) => OrderingTerm.asc(o.rowKey),
       ]);
+    if (after != null) {
+      query.where(
+        (o) =>
+            o.hlc.isBiggerThanValue(after.hlc) |
+            (o.hlc.equals(after.hlc) &
+                (o.syncedTable.isBiggerThanValue(after.table) |
+                    (o.syncedTable.equals(after.table) &
+                        o.rowKey.isBiggerThanValue(after.rowKey)))),
+      );
+    }
     if (limit != null) query.limit(limit);
     return query.get();
+  }
+
+  /// The queued rows of one table, in the same order — the pull's read when
+  /// a page parks under the bind floor, where the whole queue would be every
+  /// row of every synced table during the initial merge.
+  Future<List<SyncOutboxRow>> pendingForTable(String table) {
+    return (select(syncOutbox)
+          ..where((o) => o.syncedTable.equals(table))
+          ..orderBy([
+            (o) => OrderingTerm.asc(o.hlc),
+            (o) => OrderingTerm.asc(o.rowKey),
+          ]))
+        .get();
   }
 
   /// Fires after every commit that queued or raised an entry: the push

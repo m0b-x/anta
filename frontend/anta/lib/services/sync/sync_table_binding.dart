@@ -194,12 +194,36 @@ final class WireFields {
 /// key is all a data-less tombstone carries, so identity comes from it. The
 /// day follows the last `|`: it is digits only, whatever the event id holds.
 ///
-/// A key [dayRowKey] could not have written — no `|`, an empty event id, a
-/// day that is not whole-second epoch milliseconds in its canonical digits —
-/// is a [FormatException], a tombstone's included: the merge stores the row
-/// under the key it recomputes from these parts, so only a key that reads
-/// back byte for byte can never be stored apart from its envelope's.
+/// An envelope key [dayEnvelopeKey] could not have written — no `|`, an
+/// empty event id, a day that is not a UTC midnight in its canonical digits
+/// — is a [FormatException], a tombstone's included: the merge stores the
+/// row under the key it recomputes from these parts, so only a key that
+/// reads back byte for byte can never be stored apart from its envelope's.
+/// For a key read off this device's own outbox, [localDayKeyOf].
+///
+/// The midnight is the merge's share of the rule every other writer keeps
+/// (`_dateOnlyUtc`): the three day facades are keyed by the normalised day,
+/// so a second row for the same calendar day would make a presence mark or a
+/// day description depend on the order its rows were read (R79).
 ({String eventId, DateTime day}) dayKeyOf(String rowKey) {
+  final key = localDayKeyOf(rowKey);
+  if (key.day.millisecondsSinceEpoch % Duration.millisecondsPerDay != 0) {
+    throw FormatException('the day is not a UTC midnight', rowKey);
+  }
+  return key;
+}
+
+/// [dayKeyOf] without the midnight, for a key this device's own outbox
+/// wrote.
+///
+/// A row whose `day` predates the rule — a legacy or imported one at a
+/// *local* midnight — is keyed by the instant it holds, and the push has to
+/// find it under that key to send it at all; refusing here retired its entry
+/// under the bind floor and the mark, skip or day description never left
+/// this device (A7 review R133). What goes on the wire is normalised by
+/// [dayEnvelopeKey] instead, so no envelope carries a key [dayKeyOf]
+/// refuses.
+({String eventId, DateTime day}) localDayKeyOf(String rowKey) {
   final split = rowKey.lastIndexOf('|');
   final ms = split < 1 ? null : int.tryParse(rowKey.substring(split + 1));
   if (ms == null || ms.abs() > _maxEpochMs) {
@@ -214,6 +238,24 @@ final class WireFields {
   }
   return key;
 }
+
+/// The UTC midnight a day row's `day` stands for, as the epoch milliseconds
+/// its envelope carries — in `dayMs` and in the key built from it.
+///
+/// The nearest midnight, not the floor: a row written at a *local* midnight
+/// sits a few hours either side of UTC's, and the nearest one is the
+/// calendar day it was written for in every zone. A row already at a UTC
+/// midnight is untouched, which is every row this build writes.
+int dayEnvelopeMs(DateTime day) {
+  const span = Duration.millisecondsPerDay;
+  final shifted = dayMs(day) + span ~/ 2;
+  return shifted - shifted % span;
+}
+
+/// [dayEnvelopeMs] as the row key an envelope carries, which [dayKeyOf]
+/// reads back. The row and the outbox entry naming it keep their own key.
+String dayEnvelopeKey(String eventId, DateTime day) =>
+    '$eventId|${dayEnvelopeMs(day)}';
 
 /// The largest epoch-milliseconds magnitude a [DateTime] holds.
 const int _maxEpochMs = 8640000000000000;

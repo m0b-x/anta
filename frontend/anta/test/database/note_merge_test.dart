@@ -65,6 +65,7 @@ void main() {
       merge: (db, row, {floor}) => merge(row, floor: floor),
       markerColumn: 'title',
       markerValue: 'Pulled',
+      mergedContent: remoteBody,
     ),
     db: () => db,
     statements: () => statements,
@@ -255,7 +256,10 @@ void main() {
 
       final outcome = await merge(remote(local.id, newerHlc));
 
-      expect(outcome, const MergeOutcome(MergeResult.applied));
+      expect(
+        outcome,
+        const MergeOutcome(MergeResult.applied, mergedContent: remoteBody),
+      );
     });
 
     test('is named when a delete overwrites an unpushed edit', () async {

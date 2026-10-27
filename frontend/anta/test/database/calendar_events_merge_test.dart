@@ -160,4 +160,28 @@ void main() {
       );
     },
   );
+
+  test('a merged tombstone dates updated_at at the delete', () async {
+    await db.calendarEventDao.upsert(
+      CalendarEventsCompanion.insert(
+        id: 'e1',
+        title: 'Boulder',
+        category: 'climb',
+        startDate: DateTime.utc(2026, 1, 1),
+        ruleKind: 'daily',
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+    final tombstone = remote('e1', newerHlc, deleted: true);
+
+    await db.calendarEventDao.mergeRemoteEvent(tombstone);
+
+    // The deleting device stored the delete time; before this the merging
+    // one kept the last edit's, on all eleven tables (A7 R81).
+    expect(
+      (await db.select(db.calendarEvents).getSingle()).updatedAt,
+      tombstone.deletedAt,
+    );
+  });
 }

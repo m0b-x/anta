@@ -35,6 +35,16 @@ class FakeSyncGateway implements SyncGateway {
   /// then an empty page".
   bool looseHasMore = false;
 
+  /// Documents, by table and row key, this build cannot turn into an
+  /// envelope: dropped from the page the pull answers with while the cursor
+  /// still advances over them, as `firestore_sync_gateway` does.
+  final Set<(String, String)> unreadable = {};
+
+  /// Run inside [pushBatch] once the batch is accepted and before it
+  /// returns, so a test can land an edit or a restore in the window the
+  /// acknowledgement has to survive.
+  Future<void> Function(List<SyncEnvelope> batch)? onPushBatch;
+
   SyncGatewayFailure? _nextFailure;
   final Map<(String, String), SyncGatewayFailure> _refused = {};
 
@@ -173,6 +183,7 @@ class FakeSyncGateway implements SyncGateway {
       ..schema = schema;
     pushes.add(List.unmodifiable(batch));
     _signalOf(space).add(record.signal);
+    await onPushBatch?.call(batch);
   }
 
   @override
@@ -196,7 +207,11 @@ class FakeSyncGateway implements SyncGateway {
     final take = limit ?? maxBatch;
     final page = pending.take(take).toList();
     return SyncPullPage(
-      envelopes: [for (final arrival in page) arrival.envelope],
+      envelopes: [
+        for (final arrival in page)
+          if (!unreadable.contains((table, arrival.envelope.rowKey)))
+            arrival.envelope,
+      ],
       next: page.isEmpty ? after : SyncCursor('${page.last.seq}'),
       hasMore: looseHasMore
           ? page.length == take

@@ -22,12 +22,28 @@ class SyncStatusService implements SyncStatusReader {
   @visibleForTesting
   SyncStatusService.detached(this._db, this._binding);
 
-  static Future<SyncStatusService> getInstance() async {
+  /// The service over the active database, built once per database.
+  ///
+  /// Starts over once when a database switch lands between its awaits, for
+  /// the reason [SyncBindingService.getInstance] does (A1c review R36): a
+  /// reader registered over the closed database would answer every later
+  /// caller with the previous database's queue, and its [reset] would sit in
+  /// a registry the switch has already emptied.
+  static Future<SyncStatusService> getInstance() => _build(mayRetry: true);
+
+  static Future<SyncStatusService> _build({required bool mayRetry}) async {
     final existing = _instance;
     if (existing != null) return existing;
+    final generation = DatabaseLifecycle.generation;
     final db = await AppDatabase.getInstance();
     final binding = await SyncBindingService.getInstance();
-    return _instance ?? _register(SyncStatusService._(db, binding));
+    final raced = _instance;
+    if (raced != null) return raced;
+    if (DatabaseLifecycle.generation != generation) {
+      if (mayRetry) return _build(mayRetry: false);
+      throw StateError('the database switched while the status was built');
+    }
+    return _register(SyncStatusService._(db, binding));
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing

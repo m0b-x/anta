@@ -274,8 +274,16 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
 (`content_chunk_dao.dart:316`), all with one contract, in one transaction:
 
 1. Load the local row by key. Absent → insert the remote row with its
-   stamps verbatim (`MergeOrigin.remote`: no outbox entry, no new stamp),
-   `db.hlc.update(remote)`.
+   stamps verbatim (`MergeOrigin.remote`: no outbox entry, no new stamp).
+   **The clock advance is per page, not per branch** (A7 review R65): the
+   merge only reports the remote stamp, and `SyncPuller._apply` calls
+   `CrdtMerge.advanceClock` once with the page's highest stamp after the
+   page transaction commits, so a page that rolls back leaves the clock
+   where it was and a local edit cannot out-stamp a remote row this device
+   never merged. The seed `crdt_write.dart` persists is written **inside**
+   the page transaction, so no committed row ever carries a stamp above
+   the stored value (A7 review R132). `ContentChunkDao.mergeChunk` is the
+   one method that still advances in its own transaction; it has no caller.
 2. Present → compare the HLC strings (the string embeds the device id, so
    equal means the same write). **Remote newer:** write the remote row over
    the local one, stamps verbatim; drop a stale outbox entry
@@ -295,7 +303,21 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    an upsert newer than a local tombstone resurrects. **No cascade** on a
    remote write: every descendant has its own envelope, because the local
    cascade enqueued each row (readiness R3). Device-local `alert_registrations`
-   follow through `reconcileAll(sync)`, not here.
+   follow through `reconcileAll(sync)`, not here. The accepted consequence
+   (A3b/A5 review R77): a delete on one device and a concurrent edit on
+   another **half-resurrect** the row. Per-row LWW brings the edited row
+   back while its descendants stay tombstoned everywhere — an edited event
+   returns without its presence marks, per-day descriptions, skips or
+   alerts and will never ring again; an edited *day* row stays live under a
+   tombstoned parent, which no surface shows and every backup still
+   carries. A merge-side re-tombstone would be the cascade this clause
+   forbids, so the outcome is written down rather than coded. A live child
+   *folder* under a remotely-tombstoned parent is the one case that is
+   repaired, because nothing shows it at all: `mergeFolder` re-parents the
+   local row to the nearest live ancestor and requeues it (R64), and cuts a
+   `parent_id` cycle two concurrent moves closed (R63) — both are local
+   repairs stamped above the move they repair, skipped while
+   `bind_merge_pending` is set, never a cascade.
 5. Notes: `mergeNoteDocument(note, content)` replaces the chunks when the
    remote wins (the `saveContent` shape without stamping or queueing), keeps
    FTS in step as `mergeNote` does, and returns the overwritten row **and
@@ -326,9 +348,18 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    space's first schema (v43) therefore decodes to its column default when
    absent, even on a live envelope — `WireFields` gains a lenient accessor
    for such columns when the first one appears (none exists today); every
-   v43 column stays strict. Row keys are validated for tombstones too: a
-   day key must split at `|` into an id and a whole-second epoch-ms, or the
-   envelope is a `FormatException` and parks (F2, F3).
+   v43 column stays strict — **bar `preview`**, the first lenient column
+   (A3a review R70): it crosses for backup-format parity and the merge
+   recomputes it from the body, so a live envelope without it decodes to
+   `''` instead of parking. Row keys are validated for tombstones too: a
+   day key must split at `|` into an id and a **UTC midnight** epoch-ms, or
+   the envelope is a `FormatException` and parks (F2, F3; tightened from
+   "a whole second" by A3b review R79, so the three day tables cannot grow
+   a second primary-key row for one calendar day). A local row stored at
+   some other instant — none exists in the owner's export, where all 96 day
+   rows are at UTC midnight — is normalised **on the way out**, in `encode`
+   only: its own column, its row key and its outbox entry are untouched, so
+   the push cannot park forever (A7 review R133).
 6. Returns a `MergeOutcome` (`applied` | `keptLocal` | `unchanged`, plus
    the loser for notes). Nothing above the DAO sees a tombstone (readiness).
 
@@ -380,8 +411,22 @@ checks all four before every pull, push and bind (readiness §7).
   dirty counter's pending **delta** since its last flush and re-applies it
   over the freshly read value instead of flushing a stale absolute number
   (S2a review F4; S3c review H1 — a tap between the page and a run-end
-  reload overwrote the other device's value on both devices). **Merged
-  notes and folders reach the UI** through
+  reload overwrote the other device's value on both devices). A `flush()`
+  that **fails** is swallowed and the page merges anyway (A1b review R27):
+  no value is lost — the restore plus `afterPage`'s reload re-apply the
+  delta — but the local row merges un-pushed and so loses an HLC race it
+  would have won. **Vocabularies** are the exception to "after a page":
+  `VocabularyService.reload()` runs **once per run**, on the
+  `vocabularies` invalidation class, so an open vocabularies page waits for
+  the whole 17-table run rather than for its own page (A1b review R32).
+  **Categories** are reloaded through `CategoryService.reload()`, which
+  reseeds the built-ins before loading, so a merged built-in tombstone does
+  not leave a nameless category for the session (A3b review R80); the seed
+  stands back entirely while `bind_merge_pending` is set, so it can never
+  overwrite the space's renamed or recoloured built-ins (R76). An
+  **alerts-only** page ends in `notifyExternalChange()` too (A3b review
+  R78) — without it the phone rang for a badge the open screen did not
+  show. **Merged notes and folders reach the UI** through
   the storage services' change events emitted by the engine per merged row
   — the browser, the search index and an open editor (§3.9) listen there.
 - **Per-envelope faults.** Decode and merge run per envelope under a catch:
@@ -606,6 +651,28 @@ inside the page transaction is announced only after the page commits (the
 hook writes it through a repository method that caches and emits nothing;
 the engine lists the copy among the page's rows), so a rolled-back page
 never told a listener about a row that does not exist (F10).
+
+**Exactly one copy, and who files it** (A5 review R99, A7 review R129). The
+engine's loser rule fires on the same four conditions the editor's does, so
+a conflict on an open dirty note used to file **two** copies: the hook's,
+holding the editor's *stored* body, and the editor's, holding the arriving
+remote body. The hook now stands back, and the editor files the one copy —
+chosen over the opposite because suppressing the editor would leave the
+arriving remote text nowhere, overwritten by the next autosave. The seam is
+`OpenNoteRegistry` (`lib/services/sync/open_note_registry.dart`), a static
+probe in `DrawerHostRegistry`'s shape that the page registers in `initState`
+and drops in `dispose`; an unbound database never reaches it. The condition
+the two sides share is a **claim, not a question**: the page answers on its
+*body* being unsaved, latches that it owes a copy, and files whatever it
+reads when the announcement arrives — because the hook asks at merge time,
+inside the page transaction, and the page acts after the commit, and the
+three branches that return without filing (a pending title-only edit under
+M6 above, a save that lands in the window and leaves the page reading
+clean, a page that goes clean between the two moments) each used to drop
+the losing body with no copy and no log line. The merged body also rides
+`announceMerged` as text now rather than being re-read from the row (A1a
+review R4), which closes the same window on the comparison side and keeps a
+pulled page of up to 499 bodies out of the 50-slot content cache (R6).
 
 ### 3.8 Firestore settings and the QA seam (S5)
 

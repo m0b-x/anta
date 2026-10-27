@@ -38,13 +38,22 @@ void main() {
     'lib/database/daos/sync_outbox_dao.dart': {_May.outbox},
     // The table definition the DAO and the helper are generated from.
     'lib/database/tables/sync_outbox_table.dart': {_May.outbox},
+    // The merge, the engine, the bind and the restore retire, re-seed or
+    // read the queue through the DAO — never a stamp, never a row.
+    'lib/database/crdt/crdt_merge.dart': {_May.outboxRetire},
+    'lib/services/backup_service.dart': {_May.outboxRetire},
+    'lib/services/sync/sync_binding_service.dart': {_May.outboxRetire},
+    'lib/services/sync/sync_engine.dart': {_May.outboxRetire},
+    'lib/services/sync/sync_puller.dart': {_May.outboxRetire},
+    'lib/services/sync/sync_pusher.dart': {_May.outboxRetire},
+    'lib/services/sync/sync_status_service.dart': {_May.outboxRetire},
   };
 
   /// The only places a local device may advance the clock from a remote
-  /// stamp: the merge helper every synced table's remote merge goes through,
-  /// and the chunk merge that predates it.
+  /// stamp: the merge helper's clock step, which the puller calls once a
+  /// pulled page committed, and the chunk merge that predates it.
   const merges = {
-    ('lib/database/crdt/crdt_merge.dart', 'mergeRemoteRow'),
+    ('lib/database/crdt/crdt_merge.dart', 'advanceClock'),
     ('lib/database/daos/content_chunk_dao.dart', 'mergeChunk'),
   };
 
@@ -122,6 +131,10 @@ void main() {
   test('the outbox is named only by its owners', () {
     final names = [
       RegExp(r'\bsyncOutbox\b'),
+      // `\bsyncOutbox\b` does not see it — the word does not end at the `x`
+      // — so without this the DAO's own methods were reachable from
+      // anywhere, `clear()`, which drops the whole queue, included.
+      RegExp(r'\bsyncOutboxDao\b'),
       RegExp(r'\bSyncOutboxCompanion\b'),
       RegExp(r'\$SyncOutboxTable\b'),
       RegExp(r'sync_outbox', caseSensitive: false),
@@ -129,6 +142,21 @@ void main() {
     final rowWrite = RegExp(
       r'\b(insert|replace|update|delete)\b[^;]*?\bsync_outbox\b',
       caseSensitive: false,
+    );
+    // What `_May.outboxRetire` allows: entries retired, re-seeded, dropped,
+    // read or counted through the DAO, and the one receiver the pusher
+    // binds to a local to page the queue through. Every other method of it
+    // is a stray, and the table, its companion and the raw name stay out of
+    // reach — so none of these files can add an entry of its own, which is
+    // `CrdtWrite`'s alone.
+    //
+    // The receiver is named, never `= <anything>.syncOutboxDao`: an alias
+    // alternative let an allow-listed file bind the DAO and then call
+    // anything at all on it unchecked (A7 review R138).
+    final retires = RegExp(
+      r'\bsyncOutboxDao ?\. ?(ackThrough|requeueRow|requeueAll|clear|count'
+      r'|maxHlc|pending|pendingForTable|watchQueued) ?\('
+      r'|\bfinal outbox = _e\._db\.syncOutboxDao;',
     );
 
     final strays = <String>[];
@@ -139,8 +167,11 @@ void main() {
         if (rowWrite.hasMatch(unit.text)) strays.add('$unit: a row write');
         continue;
       }
+      final text = rights.contains(_May.outboxRetire)
+          ? unit.text.replaceAll(retires, '')
+          : unit.text;
       for (final pattern in names) {
-        if (pattern.hasMatch(unit.text)) {
+        if (pattern.hasMatch(text)) {
           strays.add('$unit: ${pattern.pattern}');
         }
       }
@@ -189,7 +220,7 @@ void main() {
   });
 }
 
-enum _May { clock, backfill, outbox, outboxSchema }
+enum _May { clock, backfill, outbox, outboxRetire, outboxSchema }
 
 /// One top-level or class-member declaration: its name and its source,
 /// normalised for matching.

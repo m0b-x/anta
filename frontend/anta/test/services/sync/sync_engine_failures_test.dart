@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/json_keys.dart';
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
+import 'package:anta/services/sync/sync_suspension.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
 
@@ -71,6 +75,30 @@ List<SyncTableBinding<Object>> _foldersFaulting(
     binding.table == 'folders'
         ? _FaultyMerge(binding, faults, partWay)
         : binding,
+];
+
+/// A binding that loads like its inner one, except that a load whose keys
+/// include one of [_keys] throws — one row's column this build can no longer
+/// decode, which the push must narrow down to that row.
+class _FaultyLoad extends _FaultyMerge {
+  final Set<String> _keys;
+
+  const _FaultyLoad(SyncTableBinding<Object> inner, this._keys)
+    : super(inner, const {});
+
+  @override
+  Future<List<Object>> loadByKeys(AppDatabase db, Iterable<String> rowKeys) {
+    if (rowKeys.any(_keys.contains)) {
+      throw const FormatException('a column this build cannot read');
+    }
+    return super.loadByKeys(db, rowKeys);
+  }
+}
+
+/// Every synced table, the folders' load throwing for [keys].
+List<SyncTableBinding<Object>> _foldersFailingLoad(Set<String> keys) => [
+  for (final binding in syncTableBindings)
+    binding.table == 'folders' ? _FaultyLoad(binding, keys) : binding,
 ];
 
 /// Every synced table, the folders' merge first running a statement SQLite
@@ -362,6 +390,27 @@ void main() {
       expect(a().engine.current.pause, SyncPause.appOutdated);
       expect((await a().sync()).skipped, SyncRunSkip.appOutdated);
     });
+
+    test('a space at a newer schema does not lift a noAccess pause', () async {
+      await a().db.folderDao.createFolder(name: 'Training');
+      pair.gateway.failNextWith(SyncGatewayFailure.permissionDenied);
+      await a().sync();
+      expect(a().engine.current.pause, SyncPause.noAccess);
+      await pair.gateway.pushBatch(
+        pair.space,
+        const [],
+        pushedBy: 'C',
+        schema: syncSchema + 1,
+      );
+      pair.gateway.calls.clear();
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.noAccess);
+      expect(pair.gateway.calls, isEmpty, reason: 'nothing pulled or pushed');
+      expect(a().engine.current.pause, SyncPause.appOutdated);
+      expect((await a().sync()).skipped, SyncRunSkip.appOutdated);
+    });
   });
 
   group('per-envelope faults', () {
@@ -394,6 +443,29 @@ void main() {
       );
       final rows = [for (final page in a().hooks.pages) ...page.$2];
       expect(rows.map((r) => r.rowKey), ['good', 'last']);
+    });
+
+    test('a page leaves a seed covering the stamps it committed, even where '
+        'the clock itself is held to the drift guard (A7 review R132)', () async {
+      // Two hours ahead: past `HybridLogicalClock.maxDrift`, so the clock is
+      // clamped where the row's own stamp is not. The stored seed is what
+      // the next open mints from, and no committed row may carry a stamp
+      // above it, or the first edit on this row mints under it and loses.
+      final ahead = HlcTimestamp(
+        wallTime: DateTime.now()
+            .add(const Duration(hours: 2))
+            .millisecondsSinceEpoch,
+        logicalCounter: 0,
+        nodeId: 'C',
+      ).toString();
+      pair.gateway.plant(pair.space, folderEnvelope('far', ahead));
+
+      await a().sync();
+
+      expect((await a().db.folderDao.getFolderById('far'))!.hlcTimestamp, ahead);
+      final seed = await a().db.syncDao.getValue(SyncDao.keyLastHlc);
+      expect(seed, isNotNull);
+      expect(seed!.compareTo(ahead), greaterThanOrEqualTo(0));
     });
 
     test('a merge that throws a StateError or an ArgumentError parks its row '
@@ -628,6 +700,121 @@ void main() {
       expect(report.pushedRows, 0);
       expect(pair.gateway.pushes, isEmpty);
       expect(await a().db.syncOutboxDao.count(), 0);
+    });
+
+    test('a load fault is bisected to its own rows: the rest of the table '
+        'still pushes', () async {
+      final keys = <String>{};
+      await pair.close();
+      pair = await SyncPair.open(tables: _foldersFailingLoad(keys));
+      final folders = [
+        for (final name in ['One', 'Two', 'Three', 'Four'])
+          await a().db.folderDao.createFolder(name: name),
+      ];
+      keys.add(folders[1].id);
+
+      final report = await a().sync();
+
+      expect(report.failure, isNull);
+      expect(report.parked, 1);
+      expect(report.pushedRows, 3);
+      expect(spaceFolders().keys.toSet(), {
+        folders[0].id,
+        folders[2].id,
+        folders[3].id,
+      });
+      expect(await a().db.syncOutboxDao.count(), 1);
+    });
+
+    test('an entry naming a table no binding covers fails the run rather '
+        'than parking the table', () async {
+      await pair.close();
+      pair = await SyncPair.open(
+        tables: [
+          for (final binding in syncTableBindings)
+            if (binding.table != 'folders') binding,
+        ],
+      );
+      await a().db.folderDao.createFolder(name: 'Orphan');
+
+      final report = await a().sync();
+
+      expect(report.failure, SyncGatewayFailure.unknown);
+      expect(report.parked, 1);
+      expect(await a().db.syncOutboxDao.count(), 1);
+    });
+
+    test('the entry it failed on is parked, so the next run gets past it '
+        '(A7 review R134)', () async {
+      await pair.close();
+      pair = await SyncPair.open(
+        tables: [
+          for (final binding in syncTableBindings)
+            if (binding.table != 'folders') binding,
+        ],
+      );
+      await a().db.folderDao.createFolder(name: 'Orphan');
+      await a().sync();
+
+      await a().db.calendarEventDao.upsert(eventRow('e1'));
+      final second = await a().sync();
+
+      // Without the park the run throws at the same entry for good, and no
+      // row of any table is ever pushed again.
+      expect(second.failure, isNull);
+      expect(second.pushedRows, 1);
+      expect(pair.gateway.rowsOf(pair.space, 'calendar_events'), contains('e1'));
+    });
+
+    test('a batch goes out in the queue\'s order, not table by table', () async {
+      final first = await a().db.folderDao.createFolder(name: 'First');
+      await a().db.calendarEventDao.upsert(eventRow('e1'));
+      final last = await a().db.folderDao.createFolder(name: 'Last');
+
+      await a().sync();
+
+      expect(
+        [for (final envelope in pair.gateway.pushes.single) envelope.rowKey],
+        [first.id, 'e1', last.id],
+      );
+    });
+
+    test('an edit landing during the push keeps its entry queued, and the '
+        'next drain sends it', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'First');
+      pair.gateway.onPushBatch = (batch) async {
+        pair.gateway.onPushBatch = null;
+        await a().db.folderDao.updateFolder(id: folder.id, name: 'Edited');
+      };
+
+      final first = await a().sync();
+
+      expect(
+        first.pushedRows,
+        2,
+        reason: 'the entry the edit raised survived the acknowledgement',
+      );
+      expect(spaceFolders()[folder.id]?.data?[JsonKeys.name], 'Edited');
+      expect(await a().db.syncOutboxDao.count(), 0);
+
+      expect((await a().sync()).pushedRows, 0);
+    });
+
+    test('a restore beginning during the push leaves the batch '
+        'unacknowledged', () async {
+      await a().db.folderDao.createFolder(name: 'In flight');
+      final restore = Completer<void>();
+      pair.gateway.onPushBatch = (batch) async {
+        pair.gateway.onPushBatch = null;
+        unawaited(SyncSuspension.run(() => restore.future));
+      };
+
+      final report = await a().sync();
+      restore.complete();
+      await pumpEventQueue();
+
+      expect(report.skipped, SyncRunSkip.suspended);
+      expect(await a().db.syncOutboxDao.count(), 1);
     });
 
     test('a note over 900 KB is parked before the push', () async {

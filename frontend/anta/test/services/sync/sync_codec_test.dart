@@ -84,11 +84,25 @@ void main() {
     expect(envelope.data, isNull);
   }
 
+  /// [envelope] as a live upsert carrying [data] in place of its own.
+  SyncEnvelope carrying(SyncEnvelope envelope, Map<String, Object?> data) =>
+      SyncEnvelope(
+        table: envelope.table,
+        rowKey: envelope.rowKey,
+        hlc: envelope.hlc,
+        deviceId: envelope.deviceId,
+        version: envelope.version,
+        op: OutboxOp.upsert,
+        ownerId: envelope.ownerId,
+        data: data,
+      );
+
   /// The strict decode of a stored live row under [key]: without
   /// [requiredKey], with it mistyped, or naming another row in [idKey], the
   /// envelope is refused with the table and the key named — never decoded
-  /// to defaults over real data. [decode] stands in for the binding's own
-  /// when the key is read elsewhere (a note's body).
+  /// to defaults over real data. A key this build does not know is ignored
+  /// instead, the forward compatibility of §3.4 (8). [decode] stands in for
+  /// the binding's own when the key is read elsewhere (a note's body).
   Future<void> expectStrict<R extends Object>(
     SyncTableBinding<R> binding,
     String key, {
@@ -99,16 +113,6 @@ void main() {
     final run = decode ?? binding.decode;
     final envelope = await encodeStored(binding, key);
     final live = envelope.data!;
-    SyncEnvelope carrying(Map<String, Object?> data) => SyncEnvelope(
-      table: envelope.table,
-      rowKey: envelope.rowKey,
-      hlc: envelope.hlc,
-      deviceId: envelope.deviceId,
-      version: envelope.version,
-      op: OutboxOp.upsert,
-      ownerId: envelope.ownerId,
-      data: data,
-    );
     final refused = throwsA(
       isA<FormatException>().having(
         (e) => e.message,
@@ -117,10 +121,16 @@ void main() {
       ),
     );
 
-    expect(() => run(carrying({...live}..remove(requiredKey))), refused);
-    expect(() => run(carrying({...live, requiredKey: const []})), refused);
     expect(
-      () => binding.decode(carrying({...live, idKey: 'another-row'})),
+      () => run(carrying(envelope, {...live}..remove(requiredKey))),
+      refused,
+    );
+    expect(
+      () => run(carrying(envelope, {...live, requiredKey: const []})),
+      refused,
+    );
+    expect(
+      () => binding.decode(carrying(envelope, {...live, idKey: 'another-row'})),
       throwsA(
         isA<FormatException>().having(
           (e) => e.message,
@@ -129,7 +139,13 @@ void main() {
         ),
       ),
     );
-    expect(() => run(carrying(const {})), throwsFormatException);
+    expect(() => run(carrying(envelope, const {})), throwsFormatException);
+    // A column a later build added is ignored, not refused: a strict decode
+    // here would brick every install already out there (R73).
+    expect(
+      run(carrying(envelope, {...live, 'futureColumn': 1})),
+      run(carrying(envelope, live)),
+    );
   }
 
   group('folders', () {
@@ -291,6 +307,20 @@ void main() {
       await expectStrict(binding, note.id, requiredKey: 'title', idKey: 'id');
     });
 
+    test('a live envelope without a preview still decodes', () async {
+      final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
+      final envelope = await encodeStored(binding, note.id);
+
+      // The merge recomputes the preview from the body, so parking a row
+      // for it would cost a note a column nothing reads (R70).
+      final decoded = binding.decode(
+        carrying(envelope, {...envelope.data!}..remove('preview')),
+      );
+
+      expect(decoded.preview, '');
+      expect(decoded.title, 'Log');
+    });
+
     test('a live envelope without a body is refused, never emptied', () async {
       final note = await db.noteDao.createNote(
         folderId: 'f1',
@@ -366,6 +396,18 @@ void main() {
       await db.into(db.counters).insert(row());
 
       await expectStrict(binding, 'c1', requiredKey: 'name', idKey: 'id');
+    });
+
+    test('a scope this build does not know crosses verbatim', () async {
+      await db.into(db.counters).insert(row().copyWith(scope: 'session'));
+
+      final envelope = await encodeStored(binding, 'c1');
+
+      // Rewriting it to `global` here would hand the other device a value
+      // the one that wrote it never stored (R66); the read stays lenient,
+      // so this build still stores a scope it can hold.
+      expect(envelope.data!['counterScope'], 'session');
+      expect(binding.decode(envelope).scope, 'global');
     });
 
     test('a live envelope without a valid createdAtMs is refused', () async {
@@ -604,7 +646,9 @@ void main() {
   /// real `exportData` entry, value for value, and decodes back to every
   /// column; a data-less tombstone still decodes; a live envelope missing
   /// [requiredKey], or carrying it under the wrong type, is refused with the
-  /// table and the key named.
+  /// table and the key named; so is one whose data names another row than
+  /// its key — each key of [mismatched] against the wrong value it maps to
+  /// (R84). A key this build does not know is ignored instead (R73).
   void calendarTable<R extends Object>(
     SyncTableBinding<R> binding, {
     required String key,
@@ -612,6 +656,7 @@ void main() {
     required Future<void> Function(R row) insert,
     required Future<Map<String, dynamic>> Function() exported,
     required String requiredKey,
+    required Map<String, Object> mismatched,
     required void Function() reset,
   }) {
     group(binding.table, () {
@@ -647,16 +692,6 @@ void main() {
       test('a live envelope without a valid $requiredKey is refused', () async {
         await insert(row());
         final live = await encodeStored(binding, key);
-        SyncEnvelope carrying(Map<String, Object?> data) => SyncEnvelope(
-          table: live.table,
-          rowKey: live.rowKey,
-          hlc: live.hlc,
-          deviceId: live.deviceId,
-          version: live.version,
-          op: OutboxOp.upsert,
-          ownerId: live.ownerId,
-          data: data,
-        );
         final refused = throwsA(
           isA<FormatException>().having(
             (e) => e.message,
@@ -666,15 +701,50 @@ void main() {
         );
 
         expect(
-          () => binding.decode(carrying({...live.data!}..remove(requiredKey))),
+          () => binding.decode(
+            carrying(live, {...live.data!}..remove(requiredKey)),
+          ),
           refused,
         );
         expect(
-          () =>
-              binding.decode(carrying({...live.data!, requiredKey: const []})),
+          () => binding.decode(
+            carrying(live, {...live.data!, requiredKey: const []}),
+          ),
           refused,
         );
-        expect(() => binding.decode(carrying(const {})), throwsFormatException);
+        expect(
+          () => binding.decode(carrying(live, const {})),
+          throwsFormatException,
+        );
+      });
+
+      test('a live envelope naming another row is refused', () async {
+        await insert(row());
+        final live = await encodeStored(binding, key);
+
+        for (final MapEntry(key: idKey, value: other) in mismatched.entries) {
+          expect(
+            () => binding.decode(carrying(live, {...live.data!, idKey: other})),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains(binding.table), contains(idKey)),
+              ),
+            ),
+            reason: idKey,
+          );
+        }
+      });
+
+      test('a key this build does not know is ignored', () async {
+        await insert(row());
+        final live = await encodeStored(binding, key);
+
+        expect(
+          binding.decode(carrying(live, {...live.data!, 'futureColumn': 1})),
+          binding.decode(live),
+        );
       });
     });
   }
@@ -704,6 +774,7 @@ void main() {
       db,
     )).exportData()).singleWhere((m) => m['id'] == 'c1'),
     requiredKey: 'name',
+    mismatched: const {'id': 'another-row'},
     reset: CategoryService.reset,
   );
 
@@ -743,6 +814,7 @@ void main() {
     exported: () async =>
         (await (await EventTemplateService.forTesting(db)).exportData()).single,
     requiredKey: 'category',
+    mismatched: const {'id': 'another-row'},
     reset: EventTemplateService.reset,
   );
 
@@ -789,12 +861,20 @@ void main() {
     exported: () async =>
         (await (await CalendarEventService.forTesting(db)).exportData()).single,
     requiredKey: 'startDateMs',
+    mismatched: const {'id': 'another-row'},
     reset: CalendarEventService.reset,
   );
 
   // The EU spring-forward day: the day keys must survive a DST switch.
   final day = DateTime.utc(2026, 3, 29);
   final dayKey = dayRowKey('e1', day);
+
+  /// What a day row's data must not say when its key says `e1` and [day]:
+  /// either half of the identity naming another row is refused.
+  final otherDay = <String, Object>{
+    'eventId': 'another-event',
+    'dayMs': day.add(const Duration(days: 1)).millisecondsSinceEpoch,
+  };
 
   calendarTable(
     const CalendarEventOccurrencesBinding(),
@@ -817,6 +897,7 @@ void main() {
       db,
     )).exportData()).single,
     requiredKey: 'dayMs',
+    mismatched: otherDay,
     reset: EventOccurrenceService.reset,
   );
 
@@ -840,6 +921,7 @@ void main() {
     exported: () async =>
         (await (await EventPresenceService.forTesting(db)).exportData()).single,
     requiredKey: 'eventId',
+    mismatched: otherDay,
     reset: EventPresenceService.reset,
   );
 
@@ -862,6 +944,7 @@ void main() {
     exported: () async =>
         (await (await EventSkipService.forTesting(db)).exportData()).single,
     requiredKey: 'createdAtMs',
+    mismatched: otherDay,
     reset: EventSkipService.reset,
   );
 
@@ -890,6 +973,7 @@ void main() {
     exported: () async =>
         (await (await EventAlertService.forTesting(db)).exportData()).single,
     requiredKey: 'offsetMinutes',
+    mismatched: const {'id': 'another-row'},
     reset: EventAlertService.reset,
   );
 
@@ -919,6 +1003,7 @@ void main() {
       db,
     )).exportCategoryAlerts()).single,
     requiredKey: 'categoryId',
+    mismatched: const {'id': 'another-row'},
     reset: EventAlertService.reset,
   );
 
@@ -944,6 +1029,7 @@ void main() {
     exported: () async =>
         (await (await EventDigestService.forTesting(db)).exportData()).single,
     requiredKey: 'payload',
+    mismatched: const {'id': 'another-row'},
     reset: EventDigestService.reset,
   );
 
@@ -968,6 +1054,7 @@ void main() {
     exported: () async =>
         (await (await FilterPresetService.forTesting(db)).exportData()).single,
     requiredKey: 'filters',
+    mismatched: const {'id': 'another-row'},
     reset: FilterPresetService.reset,
   );
 
@@ -992,6 +1079,7 @@ void main() {
     exported: () async =>
         (await (await OverviewViewService.forTesting(db)).exportData()).single,
     requiredKey: 'name',
+    mismatched: const {'id': 'another-row'},
     reset: OverviewViewService.reset,
   );
 
@@ -1050,9 +1138,48 @@ void main() {
         'e1|0$ms',
         'e1|+$ms',
         'e1|99999999999999999',
+        // A whole second that is not a UTC midnight: every local writer
+        // normalises the day, and a second row for one calendar day would
+        // make a presence mark depend on the order its rows were read
+        // (R79).
+        'e1|${ms + 1000}',
+        'e1|${ms + 43200000}',
       ]) {
         expect(() => dayKeyOf(bad), throwsFormatException, reason: bad);
       }
+    });
+
+    test('a row stored at a local midnight still pushes a key dayKeyOf '
+        'accepts (A7 review R133)', () async {
+      // Two hours under the UTC midnight: what a row written before the
+      // rule — or imported from a backup of one — holds in a zone east of
+      // UTC. No migration normalised the column, so the push meets it.
+      final legacy = DateTime.fromMillisecondsSinceEpoch(
+        day.millisecondsSinceEpoch - const Duration(hours: 2).inMilliseconds,
+      );
+      const binding = CalendarEventSkipsBinding();
+      final row = EventSkipRow(
+        eventId: 'e1',
+        day: legacy,
+        createdAt: created,
+        updatedAt: updated,
+        hlcTimestamp: hlc,
+        deviceId: 'dev-a',
+        version: 5,
+        isDeleted: false,
+        ownerId: uid,
+      );
+
+      final envelope = await binding.encode(db, row, boundUid: uid);
+
+      // Without this the envelope carried a key every receiving device
+      // refused, and the skip never left this one.
+      expect(dayKeyOf(envelope.rowKey).day, day.toLocal());
+      expect(envelope.data!['dayMs'], day.millisecondsSinceEpoch);
+      // The row and the outbox entry naming it keep their own key, which is
+      // how the push finds the row to send at all.
+      expect(binding.rowKeyOf(row), dayRowKey('e1', legacy));
+      expect(localDayKeyOf(binding.rowKeyOf(row)).day, legacy);
     });
 
     test('a day tombstone under a malformed key is refused', () {

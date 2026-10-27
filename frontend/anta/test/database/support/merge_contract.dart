@@ -3,11 +3,9 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/crdt/synced_tables.dart';
-import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 
 import 'db_test_support.dart';
@@ -41,6 +39,11 @@ class MergeContract<R> {
   final String markerColumn;
   final Object markerValue;
 
+  /// The body [merge] writes for a live remote, on the one table whose
+  /// outcome carries it back for the announcement (notes, R4). Null where
+  /// the table has no body.
+  final String? mergedContent;
+
   const MergeContract({
     required this.table,
     required this.freshKey,
@@ -49,6 +52,7 @@ class MergeContract<R> {
     required this.merge,
     required this.markerColumn,
     required this.markerValue,
+    this.mergedContent,
   });
 }
 
@@ -86,7 +90,10 @@ void runMergeContract<R>(
     test('an unknown row is inserted verbatim and queued nowhere', () async {
       final outcome = await c.merge(db(), c.remote(c.freshKey, newerHlc));
 
-      expect(outcome, const MergeOutcome(MergeResult.inserted));
+      expect(
+        outcome,
+        MergeOutcome(MergeResult.inserted, mergedContent: c.mergedContent),
+      );
       final row = (await stored(c.freshKey))!;
       expect(row['hlc_timestamp'], newerHlc);
       expect(row['device_id'], 'remote');
@@ -184,6 +191,14 @@ void runMergeContract<R>(
       final tombstone = (await stored(key))!;
       expect(tombstone['is_deleted'], 1);
       expect(tombstone['deleted_at'], isNotNull);
+      // The delete's own instant, not the last edit's: the deleting device
+      // stores it and every merging one has to agree on the column, or the
+      // two never converge (R67, R81). Here rather than per DAO, so every
+      // table that has the column is held to it — `counters` and
+      // `counter_values` have none (A7 review R141).
+      if (tombstone.containsKey('updated_at')) {
+        expect(tombstone['updated_at'], tombstone['deleted_at']);
+      }
       expect(tombstone['hlc_timestamp'], 'ffffffffffff:0000:remote');
       expect(tombstone['owner_id'], 'uid-1');
       expect(tombstone['device_id'], 'remote');
@@ -244,60 +259,80 @@ void runMergeContract<R>(
     });
 
     /// Ten minutes ahead of the wall clock: past anything the test clock has
-    /// minted, inside the drift guard, so the clock adopts it whole.
-    HlcTimestamp soon() => HlcTimestamp(
+    /// minted and inside the drift guard, so a branch that raised the clock
+    /// of its own accord would be unmistakable here.
+    String soon() => HlcTimestamp(
       wallTime: DateTime.now()
           .add(const Duration(minutes: 10))
           .millisecondsSinceEpoch,
       logicalCounter: 3,
       nodeId: 'remote',
-    );
+    ).toString();
 
-    Future<void> expectClockAt(HlcTimestamp remote) async {
-      final last = db().hlc.last;
-      expect((last.wallTime, last.logicalCounter), (
-        remote.wallTime,
-        remote.logicalCounter,
-      ));
-      await db().persistClock();
-      final stored = HlcTimestamp.parse(
-        (await db().syncDao.getValue(SyncDao.keyLastHlc))!,
-      );
-      expect((stored.wallTime, stored.logicalCounter), (
-        remote.wallTime,
-        remote.logicalCounter,
-      ));
+    /// No branch of a merge moves the clock. The puller raises it to the
+    /// page's highest stamp once the page committed: `hlc.update` is
+    /// in-memory and no rollback undoes it, so a page that rolled back
+    /// would otherwise leave this device able to out-stamp a remote row it
+    /// never merged (R65).
+    ///
+    /// Every branch is asked, `keptLocal` and `unchanged` included, so a
+    /// refactor that moves the advance back into one of them fails here
+    /// (R74).
+    Future<void> expectClockHeld(
+      MergeResult expected,
+      Future<MergeOutcome> Function() merge,
+    ) async {
+      final before = db().hlc.last.toString();
+
+      final outcome = await merge();
+
+      expect(outcome.result, expected);
+      expect(db().hlc.last.toString(), before);
     }
 
-    test('an inserted row moves the clock to its stamp', () async {
-      final remote = soon();
+    test('an inserted row leaves the clock to the puller', () async {
+      await expectClockHeld(
+        MergeResult.inserted,
+        () => c.merge(db(), c.remote(c.freshKey, soon())),
+      );
+    });
 
-      final outcome = await c.merge(
-        db(),
-        c.remote(c.freshKey, remote.toString()),
+    test('an applied row leaves the clock to the puller', () async {
+      final key = await c.seedLocal(db());
+
+      await expectClockHeld(
+        MergeResult.applied,
+        () => c.merge(db(), c.remote(key, soon())),
+      );
+    });
+
+    test('a re-merged stamp leaves the clock to the puller', () async {
+      final key = await c.seedLocal(db());
+      final stamp = await localStamp(key);
+
+      await expectClockHeld(
+        MergeResult.unchanged,
+        () => c.merge(db(), c.remote(key, stamp)),
+      );
+    });
+
+    test('a kept local row leaves the clock to the puller', () async {
+      final key = await c.seedLocal(db());
+
+      await expectClockHeld(
+        MergeResult.keptLocal,
+        () => c.merge(db(), c.remote(key, olderHlc)),
+      );
+    });
+
+    test('a merge under the floor moves no clock either', () async {
+      final key = await c.seedLocal(db());
+
+      await expectClockHeld(
+        MergeResult.applied,
+        () => c.merge(db(), c.remote(key, olderHlc), floor: newerHlc),
       );
 
-      expect(outcome.result, MergeResult.inserted);
-      await expectClockAt(remote);
-    });
-
-    test('an applied row moves the clock to its stamp', () async {
-      final key = await c.seedLocal(db());
-      final remote = soon();
-
-      final outcome = await c.merge(db(), c.remote(key, remote.toString()));
-
-      expect(outcome.result, MergeResult.applied);
-      await expectClockAt(remote);
-    });
-
-    test('a merge moves the clock only through the remote stamp', () async {
-      final key = await c.seedLocal(db());
-      final clock = db().hlc.last.toString();
-
-      await c.merge(db(), c.remote(key, olderHlc), floor: newerHlc);
-
-      expect(db().hlc.last.toString(), clock);
       expect(await entries(key), isEmpty);
     });
   });

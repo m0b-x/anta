@@ -45,6 +45,12 @@ final class MergeOutcome extends Equatable {
   /// the root, which is why [moved] is a flag of its own.
   final String? previousParent;
 
+  /// Notes only: the body this merge wrote, carried to the hooks so the
+  /// announcement rides on what the merge stored rather than on a re-read a
+  /// local save landing in between would answer with (R4). Null when the
+  /// merge wrote no body — a tombstone, or a remote that lost.
+  final String? mergedContent;
+
   const MergeOutcome(
     this.result, {
     this.localHadPendingPush = false,
@@ -52,6 +58,7 @@ final class MergeOutcome extends Equatable {
     this.loserContent,
     this.moved = false,
     this.previousParent,
+    this.mergedContent,
   });
 
   /// This outcome, recording that the row left [parent].
@@ -62,6 +69,18 @@ final class MergeOutcome extends Equatable {
     loserContent: loserContent,
     moved: true,
     previousParent: parent,
+    mergedContent: mergedContent,
+  );
+
+  /// This outcome, carrying [content] as the body the merge wrote.
+  MergeOutcome withMergedContent(String content) => MergeOutcome(
+    result,
+    localHadPendingPush: localHadPendingPush,
+    loser: loser,
+    loserContent: loserContent,
+    moved: moved,
+    previousParent: previousParent,
+    mergedContent: content,
   );
 
   @override
@@ -72,5 +91,6 @@ final class MergeOutcome extends Equatable {
     loserContent,
     moved,
     previousParent,
+    mergedContent,
   ];
 }

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/category_alert.dart';
@@ -455,6 +456,106 @@ void main() {
       await service.deleteCategory('birthday');
 
       expect(EventAlerts.categoryAlertsFor('birthday'), hasLength(1));
+    });
+  });
+
+  group('the seed against a space', () {
+    /// A stamp below anything this device's clock mints.
+    const spaceHlc = '000000000001:0000:space';
+
+    /// A stamp above it, for a delete that arrives from the space.
+    const laterHlc = 'ffffffffffff:0001:space';
+
+    CalendarCategoryRow fromSpace(
+      String id,
+      String name,
+      String hlc, {
+      bool deleted = false,
+    }) {
+      return CalendarCategoryRow(
+        id: id,
+        name: name,
+        colorValue: 0xFF112233,
+        iconKey: 'star',
+        sortOrder: 0,
+        isBuiltIn: true,
+        isHidden: false,
+        createdAt: DateTime.utc(2026, 3, 1).toLocal(),
+        updatedAt: DateTime.utc(2026, 3, 2).toLocal(),
+        hlcTimestamp: hlc,
+        deviceId: 'space',
+        version: 7,
+        isDeleted: deleted,
+        deletedAt: deleted ? DateTime.utc(2026, 3, 3).toLocal() : null,
+        ownerId: 'uid-1',
+      );
+    }
+
+    Future<CalendarCategoryRow> storedGym() => (db.select(
+      db.calendarCategories,
+    )..where((c) => c.id.equals('gym'))).getSingle();
+
+    /// The state a second device is in moments after it tapped bind: the
+    /// binding wrote the floor and the pending flag, and not a row of the
+    /// space has landed yet.
+    Future<void> bindPending() async {
+      CategoryService.reset();
+      await db.delete(db.calendarCategories).go();
+      await db.syncOutboxDao.clear();
+      await db.syncDao.setValue(SyncDao.keyBindMergePending, '1');
+      await db.syncDao.setValue(SyncDao.keyBindFloor, spaceHlc);
+    }
+
+    test('the first touch during a bind leaves the space its built-ins',
+        () async {
+      await bindPending();
+
+      // Today's defect: the seed runs above the floor, so the space's older
+      // custom built-in loses the merge and is overwritten there too (R76).
+      await CategoryService.forTesting(db);
+      await db.calendarCategoryDao.mergeRemoteCategory(
+        fromSpace('gym', 'Beast mode', spaceHlc),
+        floor: spaceHlc,
+      );
+
+      expect((await storedGym()).name, 'Beast mode');
+      expect(
+        await db.syncOutboxDao.pendingForTable('calendar_categories'),
+        isEmpty,
+      );
+    });
+
+    test('the seed runs on the reload that follows the merge', () async {
+      await bindPending();
+      final pending = await CategoryService.forTesting(db);
+      expect(CalendarCategories.all, isEmpty);
+
+      await db.syncDao.deleteValue(SyncDao.keyBindMergePending);
+      await pending.reload();
+
+      expect(CalendarCategories.byId('gym'), isNotNull);
+    });
+
+    test('a database that never syncs seeds on the first touch', () async {
+      CategoryService.reset();
+      await db.delete(db.calendarCategories).go();
+
+      await CategoryService.forTesting(db);
+
+      expect(CalendarCategories.byId('gym'), isNotNull);
+    });
+
+    test('a reload resurrects a built-in a merge tombstoned', () async {
+      await db.calendarCategoryDao.mergeRemoteCategory(
+        fromSpace('gym', 'Beast mode', laterHlc, deleted: true),
+      );
+
+      // Without the seed on this path the built-in is gone from every
+      // picker and filter until the next launch, `other` included (R80).
+      await service.reload();
+
+      expect((await storedGym()).isDeleted, isFalse);
+      expect(CalendarCategories.byId('gym'), isNotNull);
     });
   });
 }

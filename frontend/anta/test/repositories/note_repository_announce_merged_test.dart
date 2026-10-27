@@ -62,7 +62,9 @@ void main() {
       final folder = await db.folderDao.createFolder(name: 'Training');
       final note = await seed(folderId: folder.id, content: '');
 
-      final changes = await announced(() => notes.announceMerged([note.id]));
+      final changes = await announced(
+        () => notes.announceMerged([note.id], bodies: {note.id: ''}),
+      );
 
       expect(changes, hasLength(1));
       expect(changes.single.type, NoteChangeType.updated);
@@ -88,6 +90,7 @@ void main() {
         () => notes.announceMerged(
           [note.id],
           previousParents: {note.id: from.id},
+          bodies: {note.id: 'body'},
         ),
       );
 
@@ -104,4 +107,44 @@ void main() {
       expect(changes.last.sourceFolderId, from.id);
     },
   );
+
+  test('the body the merge wrote rides the announcement, not the row as a '
+      'save in flight left it (R4)', () async {
+    final folder = await db.folderDao.createFolder(name: 'Training');
+    final note = await seed(folderId: folder.id);
+    await db.noteDao.mergeNoteDocument(
+      note.copyWith(hlcTimestamp: 'ffffffffffff:0000:remote'),
+      'theirs',
+    );
+    // The editor's debounced save committed between the merge and the
+    // announcement, so the row no longer holds what the merge stored.
+    await db.contentChunkDao.replaceChunks(
+      noteId: note.id,
+      content: 'mine',
+      hlc: 'ffffffffffff:0001:local',
+      deviceId: 'local',
+      version: note.version + 1,
+    );
+
+    final changes = await announced(
+      () => notes.announceMerged([note.id], bodies: {note.id: 'theirs'}),
+    );
+
+    expect(changes.single.remoteContent, 'theirs');
+  });
+
+  test('a merged body is not put through the content cache (R6)', () async {
+    final folder = await db.folderDao.createFolder(name: 'Training');
+    final note = await seed(folderId: folder.id);
+
+    await announced(
+      () => notes.announceMerged([note.id], bodies: {note.id: 'body'}),
+    );
+
+    expect(
+      notes.isContentCached(note.id),
+      isFalse,
+      reason: 'a pulled page of 499 bodies would evict the whole LRU',
+    );
+  });
 }

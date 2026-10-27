@@ -31,12 +31,30 @@ class SyncBindingService {
   @visibleForTesting
   SyncBindingService.detached(this._db, this._settings);
 
-  static Future<SyncBindingService> getInstance() async {
+  /// The service over the active database, built once per database.
+  ///
+  /// A database switch landing between its awaits makes it start over once,
+  /// as `SyncEngine._build` does (S4b-1 review L10, A1c review R36): the
+  /// database it awaited first is the one being closed, and registering a
+  /// service over it would both hand every later caller — the engine built
+  /// for the *new* database included — a service bound to the closed one and
+  /// put [reset] in the registry the switch has already emptied. A second
+  /// switch inside the retry throws rather than register anything.
+  static Future<SyncBindingService> getInstance() => _build(mayRetry: true);
+
+  static Future<SyncBindingService> _build({required bool mayRetry}) async {
     final existing = _instance;
     if (existing != null) return existing;
+    final generation = DatabaseLifecycle.generation;
     final db = await AppDatabase.getInstance();
     final settings = await SettingsService.getInstance();
-    return _instance ?? _register(SyncBindingService._(db, settings));
+    final raced = _instance;
+    if (raced != null) return raced;
+    if (DatabaseLifecycle.generation != generation) {
+      if (mayRetry) return _build(mayRetry: false);
+      throw StateError('the database switched while the binding was built');
+    }
+    return _register(SyncBindingService._(db, settings));
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
@@ -110,18 +128,22 @@ class SyncBindingService {
     required SyncSpaceRef space,
     required String accountUid,
   }) async {
-    if (SyncSuspension.isSuspended) {
-      throw StateError(
-        'Cannot bind while sync is suspended: a restore or import is '
-        'rewriting this database.',
-      );
-    }
-    if (await read() != null) {
-      throw StateError(
-        'Cannot bind while this database is bound: stop syncing first.',
-      );
-    }
     await _db.transaction(() async {
+      // Both refusals inside the transaction, before the first write: two
+      // binds started together would otherwise both pass a check made
+      // outside it and both run, the second overwriting the first binding
+      // and re-queueing every row again (A1c review R38).
+      if (SyncSuspension.isSuspended) {
+        throw StateError(
+          'Cannot bind while sync is suspended: a restore or import is '
+          'rewriting this database.',
+        );
+      }
+      if (await read() != null) {
+        throw StateError(
+          'Cannot bind while this database is bound: stop syncing first.',
+        );
+      }
       await _settings.setSyncBinding(
         SyncBinding(
           spaceId: space.spaceId,

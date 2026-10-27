@@ -9,6 +9,7 @@ import '../constants/json_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_category_dao.dart';
+import '../database/daos/sync_dao.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import 'alert_scheduler.dart';
@@ -101,7 +102,19 @@ class CategoryService {
   /// Unmodifiable, ordered view over the in-memory cache.
   List<CalendarCategory> get categories => _cache;
 
-  Future<void> reload() => _load();
+  /// Re-reads the table, seeding the built-ins first.
+  ///
+  /// The seed, not only the load: it is where a built-in tombstoned by a
+  /// merge is resurrected ([CalendarCategoryDao.seedMissing]), and without
+  /// it that built-in is gone from every picker and filter for the rest of
+  /// the session, `other` — the fallback every orphaned event resolves to —
+  /// included (R80). It is also how the seed this service skipped during a
+  /// bind's initial merge ([_seedBuiltIns]) still runs once the space has
+  /// been read: the sync hooks reload the calendar after every pulled page.
+  Future<void> reload() async {
+    await _seedBuiltIns();
+    await _load();
+  }
 
   // ── Cache load / built-in seed ───────────────────────────────────────
 
@@ -116,7 +129,21 @@ class CategoryService {
     CalendarCategories.updateCache(_cache);
   }
 
+  /// Inserts the built-in catalog, unless a bind's initial merge is still
+  /// running.
+  ///
+  /// `bind_floor` is the clock at the bind, so every stamp minted after it —
+  /// a seed's included — sits *above* the floor and the floor rule does not
+  /// cover it. A device that binds and touches the calendar before the
+  /// space's own `calendar_categories` have landed would seed the catalog
+  /// defaults over them: the space's older custom row loses, and the other
+  /// device's renamed, recoloured or reordered built-in is overwritten
+  /// there too (R76). While `bind_merge_pending` is set the space is
+  /// authoritative, so the seed waits for [reload] after the merge. The flag
+  /// is never set for a database that does not sync, which keeps every
+  /// unbound install on the path it had.
   Future<void> _seedBuiltIns() async {
+    if (await _initialMergePending()) return;
     final now = DateTime.now();
     try {
       // Insert-if-missing only: never rewrite an existing built-in's sort
@@ -151,6 +178,19 @@ class CategoryService {
       ]);
     } catch (e) {
       debugPrint('[CategoryService] Seed error: $e');
+    }
+  }
+
+  /// Whether a bind's first complete pull of every table is still running.
+  /// A read failure answers "no": the seed is what a fresh install needs,
+  /// and skipping it on a database error would leave the calendar without a
+  /// fallback category.
+  Future<bool> _initialMergePending() async {
+    try {
+      return await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
+    } catch (e) {
+      debugPrint('[CategoryService] Bind state error: $e');
+      return false;
     }
   }
 

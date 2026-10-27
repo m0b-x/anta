@@ -87,18 +87,31 @@ class _Pusher {
     return parts;
   }
 
-  /// The oldest [maxBatch] entries [eligible] lets through, reading further
+  /// The oldest [maxBatch] entries [eligible] lets through, paging further
   /// down the queue while the entries it holds back fill the window.
+  ///
+  /// Keyset, not a growing limit: the initial merge queues every row of
+  /// every table, and one table held back made each page re-read the queue
+  /// from the top — the drain was O(n²) in the queue (A2 review R51).
   Future<List<SyncOutboxRow>> _nextEntries(
     bool Function(SyncOutboxRow entry) eligible,
     int maxBatch,
   ) async {
     final outbox = _e._db.syncOutboxDao;
-    for (var limit = maxBatch; ; limit *= 2) {
-      final queued = await outbox.pending(limit: limit);
-      final entries = queued.where(eligible).take(maxBatch).toList();
-      if (entries.length == maxBatch || queued.length < limit) return entries;
+    final entries = <SyncOutboxRow>[];
+    SyncOutboxKey? after;
+    while (entries.length < maxBatch) {
+      final queued = await outbox.pending(limit: maxBatch, after: after);
+      if (queued.isEmpty) break;
+      for (final entry in queued) {
+        if (eligible(entry)) entries.add(entry);
+        if (entries.length == maxBatch) return entries;
+      }
+      if (queued.length < maxBatch) break;
+      final last = queued.last;
+      after = (hlc: last.hlc, table: last.syncedTable, rowKey: last.rowKey);
     }
+    return entries;
   }
 
   /// The batch for [entries]: each row read as it stands now, a tombstone
@@ -114,22 +127,31 @@ class _Pusher {
     for (final entry in entries) {
       byTable.putIfAbsent(entry.syncedTable, () => []).add(entry);
     }
-    final batch = <_Queued>[];
+    final prepared = <(String, String), _Queued>{};
     for (final MapEntry(key: table, value: group) in byTable.entries) {
       final binding = _e._bindingFor(table);
-      final List<Object> rows;
-      try {
-        if (binding == null) throw ArgumentError.value(table, 'table');
-        rows = await binding.loadByKeys(db, [for (final e in group) e.rowKey]);
-      } on Object catch (error) {
-        if (!_isEnvelopeFault(error)) rethrow;
+      // An entry naming a table no binding covers is this build's bug, not a
+      // row's: it ends the run, where parking would have stalled every row
+      // of that table for the session (A2 review R46). Parked all the same,
+      // and before the throw: the entry stays queued, so a run that only
+      // failed would meet it again at the same place and the engine would
+      // never get past it (A7 review R134).
+      if (binding == null) {
+        final fault = ArgumentError.value(
+          table,
+          'table',
+          'no binding for the table',
+        );
         for (final entry in group) {
-          _park(entry, error);
+          _park(entry, fault);
         }
-        continue;
+        throw fault;
       }
+      final faulted = <String>{};
+      final rows = await _loadGroup(binding, group, faulted);
       final byKey = {for (final row in rows) binding.rowKeyOf(row): row};
       for (final entry in group) {
+        if (faulted.contains(entry.rowKey)) continue;
         final row = byKey[entry.rowKey];
         if (row == null) {
           await db.syncOutboxDao.ackThrough(table, entry.rowKey, entry.hlc);
@@ -148,10 +170,44 @@ class _Pusher {
           _park(entry, 'over $maxDocumentBytes bytes');
           continue;
         }
-        batch.add(_Queued(entry, envelope, bytes));
+        prepared[(table, entry.rowKey)] = _Queued(entry, envelope, bytes);
       }
     }
-    return batch;
+    // Back in the queue's `(hlc, table, rowKey)` order: the rows are read one
+    // table at a time, but a push that stops part-way must have sent a prefix
+    // of history rather than whole tables (A2 review R50).
+    return [
+      for (final entry in entries) ?prepared[(entry.syncedTable, entry.rowKey)],
+    ];
+  }
+
+  /// The rows of [group], bisected down to the entries whose load faults,
+  /// whose keys land in [faulted] parked. A load fault belongs to a row — a
+  /// column no longer decodable — so parking the whole group would stall up
+  /// to a whole batch of healthy rows of that table for the session, every
+  /// session, since the cause is deterministic (A2 review R46).
+  Future<List<Object>> _loadGroup(
+    SyncTableBinding<Object> binding,
+    List<SyncOutboxRow> group,
+    Set<String> faulted,
+  ) async {
+    try {
+      return await binding.loadByKeys(_e._db, [
+        for (final entry in group) entry.rowKey,
+      ]);
+    } on Object catch (error) {
+      if (!_isEnvelopeFault(error)) rethrow;
+      if (group.length == 1) {
+        _park(group.single, error);
+        faulted.add(group.single.rowKey);
+        return const [];
+      }
+      final middle = group.length ~/ 2;
+      return [
+        ...await _loadGroup(binding, group.sublist(0, middle), faulted),
+        ...await _loadGroup(binding, group.sublist(middle), faulted),
+      ];
+    }
   }
 
   /// Pushes [batch]; a refusal of rows rather than of the drain is narrowed
@@ -264,6 +320,11 @@ class _Pusher {
       pushedBy: _e._deviceId,
       schema: _e._schema,
     );
+    // Again after the call, not only before it: a restore that began while
+    // the push was in flight is rewriting the very rows it acknowledges, and
+    // retiring their entries would leave the re-queued ones unsent. The
+    // batch is left unacknowledged and the run ends (A5 review R102).
+    await _e._checkHalt(bound);
     await _e._reached(tally);
     await db.transaction(() async {
       for (final queued in batch) {
@@ -285,10 +346,21 @@ class _Pusher {
     _e._emit();
   }
 
+  /// Logs by kind, as the pull's does (S3b review L16, A2 review R54): an
+  /// `ArgumentError` out of a binding is more likely a bug than a row, an
+  /// oversized or malformed row and a refusal are expected now and then, and
+  /// anything else is this side's own fault. All of them park the entry.
   void _park(SyncOutboxRow entry, Object reason) {
-    debugPrint(
-      '[SyncEngine] parked ${entry.syncedTable}/${entry.rowKey}: $reason',
-    );
+    final row = '${entry.syncedTable}/${entry.rowKey}';
+    if (reason is ArgumentError) {
+      _warn('parked $row on an ArgumentError, probably a bug: $reason');
+    } else if (reason is String ||
+        reason is SyncGatewayException ||
+        _isEnvelopeFault(reason)) {
+      debugPrint('[SyncEngine] parked $row: $reason');
+    } else {
+      _warn('parked $row on ${reason.runtimeType}: $reason');
+    }
     final key = (entry.syncedTable, entry.rowKey);
     if (!parked.containsKey(key)) _e._parks++;
     parked[key] = entry.hlc;

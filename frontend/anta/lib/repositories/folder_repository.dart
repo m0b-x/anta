@@ -4,6 +4,7 @@ import '../database/daos/folder_dao.dart';
 import '../models/folder_change.dart';
 import '../models/item_label.dart';
 import '../constants/app_constants.dart';
+import '../utils/restartable_stream.dart';
 
 export '../models/folder_change.dart';
 
@@ -21,6 +22,10 @@ class FolderRepository {
 
   /// Stream controller for folder changes (reactive updates)
   final _folderChangesController = StreamController<FolderChange>.broadcast();
+
+  /// Fires when [rebindDatabase] pointed this repository at another database,
+  /// so the watches already handed out resubscribe over it (R114).
+  final _rebinds = StreamController<void>.broadcast();
 
   /// Stream of all folder changes for reactive UI updates
   Stream<FolderChange> get folderChanges => _folderChangesController.stream;
@@ -47,10 +52,13 @@ class FolderRepository {
   /// caches, which belonged to the one that closed — the folder twin of
   /// `NoteRepository.rebindDatabase`, and for the same reason: the object is
   /// held and listened to all over the app, so it survives the switch
-  /// (A5 review R100/R101).
+  /// (A5 review R100/R101). The watches handed out before the switch are
+  /// told last, after the handle and the caches, and resubscribe over the new
+  /// database rather than stream from the closed one (A6 review R114).
   void rebindDatabase(AppDatabase database) {
     _db = database;
     invalidateAll();
+    _rebinds.add(null);
   }
 
   Future<Folder?> getFolderById(String id, {bool forceRefresh = false}) async {
@@ -517,7 +525,10 @@ class FolderRepository {
   }
 
   Stream<List<Folder>> watchFoldersByParent(String? parentId) {
-    return _folderDao.watchFoldersByParent(parentId).map((folders) {
+    return restartableStream(
+      source: () => _folderDao.watchFoldersByParent(parentId),
+      restarts: _rebinds.stream,
+    ).map((folders) {
       for (final folder in folders) {
         _folderCache[folder.id] = folder;
       }
@@ -620,5 +631,6 @@ class FolderRepository {
   /// Dispose resources
   void dispose() {
     _folderChangesController.close();
+    _rebinds.close();
   }
 }

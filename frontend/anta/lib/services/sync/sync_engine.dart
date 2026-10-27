@@ -10,8 +10,10 @@ import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:get_it/get_it.dart';
 import 'package:sqlite3/common.dart' show SqliteException;
 
+import '../../database/crdt/crdt_merge.dart';
 import '../../database/crdt/crdt_write.dart';
 import '../../database/daos/sync_dao.dart';
+import '../../database/daos/sync_outbox_dao.dart';
 import '../../database/database.dart';
 import '../../database/database_lifecycle.dart';
 import '../../database/migrations/database_schema.dart';
@@ -67,6 +69,11 @@ enum SyncRunSkip {
   /// The space is gone or no longer readable by this account; nothing runs
   /// until the next sign-in or launch.
   noAccess,
+
+  /// The initial merge is still pending and the run pulls nothing — the
+  /// background drain: a push before the floor pull would put the pre-bind
+  /// rows over the space (record §3.5).
+  initialMergePending,
 }
 
 /// What one run did, for "Sync now" to report and for the tests to read.
@@ -364,6 +371,12 @@ class SyncEngine {
   /// with the previous one's space: the signal, the triggers and the timers
   /// end at once, a run in flight ends before its next page or batch.
   /// Invoked by [DatabaseLifecycle].
+  ///
+  /// [stop], never [dispose]: `SyncBloc` follows [status] across a database
+  /// switch and has no signal to re-subscribe on, so closing the controller
+  /// here would leave it following a stream that is done. The dropped
+  /// engine's controller therefore outlives it — one per switch, emitting
+  /// nothing more once stopped (A5 review R105).
   static void reset() {
     final engine = _instance;
     final bridge = _bridge;
@@ -406,6 +419,20 @@ class SyncEngine {
     if (_started) return;
     _started = true;
     _stopped = false;
+    // Nothing of the last session's run survives a start: a stop and a start
+    // — the pair a rebind makes — must not meet the new space holding the
+    // old one's pause, quota hold, back-off, failure or parked keys, which
+    // `appOutdated` had no in-session exit from at all (A2 review R45).
+    _pause = SyncPause.none;
+    _accessRecheckable = false;
+    _quotaHeld = false;
+    _lastFailure = null;
+    _failureFromSignal = false;
+    _backoffStep = 0;
+    _signalBackoffStep = 0;
+    _downloadedRows = 0;
+    _puller.parked.clear();
+    _pusher.parked.clear();
     // An engine built while the app is away has heard no leave (S5 review
     // M7).
     final state = _lifecycleState?.call();
@@ -463,9 +490,18 @@ class SyncEngine {
   /// re-checked with one read of the space. A request during a run is served
   /// by the one run that follows it.
   Future<SyncRunReport> syncNow() {
-    _quotaHeld = false;
+    _liftQuotaHold();
     _recheckAccess = true;
     return _request(_RunMode.full);
+  }
+
+  /// Lifts a quota hold, the pause with it: a run that makes no gateway call
+  /// at all — a stale run with no stale table and an empty outbox — reaches
+  /// nothing to clear the pause with, and the status would go on showing a
+  /// quota pause while sync is in fact unblocked (A2 review R57).
+  void _liftQuotaHold() {
+    _quotaHeld = false;
+    if (_pause == SyncPause.quotaExhausted) _pause = SyncPause.none;
   }
 
   /// The app came back: the signal is followed again and a full run starts
@@ -477,7 +513,7 @@ class SyncEngine {
     if (!_started) return;
     _backoffStep = 0;
     _signalBackoffStep = 0;
-    _quotaHeld = false;
+    _liftQuotaHold();
     _recheckAccess = true;
     _retry?.cancel();
     _retry = null;
@@ -493,9 +529,15 @@ class SyncEngine {
   /// drain has run or was skipped — skipped while the initial merge is
   /// pending, which only a full pull may end (record §3.5). Unless started,
   /// only the leave is noted.
-  Future<void> onAppBackgrounded() async {
+  ///
+  /// Answers with the drain's report, the one reader of
+  /// [SyncRunSkip.initialMergePending]: a caller — and the suite — can tell
+  /// a drain that ran from one the pending merge held back (A7 review R142).
+  Future<SyncRunReport> onAppBackgrounded() async {
     _foreground = false;
-    if (!_started) return;
+    if (!_started) {
+      return const SyncRunReport(skipped: SyncRunSkip.stopped);
+    }
     _debounce?.cancel();
     _debounce = null;
     _retry?.cancel();
@@ -503,7 +545,7 @@ class SyncEngine {
     _signalRetry?.cancel();
     _signalRetry = null;
     _detachSignal();
-    await _request(_RunMode.drain);
+    return _request(_RunMode.drain);
   }
 
   // ---------------------------------------------------------------------------
@@ -531,7 +573,18 @@ class SyncEngine {
         final request = _queued;
         if (request == null) break;
         _queued = null;
-        request.done.complete(await _run(request.mode));
+        SyncRunReport report;
+        try {
+          report = await _run(request.mode);
+        } catch (error, stack) {
+          // `_run` nets its own body, but not the handlers that report a
+          // failure: a throw from one of those must still answer the
+          // request, or "Sync now" waits for the rest of the session and the
+          // throw surfaces as an uncaught async error (A2 review R49).
+          _warn('run failed past its own handlers: $error\n$stack');
+          report = const SyncRunReport(failure: SyncGatewayFailure.unknown);
+        }
+        request.done.complete(report);
       }
     } finally {
       _pumping = false;
@@ -574,7 +627,12 @@ class SyncEngine {
       if (_started && _foreground) _attachSignal(_spaceOf(binding));
       final initial =
           await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
-      if (initial && mode == _RunMode.drain) return report();
+      if (initial && mode == _RunMode.drain) {
+        // Named, not a bare report: [onAppBackgrounded] promises its caller
+        // can tell a drain that ran from one that was skipped (A2 review
+        // R56).
+        return report(skipped: SyncRunSkip.initialMergePending);
+      }
       final full = initial || mode == _RunMode.full;
       final pulled = await _puller.pull(
         binding,
@@ -658,9 +716,18 @@ class SyncEngine {
   Future<bool> _regainsAccess(SyncBinding binding) async {
     if (!_recheckAccess || !_accessRecheckable) return false;
     _recheckAccess = false;
+    final SyncSpaceInfo? info;
     try {
-      if (await _gateway.readSpace(_spaceOf(binding)) == null) return false;
+      info = await _gateway.readSpace(_spaceOf(binding));
     } on SyncGatewayException {
+      return false;
+    }
+    if (info == null) return false;
+    // A space written by a newer build reads fine and denies every write:
+    // lifting the pause here would burn a whole pull and a push on every
+    // resume before the diagnosis says so (A4 review R88).
+    if (info.schema > _schema) {
+      _pause = SyncPause.appOutdated;
       return false;
     }
     _pause = SyncPause.none;
@@ -674,7 +741,12 @@ class SyncEngine {
   /// engine was stopped, a restore took [SyncSuspension], the database is no
   /// longer bound as [bound] (an unbind or a rebind — nothing may land in it
   /// after that), or the bound account is no longer the one signed in.
-  /// Cheap enough for every page: one settings read.
+  ///
+  /// Reading the binding is three or four uncached `user_settings` SELECTs,
+  /// and this runs before every page and every batch — on the app's
+  /// background-isolate database, that many port round trips each time (A2
+  /// review R53). Worth it: nothing may land in a database unbound or
+  /// rebound mid-run.
   Future<void> _checkHalt(SyncBinding bound) async {
     if (_stopped) throw const _Halted(SyncRunSkip.stopped);
     if (SyncSuspension.isSuspended) throw const _Halted(SyncRunSkip.suspended);

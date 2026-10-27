@@ -51,6 +51,13 @@ final class CountersBinding extends SyncTableBinding<CounterRow> {
           isPinned: row.isPinned,
           createdAt: row.createdAt,
         ).toJson()..remove(JsonKeys.createdAt),
+        // The stored string, not the enum read back from it: a scope the
+        // column holds but this build does not recognise goes out as it
+        // stands rather than as `global` (R66). That is all it buys — a
+        // scope that never reached the column cannot survive, since
+        // [decode] normalises an unknown one before the merge stores it
+        // (A7 review R135).
+        JsonKeys.counterScope: row.scope,
         'createdAtMs': row.createdAt.millisecondsSinceEpoch,
         if (row.ownerId != null) JsonKeys.ownerId: row.ownerId,
         'position': row.position,

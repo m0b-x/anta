@@ -8,6 +8,7 @@ import '../constants/app_constants.dart';
 import '../models/note_change.dart';
 import '../utils/compression_utils.dart';
 import '../utils/lru_cache.dart';
+import '../utils/restartable_stream.dart';
 
 export '../models/note_change.dart';
 
@@ -25,6 +26,10 @@ class NoteRepository {
 
   /// Stream controller for note changes (reactive updates)
   final _noteChangesController = StreamController<NoteChange>.broadcast();
+
+  /// Fires when [rebindDatabase] pointed this repository at another database,
+  /// so the watches already handed out resubscribe over it (R114).
+  final _rebinds = StreamController<void>.broadcast();
 
   /// Stream of all note changes for reactive UI updates
   Stream<NoteChange> get noteChanges => _noteChangesController.stream;
@@ -61,9 +66,14 @@ class NoteRepository {
   /// and listen on [noteChanges], so a replacement registered in its place
   /// would leave all of them writing to a closed database and announcing on
   /// a stream nobody reads (A5 review R100/R101).
+  /// The watches handed out before the switch are told last, after the
+  /// handle and the caches: each resubscribes over the new database, so a
+  /// page mounted before the switch is not left streaming from the closed
+  /// one (A6 review R114).
   void rebindDatabase(AppDatabase database) {
     _db = database;
     invalidateAll();
+    _rebinds.add(null);
   }
 
   Future<List<Note>> getNotesByIds(List<String> ids) {
@@ -596,7 +606,10 @@ class NoteRepository {
   }
 
   Stream<List<Note>> watchNotesByFolder(String? folderId) {
-    return _noteDao.watchNotesByFolder(folderId).map((notes) {
+    return restartableStream(
+      source: () => _noteDao.watchNotesByFolder(folderId),
+      restarts: _rebinds.stream,
+    ).map((notes) {
       for (final note in notes) {
         _noteCache.put(note.id, note);
       }
@@ -648,14 +661,18 @@ class NoteRepository {
   /// not `created`: every listener treats the two alike, and the row is the
   /// same note with a history, not a new one.
   ///
-  /// Every live row's body is read before the first announcement and rides
-  /// on it as [NoteChange.remoteContent]: an editor holding the note compares
-  /// against what the merge wrote, which a re-read after its own save in
-  /// flight landed would no longer show.
+  /// [bodies] is what the merge wrote, by id, and rides on each announcement
+  /// as [NoteChange.remoteContent]: an editor holding the note compares
+  /// against that text, never against a re-read here — a local save
+  /// committing between the page and this call would answer the re-read with
+  /// the user's own text, and the other device's would be gone on both (R4).
+  /// Nothing is read back for a body the caller did not carry, which also
+  /// keeps a pulled page of hundreds of bodies out of the content LRU (R6).
   Future<void> announceMerged(
     List<String> ids, {
     Set<String> inserted = const {},
     Map<String, String> previousParents = const {},
+    Map<String, String> bodies = const {},
   }) async {
     if (ids.isEmpty) return;
     final rows = await _noteDao.getByIdsIncludingDeleted(ids);
@@ -668,10 +685,6 @@ class NoteRepository {
       final source = previousParents[note.id];
       if (source != null) _invalidateFolderCache(source);
     }
-    final bodies = await loadContentForNotes([
-      for (final note in rows)
-        if (!note.isDeleted) note.id,
-    ]);
     for (final note in rows) {
       final source = previousParents[note.id];
       _noteChangesController.add(
@@ -685,7 +698,7 @@ class NoteRepository {
           folderId: note.folderId,
           note: note.isDeleted ? null : note,
           remote: true,
-          remoteContent: bodies[note.id],
+          remoteContent: note.isDeleted ? null : bodies[note.id],
         ),
       );
       if (source != null && !note.isDeleted) {
@@ -759,5 +772,6 @@ class NoteRepository {
   /// Dispose resources
   void dispose() {
     _noteChangesController.close();
+    _rebinds.close();
   }
 }

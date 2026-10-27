@@ -621,6 +621,68 @@ void main() {
       expect(a().hooks.calls, isNot(contains('before:counter_values')));
     });
 
+    test('a stop and a start clear the pause, the quota hold, the back-off '
+        'and the parked sets', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Refused');
+      pair.gateway.refuse(
+        'folders',
+        folder.id,
+        SyncGatewayFailure.invalidData,
+      );
+      await a().engine.start();
+      await a().settle();
+      expect(a().engine.current.parkedCount, 1, reason: 'parked on the push');
+      pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+      await a().sync();
+      expect(a().engine.current.pause, SyncPause.quotaExhausted);
+
+      // The rebind S4b-2 makes: the unbind takes the stored quota mark, so
+      // only the start can clear what the last session left in memory.
+      await a().engine.stop();
+      await a().binding.unbind();
+      await pair.bind(a());
+      pair.gateway.calls.clear();
+      await a().engine.start();
+      await a().settle();
+
+      expect(a().engine.current.pause, SyncPause.none);
+      expect(pair.gateway.calls, isNotEmpty, reason: 'no quota hold left');
+      expect(
+        pair.gateway.calls,
+        contains('push:A'),
+        reason: 'the parked key is offered again',
+      );
+    });
+
+    test('a throwing afterPage fails neither the page nor the run, while a '
+        'throwing beforePage still faults the table', () async {
+      await b().db.folderDao.createFolder(name: 'Folder');
+      await b().sync();
+      a().hooks.onAfterPage = (table, rows) async => throw StateError('hook');
+
+      final applied = await a().sync();
+
+      expect(applied.failure, isNull);
+      expect(applied.pulledRows, 1);
+      expect(await a().db.select(a().db.folders).get(), hasLength(1));
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        isNotNull,
+      );
+
+      a().hooks.onAfterPage = null;
+      a().hooks.onBeforePage = (table) async {
+        if (table == 'folders') throw StateError('hook');
+      };
+      await b().db.folderDao.createFolder(name: 'Another');
+      await b().sync();
+
+      final refused = await a().sync();
+
+      expect(refused.failure, SyncGatewayFailure.unknown);
+      expect(await a().db.select(a().db.folders).get(), hasLength(1));
+    });
+
     test('a throwing afterRun neither masks a halt nor fails a run', () async {
       await b().db.folderDao.createFolder(name: 'Folder');
       await b().db.counterDao.upsertValue('c1', '', 3);
@@ -748,6 +810,39 @@ void main() {
 
       expect((await a().sync()).skipped, SyncRunSkip.unbound);
     });
+
+    // The contract §4 of the review record makes binding: a database that
+    // never syncs must see no gateway call, no write, no timer and no status
+    // beyond the empty one — the four properties the A1c probe proved and the
+    // four a later fix session could quietly break (A1c review R41).
+    for (final signedIn in [true, false]) {
+      test(
+        'an unbound database is inert end to end, '
+        '${signedIn ? 'signed in' : 'signed out'}',
+        () async {
+          await a().binding.unbind();
+          if (!signedIn) {
+            a().user = null;
+            a().auth.add(null);
+            await a().settle();
+          }
+          pair.gateway.calls.clear();
+          pair.gateway.readSpaceCalls = 0;
+          a().statements.reset();
+          a().statuses.clear();
+
+          await a().engine.start();
+          await a().settle();
+
+          expect(pair.gateway.calls, isEmpty);
+          expect(pair.gateway.readSpaceCalls, 0);
+          expect(a().scheduler.pending, isEmpty);
+          expect(a().statements.captured.where((c) => !c.isSelect), isEmpty);
+          expect(a().engine.current, SyncStatus.empty);
+          expect(a().statuses, isEmpty);
+        },
+      );
+    }
 
     test('a failed call is cleared from the status by the next success', () async {
       pair.gateway.failNextWith(SyncGatewayFailure.offline);

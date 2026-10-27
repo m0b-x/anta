@@ -211,6 +211,12 @@ class SyncPair {
   ///   merged, the same owner either way (the envelope carries it);
   /// - the envelope's `deviceId` and `version`, left out of the string;
   /// - every column the codec leaves out of the data.
+  ///
+  /// A tombstone carries no data, so the codec alone would call two rows
+  /// equal while their columns had diverged — the convergence suite was
+  /// blind to exactly that (R103). The stored row stands in for a
+  /// tombstone, without the columns a merge is not expected to agree on:
+  /// see [_tombstoneColumns].
   static Future<Map<String, String>> snapshot(SyncDevice device) async {
     final rows = <String, String>{};
     for (final binding in syncTableBindings) {
@@ -231,13 +237,47 @@ class SyncPair {
           boundUid: syncUid,
         );
         final data = envelope.data == null
-            ? null
+            ? _tombstoneColumns(row)
             : ({...envelope.data!}..remove(JsonKeys.ownerId));
         rows['${binding.table}/${envelope.rowKey}'] =
             '${envelope.hlc} ${envelope.op.name} ${jsonEncode(data)}';
       }
     }
     return rows;
+  }
+
+  /// What a tombstoned row must still hold the same on both devices: every
+  /// column but the ones a merge is not asked to converge —
+  ///
+  /// - `ownerId`, `deviceId` and `version`, left out of a live row's string
+  ///   for the same reasons;
+  /// - `deletedAt`, which the deleting device takes from `DateTime.now()`
+  ///   and every merging one reconstructs from the stamp's wall time, and
+  ///   `updatedAt`, which a merged tombstone dates at that same instant;
+  /// - a note's `contentLength`, `chunkCount` and `isCompressed`, derived
+  ///   from a body the deleting device dropped and the merging one never
+  ///   received — §3.4 (4) has a tombstone write the stamps and the
+  ///   deletion and keep the rest, so these stay where each device had
+  ///   them.
+  ///
+  /// What is left is what a tombstoned row must still agree on: the data
+  /// the two devices both saw while it was alive.
+  static Map<String, Object?> _tombstoneColumns(Object row) {
+    const apart = {
+      JsonKeys.ownerId,
+      'deviceId',
+      'version',
+      'deletedAt',
+      'updatedAt',
+      'contentLength',
+      'chunkCount',
+      'isCompressed',
+    };
+    final columns = (row as dynamic).toJson() as Map<String, Object?>;
+    return {
+      for (final entry in columns.entries)
+        if (!apart.contains(entry.key)) entry.key: entry.value,
+    };
   }
 }
 

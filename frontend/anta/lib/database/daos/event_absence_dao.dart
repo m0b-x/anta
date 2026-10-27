@@ -336,6 +336,7 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
                     version: Value(remote.version),
                     isDeleted: const Value(true),
                     deletedAt: Value(remote.deletedAt),
+                    updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
                     ownerId: Value(remote.ownerId),
                   ),
                 );

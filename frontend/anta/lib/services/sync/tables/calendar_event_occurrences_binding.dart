@@ -20,7 +20,7 @@ final class CalendarEventOccurrencesBinding
     AppDatabase db,
     Iterable<String> rowKeys,
   ) => db.eventOccurrenceDao.getByDayKeysIncludingDeleted([
-    for (final key in rowKeys) dayKeyOf(key),
+    for (final key in rowKeys) localDayKeyOf(key),
   ]);
 
   @override
@@ -34,7 +34,7 @@ final class CalendarEventOccurrencesBinding
   }) async {
     return envelopeOf(
       table: table,
-      rowKey: rowKeyOf(row),
+      rowKey: dayEnvelopeKey(row.eventId, row.day),
       hlc: row.hlcTimestamp,
       deviceId: row.deviceId,
       version: row.version,
@@ -42,7 +42,7 @@ final class CalendarEventOccurrencesBinding
       ownerId: row.ownerId ?? boundUid,
       data: () => {
         'eventId': row.eventId,
-        'dayMs': row.day.millisecondsSinceEpoch,
+        'dayMs': dayEnvelopeMs(row.day),
         'description': row.description,
         'createdAtMs': row.createdAt.millisecondsSinceEpoch,
         'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,

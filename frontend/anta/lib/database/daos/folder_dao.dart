@@ -5,6 +5,7 @@ import '../tables/folders_table.dart';
 import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
 import '../crdt/merge_outcome.dart';
+import 'sync_dao.dart';
 
 part 'folder_dao.g.dart';
 
@@ -760,10 +761,15 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// deletion and the owner and keeps the rest. Never cascades: each
   /// descendant arrives as its own row. A live remote under another parent
   /// reports the parent it left ([MergeOutcome.moved]).
+  ///
+  /// A live row's parent is then repaired if the merge left it unreachable —
+  /// see [_repairMergedParent]; the repair is a local write with its own
+  /// stamp, so the space converges on it rather than on the parent that hid
+  /// the subtree.
   Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) {
     return transaction(() async {
       final local = await getFolderById(remote.id);
-      return CrdtMerge.mergeRemoteRow(
+      final outcome = await CrdtMerge.mergeRemoteRow(
         db,
         table: folders,
         rowKey: remote.id,
@@ -780,6 +786,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
                 version: Value(remote.version),
                 isDeleted: const Value(true),
                 deletedAt: Value(remote.deletedAt),
+                updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
                 ownerId: Value(remote.ownerId),
               ),
             );
@@ -792,7 +799,108 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           return applied;
         },
       );
+      final parentId = remote.parentId;
+      if (remote.isDeleted ||
+          parentId == null ||
+          (outcome.result != MergeResult.inserted &&
+              outcome.result != MergeResult.applied)) {
+        return outcome;
+      }
+      if (!await _repairMergedParent(remote, parentId)) return outcome;
+      if (outcome.moved || local == null) return outcome;
+      return outcome.movedFrom(local.parentId);
     });
+  }
+
+  /// Re-parents the just-merged [remote] when the parent it arrived under
+  /// leaves it reachable from nowhere, and returns whether it did.
+  ///
+  /// The browser's root list is `parent_id IS NULL` and every live list
+  /// filters tombstones, so a folder whose ancestors never reach the root
+  /// through a live chain appears under no parent at all — it is findable
+  /// only by search, and a backup of it restores with a dangling parent.
+  /// The merge itself cannot refuse the parent: stamps and columns travel
+  /// verbatim, and no descendant of this row is cascaded (record §3.4).
+  ///
+  /// Walks the ancestors of [parentId], tombstones included, bounded by
+  /// [maxFolderDepth] the way every other folder walk here is:
+  ///
+  /// - a chain that comes back to [remote] is a cycle (R63): two devices
+  ///   each moved one folder under the other, each passing its own local
+  ///   descendant check, and the pair plus everything under it left the
+  ///   browser. It is cut to the root.
+  /// - a chain that starts in tombstones takes the nearest live ancestor,
+  ///   the root when there is none (R64): the parent was deleted here while
+  ///   this row was written or moved elsewhere, and the merge never
+  ///   cascades.
+  /// - a chain that runs into a folder this device has not received stands:
+  ///   an unknown parent is not a deleted one, and the rest of the space is
+  ///   still arriving.
+  ///
+  /// The repair is stamped locally, so it outranks the move that caused it
+  /// and the space converges on the break instead of pushing it back.
+  Future<bool> _repairMergedParent(Folder remote, String parentId) async {
+    final rows = await db
+        .customSelect(
+          'WITH RECURSIVE up(id, parent_id, is_deleted, depth) AS ('
+          '  SELECT id, parent_id, is_deleted, 0 FROM folders '
+          '  WHERE id = ?1 '
+          '  UNION ALL '
+          '  SELECT f.id, f.parent_id, f.is_deleted, up.depth + 1 '
+          '  FROM folders f JOIN up ON f.id = up.parent_id '
+          '  WHERE up.depth < $maxFolderDepth'
+          ') SELECT id, parent_id, is_deleted FROM up ORDER BY depth',
+          variables: [Variable<String>(parentId)],
+          readsFrom: {folders},
+        )
+        .get();
+    if (rows.isEmpty) return false;
+    var cycle = false;
+    var reachedRoot = false;
+    String? liveAncestor;
+    for (final row in rows) {
+      final id = row.read<String>('id');
+      if (id == remote.id) {
+        cycle = true;
+        break;
+      }
+      if (liveAncestor == null && row.read<int>('is_deleted') == 0) {
+        liveAncestor = id;
+      }
+      reachedRoot = row.read<String?>('parent_id') == null;
+    }
+    if (!cycle && liveAncestor == parentId) return false;
+    // A cycle, or every ancestor tombstoned up to the root: the row belongs
+    // at the root. A walk that ran out at a folder this device has not
+    // received, or at the depth bound, is left alone.
+    final repaired = cycle ? null : liveAncestor;
+    if (repaired == null && !cycle && !reachedRoot) return false;
+    // Never during the initial merge: the local rows are still the pre-bind
+    // ones, so a parent whose live envelope is later in the same pull reads
+    // here as a tombstone, and the repair would flatten the subtree and push
+    // that move into the space (A7 review R130). The bind's own pull brings
+    // every row, and a break that survives it is repaired by the next merge
+    // this row takes.
+    if (await db.syncDao.getValue(SyncDao.keyBindMergePending) != null) {
+      return false;
+    }
+    // The page advances the clock only once it has committed (R65), so this
+    // stamp would otherwise be minted from a clock that has not seen the
+    // move it repairs: below it on a device whose wall is behind the writing
+    // one's, where the push is denied and the same move re-applies every run
+    // (A7 review R131).
+    CrdtMerge.advanceClock(db, remote.hlcTimestamp);
+    final stamp = await db.stampLocal(folders, remote.id);
+    await (update(folders)..where((f) => f.id.equals(remote.id))).write(
+      FoldersCompanion(
+        parentId: Value(repaired),
+        updatedAt: Value(DateTime.now()),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: Value(remote.version + 1),
+      ),
+    );
+    return true;
   }
 
   Stream<List<Folder>> watchFoldersByParent(String? parentId) {

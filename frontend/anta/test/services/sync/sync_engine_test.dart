@@ -17,6 +17,7 @@ import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/sync/app_sync_apply_hooks.dart';
 import 'package:anta/services/sync/conflict_copy_title.dart';
 import 'package:anta/services/sync/sync_apply_hooks.dart';
+import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
@@ -265,6 +266,32 @@ void main() {
       );
     });
 
+    test('a rolled-back page leaves the clock where it was, and the retry '
+        'moves it', () async {
+      final remote = pair.gateway.rowsOf(pair.space, 'notes')[note.id]!.hlc;
+      final before = a().db.hlc.last.toString();
+      a().hooks.onConflict = (_) async => throw StateError('title clash');
+
+      await a().sync();
+
+      // `hlc.update` is in memory and no rollback undoes it. Advanced
+      // inside the page, this device could mint above a remote row it
+      // never merged — and that row would then lose on every device with
+      // no conflict copy, the one outcome §3.9 exists to prevent (R65).
+      expect(a().db.hlc.last.toString(), before);
+
+      a().hooks.onConflict = null;
+      await a().sync();
+
+      // The retry commits, and the clock is then at or past the stamp it
+      // merged — the node is dropped, since this device's own is its own.
+      String tick(String stamp) => stamp.substring(0, stamp.lastIndexOf(':'));
+      expect(
+        tick(a().db.hlc.last.toString()).compareTo(tick(remote)),
+        greaterThanOrEqualTo(0),
+      );
+    });
+
     test('a copy is filed after its page merged and before its cursor moved, '
         'and commits with the merge', () async {
       final cursor = await a().db.syncDao.getValue(
@@ -329,6 +356,9 @@ void main() {
           rowKey: filed!,
           result: MergeResult.inserted,
           tombstone: false,
+          // The body the page wrote rides with the row, as it does for a
+          // merged note (R4).
+          content: 'typed on A',
         ),
       ]);
       expect(
@@ -434,6 +464,16 @@ void main() {
         .getSingle();
     expect(live.read<int>('n'), 0);
     await expectConverged();
+
+    // And the snapshot sees a tombstoned row's columns: a tombstone carries
+    // no data, so comparing the wire alone called two rows equal however
+    // far their columns had drifted (A7 R103).
+    await b().db.customUpdate(
+      'UPDATE notes SET title = ? WHERE id = ?',
+      variables: [Variable<String>('Drifted'), Variable<String>(note.id)],
+      updates: {b().db.notes},
+    );
+    expect(await SyncPair.snapshot(b()), isNot(await SyncPair.snapshot(a())));
   });
 
   test('a folder deleted with its two notes on A is deleted whole on B', () async {
@@ -674,8 +714,11 @@ void main() {
       test('going to the background pushes nothing before the floor pull', () async {
         pair.gateway.calls.clear();
 
-        await b().engine.onAppBackgrounded();
+        final report = await b().engine.onAppBackgrounded();
 
+        // Named, not merely a drain that pushed nothing: the caller has to
+        // tell this apart from a drain that ran (R56, A7 review R142).
+        expect(report.skipped, SyncRunSkip.initialMergePending);
         expect(pair.gateway.calls, isEmpty);
         expect(spaceName(yielded.id), 'Y from A');
         expect(
@@ -744,6 +787,33 @@ void main() {
       a().hooks.calls.where((c) => c == 'before:folders'),
       hasLength(2),
     );
+    expect(
+      await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+      '${pair.gateway.maxBatch + 1}',
+    );
+  });
+
+  test('a page with a cursor and hasMore but no envelope advances the table '
+      'past it', () async {
+    for (var i = 0; i <= pair.gateway.maxBatch; i++) {
+      pair.gateway.plant(
+        pair.space,
+        folderEnvelope(
+          'f$i',
+          '${(i + 1).toRadixString(16).padLeft(12, '0')}:0000:C',
+        ),
+      );
+      // Every document of the first page is one this build cannot read; the
+      // row past them must still arrive.
+      if (i < pair.gateway.maxBatch) {
+        pair.gateway.unreadable.add(('folders', 'f$i'));
+      }
+    }
+
+    final report = await a().sync();
+
+    expect(report.pulledRows, 1);
+    expect(await a().db.folderDao.getFolderById('f500'), isNotNull);
     expect(
       await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
       '${pair.gateway.maxBatch + 1}',

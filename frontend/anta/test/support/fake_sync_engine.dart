@@ -62,5 +62,8 @@ class FakeSyncEngine implements SyncEngine {
   void onAppResumed() => calls.add('resumed');
 
   @override
-  Future<void> onAppBackgrounded() async => calls.add('backgrounded');
+  Future<SyncRunReport> onAppBackgrounded() async {
+    calls.add('backgrounded');
+    return const SyncRunReport();
+  }
 }

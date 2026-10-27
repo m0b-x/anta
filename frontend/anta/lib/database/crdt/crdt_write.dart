@@ -43,8 +43,12 @@ String counterValueRowKey(String counterId, String noteId) =>
 /// Truncated to the whole second the column stores (drift writes unix
 /// seconds, `~/ 1000`), so a caller's milliseconds cannot key a row apart from
 /// the one the table, a `RETURNING` cascade and the export all read back.
-String dayRowKey(String eventId, DateTime day) =>
-    '$eventId|${day.millisecondsSinceEpoch ~/ 1000 * 1000}';
+String dayRowKey(String eventId, DateTime day) => '$eventId|${dayMs(day)}';
+
+/// The whole second of [day] the column stores: the integer the key above is
+/// built from and the one `dayMs` carries on the wire, from one expression so
+/// a pushed field and the key it is checked against cannot disagree (R79).
+int dayMs(DateTime day) => day.millisecondsSinceEpoch ~/ 1000 * 1000;
 
 /// The one path a write on a synced table takes to obtain its stamp, and the
 /// only path that feeds `sync_outbox`.
@@ -238,15 +242,24 @@ extension CrdtWrite on AppDatabase {
     );
   }
 
-  /// Stores the clock's current value as the seed for the next open — for a
-  /// pull that advanced it through the merges, once per applied batch, and
-  /// after a migration's backfill. Local writes need not call it: queueing a
-  /// row persists the clock.
+  /// Stores the clock's current value as the seed for the next open — after
+  /// a migration's backfill, and wherever a caller raised the clock outside
+  /// a write. Local writes need not call it: queueing a row persists the
+  /// clock, and a pulled page stores its own stamps ([persistStamp]).
   Future<void> persistClock() async {
     final current = hlc.last.toString();
     await into(syncMetadata).insert(_clockRow(current), onConflict: _ahead);
     hlc.claimPersisted(current);
   }
+
+  /// Raises the stored seed to [stamp] without touching the in-memory clock,
+  /// for the caller's transaction: a pulled page commits rows stamped up to
+  /// its highest remote stamp, and this file's invariant — no committed row
+  /// carries a stamp above the stored value — has to survive a kill between
+  /// that commit and the clock's own advance, which the puller makes once
+  /// the page is safe (R65, A7 review R132).
+  Future<void> persistStamp(String stamp) =>
+      into(syncMetadata).insert(_clockRow(stamp), onConflict: _ahead);
 
   /// Stores the clock as `last_hlc` in the caller's transaction, unless this
   /// instance already stored it: so a restart, or a wall clock set back,

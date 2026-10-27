@@ -956,6 +956,10 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// The index is `content=notes`, so an entry is removed while the row still
   /// holds the text it was indexed from and added back after the write; a
   /// tombstone has no entry to remove.
+  ///
+  /// A body this merge wrote rides back on [MergeOutcome.mergedContent]: the
+  /// announcement that follows the page must carry what was stored here, not
+  /// a re-read a local save landing in between would answer with (R4).
   Future<MergeOutcome> mergeNoteDocument(
     Note remote,
     String? content, {
@@ -965,7 +969,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     final merged = body == null ? remote : _withBody(remote, body);
     return transaction(() async {
       final local = await getNoteById(remote.id);
-      return CrdtMerge.mergeRemoteRow(
+      final merge = await CrdtMerge.mergeRemoteRow(
         db,
         table: notes,
         rowKey: remote.id,
@@ -1008,6 +1012,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
                 version: Value(remote.version),
                 isDeleted: const Value(true),
                 deletedAt: Value(remote.deletedAt),
+                updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
                 ownerId: Value(remote.ownerId),
               ),
             );
@@ -1021,6 +1026,13 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           return outcome;
         },
       );
+      if (body == null) return merge;
+      return switch (merge.result) {
+        MergeResult.inserted || MergeResult.applied => merge.withMergedContent(
+          body,
+        ),
+        MergeResult.keptLocal || MergeResult.unchanged => merge,
+      };
     });
   }
 

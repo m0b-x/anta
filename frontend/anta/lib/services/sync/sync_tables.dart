@@ -22,6 +22,11 @@ import 'tables/vocabulary_items_binding.dart';
 /// in SQLite enforces it (no `PRAGMA foreign_keys`); the order is for the
 /// screens' sake. One entry per `syncedTables` row except `content_chunks`,
 /// which travels inside its note — `sync_tables_test` pins it complete.
+///
+/// One exception, deliberate: an event's `noteId` points at a note, and the
+/// calendar block comes before `notes` — the calendar is the heavier read
+/// and the link is followed only on a tap. Inside one run a merged event can
+/// name a note that has not arrived; `afterRun` refreshes once it has (R82).
 const List<SyncTableBinding<Object>> syncTableBindings = [
   CalendarCategoriesBinding(),
   CalendarEventTemplatesBinding(),

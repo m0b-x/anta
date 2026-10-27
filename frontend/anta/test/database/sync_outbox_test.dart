@@ -3,6 +3,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/crdt_merge.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
@@ -581,7 +582,7 @@ void main() {
       expect((await folderRow(local.id)).isDeleted, isFalse);
     });
 
-    group('an inserting merge advances the clock', () {
+    group('a merged stamp orders before the next local one', () {
       // Ahead of the wall clock, as a pull from a device whose clock runs
       // fast delivers it: the next local stamp must still order after it.
       String ahead() => HlcTimestamp(
@@ -590,7 +591,7 @@ void main() {
         nodeId: 'remote',
       ).toString();
 
-      test('mergeNoteDocument', () async {
+      test('mergeNoteDocument, once the puller advanced the clock', () async {
         final local = await seedNote('Squat log');
         final remoteHlc = ahead();
 
@@ -599,10 +600,14 @@ void main() {
           'pulled body',
         );
 
+        // The merge itself does not move the clock; the puller does, once
+        // the page committed (A7 R65).
+        expect(db.newStamp().hlc.compareTo(remoteHlc), lessThan(0));
+        CrdtMerge.advanceClock(db, remoteHlc);
         expect(db.newStamp().hlc.compareTo(remoteHlc), greaterThan(0));
       });
 
-      test('mergeFolder', () async {
+      test('mergeFolder, once the puller advanced the clock', () async {
         final local = await db.folderDao.createFolder(name: 'Training');
         final remoteHlc = ahead();
 
@@ -610,6 +615,8 @@ void main() {
           local.copyWith(id: 'pulled', hlcTimestamp: remoteHlc),
         );
 
+        expect(db.newStamp().hlc.compareTo(remoteHlc), lessThan(0));
+        CrdtMerge.advanceClock(db, remoteHlc);
         expect(db.newStamp().hlc.compareTo(remoteHlc), greaterThan(0));
       });
 
@@ -914,6 +921,41 @@ void main() {
       expect(all.map((r) => r.rowKey), [b.id, a.id]);
       final first = await db.syncOutboxDao.pending(limit: 1);
       expect(first.single.rowKey, b.id);
+    });
+
+    test('pending resumes after an entry already read', () async {
+      final a = await db.folderDao.createFolder(name: 'A');
+      final b = await db.folderDao.createFolder(name: 'B');
+      final c = await db.folderDao.createFolder(name: 'C');
+
+      final head = (await db.syncOutboxDao.pending(limit: 1)).single;
+      final rest = await db.syncOutboxDao.pending(
+        after: (hlc: head.hlc, table: head.syncedTable, rowKey: head.rowKey),
+      );
+
+      expect([a.id, b.id, c.id], contains(head.rowKey));
+      expect(rest, hasLength(2));
+      expect(rest.map((r) => r.rowKey), isNot(contains(head.rowKey)));
+      expect(
+        rest.map((r) => r.rowKey),
+        (await db.syncOutboxDao.pending()).skip(1).map((r) => r.rowKey),
+      );
+    });
+
+    test('pendingForTable reads one table, oldest change first', () async {
+      final folderId = await seedFolderId();
+      final a = await db.folderDao.createFolder(name: 'A');
+      await db.noteDao.createNote(
+        folderId: folderId,
+        title: 'Note',
+        content: 'body',
+      );
+
+      final folders = await db.syncOutboxDao.pendingForTable('folders');
+
+      expect(folders.map((r) => r.syncedTable).toSet(), {'folders'});
+      expect(folders.map((r) => r.rowKey), contains(a.id));
+      expect(await db.syncOutboxDao.pendingForTable('nope'), isEmpty);
     });
   });
 

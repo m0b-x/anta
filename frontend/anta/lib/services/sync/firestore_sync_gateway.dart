@@ -148,8 +148,12 @@ class FirestoreSyncGateway implements SyncGateway {
       final envelopes = <SyncEnvelope>[];
       var next = after;
       // The page's latest position in the cursor's own order — the query's
-      // order, so the cursor cannot step back inside a page.
-      SyncCursor? latest;
+      // order, so the cursor cannot step back inside a page. Seeded with
+      // the cursor the page resumed from: a `resumed` page re-reads the
+      // ten-second overlap, so every document in it can sit under that
+      // cursor, and the page's own maximum would move it backwards (A7
+      // review R137).
+      SyncCursor? latest = after;
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final pushedAt = data['pushedAt'];

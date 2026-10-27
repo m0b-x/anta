@@ -67,7 +67,11 @@ final class NotesBinding extends SyncTableBinding<Note> {
       id: envelope.rowKey,
       folderId: f.field<String>(JsonKeys.folderId, ''),
       title: f.field<String>(JsonKeys.title, ''),
-      preview: f.field<String>(JsonKeys.preview, ''),
+      // Read leniently where every other v43 column is strict: `_withBody`
+      // recomputes the preview from the body, so holding a live document to
+      // it would park a row for a value the merge discards (R70). It stays
+      // in `encode` for backup-format parity.
+      preview: f.nullable<String>(JsonKeys.preview) ?? '',
       contentLength: 0,
       chunkCount: 0,
       isCompressed: false,

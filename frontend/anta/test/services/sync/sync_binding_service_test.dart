@@ -276,6 +276,22 @@ void main() {
       expect(await db.syncDao.getValue(SyncDao.keyBindMergePending), isNull);
     });
 
+    test('two binds started together: the second is refused, not applied over '
+        'the first', () async {
+      final folder = await db.folderDao.createFolder(name: 'Training');
+
+      final outcomes = await Future.wait([
+        for (final uid in ['account-1', 'account-2'])
+          service
+              .bind(space: space, accountUid: uid)
+              .then<Object?>((_) => null, onError: (Object error) => error),
+      ]);
+
+      expect(outcomes.whereType<StateError>(), hasLength(1));
+      expect((await service.read())!.accountUid, 'account-1');
+      expect((await db.folderDao.getFolderById(folder.id))!.ownerId, 'account-1');
+    });
+
     test('clears the quota pause and the last-run times', () async {
       await db.syncDao.setValue(SyncDao.keyQuotaPausedAt, '1');
       await db.syncDao.setValue(SyncDao.keyLastPullAt, '2');

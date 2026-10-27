@@ -56,12 +56,19 @@ class SyncAppliedRow extends Equatable {
   /// The parent the row left when [moved]; null for a folder at the root.
   final String? previousParent;
 
+  /// Notes only: the body the merge wrote, so an editor holding the note is
+  /// told what the page stored instead of the hook re-reading a row a local
+  /// save may have overwritten since (R4). Null for every other table, for a
+  /// tombstone and for a row the merge left alone.
+  final String? content;
+
   const SyncAppliedRow({
     required this.rowKey,
     required this.result,
     required this.tombstone,
     this.moved = false,
     this.previousParent,
+    this.content,
   });
 
   @override
@@ -71,6 +78,7 @@ class SyncAppliedRow extends Equatable {
     tombstone,
     moved,
     previousParent,
+    content,
   ];
 }
 

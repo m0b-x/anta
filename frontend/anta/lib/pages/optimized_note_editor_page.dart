@@ -49,6 +49,7 @@ import '../services/move_coordinator.dart';
 import '../services/duplicate_name_exception.dart';
 import '../services/note_storage_service.dart';
 import '../services/sync/conflict_copy_title.dart';
+import '../services/sync/open_note_registry.dart';
 import '../widgets/label_swatch_strip.dart';
 import '../widgets/note_overflow_menu.dart';
 import '../widgets/unified_app_bars.dart';
@@ -322,6 +323,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     DrawerHostRegistry.register(_scaffoldKey);
+    OpenNoteRegistry.register(_claimsConflictFiling);
     _initDevOptions();
 
     _titleController = TextEditingController(
@@ -1119,6 +1121,33 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       _saves.hasChanges.value ||
       _saves.saveStatus.value == SaveStatus.saving;
 
+  /// The page's body differs from the text it last loaded or saved. The body
+  /// alone, never the title: a pending title edit leaves nothing to defend,
+  /// and [_adoptRemoteUpdate] reloads the arriving body in place (M6).
+  bool get _bodyIsUnsaved =>
+      _contentLoaded && !_saves.isSavedContent(_contentController.text);
+
+  /// The engine's claim ([OpenNoteRegistry]): a pulled page files no conflict
+  /// copy for a note whose body this page holds unsaved, because
+  /// [_adoptRemoteUpdate] files the arriving body itself and the next save
+  /// puts the live text back on the row (record §3.9, R99).
+  ///
+  /// Latched, not re-derived at the event: the merge asks inside its
+  /// transaction and stands back on the answer, while this page hears of the
+  /// change only once that page committed. A save landing in between would
+  /// make [_adoptRemoteUpdate] read the body clean and file nothing, and the
+  /// local body the merge overwrote would be kept nowhere (A7 review R129).
+  bool _claimsConflictFiling(String noteId) {
+    if (noteId != (_saves.effectiveNoteId ?? widget.noteId)) return false;
+    if (!_bodyIsUnsaved) return false;
+    _owesConflictCopy = true;
+    return true;
+  }
+
+  /// The claim [_claimsConflictFiling] made, until [_adoptRemoteUpdate] has
+  /// filed on it.
+  bool _owesConflictCopy = false;
+
   /// The remote changes still being handled, chained so each reads the row
   /// after the one before it. Every write the save coordinator makes waits
   /// for the chain ([_writesMayProceed]): that is what lets a handler read
@@ -1314,7 +1343,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// announced ([NoteChange.remoteContent]), never a re-read: a save already
   /// in flight at the event may have overwritten the row since. A page whose
   /// only pending edit is its title has no body to defend: the body reloads
-  /// in place and the title stays pending (S4b-1 review M6).
+  /// in place and the title stays pending (S4b-1 review M6), and the engine
+  /// files the losing body it overwrote. The engine stands back only for a
+  /// page that claimed the filing while the merge ran
+  /// ([_claimsConflictFiling]); such a page files here whatever it reads
+  /// now, since a save landing in the window would otherwise leave the
+  /// overwritten body nowhere (A7 review R129).
   ///
   /// That reload is last-writer-wins on the title, by design: the merge's own
   /// title is not applied, because the pending local one is written next and
@@ -1331,7 +1365,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       });
       unawaited(_loadFolderName());
     }
-    if (!_hasUnsavedText) {
+    // The claim this page made to the merge ([_claimsConflictFiling]),
+    // consumed here: it files even when the save it was racing landed in the
+    // meantime and left the page reading clean (R129).
+    final owed = _owesConflictCopy;
+    _owesConflictCopy = false;
+    if (!owed && !_hasUnsavedText) {
       final reloaded = await _reloadContentIfChanged();
       if (!mounted || reloaded == false) return;
       if (reloaded == true) {
@@ -1356,7 +1395,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         arriving == _contentController.text) {
       return;
     }
-    if (_saves.isSavedContent(_contentController.text)) {
+    if (!owed && _saves.isSavedContent(_contentController.text)) {
       _adoptLoadedContent(arriving, keepCaret: true, titlePending: true);
       if (_isCurrentRoute) {
         CustomSnackbar.show(
@@ -1908,6 +1947,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     ShortcutHandlerFactory.counterHandler.setActiveNoteId(null);
     WidgetsBinding.instance.removeObserver(this);
     DrawerHostRegistry.unregister(_scaffoldKey);
+    OpenNoteRegistry.unregister(_claimsConflictFiling);
     DevOptions.instance.removeListener(_onDevOptionsChanged);
     // Cancels the restore-scroll and position-save timers.
     _position.dispose();
