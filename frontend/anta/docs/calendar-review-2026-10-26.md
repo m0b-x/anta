@@ -269,7 +269,10 @@ the commit. **Writes.** As B6.
 goldens: byte-equal except the ones a ledger id re-rendered on purpose
 (named in the session log). (2) One `qa-runner`: `qa fleet install
 --build`, `qa pass calendar -d emulator-5556` and `qa pass alerts -d
-emulator-5556`, one `--only` rerun per red; a flow red that was green in
+emulator-5556`, each a foreground call with a ten-minute tool timeout —
+never in the background: a print-mode session cannot be woken (the sync
+record's §0.3 item 8; the brief says it overrides the agent's step 4) —
+one `--only` rerun per red; a flow red that was green in
 the sync review's A9 is a ledger id `→ deferred: owner` and the session
 ends `PARTIAL`. (3) The lead writes, `docs-writer` places: this record's
 status header; one dated entry at the end of
