@@ -14,12 +14,13 @@ stand; where this record refines one it says so. No migration is expected
 ownership, consent) described what is now Phase 03; its one still-live
 point — the resurrection trap of a restore — became readiness D9/R4.
 
-**Review (planned 2026-10-26):** `docs/cloud-sync-phase-02-review-2026-10-26.md`
-reads everything built so far as a whole — the pre-existing app with no
+**Review (2026-10-26; REVIEWED and FIXED 2026-10-28):** `docs/cloud-sync-phase-02-review-2026-10-26.md`
+read everything built so far as a whole — the pre-existing app with no
 bound space, the engine, the wire, the gateway, the cross-module
-scenarios — in overnight sessions A0–A9, then builds the fixes, the two
-unbuilt review lists (S4b-1b, S5b) among them. Its ledger is the truth
-for what the review changed; A9 adds one paragraph at the end of §4.
+scenarios — in overnight sessions A0–A9, then built the fixes in
+`27eb38a`, `8c14215` and `b7c87ea`, the two unbuilt review lists (S4b-1b,
+S5b) among them. Its ledger is the truth for what the review changed; the
+paragraph at the end of §4 carries the carry-overs' new state.
 
 **The line this phase draws:** Firestore enters the app here, behind the
 gateway only — `lib/services/sync/firestore_sync_gateway.dart` and the
@@ -2012,6 +2013,29 @@ background isolate opening the database beside a live app is out of scope
 (readiness D11's honesty clause stands for a closed app). Rules for the
 tokens collection; the owner's Cloudflare account; `wrangler` on the
 machine.
+
+**Review 2026-10-26** (`docs/cloud-sync-phase-02-review-2026-10-26.md`,
+REVIEWED and FIXED 2026-10-28). Nine review sessions read S1–S5 whole after
+the fact and filed R1–R106; three fix passes built every H, M and
+co-located L in `27eb38a` (the editor, the counters, the app around the
+engine), `8c14215` (the engine, the wire, the merge, the hooks) and
+`b7c87ea` (the gateway, the rules, the seam, the tooling), each pass
+reviewed in turn for R107–R156 — 156 ids, 11 H, 36 M, 109 L; the whole
+suite and the three saved device suites are green on `b7c87ea`. **The two
+carry-over lists are built.** S4b-1b: M1 = R3, M2 = R2, L4 = R5, L5 = R7,
+L6 = R8, L7 = R9, L8 = R10, L10 = R13, L11 = R12 and L12 = R11 in
+`27eb38a`, M3 = R6 in `8c14215` — L7 closed as documentation rather than
+code (the undo reset on a title-dirty merge and the silent title LWW both
+stand, review R118) and L8's trade recorded for the owner (a held write's
+first retry is now the 5 s debounce, R121). S5b: M1 = R37, M2 = R89, M3 =
+R93, L4 = R87 and L10 = R94 in `b7c87ea`, L6 = R88 in `8c14215`; L9 is
+answered rather than built — `maxBatch` 499 is safe, the live limit being
+500 field transformations per document (review A4). What the review
+changed in this record is marked `(A<n> review R<id>)` in place (§3.3,
+§3.4, §3.5, §3.9); what it deferred — R98's far-future stamp, R130's
+second half, R148, R96 with the rules deploy, R67's counter share behind
+v44, R17/R43/R83 under D4 A, R39 to S4b-2 — is the review's §6. S4b-2 and
+S6 follow it unchanged.
 
 ---
 
