@@ -6,7 +6,7 @@
 
 .DESCRIPTION
   The sessions are the blocks of docs/cloud-sync-phase-02-review-2026-10-26.md
-  (A0, A1a .. A9) and docs/calendar-review-2026-10-26.md (B1 .. B8). Each run
+  (A0, A1a .. A10) and docs/calendar-review-2026-10-26.md (B1 .. B8). Each run
   gets the kickoff line that record's section 0 shows, the model and effort
   its block names (Sonnet for the mechanical sessions A0, A9 and B8, Opus at
   high for every review and fix session), the repo's permission settings in
@@ -71,9 +71,9 @@ if ($Commit) {
 $env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '3600000'
 
 foreach ($session in $Sessions) {
-    # An id is the block letter, one digit and an optional a/b/c suffix: A0, A1a, B3b.
-    if (-not ($session.Trim() -match '^(?i)([AB])(\d)([A-C])?$')) {
-        throw "Unknown session '$session'; expected A0..A9 or B1..B8, with an optional a/b/c suffix."
+    # An id is the block letter, one or two digits and an optional a/b/c suffix: A0, A1a, A10, B3b.
+    if (-not ($session.Trim() -match '^(?i)([AB])(\d{1,2})([A-C])?$')) {
+        throw "Unknown session '$session'; expected A0..A10 or B1..B8, with an optional a/b/c suffix."
     }
     $block = $Matches[1].ToUpper()
     $suffix = ''
