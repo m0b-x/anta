@@ -155,13 +155,13 @@ void main() {
     expect(find.text('Training'), findsOneWidget);
     // The subtitle is the shared description, not the raw blob.
     expect(find.text('Tracked'), findsOneWidget);
-    expect(id(SemanticsIds.filterPresetRow(service.presets.single.id)),
-        findsOneWidget);
+    expect(
+      id(SemanticsIds.filterPresetRow(service.presets.single.id)),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('the search row appears only past the threshold', (
-    tester,
-  ) async {
+  testWidgets('the search row appears only past the threshold', (tester) async {
     for (var i = 0; i < AppConstants.listSearchThreshold; i++) {
       await service.create(name: 'Filler $i', filters: tracked);
     }
@@ -172,7 +172,9 @@ void main() {
   });
 
   testWidgets('the search field matches the name', (tester) async {
-    await seedPastThreshold(named: {'Training': tracked, 'Skipped days': missed});
+    await seedPastThreshold(
+      named: {'Training': tracked, 'Skipped days': missed},
+    );
 
     await pumpSheet(tester);
     expect(id(SemanticsIds.filterPresetSearch), findsOneWidget);
@@ -450,6 +452,55 @@ void main() {
     });
   });
 
+  /// `panelShowsAll` widens rather than narrows: it has no chip, no place in
+  /// `activeCount`, and "No filter" deliberately keeps it. A preset is a lens
+  /// on the grid, so it must neither carry that preference nor rewrite it.
+  group('the day panel preference', () {
+    const trackedWholeDay = CalendarGridFilters(
+      trackedOnly: true,
+      panelShowsAll: true,
+    );
+
+    testWidgets('a preset saved from here does not carry it', (tester) async {
+      await pumpSheet(tester, current: trackedWholeDay);
+
+      await tap(tester, find.text('Save the current filter'));
+      await tester.enterText(find.byType(TextField).last, 'From here');
+      await tap(tester, find.text('Save'));
+
+      expect(service.presets.single.filters, tracked);
+      // And the row still reads as the one in use, panel preference or not.
+      expect(rowNamed(tester, 'From here').checked, isTrue);
+    });
+
+    testWidgets('applying one leaves the preference as it stands', (
+      tester,
+    ) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(
+        tester,
+        current: const CalendarGridFilters(panelShowsAll: true),
+      );
+      await tap(tester, find.text('Training'));
+
+      expect(popped.single, trackedWholeDay);
+    });
+
+    testWidgets('a preset saved by an older build still reads as in use', (
+      tester,
+    ) async {
+      // Written before the field was normalised out on save.
+      await service.create(name: 'Training', filters: trackedWholeDay);
+
+      await pumpSheet(tester, current: tracked);
+
+      expect(rowNamed(tester, 'Training').checked, isTrue);
+      await tap(tester, find.text('Training'));
+      expect(popped.single, tracked);
+    });
+  });
+
   group('No filter', () {
     /// The one answer the sheet could not give before: "no lens". Clearing
     /// otherwise meant closing, opening the filter sheet, Reset, Apply.
@@ -512,7 +563,10 @@ void main() {
       expect(id(SemanticsIds.filterPresetUpdate), findsOneWidget);
       expect(id(SemanticsIds.filterPresetDelete), findsOneWidget);
       expect(menuItem(tester, SemanticsIds.filterPresetRename).enabled, isTrue);
-      expect(menuItem(tester, SemanticsIds.filterPresetUpdate).enabled, isFalse);
+      expect(
+        menuItem(tester, SemanticsIds.filterPresetUpdate).enabled,
+        isFalse,
+      );
       expect(menuItem(tester, SemanticsIds.filterPresetDelete).enabled, isTrue);
     });
 
@@ -525,7 +579,10 @@ void main() {
         id(SemanticsIds.filterPresetOptions(service.presets.single.id)),
       );
 
-      expect(menuItem(tester, SemanticsIds.filterPresetUpdate).enabled, isFalse);
+      expect(
+        menuItem(tester, SemanticsIds.filterPresetUpdate).enabled,
+        isFalse,
+      );
     });
 
     testWidgets('Update re-points the preset at the live filter in place', (
@@ -606,8 +663,7 @@ void main() {
     /// The names in the order the sheet draws them, top to bottom.
     List<String> shownNames(WidgetTester tester, List<String> names) {
       final byTop = [
-        for (final name in names)
-          (name, tester.getTopLeft(find.text(name)).dy),
+        for (final name in names) (name, tester.getTopLeft(find.text(name)).dy),
       ]..sort((a, b) => a.$2.compareTo(b.$2));
       return [for (final entry in byTop) entry.$1];
     }
@@ -804,7 +860,9 @@ void main() {
         tester.getCenter(handleOf(ids.first)),
       );
       await tester.pump();
-      final sheetBottom = tester.getBottomLeft(find.byType(ReorderableListView)).dy;
+      final sheetBottom = tester
+          .getBottomLeft(find.byType(ReorderableListView))
+          .dy;
       await gesture.moveTo(Offset(400, sheetBottom - 10));
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 50));

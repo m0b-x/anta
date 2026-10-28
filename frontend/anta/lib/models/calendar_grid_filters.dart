@@ -139,9 +139,19 @@ class CalendarGridFilters extends Equatable {
   /// the same reason it is excluded from [activeCount] — it hides nothing.
   bool get isEmpty => activeCount == 0;
 
-  /// True when no axis needs the *day* to decide — i.e. `eventsForDay` can
-  /// trust the pre-filtered list wholesale. Read by `CalendarBloc` to keep the
-  /// per-day loop free in the common case.
+  /// These filters as a saved filter stores them: without [panelShowsAll].
+  ///
+  /// A saved filter is a lens on the grid, and that field is a preference
+  /// about the day panel — it has no chip, it is absent from [activeCount],
+  /// and the filter sheet's Reset deliberately keeps it. A preset carrying it
+  /// rewrote the preference of whoever applied one, with nothing on screen
+  /// saying so and nothing to undo. The one definition for both sheets and
+  /// `FilterPresetService`, so what is stored and what is compared agree.
+  CalendarGridFilters get lens => copyWith(panelShowsAll: false);
+
+  /// True when an axis needs the *day* to decide, so `eventsForDay` cannot
+  /// trust the pre-filtered list wholesale and has to ask per day. Read by
+  /// `CalendarBloc`, which keeps the per-day loop free while this is false.
   bool get hasOccurrenceAxis => missedOnly;
 
   /// How many axes are currently narrowing the grid — the number the app-bar

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // `isNull` / `isNotNull` are SQL builders in drift and matchers in
 // flutter_test; this file wants the matchers.
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -23,6 +25,7 @@ import '../database/support/db_test_support.dart';
 void main() {
   late AppDatabase db;
   late EventPresenceService service;
+  late _HeldAbsenceRead gate;
 
   final day = DateTime.utc(2026, 8, 10);
   final otherDay = DateTime.utc(2026, 8, 11);
@@ -49,11 +52,13 @@ void main() {
 
   setUp(() async {
     EventPresenceService.reset();
-    db = await openTestDatabase();
+    gate = _HeldAbsenceRead();
+    db = await openTestDatabase(interceptor: gate);
     service = await EventPresenceService.forTesting(db);
   });
 
   tearDown(() async {
+    gate.release();
     EventPresenceService.reset();
     await db.close();
   });
@@ -169,6 +174,32 @@ void main() {
 
       expect(EventPresence.isMissed(eventOf('e1'), otherDay), isFalse);
       expect(EventPresence.isMissed(eventOf('e2'), day), isFalse);
+    });
+  });
+
+  group('a reload in flight', () {
+    test("a mark landing inside it keeps the event's other days", () async {
+      await service.setStatus('e1', day, PresenceStatus.missed);
+      // The skip suite's case over the twin that carries the same code: the
+      // reload's rows are held, so the whole of the Missed tap below lands
+      // inside the window the reload is open for — a sync pull's
+      // `_appReloadCalendar` racing a tap. The cache used to be emptied
+      // before that `await`, so the tap's targeted republish served the one
+      // day it wrote and dropped every other.
+      gate.holdNextAbsenceRead();
+      final reload = service.reload();
+      await pumpEventQueue();
+      expect(gate.held, isTrue);
+
+      await service.setStatus('e1', otherDay, PresenceStatus.missed);
+
+      expect(EventPresence.isMissed(eventOf('e1'), day), isTrue);
+
+      gate.release();
+      await reload;
+
+      expect(EventPresence.isMissed(eventOf('e1'), day), isTrue);
+      expect(EventPresence.isMissed(eventOf('e1'), otherDay), isTrue);
     });
   });
 
@@ -502,4 +533,46 @@ void main() {
       expect(EventPresence.isMissed(eventOf('e1'), day), isFalse);
     });
   });
+}
+
+/// Delivers the absence table's reload late: the `SELECT` runs at once, so its
+/// rows are what the table held when the service asked, and they are handed
+/// back only on [release] — the window a sync reload is open for, in which a
+/// mark of its own lands. The skip suite's gate, for the identical race.
+class _HeldAbsenceRead extends QueryInterceptor {
+  Completer<void>? _hold;
+  bool _armed = false;
+  bool held = false;
+
+  /// Holds the next read of `calendar_event_absences`, which is the reload's:
+  /// one shot, so the writes that follow inside the window run freely.
+  void holdNextAbsenceRead() {
+    _armed = true;
+    _hold = Completer<void>();
+  }
+
+  void release() {
+    final hold = _hold;
+    _hold = null;
+    _armed = false;
+    if (hold != null && !hold.isCompleted) hold.complete();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await super.runSelect(executor, statement, args);
+    final hold = _hold;
+    if (_armed &&
+        hold != null &&
+        statement.contains('calendar_event_absences')) {
+      _armed = false;
+      held = true;
+      await hold.future;
+    }
+    return rows;
+  }
 }

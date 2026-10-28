@@ -479,10 +479,16 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     Navigator.of(context).pop((focusDay: day, edit: null));
   }
 
-  void _popEdit(VoidCallback edit) {
-    if (_popped) return;
+  /// Pops with the entry's event named, not with its row's own edit action:
+  /// that closure holds the [CalendarEvent] the row was built from, and the
+  /// list here is frozen at open (see [AgendaDayListEdit]).
+  void _popEdit(AgendaDayListEntry entry) {
+    final eventId = entry.eventId;
+    if (_popped || eventId == null) return;
     _popped = true;
-    Navigator.of(context).pop((focusDay: null, edit: edit));
+    Navigator.of(
+      context,
+    ).pop((focusDay: null, edit: (eventId: eventId, day: entry.day)));
   }
 
   bool get _showsBack => _mode == AgendaDayListMode.month && _cameFromYear;
@@ -604,7 +610,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
       rows: _rows,
       today: widget.today,
       onEntryTap: (entry) => _popDay(entry.day),
-      onEntryEdit: (entry) => _popEdit(entry.onEdit!),
+      onEntryEdit: _popEdit,
     );
     switch (_mode) {
       case AgendaDayListMode.list:

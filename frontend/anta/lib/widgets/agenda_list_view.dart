@@ -490,7 +490,11 @@ class AgendaListView extends StatelessWidget {
   final ValueChanged<DateTime> onDaySelected;
 
   /// Carries the row's occurrence day so the editor can scope to it (v24).
-  final void Function(CalendarEvent event, DateTime day) onEditEvent;
+  ///
+  /// The event **named**, never a copy: the owner resolves the id against its
+  /// own unfiltered list, which is the one place that can tell a tombstone
+  /// from a row a grid filter is hiding.
+  final void Function(String eventId, DateTime day) onEditEvent;
   final ValueChanged<CalendarEvent> onOpenNote;
 
   /// Opens a summary card's drill-down. The list is built here, where the
@@ -697,10 +701,13 @@ class AgendaListView extends StatelessWidget {
   /// [AgendaDayListEntry.missed] set, which is the sheet's only input on the
   /// subject. Without this the drill-down would report a daily gym event as
   /// attended every day of the month.
+  ///
+  /// [editable] draws the rows' pencil: a flag, because the sheet hands the
+  /// pencil back as an `AgendaDayListEdit` and the caller does the opening.
   static List<AgendaDayListEntry> eventDayEntries(
     List<EventOccurrence> occurrences,
     AppLocalizations l10n,
-    void Function(CalendarEvent event, DateTime day)? onEditEvent, {
+    bool editable, {
     required bool showRecurrenceLabels,
     required CalendarMissedDisplay missedDisplay,
   }) {
@@ -720,9 +727,7 @@ class AgendaListView extends StatelessWidget {
               color: entry.color,
               title: entry.title,
               subtitle: entry.subtitle,
-              onEdit: onEditEvent == null
-                  ? null
-                  : () => onEditEvent(occurrence.event, occurrence.day),
+              editable: editable,
               missed: entry.missed,
               eventId: occurrence.event.id,
               presenceTracked: EventPresence.appliesTo(occurrence.event),
@@ -981,7 +986,7 @@ class AgendaListView extends StatelessWidget {
                       () => AgendaListView.eventDayEntries(
                         summary.occurrences,
                         l10n,
-                        onEditEvent,
+                        true,
                         showRecurrenceLabels: showRecurrenceLabels,
                         missedDisplay: missedDisplay,
                       ),
@@ -1026,7 +1031,7 @@ class AgendaListView extends StatelessWidget {
               colorPalette: colorPalette,
               onEdit: entry.event == null
                   ? null
-                  : () => onEditEvent(entry.event!, day),
+                  : () => onEditEvent(entry.event!.id, day),
               onOpenNote: entry.event?.noteId == null
                   ? null
                   : () => onOpenNote(entry.event!),

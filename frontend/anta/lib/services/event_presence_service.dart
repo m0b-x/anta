@@ -69,23 +69,51 @@ class EventPresenceService {
   /// Mutable working copy behind the published facade. Single-day mutations
   /// patch this and republish rather than re-reading the table — a toggle
   /// should not cost a full `SELECT` and map rebuild.
-  final Map<String, Map<DateTime, PresenceStatus>> _byEvent = {};
+  Map<String, Map<DateTime, PresenceStatus>> _byEvent = {};
+
+  /// How many [_load]s are still waiting on their rows.
+  int _loadsInFlight = 0;
+
+  /// Bumped by each single-day write once it has committed, so [_load] can
+  /// tell that the rows it is holding predate one.
+  int _writes = 0;
 
   Future<void> reload() => _load();
 
+  /// Re-reads the whole delta into a fresh map, twice at most — the skip
+  /// service's shape, for the same race.
+  ///
+  /// Built locally and swapped in only once the rows are in: the cache used to
+  /// be emptied before the `await`, so a mark landing inside that window — a
+  /// sync reload racing a tap on Missed — republished the one event it patched
+  /// out of an empty map and every other marked day of that event dropped out
+  /// of the facade until the load finished. [_publishFor] stays quiet for the
+  /// same window, and a write that commits while the rows are in flight is not
+  /// in them, so they are re-read once rather than published without the mark
+  /// the user just made.
   Future<void> _load() async {
-    _byEvent.clear();
+    _loadsInFlight++;
     try {
-      final rows = await _dao.getActiveKeys();
-      for (final row in rows) {
-        (_byEvent[row.eventId] ??= <DateTime, PresenceStatus>{})[_dateOnlyUtc(
-              row.day,
-            )] =
-            row.status;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final writes = _writes;
+        final next = <String, Map<DateTime, PresenceStatus>>{};
+        try {
+          final rows = await _dao.getActiveKeys();
+          for (final row in rows) {
+            (next[row.eventId] ??= <DateTime, PresenceStatus>{})[_dateOnlyUtc(
+                  row.day,
+                )] =
+                row.status;
+          }
+        } catch (e) {
+          debugPrint('[EventPresenceService] Load error: $e');
+          next.clear();
+        }
+        _byEvent = next;
+        if (_writes == writes) break;
       }
-    } catch (e) {
-      debugPrint('[EventPresenceService] Load error: $e');
-      _byEvent.clear();
+    } finally {
+      _loadsInFlight--;
     }
     _publish();
   }
@@ -121,6 +149,7 @@ class EventPresenceService {
   /// has already been handed out, so a render path mid-read cannot see one
   /// shift underneath it.
   void _publishFor(String eventId) {
+    if (_loadsInFlight > 0) return;
     final next = Map<String, Map<DateTime, PresenceStatus>>.of(_published);
     final marks = _byEvent[eventId];
     if (marks == null || marks.isEmpty) {
@@ -148,6 +177,7 @@ class EventPresenceService {
   ) async {
     final key = _dateOnlyUtc(day);
     await _dao.setStatus(eventId, key, status);
+    _writes++;
     (_byEvent[eventId] ??= <DateTime, PresenceStatus>{})[key] = status;
     _publishFor(eventId);
   }
@@ -158,6 +188,7 @@ class EventPresenceService {
   Future<void> clearMark(String eventId, DateTime day) async {
     final key = _dateOnlyUtc(day);
     await _dao.clearMark(eventId, key);
+    _writes++;
     final forEvent = _byEvent[eventId];
     if (forEvent != null) {
       forEvent.remove(key);

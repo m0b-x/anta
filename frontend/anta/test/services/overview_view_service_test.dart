@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/database.dart';
@@ -126,6 +128,47 @@ void main() {
       service.views.first.period,
       const OverviewRollingPeriod(OverviewRollingPreset.last90Days),
     );
+  });
+
+  group('a write crossing the year boundary', () {
+    /// The blob as stored, past the cache: what the next launch decodes.
+    Future<Map<Object?, Object?>> periodBlobOf(String id) async {
+      final rows = await db.overviewViewDao.getAll();
+      final payload = rows.firstWhere((row) => row.id == id).payload;
+      return (jsonDecode(payload) as Map)['period'] as Map<Object?, Object?>;
+    }
+
+    test('a rename in the new year keeps "this year" rolling', () async {
+      service.clock = () => DateTime(2026, 12, 31);
+      final id = await save(
+        'This year',
+        period: const OverviewYearPeriod(2026),
+      );
+      expect(await periodBlobOf(id), {'kind': 'thisYear'});
+
+      // Resumed on 2 January with no view written in between: the cache
+      // still holds the period decoded on 31 December.
+      service.clock = () => DateTime(2027, 1, 2);
+      await service.update(service.views.single.copyWith(name: 'Renamed'));
+
+      expect(await periodBlobOf(id), {'kind': 'thisYear'});
+      expect(service.views.single.period, const OverviewYearPeriod(2027));
+    });
+
+    test('re-pointing the view at a year pins it', () async {
+      service.clock = () => DateTime(2026, 12, 31);
+      final id = await save(
+        'This year',
+        period: const OverviewYearPeriod(2026),
+      );
+
+      service.clock = () => DateTime(2027, 1, 2);
+      await service.update(
+        service.views.single.copyWith(period: const OverviewYearPeriod(2026)),
+      );
+
+      expect(await periodBlobOf(id), {'kind': 'year', 'year': 2026});
+    });
   });
 
   group('reorder', () {

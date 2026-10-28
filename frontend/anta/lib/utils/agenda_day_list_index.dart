@@ -69,7 +69,10 @@ class AgendaDayListIndex {
     );
 
     var start = windowStart;
-    var end = windowEnd;
+    // A reversed window is refused rather than fatal: the assert above is
+    // stripped in release, and an empty [months] is a `StateError` thrown
+    // while the day list sheet is being built.
+    var end = windowEnd.isBefore(windowStart) ? windowStart : windowEnd;
     final byDay = <int, List<AgendaDayListEntry>>{};
     final byMonth = <int, List<AgendaDayListEntry>>{};
     final keptByDay = <int, int>{};

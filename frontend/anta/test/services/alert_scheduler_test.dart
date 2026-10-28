@@ -29,6 +29,7 @@ import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/constants/event_digests.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_digest.dart';
@@ -662,6 +663,26 @@ void main() {
 
       expect(gateway.cancelled, contains(osId));
       expect(gateway.platform, isEmpty);
+    });
+
+    test('"Delete all events" cancels the entries it leaves behind', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final osId = (await registrations()).single.osId;
+      gateway.resetCalls();
+      SyncBindingService.forTesting(db, await SettingsService.getInstance());
+      addTearDown(SyncBindingService.reset);
+
+      // The wipe runs from the settings page, below every bloc, so nothing
+      // else asks for the pass — and until it does the phone still rings for
+      // events that no longer exist.
+      await events.tombstoneAll();
+      await pumpEventQueue();
+
+      expect(gateway.cancelled, contains(osId));
+      expect(gateway.platform, isEmpty);
+      expect(await registrations(), isEmpty);
     });
   });
 

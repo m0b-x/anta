@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // `isNull` / `isNotNull` are SQL builders in drift and matchers in
 // flutter_test; this file wants the matchers.
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -24,6 +26,7 @@ import '../database/support/db_test_support.dart';
 void main() {
   late AppDatabase db;
   late EventSkipService service;
+  late _HeldSkipRead gate;
 
   final day = DateTime.utc(2026, 8, 10);
   final otherDay = DateTime.utc(2026, 8, 11);
@@ -43,12 +46,14 @@ void main() {
   setUp(() async {
     EventSkipService.reset();
     EventPresenceService.reset();
-    db = await openTestDatabase();
+    gate = _HeldSkipRead();
+    db = await openTestDatabase(interceptor: gate);
     service = await EventSkipService.forTesting(db);
     await EventPresenceService.forTesting(db);
   });
 
   tearDown(() async {
+    gate.release();
     EventSkipService.reset();
     EventPresenceService.reset();
     await db.close();
@@ -154,6 +159,31 @@ void main() {
     });
   });
 
+  group('a reload in flight', () {
+    test('a skip landing inside it keeps the event\'s other days', () async {
+      await service.markSkipped('e1', day);
+      // The reload's rows are held, so the whole of the Skip tap below lands
+      // inside the window the reload is open for — the sync pull's
+      // `_appReloadCalendar` racing a tap on Skip. The cache used to be
+      // emptied before that `await`, so the tap's targeted republish served
+      // the one day it wrote and dropped every other.
+      gate.holdNextSkipRead();
+      final reload = service.reload();
+      await pumpEventQueue();
+      expect(gate.held, isTrue);
+
+      await service.markSkipped('e1', otherDay);
+
+      expect(EventSkips.isSkipped('e1', day), isTrue);
+
+      gate.release();
+      await reload;
+
+      expect(EventSkips.isSkipped('e1', day), isTrue);
+      expect(EventSkips.isSkipped('e1', otherDay), isTrue);
+    });
+  });
+
   group('reset', () {
     test('clears the facade so another database cannot hide days', () async {
       await service.markSkipped('e1', day);
@@ -202,4 +232,44 @@ void main() {
       expect(EventSkips.daysFor('e2'), {day});
     });
   });
+}
+
+/// Delivers the skip table's reload late: the `SELECT` runs at once, so its
+/// rows are what the table held when the service asked, and they are handed
+/// back only on [release] — the window a sync reload is open for, in which a
+/// Skip tap of its own lands.
+class _HeldSkipRead extends QueryInterceptor {
+  Completer<void>? _hold;
+  bool _armed = false;
+  bool held = false;
+
+  /// Holds the next read of `calendar_event_skips`, which is the reload's:
+  /// one shot, so the writes that follow inside the window run freely.
+  void holdNextSkipRead() {
+    _armed = true;
+    _hold = Completer<void>();
+  }
+
+  void release() {
+    final hold = _hold;
+    _hold = null;
+    _armed = false;
+    if (hold != null && !hold.isCompleted) hold.complete();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await super.runSelect(executor, statement, args);
+    final hold = _hold;
+    if (_armed && hold != null && statement.contains('calendar_event_skips')) {
+      _armed = false;
+      held = true;
+      await hold.future;
+    }
+    return rows;
+  }
 }

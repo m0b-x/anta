@@ -135,9 +135,15 @@ class FilterPresetService {
   /// Value equality, not identity: what makes two presets the same is what
   /// they filter, and the sheet uses this to show the current filter as
   /// already saved rather than offering to save a duplicate.
+  ///
+  /// Both sides are read as a [CalendarGridFilters.lens], as a saved preset is
+  /// stored: a preference about the day panel is not part of the lens, so it
+  /// must not be what makes the filter the user is looking at read as unsaved.
   CalendarFilterPreset? matching(CalendarGridFilters filters) {
     for (final preset in _cache) {
-      if (preset.filters == filters) return preset;
+      if (preset.filters.lens == filters.lens) {
+        return preset;
+      }
     }
     return null;
   }

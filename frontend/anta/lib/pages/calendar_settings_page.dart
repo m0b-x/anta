@@ -1261,7 +1261,15 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
     if (!confirmed || !mounted) return;
 
-    await _eventService?.tombstoneAll();
+    if (_eventService != null) {
+      await _eventService!.tombstoneAll();
+      // No bloc drove this wipe, so nothing has emitted: a `CalendarBloc`
+      // loaded before the trip here keeps serving the wiped events, and saving
+      // one of them hits the DAO's update branch and resurrects it. The
+      // external change is the one way a page below the bloc says the store
+      // moved.
+      CalendarEventService.notifyExternalChange();
+    }
     if (!mounted) return;
     // Another account's events survive the wipe, so the count is re-read.
     setState(() => _eventCount = _eventService?.events.length ?? 0);

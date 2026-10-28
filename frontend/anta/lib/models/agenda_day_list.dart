@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart' show Color, IconData, VoidCallback;
+import 'package:flutter/widgets.dart' show Color, IconData;
 
 import 'fasting_appearance.dart';
 
@@ -19,16 +19,17 @@ class AgendaDayListEntry {
   final String title;
   final String? subtitle;
 
-  /// Optional trailing action. Event rows open the editor with it, so
-  /// collapsing the events layer never puts editing further away than a row
-  /// tap; a holiday or fasting day has nothing to open and leaves it null,
-  /// which is also what keeps those rows free of an empty action strip.
+  /// Whether the row offers the pencil. Event rows do, so collapsing the
+  /// events layer never puts editing further away than a row tap; a holiday or
+  /// fasting day has nothing to open and leaves it false, which is also what
+  /// keeps those rows free of an empty action strip.
   ///
-  /// Held here rather than run from inside the sheet: the sheet resolves it
-  /// back to the caller instead, so the editor opens **after** this sheet is
-  /// gone rather than stacked on top of it — the same "return an intent, let
-  /// the caller route it" contract `EventDetailSheet` follows.
-  final VoidCallback? onEdit;
+  /// A flag, never a callback: the sheet hands the pencil back as an
+  /// [AgendaDayListEdit] and runs nothing from the row itself, so a closure
+  /// here would only keep the row's `CalendarEvent` alive behind the open
+  /// sheet — and would be a second, different question from the one
+  /// [eventId] already answers.
+  final bool editable;
 
   /// Whether this occurrence was marked missed (**v26**).
   ///
@@ -55,7 +56,7 @@ class AgendaDayListEntry {
     required this.color,
     required this.title,
     this.subtitle,
-    this.onEdit,
+    this.editable = false,
     this.missed = false,
     this.eventId,
     this.presenceTracked = false,
@@ -87,14 +88,24 @@ typedef AgendaDayMarkResolver =
 /// The first and last year a surface may page to, inclusive.
 typedef AgendaYearBounds = ({int first, int last});
 
-/// What the viewer picked out of the sheet: a day to focus, or an entry's
-/// edit action to run.
+/// What the viewer picked out of the sheet: a day to focus, or an entry to
+/// edit.
 ///
 /// A record rather than a sealed hierarchy — the house style for small
 /// multi-valued returns (`getMoneyConfig`, the day-group tuples in
 /// `buildAgendaRows`) — and returned rather than acted on, so the editor opens
 /// after this sheet has closed instead of stacking on it.
-typedef AgendaDayListResult = ({DateTime? focusDay, VoidCallback? edit});
+typedef AgendaDayListResult = ({DateTime? focusDay, AgendaDayListEdit? edit});
+
+/// The occurrence whose pencil was tapped: the event **named**, never a copy
+/// of it. The sheet freezes its rows at open, so the event behind one may
+/// have been replaced — or tombstoned — by a sync reload or an alert edit by
+/// the time the editor opens; the caller re-reads it then (review 2).
+///
+/// Returned rather than acted on, and the name travels all the way to the
+/// page that owns the unfiltered events: a lookup in a view holding a
+/// filtered list would open nothing for a row its filters now hide.
+typedef AgendaDayListEdit = ({String eventId, DateTime day});
 
 /// Which summary card an [AgendaDayList] came from — its identity, not its
 /// contents.

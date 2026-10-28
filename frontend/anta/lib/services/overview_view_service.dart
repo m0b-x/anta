@@ -31,6 +31,13 @@ class OverviewViewService {
 
   late OverviewViewDao _dao;
 
+  /// Clock seam: what a view's period is decoded against and written back
+  /// against are two different days whenever a write crosses New Year, which
+  /// is exactly the case a test has to be able to stage ([_load],
+  /// [_toCompanion]).
+  @visibleForTesting
+  DateTime Function() clock = DateTime.now;
+
   OverviewViewService._();
 
   static Future<OverviewViewService> getInstance() async {
@@ -98,7 +105,7 @@ class OverviewViewService {
   Future<void> _load() async {
     try {
       final rows = await _dao.getAll();
-      final today = DateTime.now();
+      final today = clock();
       _cache = List.unmodifiable(rows.map((row) => _rowToView(row, today)));
     } catch (e) {
       debugPrint('[OverviewViewService] Load error: $e');
@@ -267,7 +274,7 @@ class OverviewViewService {
     return OverviewViewsCompanion(
       id: Value(view.id),
       name: Value(view.name),
-      payload: Value(jsonEncode(view.toJson(today: DateTime.now()))),
+      payload: Value(jsonEncode(view.toJson(today: clock()))),
       sortOrder: Value(view.sortOrder),
     );
   }

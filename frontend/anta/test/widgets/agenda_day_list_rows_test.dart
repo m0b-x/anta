@@ -399,7 +399,7 @@ void main() {
         color: const Color(0xFF1E88E5),
         title: 'Stretch',
         eventId: 'Stretch',
-        onEdit: () {},
+        editable: true,
       );
       final rows = [AgendaDayListEntryRow(entry: editable)];
 
@@ -503,7 +503,7 @@ void main() {
             color: const Color(0xFF1E88E5),
             title: 'Stretch',
             eventId: 'Stretch',
-            onEdit: () {},
+            editable: true,
             presenceTracked: true,
           ),
         ),

@@ -488,6 +488,25 @@ class OverviewRobot {
 
   AgendaMonthGrid get _grid => tester.widget(find.byType(AgendaMonthGrid));
 
+  /// How many rows month mode's day-list sliver was given — the count that
+  /// has to come from the same build as the row builder beside it, which the
+  /// outgoing body of a mode cross-fade is where a suite can see.
+  int get monthRowSliverCount {
+    final body = tester.widget<CustomScrollView>(
+      find.ancestor(
+        of: find.byType(AgendaMonthGrid),
+        matching: find.byType(CustomScrollView),
+      ),
+    );
+    for (final sliver in body.slivers) {
+      final inner = sliver is SliverPadding ? sliver.child : sliver;
+      if (inner is SliverList) {
+        return (inner.delegate as SliverChildBuilderDelegate).childCount!;
+      }
+    }
+    throw StateError('month mode built no day-list sliver');
+  }
+
   Finder _gridCell(DateTime day) => find.descendant(
     of: find.byType(AgendaMonthGrid),
     matching: find.byWidgetPredicate(

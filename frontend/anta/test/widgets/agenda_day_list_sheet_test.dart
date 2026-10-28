@@ -1253,7 +1253,6 @@ void main() {
   testWidgets('a row with an action offers it and resolves it', (tester) async {
     // Collapsing the events layer must never put editing further away than it
     // was in the list it replaced.
-    var ran = 0;
     final robot = DayListRobot(tester);
     final picked = await openSheet(
       robot,
@@ -1269,7 +1268,8 @@ void main() {
             color: const Color(0xFF1E88E5),
             title: 'Leg day',
             subtitle: 'Weekly · 07:00 – 08:00',
-            onEdit: () => ran++,
+            editable: true,
+            eventId: 'e1',
           ),
         ],
       ),
@@ -1277,14 +1277,14 @@ void main() {
 
     await robot.tapEdit('Leg day');
 
-    // The sheet resolves the intent rather than running it, so the caller can
-    // open the editor after this sheet is gone instead of stacked on it.
-    expect(ran, 0);
+    // The sheet names the occurrence rather than carrying an action of its
+    // own, so the caller opens the editor after this sheet is gone — on the
+    // event as it stands then, not on the copy this row was built from.
     expect(picked.result?.focusDay, isNull);
-    expect(picked.result?.edit, isNotNull);
-
-    picked.result!.edit!();
-    expect(ran, 1);
+    expect(picked.result?.edit, (
+      eventId: 'e1',
+      day: DateTime.utc(2026, 8, 15),
+    ));
   });
 
   testWidgets('list mode with no entries says so and keeps its chrome', (
@@ -1332,7 +1332,6 @@ void main() {
   });
 
   testWidgets('a second tap on a row action pops nothing more', (tester) async {
-    var ran = 0;
     final robot = DayListRobot(tester);
     final picked = await openSheet(
       robot,
@@ -1347,7 +1346,8 @@ void main() {
             icon: Icons.fitness_center,
             color: gymColor,
             title: 'Leg day',
-            onEdit: () => ran++,
+            editable: true,
+            eventId: 'e1',
           ),
         ],
       ),
@@ -1356,11 +1356,10 @@ void main() {
     robot.tapEditTwiceInOneFrame('Leg day');
     await tester.pumpAndSettle();
 
+    // One intent, for the caller to resolve once.
     expect(picked.result?.edit, isNotNull);
     expect(robot.hostVisible, isTrue);
     expect(tester.takeException(), isNull);
-    // Still an intent, resolved once by the caller.
-    expect(ran, 0);
   });
 
   group('the chrome of the language', () {
@@ -1382,7 +1381,7 @@ void main() {
           color: gymColor,
           title: 'Leg day',
           subtitle: 'Weekly · 07:00 – 08:00',
-          onEdit: () {},
+          editable: true,
         ),
       ],
     );

@@ -74,6 +74,7 @@ void main() {
     WidgetTester tester, {
     Locale locale = const Locale('en'),
     double textScale = 1.0,
+    DateTime? selectedDay,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -94,7 +95,7 @@ void main() {
               loaded: CalendarPageLoaded(
                 allEvents: const [],
                 focusedDay: day,
-                selectedDay: day,
+                selectedDay: selectedDay ?? day,
                 selectionSource: CalendarSelectionSource.grid,
               ),
               appearance: const CalendarAppearance(),
@@ -317,6 +318,28 @@ void main() {
       expect(scrollableOverBar(), findsNothing);
       expect(panelTop(tester), barHeight);
       expect(tester.takeException(), isNull);
+    });
+
+    /// The fit decision is three `TextPainter.layout()` calls, and the bar is
+    /// rebuilt on every day tap — the panel's `buildWhen` watches the
+    /// selection. Neither budget suite sees that path, so the measurement
+    /// counter is what pins it.
+    testWidgets('a day tap costs the bar no new measurement', (tester) async {
+      setPhone(tester);
+      await pumpPanel(tester);
+      await pumpFrames(tester);
+      final measured = panelModeFitMeasurements;
+
+      await pumpPanel(tester, selectedDay: day.add(const Duration(days: 1)));
+      await pumpFrames(tester);
+
+      expect(panelModeFitMeasurements, measured);
+
+      // The counter is live: a text scale the memo has not seen measures again.
+      await pumpPanel(tester, textScale: 2.0);
+      await pumpFrames(tester);
+
+      expect(panelModeFitMeasurements, greaterThan(measured));
     });
 
     testWidgets('a tap on an icon segment still switches the mode', (

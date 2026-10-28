@@ -531,7 +531,7 @@ class AgendaDayListRowBuilder {
     final onEdit = onEntryEdit;
     final onPresence = onEntryPresence;
     final FormTrailingButton? trailing;
-    if (onEdit != null && entry.onEdit != null) {
+    if (onEdit != null && entry.editable) {
       trailing = FormTrailingButton(
         icon: Icons.edit_outlined,
         tooltip: l10n.upcomingEditEvent,

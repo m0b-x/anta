@@ -10,6 +10,7 @@ import '../database/daos/calendar_event_dao.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 import '../models/recurrence_rule_codec.dart';
+import 'alert_scheduler.dart';
 import 'event_alert_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
@@ -68,8 +69,12 @@ class CalendarEventService {
   /// `PublicHolidays.revision` uses for holidays.
   ///
   /// Deliberately **not** bumped by [upsert], [deleteById], [tombstoneAll] or
-  /// [reload]: the bloc drives those and already emits. Static so it survives
-  /// [reset] nulling the instance.
+  /// [reload]: a bloc that drove one of those has already emitted. A caller
+  /// that did *not* come through a bloc owns the bump itself —
+  /// `CalendarSettingsPage`'s "Delete all events" is the one such caller, and
+  /// without its [notifyExternalChange] a loaded bloc kept serving the wiped
+  /// events and saving one resurrected it. Static so it survives [reset]
+  /// nulling the instance.
   static int externalRevision = 0;
 
   static final StreamController<void> _externalChanges =
@@ -111,16 +116,50 @@ class CalendarEventService {
     }
   }
 
+  /// Bumped by each single-event write once it has committed, so [_load] can
+  /// tell that the rows it is holding predate one.
+  int _writes = 0;
+
   Future<void> reload() => _load();
 
+  /// Re-reads the whole store into [_cache], twice at most.
+  ///
+  /// A write that commits while the rows are in flight is not in them, and
+  /// replacing the cache with them reads the user's own save back out of it —
+  /// `AlertScheduler.reconcileAll` plans from this very list, so a just-saved
+  /// event could be planned out of the pass that saving it provoked. The
+  /// second read is issued after that write, so it holds it; a write racing
+  /// the second read is left to the next reload.
   Future<void> _load() async {
-    try {
-      final rows = await _dao.getAll();
-      _cache = List.unmodifiable(rows.map(_rowToEvent));
-    } catch (e) {
-      debugPrint('[CalendarEventService] Load error: $e');
-      _cache = const [];
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final writes = _writes;
+      try {
+        final rows = await _dao.getAll();
+        _cache = List.unmodifiable(rows.map(_rowToEvent));
+      } catch (e) {
+        debugPrint('[CalendarEventService] Load error: $e');
+        _cache = const [];
+      }
+      if (_writes == writes) return;
     }
+  }
+
+  /// Inserts [event] where the store's start-date order puts it, after the
+  /// events it ties with.
+  ///
+  /// [CalendarEventDao.getAll] documents that order as the store's contract
+  /// ("live events, in start-date order ... the single read path for the whole
+  /// feature") and the cache is what every reader sees between two loads, so
+  /// appending would have made the contract hold only until the next reload.
+  static void _insertByStart(List<CalendarEvent> events, CalendarEvent event) {
+    var index = events.length;
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].startDate.isAfter(event.startDate)) {
+        index = i;
+        break;
+      }
+    }
+    events.insert(index, event);
   }
 
   Future<void> upsert(CalendarEvent event) async {
@@ -137,11 +176,13 @@ class CalendarEventService {
     );
     final now = DateTime.now();
     await _dao.upsert(_eventToCompanion(normalized, updatedAt: now));
-    _cache = List.unmodifiable([
+    _writes++;
+    final next = [
       for (final e in _cache)
         if (e.id != normalized.id) e,
-      normalized,
-    ]);
+    ];
+    _insertByStart(next, normalized);
+    _cache = List.unmodifiable(next);
   }
 
   /// Deletes the event and cascades to its per-occurrence description and
@@ -177,6 +218,7 @@ class CalendarEventService {
       await _dao.tombstoneEventCascade(id);
       await _db.alertRegistrationDao.deleteForEvent(id);
     });
+    _writes++;
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
     await _refreshOccurrences();
     await _refreshPresence();
@@ -196,6 +238,13 @@ class CalendarEventService {
   /// The cache is re-read rather than emptied: another account's events
   /// survive the wipe (a restored archive on an unbound device), and an empty
   /// cache would hide them until the next load.
+  ///
+  /// The platform pass at the end is what [deleteById]'s caller does for one
+  /// event: the registry rows are gone, but the phone still holds the entries
+  /// they described, and cancelling them is exactly what the pass is for —
+  /// without it an alarm rings for an event that no longer exists. Requested
+  /// unawaited after the facades, the shape `CategoryService.deleteCategory`
+  /// uses.
   Future<void> tombstoneAll() async {
     final binding = await (await SyncBindingService.getInstance()).read();
     await _db.transaction(() async {
@@ -207,6 +256,9 @@ class CalendarEventService {
     await _refreshPresence();
     await _refreshSkips();
     await _refreshAlerts();
+    unawaited(
+      AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
+    );
   }
 
   /// Republishes the occurrence facade after a cascade. Tolerates the service

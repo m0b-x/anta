@@ -619,6 +619,32 @@ void main() {
       expect(find.text('Saved as "Skipped"').hitTestable(), findsOneWidget);
     });
 
+    testWidgets('the bookmark stores the lens, not the day panel preference', (
+      tester,
+    ) async {
+      seed(3);
+      await open(
+        tester,
+        const CalendarGridFilters(missedOnly: true, panelShowsAll: true),
+      );
+
+      await tap(tester, id(SemanticsIds.filterSave));
+      await tester.enterText(find.byType(TextField), 'Skipped');
+      await tap(tester, find.text('Save'));
+
+      // `calendar_filter_presets` is a synced table, and a device on an older
+      // build pops `preset.filters` whole: the day panel's preference must
+      // not be in the stored row at all, not merely normalised on the way
+      // out of this build.
+      expect(
+        service.presets.single.filters,
+        const CalendarGridFilters(missedOnly: true),
+      );
+      // And the row still reads as the one in use.
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Skipped');
+      expect(bookmark(tester).onPressed, isNull);
+    });
+
     testWidgets('the saved-filter row opens the presets and a pick replaces '
         'the draft', (tester) async {
       seed(3);

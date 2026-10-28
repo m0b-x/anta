@@ -69,7 +69,7 @@ void main() {
     ValueChanged<UpcomingAgendaFilters>? onFiltersChanged,
     VoidCallback? onResetAnchor,
     ValueChanged<DateTime>? onDaySelected,
-    void Function(CalendarEvent event, DateTime day)? onEditEvent,
+    void Function(String eventId, DateTime day)? onEditEvent,
     List<CalendarEvent>? events,
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
   }) {
@@ -669,14 +669,14 @@ void main() {
     testWidgets('the drill-down lists the occurrences and can edit them', (
       tester,
     ) async {
-      CalendarEvent? edited;
+      String? edited;
       DateTime? editedDay;
       await pumpView(
         tester,
         anchorDay: anchor,
         filters: window.copyWith(eventDisplay: AgendaEventDisplay.summary),
-        onEditEvent: (event, day) {
-          edited = event;
+        onEditEvent: (eventId, day) {
+          edited = eventId;
           editedDay = day;
         },
       );
@@ -688,10 +688,78 @@ void main() {
       // Collapsing must never put editing further away than a row tap.
       await dayList.tapEdit('Leg day');
 
-      expect(edited?.id, 'e1');
+      expect(edited, 'e1');
       expect(editedDay, anchor);
       // The sheet closed first, so the editor never stacks on top of it.
       expect(dayList.isOpen, isFalse);
+    });
+
+    testWidgets('the pencil names the event, never the copy the row carried', (
+      tester,
+    ) async {
+      String? edited;
+      final summary = window.copyWith(
+        eventDisplay: AgendaEventDisplay.summary,
+      );
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        onEditEvent: (eventId, _) => edited = eventId,
+      );
+
+      final dayList = DayListRobot(tester);
+      await dayList.openFromCard();
+
+      // A sync reload replaces the calendar under the open sheet. The
+      // sheet's rows are frozen at open, so the row still reads 'Leg day' —
+      // and what travels is the id, which is what lets the page open the
+      // event as the reload left it.
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        events: [sharedEvents.single.copyWith(title: 'Leg day (remote)')],
+        onEditEvent: (eventId, _) => edited = eventId,
+      );
+
+      await dayList.tapEdit('Leg day');
+
+      expect(edited, 'e1');
+    });
+
+    testWidgets('a pencil on a row this view no longer lists still reaches '
+        'the caller', (tester) async {
+      final edits = <String>[];
+      final summary = window.copyWith(
+        eventDisplay: AgendaEventDisplay.summary,
+      );
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        onEditEvent: (eventId, _) => edits.add(eventId),
+      );
+
+      final dayList = DayListRobot(tester);
+      await dayList.openFromCard();
+
+      // This view is handed the *filtered* events, so an occurrence a grid
+      // filter now hides is gone from its list while the calendar still holds
+      // it. A lookup here would open no editor at all; the page's own lookup
+      // reads the unfiltered events, and it is the one that opens nothing for
+      // an event the same reload tombstoned.
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        events: const [],
+        onEditEvent: (eventId, _) => edits.add(eventId),
+      );
+
+      await dayList.tapEdit('Leg day');
+
+      expect(edits, ['e1']);
     });
 
     testWidgets('per-event mode still collapses repeats to one row', (

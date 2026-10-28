@@ -262,7 +262,10 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
       existingNames: _otherNames(),
     );
     if (name == null || !mounted) return;
-    final saved = await service.create(name: name, filters: widget.current);
+    final saved = await service.create(
+      name: name,
+      filters: widget.current.lens,
+    );
     if (!mounted) return;
     if (saved == null) {
       _report(l10n.filterPresetLimitReached(FilterPresetService.maxPresets));
@@ -325,7 +328,7 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
   /// the "I tweaked this and want to keep the tweak" path, which otherwise
   /// means deleting and re-saving under the same name.
   Future<void> _updateToCurrent(CalendarFilterPreset preset) async {
-    await _service?.update(preset.copyWith(filters: widget.current));
+    await _service?.update(preset.copyWith(filters: widget.current.lens));
     if (!mounted) return;
     setState(() => _presets = _service?.presets ?? const []);
   }
@@ -580,13 +583,20 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
         canReorder: canReorder,
         // Value equality on the filters, not the id: what makes a preset
         // "the one in use" is that the calendar is showing exactly what it
-        // saves.
-        inUse: preset.filters == current,
+        // saves. Both sides are read as a lens, so the day-panel preference
+        // — which a preset saved by an older build may still carry — cannot
+        // make the preset the calendar is showing read as unused.
+        inUse: preset.filters.lens == current.lens,
         caption: CalendarFilterSummary.describe(preset.filters, l10n),
         reorderLabel: l10n.filterPresetReorder,
         actionsTooltip: l10n.filterPresetActions,
-        onPick: () => Navigator.of(context).pop(preset.filters),
-        onActions: (anchor, inUse) => _openActions(anchor, preset, inUse: inUse),
+        // The lens, over the panel preference as it stands: applying a saved
+        // filter narrows the grid and leaves the day panel alone.
+        onPick: () => Navigator.of(context).pop(
+          preset.filters.lens.copyWith(panelShowsAll: current.panelShowsAll),
+        ),
+        onActions: (anchor, inUse) =>
+            _openActions(anchor, preset, inUse: inUse),
       ),
       _SaveItem() => FormActionRow(
         glyph: Icons.bookmark_add_outlined,

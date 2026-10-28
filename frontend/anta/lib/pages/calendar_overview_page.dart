@@ -351,6 +351,14 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   String? _titleTemplatesKey;
   List<String> _titleTemplatesCache = const [];
 
+  /// The totals caption, the saved view the list shown is, and whether the
+  /// list nav's chevrons reach anywhere — all four folded on navigation
+  /// ([_foldNav]), never in a frame.
+  String _totalsCaption = '';
+  OverviewView? _activeView;
+  bool _canStepBack = false;
+  bool _canStepForward = false;
+
   /// Whether the list's period crosses New Year, which names the year in
   /// its month and day headers.
   bool _spanCrossesYear = false;
@@ -557,7 +565,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     try {
       final service = await OverviewViewService.getInstance();
       if (!mounted) return;
-      setState(() => _viewService = service);
+      setState(() {
+        _viewService = service;
+        _foldNav();
+      });
     } catch (e) {
       debugPrint('[CalendarOverviewPage] Saved views load failed: $e');
     }
@@ -768,6 +779,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _storeStale = true;
       _rows = const [];
       _monthBucket = null;
+      _foldNav();
       if (mounted) setState(() {});
       return;
     }
@@ -850,6 +862,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
           setState(() {
             _resolveYear(target);
             _tallyYear(_year);
+            _foldNav();
           });
         });
       }
@@ -881,13 +894,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     }
     for (final occurrence in occurrences) {
       final key = AgendaMonthStore.keyOf(occurrence.day);
+      // A day the scan returned outside the span has no mask seeded above:
+      // folded into a fresh one, since a release build has no assert to stop
+      // it and this runs inside `setState`.
       _occurrenceMask[key] =
-          _occurrenceMask[key]! | (1 << (occurrence.day.day - 1));
+          (_occurrenceMask[key] ?? 0) | (1 << (occurrence.day.day - 1));
     }
     return AgendaListView.eventDayEntries(
       occurrences,
       _l10n!,
-      null,
+      false,
       showRecurrenceLabels: _appearance.showRecurrenceLabels,
       missedDisplay: _appearance.missedDisplay,
     );
@@ -904,7 +920,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
           EventPresence.isMissed(event, occurrence.day)) {
         continue;
       }
-      final counts = _markedKept[AgendaMonthStore.keyOf(occurrence.day)]!;
+      // [_resolve]'s reasoning: a day outside the span gets its own counts
+      // rather than a null check the asserts alone guard.
+      final counts = _markedKept.putIfAbsent(
+        AgendaMonthStore.keyOf(occurrence.day),
+        () => <String, int>{},
+      );
       final category = CalendarCategories.resolve(event.categoryId).id;
       counts[category] = (counts[category] ?? 0) + 1;
     }
@@ -923,7 +944,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _resolveGeneration++;
     _rowsBase = null;
     final store = _store;
-    if (store == null) return;
+    if (store == null) {
+      _foldNav();
+      return;
+    }
     switch (_mode) {
       case AgendaDayListMode.year:
         _rows = const [];
@@ -980,6 +1004,20 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
           );
         }
     }
+    _foldNav();
+  }
+
+  /// Folds what the chrome reads out of the state a navigation just set: the
+  /// totals caption, the saved view the list shown matches and the reach of
+  /// the list nav's two chevrons. [_titleTemplates]'s reasoning — a frame
+  /// walks no category catalog, scans no saved list and resolves no period
+  /// twice over just to enable a button.
+  void _foldNav() {
+    final l10n = _l10n;
+    _totalsCaption = l10n == null ? '' : _totalsLabel(l10n);
+    _activeView = _viewService?.matching(_shownPeriod, _options, _categoryIds);
+    _canStepBack = _steppedPeriod(-1) != null;
+    _canStepForward = _steppedPeriod(1) != null;
   }
 
   /// Holds [entries] as the picked day's and folds its read row's counts.
@@ -1003,7 +1041,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final entries = AgendaListView.eventDayEntries(
       _scan(day, day),
       _l10n!,
-      null,
+      false,
       showRecurrenceLabels: _appearance.showRecurrenceLabels,
       missedDisplay: CalendarMissedDisplay.faded,
     );
@@ -1057,7 +1095,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     unawaited(
       Future(() {
         if (!mounted || generation != _resolveGeneration || _covered) return;
-        setState(() => _listMore(OverviewListMetrics.batchMonths));
+        setState(() {
+          _listMore(OverviewListMetrics.batchMonths);
+          // A run appends months, so it moves the totals the caption reads:
+          // the chrome folds after a background run exactly as it folds
+          // after a navigation.
+          _foldNav();
+        });
         if (_listTarget != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _jumpList());
         }
@@ -1129,7 +1173,9 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     }
 
     final listed = <AgendaDayListEntry>[
-      for (final day in newestFirst ? shown.reversed : shown) ...entriesOf(day),
+      // [shown] is already in reading order — the loop above walked the days
+      // under the order in force — so it is never reversed a second time.
+      for (final day in shown) ...entriesOf(day),
     ];
     final missed = listed.where((entry) => entry.missed).length;
     _listedKept += listed.length - missed;
@@ -1495,6 +1541,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     setState(() {
       _resolveYear(wanted.first);
       _tallyYear(_year);
+      _foldNav();
     });
     _scheduleYearRun();
   }
@@ -2014,6 +2061,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (period == _period) {
       // The Today slot reads the home, which may just have moved.
       setState(() {});
+      // The years' scroll sets the period from the year at its top, so it can
+      // sit well inside the section the pick names: the pick still has to
+      // bring that year's header back up, or nothing on the page does.
+      if (_mode == AgendaDayListMode.year) {
+        _yearScroll.jumpToYear(_firstYearOf(period));
+      }
       unawaited(_persistPeriod(period));
       return;
     }
@@ -2101,6 +2154,14 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// button follows a save, a rename or a delete made inside.
   Future<void> _openViews() async {
     _blur();
+    // A page left open across midnight would save and update through
+    // yesterday's clock — This year stored as last year's number, since the
+    // period the sheet writes is the one this page is holding. The resume
+    // path's refresh, taken again at the press.
+    if (_refreshToday()) {
+      _storeStale = true;
+      _rebuild();
+    }
     await OverviewViewSheet.show(
       context,
       current: OverviewView(
@@ -2112,7 +2173,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       ),
       onApply: _applyView,
     );
-    if (mounted) setState(() {});
+    // A save, a rename or a delete inside changes what the list matches.
+    if (mounted) setState(_foldNav);
   }
 
   /// Applies [view] as the picks it holds would (D17c · A): the list on its
@@ -2500,7 +2562,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// glance says whether what is on screen can be had back in one tap.
   Widget _buildViewsButton(AppLocalizations l10n) {
     final service = _viewService;
-    final active = service?.matching(_shownPeriod, _options, _categoryIds);
+    final active = _activeView;
     return AutomationId(
       identifier: SemanticsIds.overviewViewsOpen,
       child: IconButton(
@@ -2674,7 +2736,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       maxLines: OverviewListMetrics.totalsMaxLines,
       padding: FormMetrics.groupCaptionPadding,
     );
-    final totals = _totalsLabel(l10n);
+    final totals = _totalsCaption;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: RowMetrics.groupInset),
       child: FormCaptionSlot(
@@ -2695,8 +2757,6 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// The list's period band (D15): the year and month navs' row over the
   /// period, stepping by its own length, its title the Period menu.
   Widget _buildListNav(AppLocalizations l10n) {
-    final previous = _steppedPeriod(-1);
-    final next = _steppedPeriod(1);
     return AgendaPeriodNav(
       title: _period.menuValue(l10n),
       titleTemplates: _titleTemplates(l10n),
@@ -2710,8 +2770,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       todayIdentifier: SemanticsIds.overviewNavToday,
       titleIdentifier: SemanticsIds.overviewNavTitle,
       onTitleTap: _openPeriodMenu,
-      onPrevious: previous == null ? null : () => _step(-1),
-      onNext: next == null ? null : () => _step(1),
+      onPrevious: _canStepBack ? () => _step(-1) : null,
+      onNext: _canStepForward ? () => _step(1) : null,
       onToday: _period == _home ? null : _goHome,
     );
   }
@@ -3042,12 +3102,17 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   Widget _buildMonthBody(AppLocalizations l10n) {
     final bucket = _monthBucket!;
     final rows = _rowBuilder(_rows);
+    // Captured beside its builder, [_buildList]'s reasoning: the outgoing
+    // body of a mode cross-fade keeps building rows while it fades, and
+    // `_rows` by then holds the next mode's — a count read from the field
+    // would index past the rows this builder has.
+    final rowCount = _rows.length;
     final selected = _selectedDay;
     // With a day picked the rows are its entries alone (`_recompute` groups
     // by day only for the whole month), so its read row is built in front
     // of them here, from the same entries' counts.
     final leadingRows = selected == null ? 0 : 1;
-    final empty = _rows.isEmpty && selected == null;
+    final empty = rowCount == 0 && selected == null;
     return Builder(
       builder: (context) {
         final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
@@ -3091,9 +3156,15 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
                   : SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) => selected != null && index == 0
-                            ? _buildPickedDayRow(context, l10n, rows, selected)
+                            ? _buildPickedDayRow(
+                                context,
+                                l10n,
+                                rows,
+                                rowCount,
+                                selected,
+                              )
                             : rows.build(context, index - leadingRows),
-                        childCount: _rows.length + leadingRows,
+                        childCount: rowCount + leadingRows,
                       ),
                     ),
             ),
@@ -3116,11 +3187,12 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     BuildContext context,
     AppLocalizations l10n,
     AgendaDayListRowBuilder rows,
+    int rowCount,
     DateTime day,
   ) {
     return FormRowShell(
       first: true,
-      last: _rows.isEmpty,
+      last: rowCount == 0,
       child: rows.readRow(
         context,
         day: day,

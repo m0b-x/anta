@@ -69,20 +69,48 @@ class EventSkipService {
   /// Mutable working copy behind the published facade. Single-day mutations
   /// patch this and republish rather than re-reading the table — a toggle
   /// should not cost a full `SELECT` and map rebuild.
-  final Map<String, Set<DateTime>> _byEvent = {};
+  Map<String, Set<DateTime>> _byEvent = {};
+
+  /// How many [_load]s are still waiting on their rows.
+  int _loadsInFlight = 0;
+
+  /// Bumped by each single-day write once it has committed, so [_load] can
+  /// tell that the rows it is holding predate one.
+  int _writes = 0;
 
   Future<void> reload() => _load();
 
+  /// Re-reads the whole delta into a fresh map, twice at most.
+  ///
+  /// Built locally and swapped in only once the rows are in: the cache used to
+  /// be emptied before the `await`, so a single-day write landing inside that
+  /// window — the sync pull's reload racing a Skip tap — republished the one
+  /// event it patched out of an empty map, and every other skipped day of that
+  /// event dropped out of `occursOn` until the load finished. [_publishFor]
+  /// stays quiet for the same window, because the load's own publish is a
+  /// microtask away. A write that commits while the rows are in flight is not
+  /// in them, so they are re-read once rather than published without the day
+  /// the user just cancelled.
   Future<void> _load() async {
-    _byEvent.clear();
+    _loadsInFlight++;
     try {
-      final rows = await _dao.getActiveKeys();
-      for (final row in rows) {
-        (_byEvent[row.eventId] ??= <DateTime>{}).add(_dateOnlyUtc(row.day));
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final writes = _writes;
+        final next = <String, Set<DateTime>>{};
+        try {
+          final rows = await _dao.getActiveKeys();
+          for (final row in rows) {
+            (next[row.eventId] ??= <DateTime>{}).add(_dateOnlyUtc(row.day));
+          }
+        } catch (e) {
+          debugPrint('[EventSkipService] Load error: $e');
+          next.clear();
+        }
+        _byEvent = next;
+        if (_writes == writes) break;
       }
-    } catch (e) {
-      debugPrint('[EventSkipService] Load error: $e');
-      _byEvent.clear();
+    } finally {
+      _loadsInFlight--;
     }
     _publish();
   }
@@ -116,6 +144,7 @@ class EventSkipService {
   /// has already been handed out, so a render path mid-read cannot see one
   /// shift underneath it.
   void _publishFor(String eventId) {
+    if (_loadsInFlight > 0) return;
     final next = Map<String, Set<DateTime>>.of(_published);
     final days = _byEvent[eventId];
     if (days == null || days.isEmpty) {
@@ -140,6 +169,7 @@ class EventSkipService {
   Future<void> markSkipped(String eventId, DateTime day) async {
     final key = _dateOnlyUtc(day);
     await _dao.markSkipped(eventId, key);
+    _writes++;
     (_byEvent[eventId] ??= <DateTime>{}).add(key);
     _publishFor(eventId);
     try {
@@ -156,6 +186,7 @@ class EventSkipService {
   Future<void> unskip(String eventId, DateTime day) async {
     final key = _dateOnlyUtc(day);
     await _dao.unskip(eventId, key);
+    _writes++;
     final forEvent = _byEvent[eventId];
     if (forEvent != null) {
       forEvent.remove(key);

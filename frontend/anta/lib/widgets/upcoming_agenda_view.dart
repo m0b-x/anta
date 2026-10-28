@@ -68,7 +68,11 @@ class UpcomingAgendaView extends StatefulWidget {
 
   /// Carries the row's own occurrence day, so editing from the agenda can
   /// target that day rather than the event's start (v24).
-  final void Function(CalendarEvent event, DateTime day) onEditEvent;
+  ///
+  /// The event **named**, never a copy: this view's list is the filtered one,
+  /// so only the page can say whether an id it no longer holds was deleted or
+  /// is merely hidden.
+  final void Function(String eventId, DateTime day) onEditEvent;
   final ValueChanged<CalendarEvent> onOpenNote;
 
   /// Forwarded to the agenda rows so event descriptions render with the
@@ -892,7 +896,6 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         final hiddenCategoryIds = widget.hiddenCategoryIds;
         final filters = widget.filters;
         final categoryLabels = _categoryLabels;
-        final onEditEvent = widget.onEditEvent;
         final showRecurrenceLabels = widget.showRecurrenceLabels;
         final missedDisplay = widget.missedDisplay;
         return (start, end) => AgendaListView.eventDayEntries(
@@ -913,7 +916,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             collapseRecurring: false,
           ),
           l10n,
-          onEditEvent,
+          true,
           showRecurrenceLabels: showRecurrenceLabels,
           missedDisplay: missedDisplay,
         );
@@ -1034,7 +1037,14 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         widget.onDaySelected(day);
         return;
       }
-      result.edit?.call();
+      final edit = result.edit;
+      if (edit == null) return;
+      // The sheet names the event rather than handing back the copy its row
+      // was built from, and the name travels on: this view holds the filtered
+      // list, so a lookup here would open nothing for an occurrence a grid
+      // filter now hides. The page resolves it against its unfiltered state,
+      // which is also where a tombstone opens nothing at all.
+      widget.onEditEvent(edit.eventId, edit.day);
     } finally {
       _dayListOpen = false;
     }

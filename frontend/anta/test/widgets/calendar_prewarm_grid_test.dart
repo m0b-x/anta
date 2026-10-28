@@ -34,6 +34,32 @@ void main() {
     }
   });
 
+  /// An idle prewarm task is deferred, never dropped, so a fling through ten
+  /// months leaves twenty of them queued; the ones that run after it settles
+  /// must not warm the months they were asked for, which are outside the day
+  /// cache's window by then — 42 full scans each, cold the moment they land.
+  group('prewarmMonthIsNear', () {
+    final focus = DateTime.utc(2026, 6, 15);
+
+    test('the focused month and its two neighbours are warmed', () {
+      expect(prewarmMonthIsNear(focus, focus), isTrue);
+      expect(prewarmMonthIsNear(DateTime.utc(2026, 5, 1), focus), isTrue);
+      expect(prewarmMonthIsNear(DateTime.utc(2026, 7, 31), focus), isTrue);
+    });
+
+    test('a month the grid has left behind is not', () {
+      expect(prewarmMonthIsNear(DateTime.utc(2026, 4, 30), focus), isFalse);
+      expect(prewarmMonthIsNear(DateTime.utc(2026, 8, 1), focus), isFalse);
+      expect(prewarmMonthIsNear(DateTime.utc(2027, 6, 15), focus), isFalse);
+    });
+
+    test('it counts whole months across the year boundary', () {
+      final january = DateTime.utc(2027, 1, 10);
+      expect(prewarmMonthIsNear(DateTime.utc(2026, 12, 31), january), isTrue);
+      expect(prewarmMonthIsNear(DateTime.utc(2026, 11, 30), january), isFalse);
+    });
+  });
+
   group('gridDaysForMonth', () {
     // Deliberately awkward months: one starting exactly on Monday (2026-06),
     // a February in a non-leap year, a leap February, a 31-day month starting

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -79,6 +80,23 @@ const int prewarmGridDayCount = 42;
 /// Months either side of the focused one that [_CalendarViewState] warms —
 /// radius 1, deliberately inside `CalendarBloc`'s radius-3 eviction window.
 const List<int> _prewarmMonthOffsets = [-1, 1];
+
+/// Whether a prewarm asked for around [capturedFocus] is still worth running
+/// with the grid focused on [currentFocus] — i.e. whether the captured month
+/// is itself still one of the months [_prewarmMonthOffsets] covers.
+///
+/// Whole months, the unit the window is defined in: a task queued at idle
+/// priority waits out a fling and runs with a focus the grid has moved on
+/// from, and warming a month nobody is looking at is 42 lookups the day cache
+/// evicts before anything reads them.
+@visibleForTesting
+bool prewarmMonthIsNear(DateTime capturedFocus, DateTime currentFocus) {
+  final months =
+      (capturedFocus.year - currentFocus.year) * 12 +
+      capturedFocus.month -
+      currentFocus.month;
+  return months == 0 || _prewarmMonthOffsets.contains(months);
+}
 
 /// The [prewarmGridDayCount]-day window `table_calendar`'s `PageView` pages
 /// to for [monthAnchor] — same first-visible-day arithmetic as
@@ -165,6 +183,16 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// Whether the persisted filter set has been pushed into the bloc. See
   /// [_loadSettings] for why this is once-only.
   bool _filtersRestored = false;
+
+  /// Whether the user changed the filters before the restore landed, and what
+  /// they changed them to — the panel's `_filtersPicked` beside the set it
+  /// picked (`calendar_bottom_panel.dart`).
+  ///
+  /// The restore and the write are independent, so a set read before the
+  /// user's write would otherwise win on screen while the store kept the
+  /// user's: the UI and the preference disagreeing until the next change.
+  bool _filtersPicked = false;
+  CalendarGridFilters _pickedFilters = CalendarGridFilters.none;
 
   /// Whether the add button shows its day label. Driven by the panel's scroll
   /// through a notifier rather than `setState`, because the only widget that
@@ -395,6 +423,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   void initState() {
     super.initState();
     _keyboardInset.addListener(_handleKeyboardInset);
+    DevOptions.instance.addListener(_handleDevOptions);
     _loadSettings();
     // `CalendarBloc` is app-wide and is loaded at launch, so by the time this
     // page mounts its state is usually *already* `CalendarPageLoaded` — a
@@ -690,6 +719,17 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     _gridCollapsed.value = _insetTracker.collapsed;
   }
 
+  /// Drops the add button's trace line when its developer option goes off.
+  ///
+  /// From the listener rather than from the `ListenableBuilder`'s builder: a
+  /// notifier written during `build` only survives because its one listener is
+  /// a descendant of the element being built, and a second listener would turn
+  /// it into "setState() called during build".
+  void _handleDevOptions() {
+    if (DevOptions.instance.showAddButtonTrace) return;
+    _fabTrace.value = null;
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -703,6 +743,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   @override
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
+    DevOptions.instance.removeListener(_handleDevOptions);
     _fabExtended.dispose();
     _fabTrace.dispose();
     AppNavigator.pendingCalendarOccurrence.removeListener(
@@ -754,38 +795,63 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await SettingsService.getInstance();
-    // One statement, not sixteen sequential single-row reads: every await here
-    // is a separate round trip to the drift isolate, so their latencies add,
-    // and resolving appearance after the first frame visibly re-lays-out the
-    // grid.
-    final loaded = await settings.getCalendarPageSettings();
-    if (!mounted) return;
-    // Static sync facade, mirroring PublicHolidays: configure() is a no-op
-    // when unchanged, so the reload-on-settings-return path stays cheap.
-    FastingCalendar.configure(
-      traditions: loaded.fastingTraditions,
-      appearance: loaded.fastingAppearance,
-      orthodoxGreatFasts: loaded.fastingGreatFasts,
-      schedule: loaded.fastingSchedule,
-    );
     // Restored **once**, on the first load only. `_loadSettings` also runs on
     // every settings return, and re-applying the stored set there would race
     // an in-session change whose write has not landed yet — undoing a chip the
     // user just removed. The bloc records the filters even while it is still
     // `CalendarPageInitial`, so this can fire before the first load finishes.
-    if (!_filtersRestored) {
-      _filtersRestored = true;
-      if (!loaded.filters.isEmpty || loaded.filters.panelShowsAll) {
-        context.read<CalendarBloc>().add(
-          ChangeCalendarFilters(filters: loaded.filters),
-        );
+    // Read before the trip, because the trip itself ends the wait either way.
+    final restoring = !_filtersRestored;
+    try {
+      final settings = await SettingsService.getInstance();
+      // One statement, not sixteen sequential single-row reads: every await
+      // here is a separate round trip to the drift isolate, so their latencies
+      // add, and resolving appearance after the first frame visibly
+      // re-lays-out the grid.
+      final loaded = await settings.getCalendarPageSettings();
+      if (!mounted) return;
+      // Static sync facade, mirroring PublicHolidays: configure() is a no-op
+      // when unchanged, so the reload-on-settings-return path stays cheap.
+      FastingCalendar.configure(
+        traditions: loaded.fastingTraditions,
+        appearance: loaded.fastingAppearance,
+        orthodoxGreatFasts: loaded.fastingGreatFasts,
+        schedule: loaded.fastingSchedule,
+      );
+      if (restoring) {
+        // A change made while this read was out was made on the defaults, so
+        // it is replayed field by field onto the stored set rather than
+        // dropped or allowed to lose — the panel's `_replayOnto`, for the same
+        // race.
+        final restored = _filtersPicked
+            ? _replayOnto(loaded.filters, picked: _pickedFilters)
+            : loaded.filters;
+        if (!restored.isEmpty || restored.panelShowsAll) {
+          context.read<CalendarBloc>().add(
+            ChangeCalendarFilters(filters: restored),
+          );
+        }
+        // The pick the restore merged was never written — `_applyFilters` ran
+        // before this read returned — so the store follows what the grid now
+        // shows.
+        if (_filtersPicked) unawaited(_persistFilters(restored));
       }
+      setState(() {
+        _appearance = loaded.appearance;
+        _colorPalette = loaded.palette;
+      });
+    } catch (e) {
+      // A settings trip that fails leaves the page on its defaults; it must
+      // not also take the session's writes with it.
+      debugPrint('[CalendarPage] Settings load failed: $e');
+    } finally {
+      // Whichever way the trip ended, the filters are no longer waiting for
+      // it: left false, `_applyFilters` would drop every filter write for the
+      // rest of the session. A pick made before a failed read stays unwritten
+      // — there is no stored set to replay it onto, and writing the defaults
+      // it was made on would replace axes the user never chose.
+      _filtersRestored = true;
     }
-    setState(() {
-      _appearance = loaded.appearance;
-      _colorPalette = loaded.palette;
-    });
   }
 
   /// The one funnel for a filter change: the bloc renders it, and it is
@@ -793,8 +859,47 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// a filter — the sheet's Apply and each summary chip's `x` — goes through
   /// here, or the two would drift.
   void _applyFilters(BuildContext context, CalendarGridFilters filters) {
+    _filtersPicked = true;
+    _pickedFilters = filters;
     context.read<CalendarBloc>().add(ChangeCalendarFilters(filters: filters));
+    // Before the restore lands, the change was made on the defaults: writing
+    // it would replace the stored categories, range and layers with defaults
+    // the user never chose. [_loadSettings] replays it onto the stored set and
+    // writes the merge.
+    if (!_filtersRestored) return;
     unawaited(_persistFilters(filters));
+  }
+
+  /// [stored] with every axis the user changed before the restore landed taken
+  /// from [picked]. Those changes were made on the defaults, so an axis still
+  /// at its default was not touched and the stored value stands — the panel's
+  /// `_replayOnto`, field for field.
+  static CalendarGridFilters _replayOnto(
+    CalendarGridFilters stored, {
+    required CalendarGridFilters picked,
+  }) {
+    const base = CalendarGridFilters.none;
+    T pick<T>(T Function(CalendarGridFilters filters) field) =>
+        field(picked) == field(base) ? field(stored) : field(picked);
+    Set<E> pickSet<E>(Set<E> Function(CalendarGridFilters filters) field) =>
+        setEquals(field(picked), field(base)) ? field(stored) : field(picked);
+    return CalendarGridFilters(
+      hiddenCategoryIds: pickSet((f) => f.hiddenCategoryIds),
+      priorities: pickSet((f) => f.priorities),
+      eventType: pick((f) => f.eventType),
+      timing: pick((f) => f.timing),
+      trackedOnly: pick((f) => f.trackedOnly),
+      linkedNotesOnly: pick((f) => f.linkedNotesOnly),
+      moneyOnly: pick((f) => f.moneyOnly),
+      withDescriptionOnly: pick((f) => f.withDescriptionOnly),
+      countedOnly: pick((f) => f.countedOnly),
+      missedOnly: pick((f) => f.missedOnly),
+      hideEnded: pick((f) => f.hideEnded),
+      showHolidays: pick((f) => f.showHolidays),
+      showFasting: pick((f) => f.showFasting),
+      showMoney: pick((f) => f.showMoney),
+      panelShowsAll: pick((f) => f.panelShowsAll),
+    );
   }
 
   Future<void> _persistFilters(CalendarGridFilters filters) async {
@@ -1149,11 +1254,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                             // start it labelled, as a fresh list would.
                             _fabExtended.value = true;
                           }),
-                          onEditEvent: (event, day) => _sheets.openEditor(
-                            context,
-                            initialEvent: event,
-                            occurrenceDay: day,
-                          ),
+                          onEditEvent: (eventId, day) =>
+                              _editEvent(context, eventId, day),
                           onShowEvent: (event, day) =>
                               _sheets.openDetail(context, event, day),
                           onOpenNote: (event) =>
@@ -1189,7 +1291,6 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           final trace = DevOptions.instance.showAddButtonTrace
               ? _fabTrace
               : null;
-          if (trace == null) _fabTrace.value = null;
           return BlocBuilder<CalendarBloc, CalendarPageState>(
             buildWhen: (previous, current) =>
                 _selectedDayOf(previous) != _selectedDayOf(current),
@@ -1388,6 +1489,28 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     return null;
   }
 
+  /// Opens the editor on the bloc's own copy of [eventId], or on nothing once
+  /// a reload has deleted it.
+  ///
+  /// A pencil can come from a list frozen at open — the summary cards'
+  /// drill-down sheet, `AgendaDayListEdit` — and the editor saves what it was
+  /// opened with: the copy the row carried would overwrite a newer remote
+  /// one under a fresher HLC, or resurrect an event the same reload
+  /// tombstoned. The **one** lookup on this path, and it reads `allEvents`:
+  /// a narrower one in front of it would open nothing for an occurrence the
+  /// grid filters are hiding.
+  void _editEvent(BuildContext context, String eventId, DateTime day) {
+    final state = context.read<CalendarBloc>().state;
+    if (state is! CalendarPageLoaded) return;
+    for (final current in state.allEvents) {
+      if (current.id != eventId) continue;
+      unawaited(
+        _sheets.openEditor(context, initialEvent: current, occurrenceDay: day),
+      );
+      return;
+    }
+  }
+
   /// Removes the public holiday resolved for [day] for this occurrence
   /// only, after a confirmation dialog. Built-in removals are reversible —
   /// either immediately via the snackbar's Undo action or later from the
@@ -1506,7 +1629,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     for (final monthOffset in _prewarmMonthOffsets) {
       SchedulerBinding.instance.scheduleTask(() {
         if (!mounted) return;
-        if (context.read<CalendarBloc>().state is! CalendarPageLoaded) return;
+        final state = context.read<CalendarBloc>().state;
+        if (state is! CalendarPageLoaded) return;
+        // Idle tasks are deferred, never dropped, so a fling through ten
+        // months leaves twenty of them queued and the ones that run after it
+        // settles would warm months the grid has long left behind — 42
+        // lookups each, every one outside the day cache's window, written
+        // cold. The window is defined around the focus of the moment the
+        // warming happens, not the moment it was asked for.
+        if (!prewarmMonthIsNear(focusedDay, state.focusedDay)) return;
         _prewarmMonth(focusedDay, monthOffset);
       }, Priority.idle);
     }
@@ -1760,6 +1891,13 @@ class _CalendarTable extends StatelessWidget {
     // user picks it per theme, so it takes a `Brightness` read the 42 cells
     // would otherwise each repeat for one shared answer.
     final cellStyle = appearance.cellStyleFor(theme.brightness);
+    // Outside-month fading belongs to the month format; a week or two-week row
+    // shows every day at full strength. `table_calendar` picks `outsideBuilder`
+    // purely on `day.month != focusedDay.month`, with no notion of the format,
+    // so the gate lives here — over the cell *and* over its marker strip
+    // below, or the day's number, chip, tint and stripe would fade while its
+    // bars stayed opaque (`calendar_outside_fade_test.dart`).
+    final fadesOutside = format == CalendarFormat.month;
 
     return TableCalendar<CalendarEvent>(
       firstDay: _firstDay,
@@ -1853,7 +1991,7 @@ class _CalendarTable extends StatelessWidget {
         ),
         outsideBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
-          isOutside: true,
+          isOutside: fadesOutside,
           now: now,
           accent: accent,
           bloc: calendarBloc,
@@ -1969,10 +2107,10 @@ class _CalendarTable extends StatelessWidget {
           if (bars.isEmpty && railLabel == null) {
             return const SizedBox.shrink();
           }
-          // Outside-month fading only applies to the month format; week and
-          // two-week rows show every day at full strength.
+          // The cell's own answer, from the gate the builder table applies:
+          // the two must agree, or a day fades by halves.
           final isOutside =
-              format == CalendarFormat.month &&
+              fadesOutside &&
               (day.month != state.focusedDay.month ||
                   day.year != state.focusedDay.year);
           return Align(

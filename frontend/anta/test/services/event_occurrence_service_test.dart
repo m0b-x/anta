@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // `isNull` / `isNotNull` are SQL builders in drift and matchers in
 // flutter_test; this file wants the matchers.
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -23,17 +25,20 @@ import '../database/support/db_test_support.dart';
 void main() {
   late AppDatabase db;
   late EventOccurrenceService service;
+  late _HeldOccurrenceRead gate;
 
   final day = DateTime.utc(2026, 8, 10);
   final otherDay = DateTime.utc(2026, 8, 11);
 
   setUp(() async {
     EventOccurrenceService.reset();
-    db = await openTestDatabase();
+    gate = _HeldOccurrenceRead();
+    db = await openTestDatabase(interceptor: gate);
     service = await EventOccurrenceService.forTesting(db);
   });
 
   tearDown(() async {
+    gate.release();
     EventOccurrenceService.reset();
     await db.close();
   });
@@ -179,6 +184,38 @@ void main() {
     );
   });
 
+  group('a reload in flight', () {
+    test("a write landing inside it keeps the event's other days", () async {
+      await service.setDescription('e1', day, 'squats felt heavy');
+      // The skip suite's case over the twin that carries the same code: the
+      // reload's rows are held, so the whole of the quick-edit Done below
+      // lands inside the window the reload is open for — a sync pull's
+      // `_appReloadCalendar` racing a save. The cache used to be emptied
+      // before that `await`, so the save's targeted republish served the one
+      // day it wrote and dropped every other.
+      gate.holdNextOccurrenceRead();
+      final reload = service.reload();
+      await pumpEventQueue();
+      expect(gate.held, isTrue);
+
+      await service.setDescription('e1', otherDay, 'easy spin');
+
+      expect(
+        OccurrenceDescriptions.overrideFor('e1', day),
+        'squats felt heavy',
+      );
+
+      gate.release();
+      await reload;
+
+      expect(
+        OccurrenceDescriptions.overrideFor('e1', day),
+        'squats felt heavy',
+      );
+      expect(OccurrenceDescriptions.overrideFor('e1', otherDay), 'easy spin');
+    });
+  });
+
   group('backup', () {
     test('export carries live overrides only, without CRDT identity', () async {
       await service.setDescription('e1', day, 'squats felt heavy');
@@ -314,4 +351,48 @@ void main() {
       expect(OccurrenceDescriptions.overrideFor('e1', day), isNull);
     });
   });
+}
+
+/// Delivers the occurrence table's reload late: the `SELECT` runs at once, so
+/// its rows are what the table held when the service asked, and they are
+/// handed back only on [release] - the window a sync reload is open for, in
+/// which a save of its own lands. The skip suite's gate, for the identical
+/// race.
+class _HeldOccurrenceRead extends QueryInterceptor {
+  Completer<void>? _hold;
+  bool _armed = false;
+  bool held = false;
+
+  /// Holds the next read of `calendar_event_occurrences`, which is the
+  /// reload's: one shot, so the writes that follow inside the window run
+  /// freely.
+  void holdNextOccurrenceRead() {
+    _armed = true;
+    _hold = Completer<void>();
+  }
+
+  void release() {
+    final hold = _hold;
+    _hold = null;
+    _armed = false;
+    if (hold != null && !hold.isCompleted) hold.complete();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await super.runSelect(executor, statement, args);
+    final hold = _hold;
+    if (_armed &&
+        hold != null &&
+        statement.contains('calendar_event_occurrences')) {
+      _armed = false;
+      held = true;
+      await hold.future;
+    }
+    return rows;
+  }
 }

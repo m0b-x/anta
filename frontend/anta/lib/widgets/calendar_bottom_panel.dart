@@ -22,6 +22,14 @@ import 'day_summary_panel.dart';
 import 'day_timeline_view.dart';
 import 'upcoming_agenda_view.dart';
 
+/// How many times the panel's mode bar has measured its labels.
+///
+/// The measurement is three `TextPainter.layout()` calls and it sits on the
+/// day-tap path; neither budget suite watches that path, so the count is the
+/// only way a test can say the memo still holds.
+@visibleForTesting
+int panelModeFitMeasurements = 0;
+
 /// The calendar's bottom half: the mode switch plus the active panel
 /// (day summary / timeline / upcoming agenda).
 ///
@@ -45,8 +53,9 @@ class CalendarBottomPanel extends StatefulWidget {
 
   /// Edits an event, carrying **which occurrence** the tap came from so the
   /// editor can offer "this day" vs "all days" (v24). Day and timeline modes
-  /// supply the selected day; the agenda supplies the row's own day.
-  final void Function(CalendarEvent event, DateTime day) onEditEvent;
+  /// supply the selected day; the agenda supplies the row's own day. The event
+  /// is **named**: the page resolves the id against its unfiltered list.
+  final void Function(String eventId, DateTime day) onEditEvent;
 
   /// Opens an event read-only for a specific day. Used by the day panel's row
   /// tap; the agenda keeps its own affordances (tap = jump to the day, pencil
@@ -533,11 +542,52 @@ class _PanelModeBar extends StatelessWidget {
     };
   }
 
+  /// The last [_labelsFit] answer, with the inputs it was measured on.
+  ///
+  /// The bar is rebuilt on every day tap, presence tick and description tick —
+  /// the panel's `buildWhen` watches the selection — and a measurement is
+  /// three `TextSpan` allocations and three `TextPainter.layout()` calls on
+  /// that path. The answer can only move with the row's width, the text
+  /// scaler, the locale or the label style, so it is kept for as long as those
+  /// hold. One entry: a panel shows one bar, and a width or scale change
+  /// replaces the question rather than adding one. The direction is in the key
+  /// because the measurement resolves the button padding with it — latent
+  /// while every locale is LTR, wrong the day one is not.
+  static ({
+    double width,
+    TextScaler scaler,
+    String locale,
+    TextStyle? style,
+    TextDirection direction,
+  })?
+  _fitInputs;
+  static bool _fitAnswer = false;
+
+  /// [_labelsFit] for the build path: measured once per set of inputs.
+  bool _labelsFitCached(
+    BuildContext context,
+    AppLocalizations l10n,
+    Iterable<String> labels,
+    double width,
+  ) {
+    final inputs = (
+      width: width,
+      scaler: MediaQuery.textScalerOf(context),
+      locale: l10n.localeName,
+      style: Theme.of(context).textTheme.labelLarge,
+      direction: Directionality.of(context),
+    );
+    if (inputs == _fitInputs) return _fitAnswer;
+    _fitInputs = inputs;
+    return _fitAnswer = _labelsFit(context, labels, width);
+  }
+
   /// Whether every label fits its third of [width] on one line, measured as
   /// a label-only segment draws it: the theme's `labelLarge` under the
   /// current scaler, inside the text button padding Material scales with the
   /// text size (12 → 8 → 4 dp a side over scale 1 → 2 → 3).
   bool _labelsFit(BuildContext context, Iterable<String> labels, double width) {
+    panelModeFitMeasurements++;
     final style = Theme.of(context).textTheme.labelLarge;
     final textScaler = MediaQuery.textScalerOf(context);
     final direction = Directionality.of(context);
@@ -581,8 +631,9 @@ class _PanelModeBar extends StatelessWidget {
         final expandExtent =
             kMinInteractiveDimension +
             VisualDensity.compact.baseSizeAdjustment.dx;
-        final iconsOnly = !_labelsFit(
+        final iconsOnly = !_labelsFitCached(
           context,
+          l10n,
           labels.values,
           constraints.maxWidth - insets.horizontal - expandExtent,
         );

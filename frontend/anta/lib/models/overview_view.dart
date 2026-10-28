@@ -31,6 +31,16 @@ class OverviewView extends Equatable {
   /// `OverviewViewService.reorder`.
   final int sortOrder;
 
+  /// How the stored period was written, for a year: `true` for the rolling
+  /// "this year", `false` for a pinned number, `null` for a period the user
+  /// has just picked, which [toJson] then reads off `today` as before.
+  ///
+  /// The one bit [OverviewYearPeriod] cannot carry, and the reason a decode
+  /// no longer loses it: a rename on a later day re-encodes the period it
+  /// decoded, and without this a view left on "this year" over New Year
+  /// pinned the old one for good (review 2).
+  final bool? rollsWithToday;
+
   const OverviewView({
     required this.id,
     required this.name,
@@ -38,8 +48,11 @@ class OverviewView extends Equatable {
     this.options = OverviewListOptions.defaults,
     this.categoryIds = const {},
     this.sortOrder = 0,
+    this.rollsWithToday,
   });
 
+  /// A new [period] drops [rollsWithToday]: re-pointing a view at the list
+  /// shown is the one moment the stored kind may be decided afresh.
   OverviewView copyWith({
     String? id,
     String? name,
@@ -55,6 +68,7 @@ class OverviewView extends Equatable {
       options: options ?? this.options,
       categoryIds: categoryIds ?? this.categoryIds,
       sortOrder: sortOrder ?? this.sortOrder,
+      rollsWithToday: period == null ? rollsWithToday : null,
     );
   }
 
@@ -91,12 +105,14 @@ class OverviewView extends Equatable {
   /// and the position are the row's own columns. The categories are sorted
   /// so one list always writes one blob. [today]'s year is saved as "this
   /// year", which rolls with the calendar as the Period menu's presets do;
-  /// any other year — one paged to — keeps its number.
+  /// any other year — one paged to — keeps its number. A period this view
+  /// was decoded with keeps the kind it was stored under
+  /// ([rollsWithToday]), whatever day it is written on.
   Map<String, Object?> toJson({required DateTime today}) => {
     _period: switch (period) {
-      OverviewYearPeriod(:final year) when year == today.year => {
-        _kind: _kindThisYear,
-      },
+      OverviewYearPeriod(:final year)
+          when rollsWithToday ?? year == today.year =>
+        {_kind: _kindThisYear},
       OverviewYearPeriod(:final year) => {_kind: _kindYear, _year: year},
       OverviewRollingPeriod(:final preset) => {
         _kind: _kindPreset,
@@ -144,7 +160,20 @@ class OverviewView extends Equatable {
             if (id is String && id.isNotEmpty) id,
       },
       sortOrder: sortOrder,
+      rollsWithToday: _rollsWithToday(map[_period]),
     );
+  }
+
+  /// Which year kind [raw] was stored under, or `null` for a period that is
+  /// no year at all and for one this build read as this year by fallback —
+  /// both of which re-encode from `today` as they always did.
+  static bool? _rollsWithToday(Object? raw) {
+    if (raw is! Map) return null;
+    return switch (raw[_kind]) {
+      _kindThisYear => true,
+      _kindYear when raw[_year] is int => false,
+      _ => null,
+    };
   }
 
   static OverviewPeriod _decodePeriod(Object? raw, {required DateTime today}) {
@@ -188,6 +217,9 @@ class OverviewView extends Equatable {
     return DateTime.utc(parsed.year, parsed.month, parsed.day);
   }
 
+  /// [rollsWithToday] stays out: it is how the period was written down, not
+  /// part of the view or of the list it stands for, and a view read back is
+  /// the view that was saved.
   @override
   List<Object?> get props => [
     id,

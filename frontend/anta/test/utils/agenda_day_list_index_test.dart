@@ -321,6 +321,20 @@ void main() {
       );
     });
 
+    test('rejects a reversed window', () {
+      // Only the assert can be seen from a test; in release it is gone and
+      // the window is clamped instead, so `months` is never empty and the
+      // day list sheet's build never throws a `StateError`.
+      expect(
+        () => AgendaDayListIndex.build(
+          const [],
+          windowStart: DateTime.utc(2026, 9, 30),
+          windowEnd: DateTime.utc(2026, 9, 1),
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
     test('rejects a windowStart with a time component', () {
       expect(
         () => AgendaDayListIndex.build(
@@ -393,7 +407,7 @@ void main() {
             EventOccurrence(event: event, day: day),
         ],
         l10n,
-        (_, _) {},
+        true,
         showRecurrenceLabels: true,
         missedDisplay: CalendarMissedDisplay.faded,
       );
@@ -457,7 +471,7 @@ void main() {
             EventOccurrence(event: event, day: day),
         ],
         l10n,
-        (_, _) {},
+        true,
         showRecurrenceLabels: true,
         missedDisplay: CalendarMissedDisplay.hidden,
       );

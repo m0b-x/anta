@@ -391,6 +391,22 @@ void main() {
     );
   });
 
+  testWidgets('This year brings its header back up even though the scroll '
+      'has already set the period (review 2)', (tester) async {
+    await pumpPage(tester);
+    final robot = OverviewRobot(tester);
+
+    // Well inside this year's section: the title still reads this year, so
+    // the pick below is the period already shown.
+    await robot.jumpYearsTo(robot.yearsOffset + robot.yearSectionExtent * 0.6);
+    expect(navText('$year'), findsOneWidget);
+    expect(robot.yearHeaderTop(year), lessThan(0));
+
+    await robot.pickPeriod(OverviewPeriodChoice.thisYear);
+
+    expect(robot.yearHeaderTop(year), closeTo(0, 1));
+  });
+
   testWidgets('one category bounds the years to its own events', (
     tester,
   ) async {
@@ -2857,6 +2873,39 @@ void main() {
       expect(robot.currentMode, AgendaDayListMode.year);
     });
 
+    testWidgets('a keyboard frame inside the cross-fade out of month mode '
+        '(review 2)', (tester) async {
+      final robot = OverviewRobot(tester);
+      await robot.open(
+        bloc: bloc,
+        importExport: importExport,
+        mode: AgendaDayListMode.month,
+      );
+      addTearDown(tester.view.reset);
+      final month = robot.monthRowSliverCount;
+
+      final errors = await layoutErrorsDuring(() async {
+        await robot.selectMode(AgendaDayListMode.list, settle: false);
+        // The keyboard goes on animating under the cross-fade and rebuilds
+        // the outgoing month body, whose rows are the month's while `_rows`
+        // already holds the list's. The sliver's count is asserted rather
+        // than a crash: an index past the captured rows is only built when
+        // the viewport reaches it, so the disagreement is the defect.
+        for (var i = 1; i <= 4; i++) {
+          tester.view.viewInsets = FakeViewPadding(bottom: 80.0 * i);
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(robot.monthRowSliverCount, month);
+        }
+        // Down again, so the chip row the assertions read is unfolded.
+        tester.view.viewInsets = FakeViewPadding.zero;
+        await tester.pumpAndSettle();
+      });
+
+      expect(errors, isEmpty);
+      expect(tester.takeException(), isNull);
+      expect(robot.currentMode, AgendaDayListMode.list);
+    });
+
     group("a digest's look (v42, D13)", () {
       final march = OverviewCustomPeriod(
         DateTime.utc(year, 3, 1),
@@ -4990,6 +5039,33 @@ void main() {
         await robot.scrollListTo(robot.listMaxOffset);
         expect(robot.shows(en.overviewLoading), isFalse);
         expect(robot.shows(dayLabel(today)), isTrue);
+      });
+
+      testWidgets('the totals follow the months the runs append', (
+        tester,
+      ) async {
+        emitEvents(const []);
+        final robot = OverviewRobot(tester);
+        await openList(robot, surface: phone, period: allTime);
+
+        emitEvents([dailyFrom(2)]);
+        await robot.pumpWithoutTurns();
+
+        final gym = CalendarCategories.labelOf(
+          CalendarCategories.resolve('gym'),
+          en,
+        );
+        final synced = daysIn(year - 2) + daysIn(year - 1);
+        expect(robot.totals, en.overviewCategoryTotal(gym, synced));
+
+        await robot.finishResolving();
+
+        // A run appends months, and appending them moves the totals: the
+        // caption is folded again with them, or it stays frozen at the first
+        // two years while the nav's count beside it climbs on every run.
+        final all = daysFrom(DateTime.utc(year - 2, 1, 1), today);
+        expect(robot.totals, en.overviewCategoryTotal(gym, all));
+        expect(robot.navCount, count(all));
       });
 
       testWidgets('Newest first lists the latest two years first; the older '

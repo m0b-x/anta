@@ -91,14 +91,16 @@ void main() {
       expect(service.matching(CalendarGridFilters.none), isNull);
     });
 
-    /// The panel opt-out is part of what a preset saves, so two otherwise
-    /// identical sets that disagree about it are different presets.
-    test('the panel opt-out is part of the identity', () async {
+    /// The panel opt-out is **not** part of what a preset saves (C14,
+    /// 2026-10-28): it widens rather than narrows, it has no chip and it is
+    /// absent from `activeCount`, so the sheet normalises it out on save and a
+    /// set that differs only in it is the same lens.
+    test('the panel opt-out is not part of the identity', () async {
       await service.create(name: 'Training', filters: tracked);
 
       expect(
-        service.matching(tracked.copyWith(panelShowsAll: false)),
-        isNull,
+        service.matching(tracked.copyWith(panelShowsAll: false))?.name,
+        'Training',
       );
     });
   });

@@ -217,7 +217,10 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
         confirmIdentifier: SemanticsIds.filterPresetNameSave,
       ))?.trim();
       if (name == null || !mounted) return;
-      final saved = await service.create(name: name, filters: _draft);
+      // The lens, never the draft whole: a saved filter that carried the day
+      // panel's preference would rewrite it on whoever applied the preset —
+      // including a device on an older build, which pops `filters` as stored.
+      final saved = await service.create(name: name, filters: _draft.lens);
       if (!mounted) return;
       if (saved == null) {
         _report(l10n.filterPresetLimitReached(FilterPresetService.maxPresets));

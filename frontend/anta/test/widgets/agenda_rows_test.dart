@@ -815,7 +815,7 @@ void main() {
         return AgendaListView.eventDayEntries(
           occ,
           l10n,
-          (_, _) {},
+          true,
           showRecurrenceLabels: true,
           missedDisplay: CalendarMissedDisplay.hidden,
         ).length;
@@ -889,7 +889,7 @@ void main() {
       return AgendaListView.eventDayEntries(
         occurrences,
         l10n,
-        (_, _) {},
+        true,
         showRecurrenceLabels: true,
         missedDisplay: display,
       );
