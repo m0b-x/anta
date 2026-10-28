@@ -1055,6 +1055,183 @@ commit. **Writes.** Session log; the status header.
   from the start, and each half is given the other's file list as an explicit
   no-go area, which is what kept these two from overlapping at all.
 
+- **B5b — 2026-10-28, PARTIAL.** Two `reviewer` runs (Opus 5.5, high) in
+  parallel over the block's two disjoint halves, each given the other's file
+  list as an explicit no-go area. Half 1, the plan and the registry:
+  `alert_scheduler.dart` **by symbol only** (`digestArmSignature`,
+  `reconcileAllQuietly`, `hubEntries`, `digestEntries`, `_assignOsIds`,
+  `reconcileAll`), `digest_planner.dart`, `event_digest_service.dart`,
+  `alert_skip_action.dart` and `calendar_settings_page.dart` at its five named
+  lines. Half 2, the surfaces: `alarm_page.dart`, `alert_ring_controller.dart`,
+  `alert_gateway.dart`, `android_alert_gateway.dart` by section (arm/cancel/
+  replay, channels and sound, the full-screen intent, boot) and
+  `event_detail_sheet.dart`'s alert rows, presence rows and `build` — B3b's
+  unread corner. Cost ≈ 2.8 units, as the block budgeted. Letters, with the
+  owner asleep: **D1 C** was already the record's (the owner's pre-night-4
+  sheet); **D2 A** taken again — both halves read every surface for behaviour
+  only and neither filed a conformity finding, though C118, C125 and C126 are
+  where that letter bites (three detail-sheet rows that state something the
+  phone will not do). **C112–C129 filed**, all to B7: **one H, six M, eleven L**.
+  C112 is the review's sixth H and the first outside the data layer.
+  **Verified end to end.** Half 1 closed all five of its questions. Q1, the
+  digest's planned and delivered states across a sync reload, is **clean and is
+  the yardstick**: `app_sync_apply_hooks.dart:163-179` reloads before it
+  reconciles and `event_digests_binding.dart:14` maps the table to
+  `SyncInvalidation.alerts`, so a pulled digest is in the facade before the pass
+  plans from it; `_reconcile` snapshots `EventDigests.all` once
+  (`alert_scheduler.dart:1128`) after every facade await, so a reload landing
+  inside the arm loop cannot tear the plan, and an entry armed for a digest
+  tombstoned milliseconds earlier is cancelled by the reconcile the same
+  `afterRun` queues behind it; a *delivered* digest is safe because
+  `_settlePastFires:1469-1471` marks it `fired` before `firedIds()` is first read
+  (`:1142`), so its platform entry is not swept as a stray (`:1315`) and its id
+  is in `taken` — the reachable re-plan on a byte-identical `_registrationKey`
+  (a daily digest moved from 08:00 to 20:00 after it fired) probes past it rather
+  than overwriting the row Recent reads (`recentEntries:814-828`), and `recent()`
+  excludes `pending` and `cancelled` so the unconditional
+  `AlertOutcome.delivered` cannot mislabel a cancelled digest. Q2: the Skip
+  notice is correct and `alert_skip_action.dart:39`'s `categoryId != null` test is
+  load-bearing — `effectiveFor` projects a category alert through
+  `CategoryAlert.toEventAlert(event.id)`, which sets the in-memory-only
+  `categoryId` (`event_alert.dart:70-75`), so Skip writes the event row's
+  `categoryAlerts` flag and never an alert row, and afterwards `effectiveFor`
+  no longer lists it because `_inheritedBy` returns `const []`; had the branch
+  fallen through to `ToggleEventAlert` it would have written a
+  `calendar_event_alerts` row under the *category* alert's id, which `_shadowed`
+  would then have made permanent. Q3: all four quiet calls move a term the
+  signature carries (sound → `$sound`; snooze → `~$snoozeMinutes`; notice lead →
+  `~n$noticeLeadMinutes`; the reset rewrites all three), and the reset leaves
+  standing **digests** consistent because `setAlertDefaultAllDay` →
+  `configureDefaultDayMinute` (`settings_service.dart:1798`) moves all-day
+  *alert* instants only and nothing in `digestArmSignature`'s hash depends on the
+  all-day default — the holes are the two writes on that page with **no** call at
+  all, C114 and C115. Q5: nothing is planned prematurely —
+  `event_template_service.dart` has no alert of any kind (zero `Alert` hits) and
+  `_onCreateEvent` persists the event, **awaits** `_persistAlerts` and only then
+  fires the unawaited `reconcileEvent`, so the pass never runs between the event
+  row and its alert rows; the one thing the first pass does plan for a freshly
+  stamped event is its **category's** inherited alerts, because `categoryAlerts`
+  defaults on and `alertsByEvent` is built from `effectiveFor` (`:1086-1090`) —
+  per D2/D3, and the one way "alerts are opt-in" is satisfied at the category
+  level rather than the event's. Half 2 closed Q6, Q8, Q9 and Q10 and half of Q7.
+  **Q6, the ring page, is clean on every line a reader can check**:
+  `PopScope(canPop: false)` (`alarm_page.dart:282`); `_close` pops when current
+  and `removeRoute`s from underneath, never when `isFirst` (D9, `:160-173`);
+  `unlock()` first with the ring still going and a return on refusal in both
+  `_openEvent` (`:209`) and `_openDatabase` (`:226`); one `_opening` flag over
+  both faces of the Open row (C7); Keep one-way — `keep()` begins
+  `if (!willRemoveEvent) return;`, false from the press and false once `_kept`,
+  with a failed write restoring both (C2/C3); Stop narrowing only —
+  `removeAtPress` read before the chain and re-checked at the end for the
+  narrowing direction alone (C25); the `_disposed` guard on `stop`, `snooze`,
+  `keep` and `load` (C42); and C24's single notification holds because `load()`
+  resolves "already kept" *before* publishing the database name, so the remove
+  row is never drawn with a claim it takes back. The `a0a82ba` replay is sealed
+  in `main.dart:514-517` (`if (!_isRinging(intent.osId)) continue;`), not on the
+  page, and a dialog the page raises leaves it on top because
+  `AppRouteObserver extends RouteObserver<PageRoute<dynamic>>`
+  (`app_navigator.dart:1063`) and a `DialogRoute` is not a `PageRoute`. Q8 holds:
+  `keep.xml` carries `tools:keep="@drawable/ic_alert"`, the drawable exists,
+  `test/android/release_resources_test.dart` pins both, and `kAlertSmallIcon` is
+  the single spelling the test reads, so a rename moves both sides together.
+  Q9 holds: null volume follows the phone (`:2049-2059`), the floor is `0.3`
+  (`alert_constants.dart:200`) with `alertRingVolumeFor` bucketing `< 0.3` to
+  `floor` and a failed read answering `follow`, `showSystemUI: false` (C17), and
+  the four channels are `alerts_reminder`/high, `alerts_quiet`/low with sound and
+  vibration off, `alerts_digest`/default and `alerts_alarm_v2`/max with the
+  settings alarm URI and `AudioAttributesUsage.alarm`, legacy `alerts_alarm`
+  deleted at initialize, every details function posting on the matching id — the
+  gap is coverage, C127. Q10: an inherited alert draws correctly (the
+  `effectiveFor` order, the "From {category}" caption through
+  `CalendarCategories.labelOf`, the tap popping `edit`, D5's paused-category rule
+  honoured by the `alert.enabled` filter) and its "Next …" works because a
+  category-sourced registration carries the real `event_id`, so
+  `nextFiresForEvent` finds it and keys it by the shared alert id without
+  crossing events; a **digest** correctly produces no row, because a digest
+  registration is written with `eventId: ''` (`alert_scheduler.dart:1992`) and
+  `hubEntries` skips digest rows, so `_dao.forEvent(<real id>)` can never return
+  one; the presence row's write path is single-funnelled (chips →
+  `onPresenceChanged` → `EventSheetsFlow.setOccurrencePresence` →
+  `SetOccurrencePresence` with an explicit `PresenceStatus`) and the DAO is
+  idempotent. On Q7, the gateway side is idempotent: `cancel` (`:2174-2226`) and
+  `stopRinging` (`:2302-2327`) both drop the silence timer, `_heldRings`,
+  `_pluginRings` and `_rings` *before* `Alarm.stop`, hold `_stopping` across it
+  (C22), ask both backends, take the notice down, and `cancel` reports
+  `cancelled` only for a ring it itself removed (C21), so a second call finds
+  nothing and reports nothing; the inherited case is right because
+  `AlertRingController.stop` passes `(alertId, eventId, dayUtc)` to
+  `cancelSnoozeForAlert`, whose v42 doc states the `eventId` match exists exactly
+  so a shared category-alert id cannot cancel a sibling event's snooze. Half 2
+  also chased the one scenario that looked like a C21-class event-deleting bug —
+  `_reportRingsInProgress` seeding `_pluginRings` before the `Alarm.ringing`
+  subscription, where an empty seeded `BehaviorSubject` would read as a dismissal
+  and delete a remove-after event with nobody answering — into
+  `packages/alarm/lib/alarm.dart` and **ruled it out**: `Alarm.init` awaits
+  `checkAlarm`, which does `_ringing.add(_ringing.value.add(alarm))` for a
+  host-confirmed ring before init returns, and the gateway subscribes only after
+  `await Alarm.init(...)`, so the replayed value already carries the ring (the
+  converse, a ring stopped between the two reads, correctly settles as
+  `dismissed`).
+  **Lead-verified** against the code, the H and the four CONFIRMED M: the
+  cascade's four `tombstoneForEvent` calls (`calendar_event_dao.dart:110-119`),
+  the alerts-only capture (`alert_removal_notice.dart:116-120`), the Undo's
+  `CreateCalendarEvent(event, alerts)` with `calendar_page.dart:512`'s own `///`
+  naming the alerts and no other child, and `_onCreateEvent`'s
+  `upsert` + `_persistAlerts` tail (C112, H — the strongest id of this review
+  outside the data layer); `alertArmSignature`'s five terms with no
+  silence-after and the slider's reconcile-free `onCommit` beside the gateway's
+  `silenceAfter` grep (C114); `setProfile` with no reconcile against
+  `recurrence_rule.dart:414`/`:446` (C115); the empty-cache `catch` in
+  `event_digest_service.dart:103-112` (C117); `event_digest_dao.dart` carrying no
+  `maxDigests` at all against `digest_planner.dart:91`'s `take` (C113); the
+  detail sheet's `_alerts` filter and its unguarded `if (event.removeAfterAlert)`
+  row (C118, C125); `grep -n "settled\." alert_scheduler.dart` returning five
+  lines with no `settled.delivered` (C122); `keep.xml` and the drawable (Q8). All
+  stand. **One judgement made here:** C112 is filed **H** rather than M although
+  nothing is lost without the user's own tap, because what the Undo drops is
+  authored persisted content (attendance marks, per-day text, cancelled days) and
+  the tombstones carry their own HLC to every paired device — the same yardstick
+  that lifted C83. **Three findings are the owner's policy call** and say so in
+  their text: C113 (how an over-cap digest tail is shown), C120 (whether an
+  inherited opt-out should be per-alert), C126 (whether confirming a default
+  presence should store a row).
+  **Left open.** Half of Q7: the four cancel-scope cases (a tombstone, a skip, a
+  presence mark, a category opt-out each cancelling exactly their rows) and "a
+  snooze a v41 build armed survives a pass" live in `_reconcile`'s cancel set,
+  which the block's no-go put on half 1's side while half 1's question list did
+  not carry them — the split orphaned them, which is the one lesson this session
+  adds. The lead closed three of the four by a bounded read rather than leaving
+  them: `alert_planner.dart:145` sends every candidate day through
+  `CalendarEvent.occursOnUtcDay`, whose own `///` (`:99-100`, `:203-204`) says it
+  "owns the skips and the end date" and denies a tombstoned event, so a tombstone
+  and a skip each drop exactly that event's or that day's fires out of `desired`
+  and the reconcile cancels what is no longer desired; a category opt-out drops
+  the inherited alerts through `effectiveFor` (`alert_scheduler.dart:1088`,
+  `:646`). Read, not probed. **Still open and routed to B7 as reading, not as an
+  id:** whether a **presence** mark cancels its rows — presence is not in the
+  `occursOnUtcDay` chain — and the v41 snooze rule; to close them a session needs
+  the cancel set read whole against a v41 snooze row fixture. **For B8 (device):**
+  the keyguard path of Q6 (`MainActivity.dismissKeyguard`/`keyguardLocked`,
+  `SessionChip.kt`, the manifest flags — Kotlin, out of both lists), the
+  shrinker's real behaviour on `ic_alert` in a release build, and whether the 0.3
+  floor is audible on a phone.
+  **Why PARTIAL.** Half 2 reached its **80-turn limit before reporting** and was
+  resumed for the report alone (the B1/B4a trap again, now 2 for 3 on halves
+  rather than 0 for 4 — a half of five files is not automatically safe when one of
+  them is 2,575 lines), and it never ran its suites: **the lead ran them instead**,
+  `flutter test` over the thirteen named files → `00:06 +320: All tests passed!`,
+  beside half 1's eleven → `00:06 +330: All tests passed!` (the printed
+  `AlertGateway is not registered` and `_prefs has not been initialized` lines are
+  the suites' own expected warnings), so every id above sits beside green tests.
+  `dart analyze lib` → "No issues found!" twice, once per reviewer. No ARB was
+  touched, so no `gen-l10n`; no golden was re-rendered, and of B5b's ids only
+  C118, C125 and C126 change a screen when fixed (B7 re-renders on purpose and
+  says so). Neither reviewer needed a snapshot probe, so no `subst` was created
+  and nothing was written outside this record; `git status --short` clean after
+  both. **Not reproduced:** nothing was run in an app and no screen was rendered —
+  C112's and C118's end-to-end behaviour is argued from source, C113's sixteen-row
+  state was not built, and C117's load failure was reasoned rather than driven.
+
 ### 3.2 Findings
 
 Shape as the sync review's §0.6, ids `C1`, `C2`, …; fix session B6 or B7
@@ -1172,6 +1349,24 @@ by file.
 - **C109** (L, CONFIRMED; B5) `test/utils/` — nothing pins the serializer's core output. `grep -rn "IcsSerializer" test/` returns exactly two files, `ics_serializer_alarm_test.dart` (VALARM, triggers, category alerts) and `ics_serializer_skip_test.dart` (EXDATE and RDATE against skips); no case covers `RRULE` per frequency, interval, BYDAY or UNTIL, the all-day `DTSTART;VALUE=DATE` with `DTEND` one day after, `_escape`, `_fold`, `CATEGORIES` or `PRIORITY` — which is how C84 survived. Fix: a `test/utils/ics_serializer_test.dart` with one expectation per `RecurrenceRule` subtype plus an assertion that every physical line of a de or ro fixture is 75 UTF-8 octets or fewer (it fails today — that is C84's named failing test). Fix session: B7. →
 - **C110** (L, CONFIRMED; B5) three paths in B5's first half have no suite: (a) `test/widgets/calendar_appearance_page_test.dart` has no large-text case at all (its groups are the pinned preview, reset, and the page it left behind) while `calendar_settings_large_text_test.dart` pins the settings page at 2.0 and German — the gap that let C92 through; (b) `test/services/calendar_palette_service_test.dart:277` covers "two racing first callers share one service" and nothing for a `reset()` landing **inside** an in-flight `getInstance()`, which is C83's path; (c) nothing pins the preview against the grid for `missedDisplay` (C90) or the Colors row's count against a palette change made elsewhere on the same page (C91). Fix: one case each, named in C83's, C90's, C91's and C92's fixes. Fix session: B7. →
 - **C111** (—, CONFIRMED; B5) `lib/controllers/calendar_export_controller.dart:24` — `isPending` has no reader in `lib/`: `grep -rn "isPending" lib/` returns only the declaration, and the only readers are `test/controllers/calendar_export_controller_test.dart:110-170`, so a public getter is kept alive by its own test. Fix: drop the getter and assert on the snackbars instead, or keep it deliberately with a `///` saying it is a test seam — the owner's call. Struck 2026-10-28: a test seam is not a defect; one `///` when the file is next opened. Fix session: none. →
+- **C112** (H, CONFIRMED; B5b) `lib/services/alert_removal_notice.dart:116-120` with `lib/database/daos/calendar_event_dao.dart:110-119` and `lib/pages/calendar_page.dart:514-529` — the A3 **"Removed · Undo"** pair restores the event and its alerts and silently loses its presence marks, per-day descriptions and skipped days for good. `tombstoneEventCascade` tombstones four child tables under one stamp (`eventAbsenceDao`, `eventOccurrenceDao`, `eventSkipDao`, `eventAlertDao`), `AlertAcknowledgement.apply` captures **only** `EventAlerts.alertsFor(target.id)` before the delete, and Undo is `bloc.add(CreateCalendarEvent(event: notice.event, alerts: notice.alerts))` → `_onCreateEvent` (`calendar_bloc.dart:857-874`) = `service.upsert` + `_persistAlerts` and nothing else; `calendar_page.dart:512`'s own `///` says Undo "carries the alerts the cascade took with it" and names no other child. Input: a recurring event with `tracksPresence`, some attendance marks, a per-occurrence description and one skipped day, plus `removeAfterAlert` and an alarm; the alarm rings, Stop deletes the event, the user taps Undo — the event and its alarm come back, the three other row sets do not, and the tombstones carry their own HLC so every paired device loses them too. This is the one-device twin of the half-resurrection clause (phase record §3.4 (4)) except that the app offers the Undo, and `docs/event-alerts-roadmap.md:413-421` names the four cascades without sanctioning the asymmetry. Fix (lead default, the owner asleep): `AlertAcknowledgement.apply` captures the event's absence marks, occurrence descriptions and skips beside its alerts, and Undo restores all four under **one** fresh stamp — admissible on C76's settled precedent (an upsert over a tombstone stands under per-row LWW, phase record §3.4 (4)); a `restoreEventCascade` on the DAO is the alternative shape. Fix session: B7 (`→ deferred: owner` if B7 judges the restore needs a letter first). →
+- **C113** (M, CONFIRMED; B5b) `lib/utils/digest_planner.dart:91` with `lib/services/event_digest_service.dart:77` — sync can carry a database past `kDigestHorizon.maxDigests` (10) and the digests over the cap never fire and say nothing. The cap lives in `create` (`if (isFull) return null`) and in the sheet only; `grep -rn "kDigestHorizon\|maxDigests" lib/database/daos/event_digest_dao.dart` returns nothing, so `mergeRemoteDigest` applies an eleventh row happily, and `DigestPlanner.plan` takes `enabled.take(horizon.maxDigests)` by `sortOrder` then `id`. Input: device A creates 10 digests, device B creates 6, both sync — `nextSortOrder()` is per device so both sets number themselves `0..n` and the surviving 10 are an interleave decided by UUID; the other six cards sit in the hub with their switches **on**, produce no fire row (being enabled, `digestEntries`' disabled list does not pick them up either), never notify, and "Add digest" is refused because `isFull` is true. The user cannot see which of their digests are dead. Fix: make the over-cap tail explicit — arm by `sortOrder` and mark the tail "not armed (limit reached)" on its card, or re-dense `sortOrder` after a pull; which of the two is the owner's product call, because a row the user switched on must not simply read as off. Fix session: B7. →
+- **C114** (M, CONFIRMED; B5b) `lib/services/alert_scheduler.dart:98-107` with `lib/pages/calendar_settings_page.dart:1011-1015` — **Silence after** is frozen into the platform alarm but rides neither the arm signature nor a reconcile, so a changed value never reaches a standing alarm. `android_alert_gateway.dart:2106` reads the setting at arm time (`final silenceAfter = alarmTier ? await _silenceAfterMillis() : null;`) and `:2145` freezes it as `timeoutAfterMillis`, while `alertArmSignature` composes only `context`, `sound`, `kAlertArmClockToken`, `~$snoozeMinutes`, `~n$noticeLeadMinutes` (the suite pins the whole token: `test/services/alert_scheduler_test.dart:376` expects `'fake#system:default~clock~10~n120'`), and the slider's `onCommit` writes the setting and stops — the page's only four `reconcileAllQuietly` calls are at `:202`, `:960`, `:991`, `:1338`. Input: an alarm armed for tomorrow 06:00, then Calendar settings → Silence after 10 → 2 minutes; tomorrow it rings for the old ten minutes, and no later pass repairs it because the signature did not move, so the fast path at `:1198-1204` skips the entry for good. The reset at `:1286` has the same hole although `:1338` reconciles. Same shape as OS-2 for the snooze length. Fix: append `~s$silenceAfterMinutes` to the ring branch of `alertArmSignature` (passed as `snoozeMinutes` is at `:1175`) and add `reconcileAllQuietly` to the slider's `onCommit`; `alert_scheduler_test.dart:376` is the assertion to extend. Fix session: B7. →
+- **C115** (M, CONFIRMED; B5b) `lib/pages/calendar_settings_page.dart:504` (`await _holidayService?.setProfile(next)`) — changing the **public-holiday profile** changes which days a `workdays` or `holidays` event occurs on, and so which days its alarms fire, and nothing reconciles. `recurrence_rule.dart:414` is `return !PublicHolidays.isHoliday(day);` and `:446` is `return PublicHolidays.isHoliday(day);`, so the occurrence set is a function of the profile; `grep -n "reconcile\|AlertScheduler" lib/services/public_holiday_service.dart` returns nothing and `:504` is not one of the page's four reconcile calls. Input: a daily-workdays event with an alarm, profile Generic → Romania on the eve of a Romanian holiday — the phone rings tomorrow morning for an occurrence the calendar no longer shows, and in the other direction an alarm for a day that stopped being a holiday is missing, until the next launch or resume runs a pass. Fix: `await AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged)` after a successful `setProfile`, on the page or inside `setProfile` (`CategoryService.deleteCategory:403` is the in-service precedent). Fix session: B7. →
+- **C116** (M, PLAUSIBLE; B5b) `lib/bloc/calendar/alert_skip_action.dart:62-66` — Skip on a **recurring** event is unguarded, so its snackbar's Undo can resurrect an occurrence the user had already cancelled. The `///` at `:23-26` states the rule — "Null when there is nothing honest to do … `ToggleEventAlert` would be a silent no-op and the snackbar's Undo would re-enable nothing" — and applies it only to the one-time branch (`alert == null || !alert.enabled`); the recurring branch returns `SetOccurrenceSkipped`/`ClearOccurrenceSkipped` with no check that the day is already skipped and none that the alert still exists or is still enabled, and `_onClearOccurrenceSkipped` (`calendar_bloc.dart:1131-1147`) calls `service.unskip` unconditionally and then re-arms. Input: an upcoming-alarm notice posted at `fireAt − lead` (default 120 min, up to 1440, `settings_keys.dart:630-632`); inside that window the user cancels that occurrence from the day list; later they tap **Skip** on the notice still on the shade — the apply is a no-op, the snackbar offers Undo, and Undo restores the cancelled occurrence and its alarm rings. Second case, same branch: a notice for an alert since deleted or switched off still cancels the whole occurrence. Whether the posted notice survives the alarm's `cancel` is `android_alert_gateway.dart`, which B5b's split put on the other side of a no-go — B7 reads both halves' answers before fixing. Fix: return `null` in the recurring branch when `EventSkips.isSkipped(event.id, day)` (`event_skips.dart:55`) or when `payload.alertId` resolves to a missing or disabled alert. Fix session: B7. →
+- **C117** (M, PLAUSIBLE; B5b) `lib/services/event_digest_service.dart:103-112` — a failed digest load publishes an **empty** cache and the very next pass reads it as truth and disarms every digest. `_load`'s `catch` sets `_cache = const []` and calls `EventDigests.updateCache(_cache)`; `afterRun` then runs `_appReconcileAlerts` whether or not `_reloadEach` logged a failure (`app_sync_apply_hooks.dart:288-298` swallows per entry), so `_reconcile` plans zero digests, finds every armed digest row absent from `desired` and cancels it on the platform and in the registry (`:1263-1277`). Input: a sync pull landing during a database switch, or a transient sqlite lock → `[EventDigestService] Load error:` → every standing digest notification is cancelled, and they return only when a later pass runs with a healthy cache, under new os ids. Nothing is lost permanently, hence M, but digests stop with only a `debugPrint`. Fix: keep the previous cache on error and publish nothing (the way an unconfigured facade stays silent), or let `_reloadEach` tell `afterRun` the reload failed so the reconcile is skipped. Fix session: B7. →
+- **C118** (M, PLAUSIBLE; B5b) `lib/widgets/event_detail_sheet.dart:266-269` with `:556-576` — the detail sheet draws a **switched-off own alert** exactly like an armed one. `_alerts` filters the inherited side only (`if (alert.categoryId == null || alert.enabled) alert`), so a disabled own alert stays in the list; `_alertValue` then finds no registry row (`_nextFires[alert.id] == null`, the pass plans enabled alerts only) and returns the bare kind word — byte-identical to what an *enabled* alert reads while its registry read is still in flight — while the badge is already gone from the day panel and the agenda through `EventAlerts._anyEnabled`. Input: an event with one own reminder; turn that alert's switch off in the Alerts hub; open the event's detail sheet — the sheet says the event has a reminder with no hint that it is off, on the surface a reader consults before trusting the phone, and the hub (which dims the row and shows the switch) disagrees with it. Fix: either drop `enabled == false` rows from `_alerts` — the inherited rule applied to both sides, D5's shape — or give a disabled row the hub's dim plus an "off" value word. Fix session: B7. →
+- **C119** (L, CONFIRMED; B5b) `lib/services/alert_scheduler.dart:709-763` versus `:572-625` — the hub answers readiness **D11** two ways, and a digest row can assert an arm this device never made. `hubEntries` reads `_dao.pending()` (`:594`) — registry truth, plus alerts imagined on for the disabled rows — while `digestEntries` touches no DAO and no gateway at all; its own `///` (`:699-708`) says "planned exactly as the pass plans them", which the record sanctions. Input (two): a digest pulled from another device is listed with its next two fires the moment the facade reloads, before any pass ran; and a digest whose `_gateway.scheduleDigest` refused stays listed, because `arm()` returning false just `continue`s at `:1235` and writes nothing. This is the item B5 left open in §3.1 and the honesty twin of **C105** — the three want **one** seam in B7, not three patches. Fix: settle D11 once — back digest rows with `_dao.pending()` (keeping the imagined half plan-fresh, as `hubEntries` does for disabled alerts), or label a plan-only row as not yet armed; the owner's call on which. Fix session: B7. →
+- **C120** (L, PLAUSIBLE; B5b) `lib/bloc/calendar/alert_skip_action.dart:41-47` — Skip on an **inherited** alert silences every alert the event inherits, not the one the notice named: `categoryAlerts = false` drops everything `_inheritedBy` would project. Input: a category carrying two alerts (a reminder the day before and an alarm in the morning); Skip on the morning notice also removes the reminder, and Undo restores both. Harmless in practice for a one-time event, but the notice's wording promises less than it does. This is the owner's scope call rather than a plain defect — per-alert opt-out is a new persisted shape. Fix: none worth the complexity unless the owner wants it; otherwise one `///` on the branch saying the opt-out is event-wide by design. Fix session: B7. →
+- **C121** (L, PLAUSIBLE; B5b) `lib/services/alert_scheduler.dart:944-952` — `scheduleTestAlarm` is the one arming path whose os-id probe is blind: `isTaken: (_) => false`. If the test ring's seed lands on a live registration's os id, `_gateway.schedule` arms over the real alarm and the following `_dao.put` overwrites that row, so the real alert is unarmed and unrecorded until the next pass re-probes it — and if its instant falls in that window it never rings. It also cannot route around `_gateway.ringingIds`, the one rule the pass applies at `:1229` ("never arm over a ringing or due entry"). The odds are ~1e-8 per press (31 bits, `kAlertOsIdMask = 0x7fffffff`, against a few dozen entries), hence L. Fix: pass the probe the pass uses — live row ids ∪ `_gateway.ringingIds` ∪ `firedOsIds()` — three lines, and the rule becomes uniform. Fix session: B7. →
+- **C122** (L, CONFIRMED; B5b) `lib/services/alert_scheduler.dart:1443,1455,1498,1529` — `_settlePastFires` builds a `delivered` set that nothing reads. `grep -n "settled\." lib/services/alert_scheduler.dart` returns five lines, `settled.live` (`:1098`), `settled.inFlight` (`:1144`, `:1260`) and `settled.verdicts` (`:1315`, `:1322`) — `settled.delivered` appears nowhere. Dead state on the pass's hot record, and the next reader will assume a consumer exists; note that the digest branch at `:1469-1471` deliberately does *not* add to it, which only matters once one does. Fix: drop the field, or wire it to what it was meant for and say so in the `///`. Fix session: B7. →
+- **C123** (L, CONFIRMED; B5b) `lib/pages/calendar_settings_page.dart:202-204, 960-962, 991-993, 1338` — all four quiet passes log `AlertReconcileReason.eventChanged` while `reconcileAllQuietly`'s own `///` says "nothing about any event changed". The enum (`:41-55`) is "Logged, never branched on", so the only cost is a misleading `reconcile(eventChanged)` line in the log that is read when alarms misbehave. Fix: add an `optionChanged` member and use it at the four sites — no behaviour change, the enum is never branched on. Fix session: B7. →
+- **C124** (L, CONFIRMED; B5b) three gaps beside B5b's half-1 ids: (a) no suite asserts that a changed **Silence after** re-arms — `test/services/alert_scheduler_test.dart:376` is the exact assertion C114's fix extends; (b) `test/utils/digest_planner_test.dart:290` covers the cap's truncation but nothing covers what the **hub** then shows for the truncated tail (C113); (c) `test/bloc/calendar_alerts_test.dart:210,241` exercise `AlertSkipAction.resolve` and neither case is an already-skipped occurrence (C116). The planner, the signature and the hub readers are pure or fake-backed, so each is a cheap unit case in an existing suite. Fix session: B7, with the id each belongs to. →
+- **C125** (L, PLAUSIBLE; B5b) `lib/widgets/event_detail_sheet.dart:749-755` — "Remove after it rings" is claimed on an event whose only alarm is switched off. The row is drawn on `if (event.removeAfterAlert)` alone, while `AlertAcknowledgement.apply` requires `payload.isAlarm`, so nothing will ring and nothing will ever remove the event. Input: a one-time event with one own alarm and `removeAfterAlert` on, plus a second alert so the group survives; turn the alarm off in the Alerts hub (its `enabled` goes false, the event's flag is untouched) and open the detail sheet — the sheet states the event will delete itself. The editor's own gate uses `_alerts.any((a) => a.isAlarm)`, `isAlarm` regardless of `enabled`, so a later Save does not clear the flag either. Fix: gate the row on `_alerts.any((a) => a.isAlarm && a.enabled)` beside `event.removeAfterAlert`, and clear the flag on Save in the editor's twin gate (B4b's file, same session). Fix session: B7. →
+- **C126** (L, PLAUSIBLE; B5b) `lib/widgets/event_detail_sheet.dart:309-317` — the presence chips cannot write the mark they already show. For an assume-absent event (v37) on a day it covers with no explicit row, `EventPresence.isMissed` answers `true` from `event.assumesAbsentOn(day)`, so the **Missed** chip is pre-selected; tapping it enters `_setMissed`, whose first line is `if (missed == _missed) return;`, so no explicit row is created (mirror case: an assume-present event and the Present chip). `EventAbsenceDao.setStatus` is already a no-op for a live row carrying the status, so the widget guard only suppresses the case where the DAO *would* have written. Nothing user-visible distinguishes an explicit mark from the default today (every reader goes through `isMissed`), so it costs nothing until the assume-absent window moves, when the "confirmed" day flips with it; `event_sheets_flow.dart:526-534` already records the inverse gap (`clearMark`, "which no UI reaches"). This is the owner's policy call. Fix: drop the equality guard and let the DAO's no-op decide, or state in the record that a confirmation over the default is deliberately not stored. Fix session: B7. →
+- **C127** (L, CONFIRMED; B5b) `lib/services/android_alert_gateway.dart:1170-1177` and `:1205-1214` — the reminder and alarm channels' **creation** arguments are unpinned, and Android freezes a channel's importance and sound at creation. `test/android/session_chip_channel_test.dart:118-130` source-pins the quiet channel whole (id, name, description, `Importance.low`, `playSound: false`, `enableVibration: false`) and `test/android/alerts_channel_test.dart:435-446` pins the digest channel's; nothing pins `kAlertReminderChannelId` at `Importance.high`, or `kAlertAlarmChannelId` at `Importance.max` **with** `sound: UriAndroidNotificationSound(kAlertAlarmChannelSoundUri)` and `audioAttributesUsage: AudioAttributesUsage.alarm` — the grep finds only `android_alert_gateway_test.dart:683` (the constant) and `android_alert_notifications_test.dart:492` (the *notification's* usage). §4.1 of the redesign roadmap lists "the three existing channels' ids, importance and sound" as must-not-change, and a refactor that dropped `sound:` would leave the suite green and the regression unrecoverable on every existing install (the id cannot be reused; `alerts_alarm` → `alerts_alarm_v2` is the precedent, OS-1). Fix: extend the existing `_initialize` source pin in `session_chip_channel_test.dart` to the reminder and alarm channels, or add a sibling pin. Fix session: B7. →
+- **C128** (L, CONFIRMED; B5b) `test/services/alert_removal_notice_test.dart` — nothing covers what Undo restores, which is why C112 survived. The suite's cases are `a notice waits until it is taken, then is gone`, `a stale notice is dropped rather than offered`, and under `AlertAcknowledgement` `a stopped alarm removes the event and offers it back`, `a reminder never does`, `the event's own flag wins over a payload written earlier`, `another database's alarm removes nothing here`, `an acknowledged alarm asks for its chip before A3 runs; a reminder never` — "offers it back" asserts the notice exists, and no case asserts what the Undo write puts back. Fix: one case with Drift in memory asserting all four child tables after Undo; B7 lands it with C112. Fix session: B7. →
+- **C129** (L, PLAUSIBLE; B5b) `lib/controllers/alert_ring_controller.dart:207-215` — `stop()` leaves two awaits outside its guard, so a throw there strands the alarm page. `await SessionChip.instance.show(payload);` and `if (removeAtPress && willRemoveEvent) await _removeEvent(payload);` sit outside any `try` (the three steps above them are wrapped); if either throws, `_stopped` is never set, `_busy` stays `true`, `notifyListeners()` never runs, and the page is stuck — Stop, Snooze, Open and Keep all disabled (they read `busy`), back inert (`PopScope(canPop: false)`), and the phone rings until the Silence-after window. Neither can throw today (`SessionChip.show` wraps everything after a non-throwing `_gateway()`, and `AlertAcknowledgement.apply` catches everything after a `SessionChip.show` that is itself safe), so this is a latent trap — but `_removeEvent` is an injected seam (`configureForTesting(removeEvent:)`), so the shape is already pluggable. Fix: extend `stop()`'s existing `try`/`catch` over both calls, leaving the `_stopped`/`_busy`/notify tail unconditional. Fix session: B7. →
 
 ---
 
