@@ -58,6 +58,18 @@ if ($Commit) {
     $grant = 'Do not commit; end with a ready-to-run commit (paths and subject).'
 }
 
+# A print-mode run waits at most ten minutes (the CLI's default) for work
+# still running in the background after the lead's last message, then ends
+# the session with that work orphaned — and the Agent tool runs a subagent
+# in the background whatever the agent does inside, so a lead waiting on a
+# long qa-runner dies that way: A9 on 2026-10-28, mid device pass (the pass
+# outlived it and finished green). One hour covers the three device suites
+# in one agent call (about fifteen minutes) and a fix session's whole-suite
+# runs; not 0 (indefinite), so a hung agent ends the session, not the night.
+# Set here because the .cmd launchers strip every CLAUDE* variable before
+# starting PowerShell.
+$env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '3600000'
+
 foreach ($session in $Sessions) {
     # An id is the block letter, one digit and an optional a/b/c suffix: A0, A1a, B3b.
     if (-not ($session.Trim() -match '^(?i)([AB])(\d)([A-C])?$')) {
