@@ -1,7 +1,7 @@
 # Cloud Sync Phase 02 — Own Space on N Devices
 
-**Status: PLANNED 2026-10-24 (Fable 5.1). Decisions D1–D8 await the owner's
-letters; the recommended default is marked on each.** The transport phase
+**Status: PLANNED 2026-10-24 (Fable 5.1). Decisions D1–D8: all A, taken
+2026-10-28 on the owner's decision sheet (§2).** The transport phase
 of `docs/cloud-sync-roadmap.md`: one Google account, every device shows the
 same folders, notes, calendar, counters and alert definitions. Builds on the
 readiness phase (`docs/cloud-sync-readiness-roadmap.md`, DONE 2026-10-23,
@@ -78,6 +78,11 @@ roadmap lists; desktop stays local-only (`SyncAvailability.isSupported`).
 
 Answer with letters ("D1 A, D2 A, …"). A is the recommended default. Each
 is reversible before the slice that builds it ships; the slice is named.
+
+**Taken 2026-10-28 on the owner's decision sheet (`fable-max`, with the
+review's letters): D1 A, D2 A, D3 A, D4 A, D5 A, D6 A, D7 A, D8 A.** The
+eleven sync commits and the review's fixes were built on them; a flip
+before S4b-2 starts is written here.
 
 - **D1 — How a database starts syncing** (S4). **A:** an explicit "Sync this
   database" row on the Sharing page, enabled once signed in; nothing is
