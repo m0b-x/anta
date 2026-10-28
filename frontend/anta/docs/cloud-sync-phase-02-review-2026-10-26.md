@@ -12,8 +12,11 @@ no ARB, no golden; the three device suites green on that build (calendar
 Deferred, the reasons in §6: to the owner R98, R116, R118, R121, R130's
 second half, R148, R96 (with the rules deploy) and R67's counter share
 (needs v44); left by D4 A R17, R43 and R83; to S4b-2 R39; declined R86 and
-R66's `label` half. Every §7 default stood; no letter was flipped. S4b-2
-and S6 (phase record §4) follow this review.** The eleven `sync:`
+R66's `label` half. Every §7 default stood; no letter was flipped. Night 4
+(2026-10-28) appends A10, the fix pass on the owner's letters (§7 D8):
+R98, R116, R148 and R96 built; R130, R118, R121, R83 and R67 accepted and
+recorded; R17 struck; R43 left. S4b-2 and S6 (phase record §4) follow
+this review.** The eleven `sync:`
 commits of 2026-10-24/25 (`b9d1ab9` … `ac56abf`, base `25a5c94`; record
 `docs/cloud-sync-phase-02-own-space.md`) built the engine, the wire, the
 Firestore gateway and the open-editor rule in one session: 149 files,
@@ -29,12 +32,12 @@ device pass of the three saved suites.
 
 0. How to run this — the runner, the kickoff, what every session does
 1. What the per-slice reviews could not see
-2. The sessions A0–A9
+2. The sessions A0–A10
 3. The ledger — session log and findings
 4. Must not change
 5. Budget
 6. Off the schedule, and deferred
-7. Decisions (D1–D7)
+7. Decisions (D1–D8)
 
 ---
 
@@ -45,6 +48,7 @@ device pass of the three saved suites.
 ```
 tool\review\overnight.ps1 -Sessions A0,A1a,A1b,A1c,A2,A3a,A3b,A4,A5     # night 1: the reviews
 tool\review\overnight.ps1 -Sessions A6,A7,A8,A9 -Commit                  # night 2: the fixes, the gate
+tool\review\overnight.ps1 -Sessions B5b,B6,B7,A10,B8 -Commit            # night 4 (with the calendar record): A10 builds the owner's letters, §7 D8
 tool\review\overnight.ps1 -Sessions A2 -DryRun                            # print the command, run nothing
 ```
 
@@ -224,7 +228,7 @@ reviews find (D7).
 
 ---
 
-## 2. The sessions A0–A9
+## 2. The sessions A0–A10
 
 Every block: **Goal** · **Files** · **Read** · **Questions** · **Agents** ·
 **Writes**. A session that cannot do a step reports it `PARTIAL` with the
@@ -605,6 +609,146 @@ record's §4 pointing here, with the carry-overs' new state; the
 calendar `context-log.md` 2026-10-25 entry if a calendar binding changed.
 (4) Under `-Commit`: one docs commit. **Writes.** Session log; the
 status header; the final line.
+
+### A10 — Fix pass IV: the owner's letters (Opus lead; `implementer`, `reviewer`)
+
+**Goal.** Build the four ids the owner's decision sheet of 2026-10-28 (§7
+D8, drafted by `fable-max`; every letter there is the owner's to flip
+before the night) says to build, and write the accept-and-record lines for
+the rest, so the review leaves nothing open but S4b-2 and S6. Runs on
+night 4 after the calendar record's B7 and before its gate B8 (one tree,
+one `flutter test` at a time); B8's device pass then covers this session
+too. **Inputs.** R98 (letter b′), R116, R148 (the rebind half), R96 (the
+file only); the accept lines for R130, R118, R121, R83, R67; the strike of
+R17. **Read.** §0.5 and §4; §3.4 (1)–(2) and the R65/R132 paragraphs of
+the phase record (`docs/cloud-sync-phase-02-own-space.md`);
+`drift-migrations` SKILL.md's golden rules (no migration here); the fix
+texts below, verbatim — they replace the ids' own "Fix:" sentences.
+**Order.** Two implementer runs by file group, the second after the
+first's gate: (1) `lib/database/crdt/` — R98 with both tests; (2)
+`vocabulary_dao.dart`, the two repositories, `firestore.indexes.json` —
+R116, R148, R96. **Then** the medium-effort `reviewer` on the whole diff
+(its first question: does any merge branch, `receive` or `seed` change;
+its second: does the new two-device test fail on the pre-fix tree), one
+implementer on the review's findings, the gate, the commit under
+`-Commit` (code and record together, subject `sync: fix the owner's
+letters of the phase 02 review`). **Gate.** `dart analyze lib test
+test_driver`; `flutter test` whole; no ARB changes, so no `gen-l10n`; no
+golden (nothing visible changes). **Fix texts.**
+
+- **R98 — the clock follows the stamps it stores (letter b′).**
+  `HybridLogicalClock` gains `adopt(HlcTimestamp stamp)`: `_raiseTo` with
+  **no** `_guard`, incrementing `_clampedRemotes` when `stamp.wallTime >
+  wall + maxDrift` so the figure keeps meaning "remote stamps beyond the
+  guard" (its `///` and `clampedRemotes`'s re-worded: followed, not held).
+  `CrdtMerge.advanceClock` (`crdt_merge.dart:86-88`) calls `adopt` instead
+  of `update`; its `///` says why: `seed()` honours a far-ahead stored
+  stamp unguarded (`hlc.dart:85-95`) and `persistStamp` already stores the
+  page's highest stamp inside the page transaction (`crdt_write.dart:255-262`,
+  `sync_puller.dart:345`), so the next open would put the clock above the
+  row anyway, and a guarded in-session advance only let this run mint
+  below rows it holds — R98's loss. `update` and `receive` keep the guard
+  (`ContentChunkDao.mergeChunk`'s two `hlc.update` calls have no caller
+  and stay). Tests: `test/database/hlc_test.dart` "adopt follows a
+  far-future stamp and counts it" beside the drift-guard group (the
+  `update`/`receive` cases stay); under `test/services/sync/` a two-device
+  case on `SyncDevice` (`test/services/sync/support/sync_pair.dart:47`,
+  the shared `wallClock` at :149-161): A's wall two days ahead, A creates
+  and pushes a note, B pulls, B renames, three drains — both devices read
+  B's title, both outboxes empty (probe A5-8b as a test; it fails today as
+  the id states). Must not change: §3.4 (1)–(8) (stamps verbatim, per-row
+  LWW, no cascade, the page-level advance R65, the seed inside the page
+  transaction R132), the HLC string encoding, `seed`, `receive`, `_guard`,
+  `persistStamp`/`_covered`, `SyncStatus.clampedRemotes`'s name; no
+  behaviour for an unbound database (the advance runs only in the puller);
+  no visible change (`clampedRemotes` has no reader under `lib/pages`,
+  `lib/widgets`, `lib/bloc`). This **bends** phase record §5 "the drift
+  guard (`maxDrift`, one hour)" for the page advance only: a wrong clock
+  now moves every device's clock forward instead of silently losing their
+  edits; the owner's other letters are in D8.
+- **R116 — the save writes only what the user changed.** In
+  `VocabularyDao.saveItems`' insert loop (`vocabulary_dao.dart:152-170`),
+  before `if (row == null)`: when `snapshot != null &&
+  snapshot.contains(term) && (row == null || row.isDeleted)` → `continue`
+  — the user kept a term a pull renamed away or deleted after the
+  snapshot, and the save leaves it as the pull left it (no insert, no
+  resurrection, no sort-order write). The method's `///` (`:114-124`)
+  gains that sentence. Tests in `test/database/vocabulary_crdt_test.dart`
+  beside `:327-376`: "a term renamed by a pull after the snapshot is not
+  re-created by the save" (merge the row `Squat` → `Back Squat` at a newer
+  stamp, then `saveItems(terms: ['Squat'], snapshot: ['Squat'])`: live
+  terms `['Back Squat']`, no new outbox entry) and "a term deleted by a
+  pull after the snapshot stays deleted". Must not change: `snapshot ==
+  null` replaces outright (every existing caller); the tombstone loop
+  (`:192-200`) and `_tombstoneItem`; one `db.newStamp()` per save; R23's
+  three tests; the service's normalisation. The phase record's §8 grows
+  nothing: its "two items for the same term" line is a different shape,
+  and this one is now fixed.
+- **R148 — the by-id watches rebind (the rebind half).**
+  `NoteRepository.watchNoteById` (`note_repository.dart:621`) and
+  `FolderRepository.watchFolderById` (`folder_repository.dart:540`) wrap
+  their DAO stream in `restartableStream(source: () =>
+  _noteDao.watchNoteById(id), restarts: _rebinds.stream)` exactly as
+  `:608-611` / `:527-530` do, the existing `.map` tombstone filter outside
+  the wrapper. Tests: `test/repositories/repository_database_rebind_test.dart`
+  gains "a note watch by id mounted before a switch reads the new
+  database" and the folder twin, copies of `:26` and `:45`. Must not
+  change: `lib/utils/restartable_stream.dart` (its never-completing
+  contract is recorded, not changed); the four watch methods' return
+  types. The controller half is recorded, not built: the stream ends only
+  when its listener cancels; a repository disposed under a live page is a
+  dispose-order bug elsewhere.
+- **R96 — the index exemptions, the file only.** `firestore.indexes.json`'s
+  `fieldOverrides` gains one entry per synced collection group — the 17
+  `table` names of `lib/services/sync/tables/*.dart`: `{"collectionGroup":
+  "<table>", "fieldPath": "data", "indexes": []}`; lettered default (b)
+  decides the form. Test: `test/services/sync/firestore_indexes_test.dart`
+  beside `firestore_rules_tables_test.dart`: every binding's `table` has
+  its exemption; the `pairs` composite index is byte-for-byte as today.
+  Must not change: the `pairs` index; `firebase.json` stays gitignored;
+  **nothing is deployed** — the owner runs `firebase deploy --only
+  firestore:indexes` with the rules, and a malformed file fails that
+  command loudly and deploys nothing. The emulator cannot prove an
+  exemption (no indexes, no quotas).
+
+**Record lines (the lead writes; the implementer none).** `→ A10: accepted
+(owner's letter, §7 D8)` on R130 (second half), R118, R121, R83 and R67,
+each with D8's one-line reason; R17 `→ struck (—)` with the three facts
+(`content_chunk_dao.dart:128-130` drops an unreadable id from the map;
+`note_repository.dart:701` passes the absence through as `remoteContent ==
+null`; the page guard at `optimized_note_editor_page.dart:1389-1391` fires
+on null). Two sentences in the phase record — §3.4 (4), after the R63/R64
+sentence: "Inside one later page, a folder whose parent is a local
+tombstone and whose parent's live envelope arrives later in the same page
+is re-parented to the nearest live ancestor and the move is pushed — a
+one-level flattening after a delete raced edits to both folders on another
+device; nothing is lost. The repair after the page's merges
+(`SyncTableBinding.afterPage` + a public `FolderDao.repairMergedParents`)
+is the fix when wanted (review R130)." — and §8: "the calendar
+deliberately exports every live day row, orphans included: a
+half-resurrected event (R77) makes them meaningful again, and the import
+normalises what stays orphaned (review R83)." **Must not change in play.**
+Phase record §5 "the drift guard" — bent for the page advance only (R98);
+§3.4's stamps verbatim, per-row LWW, the no-cascade clause, the page-level
+advance and the in-transaction seed — kept; the HLC encoding — kept; no
+behaviour change for an unbound database (the advance is puller-only,
+R116's branch needs a second writer, R148 has no caller); the outbox
+written only inside `CrdtWrite` (nothing new queues); the rules not
+deployed; the three suites and the 27 goldens unchanged. **Lettered
+defaults.** (a) R98 takes (b′) unless the owner wrote (a), (c) or (d) into
+D8. (b) R96's form: the `data` map exemption when the Firestore
+"single-field index exemptions" documentation confirms a map exemption
+covers its subfields; else `"fieldPath": "*", "indexes": []` plus
+`{"collectionGroup": "<table>", "fieldPath": "pushedAt", "indexes":
+[{"queryScope": "COLLECTION", "order": "ASCENDING"}]}` per table — the
+only query is `orderBy('pushedAt').orderBy(FieldPath.documentId)`
+(`firestore_sync_gateway.dart:168`). (c) R148's controller half and R130's
+second half are recorded, not built. (d) Under time pressure the drop
+order is R96, R148, R116 — never R98, the one H; a dropped id is `→
+deferred: owner` with the reason. (e) The lead writes every `→` and record
+line; the implementer writes no record text. **Writes.** `→` on R98, R116,
+R148, R96 and the accept lines above; the session log with the hash; one
+sentence in this record's status header (A10's hash and what it built).
 
 ---
 
@@ -1735,6 +1879,7 @@ Sonnet; an `implementer` at 1.5; a medium-effort fix reviewer at 0.6;
 | **Night 1** | | | **≈ 12** |
 | A6, A7, A8 | Opus | implementer + medium reviewer each | 3 × 2.5 = 7.5 (A7 with two implementers: 9) |
 | A9 | Sonnet | qa-runner, docs-writer | 0.5 |
+| A10 | Opus | implementer ×2 (by file group), reviewer, implementer on its findings | 2.5 |
 | **Night 2** | | | **≈ 8–10** |
 | **Block A** | | | **≈ 20–22** |
 
@@ -1803,7 +1948,7 @@ order of risk, so a night cut short still covered the worst first.
 
 ---
 
-## 7. Decisions (D1–D7; the default is marked, the owner flips a letter here)
+## 7. Decisions (D1–D8; the default is marked, the owner flips a letter here)
 
 - **D1 — Nights.** **A (default):** two nights — reviews, the owner reads
   §3, then fixes. B: everything in one chain
@@ -1833,3 +1978,30 @@ order of risk, so a night cut short still covered the worst first.
   (A6) and the S5b list (A8) are built in this review's fix passes, each
   as a ledger id with the phase record's own fix text. B: left for S4b-2
   and S6 as the phase record planned.
+- **D8 — The owner's letters on the deferred ids (2026-10-28).** Decided
+  on the `fable-max` decision sheet before night 4; the owner flips any
+  line here before launching, and A10 takes what stands. **R98 (b′,
+  default):** the clock follows the stamps it stores — `CrdtMerge.advanceClock`
+  adopts the page's highest stamp unguarded while `update`/`receive` keep
+  the guard; bends phase record §5's drift guard for the page advance
+  only, so a wrong clock moves every device's clock forward instead of
+  losing their edits. (a) store the clamped stamp on the row too — fails
+  anyway, the minting device keeps and re-pushes the far-future row from
+  `keptLocal`; (c) only surface `clampedRemotes` in S4b-2's Sync section;
+  (d) park a far-future envelope — cuts that device off for good because
+  `now()` is monotonic. **R116 build. R148 build the rebind half**; the
+  controller half is by design. **R96 build the file, no deploy. R130
+  second half accept and record** (a one-level flattening after a delete
+  raced edits to both folders on another device, nothing lost; the
+  per-page seam is the fix when wanted). **R118 accept** (the undo reset
+  on a title-dirty merge and the silent title LWW stand; the splice would
+  be a second document-replacement path on the typing path). **R121
+  accept** (a hold is not a failure: `unsaved`, the 5 s debounce, the
+  filing's own snackbar as the signal). **R83 accept: deliberate** (orphan
+  day rows stay in the backup; a half-resurrected event makes them
+  meaningful again). **R67 closed, no v44** (`counters`/`counter_values`
+  have no `updated_at`; nothing diverges). **R17 struck (—):** not
+  reproducible at HEAD (`content_chunk_dao.dart:128-130` drops an
+  unreadable id; the page guard fires on null). **R43 left** (correct as
+  written; at most `maxFolderDepth` = 64 in-process round trips, one to
+  three in practice). **R39 → S4b-2** confirmed.
