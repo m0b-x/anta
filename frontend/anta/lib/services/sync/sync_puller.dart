@@ -221,7 +221,7 @@ class _Puller {
   /// once (readiness R5), and `afterPage`, the copies among its rows as
   /// inserted notes.
   ///
-  /// The clock moves only once the page committed, because `hlc.update` is
+  /// The clock moves only once the page committed, because `hlc.adopt` is
   /// in-memory and a rollback does not undo it: advanced inside, a page that
   /// rolled back would let the next local edit out-stamp a remote row this
   /// device never merged, which then loses everywhere with no conflict copy
@@ -339,7 +339,7 @@ class _Puller {
       // With the rows, not after them: a kill between the commit and a store
       // outside it would leave the seed below stamps this page committed,
       // and the first local edit on a merged row would mint under them (A7
-      // review R132). The page's highest stamp, not the clock: `hlc.update`
+      // review R132). The page's highest stamp, not the clock: `hlc.adopt`
       // is in-memory and a rollback would not undo it, so the advance waits
       // for the commit (R65) — and the seed only has to cover the rows.
       final highest = advance;

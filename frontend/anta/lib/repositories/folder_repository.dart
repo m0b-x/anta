@@ -538,7 +538,10 @@ class FolderRepository {
   }
 
   Stream<Folder?> watchFolderById(String id) {
-    return _folderDao.watchFolderById(id).map((folder) {
+    return restartableStream(
+      source: () => _folderDao.watchFolderById(id),
+      restarts: _rebinds.stream,
+    ).map((folder) {
       if (folder != null) {
         _folderCache[folder.id] = folder;
       }

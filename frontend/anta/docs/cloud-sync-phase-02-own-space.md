@@ -327,7 +327,19 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    local row to the nearest live ancestor and requeues it (R64), and cuts a
    `parent_id` cycle two concurrent moves closed (R63) — both are local
    repairs stamped above the move they repair, skipped while
-   `bind_merge_pending` is set, never a cascade.
+   `bind_merge_pending` is set, never a cascade. Inside one later page, a
+   folder whose parent is a local tombstone and whose parent's live
+   envelope arrives later in the same page is re-parented to the nearest
+   live ancestor and the move is pushed — a one-level flattening after a
+   delete raced edits to both folders on another device; nothing is lost.
+   The repair after the page's merges (`SyncTableBinding.afterPage` + a
+   public `FolderDao.repairMergedParents`) is the fix when wanted (review
+   R130). The repair's own clock raise keeps the drift guard where the
+   puller's page advance gives it up: the raise runs inside a transaction
+   that can still roll back with nothing stored, so an unguarded one would
+   leave the clock arbitrarily above everything committed (review R157) —
+   and a writer more than `maxDrift` ahead therefore still out-sorts the
+   repair (review R131).
 5. Notes: `mergeNoteDocument(note, content)` replaces the chunks when the
    remote wins (the `saveContent` shape without stamping or queueing), keeps
    FTS in step as `mergeNote` does, and returns the overwritten row **and
@@ -550,9 +562,16 @@ checks all four before every pull, push and bind (readiness §7).
 - **The conflict copy (D3)** is filed by the engine from the note merge's
   returned loser: a local write through `NoteRepository` (stamped, queued),
   same folder, the loser's body, the title of D3; once per losing merge.
-- **Clock.** Every applied envelope passes through `db.hlc.update` inside
-  the merge (the drift guard of readiness R5 holds a far-ahead stamp);
-  `persistClock()` once per applied page.
+- **Clock.** The puller advances the clock once per pulled page, from the
+  page's highest stamp, after the page transaction commits
+  (`CrdtMerge.advanceClock` → `hlc.adopt`, review R65); the seed goes in
+  **with** the rows, inside that transaction (review R132), so no committed
+  row ever carries a stamp above the stored value. The page advance is
+  **not** held to the drift guard: a stamp this device has already stored on
+  a row of its own is followed however far ahead it is, because holding it
+  only made this run mint below rows it holds and lose those edits with no
+  park and no copy (review R98). `receive`, `update` and the folder repair's
+  in-transaction raise keep the guard of readiness R5.
 
 ### 3.6 Bind, unbind, mismatch (S4)
 
@@ -2177,6 +2196,9 @@ S6 follow it unchanged.
   once either way since review 2026-10-26 R35 deduped `updateCache` on the
   folded term, so the pair is invisible until the next save collapses it);
   `requeueRow` on a composite key scans its table.
+- The calendar deliberately exports every live day row, orphans included: a
+  half-resurrected event (review 2026-10-26, R77) makes them meaningful
+  again, and the import normalises what stays orphaned (review R83).
 - A pull envelope that parks (a malformed document) is skipped at that
   cursor for good and `parkedCount` resets at the next launch, so the
   device silently lacks that one row until the row is pushed again — the

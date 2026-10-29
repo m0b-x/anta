@@ -619,7 +619,10 @@ class NoteRepository {
   }
 
   Stream<Note?> watchNoteById(String id) {
-    return _noteDao.watchNoteById(id).map((note) {
+    return restartableStream(
+      source: () => _noteDao.watchNoteById(id),
+      restarts: _rebinds.stream,
+    ).map((note) {
       if (note != null) {
         _noteCache.put(note.id, note);
       }

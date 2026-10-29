@@ -138,12 +138,15 @@ class SyncPair {
   /// both engines' table bindings, for a test that wraps one to make its
   /// merge fail. [background] opens each database on a file in its own
   /// isolate, as the app does, where a SQLite error reaches the engine
-  /// wrapped in a `DriftRemoteException`.
+  /// wrapped in a `DriftRemoteException`. [wallAhead] puts the named
+  /// device's wall clock that far ahead of the shared one, for a case about
+  /// a device whose system clock is wrong.
   static Future<SyncPair> open({
     bool bind = true,
     bool background = false,
     SyncEngineTiming timing = const SyncEngineTiming(),
     List<SyncTableBinding<Object>>? tables,
+    Map<String, Duration> wallAhead = const {},
   }) async {
     final gateway = FakeSyncGateway();
     final clock = _SharedClock();
@@ -155,10 +158,11 @@ class SyncPair {
       final executor = files == null
           ? NativeDatabase.memory()
           : NativeDatabase.createInBackground(File('${files.path}/$id.sqlite'));
+      final ahead = wallAhead[id] ?? Duration.zero;
       final db = AppDatabase.forTesting(
         executor.interceptWith(statements),
         deviceId: id,
-        wallClock: clock.call,
+        wallClock: () => clock().add(ahead),
       );
       await db.customSelect('SELECT 1').get();
       // forTesting hands out the singleton: reset it so the second device

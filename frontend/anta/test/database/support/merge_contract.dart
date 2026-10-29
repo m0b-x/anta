@@ -270,7 +270,7 @@ void runMergeContract<R>(
     ).toString();
 
     /// No branch of a merge moves the clock. The puller raises it to the
-    /// page's highest stamp once the page committed: `hlc.update` is
+    /// page's highest stamp once the page committed: `hlc.adopt` is
     /// in-memory and no rollback undoes it, so a page that rolled back
     /// would otherwise leave this device able to out-stamp a remote row it
     /// never merged (R65).

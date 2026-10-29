@@ -25,7 +25,7 @@ abstract final class CrdtMerge {
   /// - Local newer: the row stays and is re-queued at its own stamp, which
   ///   repairs a push that landed over it elsewhere → [MergeResult.keptLocal].
   ///
-  /// The clock is **not** advanced here: `hlc.update` is in-memory and no
+  /// The clock is **not** advanced here: a raise is in-memory and no
   /// rollback undoes it, so a page that rolls back would leave this device
   /// able to out-stamp a remote row it never merged. The puller raises the
   /// clock to the page's highest stamp once the page committed (R65).
@@ -83,7 +83,30 @@ abstract final class CrdtMerge {
   ///
   /// Called by the puller once the page committed, never by a merge: the
   /// clock lives in memory and no rollback lowers it again (R65).
+  ///
+  /// `adopt`, not `update`: the page wrote its stamps verbatim onto rows of
+  /// this database, and the drift guard would leave the clock below them, so
+  /// the first local edit of such a row mints under it and is lost on every
+  /// device (A5 review R98). Nothing is saved by holding — the page stored
+  /// its highest stamp inside its own transaction and the next open seeds
+  /// from it unguarded, so the clock ends above the row either way.
   static void advanceClock(AppDatabase db, String remoteHlc) {
+    db.hlc.adopt(HlcTimestamp.parse(remoteHlc));
+  }
+
+  /// Raises the clock past [remoteHlc] from inside the transaction that
+  /// merges it, for a merge that has to stamp above the row it rewrites —
+  /// the folder repair's re-parenting (A7 review R131).
+  ///
+  /// `update`, not the [advanceClock] `adopt`: the raise happens while the
+  /// page can still roll back, leaving nothing committed and no stamp
+  /// stored behind it, so following a far-future stamp here would leave the
+  /// clock arbitrarily ahead of everything this device holds and the next
+  /// local edit would mint there, out-stamping remote rows it never merged
+  /// (R65). The residual is R131's as recorded: a move stamped more than
+  /// [HybridLogicalClock.maxDrift] ahead still sorts above the repair that
+  /// rewrites it, so that push is denied and the move re-applies.
+  static void advanceClockInTransaction(AppDatabase db, String remoteHlc) {
     db.hlc.update(HlcTimestamp.parse(remoteHlc));
   }
 

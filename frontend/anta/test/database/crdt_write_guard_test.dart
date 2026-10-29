@@ -50,12 +50,22 @@ void main() {
   };
 
   /// The only places a local device may advance the clock from a remote
-  /// stamp: the merge helper's clock step, which the puller calls once a
-  /// pulled page committed, and the chunk merge that predates it.
+  /// stamp, each with the call it may make: the merge helper's clock step,
+  /// which the puller calls once a pulled page committed and which follows
+  /// the stamp that page stored (A5 review R98); the raise a merge makes
+  /// inside the page's own transaction, which keeps the drift guard because
+  /// that transaction can still roll back with nothing stored (A10 review
+  /// R157); and the chunk merge that predates them.
   const merges = {
-    ('lib/database/crdt/crdt_merge.dart', 'advanceClock'),
-    ('lib/database/daos/content_chunk_dao.dart', 'mergeChunk'),
+    ('lib/database/crdt/crdt_merge.dart', 'advanceClock', 'adopt'),
+    (
+      'lib/database/crdt/crdt_merge.dart',
+      'advanceClockInTransaction',
+      'update',
+    ),
+    ('lib/database/daos/content_chunk_dao.dart', 'mergeChunk', 'update'),
   };
+  final mergeSites = {for (final merge in merges) (merge.$1, merge.$2)};
 
   final units = [
     for (final file in Directory('lib').listSync(recursive: true))
@@ -73,7 +83,7 @@ void main() {
       containsAll([
         ('lib/database/daos/calendar_event_dao.dart', 'tombstoneEventCascade'),
         ('lib/services/calendar_event_service.dart', 'deleteById'),
-        ...merges,
+        ...mergeSites,
       ]),
     );
   });
@@ -82,7 +92,7 @@ void main() {
     final clock = [
       // The clock's own API on anything called `hlc` — not `.hlc` on a stamp
       // or an outbox row, which is a value, not the clock.
-      RegExp(r'\bhlc ?\. ?(now|receive|update|nodeId)\b'),
+      RegExp(r'\bhlc ?\. ?(now|receive|update|adopt|nodeId)\b'),
       RegExp(r'\b(db|_db|database|_database|attachedDatabase) ?\. ?hlc\b'),
       RegExp(r'\) ?\. ?hlc\b'),
       RegExp(r'\bHybridLogicalClock\b'),
@@ -91,15 +101,21 @@ void main() {
       RegExp(r'\bgenerateHlc ?\('),
     ];
     final backfill = RegExp(r'\bmigrationBackfillHlc ?\(');
-    final advance = RegExp(r'\b\w+ ?\. ?hlc ?\. ?update ?\(');
+    // `adopt` as well as `update`, and which of the two a site makes is
+    // part of what is pinned: the page advance follows a far-ahead stamp it
+    // has already stored (A5 review R98) where a raise inside the page's
+    // transaction may not (A10 review R157).
+    final advance = RegExp(r'\b\w+ ?\. ?hlc ?\. ?(update|adopt) ?\(');
 
     final strays = <String>[];
-    final advancing = <(String, String?)>{};
+    final advancing = <(String, String?, String)>{};
     for (final unit in units) {
       final rights = may(unit);
       var text = unit.text;
-      if (merges.contains((unit.path, unit.name)) && advance.hasMatch(text)) {
-        advancing.add((unit.path, unit.name));
+      if (mergeSites.contains((unit.path, unit.name))) {
+        for (final call in advance.allMatches(text)) {
+          advancing.add((unit.path, unit.name, call.group(1)!));
+        }
         text = text.replaceAll(advance, '');
       }
       if (!rights.contains(_May.clock)) {
@@ -123,8 +139,10 @@ void main() {
       advancing,
       merges,
       reason:
-          'each merge must advance the clock from the remote stamp; a missing '
-          'one either lost its `hlc.update` or the scan stopped seeing it',
+          'each merge must advance the clock from the remote stamp with the '
+          'call listed for it; a missing or a swapped one either lost its '
+          '`hlc.adopt` / `hlc.update` call, traded one for the other or the '
+          'scan stopped seeing it',
     );
   });
 

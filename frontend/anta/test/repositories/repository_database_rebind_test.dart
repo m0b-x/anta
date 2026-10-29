@@ -61,6 +61,47 @@ void main() {
     expect(seen.last, ['After']);
   });
 
+  test('a note watch by id mounted before a switch reads the new database',
+      () async {
+    final note = await first.noteDao.createNote(folderId: 'f1', title: 'Before');
+    // The same note on the other database: a synced row keeps its id.
+    await second.noteDao.mergeNoteDocument(note.copyWith(title: 'After'), '');
+    final notes = NoteRepository(database: first);
+    addTearDown(notes.dispose);
+    final seen = <String?>[];
+    final subscription = notes
+        .watchNoteById(note.id)
+        .listen((row) => seen.add(row?.title));
+    addTearDown(subscription.cancel);
+    await pumpEventQueue();
+    expect(seen.last, 'Before');
+
+    notes.rebindDatabase(second);
+    await pumpEventQueue();
+
+    expect(seen.last, 'After');
+  });
+
+  test('a folder watch by id mounted before a switch reads the new database',
+      () async {
+    final folder = await first.folderDao.createFolder(name: 'Before');
+    await second.folderDao.mergeFolder(folder.copyWith(name: 'After'));
+    final folders = FolderRepository(database: first);
+    addTearDown(folders.dispose);
+    final seen = <String?>[];
+    final subscription = folders
+        .watchFolderById(folder.id)
+        .listen((row) => seen.add(row?.name));
+    addTearDown(subscription.cancel);
+    await pumpEventQueue();
+    expect(seen.last, 'Before');
+
+    folders.rebindDatabase(second);
+    await pumpEventQueue();
+
+    expect(seen.last, 'After');
+  });
+
   test('two pages may watch the same folder at once (A7 review R140)',
       () async {
     await first.noteDao.createNote(folderId: 'f1', title: 'Shared');

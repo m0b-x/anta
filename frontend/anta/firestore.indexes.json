@@ -9,5 +9,23 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "calendar_categories", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_category_alerts", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_event_absences", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_event_alerts", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_event_occurrences", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_event_skips", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_event_templates", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_events", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_filter_presets", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "counter_values", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "event_digests", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "folders", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "notes", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "overview_views", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "vocabularies", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "vocabulary_items", "fieldPath": "data", "indexes": [] }
+  ]
 }

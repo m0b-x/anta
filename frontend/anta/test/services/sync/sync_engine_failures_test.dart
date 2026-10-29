@@ -445,12 +445,13 @@ void main() {
       expect(rows.map((r) => r.rowKey), ['good', 'last']);
     });
 
-    test('a page leaves a seed covering the stamps it committed, even where '
-        'the clock itself is held to the drift guard (A7 review R132)', () async {
-      // Two hours ahead: past `HybridLogicalClock.maxDrift`, so the clock is
-      // clamped where the row's own stamp is not. The stored seed is what
-      // the next open mints from, and no committed row may carry a stamp
-      // above it, or the first edit on this row mints under it and loses.
+    test('a page leaves a seed covering the stamps it committed, a stamp past '
+        'the drift guard included (A7 review R132)', () async {
+      // Two hours ahead: past `HybridLogicalClock.maxDrift`, the distance a
+      // stamp has to run for the seed to be the only thing holding it. The
+      // stored seed is what the next open mints from, and no committed row
+      // may carry a stamp above it, or the first edit on this row mints
+      // under it and loses.
       final ahead = HlcTimestamp(
         wallTime: DateTime.now()
             .add(const Duration(hours: 2))

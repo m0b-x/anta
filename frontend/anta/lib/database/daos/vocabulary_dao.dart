@@ -103,7 +103,8 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
   /// The management UI edits the whole list as one block of lines, so the write
   /// is a diff rather than a wipe: a term that is still present keeps its row,
   /// its `id` and its `created_at`; a new term inserts; a term that disappeared
-  /// is tombstoned; a term that comes back resurrects the row it had before.
+  /// is tombstoned; a term that comes back resurrects the row it had before,
+  /// unless [snapshot] shows a pull took that row away meanwhile.
   /// Only rows that actually changed are written, so re-saving an untouched
   /// list issues no `UPDATE`s and bumps no versions.
   ///
@@ -116,8 +117,12 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
   /// the term another device added while the editor was open — so it is kept
   /// instead of tombstoned: the user never saw the term, so its absence from
   /// [terms] is not a deletion, and tombstoning it would push the term's
-  /// removal to every device (A1b review R23). A caller that passes nothing
-  /// replaces the list outright, which is what a fresh vocabulary does.
+  /// removal to every device (A1b review R23). The mirror holds too: a term
+  /// in both [terms] and [snapshot] whose row that same pull renamed or
+  /// deleted is left as the pull left it rather than re-created, which would
+  /// stand a duplicate beside the renamed row or undo a delete the user never
+  /// saw (A4 review R116). A caller that passes nothing replaces the list
+  /// outright, which is what a fresh vocabulary does.
   ///
   /// A *duplicate* of a term that is still listed — the merge-created pair the
   /// phase record §8 accepts — is tombstoned as before: the term stays, only
@@ -142,6 +147,7 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
 
       final now = DateTime.now();
       final stamp = db.newStamp();
+      final known = snapshot?.toSet();
       final kept = <String>{};
       final seen = <String>{};
       final written = <String>[];
@@ -151,6 +157,16 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
       for (final term in terms) {
         if (!seen.add(term)) continue;
         final row = byTerm[term];
+        // A term the user kept, which the same pull renamed away or deleted:
+        // re-creating it would stand a duplicate beside the pulled row, or
+        // undo a delete the user never saw. It consumes no position either,
+        // so the terms around it keep the contiguous order a save of the
+        // remaining list would give them.
+        if (known != null &&
+            known.contains(term) &&
+            (row == null || row.isDeleted)) {
+          continue;
+        }
         final sortOrder = position++;
 
         if (row == null) {
@@ -190,7 +206,6 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
         written.add(row.id);
       }
 
-      final known = snapshot?.toSet();
       for (final row in existing) {
         if (row.isDeleted || kept.contains(row.id)) continue;
         if (known != null &&

@@ -146,6 +146,44 @@ void main() {
     await expectConverged();
   });
 
+  test('a row pushed by a device two days ahead is still editable where it '
+      'was merged (A5 review R98)', () async {
+    await pair.close();
+    pair = await SyncPair.open(wallAhead: {'A': const Duration(days: 2)});
+    final folder = await a().db.folderDao.createFolder(name: 'Training');
+    final note = await writeNote(
+      a(),
+      folderId: folder.id,
+      title: 'From A',
+      body: 'Leg day.',
+    );
+    await a().sync();
+    await b().sync();
+
+    // The clock, not only the outcome: B's pull follows the far-future
+    // stamp it stored, so B's next stamp sorts above the row it merged.
+    // Without that, both devices could still read `From B` by some other
+    // route and the mechanism this case exists for would go unguarded.
+    final pulled = (await b().db.noteDao.getNoteById(note.id))!;
+    String tick(String stamp) => stamp.substring(0, stamp.lastIndexOf(':'));
+    expect(
+      tick(b().db.hlc.last.toString()).compareTo(tick(pulled.hlcTimestamp)),
+      greaterThanOrEqualTo(0),
+    );
+
+    await b().db.noteDao.updateNote(id: note.id, title: 'From B');
+    await b().sync();
+    await a().sync();
+    await b().sync();
+
+    for (final device in [a(), b()]) {
+      final merged = await device.db.noteDao.getNoteById(note.id);
+      expect(merged!.title, 'From B', reason: device.id);
+      expect(await device.db.syncOutboxDao.count(), 0, reason: device.id);
+    }
+    await expectConverged();
+  });
+
   test('a counter tap made during a counter page is kept on both devices '
       'after the next push (S3c review H1)', () async {
     final counters = await CounterService.forTesting(a().db);
@@ -274,7 +312,7 @@ void main() {
 
       await a().sync();
 
-      // `hlc.update` is in memory and no rollback undoes it. Advanced
+      // `hlc.adopt` is in memory and no rollback undoes it. Advanced
       // inside the page, this device could mint above a remote row it
       // never merged — and that row would then lose on every device with
       // no conflict copy, the one outcome §3.9 exists to prevent (R65).

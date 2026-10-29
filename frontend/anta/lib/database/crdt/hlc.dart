@@ -7,11 +7,15 @@ class HybridLogicalClock {
   int _clampedRemotes = 0;
 
   /// How far a remote stamp's wall time may run ahead of this device's wall
-  /// clock before [receive] and [update] stop following it.
+  /// clock before [receive] and [update] stop following it; [adopt] follows
+  /// it however far ahead it is and only counts it.
   ///
-  /// Every stamp after a merge is above what was merged, so one device with a
-  /// clock set years ahead would otherwise drag every device it syncs with
-  /// years ahead too, for good. An hour absorbs ordinary skew between phones.
+  /// What the guard still protects is the stamps this device has not stored:
+  /// every stamp after a merge is above what was merged, so a device with a
+  /// clock set years ahead would otherwise drag this one years ahead too on
+  /// a stamp that may never be kept here. An hour absorbs ordinary skew
+  /// between phones; what [adopt] gives up for a stamp already stored on a
+  /// row of this database is its own doc's.
   static const Duration maxDrift = Duration(hours: 1);
 
   /// The largest counter the string encoding's four hex digits can carry;
@@ -58,7 +62,14 @@ class HybridLogicalClock {
   /// written — the rollback persisting the clock exists to prevent.
   Duration get seedAhead => _seedAhead;
 
-  /// How many remote stamps [receive] and [update] held to [maxDrift].
+  /// How many remote stamps ran past [maxDrift] ahead of the wall clock —
+  /// skew seen, not stamps held back.
+  ///
+  /// [receive] and [update] count the ones they hold. [adopt] counts a stamp
+  /// whether or not this clock already covered it, so every page after a
+  /// [seed] from a stored far-future stamp counts although its raise changes
+  /// nothing, and a stamp this device minted itself counts once the user
+  /// corrects a fast clock backwards and the device pulls its own rows back.
   int get clampedRemotes => _clampedRemotes;
 
   /// The current state without advancing it — what is persisted after a merge.
@@ -139,6 +150,27 @@ class HybridLogicalClock {
     _raiseTo(
       DateTime.fromMillisecondsSinceEpoch(guarded.wallTime),
       guarded.logicalCounter,
+    );
+  }
+
+  /// Raises the clock to [stamp] past [maxDrift] as well — for a stamp this
+  /// device has already stored on a row of its own.
+  ///
+  /// Held back instead, the clock would mint below that row, and the edit it
+  /// stamps loses every later merge of it, has its outbox entry retired and
+  /// is gone from the space with no park and no copy (A5 review R98). The
+  /// stamp is honoured anyway at the next open — [seed] takes it unguarded
+  /// and a pulled page stores it inside its own transaction — so the guard
+  /// only shortened the loss to this run. A wrong clock elsewhere now moves
+  /// this one forward; [clampedRemotes] records that the stamp ran past
+  /// [maxDrift], no longer that the clock was held anywhere.
+  void adopt(HlcTimestamp stamp) {
+    if (stamp.wallTime > _wallMillis().add(maxDrift).millisecondsSinceEpoch) {
+      _clampedRemotes++;
+    }
+    _raiseTo(
+      DateTime.fromMillisecondsSinceEpoch(stamp.wallTime),
+      stamp.logicalCounter,
     );
   }
 

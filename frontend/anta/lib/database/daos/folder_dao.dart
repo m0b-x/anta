@@ -888,8 +888,10 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     // stamp would otherwise be minted from a clock that has not seen the
     // move it repairs: below it on a device whose wall is behind the writing
     // one's, where the push is denied and the same move re-applies every run
-    // (A7 review R131).
-    CrdtMerge.advanceClock(db, remote.hlcTimestamp);
+    // (A7 review R131). The drift guard stays on this raise: it happens
+    // inside the page's own transaction, which can still roll back with
+    // nothing stored behind it (A10 review R157).
+    CrdtMerge.advanceClockInTransaction(db, remote.hlcTimestamp);
     final stamp = await db.stampLocal(folders, remote.id);
     await (update(folders)..where((f) => f.id.equals(remote.id))).write(
       FoldersCompanion(

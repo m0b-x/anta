@@ -151,6 +151,18 @@ void main() {
       expect(merged.compareTo(stored), greaterThan(0));
       expect(clock.clampedRemotes, 0);
     });
+
+    test('adopt follows a far-future stamp and counts it', () {
+      final clock = HybridLogicalClock(nodeId: 'n1', wallClock: () => wall);
+      final stamp = at(wall.add(const Duration(days: 30)), counter: 9);
+
+      clock.adopt(stamp);
+
+      expect(clock.last.wallTime, stamp.wallTime);
+      expect(clock.last.logicalCounter, 9);
+      expect(clock.now().compareTo(stamp), greaterThan(0));
+      expect(clock.clampedRemotes, 1);
+    });
   });
 
   test('a seeded counter past four hex digits moves to the next ms', () {

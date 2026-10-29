@@ -373,6 +373,80 @@ void main() {
         expect(dead.isDeleted, isTrue);
       });
 
+      /// The other side of the snapshot: a term the user *kept* may have been
+      /// renamed or deleted under the editor by the same pull, and re-creating
+      /// it would stand a duplicate beside the pulled row (A4 review R116).
+      test('a term renamed by a pull after the snapshot is not re-created by '
+          'the save', () async {
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Squat'],
+        );
+        final local = (await allItems()).single;
+        // The pull, while the editor sat on 'Squat': the same row, renamed.
+        await db.vocabularyDao.mergeRemoteVocabularyItem(
+          local.copyWith(
+            term: 'Back Squat',
+            hlcTimestamp: _pullHlc,
+            deviceId: 'remote',
+            version: local.version + 1,
+          ),
+        );
+        await db.syncOutboxDao.clear();
+
+        await db.vocabularyDao.saveItems(
+          vocabularyId: 'v1',
+          terms: const ['Squat'],
+          snapshot: const ['Squat'],
+        );
+
+        expect(
+          [for (final item in await db.vocabularyDao.getAllItems()) item.term],
+          ['Back Squat'],
+        );
+        expect(await allItems(), hasLength(1));
+        expect(
+          await db.syncOutboxDao.pendingForTable('vocabulary_items'),
+          isEmpty,
+        );
+      });
+
+      test(
+        'a term deleted by a pull after the snapshot stays deleted',
+        () async {
+          await db.vocabularyDao.saveItems(
+            vocabularyId: 'v1',
+            terms: const ['Squat'],
+          );
+          final local = (await allItems()).single;
+          await db.vocabularyDao.mergeRemoteVocabularyItem(
+            local.copyWith(
+              hlcTimestamp: _pullHlc,
+              deviceId: 'remote',
+              version: local.version + 1,
+              isDeleted: true,
+              deletedAt: Value(DateTime.utc(2026, 5, 3).toLocal()),
+            ),
+          );
+          await db.syncOutboxDao.clear();
+
+          await db.vocabularyDao.saveItems(
+            vocabularyId: 'v1',
+            terms: const ['Squat'],
+            snapshot: const ['Squat'],
+          );
+
+          expect(await db.vocabularyDao.getAllItems(), isEmpty);
+          final rows = await allItems();
+          expect(rows, hasLength(1));
+          expect(rows.single.isDeleted, isTrue);
+          expect(
+            await db.syncOutboxDao.pendingForTable('vocabulary_items'),
+            isEmpty,
+          );
+        },
+      );
+
       test('a merged duplicate of a listed term still collapses', () async {
         await db.vocabularyDao.saveItems(
           vocabularyId: 'v1',
@@ -380,18 +454,20 @@ void main() {
         );
         final stamp = db.newStamp();
         final now = DateTime.now();
-        await db.into(db.vocabularyItems).insert(
-          VocabularyItemsCompanion.insert(
-            id: 'merged-duplicate',
-            vocabularyId: 'v1',
-            term: 'Bench Press',
-            sortOrder: const Value(9),
-            createdAt: now,
-            updatedAt: now,
-            hlcTimestamp: stamp.hlc,
-            deviceId: stamp.deviceId,
-          ),
-        );
+        await db
+            .into(db.vocabularyItems)
+            .insert(
+              VocabularyItemsCompanion.insert(
+                id: 'merged-duplicate',
+                vocabularyId: 'v1',
+                term: 'Bench Press',
+                sortOrder: const Value(9),
+                createdAt: now,
+                updatedAt: now,
+                hlcTimestamp: stamp.hlc,
+                deviceId: stamp.deviceId,
+              ),
+            );
 
         await db.vocabularyDao.saveItems(
           vocabularyId: 'v1',
@@ -543,6 +619,10 @@ void main() {
     });
   });
 }
+
+/// A stamp from another device that wins every comparison, so a merge in a
+/// test always applies — `merge_contract.dart`'s `newerHlc`.
+const String _pullHlc = 'ffffffffffff:0001:remote';
 
 VocabulariesCompanion _entry(
   String id,

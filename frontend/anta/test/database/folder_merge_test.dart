@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/crdt_merge.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
@@ -140,6 +141,17 @@ void main() {
       nodeId: 'remote',
     ).toString();
 
+    /// Two days ahead of the test clock: past [HybridLogicalClock.maxDrift],
+    /// so a raise that keeps the drift guard is told apart from one that
+    /// follows the stamp.
+    final farHlc = HlcTimestamp(
+      wallTime: DateTime.now()
+          .add(const Duration(days: 2))
+          .millisecondsSinceEpoch,
+      logicalCounter: 3,
+      nodeId: 'remote',
+    ).toString();
+
     /// The repaired row carries a stamp of this device's own and the queue
     /// holds that stamp, so the space converges on the break rather than
     /// pushing the parent back.
@@ -203,6 +215,31 @@ void main() {
       // subtree and push that move into the space.
       expect((await db.folderDao.getFolderById('pulled'))!.parentId, parent.id);
       expect(await queuedFolders(), isNot(contains('pulled')));
+    });
+
+    test('the repair keeps the drift guard the page advance gives up '
+        '(A10 review R157)', () async {
+      final parent = await db.folderDao.createFolder(name: 'Parent');
+      await db.folderDao.softDeleteFolder(parent.id);
+
+      await db.folderDao.mergeFolder(under('pulled', parent.id, farHlc));
+
+      // The repair raises inside the puller's page transaction, which can
+      // still roll back with nothing stored and no stamp behind it, so a
+      // clock left days ahead of everything committed would out-stamp
+      // remote rows this device never merged (R65).
+      final limit = DateTime.now().add(HybridLogicalClock.maxDrift);
+      expect((await db.folderDao.getFolderById('pulled'))!.parentId, isNull);
+      expect(
+        db.hlc.last.wallTime,
+        lessThanOrEqualTo(limit.millisecondsSinceEpoch),
+      );
+
+      CrdtMerge.advanceClock(db, farHlc);
+
+      // The page advance is the caller that follows it: it runs once the
+      // page committed the stamps onto rows of this database (A5 R98).
+      expect(db.hlc.last.wallTime, HlcTimestamp.parse(farHlc).wallTime);
     });
 
     test('a live row whose ancestors are all tombstoned goes to the root',
