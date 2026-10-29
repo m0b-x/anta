@@ -7343,3 +7343,22 @@ whole-month rows (still no button under `hidden`), the bars, the counts,
 Year mode, List mode and `eventDayEntries` itself are untouched. Flow
 `25_overview_presence_hidden` walks it from the seed and leaves the
 appearance on Faded.
+
+## Addendum (2026-10-29): the calendar review's fix passes
+
+The calendar was read whole for the first time —
+`docs/calendar-review-2026-10-26.md`, 171 ids in its §3.2 — and fixed in
+two passes, `7d8ccdc2` (data, grid, overview, agenda) and `abbeced8` (the
+editor, the alert sheets, templates, categories, settings). Behaviour that
+changed, each under its id there: a week or two-week row no longer fades
+an adjacent-month cell (C17); editing the shared description of a
+per-occurrence event no longer forks the day the editor was opened from
+(C44); a save under a remote delete no longer resurrects the event (C45);
+a whole-set alert replace tombstones only the ids the sheet opened with
+(C46, C58); Removed · Undo restores presence marks, per-day descriptions
+and skipped days with the event (C112, C149); the detail sheet drops its
+ALERTS group when the only alert is off (C118); after a quick-alarm save a
+blocked alarm's permission notice replaces the Undo bar (C148). The data
+semantics above — soft deletes, the CRDT fields, the `eventId|dayEpochMs`
+keys, backup format 7 — are unchanged; the record's ledger, not this file,
+says which ids are deferred.

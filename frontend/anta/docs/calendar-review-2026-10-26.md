@@ -1,33 +1,39 @@
 # Calendar — the review (2026-10-26)
 
-**Status: PLANNED 2026-10-26 (Fable 5.1), as the owner's "resources for a
-calendar review": ten sessions B1–B8 on the same runner as the sync
-review, run after it (sync review D6 A). The scope is §1's default until
-the owner states one (§5 D1). Night 3 is complete: B1, B2, B3a, B3b, B4a and
-B4b ran on 2026-10-28 and filed C1–C82 (§3) — C44, C45, C46 and C58 are the
-four H rows of this review, and the last of them is C46's category twin, so
-B7 fixes the pair with one seam. **B5 ran last on 2026-10-28 and filed C83–C111**
-(four M, no H), among them C85 — C71's page-side twin, the review's second pair
-for B7 to fix with one seam — which closes night 3 at 111 ids: five H once C83 was
-lifted on 2026-10-28 (§5). Night 4 (2026-10-28) is B5b — D1 flipped to C, the
-alert surfaces — then B6, B7, the sync record's A10 and B8; B8 writes the
-closing status header. B6 is done: 22 of its 42 ids built, twenty lows
-deferred to the owner under D4 A, and its own fix review filed C130–C144 —
-three of them regressions B6's fixes had introduced, ten fixed in the same
-session. **B7 is done (2026-10-28/29): 55 of its 86 ids built — all six H,
-all twenty-one M, the owner's five settled letters and sixteen co-located
-lows — thirty-one deferred to the owner under D4 A, and its own fix review
-filed C145–C171, of which eleven were fixed in the same session: five
-regressions B7's fixes had introduced, one decline with evidence, and
-C149 — the review's largest id, C112, had captured its presence marks off
-a facade nothing on the alarm path constructs, so the H had not actually
-been fixed.** The ledger stands at 171 ids; A10 and B8 remain.** The calendar is
-23,700 lines in 57 files and changed in four reworks this October — the
-overview list (`c4f5697` … `f3e0bc8`), the category alerts and digests
-(`038b6d4`, v42), the conformity and snackbar pass, the QA rework's five
-app fixes (`945c0c3`) — and the sync engine now reloads its eleven tables
-under a loaded page (`docs/cloud-sync-phase-02-own-space.md` §3.5). Each
-rework was reviewed in its slice; none was read whole afterwards.
+**Status: CLOSED 2026-10-29 (B8, Fable 5.1 lead).** Planned 2026-10-26
+(Fable 5.1) as the owner's "resources for a calendar review": the sessions
+B1–B8 on the same runner as the sync review, run after it (sync review D6
+A), the scope §1's default (§5 D1, flipped to C for B5b by the owner's
+pre-night-4 sheet). Night 3 (2026-10-28) ran B1, B2, B3a, B3b, B4a, B4b and
+B5 and filed C1–C111. Night 4 (2026-10-28 19:38 → 2026-10-29 05:21,
+`-Commit`) ran B5b (C112–C129, `ae3fe1dd`), B6 (`7d8ccdc2`), B7
+(`abbeced8`) and the sync record's A10 (`b2f04731`); its B8 died on its own
+background `flutter test` with no SESSION line, and B8 was run from an
+interactive session on the morning of 2026-10-29 (§3.1). **The ledger
+closes at 171 ids** — C1–C129 from the eight review sessions,
+C130–C171 from the two fix reviews — with eight H: the reviews' C44,
+C45, C46, C58, C83 (lifted 2026-10-28) and C112, and the fix review's C149
+and C150, every one of them fixed. **Built: 77 of the reviews' 128 ids**
+(B6 22 of 42; B7 55 of 86 — all six H, every M, the owner's five letters,
+the co-located lows) **and 21 of the fix reviews' 42 closed in the same
+sessions**; **deferred to the owner under D4 A: 51 lows of the reviews'
+share and the fix reviews' remainder**, each with its file and intended fix
+written on the id — read §3.2 before touching the data layer, the bloc's
+write handlers, the editor's save path or the alert sheets. **The gate is
+green on `b2f04731`** (analyze clean; `flutter test` +10782 ~10 −1, the
+one red the documented Windows-only `host_devices_test` case; `gen-l10n`
+with `untranslated.txt` `{}`; no golden moved) **and so is the device
+pass**: `qa pass calendar` 26/26, `qa pass browser` 3/3, `qa pass alerts`
+5/5 on `emulator-5556`, no rerun needed. C17, the one id that changes the
+screen (a week row fades nothing), ran green under the calendar flows but
+was not judged by eye — D2 A stands, and a `design-reviewer` pass remains
+the owner's call. The calendar is 23,700 lines in 57 files and changed in
+four reworks this October — the overview list (`c4f5697` … `f3e0bc8`),
+the category alerts and digests (`038b6d4`, v42), the conformity and
+snackbar pass, the QA rework's five app fixes (`945c0c3`) — and the sync
+engine now reloads its eleven tables under a loaded page
+(`docs/cloud-sync-phase-02-own-space.md` §3.5). Each rework was reviewed
+in its slice; this review was the first to read the whole.
 
 The mechanics are the sync review's §0 (`docs/cloud-sync-phase-02-review-2026-10-26.md`:
 the runner, the kickoff, what every session does, the reviewer and fix
@@ -1481,6 +1487,64 @@ commit. **Writes.** Session log; the status header.
   zone — so both run against Europe/Bucharest and skip elsewhere, which
   C169 (and the reviewer) names as the honest rewrite). B8 owns `qa pass
   calendar`, `qa pass browser` and `qa pass alerts`.
+- **B8 — 2026-10-29, DONE.** Run from an interactive session with Fable
+  5.1 as the lead, not from the runner: night 4's print-mode B8 (Sonnet)
+  started the whole-suite `flutter test` in the background and ended its turn
+  after one minute — "I'll pause here and wait for the background test run
+  to complete before continuing with B8's gate and device passes" — so the
+  run exited 0 with no SESSION line and nothing of the block done, while the
+  orphaned test run kept going for four minutes after the session died (the
+  sync record's §0.3 item 8, which the block's own step 2 repeats and which
+  a Sonnet lead at medium does not keep on its own: the mechanical sessions'
+  prompt must carry the foreground rule verbatim, or they run from an
+  interactive session, as this one did). The owner asked for the fifth
+  session on the morning of 2026-10-29 and the lead ran the block's four
+  steps in order on `b2f04731`, the tree clean.
+  **Gate** (the lead's own, every call in the foreground): `dart analyze
+  lib test test_driver` → "No issues found!"; `flutter test` whole,
+  08:13–08:16 → **+10782 ~10 −1**, the one red the documented
+  Windows-only `test/qa/host_devices_test.dart` `MacosDevice locate` case
+  (a forward-slash assertion written on macOS, documented since 2026-09-21
+  and not in night 4's diff); `flutter gen-l10n` → the tree unchanged and
+  `untranslated.txt` `{}` (night 4 added the four keys C45, C89, C102 and
+  C113 name, 30 ARB lines); goldens: no `.png` in `43a9ba35..b2f04731`, as
+  B6's and B7's logs say. The `[NoteEditor] filing the synced text failed`
+  traces in the run are the note editor suite's own fault injection,
+  printed by passing tests.
+  **Device pass** — one `qa-runner` (Sonnet 5.5), every command a
+  foreground call with a ten-minute timeout, its step 4 overridden by the
+  brief: `anta_qa_1` was stopped, not up as the lead believed from the
+  morning's process list, so `qa fleet boot 1` once (16.2 s), then `qa
+  fleet install --build` from `b2f04731`, then **`qa pass calendar -d
+  emulator-5556` 26/26 green (380.5 s)**, **`qa pass browser` 3/3 green
+  (49.6 s, which includes the 23.4 s GPU recycle the pass ran itself —
+  the qemu held 14,548 MB against the 8,192 MB limit)** and **`qa pass
+  alerts` 5/5 green (278.2 s)**: no red, so no `--only` rerun and nothing
+  to compare with the sync record's A9. Reports under `build/qa/pass/`:
+  `calendar_20261029_081919_322_emulator-5556`,
+  `browser_20261029_082543_017_emulator-5556`,
+  `alerts_20261029_082635_995_emulator-5556`. Slowest flow
+  `23_overview_list`, 37.5 s against 11–19 s for the rest (the calendar
+  `scroll-to` verb at p95 3,337 ms), green; `01_event_alarm` (121 s) and
+  `02_remove_after` (117 s) wait for their alarms to ring. No screenshot
+  was read by eye: C17's week-row fade, C113's caption, C101's disabled
+  Sort A–Z, C118's vanished group and C148's one message ran under the
+  flows' own checks, which do not assert those pixels — **seen green, not
+  judged visually**; D2 A stands and a `design-reviewer` pass remains the
+  owner's call. The guest is left up on `emulator-5556`, quiet, the QA
+  build of `b2f04731` installed.
+  **Docs**, written and placed by the lead (`docs-writer` not spawned: four
+  placements cost less than their brief): this record's status header; the
+  dated entry at the end of
+  `.claude/skills/calendar-events/references/context-log.md`; the
+  2026-10-29 addendum of `docs/calendar-events-feature.md`, because C17,
+  C44, C45, C46/C58, C112/C149, C118 and C148 changed what the screen or
+  the data does; no `SKILL.md` rule line — B6 and B7 moved no rule, and
+  C170 (a)'s `LazySingleton` and C157's four services are deferred ids, not
+  rules. **Writes:** this entry, the header, the two files above. Cost ≈
+  0.7 units against §6's 0.5 — a Fable lead's turns in place of a Sonnet
+  lead's, the device pass's Sonnet run as budgeted. **One docs commit**
+  under D5 A, the night's grant.
 
 
 ### 3.2 Findings
