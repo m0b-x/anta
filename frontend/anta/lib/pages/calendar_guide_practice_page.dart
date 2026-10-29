@@ -95,7 +95,13 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   List<String> _candidates = const [];
   Locale? _candidatesLocale;
 
+  /// The band's dates in the abbreviated weekday-date (D38): the long form
+  /// ran the German Skipped caption to three lines and the band pushed the
+  /// Day panel off a 360 phone at 2.0. The cards keep the long form.
   DateFormat? _dateFormat;
+
+  /// The grid's month title, `table_calendar`'s own format.
+  final GuideLocaleFormat _monthTitle = GuideLocaleFormat(DateFormat.yMMMM);
 
   /// The bars and the day panel's entries come from resolvers whose
   /// providers depend only on the localization and three filter layers, so
@@ -147,7 +153,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     final locale = Localizations.localeOf(context);
     if (locale == _candidatesLocale) return;
     _candidatesLocale = locale;
-    _dateFormat = DateFormat.yMMMMEEEEd(l10n.localeName);
+    _dateFormat = DateFormat.MMMEd(l10n.localeName);
     _candidates = _captionCandidates(l10n);
   }
 
@@ -173,7 +179,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   /// count form. The band's slot is as tall as the tallest of them, so a
   /// caption changes its words and never the band's height.
   List<String> _captionCandidates(AppLocalizations l10n) {
-    final title = '${'W' * GuideMetrics.captionTitleMaxChars}…';
+    final title = calendarGuideLongestQuote;
     var date = '';
     for (var day = 0; day < 365; day++) {
       final text = _date(DateTime.utc(2027, 1, 1 + day));
@@ -419,8 +425,12 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       ),
     );
     final cellStyle = _appearance.cellStyleFor(theme.brightness);
-    final fadesOutside = demo.format == CalendarFormat.month;
+    final monthly = demo.format == CalendarFormat.month;
+    final fadesOutside = monthly;
     final barsResolver = _barsResolver!;
+    final titleStyle = theme.textTheme.titleMedium!.copyWith(
+      fontWeight: FontWeight.w600,
+    );
 
     Widget cell(DateTime day, {required bool isOutside}) => CalendarDayCell(
       day: day,
@@ -457,10 +467,10 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       headerStyle: HeaderStyle(
         formatButtonVisible: false,
         titleCentered: true,
-        titleTextStyle: theme.textTheme.titleMedium!.copyWith(
-          fontWeight: FontWeight.w600,
+        titleTextStyle: titleStyle,
+        headerPadding: const EdgeInsets.symmetric(
+          horizontal: GuideMetrics.practiceHeaderInset,
         ),
-        headerPadding: const EdgeInsets.all(GuideMetrics.practiceHeaderInset),
         leftChevronMargin: EdgeInsets.zero,
         rightChevronMargin: EdgeInsets.zero,
         leftChevronPadding: const EdgeInsets.all(
@@ -469,13 +479,23 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         rightChevronPadding: const EdgeInsets.all(
           GuideMetrics.practiceChevronPadding,
         ),
-        leftChevronIcon: Icon(
-          Icons.chevron_left_rounded,
-          color: colorScheme.onSurfaceVariant,
+        // The chevrons are bare ink wells: the tooltip on the glyph is
+        // what names each one.
+        leftChevronIcon: Tooltip(
+          message: monthly
+              ? l10n.dayListPreviousMonth
+              : l10n.overviewPeriodPrevious,
+          child: Icon(
+            Icons.chevron_left_rounded,
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
-        rightChevronIcon: Icon(
-          Icons.chevron_right_rounded,
-          color: colorScheme.onSurfaceVariant,
+        rightChevronIcon: Tooltip(
+          message: monthly ? l10n.dayListNextMonth : l10n.overviewPeriodNext,
+          child: Icon(
+            Icons.chevron_right_rounded,
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
       daysOfWeekStyle: CalendarDaysOfWeek.style(
@@ -490,6 +510,13 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         markersMaxCount: 0,
       ),
       calendarBuilders: CalendarBuilders<CalendarEvent>(
+        // Plain text: the stock title is a gesture detector with no
+        // callback, which still reads as a button that does nothing.
+        headerTitleBuilder: (context, day) => Text(
+          _monthTitle.of(l10n).format(day),
+          style: titleStyle,
+          textAlign: TextAlign.center,
+        ),
         defaultBuilder: (context, day, _) => cell(day, isOutside: false),
         todayBuilder: (context, day, _) => cell(day, isOutside: false),
         selectedBuilder: (context, day, _) => cell(day, isOutside: false),
@@ -1018,7 +1045,11 @@ class _PracticeBand extends StatelessWidget {
                             for (final candidate in candidates)
                               Text(candidate, style: captionStyle),
                           ],
+                          // A node of its own: merged into the band, the
+                          // live region was the band, and every caption
+                          // re-read "Nothing here is saved." first.
                           child: Semantics(
+                            container: true,
                             liveRegion: true,
                             child: Text(
                               text ?? l10n.calendarGuidePracticeIdle,

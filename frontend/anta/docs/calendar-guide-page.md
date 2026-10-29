@@ -626,7 +626,7 @@ changed. Gate: analyze clean, suite +10800 ~10 −1 (the Windows-only case),
 accordingly in the next content change ("about ten of each; open the app
 every week or so").
 
-### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slices 1–2 COMMITTED by the owner as `21a90993` (which also swept in slice 3a's files mid-run); slice 3a (the card frame; the screen, events, kinds and alerts cards) built 2026-10-29 (gate green, suite +10937 ~10 −1); slice 3b (attendance, categories, finding, setup) built 2026-10-29 (gate green, suite +10985 ~10 −1); slice 3 reviewed and fixed 2026-10-29 (19 items, none a write; eleven closed; gate green, suite +11000 ~10 −1); slice 4 running — the `design-reviewer` rendering, then `qa pass calendar` and `qa pass alerts`; `26_guide.txt` extended and the skills and the feature doc updated — slice 3, the flow and the docs uncommitted
+### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slices 1–2 COMMITTED by the owner as `21a90993` (which also swept in slice 3a's files mid-run); slice 3a (the card frame; the screen, events, kinds and alerts cards) built 2026-10-29 (gate green, suite +10937 ~10 −1); slice 3b (attendance, categories, finding, setup) built 2026-10-29 (gate green, suite +10985 ~10 −1); slice 3 reviewed and fixed 2026-10-29 (19 items, none a write; eleven closed) and COMMITTED by the owner as `841f695a`; slice 4 done 2026-10-29 — the `design-reviewer` (18 findings, the seven severity-2 ones closed, D38 / D39 taken), `qa pass alerts` 5 / 5, `qa pass calendar` 27 / 27 after the flow fix, the skills and the feature doc updated; gate green, suite +11032 ~10 −1 — **IMPLEMENTED 2026-10-29, slice 4 uncommitted** (the design fixes, D38 / D39, the flow, this record)
 
 **The owner's letters (2026-10-29, in three replies):** "did we take
 performance into account? can we make multiple pages?" → D13 was
@@ -918,8 +918,10 @@ so they never overlap an implementer or a `qa` build.
   values; demo events listing the owner's category alerts (read-only).
   **For the `design-reviewer`:** at de 2.0 on 360 × 780 the month grid
   leaves no room for the panel and the Day panel's presence button sits
-  under the add button — the real calendar's own geometry at that scale,
-  to be judged there.
+  under the add button. (The `design-reviewer` measured it: the band,
+  oversized by its 'W' stand-in, pushed the button to y 800, below the
+  screen; the real page has no band and would show it at about y 619 —
+  not the real calendar's geometry. Fixed in slice 4's design fix pass.)
 - **Slice 3 — the "Try it" cards on the task pages**, built to the
   designer's spec, one per page: screen (the two menus in a demo bar +
   `PanelModeBar` with the three captions); events (a three-row demo list +
@@ -1085,6 +1087,84 @@ so they never overlap an implementer or a `qa` build.
   file map (the three pages), the `calendar-ui` ids catalogue
   (`calendar-guide-page-<topic>`, `calendar-guide-practice`, the practice
   page's `practice-*` ids for the flow), `rules/calendar.md`'s flow count.
+  **As run (2026-10-29):** `26_guide.txt` extended by the lead (the hub →
+  the practice page: `{{longdate+1}}` picked, + → the sandboxed editor →
+  "Dentist check" saved and found in the panel → `{{longdate+7}}` and the
+  seeded `event-row-guide-demo-yoga` into its detail sheet → the funnel →
+  the ⋮'s guide row captioning → back → the Events page's card by id →
+  back to the calendar; `expect` is not linted, so a typed title needs no
+  `_labels.txt` entry); the two skills and the feature doc updated (the
+  `calendar-events` reading map, the hub rule, the file map; the
+  `calendar-ui` ids and device-pass lines; the feature doc's addendum);
+  `rules/calendar.md` keeps 27 flows.
+  **The `design-reviewer` (2026-10-29, real Roboto, en / de / ro, 1.0 /
+  1.3 / 2.0, both themes, 360 and 412; its renders in that session's
+  scratchpad):** the structure, the numbers, the contrast and the
+  semantics match the spec — the hub's two cards and rows, the glyph drop
+  (off at ≤ 368 dp, on at ≥ 372 at de 2.0), the live query, the heading,
+  the card first as a container node, the stage, the live caption, the
+  practice bar, Start over's 38 %, the band's 1.5 clamp, the route name;
+  every token contrast as measured by the designer. Eighteen findings;
+  the severity-2 ones and what one `implementer` did: (F1) the stage's
+  rows broke words mid-word at de 2.0 and de 1.3 and en 2.0 on 360 — the
+  list padding, `cardInset` and `stagePadding` leave them ~270 dp where
+  the real sheets are full width — so from `GuideMetrics.
+  stageFullBleedTextScale` 1.3 **inclusive** the stage runs edge to edge
+  inside the card (a hairline top and bottom, no radius — D29's
+  alternative), with a word-break check in the suite (every
+  `RenderParagraph`'s word boxes, every card, idle and changed; two de 2.0
+  words no edge-to-edge stage can hold are pinned as `unavoidable`:
+  attendance's "Wiederholungen" beside its switch — the editor's sheet
+  gives the label 32 dp more — and setup's „Kalendereinstellungen“ öffnen
+  in a 256 dp row); (F2) the alerts stage reserved five rows — 1232 dp at
+  de 2.0 on 360 with ~675 dp of empty ground — so the demo caps at
+  `GuideMetrics.demoAlertCap` 2 (Add disabled at two, Remove re-enables;
+  707 dp at de 2.0); (F3) the band's whole node was the live region
+  (TalkBack would re-read "Nothing here is saved." on every caption) —
+  line 2 is now `Semantics(container: true, liveRegion: true)` alone;
+  (F4 / F9) the band is 90 / 134 / 181 dp (de) against the spec's 72 /
+  111 / 127 and the card slots run over the spec — the stand-in became
+  `'n' × 24` but nothing moved: the German **Skipped** caption with the
+  long weekday-date is three lines at 1.0 and sizes the band, the events
+  slot the Added caption — see D38; (F5) the finding card's count and
+  month sat under the keyboard — on focus gain, once the inset settles
+  (read from `View`, the Scaffold strips it from the body), the card
+  scrolls toward the caption but never past the field (a plain
+  `ensureVisible` hid the field and the caret tracking scrolled back) —
+  on 412 × 915 the field and the matches sit above a 320 dp keyboard,
+  the count cannot; (F6) the attendance chips said "Oct 1, selected" —
+  each now carries `eventPresencePresent` / `eventPresenceMissed` as its
+  hint; (F7) the practice header's chevrons were the real page's 40 × 40
+  unlabeled ones — 48 dp with tooltips, the month title a plain text
+  node (the real page's header is an app-wide decision, §6). Also: the
+  kinds and finding matrix fits the stage (`CalendarGuideStageMatrix`,
+  `stageMatrixMinScale` 2 … `stageMatrixMaxScale` 4); setup's week choice
+  takes the short weekday names; the `stageRadius` comment corrected (the
+  stage is a sunken patch in dark only — 1.00:1 against the card in
+  light, the line the only edge). Gate green, suite +11032 ~10 −1. The
+  rest is in §6 Deferred.
+  **The device pass (2026-10-29, `qa-runner`, `anta_qa_1` on
+  `emulator-5556`, the QA build of `841f695a` plus the tree):** `qa pass
+  alerts` 5 / 5 green; `qa pass calendar` 26 / 27 on the first run —
+  `26_guide` red at its step 18 on both runs, the lead's own date
+  arithmetic (`{{longdate+7}}` lay on the next month's page: 2026-10-29
+  sits in the last week of a five-row month), fixed to `{{longdate}}`
+  (today, where the seeded weekly Yoga occurs) and re-run after a rebuild
+  of the final tree: **green on the first run** (its six shots show the
+  practice page with today's Yoga and Book club, the Added caption with
+  the D38 date "Fri, Oct 30", the Yoga detail sheet reading 4 / 5 attended
+  from the demo's marks, the filter sheet, the ⋮'s guide caption, the
+  Events card with its mini list and +); `qa errors` clean after each
+  suite; the device left quiet, no alarm armed. The
+  accessibility dump of the practice page at de 2.0 dark: the route is
+  named "Übungskalender" (`calendar-guide-practice`), the band's second
+  line is its own node under the band and updates after a save (the
+  harness prints no live-region flag), the chevrons read "Voriger Monat"
+  / "Nächster Monat", "Von vorn" is disabled at idle; the bar titles fit
+  on one line at 2.0 on the hub, a topic page and the practice page; the
+  alerts card is unclipped at de 2.0; the hub's rows wrap to three lines
+  at de 2.0. TalkBack's spoken phrasing and the real keyboard's settling
+  stay unverified (device-only, by ear).
 
 **The designer's brief (before slice 1):** the look of three things, one
 mock — the hub row (title, caption, chevron on the kit), the "Try it" card
@@ -1233,7 +1313,23 @@ lives on the events page after `description`; **D37** a live hub query
 shows one kit section per page with a match — titled with the page's
 name under its glyph, its first row the page's own navigating row, then
 the matching read rows (title or body) — and hides the page list while
-the query is live.
+the query is live. After the design review (2026-10-29): **D38** the
+practice band's captions spell their dates in the abbreviated
+weekday-date (`DateFormat.MMMEd`), the cards keep the long form — the
+German Skipped caption with the long date was three lines at 1.0 and
+sized the band at 90 / 134 / 181 dp against the spec's 72 / 111 / 127,
+pushing the Day panel's presence button below a 780 screen at de 2.0 on
+360 in the month format; **D39**, taken only if D38 alone leaves that
+button off screen: the band's text-scale clamp drops from 1.5 to 1.3
+(the band is chrome; the one line that matters stays legible at 1.3).
+Both landed (2026-10-29): the band is 72 / 134 / 134 dp (de 1.0 / 1.3 /
+2.0; D38 alone 72 / 134 / 154) and the presence button's bottom moved
+836 → 813 → 793 — still 13 dp below a 780 screen at de 2.0 on 360 in the
+month format. **Accepted as is:** the Day panel scrolls, so the row is
+reached with one flick, the two-week and week formats show it outright,
+and a lower clamp would cost the band's one line its legibility; at 1.3
+a caption other than a dated one holds the slot at 134 (the spec said
+111) — not traced.
 
 ### 7.3 How to run this (the next session)
 
@@ -1433,6 +1529,33 @@ region); `qa pass calendar` green with the extended `26_guide`.
   P16, P4 and P7.
 - The researchers' question lists beyond §5 are in their reports (the
   session's scratchpad); §5 keeps the ones that change what gets built.
+- **From the hands-on rework's reviews (2026-10-29), left as found:**
+  the kit's `SettingsSearchField` is a 38 dp target and its hint clips at
+  de 2.0 (both for `docs/ui-language-adoption-roadmap.md`, kit-wide); the
+  read rows' German compounds ("Bearbeitungsbildschirm",
+  "Benachrichtigungen", „Kalendereinstellungen“) break at de 2.0 on both
+  phone widths — running text with no hyphenation, since the first build;
+  the hub's intro fills the first screen at de 2.0 on 360 (D25's cost; a
+  1.3 clamp on the intro would fix it — the owner's call); the categories
+  and alerts cards rest on an empty caption slot (D30 — an idle string for
+  each would need two ARB keys); `CalendarDaysOfWeek` breaks "sâm." /
+  "dum." at ro 2.0 on 360 and the Day panel's date title is ellipsised at
+  2.0 (the calendar's own, shared with the real grid); the real calendar
+  page's month-header chevrons are 40 × 40 with no label
+  (`calendar_page.dart:1942`, an app-wide decision — the practice page's
+  own header was fixed); the overview's `AgendaMonthGrid` seems to clip
+  its 24 px weekday row at 2.0 ("Mo" wraps at 360 — seen in tests, to
+  confirm on a device) and its `upcomingSearchHint` is probably cut off
+  at 2.0 on narrow phones; the detail sheet's Next row and stats go
+  through `occursOnUtcDay`, which reads the static `EventSkips` and so
+  ignores a demo skip (a third read seam, not taken); the practice grid's
+  plain month title (no Today button, no month picker); the caption
+  stand-ins by character count (a 24-'W' title can grow a slot); seed
+  titles under a live locale change; the `practice*` metrics copying the
+  real grid's `AppSpacing` values; the hub rows' `hasSelectedState`
+  (`ListTile`'s default, as Calendar settings); `DayTimelineView`
+  overflowing inside its blocks at text scale 2.0
+  (`day_timeline_view.dart:366`, pre-existing).
 
 ## 8. The strings — the content spec of the rework (the ARBs are the durable form once a slice lands them)
 

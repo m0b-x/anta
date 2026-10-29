@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
-import '../constants/event_alerts.dart';
+import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_payload.dart';
@@ -288,8 +288,8 @@ class GuideAlertsDemo extends GuideCardDemo {
       children: [
         Stack(
           children: [
-            // The group's height: the editor's limit of alerts, each as
-            // wide as an alert's words get, laid out unseen, so adding or
+            // The group's height: the demo's limit of alerts, each as wide
+            // as an alert's words get, laid out unseen, so adding or
             // removing one never moves the card or the page under her
             // finger. The rows scroll inside it.
             ExcludeSemantics(
@@ -300,7 +300,7 @@ class GuideAlertsDemo extends GuideCardDemo {
                     child: FormRowGroup(
                       children: [
                         titleRow,
-                        for (var i = 0; i < kMaxAlertsPerEvent; i++)
+                        for (var i = 0; i < GuideMetrics.demoAlertCap; i++)
                           FormPickerRow(
                             glyph: Icons.notifications_outlined,
                             label: standInLabel,
@@ -345,8 +345,8 @@ class GuideAlertsDemo extends GuideCardDemo {
                       glyph: Icons.add_rounded,
                       label: l10n.eventAlertAdd,
                       identifier: control('add'),
-                      // Disabled, never hidden, at the editor's own limit.
-                      onTap: _alerts.length < kMaxAlertsPerEvent
+                      // Disabled, never hidden, at the demo's limit.
+                      onTap: _alerts.length < GuideMetrics.demoAlertCap
                           ? () => _addAlert(context, event)
                           : null,
                     ),

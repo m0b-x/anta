@@ -44,6 +44,8 @@ class GuideTryCardRobot {
 
   Size get slotSize => tester.getSize(_slot);
 
+  Rect get slotRect => tester.getRect(_slot);
+
   /// The stage: the card body's one `RepaintBoundary`.
   Size get stageSize => tester.getSize(
     find.descendant(of: card, matching: find.byType(RepaintBoundary)).first,

@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
-import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -507,40 +506,30 @@ class GuideKindsDemo extends GuideCardDemo {
             ),
           ],
         ),
-        // Drawn as the year tiles draw it, at a size she can read; what it
-        // shows, the caption says.
-        ExcludeSemantics(
-          child: Center(
-            child: SizedBox(
-              width: MonthDotMatrix.width * GuideMetrics.stageMatrixScale,
-              height: MonthDotMatrix.height * GuideMetrics.stageMatrixScale,
-              child: FittedBox(
-                child: MonthDotMatrix(
-                  daysInMonth: _monthEnd.day,
-                  firstWeekdayColumn: weekdayColumnOf(
-                    _monthStart,
-                    appearance.weekStart,
-                  ),
-                  markedMask: masks.marked,
-                  missedMask: masks.missed,
-                  windowMask: (1 << _monthEnd.day) - 1,
-                  todayIndex: _today.day - 1,
-                  markedColor: color,
-                  missedColor: color.withValues(
-                    alpha: CalendarColors.missedEventAlpha,
-                  ),
-                  unmarkedColor: colorScheme.outline.withValues(
-                    alpha: MonthDotMatrix.unmarkedAlpha,
-                  ),
-                  outsideColor: colorScheme.outline.withValues(
-                    alpha: MonthDotMatrix.outsideAlpha,
-                  ),
-                  todayColor: appearance.accentOr(colorScheme.primary),
-                  backgroundColor: colorScheme.pageGround,
-                  outlineColor: colorScheme.outline,
-                ),
-              ),
+        CalendarGuideStageMatrix(
+          matrix: MonthDotMatrix(
+            daysInMonth: _monthEnd.day,
+            firstWeekdayColumn: weekdayColumnOf(
+              _monthStart,
+              appearance.weekStart,
             ),
+            markedMask: masks.marked,
+            missedMask: masks.missed,
+            windowMask: (1 << _monthEnd.day) - 1,
+            todayIndex: _today.day - 1,
+            markedColor: color,
+            missedColor: color.withValues(
+              alpha: CalendarColors.missedEventAlpha,
+            ),
+            unmarkedColor: colorScheme.outline.withValues(
+              alpha: MonthDotMatrix.unmarkedAlpha,
+            ),
+            outsideColor: colorScheme.outline.withValues(
+              alpha: MonthDotMatrix.outsideAlpha,
+            ),
+            todayColor: appearance.accentOr(colorScheme.primary),
+            backgroundColor: colorScheme.pageGround,
+            outlineColor: colorScheme.outline,
           ),
         ),
       ],

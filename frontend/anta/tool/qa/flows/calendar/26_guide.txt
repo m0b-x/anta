@@ -7,9 +7,10 @@
 # to the calendar.
 # - Everything on the practice page is a demo: nothing it does reaches the
 #   seed, so the flows after it see the calendar as the seed left it.
-# - The demo's Yoga repeats weekly on today's weekday, so today + 7 has its
-#   row by its seeded id; an added event's id is minted, so it is found by
-#   its title in the panel, never tapped.
+# - The demo's Yoga repeats weekly on today's weekday, so today has its row
+#   by its seeded id (today + 7 sat on the next month's page in the last
+#   week of a five-row month, 2026-10-29); an added event's id is minted,
+#   so it is found by its title in the panel, never tapped.
 tap id:calendar-more
 wait id:calendar-guide-open
 tap id:calendar-guide-open
@@ -27,7 +28,7 @@ tap id:event-save
 wait id:practice-add-event
 expect "Dentist check"
 shot 26_guide_practice_added
-tap "{{longdate+7}}"
+tap "{{longdate}}"
 wait id:event-row-guide-demo-yoga
 tap id:event-row-guide-demo-yoga
 wait id:event-detail-close

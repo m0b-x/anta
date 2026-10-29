@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -214,7 +215,7 @@ void main() {
   DateTime day(int offset) =>
       DateTime.utc(today.year, today.month, today.day + offset);
   // Built on first use: the locale data loads in setUpAll.
-  late final dates = DateFormat.yMMMMEEEEd('en');
+  late final dates = DateFormat.MMMEd('en');
   final seedTitles = [
     en.calendarGuideDemoEventDentist,
     en.calendarGuideDemoEventYoga,
@@ -543,11 +544,92 @@ void main() {
     expect(
       robot.caption,
       de.calendarGuideDemoSkipped(
-        DateFormat.yMMMMEEEEd('de').format(today),
+        DateFormat.MMMEd('de').format(today),
         de.calendarGuideDemoEventYoga,
       ),
     );
     expect(robot.bandSize, idle);
+    await expectNothingSaved();
+  });
+
+  // The band's slot is as tall as its tallest candidate, its dates in the
+  // short form (D38); past 1.3 the clamp (D39) holds it, so 2.0 draws as
+  // 1.3. Pinned, so a candidate that grows the band fails here.
+  for (final (scale, height) in const [
+    (1.0, 72.0),
+    (1.3, 134.0),
+    (2.0, 134.0),
+  ]) {
+    testWidgets('de $scale on 360: the band is $height dp', (tester) async {
+      final robot = await open(
+        tester,
+        locale: const Locale('de'),
+        textScaler: TextScaler.linear(scale),
+        size: const Size(360, 780),
+      );
+      expect(robot.bandSize.height, height);
+      await expectNothingSaved();
+    });
+  }
+
+  testWidgets('the band reads its first line once: only the caption is a '
+      'live region', (tester) async {
+    final handle = tester.ensureSemantics();
+    await open(tester);
+    final band = tester.getSemantics(
+      find.bySemanticsIdentifier(SemanticsIds.calendarGuidePracticeBanner),
+    );
+    expect(band.getSemanticsData().flagsCollection.isLiveRegion, isFalse);
+    expect(band.label, contains(en.calendarGuidePracticeBanner));
+    final children = <SemanticsNode>[];
+    band.visitChildren((child) {
+      children.add(child);
+      return true;
+    });
+    expect(children, hasLength(1));
+    final caption = children.single;
+    expect(caption.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
+    expect(caption.label, en.calendarGuidePracticeIdle);
+    expect(caption.label, isNot(contains(en.calendarGuidePracticeBanner)));
+    handle.dispose();
+    await expectNothingSaved();
+  });
+
+  testWidgets('the demo grid\'s chevrons are labelled 48 dp targets and its '
+      'month title is plain text', (tester) async {
+    final handle = tester.ensureSemantics();
+    await open(tester);
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    // The chevrons themselves: the page as a whole also holds the real
+    // panel's mode bar, whose segments are the calendar's own decision.
+    for (final (glyph, tooltip) in [
+      (Icons.chevron_left_rounded, en.dayListPreviousMonth),
+      (Icons.chevron_right_rounded, en.dayListNextMonth),
+    ]) {
+      final chevron = find
+          .ancestor(
+            of: find.descendant(
+              of: find.byWidgetPredicate((widget) => widget is TableCalendar),
+              matching: find.byIcon(glyph),
+            ),
+            matching: find.byType(InkWell),
+          )
+          .first;
+      final node = tester.getSemantics(chevron);
+      expect(node.rect.width, greaterThanOrEqualTo(48));
+      expect(node.rect.height, greaterThanOrEqualTo(48));
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      expect(node.getSemanticsData().tooltip, tooltip);
+    }
+    final title = tester.getSemantics(
+      find.text(DateFormat.yMMMM('en').format(today)),
+    );
+    expect(title.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+    expect(
+      title.getSemanticsData().hasAction(SemanticsAction.longPress),
+      isFalse,
+    );
+    handle.dispose();
     await expectNothingSaved();
   });
 

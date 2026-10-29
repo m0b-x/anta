@@ -9,6 +9,7 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_guide_content.dart';
 import 'calendar_guide_rows.dart';
 import 'form_rows.dart';
+import 'month_dot_matrix.dart';
 import 'settings_section_list.dart';
 
 /// What one "Try it" card shows and remembers: its stage, built from the real
@@ -61,6 +62,10 @@ abstract class GuideCardDemo extends ChangeNotifier {
   /// Redraws the card after a change the caption does not name.
   @protected
   void changed() => notifyListeners();
+
+  /// The card's caption slot, for a stage that has to bring the caption
+  /// into view — the finding card, whose keyboard would cover the count.
+  final GlobalKey captionSlotKey = GlobalKey();
 }
 
 /// A title as a caption quotes it: cut at
@@ -72,10 +77,12 @@ String calendarGuideQuote(String title) {
   return '${characters.take(GuideMetrics.captionTitleMaxChars)}…';
 }
 
-/// The stand-in for any typed title among a slot's candidates: as wide as a
-/// title can be once [calendarGuideQuote] has cut it.
+/// The stand-in for any typed title among a slot's candidates: a title cut
+/// by [calendarGuideQuote], in a glyph as wide as a typical letter rather
+/// than Roboto's widest, 'W', which measured a title nobody types. A title
+/// of wide capitals can wrap a line past its slot, a cost taken knowingly.
 final String calendarGuideLongestQuote =
-    '${'W' * GuideMetrics.captionTitleMaxChars}…';
+    '${'n' * GuideMetrics.captionTitleMaxChars}…';
 
 /// The long weekday date the guide's captions write, at its widest in
 /// [dates]' language over a whole year, for a caption slot's candidates.
@@ -156,56 +163,103 @@ class CalendarGuideTryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final fullBleed =
+        MediaQuery.textScalerOf(context).scale(1) >=
+        GuideMetrics.stageFullBleedTextScale;
+    final line = BorderSide(
+      color: colorScheme.outlineVariant,
+      width: GuideMetrics.stageOutline,
+    );
+    const inset = EdgeInsets.symmetric(horizontal: GuideMetrics.cardInset);
     return ListenableBuilder(
       listenable: demo,
       builder: (context, _) {
         final l10n = AppLocalizations.of(context)!;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(
-            GuideMetrics.cardInset,
-            0,
-            GuideMetrics.cardInset,
-            GuideMetrics.cardInset,
-          ),
+          padding: const EdgeInsets.only(bottom: GuideMetrics.cardInset),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              lead,
+              Padding(padding: inset, child: lead),
               const SizedBox(height: GuideMetrics.leadToStage),
-              RepaintBoundary(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: colorScheme.pageGround,
-                    border: Border.all(
-                      color: colorScheme.outlineVariant,
-                      width: GuideMetrics.stageOutline,
+              Padding(
+                padding: fullBleed ? EdgeInsets.zero : inset,
+                child: RepaintBoundary(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colorScheme.pageGround,
+                      border: fullBleed
+                          ? Border(top: line, bottom: line)
+                          : Border.fromBorderSide(line),
+                      borderRadius: fullBleed
+                          ? null
+                          : BorderRadius.circular(GuideMetrics.stageRadius),
                     ),
-                    borderRadius: BorderRadius.circular(
-                      GuideMetrics.stageRadius,
+                    child: Padding(
+                      padding: fullBleed
+                          ? const EdgeInsets.symmetric(
+                              vertical: GuideMetrics.stagePadding,
+                            )
+                          : const EdgeInsets.all(GuideMetrics.stagePadding),
+                      child: demo.buildStage(context),
                     ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(GuideMetrics.stagePadding),
-                    child: demo.buildStage(context),
                   ),
                 ),
               ),
               const SizedBox(height: GuideMetrics.stageToCaption),
-              FormCaptionSlot(
-                candidates: [
-                  for (final text in candidates) FormCaption(text: text),
-                ],
-                child: Semantics(
-                  container: true,
-                  liveRegion: true,
-                  identifier: SemanticsIds.calendarGuideTryCaption(slug),
-                  child: FormCaption(text: demo.caption(l10n) ?? ''),
+              Padding(
+                padding: inset,
+                child: FormCaptionSlot(
+                  key: demo.captionSlotKey,
+                  candidates: [
+                    for (final text in candidates) FormCaption(text: text),
+                  ],
+                  child: Semantics(
+                    container: true,
+                    liveRegion: true,
+                    identifier: SemanticsIds.calendarGuideTryCaption(slug),
+                    child: FormCaption(text: demo.caption(l10n) ?? ''),
+                  ),
                 ),
               ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// A stage's month of dots, drawn as the year tiles draw it at the largest
+/// whole multiple of their size the stage's width holds, between
+/// [GuideMetrics.stageMatrixMinScale] and [GuideMetrics.stageMatrixMaxScale].
+/// What it shows, the caption says, so it is left out of the semantics tree.
+class CalendarGuideStageMatrix extends StatelessWidget {
+  const CalendarGuideStageMatrix({super.key, required this.matrix});
+
+  final MonthDotMatrix matrix;
+
+  static double scaleFor(double width) =>
+      (width / MonthDotMatrix.width).floorToDouble().clamp(
+        GuideMetrics.stageMatrixMinScale,
+        GuideMetrics.stageMatrixMaxScale,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final scale = scaleFor(constraints.maxWidth);
+          return Center(
+            child: SizedBox(
+              width: MonthDotMatrix.width * scale,
+              height: MonthDotMatrix.height * scale,
+              child: FittedBox(child: matrix),
+            ),
+          );
+        },
+      ),
     );
   }
 }

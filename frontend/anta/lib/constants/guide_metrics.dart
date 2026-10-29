@@ -55,10 +55,11 @@ abstract final class GuideMetrics {
   static const FontWeight bannerTitleFontWeight = FontWeight.w500;
   static const double bannerTitleLineHeight = 20;
 
-  /// Material's own `MaterialBanner` clamp: past it the band would eat the
-  /// grid the page exists to show, and its words are a reminder, not the
-  /// content.
-  static const double bannerMaxTextScale = 1.5;
+  /// Below Material's `MaterialBanner` 1.5 (D39): at 1.5 the German band
+  /// still pushed the Day panel's presence button off a 360 × 780 phone in
+  /// the month format. The band is chrome, a reminder rather than the
+  /// content, and its one line that matters stays legible at 1.3.
+  static const double bannerMaxTextScale = 1.3;
 
   /// How much of a typed title a demo caption quotes before "…": a caption
   /// slot sized for any title would be as tall as the longest one anybody
@@ -75,9 +76,10 @@ abstract final class GuideMetrics {
   static const double leadToStage = 12;
   static const double stageToCaption = 8;
 
-  /// The stage: a sunken patch of the page's ground inside the card, its
-  /// corners a step inside the card's, and the air its real widgets need
-  /// from that hairline.
+  /// The stage: a patch of the page's ground inside the card — a step darker
+  /// in dark, the same tone as the card in light, where the hairline alone
+  /// draws its edge — its corners a step inside the card's, and the air its
+  /// real widgets need from that hairline.
   static const double stageRadius = 12;
   static const double stagePadding = 12;
 
@@ -85,10 +87,26 @@ abstract final class GuideMetrics {
   /// the card in dark (D29), and a line any heavier would read as a control.
   static const double stageOutline = 1;
 
-  /// The kinds card's month of dots at twice the year tiles' size: a tile's
-  /// matrix is a glance at one month of twelve, this one is the thing to
-  /// watch, and its dots are drawn, so they scale without blur.
-  static const double stageMatrixScale = 2;
+  /// From this text scale up the stage runs edge to edge inside the card,
+  /// its hairline only above and below (D29's alternative): inset twice, a
+  /// 360 phone leaves its rows about 270 dp, and German breaks the real
+  /// sheets' words — "Wiederhol|ung" at 2.0, "Wiederholungen" beside a
+  /// switch already at 1.3 — which the full-width sheets never do. Below it
+  /// the stage keeps its inset patch.
+  static const double stageFullBleedTextScale = 1.3;
+
+  /// The kinds and finding cards' month of dots: as large as the stage's
+  /// width allows, in whole steps of the year tiles' size so the dots stay
+  /// crisp, never under twice that size — a tile's matrix is a glance at one
+  /// month of twelve, this one is the thing to watch — and never past four
+  /// times it, where a dot would outgrow the rows around it.
+  static const double stageMatrixMinScale = 2;
+  static const double stageMatrixMaxScale = 4;
+
+  /// The alerts card's limit, under the editor's: two shows a notification
+  /// beside an alarm, and the stage reserves a row for each alert it can
+  /// hold — the editor's five made it taller than a phone's screen at 2.0.
+  static const int demoAlertCap = 2;
 
   /// The setup card's sample week: the appearance page's preview, drawn on a
   /// stage narrower than that page — a 36 dp column a day on a 360 phone —
@@ -96,10 +114,12 @@ abstract final class GuideMetrics {
   /// it stops growing here, as the practice page's banner does.
   static const double sampleWeekMaxTextScale = 1.2;
 
-  /// The demo grid's header, the calendar page's geometry: the title row
-  /// tightened so the month name and its chevrons sit on one line.
+  /// The demo grid's header: the calendar page's title row, tightened at the
+  /// sides so the month name and its chevrons sit on one line, and with no
+  /// air above or below, where the chevrons' padding round a 24 px glyph
+  /// makes the 48 dp target the real page's 40 dp ones fall short of.
   static const double practiceHeaderInset = 4;
-  static const double practiceChevronPadding = 8;
+  static const double practiceChevronPadding = 12;
 
   /// The air under the demo grid's marker strip, as the calendar page and
   /// the appearance preview leave it, so the bars sit where the real grid

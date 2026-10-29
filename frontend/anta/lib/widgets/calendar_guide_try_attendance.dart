@@ -182,11 +182,20 @@ class GuideAttendanceDemo extends GuideCardDemo {
           label: l10n.eventPresence,
           chips: [
             for (var i = 0; i < past.length; i++)
-              FormChip(
-                label: shortDates.format(past[i]),
-                selected: !calendar.isMissed(event, past[i]),
-                identifier: control('day-$i'),
-                onTap: () => _flip(calendar, event, past[i]),
+              // "Selected" alone does not say present: the chip's one node
+              // carries the day's state word as its hint.
+              MergeSemantics(
+                child: Semantics(
+                  hint: calendar.isMissed(event, past[i])
+                      ? l10n.eventPresenceMissed
+                      : l10n.eventPresencePresent,
+                  child: FormChip(
+                    label: shortDates.format(past[i]),
+                    selected: !calendar.isMissed(event, past[i]),
+                    identifier: control('day-$i'),
+                    onTap: () => _flip(calendar, event, past[i]),
+                  ),
+                ),
               ),
           ],
         ),

@@ -119,7 +119,8 @@ class GuideSetupDemo extends GuideCardDemo {
 
   /// The week start's label as the appearance page writes it
   /// (`_weekStartLabel` in `calendar_appearance_page.dart`): the weekday's
-  /// own name from `intl`, never an ARB matrix.
+  /// own name from `intl`, never an ARB matrix — here its short form, so the
+  /// three segments sit side by side on a stage narrower than that page.
   static String _weekStartLabel(
     CalendarWeekStart start,
     DateFormat weekdays,
@@ -130,11 +131,14 @@ class GuideSetupDemo extends GuideCardDemo {
     return toBeginningOfSentenceCase(name, localeName) ?? name;
   }
 
+  final GuideLocaleFormat _weekdays = GuideLocaleFormat(DateFormat.E);
+
   /// The three labels, made once per language.
-  Map<CalendarWeekStart, String> _weekStartLabels(String localeName) {
+  Map<CalendarWeekStart, String> _weekStartLabels(AppLocalizations l10n) {
+    final localeName = l10n.localeName;
     if (_labelsLocale != localeName) {
       _labelsLocale = localeName;
-      final weekdays = DateFormat.EEEE(localeName);
+      final weekdays = _weekdays.of(l10n);
       _labels = {
         for (final start in CalendarWeekStart.values)
           start: _weekStartLabel(start, weekdays, localeName),
@@ -226,7 +230,7 @@ class GuideSetupDemo extends GuideCardDemo {
 
   Widget _weekStartChoice(BuildContext context, CalendarWeekStart selected) {
     final l10n = AppLocalizations.of(context)!;
-    final labels = _weekStartLabels(l10n.localeName);
+    final labels = _weekStartLabels(l10n);
     return LayoutBuilder(
       builder: (context, constraints) {
         final key = (

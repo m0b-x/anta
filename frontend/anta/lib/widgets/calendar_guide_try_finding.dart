@@ -1,8 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
-import '../constants/guide_metrics.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
@@ -227,19 +229,24 @@ class GuideFindingDemo extends GuideCardDemo {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        FormRowGroup(
-          children: [
-            FormSearchRow(
-              controller: _search,
-              focusNode: _searchFocus,
-              // Not the overview's "Search events": inside the stage, at 2.0,
-              // its German and Romanian hints are cut off; one word fits.
-              hint: l10n.search,
-              clearTooltip: l10n.upcomingClearSearch,
-              identifier: control('search'),
-              onChanged: (_) => _onQuery(l10n),
-            ),
-          ],
+        _CaptionAboveKeyboard(
+          focusNode: _searchFocus,
+          caption: captionSlotKey,
+          child: FormRowGroup(
+            children: [
+              FormSearchRow(
+                controller: _search,
+                focusNode: _searchFocus,
+                // Not the overview's "Search events": inside the stage, at
+                // 2.0, its German and Romanian hints are cut off; one word
+                // fits.
+                hint: l10n.search,
+                clearTooltip: l10n.upcomingClearSearch,
+                identifier: control('search'),
+                onChanged: (_) => _onQuery(l10n),
+              ),
+            ],
+          ),
         ),
         Stack(
           children: [
@@ -271,41 +278,173 @@ class GuideFindingDemo extends GuideCardDemo {
             ),
           ],
         ),
-        // The kinds card's month, drawn as the year tiles draw it; what it
-        // shows, the caption and the list above say.
-        ExcludeSemantics(
-          child: Center(
-            child: SizedBox(
-              width: MonthDotMatrix.width * GuideMetrics.stageMatrixScale,
-              height: MonthDotMatrix.height * GuideMetrics.stageMatrixScale,
-              child: FittedBox(
-                child: MonthDotMatrix(
-                  daysInMonth: _monthEnd.day,
-                  firstWeekdayColumn: weekdayColumnOf(
-                    _monthStart,
-                    appearance.weekStart,
-                  ),
-                  markedMask: shown.monthMask,
-                  missedMask: 0,
-                  windowMask: (1 << _monthEnd.day) - 1,
-                  todayIndex: _today.day - 1,
-                  markedColor: colorScheme.primary,
-                  missedColor: colorScheme.primary,
-                  unmarkedColor: colorScheme.outline.withValues(
-                    alpha: MonthDotMatrix.unmarkedAlpha,
-                  ),
-                  outsideColor: colorScheme.outline.withValues(
-                    alpha: MonthDotMatrix.outsideAlpha,
-                  ),
-                  todayColor: appearance.accentOr(colorScheme.primary),
-                  backgroundColor: colorScheme.pageGround,
-                  outlineColor: colorScheme.outline,
-                ),
-              ),
+        // The kinds card's month; what it shows, the caption and the list
+        // above say.
+        CalendarGuideStageMatrix(
+          matrix: MonthDotMatrix(
+            daysInMonth: _monthEnd.day,
+            firstWeekdayColumn: weekdayColumnOf(
+              _monthStart,
+              appearance.weekStart,
             ),
+            markedMask: shown.monthMask,
+            missedMask: 0,
+            windowMask: (1 << _monthEnd.day) - 1,
+            todayIndex: _today.day - 1,
+            markedColor: colorScheme.primary,
+            missedColor: colorScheme.primary,
+            unmarkedColor: colorScheme.outline.withValues(
+              alpha: MonthDotMatrix.unmarkedAlpha,
+            ),
+            outsideColor: colorScheme.outline.withValues(
+              alpha: MonthDotMatrix.outsideAlpha,
+            ),
+            todayColor: appearance.accentOr(colorScheme.primary),
+            backgroundColor: colorScheme.pageGround,
+            outlineColor: colorScheme.outline,
           ),
         ),
       ],
     );
   }
+}
+
+/// Brings what the search field reports into view once the keyboard a focus
+/// on it raised has come to rest: the count and the matches are what she
+/// types to see, and the keyboard covers them.
+///
+/// Once per focus gain, never per keystroke — the field keeps its own caret
+/// in view while she types. The inset counts as at rest a frame after it
+/// last moved, since a keyboard's rise reaches the app as a run of insets.
+/// It is the view's, as the field's own caret tracking reads it: the page's
+/// `Scaffold` takes the inset out of its body's `MediaQuery`.
+class _CaptionAboveKeyboard extends StatefulWidget {
+  const _CaptionAboveKeyboard({
+    required this.focusNode,
+    required this.caption,
+    required this.child,
+  });
+
+  final FocusNode focusNode;
+  final GlobalKey caption;
+  final Widget child;
+
+  @override
+  State<_CaptionAboveKeyboard> createState() => _CaptionAboveKeyboardState();
+}
+
+class _CaptionAboveKeyboardState extends State<_CaptionAboveKeyboard>
+    with WidgetsBindingObserver {
+  double _inset = 0;
+
+  /// Focus was gained and the caption not yet brought into view.
+  bool _waiting = false;
+
+  /// The inset moved since the last frame's check.
+  bool _moved = false;
+
+  /// A check is scheduled after the coming frame.
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.focusNode.addListener(_onFocus);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didUpdateWidget(_CaptionAboveKeyboard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode.removeListener(_onFocus);
+      widget.focusNode.addListener(_onFocus);
+    }
+  }
+
+  double _viewInset() {
+    final view = View.of(context);
+    return view.viewInsets.bottom / view.devicePixelRatio;
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!_waiting) return;
+    final inset = _viewInset();
+    if (inset == _inset) return;
+    _inset = inset;
+    _moved = true;
+    if (_checking) return;
+    _checking = true;
+    WidgetsBinding.instance.addPostFrameCallback(_check);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.focusNode.removeListener(_onFocus);
+    super.dispose();
+  }
+
+  void _onFocus() {
+    _waiting = widget.focusNode.hasFocus;
+    if (_waiting) _inset = _viewInset();
+  }
+
+  void _check(Duration _) {
+    if (!mounted || !_waiting) {
+      _checking = false;
+      return;
+    }
+    if (_moved) {
+      // Still rising: look again after the next frame.
+      _moved = false;
+      WidgetsBinding.instance.addPostFrameCallback(_check);
+      WidgetsBinding.instance.scheduleFrame();
+      return;
+    }
+    _checking = false;
+    _waiting = false;
+    if (_inset > 0) _reveal();
+  }
+
+  /// Scrolls the caption up to the keyboard's edge, as
+  /// `Scrollable.ensureVisible` at alignment 1.0 would — but never past
+  /// the field: the field keeps its caret in view on every keystroke, so a
+  /// caption brought up past it would be scrolled away again by the first
+  /// letter, the page jumping under her. On a phone the stage is taller
+  /// than the room the keyboard leaves, so the field stops at the top with
+  /// the matches under it, and the count shows wherever it fits.
+  void _reveal() {
+    final caption = widget.caption.currentContext?.findRenderObject();
+    // The node's context is the field's own: its box, and the air above
+    // the caret the field keeps when it scrolls itself into view.
+    final focused = widget.focusNode.context;
+    final field = focused?.findRenderObject();
+    final position = Scrollable.maybeOf(context)?.position;
+    if (caption == null || field is! RenderBox || position == null) return;
+    final viewport = RenderAbstractViewport.maybeOf(field);
+    if (viewport == null) return;
+    final air =
+        focused!
+            .findAncestorWidgetOfExactType<EditableText>()
+            ?.scrollPadding
+            .top ??
+        0;
+    final target = math.min(
+      viewport.getOffsetToReveal(caption, 1.0).offset,
+      viewport
+          .getOffsetToReveal(
+            field,
+            0.0,
+            rect: Rect.fromLTRB(0, -air, field.size.width, field.size.height),
+          )
+          .offset,
+    );
+    if (target <= position.pixels) return;
+    position.jumpTo(math.min(target, position.maxScrollExtent));
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

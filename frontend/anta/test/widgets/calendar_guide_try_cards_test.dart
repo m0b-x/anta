@@ -19,6 +19,7 @@ import 'package:anta/constants/calendar_templates.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
+import 'package:anta/constants/guide_metrics.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
 import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -925,6 +926,28 @@ void main() {
       await expectNothingSaved();
     });
 
+    testWidgets('a past day\'s chip says present or missed, and flips with '
+        'a tap', (tester) async {
+      final handle = tester.ensureSemantics();
+      final robot = await open(tester, CalendarGuideTopic.attendance);
+      String said(String name) {
+        final data = tester
+            .getSemantics(robot.control(name))
+            .getSemanticsData();
+        return '${data.label} ${data.hint}';
+      }
+
+      expect(said('day-0'), contains(en.eventPresencePresent));
+      expect(said('day-3'), contains(en.eventPresenceMissed));
+      await robot.tap('day-3');
+      expect(said('day-3'), contains(en.eventPresencePresent));
+      expect(said('day-3'), isNot(contains(en.eventPresenceMissed)));
+      await robot.tap('day-3');
+      expect(said('day-3'), contains(en.eventPresenceMissed));
+      handle.dispose();
+      await expectNothingSaved();
+    });
+
     testWidgets('the count switch enables the styles and the example '
         'follows them, the stage never changing height', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.attendance);
@@ -1202,6 +1225,57 @@ void main() {
       expect(tester.takeException(), isNull);
       await expectNothingSaved();
     });
+
+    // On a phone the stage is taller than the room the keyboard leaves: the
+    // field rises to the top with the matches under it. Where the room
+    // holds the stage, the count shows above the keyboard. Either way the
+    // field stays put while she types.
+    for (final height in const [915.0, 1200.0]) {
+      testWidgets('the keyboard up brings the matches, and where they fit '
+          'the count, above it; typing moves nothing (412×$height)', (
+        tester,
+      ) async {
+        final robot = await open(
+          tester,
+          CalendarGuideTopic.finding,
+          size: Size(412, height),
+        );
+        const inset = 320.0;
+        final keyboardTop = height - inset;
+        final field = find.descendant(
+          of: robot.control('search'),
+          matching: find.byType(EditableText),
+        );
+        final fits = height > 915;
+        await tester.showKeyboard(field);
+        await tester.pumpAndSettle();
+        // The page as it opens: the count below the keyboard-to-be.
+        expect(robot.slotRect.bottom, greaterThan(keyboardTop));
+
+        tester.view.viewInsets = const FakeViewPadding(bottom: inset);
+        await tester.pumpAndSettle();
+        final fieldRect = tester.getRect(field);
+        expect(fieldRect.top, greaterThanOrEqualTo(0));
+        expect(fieldRect.bottom, lessThanOrEqualTo(keyboardTop));
+        expect(
+          tester.getRect(robot.control('match-dentist')).bottom,
+          lessThanOrEqualTo(keyboardTop),
+        );
+        expect(
+          robot.slotRect.bottom <= keyboardTop,
+          fits,
+          reason: '${robot.slotRect}',
+        );
+
+        await tester.enterText(field, 'yoga');
+        await tester.pumpAndSettle();
+        expect(robot.caption, en.calendarGuideDemoMatches(1));
+        expect(tester.getRect(field), fieldRect);
+        expect(robot.slotRect.bottom <= keyboardTop, fits);
+        expect(tester.takeException(), isNull);
+        await expectNothingSaved();
+      });
+    }
   });
 
   group('setup', () {
@@ -1377,7 +1451,8 @@ void main() {
   });
 
   group('a stage never changes height at text scale 2.0', () {
-    testWidgets('alerts: every alert up to the cap', (tester) async {
+    testWidgets('alerts: every alert up to the demo\'s cap, the stage within '
+        'the screen', (tester) async {
       final robot = await open(
         tester,
         CalendarGuideTopic.alerts,
@@ -1386,7 +1461,10 @@ void main() {
         textScaler: const TextScaler.linear(2.0),
       );
       final stage = robot.stageSize;
-      for (var i = 0; i < kMaxAlertsPerEvent; i++) {
+      // Sized for two alerts, not the editor's five: a stage taller than
+      // the phone was ground she scrolled past under Add alert.
+      expect(stage.height, lessThan(780));
+      for (var i = 0; i < GuideMetrics.demoAlertCap; i++) {
         await robot.tap('add');
         await robot.tapId(SemanticsIds.alertSheetSave);
         expect(robot.control('alert-$i'), findsOneWidget);
@@ -1396,6 +1474,7 @@ void main() {
       await robot.tap('alert-0');
       await robot.tapId(SemanticsIds.alertRemove);
       expect(robot.stageSize, stage);
+      expect(robot.enabled('add'), isTrue);
       expect(tester.takeException(), isNull);
       await expectNothingSaved();
     });
@@ -1564,6 +1643,96 @@ void main() {
       }
     }
   });
+
+  group('no word breaks across lines inside a stage on 360', () {
+    // The two words no stage can hold at de 2.0, even edge to edge in the
+    // card, 328 dp on a 360 phone: "Wiederholungen" beside the count's
+    // switch is wider than the 182 dp its label keeps (the editor's
+    // full-width sheet gives it 32 dp more), and "„Kalendereinstellungen“",
+    // the guide's own words, wider than the 256 dp of its row. Pinned, so
+    // any other break fails.
+    const unavoidable = {
+      'attendance de 2.0': ['Wiederholungen'],
+      'setup de 2.0': ['„Kalendereinstellungen“'],
+    };
+    for (final (locale, scale) in const [
+      (Locale('de'), 2.0),
+      (Locale('de'), 1.3),
+      (Locale('en'), 2.0),
+    ]) {
+      for (final topic in const [
+        CalendarGuideTopic.screen,
+        CalendarGuideTopic.events,
+        CalendarGuideTopic.kinds,
+        CalendarGuideTopic.alerts,
+        CalendarGuideTopic.attendance,
+        CalendarGuideTopic.categories,
+        CalendarGuideTopic.finding,
+        CalendarGuideTopic.setup,
+      ]) {
+        final name = '${topic.slug} ${locale.languageCode} $scale';
+        testWidgets(name, (tester) async {
+          final robot = await open(
+            tester,
+            topic,
+            locale: locale,
+            textScaler: TextScaler.linear(scale),
+            size: const Size(360, 780),
+          );
+          final stage = find
+              .descendant(
+                of: robot.card,
+                matching: find.byType(RepaintBoundary),
+              )
+              .first;
+          Future<void> expectWholeWords(String state) async {
+            await tester.ensureVisible(stage);
+            await tester.pumpAndSettle();
+            final broken = [
+              for (final paragraph in tester.renderObjectList<RenderParagraph>(
+                find.descendant(of: stage, matching: find.byType(RichText)),
+              ))
+                if (!_unseen(paragraph)) ..._brokenWords(paragraph),
+            ];
+            expect(broken, unavoidable[name] ?? isEmpty, reason: state);
+          }
+
+          await expectWholeWords('idle');
+          await _changeOnce(tester, robot, topic);
+          await expectWholeWords('changed');
+          await expectNothingSaved();
+        });
+      }
+    }
+  });
+}
+
+/// Whether [paragraph] is one of the unseen copies that size a slot.
+bool _unseen(RenderObject paragraph) {
+  for (RenderObject? o = paragraph; o != null; o = o.parent) {
+    if (o is RenderOpacity && o.opacity == 0) return true;
+  }
+  return false;
+}
+
+/// The words [paragraph] split across two lines anywhere but at a hyphen,
+/// read from the boxes each word's characters were laid out in.
+List<String> _brokenWords(RenderParagraph paragraph) {
+  final text = paragraph.text.toPlainText();
+  return [
+    for (final word in RegExp(
+      '[^\\s\\-\\u00AD\\u2010\\u2011\\u2013\\u2014]+',
+    ).allMatches(text))
+      if (paragraph
+              .getBoxesForSelection(
+                TextSelection(baseOffset: word.start, extentOffset: word.end),
+              )
+              .map((box) => box.top.round())
+              .toSet()
+              .length >
+          1)
+        word.group(0)!,
+  ];
 }
 
 /// The first thing she would do on [topic]'s card: a mode, an added event,
