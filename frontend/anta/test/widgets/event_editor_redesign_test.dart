@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_icons.dart';
+import 'package:anta/constants/calendar_palette.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/row_metrics.dart';
@@ -24,6 +26,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
@@ -31,6 +34,7 @@ import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/event_look_sheet.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/scroll_progress_indicator.dart';
@@ -38,6 +42,7 @@ import 'package:anta/widgets/simple_markdown_preview.dart';
 
 import '../database/support/db_test_support.dart';
 import 'support/alert_sheet_robot.dart';
+import 'support/swatch_robot.dart';
 
 class _StubNoteRepository extends NoteRepository {
   _StubNoteRepository({required super.database});
@@ -145,6 +150,7 @@ void main() {
     String? pendingDay,
     bool showBack = false,
     bool settle = true,
+    bool sandbox = false,
   }) async {
     phone(tester);
     final results = <EventEditorResult?>[];
@@ -168,6 +174,7 @@ void main() {
                       occurrenceDay: day,
                       pendingOccurrenceDescription: pendingDay,
                       showBack: showBack,
+                      sandbox: sandbox,
                     ),
                   );
                 },
@@ -974,41 +981,44 @@ void main() {
       expect(saved.event.startDate, target);
     });
 
-    testWidgets('dates moved past the Until date drop it before a repeat rule', (
-      tester,
-    ) async {
-      final results = await open(
-        tester,
-        initial: eventOf(
-          rule: SpecificDatesRecurrence(
-            dates: {startDate, DateTime.utc(2026, 9, 26)},
+    testWidgets(
+      'dates moved past the Until date drop it before a repeat rule',
+      (tester) async {
+        final results = await open(
+          tester,
+          initial: eventOf(
+            rule: SpecificDatesRecurrence(
+              dates: {startDate, DateTime.utc(2026, 9, 26)},
+            ),
+            endDate: DateTime.utc(2026, 9, 27),
           ),
-          endDate: DateTime.utc(2026, 9, 27),
-        ),
-      );
-      // The whole set moves past the Until date the event still carries: the
-      // repeat sheet floors only its own picker at the start, so without a
-      // clamp the stale end comes back and the event occurs on no day.
-      await tapText(tester, 'Add date');
-      for (final day in [
-        startDate,
-        DateTime.utc(2026, 9, 26),
-        DateTime.utc(2026, 9, 28),
-      ]) {
+        );
+        // The whole set moves past the Until date the event still carries: the
+        // repeat sheet floors only its own picker at the start, so without a
+        // clamp the stale end comes back and the event occurs on no day.
+        await tapText(tester, 'Add date');
+        for (final day in [
+          startDate,
+          DateTime.utc(2026, 9, 26),
+          DateTime.utc(2026, 9, 28),
+        ]) {
+          await tester.tap(
+            find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == day),
+          );
+          await tester.pumpAndSettle();
+        }
         await tester.tap(
-          find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == day),
+          find.bySemanticsIdentifier(SemanticsIds.datePickerSave),
         );
         await tester.pumpAndSettle();
-      }
-      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.datePickerSave));
-      await tester.pumpAndSettle();
-      await pickRepeat(tester, 'Weekly');
+        await pickRepeat(tester, 'Weekly');
 
-      final saved = await saveAnd(tester, results);
-      expect(saved.event.startDate, DateTime.utc(2026, 9, 28));
-      expect(saved.event.endDate, isNull);
-      expect(saved.event.occursOn(DateTime.utc(2026, 10, 2)), isTrue);
-    });
+        final saved = await saveAnd(tester, results);
+        expect(saved.event.startDate, DateTime.utc(2026, 9, 28));
+        expect(saved.event.endDate, isNull);
+        expect(saved.event.occursOn(DateTime.utc(2026, 10, 2)), isTrue);
+      },
+    );
 
     testWidgets('switching to a repeat rule drops the one-time extras', (
       tester,
@@ -1845,6 +1855,110 @@ void main() {
       final saved = await saveAnd(tester, results);
       expect(saved.event.retroactive, isTrue);
       expect(saved.event.endDate, isNull);
+    });
+  });
+
+  // The calendar guide's demos: Save and Delete only return their result, so
+  // what a sandbox leaves out is what writes on its own — Save as template,
+  // the Linked note row, Create category in the picker and palette editing
+  // in Icon & color. Each case is also the guard against a write path added
+  // later and forgotten.
+  group('sandbox', () {
+    setUp(() {
+      CalendarPaletteService.reset();
+      CalendarCategories.updateCache([
+        for (final (i, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.id,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: i,
+            isBuiltIn: true,
+          ),
+      ]);
+    });
+
+    tearDown(() {
+      CalendarCategories.updateCache(const []);
+      CalendarPaletteService.reset();
+    });
+
+    Finder byId(String id) => find.bySemanticsIdentifier(id);
+
+    testWidgets('a new event: no writing rows, and Save returns the event', (
+      tester,
+    ) async {
+      final results = await open(tester, sandbox: true);
+
+      expect(row('Linked note'), findsNothing);
+      expect(byId(SemanticsIds.eventLinkedNote), findsNothing);
+      expect(byId(SemanticsIds.eventSaveAsTemplate), findsNothing);
+      expect(byId(SemanticsIds.eventDelete), findsNothing);
+      expect(find.text('Save as template'), findsNothing);
+
+      await typeTitle(tester, 'Practice');
+      await tapText(tester, 'Category');
+      expect(byId(SemanticsIds.categoryPickCreate), findsNothing);
+      await tapText(tester, 'Birthday');
+
+      final settings = await SettingsService.getInstance();
+      await settings.recordRecentIconKey('directions_run');
+      final palette = await CalendarPaletteService.getInstance();
+      final customBefore = [...palette.customColors];
+      final birthday = CalendarCategories.resolve(kBirthdayCategoryId);
+      final swatch = CalendarPalette.all.firstWhere(
+        (argb) => argb != birthday.colorValue,
+      );
+
+      await tapText(tester, 'Icon & color');
+      expect(byId(SemanticsIds.swatchAdd), findsNothing);
+      expect(byId(SemanticsIds.swatchManage), findsNothing);
+      await tapText(tester, 'Icon');
+      await tester.enterText(find.byType(TextField).last, 'cake');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(CalendarIcons.forKey('cake')!).last);
+      await tester.pumpAndSettle();
+      await SwatchRobot(
+        tester,
+        within: find.byType(EventLookSheet),
+      ).tap(swatch);
+      await tapText(tester, 'Done');
+      expect(await settings.getRecentIconKeys(), ['directions_run']);
+      expect(palette.customColors, customBefore);
+
+      await tapText(tester, 'Add alert');
+      await AlertSheetRobot(tester).save();
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.title, 'Practice');
+      expect(saved.event.categoryId, kBirthdayCategoryId);
+      expect(saved.event.rule, const YearlyRecurrence());
+      expect(saved.event.noteId, isNull);
+      expect(saved.event.iconKey, 'cake');
+      expect(saved.event.colorValue, swatch);
+      expect(saved.alerts, hasLength(1));
+    });
+
+    testWidgets('an existing event keeps Delete and hides its linked note', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(noteId: 'n1'),
+        sandbox: true,
+      );
+
+      expect(row('Linked note'), findsNothing);
+      expect(byId(SemanticsIds.eventSaveAsTemplate), findsNothing);
+      expect(byId(SemanticsIds.eventDelete), findsOneWidget);
+
+      await tapText(tester, 'Delete event');
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+
+      expect(results.single, isA<EventEditorDeleted>());
+      expect((results.single! as EventEditorDeleted).id, 'e1');
     });
   });
 

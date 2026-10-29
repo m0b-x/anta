@@ -47,21 +47,29 @@ class CategoryPickerSheet extends StatefulWidget {
   /// current row and to keep a hidden category listed.
   final Set<String> initialSelection;
 
+  /// The calendar guide's demos open the real sheet over throwaway state:
+  /// the Create row is the one path from here into a category write, so it
+  /// is left out; search and picking stay as they are.
+  final bool sandbox;
+
   const CategoryPickerSheet({
     super.key,
     required this.mode,
     required this.initialSelection,
+    this.sandbox = false,
   });
 
   /// Picks one category. Returns its id, or `null` when dismissed.
   static Future<String?> pickSingle(
     BuildContext context, {
     required String selectedId,
+    bool sandbox = false,
   }) async {
     final picked = await _show(
       context,
       mode: CategoryPickerMode.single,
       initialSelection: {selectedId},
+      sandbox: sandbox,
     );
     if (picked == null || picked.isEmpty) return null;
     return picked.first;
@@ -80,11 +88,13 @@ class CategoryPickerSheet extends StatefulWidget {
   static Future<Set<String>?> pickMulti(
     BuildContext context, {
     required Set<String> selected,
+    bool sandbox = false,
   }) {
     return _show(
       context,
       mode: CategoryPickerMode.multi,
       initialSelection: selected,
+      sandbox: sandbox,
     );
   }
 
@@ -92,6 +102,7 @@ class CategoryPickerSheet extends StatefulWidget {
     BuildContext context, {
     required CategoryPickerMode mode,
     required Set<String> initialSelection,
+    required bool sandbox,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<String>>(
@@ -113,6 +124,7 @@ class CategoryPickerSheet extends StatefulWidget {
         child: CategoryPickerSheet(
           mode: mode,
           initialSelection: initialSelection,
+          sandbox: sandbox,
         ),
       ),
     );
@@ -341,16 +353,17 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                         identifier: SemanticsIds.categoryPickRow(category.id),
                         onChanged: (_) => _onTapCategory(category),
                       ),
-                    FormActionRow(
-                      glyph: Icons.add_rounded,
-                      label: createTyped
-                          ? l10n.createCategoryNamed(typed)
-                          : l10n.createCategory,
-                      identifier: SemanticsIds.categoryPickCreate,
-                      onTap: () => _createCategory(
-                        initialName: createTyped ? typed : null,
+                    if (!widget.sandbox)
+                      FormActionRow(
+                        glyph: Icons.add_rounded,
+                        label: createTyped
+                            ? l10n.createCategoryNamed(typed)
+                            : l10n.createCategory,
+                        identifier: SemanticsIds.categoryPickCreate,
+                        onTap: () => _createCategory(
+                          initialName: createTyped ? typed : null,
+                        ),
                       ),
-                    ),
                   ],
                 ),
                 if (rows.isEmpty && _isFiltering)

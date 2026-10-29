@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:anta/controllers/alert_ring_controller.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/services/alert_gateway.dart';
+import 'package:anta/utils/alert_planner.dart';
+import 'package:anta/utils/digest_planner.dart';
 
 /// A gateway standing in for a phone behind its lock screen: it counts the
 /// unlock requests and answers each the same way.
@@ -27,6 +29,61 @@ class EndingGateway extends NoOpAlertGateway {
 
   @override
   Stream<AlertRingEnd> get ringEnded => ends.stream;
+}
+
+/// A gateway that writes down every call that would reach the platform — an
+/// arm, a cancel, a stopped ring, the session chip, the unlock — for the
+/// guide's preview, which must make none.
+class RecordingGateway extends NoOpAlertGateway {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<bool> schedule(
+    PlannedFire fire,
+    AlertPayload payload, {
+    DateTime? noticeAt,
+  }) async {
+    calls.add('schedule');
+    return true;
+  }
+
+  @override
+  Future<bool> scheduleDigest(PlannedDigest fire, AlertPayload payload) async {
+    calls.add('scheduleDigest');
+    return true;
+  }
+
+  @override
+  Future<void> cancel(int osId) async => calls.add('cancel');
+
+  @override
+  Future<void> stopRinging(int osId) async => calls.add('stopRinging');
+
+  @override
+  Future<void> showMissed(AlertPayload payload) async =>
+      calls.add('showMissed');
+
+  @override
+  Future<bool> showSessionChip(
+    AlertPayload payload, {
+    required DateTime startedAt,
+    DateTime? endsAt,
+    int? progress,
+    bool refresh = false,
+    bool linkedNote = false,
+  }) async {
+    calls.add('showSessionChip');
+    return false;
+  }
+
+  @override
+  Future<void> clearSessionChip() async => calls.add('clearSessionChip');
+
+  @override
+  Future<bool> dismissLockScreen() async {
+    calls.add('dismissLockScreen');
+    return true;
+  }
 }
 
 /// A controller that already knows which database is open.

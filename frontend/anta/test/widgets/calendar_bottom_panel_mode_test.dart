@@ -389,6 +389,63 @@ void main() {
       );
     }
   });
+
+  // Public for the calendar guide's demo panel: hosted alone, the bar is the
+  // same switch with the same ids, reports every touch and change to its
+  // host and writes nothing of its own — the panel's mode stays unstored.
+  testWidgets('the public bar hosted alone switches by id and stores nothing', (
+    tester,
+  ) async {
+    setPhone(tester);
+    var mode = CalendarPanelMode.day;
+    var touches = 0;
+    var toggles = 0;
+    var expanded = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => PanelModeBar(
+              mode: mode,
+              onChanged: (next) => setState(() => mode = next),
+              onTouched: () => touches++,
+              expanded: expanded,
+              onToggleExpanded: () => setState(() {
+                toggles++;
+                expanded = !expanded;
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+    await pumpFrames(tester);
+
+    for (final next in const [
+      CalendarPanelMode.timeline,
+      CalendarPanelMode.day,
+      CalendarPanelMode.upcoming,
+    ]) {
+      await tester.tap(segment(next));
+      await pumpFrames(tester);
+      expect(mode, next);
+    }
+    expect(touches, 3);
+    await tester.tap(find.byTooltip('Expand panel'));
+    await pumpFrames(tester);
+    expect(toggles, 1);
+    expect(find.byTooltip('Show calendar'), findsOneWidget);
+
+    expect(
+      await (await SettingsService.getInstance()).getCalendarPanelMode(),
+      CalendarPanelMode.day,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// Delivers one setting's read late: the select runs at once, so its answer

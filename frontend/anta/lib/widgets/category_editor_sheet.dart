@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
 import '../constants/app_colors.dart';
@@ -58,12 +59,26 @@ class CategoryEditorSheet extends StatefulWidget {
   /// creating the thing they were looking for. Ignored when [initial] is set.
   final String? initialName;
 
-  const CategoryEditorSheet({super.key, this.initial, this.initialName});
+  /// The calendar guide's demos open the real form over throwaway state:
+  /// Save validates as ever but writes nothing — no service, no scheduler,
+  /// no bloc — and pops the category it would have written; the swatch strip
+  /// is read-only and an icon pick is not recorded among the recent ones.
+  /// The alert drafts stay in the sheet: the result type
+  /// carries the category alone.
+  final bool sandbox;
+
+  const CategoryEditorSheet({
+    super.key,
+    this.initial,
+    this.initialName,
+    this.sandbox = false,
+  });
 
   static Future<CalendarCategory?> show(
     BuildContext context, {
     CalendarCategory? initial,
     String? initialName,
+    bool sandbox = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<CalendarCategory>(
@@ -82,7 +97,11 @@ class CategoryEditorSheet extends StatefulWidget {
           maxHeight:
               MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
-        child: CategoryEditorSheet(initial: initial, initialName: initialName),
+        child: CategoryEditorSheet(
+          initial: initial,
+          initialName: initialName,
+          sandbox: sandbox,
+        ),
       ),
     );
   }
@@ -229,6 +248,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       context,
       tint: Color(_colorValue),
       initialKey: _iconKey,
+      sandbox: widget.sandbox,
     );
     if (picked == null || !mounted) return;
     setState(() => _iconKey = picked);
@@ -363,6 +383,10 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// and the picker's inline-create path tick a dead id into its selection.
   Future<void> _onSave() async {
     if (!_canSave) return;
+    if (widget.sandbox) {
+      Navigator.of(context).pop(_wouldBeSaved());
+      return;
+    }
     setState(() => _saving = true);
     final l10n = AppLocalizations.of(context)!;
     try {
@@ -425,6 +449,33 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       setState(() => _saving = false);
       _raiseSaveFailed(l10n);
     }
+  }
+
+  /// The category a sandboxed Save hands back: what [_onSave] would have
+  /// written, with a fresh id and, for a new one, the position after the
+  /// last the catalogue holds — `CategoryService.create`'s
+  /// `MAX(sort_order) + 1`, which a reordered catalogue with gaps still
+  /// answers, where its length would not.
+  CalendarCategory _wouldBeSaved() {
+    final initial = widget.initial;
+    if (initial != null) {
+      return initial.copyWith(
+        name: _isBuiltIn ? initial.name : _nameController.text.trim(),
+        colorValue: _colorValue,
+        iconKey: _iconKey,
+      );
+    }
+    return CalendarCategory(
+      id: const Uuid().v4(),
+      name: _nameController.text.trim(),
+      colorValue: _colorValue,
+      iconKey: _iconKey,
+      sortOrder: CalendarCategories.all.fold<int>(
+        0,
+        (next, category) => math.max(next, category.sortOrder + 1),
+      ),
+      isBuiltIn: false,
+    );
   }
 
   /// In the overlay, not the page's `Scaffold`: this sheet is a route above
@@ -634,6 +685,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
             setState(() => _colorValue = value ?? _colorValue),
         spacing: FormMetrics.swatchSpacing,
         collapsible: false,
+        sandbox: widget.sandbox,
       ),
     );
   }

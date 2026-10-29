@@ -69,9 +69,28 @@ import '../widgets/form_rows.dart';
 /// `LockScreenCurtain` hides everything else for as long as the phone stays
 /// locked. A dialog the page raises is a popup route and leaves it on top.
 class AlarmPage extends StatefulWidget {
-  const AlarmPage({super.key, required this.payload, this.controller});
+  const AlarmPage({super.key, required this.payload, this.controller})
+    : _preview = false;
+
+  /// The real page over a demo [payload], for the calendar guide: drawn as a
+  /// ring of the open database draws it, but Stop, Snooze, Keep and Open
+  /// event only close it, nothing is armed, stopped or written, and the page
+  /// never reports itself to [LockScreenState] — a preview that did would
+  /// lift the lock-screen curtain. Back closes it, as any page: the real
+  /// page refuses back so a ring cannot be silenced by accident, and there
+  /// is no ring here to protect.
+  ///
+  /// Push it on its own page route: the buttons close the page by taking
+  /// that route off the navigator, and a sheet or dialog route is not one
+  /// the page can name — it falls back to `maybePop`, which closes whatever
+  /// is on top.
+  const AlarmPage.preview({super.key, required this.payload})
+    : controller = null,
+      _preview = true;
 
   final AlertPayload payload;
+
+  final bool _preview;
 
   /// A controller the page renders instead of building its own.
   ///
@@ -88,7 +107,10 @@ class AlarmPage extends StatefulWidget {
 
 class _AlarmPageState extends State<AlarmPage> with RouteAware {
   late final AlertRingController _controller =
-      widget.controller ?? AlertRingController(payload: widget.payload);
+      widget.controller ??
+      (widget._preview
+          ? _PreviewRingController(widget.payload)
+          : AlertRingController(payload: widget.payload));
 
   PageRoute<dynamic>? _route;
 
@@ -104,15 +126,21 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     if (route is! PageRoute || identical(route, _route)) return;
-    if (_route != null) AppNavigator.routeObserver.unsubscribe(this);
+    final previous = _route;
     _route = route;
+    // The route is still needed by [_close]; only the lock-screen reports
+    // the subscription drives are left out.
+    if (widget._preview) return;
+    if (previous != null) AppNavigator.routeObserver.unsubscribe(this);
     AppNavigator.routeObserver.subscribe(this, route);
   }
 
   @override
   void dispose() {
-    AppNavigator.routeObserver.unsubscribe(this);
-    LockScreenState.instance.alarmSurfaceHidden(this);
+    if (!widget._preview) {
+      AppNavigator.routeObserver.unsubscribe(this);
+      LockScreenState.instance.alarmSurfaceHidden(this);
+    }
     _controller.removeListener(_onControllerChanged);
     if (widget.controller == null) _controller.dispose();
     super.dispose();
@@ -162,6 +190,11 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
     _closed = true;
     final route = _route;
     final navigator = route?.navigator;
+    if (route == null && widget._preview) {
+      // A preview hosted off a page route still owes the guide a way out.
+      Navigator.of(context).maybePop();
+      return;
+    }
     if (route == null || navigator == null) return;
     if (route.isCurrent) {
       if (navigator.canPop()) navigator.pop();
@@ -280,7 +313,7 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return PopScope(
-      canPop: false,
+      canPop: widget._preview,
       child: AlarmGround(
         // The page scopes its own route for a screen reader. A
         // `MaterialPageRoute` does that for the page it builds; the bare
@@ -397,6 +430,8 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
       // There is no event behind a test ring: the row stays, switched off,
       // so a test looks like the real thing.
       onOpen = null;
+    } else if (widget._preview) {
+      onOpen = _close;
     } else {
       onOpen = () => _open(_openEvent);
     }
@@ -560,6 +595,8 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
                       // event is kept.
                       onKeep: busy || !_controller.willRemoveEvent
                           ? null
+                          : widget._preview
+                          ? _close
                           : _controller.keep,
                     ),
                   ],
@@ -610,6 +647,38 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
       ),
     );
   }
+}
+
+/// What [AlarmPage.preview] renders from: the open database is the payload's,
+/// so the page draws the rows a ring of the open database draws, and no call
+/// reaches the scheduler, a database, the session chip or the gateway. Stop
+/// and Snooze return at once, so the page's own handlers close it.
+class _PreviewRingController extends AlertRingController {
+  _PreviewRingController(AlertPayload payload) : super(payload: payload);
+
+  @override
+  String? get activeDatabase => payload.database;
+
+  @override
+  bool get fromOtherDatabase => false;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> snooze() async {}
+
+  @override
+  Future<void> keep() async {}
+
+  @override
+  Future<bool> unlock() async => true;
+
+  @override
+  Future<bool> activateDatabase() async => false;
 }
 
 /// The dock's first row, for an event that Stop removes: what Stop will do,

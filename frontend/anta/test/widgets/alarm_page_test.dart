@@ -16,6 +16,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/services/alert_gateway.dart';
+import 'package:anta/services/alert_keep_notice.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/lock_screen_state.dart';
 import 'package:anta/utils/quick_alarm.dart';
@@ -2155,6 +2156,99 @@ void main() {
       expect(lock.alarmOnTop, isTrue);
       expect(lock.mustCover, isFalse);
       expect(page.isEnabled(AlarmAction.stop), isTrue);
+    });
+  });
+
+  group('the guide\'s preview', () {
+    // The real page over a demo payload: every action only closes it, no
+    // call reaches the platform, the lock state is never told, and back
+    // closes it. Each case is also the guard against a write path added to
+    // the page later and forgotten here.
+    final lock = LockScreenState.instance;
+    late RecordingGateway gateway;
+    final keepNotice = AlertKeepNotice.instance;
+    var keepNotified = 0;
+    void onKeepNotice() => keepNotified++;
+
+    setUp(() {
+      lock.resetForTesting();
+      gateway = RecordingGateway();
+      GetIt.I.registerSingleton<AlertGateway>(gateway);
+      keepNotice.clearForTesting();
+      keepNotified = 0;
+      keepNotice.addListener(onKeepNotice);
+    });
+
+    tearDown(() async {
+      keepNotice.removeListener(onKeepNotice);
+      keepNotice.clearForTesting();
+      lock.resetForTesting();
+      await GetIt.I.unregister<AlertGateway>();
+    });
+
+    testWidgets('draws the ring of the open database, back included', (
+      tester,
+    ) async {
+      final page = AlarmPageRobot(tester);
+      await page.pumpApp(observed: true);
+      await page.ring(payload(removeAfterAlert: true), preview: true);
+
+      expect(page.isUp, isTrue);
+      expect(page.eyebrow, l10n.alarmPageTitle.toUpperCase());
+      expect(page.title, 'Leg day');
+      expect(page.removeAfterCaptionShown, isTrue);
+      for (final action in AlarmAction.values) {
+        expect(page.isEnabled(action), isTrue, reason: action.name);
+      }
+      expect(page.databaseLabel, isNull);
+      expect(page.backPops, isTrue);
+      expect(lock.alarmOnTop, isFalse);
+
+      await page.systemBack();
+
+      expect(page.isUp, isFalse);
+      expect(page.underneathShown, isTrue);
+      expect(gateway.calls, isEmpty);
+      expect(lock.alarmOnTop, isFalse);
+    });
+
+    for (final action in AlarmAction.values) {
+      testWidgets('${action.name} only closes it and nothing is armed', (
+        tester,
+      ) async {
+        final page = AlarmPageRobot(tester);
+        await page.pumpApp(observed: true, appNavigator: true);
+        await page.ring(payload(removeAfterAlert: true), preview: true);
+
+        await page.tap(action);
+
+        expect(page.isUp, isFalse);
+        expect(page.underneathShown, isTrue);
+        expect(page.calendarShown, isFalse);
+        expect(gateway.calls, isEmpty);
+        expect(keepNotice.hasPending, isFalse);
+        expect(keepNotified, 0);
+        expect(lock.alarmOnTop, isFalse);
+      });
+    }
+
+    testWidgets('on a locked phone it never lifts the curtain', (tester) async {
+      final page = AlarmPageRobot(tester);
+      await page.pumpApp(observed: true, curtain: true);
+      lock.setLocked(true);
+      await tester.pump();
+
+      await page.ring(payload(), preview: true, instant: true);
+
+      expect(tester.takeException(), isNull);
+      expect(lock.alarmOnTop, isFalse);
+      expect(lock.mustCover, isTrue);
+
+      await page.systemBack();
+
+      expect(page.isUp, isFalse);
+      expect(lock.mustCover, isTrue);
+      expect(gateway.calls, isEmpty);
     });
   });
 }

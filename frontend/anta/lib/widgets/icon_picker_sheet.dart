@@ -40,12 +40,23 @@ class IconPickerSheet extends StatefulWidget {
   final String? initialKey;
   final Color tint;
 
-  const IconPickerSheet({super.key, required this.tint, this.initialKey});
+  /// The calendar guide's demos pick from the real catalog: a pick there is
+  /// not the owner's, so it is not recorded among the recent icons. The
+  /// Recently used section still reads.
+  final bool sandbox;
+
+  const IconPickerSheet({
+    super.key,
+    required this.tint,
+    this.initialKey,
+    this.sandbox = false,
+  });
 
   static Future<String?> show(
     BuildContext context, {
     required Color tint,
     String? initialKey,
+    bool sandbox = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<String>(
@@ -64,7 +75,11 @@ class IconPickerSheet extends StatefulWidget {
       // on every keystroke (D10).
       builder: (_) => FractionallySizedBox(
         heightFactor: FormMetrics.sheetHeightFactor,
-        child: IconPickerSheet(initialKey: initialKey, tint: tint),
+        child: IconPickerSheet(
+          initialKey: initialKey,
+          tint: tint,
+          sandbox: sandbox,
+        ),
       ),
     );
   }
@@ -131,7 +146,7 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
   /// The write is deliberately not awaited: the sheet is closing, and a
   /// failed write costs the ordering of a convenience list, never the pick.
   void _pick(String key) {
-    _recordRecent(key);
+    if (!widget.sandbox) _recordRecent(key);
     Navigator.of(context).pop(key);
   }
 

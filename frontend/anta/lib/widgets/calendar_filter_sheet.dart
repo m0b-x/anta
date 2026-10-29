@@ -49,13 +49,24 @@ import 'overlay_snackbar.dart';
 class CalendarFilterSheet extends StatefulWidget {
   final CalendarGridFilters initialFilters;
 
-  const CalendarFilterSheet({super.key, required this.initialFilters});
+  /// The calendar guide's demos filter throwaway events: the saved filters
+  /// are the owner's list, so the Saved filter row and its bookmark are left
+  /// out, and the category picker opens without its Create row. Apply still
+  /// returns the draft.
+  final bool sandbox;
+
+  const CalendarFilterSheet({
+    super.key,
+    required this.initialFilters,
+    this.sandbox = false,
+  });
 
   /// The sub-sheet shape: as tall as its content, clamped at the editor's
   /// height, the route's own drag.
   static Future<CalendarGridFilters?> show(
     BuildContext context, {
     required CalendarGridFilters filters,
+    bool sandbox = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<CalendarGridFilters>(
@@ -74,7 +85,7 @@ class CalendarFilterSheet extends StatefulWidget {
           maxHeight:
               MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
-        child: CalendarFilterSheet(initialFilters: filters),
+        child: CalendarFilterSheet(initialFilters: filters, sandbox: sandbox),
       ),
     );
   }
@@ -130,7 +141,8 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     super.initState();
     _draft = widget.initialFilters;
     _bodyScroll.addListener(_onBodyScroll);
-    _loadPresets();
+    // Nothing in a sandbox reads the presets, so the service is never opened.
+    if (!widget.sandbox) _loadPresets();
   }
 
   @override
@@ -290,6 +302,7 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
         for (final c in CalendarCategories.visiblePlus(_hidden))
           if (!_hidden.contains(c.id)) c.id,
       },
+      sandbox: widget.sandbox,
     );
     if (picked == null || !mounted) return;
     // Read again after the picker returns, never from the build that opened
@@ -509,33 +522,34 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  FormRowGroup(
-                    children: [
-                      // The row names the lens the draft matches and opens
-                      // the list; its bookmark saves the draft. Nothing to
-                      // save while nothing is filtered, and nothing to save
-                      // *again* once this exact set already has a name.
-                      FormPickerRow(
-                        glyph: Icons.bookmark_border_rounded,
-                        label: l10n.calendarFilterSavedFilter,
-                        value: savedName ?? l10n.calendarFilterSavedNone,
-                        identifier: SemanticsIds.filterSavedFilter,
-                        onTap: _openPresets,
-                        trailingButton: FormTrailingButton(
-                          icon: savedName == null
-                              ? Icons.bookmark_add_outlined
-                              : Icons.bookmark_added_rounded,
-                          tooltip: savedName == null
-                              ? l10n.filterPresetSave
-                              : l10n.filterPresetSaved(savedName),
-                          identifier: SemanticsIds.filterSave,
-                          onPressed: _draft.isEmpty || savedName != null
-                              ? null
-                              : _saveAsPreset,
+                  if (!widget.sandbox)
+                    FormRowGroup(
+                      children: [
+                        // The row names the lens the draft matches and opens
+                        // the list; its bookmark saves the draft. Nothing to
+                        // save while nothing is filtered, and nothing to save
+                        // *again* once this exact set already has a name.
+                        FormPickerRow(
+                          glyph: Icons.bookmark_border_rounded,
+                          label: l10n.calendarFilterSavedFilter,
+                          value: savedName ?? l10n.calendarFilterSavedNone,
+                          identifier: SemanticsIds.filterSavedFilter,
+                          onTap: _openPresets,
+                          trailingButton: FormTrailingButton(
+                            icon: savedName == null
+                                ? Icons.bookmark_add_outlined
+                                : Icons.bookmark_added_rounded,
+                            tooltip: savedName == null
+                                ? l10n.filterPresetSave
+                                : l10n.filterPresetSaved(savedName),
+                            identifier: SemanticsIds.filterSave,
+                            onPressed: _draft.isEmpty || savedName != null
+                                ? null
+                                : _saveAsPreset,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
                   FormSectionLabel(text: l10n.calendarFilterSectionEvents),
                   FormRowGroup(
                     children: [

@@ -90,6 +90,7 @@ void main() {
   Future<_Outcome> openSheet(
     WidgetTester tester, {
     EventLookDraft draft = const EventLookDraft(),
+    bool sandbox = false,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -108,6 +109,7 @@ void main() {
                   context,
                   draft: draft,
                   category: gym(),
+                  sandbox: sandbox,
                 );
                 outcome.returned = true;
               },
@@ -136,7 +138,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> done(WidgetTester tester) => tapAndSettle(tester, find.text('Done'));
+  Future<void> done(WidgetTester tester) =>
+      tapAndSettle(tester, find.text('Done'));
 
   Switch tintSwitch(WidgetTester tester) =>
       tester.widget<Switch>(find.byType(Switch));
@@ -304,6 +307,40 @@ void main() {
     await done(tester);
 
     expect(outcome.result, const EventLookDraft(iconKey: 'cake'));
+  });
+
+  // The calendar guide's demos: the strip is read-only, so no path from here
+  // reaches the palette, while the swatches, the icon picker and the tint
+  // switch draft as ever and Done returns the draft.
+  testWidgets('sandbox: no palette editing, and Done still returns the draft', (
+    tester,
+  ) async {
+    final swatch = otherSwatch();
+    final settings = await SettingsService.getInstance();
+    await settings.recordRecentIconKey('directions_run');
+    final outcome = await openSheet(tester, sandbox: true);
+    final palette = await CalendarPaletteService.getInstance();
+    final customBefore = [...palette.customColors];
+
+    expect(swatches(tester).hasAdd, isFalse);
+    expect(swatches(tester).hasManage, isFalse);
+    expect(find.bySemanticsIdentifier(SemanticsIds.swatchAdd), findsNothing);
+    expect(find.bySemanticsIdentifier(SemanticsIds.swatchManage), findsNothing);
+
+    await swatches(tester).tap(swatch);
+    await tapAndSettle(tester, find.byType(Switch));
+    await tapAndSettle(tester, find.text('Icon'));
+    await tester.enterText(find.byType(TextField), 'cake');
+    await tester.pumpAndSettle();
+    await tapAndSettle(tester, find.byIcon(CalendarIcons.forKey('cake')!));
+    await done(tester);
+
+    expect(
+      outcome.result,
+      EventLookDraft(iconKey: 'cake', colorValue: swatch, tintIcon: false),
+    );
+    expect(palette.customColors, customBefore);
+    expect(await settings.getRecentIconKeys(), ['directions_run']);
   });
 
   testWidgets('the whole palette is shown, never a show-more dot', (

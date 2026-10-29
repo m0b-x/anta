@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
+
+import '../database/support/db_test_support.dart';
 
 /// The picker's whole point at 300 icons is that typing narrows it, so the
 /// properties worth pinning are the ones a flat `Wrap` never had: an active
@@ -24,6 +28,7 @@ void main() {
     Locale locale = const Locale('en'),
     Size? size,
     double textScale = 1.0,
+    bool sandbox = false,
   }) async {
     if (size != null) {
       addTearDown(tester.view.reset);
@@ -49,6 +54,7 @@ void main() {
                 result.value = await IconPickerSheet.show(
                   context,
                   tint: Colors.blue,
+                  sandbox: sandbox,
                 );
                 result.returned = true;
               },
@@ -209,6 +215,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result.value, 'directions_run');
+  });
+
+  group('the recent record', () {
+    late AppDatabase db;
+    late SettingsService settings;
+
+    setUp(() async {
+      SettingsService.reset();
+      db = await openTestDatabase();
+      settings = SettingsService.forTesting(db);
+      await settings.recordRecentIconKey('cake');
+    });
+
+    tearDown(() async {
+      SettingsService.reset();
+      await db.close();
+    });
+
+    Future<String?> pickRun(WidgetTester tester, {bool sandbox = false}) async {
+      final result = await openSheet(tester, sandbox: sandbox);
+      await type(tester, 'run');
+      await tester.tap(find.byIcon(Icons.directions_run_rounded));
+      await tester.pumpAndSettle();
+      return result.value;
+    }
+
+    testWidgets('a pick is recorded first among the recent icons', (
+      tester,
+    ) async {
+      expect(await pickRun(tester), 'directions_run');
+      expect(await settings.getRecentIconKeys(), ['directions_run', 'cake']);
+    });
+
+    // The calendar guide's demos: a practice pick is not the owner's, so
+    // the record stays as it was — the guard against a write added later.
+    testWidgets('sandbox: a pick returns its key and records nothing', (
+      tester,
+    ) async {
+      expect(await pickRun(tester, sandbox: true), 'directions_run');
+      expect(await settings.getRecentIconKeys(), ['cake']);
+    });
   });
 
   testWidgets('the search row carries its id on the one text field', (

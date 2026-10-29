@@ -207,6 +207,14 @@ class EventEditorSheet extends StatefulWidget {
   /// fine to hang a second icon on.
   final bool showBack;
 
+  /// The calendar guide's demos open the real form over a throwaway event.
+  /// Save and Delete still only return their result, so what is left out is
+  /// what writes on its own: Save as template, the Linked note row (a demo
+  /// event must not point at a real note), Create category in the picker,
+  /// palette editing in Icon & color and the recent-icon record its icon
+  /// picker keeps.
+  final bool sandbox;
+
   const EventEditorSheet({
     super.key,
     required this.defaultDate,
@@ -216,6 +224,7 @@ class EventEditorSheet extends StatefulWidget {
     this.dayLoad,
     this.appearance = const CalendarAppearance(),
     this.showBack = false,
+    this.sandbox = false,
   });
 
   static Future<EventEditorResult?> show(
@@ -227,6 +236,7 @@ class EventEditorSheet extends StatefulWidget {
     PickerDayLoad? dayLoad,
     CalendarAppearance appearance = const CalendarAppearance(),
     bool showBack = false,
+    bool sandbox = false,
   }) {
     return showModalBottomSheet<EventEditorResult>(
       context: context,
@@ -245,6 +255,7 @@ class EventEditorSheet extends StatefulWidget {
           dayLoad: dayLoad,
           appearance: appearance,
           showBack: showBack,
+          sandbox: sandbox,
         ),
       ),
     );
@@ -752,7 +763,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _isAllDay = initialTime == null;
     _startMinute = initialTime?.startMinute ?? _defaultStartMinute;
     _durationMinutes = initialTime?.durationMinutes;
-    _noteId = initial?.noteId;
+    // A demo event points at no note, so the sandbox never reads one either.
+    _noteId = widget.sandbox ? null : initial?.noteId;
     _colorValue = initial?.colorValue;
     _tintIcon = initial?.tintIcon ?? true;
     _priority = initial?.priority ?? kDefaultEventPriority;
@@ -1581,6 +1593,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final picked = await CategoryPickerSheet.pickSingle(
       context,
       selectedId: _categoryId,
+      sandbox: widget.sandbox,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -2042,6 +2055,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         tintIcon: _tintIcon,
       ),
       category: CalendarCategories.resolve(_categoryId),
+      sandbox: widget.sandbox,
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -3007,6 +3021,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     FormRowGroup(children: _buildAlertRows(l10n)),
                     FormSectionLabel(text: l10n.eventSectionDetails),
                     FormRowGroup(
+                      // The last group when the sandbox drops the actions
+                      // below, and a last group ends without a gap.
+                      trailingGap: !widget.sandbox || _isEditing,
                       children: [
                         FormMenuRow<int>(
                           glyph: Icons.flag_outlined,
@@ -3029,33 +3046,37 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           ],
                           onSelected: (p) => setState(() => _priority = p),
                         ),
-                        _buildLinkedNoteRow(l10n, theme),
+                        if (!widget.sandbox) _buildLinkedNoteRow(l10n, theme),
                       ],
                     ),
-                    FormRowGroup(
-                      trailingGap: false,
-                      children: [
-                        ListenableBuilder(
-                          listenable: _titleController,
-                          builder: (context, _) => FormActionRow(
-                            glyph: Icons.bookmark_add_outlined,
-                            identifier: SemanticsIds.eventSaveAsTemplate,
-                            label: l10n.saveAsTemplate,
-                            onTap: _titleController.text.trim().isEmpty
-                                ? null
-                                : _onSaveAsTemplate,
-                          ),
-                        ),
-                        if (_isEditing)
-                          FormActionRow(
-                            glyph: Icons.delete_outline_rounded,
-                            identifier: SemanticsIds.eventDelete,
-                            label: l10n.deleteEvent,
-                            destructive: true,
-                            onTap: _onDelete,
-                          ),
-                      ],
-                    ),
+                    // A sandboxed new event has no action left to offer, and
+                    // an empty group would still draw its gap.
+                    if (!widget.sandbox || _isEditing)
+                      FormRowGroup(
+                        trailingGap: false,
+                        children: [
+                          if (!widget.sandbox)
+                            ListenableBuilder(
+                              listenable: _titleController,
+                              builder: (context, _) => FormActionRow(
+                                glyph: Icons.bookmark_add_outlined,
+                                identifier: SemanticsIds.eventSaveAsTemplate,
+                                label: l10n.saveAsTemplate,
+                                onTap: _titleController.text.trim().isEmpty
+                                    ? null
+                                    : _onSaveAsTemplate,
+                              ),
+                            ),
+                          if (_isEditing)
+                            FormActionRow(
+                              glyph: Icons.delete_outline_rounded,
+                              identifier: SemanticsIds.eventDelete,
+                              label: l10n.deleteEvent,
+                              destructive: true,
+                              onTap: _onDelete,
+                            ),
+                        ],
+                      ),
                   ],
                 ),
               ),

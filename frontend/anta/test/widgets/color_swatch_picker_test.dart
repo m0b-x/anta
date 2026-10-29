@@ -56,6 +56,7 @@ void main() {
     WidgetTester tester, {
     int? value,
     ColorSwatchDefault? defaultOption,
+    bool sandbox = false,
   }) async {
     int? emitted;
     var reported = false;
@@ -68,6 +69,7 @@ void main() {
             builder: (context, setState) => ColorSwatchPicker(
               value: value,
               defaultOption: defaultOption,
+              sandbox: sandbox,
               onChanged: (next) {
                 emitted = next;
                 reported = true;
@@ -143,6 +145,33 @@ void main() {
 
     expect(swatches.offersMenu(custom), isTrue);
     expect(swatches.offersMenu(builtIn), isFalse);
+  });
+
+  // The calendar guide's demos: the palette is the owner's, so a sandboxed
+  // strip shows it read-only — no add dot (whose picker would also save its
+  // mode), no manage dot, no long-press menu — and picking still works.
+  testWidgets('sandbox: the palette is read-only and picking still works', (
+    tester,
+  ) async {
+    final service = await CalendarPaletteService.getInstance();
+    await service.add(custom);
+    final swatches = SwatchRobot(tester);
+    await pumpPicker(tester, sandbox: true);
+
+    expect(swatches.hasAdd, isFalse);
+    expect(swatches.hasManage, isFalse);
+    expect(swatches.offersMenu(custom), isFalse);
+    await swatches.longPress(custom);
+    expect(swatches.menuOpen, isFalse);
+    expect(swatches.pickerOpen, isFalse);
+    expect(swatches.paletteSheetOpen, isFalse);
+
+    await swatches.tap(custom);
+    expect(swatches.isSelected(custom), isTrue);
+    await swatches.tap(builtIn);
+    expect(swatches.isSelected(builtIn), isTrue);
+
+    expect(service.customColors, [custom]);
   });
 
   testWidgets('a colour added elsewhere repaints a picker already on screen', (

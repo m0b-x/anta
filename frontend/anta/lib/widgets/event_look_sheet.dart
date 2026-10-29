@@ -46,16 +46,23 @@ class EventLookSheet extends StatefulWidget {
   final EventLookDraft draft;
   final CalendarCategory category;
 
+  /// Opens the swatch strip read-only and the icon picker without its recent
+  /// record, for the calendar guide's demos: a practice event touches
+  /// neither the owner's palette nor her recently used icons.
+  final bool sandbox;
+
   const EventLookSheet({
     super.key,
     required this.draft,
     required this.category,
+    this.sandbox = false,
   });
 
   static Future<EventLookDraft?> show(
     BuildContext context, {
     required EventLookDraft draft,
     required CalendarCategory category,
+    bool sandbox = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<EventLookDraft>(
@@ -74,7 +81,11 @@ class EventLookSheet extends StatefulWidget {
           maxHeight:
               MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
-        child: EventLookSheet(draft: draft, category: category),
+        child: EventLookSheet(
+          draft: draft,
+          category: category,
+          sandbox: sandbox,
+        ),
       ),
     );
   }
@@ -103,6 +114,7 @@ class _EventLookSheetState extends State<EventLookSheet> {
       context,
       tint: _accent,
       initialKey: _draft.iconKey,
+      sandbox: widget.sandbox,
     );
     if (picked == null || !mounted) return;
     setState(() => _draft = _draft.copyWith(iconKey: picked));
@@ -183,6 +195,7 @@ class _EventLookSheetState extends State<EventLookSheet> {
                     onChanged: _setColor,
                     spacing: FormMetrics.swatchSpacing,
                     collapsible: false,
+                    sandbox: widget.sandbox,
                     defaultOption: ColorSwatchDefault(
                       color: category.color,
                       icon:

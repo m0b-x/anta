@@ -335,7 +335,8 @@ void main() {
     expect(
       outcome.result,
       isNull,
-      reason: 'the caller would refresh against a category that does not '
+      reason:
+          'the caller would refresh against a category that does not '
           'exist, and the picker would tick a dead id into its selection',
     );
   });
@@ -971,6 +972,68 @@ void main() {
 
         expect(robot.isOpen, isFalse);
         expect(observer.events.whereType<CategoryAlertsChanged>(), isEmpty);
+      });
+
+      // The calendar guide's demos: Save validates and hands back what it
+      // would have written, and nothing reaches the service, the alert
+      // table or the calendar — the guard against a write path added later.
+      testWidgets('sandbox: Save returns the would-be category and writes '
+          'nothing', (tester) async {
+        final before = [...service.categories];
+        final settings = await SettingsService.getInstance();
+        await settings.recordRecentIconKey('directions_run');
+        final robot = CategoryEditorRobot(tester);
+        final sheet = AlertSheetRobot(tester);
+        final outcome = await robot.show(bloc: bloc, sandbox: true);
+
+        expect(robot.swatches.hasAdd, isFalse);
+        expect(robot.swatches.hasManage, isFalse);
+        expect(robot.canSave, isFalse);
+        await robot.typeName('  Practice  ');
+        await robot.pickSwatch(green);
+        await robot.chooseIcon('cake');
+        // The picker swallows a failed recent-icon write, so the icon pick is
+        // proven by the recent list below and the interceptor arms after it.
+        expect(await settings.getRecentIconKeys(), ['directions_run']);
+        writes.fail = true;
+        await robot.addAlert();
+        await sheet.save();
+        await robot.toggleAlert(0);
+        expect(robot.alertSwitches, [false]);
+        await robot.save();
+
+        expect(outcome.returned, isTrue);
+        expect(robot.isOpen, isFalse);
+        final draft = outcome.result!;
+        expect(draft.name, 'Practice');
+        expect(draft.colorValue, green);
+        expect(draft.iconKey, 'cake');
+        expect(draft.isBuiltIn, isFalse);
+        expect(draft.id, isNot(isEmpty));
+        expect(service.categories, before);
+        expect(CalendarCategories.byId(draft.id), isNull);
+        expect(EventAlerts.categoryAlertsFor(draft.id), isEmpty);
+        expect(observer.events, isEmpty);
+      });
+
+      testWidgets('sandbox: an edit returns the changed category and leaves '
+          'the stored one alone', (tester) async {
+        final stored = birthdays();
+        final robot = CategoryEditorRobot(tester);
+        final outcome = await robot.show(
+          initial: stored,
+          bloc: bloc,
+          sandbox: true,
+        );
+
+        await robot.pickSwatch(green);
+        await robot.save();
+
+        expect(outcome.result?.id, kBirthdayCategoryId);
+        expect(outcome.result?.colorValue, green);
+        expect(outcome.result?.name, stored.name);
+        expect(CalendarCategories.byId(kBirthdayCategoryId), stored);
+        expect(observer.events, isEmpty);
       });
 
       testWidgets('a failed alert write says nothing', (tester) async {

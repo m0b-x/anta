@@ -86,6 +86,12 @@ class ColorSwatchPicker extends StatefulWidget {
 
   final bool collapsible;
 
+  /// The palette read-only, for the calendar guide's demos: every path that
+  /// writes it — the add dot (whose picker would also save its mode), the
+  /// manage dot and a custom swatch's long-press menu — is left out, so
+  /// picking an existing swatch is all that remains.
+  final bool sandbox;
+
   const ColorSwatchPicker({
     super.key,
     required this.value,
@@ -93,6 +99,7 @@ class ColorSwatchPicker extends StatefulWidget {
     this.defaultOption,
     this.spacing = _SwatchMetrics.looseSpacing,
     this.collapsible = true,
+    this.sandbox = false,
   });
 
   @override
@@ -345,20 +352,22 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
             ),
         ];
         final trailing = <Widget>[
-          ColorSwatchDot(
-            icon: Icons.colorize_rounded,
-            tooltip: l10n.addColor,
-            selected: false,
-            identifier: SemanticsIds.swatchAdd,
-            onTap: _addFromPicker,
-          ),
-          ColorSwatchDot(
-            icon: Icons.palette_outlined,
-            tooltip: l10n.manageColors,
-            selected: false,
-            identifier: SemanticsIds.swatchManage,
-            onTap: _openPaletteSheet,
-          ),
+          if (!widget.sandbox) ...[
+            ColorSwatchDot(
+              icon: Icons.colorize_rounded,
+              tooltip: l10n.addColor,
+              selected: false,
+              identifier: SemanticsIds.swatchAdd,
+              onTap: _addFromPicker,
+            ),
+            ColorSwatchDot(
+              icon: Icons.palette_outlined,
+              tooltip: l10n.manageColors,
+              selected: false,
+              identifier: SemanticsIds.swatchManage,
+              onTap: _openPaletteSheet,
+            ),
+          ],
         ];
 
         return LayoutBuilder(
@@ -385,7 +394,7 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
               children: [
                 ...leading,
                 for (final swatch in shown)
-                  if (CalendarPalette.isDefault(swatch))
+                  if (CalendarPalette.isDefault(swatch) || widget.sandbox)
                     ColorSwatchDot(
                       color: Color(swatch),
                       semanticLabel: CalendarPalette.hexOf(swatch),

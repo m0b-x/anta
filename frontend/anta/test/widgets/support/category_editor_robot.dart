@@ -135,6 +135,7 @@ class CategoryEditorRobot {
     double? textScale,
     Size? surface,
     CalendarBloc? bloc,
+    bool sandbox = false,
   }) async {
     if (surface != null) {
       addTearDown(tester.view.reset);
@@ -165,6 +166,7 @@ class CategoryEditorRobot {
                     context,
                     initial: initial,
                     initialName: initialName,
+                    sandbox: sandbox,
                   );
                   outcome.returned = true;
                 },

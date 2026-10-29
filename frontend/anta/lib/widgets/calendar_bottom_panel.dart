@@ -359,7 +359,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       color: Theme.of(context).colorScheme.pageGround,
       child: Column(
         children: [
-          _PanelModeBar(
+          PanelModeBar(
             mode: _mode,
             onChanged: _setMode,
             onTouched: () => _modePicked = true,
@@ -503,7 +503,10 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
 /// "Demnächst"), each segment shows only its icon and keeps the mode's name
 /// as its tooltip and semantics label. Never a scrolling row: a scrolled bar
 /// hid a mode off screen and slid under the finger on every switch.
-class _PanelModeBar extends StatelessWidget {
+///
+/// Public so the calendar guide can show the real switch over its demo
+/// panel; the state it drives stays with whoever hosts it.
+class PanelModeBar extends StatelessWidget {
   final CalendarPanelMode mode;
   final ValueChanged<CalendarPanelMode> onChanged;
 
@@ -514,7 +517,8 @@ class _PanelModeBar extends StatelessWidget {
   final bool expanded;
   final VoidCallback onToggleExpanded;
 
-  const _PanelModeBar({
+  const PanelModeBar({
+    super.key,
     required this.mode,
     required this.onChanged,
     required this.onTouched,

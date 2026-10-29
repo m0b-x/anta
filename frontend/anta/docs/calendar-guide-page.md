@@ -1,6 +1,7 @@
 # The calendar guide page, and the newcomer review (2026-10-29)
 
-**Status: BUILT 2026-10-29, uncommitted at the time of writing (Fable 5.1
+**Status: the page and the horizon COMMITTED `00669602` (2026-10-29); the
+hands-on rework of §7 IN PROGRESS — its status line is §7.1's (Fable 5.1
 lead; five Opus `general-purpose` researchers, one `implementer` with one
 fix pass, one `reviewer`, one `design-reviewer`, one `qa-runner`). The gate
 is green: `dart analyze lib test` clean, `flutter gen-l10n` with
@@ -26,7 +27,12 @@ retired with the fix.
 - §2 The guide page — decisions D1–D12, the must-not-change list
 - §3 The newcomer review — the ledger, by area (A–E)
 - §4 Proposals for the owner, ranked
-- §5 Questions for the owner
+- §5 Questions for the owner · §5b the owner's answers (2026-10-29)
+- §7 The hands-on rework: §7.0 the horizon fix · §7.1 decisions D13–D20
+  and the structure (the status line lives there) · §7.2 slice specs ·
+  §7.3 how to run this (the next session's prompt) · §7.4 the proposal
+  the letters answered
+- §8 The strings: the rework's content spec, en / de / ro
 - §6 Deferred
 
 ## 0. How to run this
@@ -619,7 +625,241 @@ changed. Gate: analyze clean, suite +10800 ~10 −1 (the Windows-only case),
 accordingly in the next content change ("about ten of each; open the app
 every week or so").
 
-### 7.1 The rework — status: PLAN (awaiting the owner's letters on D13–D18)
+### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0; gate green, suite +10818 ~10 −1), uncommitted — the `designer` next, then slice 1
+
+**The owner's letters (2026-10-29, in three replies):** "did we take
+performance into account? can we make multiple pages?" → D13 was
+re-proposed as a hub with pages; "should we have like also per-widget
+pages? Like one only for creating/editing/deleting events, one for
+creating/editing/deleting categories" → task pages; "and also one for
+explaining how recurrent and one time events work (also the quirks of one
+time events). Please add these and make it as easy and hands on as
+possible" → the recommended letters stand for D13–D19 (D13 A as task
+pages, D14 A, D15 A, D16 A, D17 A, D18 A, D19 A) and **D20** adds the page
+"One-time and repeating events". The structure as decided:
+
+```
+⋮ → How the calendar works                 (the hub: intro, search across every page)
+   › Practice calendar                     a calendar that saves nothing
+   › The calendar screen                   the month, the bars, the panel, the menus
+   HOW DO I…
+   › Add, change or delete an event        the editor; nothing is saved until Save; delete; templates
+   › One-time and repeating events         the two kinds, converting, the quirks of each
+   › Get reminded                          alerts; reminder or alarm; permissions (Samsung); the ring; the quick alarm
+   › Keep track of attendance              present / missed; assume absent; counting; the day rail; a note per day
+   › Use categories                        what they are; create, change, hide, delete
+   › Find an event                         search; filters hide, never delete; the overview
+   › Set up the calendar                   holidays; week start; language, dark mode, text size
+   › Good to know                          opening the calendar; going back; the rest of ANTA
+```
+
+Each task page: one line on what it is, the steps as rows, one "Try it"
+sandbox built from the real widget for that task. The practice calendar is
+its own full-height page (the real proportions, a banner "nothing here is
+saved"); topic and practice pages are plain pushes (a relaunch lands on the
+hub). Performance rules: each page builds only its own demos; demo state
+lives in the page's `State` (it survives scrolling); every demo stage sits
+under a `RepaintBoundary`; the practice grid keeps a per-day map of its six
+events; nothing animates; the reviewer checks for per-frame work. The
+content spec of the pages and demos is `guide-content-3.md` (the session's
+scratchpad; the ARBs are its durable form).
+
+**Slices as decided:** 0 — the sandbox seams (`sandbox` on
+`EventEditorSheet.show`, `CategoryPickerSheet`, `EventLookSheet` /
+`ColorSwatchPicker`, `CalendarFilterSheet.show`, `CategoryEditorSheet`;
+`PanelModeBar` public; `AlarmPage.preview`), each with a no-write test;
+1 — the hub, the ten pages with their rows (the 37 already written plus the
+new page's), the hub search; 2 — the practice calendar page; 3 — the
+"Try it" sandboxes page by page and the alarm preview row; 4 — the flows,
+the `design-reviewer`, the docs, the status line. The `designer` draws the
+"Try it" card and the hub row once, after slice 0 and before slice 1.
+
+### 7.2 Slice specs
+
+Each slice: one `implementer` (Opus 5.5, high), then one `reviewer`
+(slices 0 and 1 may share one review), the gate (`dart analyze lib test`,
+the whole `flutter test`, `gen-l10n` with `untranslated.txt` empty, the
+must-not-change list re-read against the diff), a check-in with the
+uncommitted count, no commit. `flutter test` runs one at a time: the
+`designer`'s and `design-reviewer`'s renders are `flutter test` runs too,
+so they never overlap an implementer or a `qa` build.
+
+- **Slice 0 — the sandbox seams** (started 2026-10-29 in the planning
+  session; if `grep -n "sandbox" lib/widgets/event_editor_sheet.dart` finds
+  nothing, it did not land and runs first). `EventEditorSheet.show(…,
+  sandbox: false)`: no Save as template, no Linked note, the category
+  picker and the Icon & color sheet opened with `sandbox: true`.
+  `CategoryPickerSheet`: no Create row. `EventLookSheet` /
+  `ColorSwatchPicker`: the palette read-only (no +, no manage, no long-press
+  menu; a custom colour either not offered or its picker mode not
+  persisted). `CalendarFilterSheet.show`: no Saved filter row, no
+  bookmark; the draft still returned. `CategoryEditorSheet`: Save validates
+  but writes nothing and returns the would-be category. `_PanelModeBar` →
+  public `PanelModeBar`. `AlarmPage.preview(payload)` (or a public preview
+  controller): Stop / Snooze / Keep / Open event only close it, back
+  closes it, nothing armed, no lock-screen state. `IconPickerSheet`: a
+  `sandbox` flag that skips `recordRecentIconKey` (it writes on every
+  pick; reachable from the sandboxed editor and category editor), threaded
+  from `EventLookSheet` and `CategoryEditorSheet`; the editor's docked
+  markdown bar checked for settings writes (the pin toggle). One test per
+  seam that drives every affordance under `sandbox: true` and asserts the
+  writing rows are absent and the fakes saw no write; every default-path
+  suite unchanged. As built (2026-10-29): `EventEditorSheet.show(…,
+  sandbox:)` at `event_editor_sheet.dart:238` (a sandboxed new event drops
+  the whole Actions group; an existing one keeps Delete), `CategoryPickerSheet
+  .pickSingle/pickMulti(sandbox:)`, `EventLookSheet.show(sandbox:)` →
+  `ColorSwatchPicker(sandbox:)` (no add, no manage, no long-press menu, no
+  custom colour), `CalendarFilterSheet.show(sandbox:)` (no Saved filter row,
+  `_loadPresets` skipped, its picker sandboxed), `CategoryEditorSheet.show
+  (sandbox:)` (Save pops `_wouldBeSaved()`, a fresh uuid, the alert drafts
+  stay in the sheet), public `PanelModeBar` (`calendar_bottom_panel.dart:
+  509`), `AlarmPage.preview({payload})` over a private
+  `_PreviewRingController` (`alarm_page.dart:82`, `PopScope(canPop: true)`,
+  no `RouteAware`, no gateway call).
+  **Reviewed 2026-10-29** (one `reviewer`, 16 items, none on persisted
+  data; nine closed by one `implementer`, gate green): `AlarmPage.preview`
+  must be **pushed on its own page route** — `_close` pops `_route`, and a
+  preview hosted off a page route now falls back to `Navigator.maybePop`
+  (`alarm_page.dart:83`, :195); the icon picker's `sandbox` threading from
+  the Look sheet and the category editor is proven (a seeded recent key
+  other than the picked one stays alone after the pick, so dropping the
+  argument fails the test); the editor's sandbox test drives Icon & color
+  and asserts the recent icons and `CalendarPaletteService.customColors`
+  unchanged; the category editor's test arms its write interceptor after
+  the icon pick (the picker swallows a failed recent write); the preview
+  tests assert `AlertKeepNotice.hasPending` false after every action; the
+  sandboxed new-event editor's Details group drops its trailing gap (it is
+  the last group there); `_wouldBeSaved()` takes `max(sortOrder) + 1` as
+  `CategoryService.create` does; a sandboxed editor seeds `_noteId = null`
+  (a demo event never points at a real note — an existing event's Save
+  returns `noteId: null` in the sandbox; the guide never reads it). Left as
+  found, by decision: the `uuid` import in the category editor; the
+  sandboxed alert sound sheet's "from phone" still opens the system
+  ringtone picker (nothing stored); the preview reuses the alarm ids, so a
+  flow never waits on `alarm-*` while a preview is open;
+  `icon_picker_sheet_test.dart` is LF in the working copy (autocrlf
+  normalises the commit).
+- **Slice 1 — the hub and the pages.** `CalendarGuidePage` becomes the hub
+  (intro, the search field, the Practice calendar row, The calendar screen,
+  the "How do I…" label, the task pages, Good to know — each row a
+  settings-kit row with title + caption + chevron, tap → push). New
+  `CalendarGuideTopicPage(topic)` (one widget, a `CalendarGuideTopic` enum
+  with the page's title, lead, rows and, later, its demo builder): a
+  settings-kit page without search, the lead as the list's `header`, the
+  rows as today's `_GuideRow`s. Plain pushes for topic pages (no
+  `NavDestinationKind`; a relaunch lands on the hub). The hub search
+  (D19 A): a query filters every page's rows (title, description) and shows
+  the matches inline, each row captioned with its page's name, the page
+  list hidden while a query is live; `SettingsSectionList` can render that
+  as one section per matching page. Strings: §8's tables 1–3 (the hub, the
+  leads, the new rows) and `guide-content-2.md`'s rows (§8 too) into the
+  three ARBs; the retired `calendarGuideCategories*` pair removed; the
+  rows redistributed per §8 table 4. Tests: the hub lists its pages and
+  pushes each; a topic page renders its lead and rows; the search finds a
+  row on another page and names the page; `de` / `ro` at 2.0 on both phone
+  sizes for the hub and the longest page; the placeholder-coverage test
+  extended to every `calendarGuide*` key; the live-label test kept.
+  `26_guide.txt` walks the hub → a page → back (the practice calendar
+  joins in slice 4).
+- **Slice 2 — the practice calendar page.** `CalendarGuidePracticePage`:
+  `SettingsAppBar`-sized bar with the real `CalendarViewMenu` (the format
+  choice changes the demo grid; Overview → the caption), the funnel (→
+  `CalendarFilterSheet.show(sandbox: true)`, the draft applied to the demo
+  grid, the badge counting its axes) and the real `CalendarOverflowMenu`
+  (every row → a caption; the guide row → `calendarGuideYouAreHere`); the
+  banner under the bar (`calendarGuidePracticeBanner`, `rowGroup` on
+  `pageGround`, one line, never moves); a demo month grid — `TableCalendar`
+  with `CalendarDayCell` + `CalendarDayBars` through `DayBarsResolver`
+  (`CalendarAppearancePreview` is the precedent; `_CalendarTable` in
+  `calendar_page.dart:1679` the model to mirror, horizontal swipe only,
+  the real appearance and palette read once) over a `_GuideDemoCalendar`
+  state object (the six events of §8 table 6, a per-day map, the picked
+  day, the format, the filter draft, the caption); `PanelModeBar` and a
+  panel that is `DaySummaryPanel` (Day), `DayTimelineView` (Timeline) and
+  demo rows through `AgendaDayListRowBuilder` (Upcoming), each fed the
+  demo day's events; `CalendarAddFab` → `EventEditorSheet.show(sandbox:
+  true)` → the result joins the demo list (`calendarGuideDemoAdded`);
+  long press → `EventTemplatePickerSheet` (reads her templates) → a demo
+  event (`calendarGuideDemoTemplate`); a row tap → `EventDetailSheet` with
+  demo callbacks (Edit → the sandbox editor → `calendarGuideDemoChanged`;
+  Skip → `calendarGuideDemoSkipped`; the editor's Delete →
+  `calendarGuideDemoDeleted`); the live caption under the bar (a live
+  region) and `calendarGuideDemoReset`. Tests: pick a day, add through the
+  editor, open, skip, delete, filter, format, each asserting the demo state
+  and that no service saw a write (fakes); the page at `de` 2.0 on both
+  sizes.
+- **Slice 3 — the "Try it" cards on the task pages**, built to the
+  designer's spec, one per page: screen (the two menus in a demo bar +
+  `PanelModeBar` with the three captions); events (a three-row demo list +
+  the real + button, editor, detail sheet, delete); kinds (a demo event
+  card with Repeat → `EventRepeatSheet`, Add date → the multi-date picker,
+  Skip this day, over a mini month showing its occurrences; captions
+  `calendarGuideDemoOneDay` / `DemoRepeats` / `recurrenceSpecificDates` /
+  `DemoSkipped`); alerts (Add alert → `AlertEditorSheet` →
+  `calendarGuideDemoAlertSet`; the `calendarGuideShowAlarm` row →
+  `AlarmPage.preview`; the quick alarm → `calendarGuideDemoHereOnly`; the
+  `calendarGuideOpenPermissions` action row → the real page); attendance
+  (a tracked demo row with the real presence button and the detail sheet's
+  presence captions; the count switch + chips with the editor's example
+  captions); categories (a demo category list of three with the eye, a ⋮
+  with Edit / Delete, + → `CategoryEditorSheet(sandbox: true)`; lift the
+  categories page's row card into a public widget if it separates cleanly,
+  else build it from `FormRowGroup` + `EventAvatar`); finding (a search row
+  over the six demo events through `EventSearchQuery.parse` +
+  `EventQueryMatcher`, `calendarGuideDemoMatches`; the funnel over the kinds
+  page's mini month); setup (a dropdown of the holiday sets →
+  `HolidaySeeds.forYear` and `calendarGuideDemoHolidays` with the dates; a
+  Mon / Sat / Sun `SegmentedButton` turning `CalendarAppearancePreview`;
+  the `calendarGuideOpenSettings` action row). Each card: the "Try it"
+  label, the lead-in (`calendarGuideTry*`), the stage under a
+  `RepaintBoundary`, the caption (a live region, text changes, geometry
+  never). Tests per card: every affordance driven, the caption asserted,
+  no write seen.
+- **Slice 4 — close.** `26_guide.txt` extended (hub → practice: pick a day,
+  + → the editor → a title → Save → the row present; open it; the funnel;
+  the ⋮ → a caption; back; a task page's card; back to the calendar);
+  `08_header.txt` unchanged; the `design-reviewer` over the hub, a task
+  page with its card and the practice page (its device-only bucket to the
+  `qa-runner`); `qa pass calendar` and `qa pass alerts`; the docs: this
+  record's status line, the feature doc's addendum, the `calendar-events`
+  file map (the three pages), the `calendar-ui` ids catalogue
+  (`calendar-guide-page-<topic>`, `calendar-guide-practice`, the practice
+  page's `practice-*` ids for the flow), `rules/calendar.md`'s flow count.
+
+**The designer's brief (before slice 1):** the look of three things, one
+mock — the hub row (title, caption, chevron on the kit), the "Try it" card
+(the label in the section-label role, the lead-in as a caption, the stage,
+the live caption; how it sits between read rows without reading as a
+button), and the practice page's banner and bar (the banner's one line,
+its ground, the bar at `AppBarMetrics`). Render the current hub and a kit
+page with real fonts first; return the spec with its defaults lettered;
+the owner answers before slice 1 builds.
+
+### 7.3 How to run this (the next session)
+
+Run on Opus 5.5 at high. Paste:
+
+> Continue the hands-on calendar guide in `frontend/anta`:
+> `docs/calendar-guide-page.md` §7 is the record — read §7.1 (the
+> decisions and the structure), §7.2 (the slice specs), §8 (the strings),
+> and §2 (D1–D12, the page as first built); never the whole file. Load
+> `calendar-events`, `calendar-ui`, `ui-language`, `l10n`, `delegation`,
+> `ui-revamp`, `verify`. First `git status --short` and `git log -3`:
+> everything of 2026-10-29 may still be uncommitted (the guide page, the
+> alert horizon, the docs) — leave it as the owner left it. Then check
+> whether slice 0 landed (`grep -n "sandbox" lib/widgets/event_editor_sheet.dart`;
+> `PanelModeBar` public; `AlarmPage.preview`): if not, run slice 0 with
+> one `implementer` from §7.2; if it landed but §7.1's status line does
+> not say "slice 0 reviewed", run its `reviewer` first. Then the `designer` (§7.2's
+> brief; one mock) and the owner's letters on its defaults; then slices 1,
+> 2 and 3, each with one `implementer` and one `reviewer`, the gate after
+> each, a check-in with the uncommitted count and a ready commit at each
+> boundary; then slice 4 (`design-reviewer`, `qa-runner` for `qa pass
+> calendar` and `qa pass alerts`, the docs). One `flutter test` at a time —
+> the design agents render through it. Never commit. Update §7.1's status
+> line at every boundary.
+
+### 7.4 The proposal the letters answered, kept for the record
 
 **Why.** The owner (2026-10-29): "make the documentation hands on with
 components (real components but no real functionality, like clicking the
@@ -793,3 +1033,194 @@ region); `qa pass calendar` green with the extended `26_guide`.
   P16, P4 and P7.
 - The researchers' question lists beyond §5 are in their reports (the
   session's scratchpad); §5 keeps the ones that change what gets built.
+
+## 8. The strings — the content spec of the rework (the ARBs are the durable form once a slice lands them)
+
+The first build's 71 keys are in the ARBs already (`calendarGuide*`); the tables below are the additions and changes, copied from the planning session's spec files on 2026-10-29. Conventions: `{placeholder}` ← an existing ARB key, declared `"type": "String"` in the en `@` block (plurals `int`, Romanian needs `few`); quotes en “…”, de „…“, ro „…”; a sentence never retypes a label.
+
+### 8.1 Additions after the owner's answers (`guide-content-2.md`)
+
+
+#### New rows — Events section
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuideAssumeTitle (row id `assume`, icon the editor's Assume absent glyph if it has one, else `Icons.event_busy_outlined`) | Present unless you say otherwise | Anwesend, solange du nichts anderes sagst | Prezent, dacă nu spui altfel | — |
+| calendarGuideAssumeBody | With “{trackPresence}” on, every day counts as “{present}” until you mark it “{missed}”. “{assumeAbsent}” turns that around for things you rarely manage: a day counts as missed until you mark it present. | Mit „{trackPresence}“ gilt jeder Tag als „{present}“, bis du ihn als „{missed}“ markierst. „{assumeAbsent}“ dreht das um – für Dinge, die du selten schaffst: Ein Tag gilt als verpasst, bis du ihn als anwesend markierst. | Cu „{trackPresence}” pornit, fiecare zi contează ca „{present}” până o marchezi „{missed}”. „{assumeAbsent}” inversează regula pentru lucrurile pe care rar le reușești: o zi contează ca ratată până o marchezi ca prezentă. | trackPresence ← eventTrackPresence, present ← eventPresencePresent, missed ← eventPresenceMissed, assumeAbsent ← eventAssumeAbsent |
+| calendarGuideCountTitle (row id `count`, icon `Icons.tag_rounded`) | Counting the days | Die Tage zählen | Numărarea zilelor | — |
+| calendarGuideCountBody | In a repeating event, “{countOccurrences}” numbers its days. “{countFromOne}” gives Day 1, Day 2, Week 3; “{countFromZero}” counts what has passed, so a birthday reads 1 year, then 2 years. The number shows beside the event on its day. | Bei einem wiederholten Ereignis nummeriert „{countOccurrences}“ seine Tage. „{countFromOne}“ ergibt Tag 1, Tag 2, Woche 3; „{countFromZero}“ zählt, was vergangen ist – ein Geburtstag zeigt dann 1 Jahr, dann 2 Jahre. Die Zahl steht neben dem Ereignis an seinem Tag. | La un eveniment care se repetă, „{countOccurrences}” îi numerotează zilele. „{countFromOne}” dă Ziua 1, Ziua 2, Săptămâna 3; „{countFromZero}” numără ce a trecut, așa că o zi de naștere arată 1 an, apoi 2 ani. Numărul apare lângă eveniment în ziua lui. | countOccurrences ← eventCountOccurrences, countFromOne ← eventCountStyleNumbered, countFromZero ← eventCountStyleElapsed |
+| calendarGuideRailTitle (row id `rail`, icon the appearance page's Day rail glyph if it has one, else `Icons.view_sidebar_outlined`) | What “{dayRail}” is | Was „{dayRail}“ ist | Ce este „{dayRail}” | dayRail ← eventShowInDayRail |
+| calendarGuideRailBody | “{dayRail}” is a thin strip at the left edge of a day with one mark per tracked event, so a habit stays visible even on a busy day. It is off until you turn it on in “{settingsRow}”, under “{appearance}”; after that each event can choose “{railAuto}”, “{railAlways}” or “{railNever}”. | „{dayRail}“ ist ein schmaler Streifen am linken Rand eines Tages mit einer Marke je erfasstem Ereignis, damit eine Gewohnheit auch an einem vollen Tag sichtbar bleibt. Sie ist aus, bis du sie in „{settingsRow}“ unter „{appearance}“ einschaltest; danach kann jedes Ereignis „{railAuto}“, „{railAlways}“ oder „{railNever}“ wählen. | „{dayRail}” este o fâșie subțire la marginea stângă a unei zile, cu câte un semn pentru fiecare eveniment urmărit, ca un obicei să rămână vizibil chiar și într-o zi plină. Este oprită până o pornești în „{settingsRow}”, la „{appearance}”; după aceea fiecare eveniment poate alege „{railAuto}”, „{railAlways}” sau „{railNever}”. | dayRail ← eventShowInDayRail, settingsRow ← calendarSettingsRow, appearance ← calendarAppearanceSection, railAuto / railAlways / railNever ← the three values of the editor's Day rail menu ("Auto" / "Always" / "Never" — grep `eventShowInDayRail` in `event_editor_sheet.dart` for their keys) |
+| calendarGuidePerDayTitle (row id `per-day`, icon `Icons.edit_calendar_outlined`) | A note for one day only | Eine Notiz nur für einen Tag | O notiță doar pentru o zi | — |
+| calendarGuidePerDayBody | A repeating event shares one description across all its days. Turn on “{perDay}” and each day can carry its own: open the event on that day and, above the description, choose “{thisDay}” to write for that day alone or “{allDays}” for the shared text. | Ein wiederholtes Ereignis teilt eine Beschreibung über alle seine Tage. Schalte „{perDay}“ ein, und jeder Tag kann eine eigene tragen: Öffne das Ereignis an diesem Tag und wähle über der Beschreibung „{thisDay}“, um nur für diesen Tag zu schreiben, oder „{allDays}“ für den gemeinsamen Text. | Un eveniment care se repetă are o singură descriere pentru toate zilele lui. Pornește „{perDay}” și fiecare zi poate avea una proprie: deschide evenimentul în ziua aceea și, deasupra descrierii, alege „{thisDay}” ca să scrii doar pentru ziua aceea sau „{allDays}” pentru textul comun. | perDay ← eventPerOccurrenceDescriptions, thisDay ← eventDescriptionScopeThisDay, allDays ← eventDescriptionScopeAllDays |
+| calendarGuideSkippedTitle (row id `skipped`, icon `Icons.event_busy_rounded`) | Days you skipped | Ausgelassene Tage | Zile sărite | — |
+| calendarGuideSkippedBody | “{skip}” removes one day of a repeating event and leaves the others. The event's editing screen lists those days under “{skippedDays}”; untick a day there to bring it back. | „{skip}“ entfernt einen Tag eines wiederholten Ereignisses und lässt die anderen stehen. Der Bearbeitungsbildschirm des Ereignisses listet diese Tage unter „{skippedDays}“; nimm dort den Haken bei einem Tag weg, um ihn zurückzuholen. | „{skip}” elimină o singură zi a unui eveniment care se repetă și le lasă pe celelalte. Ecranul de editare al evenimentului listează acele zile la „{skippedDays}”; debifează acolo o zi ca s-o aduci înapoi. | skip ← eventSkipOccurrence, skippedDays ← eventSkippedDays |
+| calendarGuidePriorityTitle (row id `priority`, icon the editor's Priority glyph, else `Icons.flag_outlined`) | Priority and the look | Priorität und Aussehen | Prioritatea și aspectul | — |
+| calendarGuidePriorityBody | “{priority}” orders the events of a busy day and decides which of them get a bar on the month when there are more than three. “{iconColor}” gives one event its own icon or colour instead of its category's. | „{priority}“ ordnet die Ereignisse eines vollen Tages und entscheidet, welche davon einen Balken im Monat bekommen, wenn es mehr als drei sind. „{iconColor}“ gibt einem Ereignis ein eigenes Symbol oder eine eigene Farbe statt der seiner Kategorie. | „{priority}” ordonează evenimentele unei zile pline și decide care dintre ele primesc o bară în lună când sunt mai mult de trei. „{iconColor}” dă unui eveniment propria pictogramă sau culoare în locul celei a categoriei. | priority ← eventPriority, iconColor ← eventAppearance |
+
+#### Changed row — Reminders and alarms
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuidePermissionsBody (replaces the current value; one new placeholder) | The first time, ANTA asks for permission to show notifications and to set alarms. Allow them, or nothing rings. On a Samsung phone also turn on “{battery}” there, or its battery saver can hold reminders back. If something stays silent later, open the main menu (three lines, top left), then “{permissions}”, and turn on what is missing. | Beim ersten Mal bittet ANTA um die Erlaubnis, Benachrichtigungen zu zeigen und Alarme zu stellen. Erlaube beides, sonst klingelt nichts. Auf einem Samsung-Telefon schalte dort auch „{battery}“ ein, sonst kann der Energiesparmodus Erinnerungen zurückhalten. Bleibt später etwas stumm, öffne das Hauptmenü (drei Striche, oben links), dann „{permissions}“, und schalte ein, was fehlt. | Prima dată, ANTA cere permisiunea de a afișa notificări și de a seta alarme. Acordă-le, altfel nimic nu sună. Pe un telefon Samsung pornește acolo și „{battery}”, altfel economisirea bateriei poate reține alertele. Dacă mai târziu ceva rămâne mut, deschide meniul principal (trei linii, stânga sus), apoi „{permissions}”, și pornește ce lipsește. | permissions ← permissionsTitle, battery ← alertsBattery |
+
+#### Changed row — "Open ANTA now and then" (the horizon is ten fires per alert since 2026-10-29)
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuideOpenOftenBody (replaces the current value) | ANTA lines up the next reminders each time you open it — about ten of each. Open the app every week or so and they never run out. | ANTA bereitet die nächsten Erinnerungen jedes Mal vor, wenn du es öffnest – etwa zehn von jeder. Öffne die App etwa einmal pro Woche, und sie gehen nie aus. | ANTA pregătește următoarele alerte de fiecare dată când o deschizi – cam zece din fiecare. Deschide aplicația cam o dată pe săptămână și ele nu se termină niciodată. | — |
+
+### 8.2 The hands-on pages and demos (`guide-content-3.md`)
+
+
+#### 1. The hub (`CalendarGuidePage`, the ⋮ row's target; title stays `calendarGuideTitle`)
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuideIntro (replaces the current value) | A short tour of the calendar, one page per thing you will want to do. Each page has a “{tryIt}” corner where you can tap without changing anything real. You can come back here any time: on the calendar, tap the three-dot button at the top right, then “{title}”. | Ein kurzer Rundgang durch den Kalender, eine Seite pro Aufgabe. Jede Seite hat eine Ecke „{tryIt}“, in der du tippen kannst, ohne etwas Echtes zu verändern. Du kommst jederzeit hierher zurück: Tippe im Kalender oben rechts auf die drei Punkte und dann auf „{title}“. | Un scurt tur al calendarului, câte o pagină pentru fiecare lucru pe care vei vrea să-l faci. Fiecare pagină are un colț „{tryIt}” unde poți atinge fără să schimbi nimic real. Poți reveni aici oricând: în calendar, atinge butonul cu trei puncte din dreapta sus, apoi „{title}”. | tryIt ← calendarGuideTryIt, title ← calendarGuideTitle |
+| calendarGuideTryIt | Try it | Probier es aus | Încearcă | — |
+| calendarGuideHowDoI (the hub's label over the task pages) | How do I… | Wie mache ich … | Cum fac să… | — |
+| calendarGuidePagePractice | Practice calendar | Übungskalender | Calendar de exercițiu | — |
+| calendarGuidePagePracticeCaption | A calendar that saves nothing. Try everything here. | Ein Kalender, der nichts speichert. Probier hier alles aus. | Un calendar care nu salvează nimic. Încearcă totul aici. | — |
+| (page title) calendarGuideSectionCalendar — reused | The calendar screen | Der Kalender | Ecranul calendarului | — |
+| calendarGuidePageScreenCaption | The month, the bars, the panel, the menus | Der Monat, die Balken, der Bereich darunter, die Menüs | Luna, barele, panoul, meniurile | — |
+| calendarGuidePageEvents | Add, change or delete an event | Ein Ereignis hinzufügen, ändern oder löschen | Adaugă, modifică sau șterge un eveniment | — |
+| calendarGuidePageEventsCaption | The editor, saving, deleting, templates | Der Editor, Speichern, Löschen, Vorlagen | Editorul, salvarea, ștergerea, șabloanele | — |
+| calendarGuidePageKinds | One-time and repeating events | Einmalige und wiederholte Ereignisse | Evenimente o singură dată și repetate | — |
+| calendarGuidePageKindsCaption | How the two kinds differ, and the quirks of each | Wie sich die beiden Arten unterscheiden, und ihre Eigenheiten | Cum diferă cele două feluri și ciudățeniile fiecăruia | — |
+| calendarGuidePageAlerts | Get reminded | Erinnert werden | Primește alerte | — |
+| calendarGuidePageAlertsCaption | Reminders, alarms, permissions, the quick alarm | Mitteilungen, Alarme, Berechtigungen, der schnelle Alarm | Notificări, alarme, permisiuni, alarma rapidă | — |
+| calendarGuidePageAttendance | Keep track of attendance | Anwesenheit festhalten | Ține evidența prezenței | — |
+| calendarGuidePageAttendanceCaption | Present or missed, counting, “{dayRail}”, a note per day | Anwesend oder verpasst, Zählen, „{dayRail}“, eine Notiz pro Tag | Prezent sau ratat, numărarea, „{dayRail}”, o notiță pe zi | dayRail ← eventShowInDayRail |
+| calendarGuidePageCategories | Use categories | Kategorien nutzen | Folosește categoriile | — |
+| calendarGuidePageCategoriesCaption | What they are; create, change, hide, delete | Was sie sind; anlegen, ändern, verstecken, löschen | Ce sunt; creează, modifică, ascunde, șterge | — |
+| calendarGuidePageFinding | Find an event | Ein Ereignis finden | Găsește un eveniment | — |
+| calendarGuidePageFindingCaption | Search, filters, “{overview}” | Suche, Filter, „{overview}“ | Căutare, filtre, „{overview}” | overview ← calendarOverview |
+| calendarGuidePageSetup | Set up the calendar | Den Kalender einrichten | Configurează calendarul | — |
+| calendarGuidePageSetupCaption | Holidays, the week's first day, language and dark mode | Feiertage, der erste Wochentag, Sprache und dunkles Design | Sărbătorile, prima zi a săptămânii, limba și modul întunecat | — |
+| (page title) calendarGuideSectionGood — reused | Good to know | Gut zu wissen | Bine de știut | — |
+| calendarGuidePageGoodCaption | Opening the calendar, going back, the rest of ANTA | Den Kalender öffnen, zurück, der Rest von ANTA | Deschiderea calendarului, înapoi, restul aplicației ANTA | — |
+
+#### 2. Page leads (one line under each page's title, above its rows)
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideScreenLead | What you see when the calendar opens, and what each part is for. | Was du siehst, wenn der Kalender öffnet, und wofür jeder Teil da ist. | Ce vezi când se deschide calendarul și la ce folosește fiecare parte. |
+| calendarGuideEventsLead | An event is anything with a day: an appointment, a bill, a class. Here is how you add one, change it and remove it. | Ein Ereignis ist alles, was einen Tag hat: ein Termin, eine Rechnung, ein Kurs. So fügst du eines hinzu, änderst es und entfernst es. | Un eveniment este orice are o zi: o programare, o factură, un curs. Iată cum adaugi unul, cum îl modifici și cum îl elimini. |
+| calendarGuideKindsLead | Most events happen once. Some come back every week or month. The calendar treats the two a little differently. | Die meisten Ereignisse passieren einmal. Manche kommen jede Woche oder jeden Monat wieder. Der Kalender behandelt die beiden etwas unterschiedlich. | Cele mai multe evenimente se întâmplă o dată. Unele revin în fiecare săptămână sau lună. Calendarul le tratează puțin diferit. |
+| calendarGuideAlertsLead | Nothing rings by itself. You add a reminder or an alarm to the events that need one. | Nichts klingelt von allein. Du fügst den Ereignissen, die es brauchen, eine Mitteilung oder einen Alarm hinzu. | Nimic nu sună de la sine. Adaugi o notificare sau o alarmă evenimentelor care au nevoie. |
+| calendarGuideAttendanceLead | For a class or a habit you want to keep count of, the calendar can remember which days you made it. | Bei einem Kurs oder einer Gewohnheit, die du mitzählen willst, merkt sich der Kalender, an welchen Tagen du es geschafft hast. | Pentru un curs sau un obicei pe care vrei să-l ții la socoteală, calendarul poate reține în ce zile ai reușit. |
+| calendarGuideCategoriesLead | A category gives an event its colour and icon. The app comes with a few; make your own and hide the ones you never use. | Eine Kategorie gibt einem Ereignis Farbe und Symbol. Die App bringt ein paar mit; leg eigene an und verstecke die, die du nie brauchst. | O categorie dă unui eveniment culoarea și pictograma. Aplicația vine cu câteva; fă-ți propriile categorii și ascunde-le pe cele pe care nu le folosești niciodată. |
+| calendarGuideFindingLead | Three ways to find something: search by name, hide what you do not want to see, or look at a whole year. | Drei Wege, etwas zu finden: nach dem Namen suchen, ausblenden, was du nicht sehen willst, oder ein ganzes Jahr betrachten. | Trei moduri de a găsi ceva: caută după nume, ascunde ce nu vrei să vezi sau privește un an întreg. |
+| calendarGuideSetupLead | A few settings make the calendar yours: whose holidays it shows, which day starts the week, and the app's language and look. | Ein paar Einstellungen machen den Kalender zu deinem: wessen Feiertage er zeigt, welcher Tag die Woche beginnt, und Sprache und Aussehen der App. | Câteva setări fac calendarul al tău: ale cui sărbători le arată, ce zi începe săptămâna, limba și aspectul aplicației. |
+
+#### 3. New rows
+
+##### 3.1 "One-time and repeating events" (after the existing `calendarGuideRepeat*` row, which opens the page)
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuideKindsOneTitle (row id `kinds-one`, icon `Icons.looks_one_outlined`) | One day, or many | Ein Tag oder viele | O zi sau mai multe | — |
+| calendarGuideKindsOneBody | A new event is one-time: it lives on one day. Give it a rule in “{repeat}” and it becomes repeating, showing on every matching day. Choose “{doesNotRepeat}” again and it is one-time once more, on its start day. | Ein neues Ereignis ist einmalig: Es lebt an einem Tag. Gib ihm in „{repeat}“ eine Regel, und es wiederholt sich – es erscheint an jedem passenden Tag. Wähle wieder „{doesNotRepeat}“, und es ist erneut einmalig, an seinem Starttag. | Un eveniment nou este o singură dată: trăiește într-o singură zi. Dă-i o regulă în „{repeat}” și devine repetat, apărând în fiecare zi potrivită. Alege din nou „{doesNotRepeat}” și este iar o singură dată, în ziua lui de început. | repeat ← eventRepeat, doesNotRepeat ← recurrenceDoesNotRepeat |
+| calendarGuideKindsDatesTitle (row id `kinds-dates`, icon `Icons.event_repeat_outlined`) | A one-time event can have extra dates | Ein einmaliges Ereignis kann weitere Termine haben | Un eveniment o singură dată poate avea date în plus | — |
+| calendarGuideKindsDatesBody | “{addDate}” adds another day to a one-time event. It is then neither one-time nor repeating: “{repeat}” reads “{threeDates}”, the “{dates}” row lists the days, and “{skip}” works on each of them. From the event's page, “{addDate}” saves at once. | „{addDate}“ fügt einem einmaligen Ereignis einen weiteren Tag hinzu. Dann ist es weder einmalig noch wiederholt: „{repeat}“ zeigt „{threeDates}“, die Zeile „{dates}“ listet die Tage, und „{skip}“ wirkt auf jeden davon. Von der Seite des Ereignisses aus speichert „{addDate}“ sofort. | „{addDate}” adaugă încă o zi unui eveniment o singură dată. Atunci nu mai este nici o singură dată, nici repetat: „{repeat}” arată „{threeDates}”, rândul „{dates}” listează zilele, iar „{skip}” funcționează pe fiecare dintre ele. Din pagina evenimentului, „{addDate}” salvează imediat. | addDate ← eventAddDate, repeat ← eventRepeat, threeDates ← recurrenceSpecificDates(3), dates ← eventDatesLabel, skip ← eventSkipOccurrence |
+| calendarGuideKindsOnlyOneTitle (row id `kinds-only-one`, icon `Icons.filter_1_outlined`) | What only a one-time event can do | Was nur ein einmaliges Ereignis kann | Ce poate doar un eveniment o singură dată | — |
+| calendarGuideKindsOnlyOneBody | “{removeAfter}” is for one-time events only: the alarm deletes its event once you stop it. And “{noticeSkip}” on the quiet notice before an alarm switches a one-time event's alert off, where on a repeating event it skips that day. | „{removeAfter}“ gibt es nur bei einmaligen Ereignissen: Der Alarm löscht sein Ereignis, sobald du ihn stoppst. Und „{noticeSkip}“ auf dem leisen Hinweis vor einem Alarm schaltet die Erinnerung eines einmaligen Ereignisses aus, während es bei einem wiederholten diesen Tag auslässt. | „{removeAfter}” există doar la evenimentele o singură dată: alarma își șterge evenimentul odată ce o oprești. Iar „{noticeSkip}” de pe înștiințarea discretă dinaintea unei alarme oprește alerta unui eveniment o singură dată, pe când la unul repetat sare peste ziua aceea. | removeAfter ← eventAlertRemoveAfter, noticeSkip ← alertsSkipAction |
+| calendarGuideKindsOnlyRepeatTitle (row id `kinds-only-repeat`, icon `Icons.all_inclusive_rounded`) | What only a repeating event can do | Was nur ein wiederholtes Ereignis kann | Ce poate doar un eveniment repetat | — |
+| calendarGuideKindsOnlyRepeatBody | “{trackPresence}”, “{countOccurrences}” and a separate note per day appear once an event has more than one day. “{skip}” drops one day and keeps the rest; “{skippedDays}” in the editor lists them. | „{trackPresence}“, „{countOccurrences}“ und eine eigene Notiz pro Tag erscheinen, sobald ein Ereignis mehr als einen Tag hat. „{skip}“ lässt einen Tag aus und behält die anderen; „{skippedDays}“ im Editor listet sie auf. | „{trackPresence}”, „{countOccurrences}” și o notiță separată pe zi apar odată ce un eveniment are mai mult de o zi. „{skip}” renunță la o zi și le păstrează pe celelalte; „{skippedDays}” din editor le listează. | trackPresence ← eventTrackPresence, countOccurrences ← eventCountOccurrences, skip ← eventSkipOccurrence, skippedDays ← eventSkippedDays |
+| calendarGuideKindsOneChangeTitle (row id `kinds-one-change`, icon `Icons.sync_alt_rounded`) | One change, every day | Eine Änderung, alle Tage | O modificare, toate zilele | — |
+| calendarGuideKindsOneChangeBody | Editing a repeating event changes all of its days at once: a new time moves every session. To change just one day, skip it and add a one-time event for that day instead. | Wer ein wiederholtes Ereignis bearbeitet, ändert alle seine Tage auf einmal: Eine neue Uhrzeit verschiebt jede Sitzung. Um nur einen Tag zu ändern, lass ihn aus und lege stattdessen ein einmaliges Ereignis für diesen Tag an. | Editarea unui eveniment repetat schimbă toate zilele lui deodată: o oră nouă mută fiecare ședință. Ca să schimbi doar o zi, sari peste ea și adaugă în schimb un eveniment o singură dată pentru ziua aceea. | — |
+| calendarGuideKindsTrickyTitle (row id `kinds-tricky`, icon `Icons.warning_amber_rounded`) | Where repeating gets tricky | Wo Wiederholung tückisch wird | Unde repetarea devine înșelătoare | — |
+| calendarGuideKindsTrickyBody | A monthly event on the 31st skips the months without a 31st; a yearly one on 29 February shows only in leap years. “{ends}” inside “{repeat}” stops a rule after a date, and “{alsoBefore}” lets it show on matching days before the start. | Ein monatliches Ereignis am 31. überspringt die Monate ohne 31.; ein jährliches am 29. Februar erscheint nur in Schaltjahren. „{ends}“ in „{repeat}“ beendet eine Regel nach einem Datum, und „{alsoBefore}“ lässt sie an passenden Tagen vor dem Start erscheinen. | Un eveniment lunar pe 31 sare peste lunile fără 31; unul anual pe 29 februarie apare doar în anii bisecți. „{ends}” din „{repeat}” oprește o regulă după o dată, iar „{alsoBefore}” o lasă să apară în zilele potrivite dinaintea începutului. | ends ← recurrenceEnds, repeat ← eventRepeat, alsoBefore ← recurrenceBeforeStart |
+| calendarGuideKindsBirthdayTitle (row id `kinds-birthday`, icon `Icons.cake_outlined`) | Birthdays | Geburtstage | Zile de naștere | — |
+| calendarGuideKindsBirthdayBody | Picking the “{birthday}” category on a new event makes it yearly and counts from 0 — set its start date to the real birth date and the event reads the person's age. | Wer bei einem neuen Ereignis die Kategorie „{birthday}“ wählt, macht es jährlich und lässt es ab 0 zählen – setze das Startdatum auf den echten Geburtstag, und das Ereignis zeigt das Alter der Person. | Alegerea categoriei „{birthday}” la un eveniment nou îl face anual și îl pune să numere de la 0 – setează data de început la ziua reală de naștere și evenimentul arată vârsta persoanei. | birthday ← eventCategoryBirthday |
+
+##### 3.2 "Use categories" (the existing `calendarGuideCategory*` row from Events opens the page as "What a category is"; `calendarGuideCategories*` from Make it yours is retired — its content is split below)
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuideCatCreateTitle (row id `cat-create`, icon `Icons.add_circle_outline_rounded`) | Create one | Eine anlegen | Creează una | — |
+| calendarGuideCatCreateBody | In “{settingsRow}”, open “{categories}” and tap the + button (“{createCategory}”). Give it a name, pick an icon and a colour, then “{save}”. It is offered in every event from then on. | Öffne in „{settingsRow}“ den Punkt „{categories}“ und tippe auf die Taste + („{createCategory}“). Gib ihr einen Namen, wähle ein Symbol und eine Farbe und dann „{save}“. Ab dann wird sie in jedem Ereignis angeboten. | În „{settingsRow}”, deschide „{categories}” și atinge butonul + („{createCategory}”). Dă-i un nume, alege o pictogramă și o culoare, apoi „{save}”. De atunci este oferită în fiecare eveniment. | settingsRow ← calendarSettingsRow, categories ← calendarCategories, createCategory ← createCategory, save ← save |
+| calendarGuideCatChangeTitle (row id `cat-change`, icon `Icons.edit_outlined`) | Change one | Eine ändern | Modifică una | — |
+| calendarGuideCatChangeBody | Tap a category in the list to change its icon or colour. The ones that came with the app keep their names; your own can be renamed. | Tippe in der Liste auf eine Kategorie, um Symbol oder Farbe zu ändern. Die mitgelieferten behalten ihren Namen; deine eigenen kannst du umbenennen. | Atinge o categorie din listă ca să-i schimbi pictograma sau culoarea. Cele venite cu aplicația își păstrează numele; ale tale pot fi redenumite. | — |
+| calendarGuideCatHideTitle (row id `cat-hide`, icon `Icons.visibility_off_outlined`) | Hide the ones you do not use | Verstecke, was du nicht brauchst | Ascunde-le pe cele pe care nu le folosești | — |
+| calendarGuideCatHideBody | The eye on a row (“{hide}”) takes a category out of the pickers. Events that already have it keep their colour and stay on the calendar. Tap the eye again (“{show}”) to bring it back. | Das Auge an einer Zeile („{hide}“) nimmt eine Kategorie aus der Auswahl. Ereignisse, die sie schon haben, behalten ihre Farbe und bleiben im Kalender. Tippe wieder auf das Auge („{show}“), um sie zurückzuholen. | Ochiul de pe un rând („{hide}”) scoate o categorie din liste. Evenimentele care o au deja își păstrează culoarea și rămân în calendar. Atinge ochiul din nou („{show}”) ca s-o aduci înapoi. | hide ← hide, show ← show |
+| calendarGuideCatDeleteTitle (row id `cat-delete`, icon `Icons.delete_outline_rounded`) | Delete one | Eine löschen | Șterge una | — |
+| calendarGuideCatDeleteBody | The ⋮ on your own category offers “{delete}”. Its events are not lost: they move to “{other}”. The categories that came with the app cannot be deleted, only hidden. | Das ⋮ an deiner eigenen Kategorie bietet „{delete}“ an. Ihre Ereignisse gehen nicht verloren: Sie wandern zu „{other}“. Die mitgelieferten Kategorien lassen sich nicht löschen, nur verstecken. | ⋮ de pe categoria ta oferă „{delete}”. Evenimentele ei nu se pierd: trec la „{other}”. Categoriile venite cu aplicația nu pot fi șterse, doar ascunse. | delete ← the plain "Delete" action key (`delete`; grep `"delete": "Delete"`), other ← the built-in Other category's name key (grep the value "Other" among `eventCategory*`) |
+| calendarGuideCatAlertsTitle (row id `cat-alerts`, icon `Icons.notifications_none_rounded`) | An alert for a whole category | Eine Erinnerung für eine ganze Kategorie | O alertă pentru o categorie întreagă | — |
+| calendarGuideCatAlertsBody | Inside a category, “{addAlert}” sets a reminder or alarm that every event in that category gets automatically — handy for appointments. An event can switch it off for itself with “{categoryAlerts}”. | In einer Kategorie legt „{addAlert}“ eine Mitteilung oder einen Alarm fest, den jedes Ereignis dieser Kategorie automatisch bekommt – praktisch für Termine. Ein Ereignis kann das für sich mit „{categoryAlerts}“ abschalten. | În interiorul unei categorii, „{addAlert}” stabilește o notificare sau o alarmă pe care o primește automat fiecare eveniment din categoria aceea – util pentru programări. Un eveniment o poate opri pentru el însuși cu „{categoryAlerts}”. | addAlert ← eventAlertAdd, categoryAlerts ← the editor's "Category alerts" switch key (grep the value "Category alerts") |
+
+#### 4. Where every row lives (the hub order; rows in page order)
+
+- **The calendar screen**: lead `calendarGuideScreenLead`; rows month, marks, panel, views. Demo: the demo bar (`CalendarViewMenu` + `CalendarOverflowMenu`) and `PanelModeBar` (§5).
+- **Add, change or delete an event**: lead `calendarGuideEventsLead`; rows add-event, time, open, description, unsaved, templates. Demo: a demo list with the real + button, editor, detail sheet, delete.
+- **One-time and repeating events**: lead `calendarGuideKindsLead`; rows repeat (`calendarGuideRepeat*`), kinds-one, kinds-dates, kinds-only-one, kinds-only-repeat, kinds-one-change, kinds-tricky, kinds-birthday, skipped (`calendarGuideSkipped*`). Demo: the kinds sandbox.
+- **Get reminded**: lead `calendarGuideAlertsLead`; rows add-alert, alert-kinds, permissions (the Samsung body), ring, open-often (the softened body), quick-alarm, hub. Demos: the alert sheet, "Show me the alarm screen", the quick alarm; the action row "Open Permissions".
+- **Keep track of attendance**: lead `calendarGuideAttendanceLead`; rows attendance, assume, count, rail, per-day. Demos: the presence row, the count chips.
+- **Use categories**: lead `calendarGuideCategoriesLead`; rows category (`calendarGuideCategory*`, retitled by its existing key — leave), cat-create, cat-change, cat-hide, cat-delete, cat-alerts. Demo: the category list sandbox.
+- **Find an event**: lead `calendarGuideFindingLead`; rows search, filters, overview. Demos: the search box; the funnel into the filter sheet over a mini month.
+- **Set up the calendar**: lead `calendarGuideSetupLead`; rows settings, holidays, week-start, language. Demos: the holiday set list, the week-start strip; the action row "Open Calendar settings". (`calendarGuideCategories*` retired: covered by Use categories.)
+- **Good to know**: rows opening, back, notes. No demo.
+- **The practice calendar**: its own page (§6).
+
+#### 5. Demo strings — the "Try it" cards
+
+| key | en | de | ro | placeholders |
+|---|---|---|---|---|
+| calendarGuideTryScreen | Tap the title and the three dots, then switch the panel's mode. | Tippe auf den Titel und die drei Punkte, dann wechsle den Modus des Bereichs. | Atinge titlul și cele trei puncte, apoi schimbă modul panoului. | — |
+| calendarGuideTryEvents | Add an event with +, open it, change it, delete it. Nothing here is real. | Füge mit + ein Ereignis hinzu, öffne es, ändere es, lösche es. Nichts hier ist echt. | Adaugă un eveniment cu +, deschide-l, modifică-l, șterge-l. Nimic de aici nu este real. | — |
+| calendarGuideTryKinds | Make the event repeat, give it extra dates, skip a day, and watch the month. | Lass das Ereignis sich wiederholen, gib ihm weitere Termine, lass einen Tag aus und beobachte den Monat. | Fă evenimentul să se repete, dă-i date în plus, sari peste o zi și privește luna. | — |
+| calendarGuideTryAlerts | Add an alert to the demo event, then see what an alarm looks like. | Füge dem Demo-Ereignis eine Erinnerung hinzu und sieh dir an, wie ein Alarm aussieht. | Adaugă o alertă evenimentului demonstrativ, apoi vezi cum arată o alarmă. | — |
+| calendarGuideTryAttendance | Mark a few days present or missed and watch the count. | Markiere ein paar Tage als anwesend oder verpasst und sieh dir die Zählung an. | Marchează câteva zile ca prezent sau ratat și urmărește numărătoarea. | — |
+| calendarGuideTryCategories | Create a category, hide one, delete one — in this list only. | Lege eine Kategorie an, verstecke eine, lösche eine – nur in dieser Liste. | Creează o categorie, ascunde una, șterge una – doar în lista aceasta. | — |
+| calendarGuideTryFinding | Type a word, a category or a date, and filter the month. | Gib ein Wort, eine Kategorie oder ein Datum ein und filtere den Monat. | Scrie un cuvânt, o categorie sau o dată și filtrează luna. | — |
+| calendarGuideTrySetup | Pick a holiday set and a first day of the week; the sample week follows. | Wähle Feiertage und einen ersten Wochentag; die Beispielwoche folgt. | Alege un set de sărbători și o primă zi a săptămânii; săptămâna-exemplu urmează. | — |
+| calendarGuideWouldOpen | In the real calendar this would open “{what}”. | Im echten Kalender würde das „{what}“ öffnen. | În calendarul adevărat, asta ar deschide „{what}”. | what ← alertsTitle / calendarSettingsRow / calendarOverview as picked |
+| calendarGuideWouldShare | In the real calendar this would share a file with every event. | Im echten Kalender würde das eine Datei mit allen Ereignissen teilen. | În calendarul adevărat, asta ar partaja un fișier cu toate evenimentele. | — |
+| calendarGuideYouAreHere | That is this guide — you are already in it. | Das ist dieser Leitfaden – du bist schon drin. | Acesta este ghidul – ești deja în el. | — |
+| calendarGuideDemoFormat | Showing “{format}”. | Zeigt „{format}“. | Se arată „{format}”. | format ← calendarFormatMonth / calendarFormatTwoWeeks / calendarFormatWeek as picked |
+| calendarGuideDemoPanelDay | “{day}” lists what is on the picked day. | „{day}“ listet, was am gewählten Tag ansteht. | „{day}” listează ce este în ziua aleasă. | day ← panelModeDay |
+| calendarGuideDemoPanelTimeline | “{timeline}” draws the day by the hour; all-day events sit above. | „{timeline}“ zeichnet den Tag nach Uhrzeit; ganztägige Ereignisse stehen oben. | „{timeline}” desenează ziua pe ore; evenimentele de toată ziua stau deasupra. | timeline ← panelModeTimeline |
+| calendarGuideDemoPanelUpcoming | “{upcoming}” lists what is coming over the next weeks, whatever day is picked. | „{upcoming}“ listet, was in den nächsten Wochen ansteht, egal welcher Tag gewählt ist. | „{upcoming}” listează ce urmează în săptămânile următoare, oricare ar fi ziua aleasă. | upcoming ← upcomingEvents |
+| calendarGuidePickedDay | {date}: {count, plural, =0{nothing planned} =1{one event} other{{count} events}} | {date}: {count, plural, =0{nichts geplant} =1{ein Ereignis} other{{count} Ereignisse}} | {date}: {count, plural, =0{nimic planificat} =1{un eveniment} few{{count} evenimente} other{{count} de evenimente}} | date: String (the long weekday-date from intl), count: int |
+| calendarGuideDemoAdded | Added “{title}” on {date}. Here it is gone when you leave; in the real calendar it stays. | „{title}“ am {date} hinzugefügt. Hier ist es beim Verlassen weg; im echten Kalender bleibt es. | „{title}” adăugat pe {date}. Aici dispare când pleci; în calendarul adevărat rămâne. | title, date |
+| calendarGuideDemoChanged | Saved the change to “{title}”. | Änderung an „{title}“ gespeichert. | Modificarea la „{title}” a fost salvată. | title |
+| calendarGuideDemoDeleted | Deleted “{title}” — all of its days. | „{title}“ gelöscht – mit allen seinen Tagen. | „{title}” șters – cu toate zilele lui. | title |
+| calendarGuideDemoSkipped | Skipped {date} for “{title}”; the other days stay. | {date} für „{title}“ ausgelassen; die anderen Tage bleiben. | Ai sărit peste {date} pentru „{title}”; celelalte zile rămân. | date, title |
+| calendarGuideDemoTemplate | Added “{title}” from a template. | „{title}“ aus einer Vorlage hinzugefügt. | „{title}” adăugat dintr-un șablon. | title |
+| calendarGuideDemoFiltered | {count, plural, =0{No filter on} =1{One filter on — the funnel shows it} other{{count} filters on — the funnel shows them}} | {count, plural, =0{Kein Filter aktiv} =1{Ein Filter aktiv – der Trichter zeigt es} other{{count} Filter aktiv – der Trichter zeigt es}} | {count, plural, =0{Niciun filtru activ} =1{Un filtru activ – pâlnia îl arată} few{{count} filtre active – pâlnia le arată} other{{count} de filtre active – pâlnia le arată}} | count: int (the draft's active axes, as the bar's badge counts them) |
+| calendarGuideDemoReset | Start over | Von vorn | De la capăt | — |
+| calendarGuideDemoLongPressHint | Press and hold + for templates and the quick alarm. | Halte + gedrückt für Vorlagen und den schnellen Alarm. | Ține apăsat + pentru șabloane și alarma rapidă. | — |
+| calendarGuideDemoAlertSet | “{title}” now has: {alert}. In the real calendar this is saved with the event. | „{title}“ hat jetzt: {alert}. Im echten Kalender wird das mit dem Ereignis gespeichert. | „{title}” are acum: {alert}. În calendarul adevărat, asta se salvează cu evenimentul. | title, alert ← `EventAlert.describe` |
+| calendarGuideShowAlarm (an action row) | Show me the alarm screen | Zeig mir den Alarmbildschirm | Arată-mi ecranul alarmei | — |
+| calendarGuideDemoHereOnly | {message} — here only. | {message} – nur hier. | {message} – doar aici. | message ← e.g. `quickAlarmSet(title, time)` |
+| calendarGuideDemoOneDay | One day only: {date}. | Nur ein Tag: {date}. | O singură zi: {date}. | date |
+| calendarGuideDemoRepeats | {rule} — {count, plural, =1{one day this month} other{{count} days this month}} | {rule} – {count, plural, =1{ein Tag in diesem Monat} other{{count} Tage in diesem Monat}} | {rule} – {count, plural, =1{o zi luna aceasta} few{{count} zile luna aceasta} other{{count} de zile luna aceasta}} | rule ← `RecurrenceFormatter` words, count: int |
+| calendarGuideDemoCatCreated | Created “{name}” — here only. | „{name}“ angelegt – nur hier. | „{name}” creată – doar aici. | name |
+| calendarGuideDemoCatHidden | “{name}” is hidden: not offered for new events; its events stay. | „{name}“ ist versteckt: nicht mehr für neue Ereignisse angeboten; seine Ereignisse bleiben. | „{name}” este ascunsă: nu mai este oferită pentru evenimente noi; evenimentele ei rămân. | name |
+| calendarGuideDemoCatDeleted | Deleted “{name}”; its events moved to “{other}”. | „{name}“ gelöscht; seine Ereignisse sind jetzt bei „{other}“. | „{name}” ștearsă; evenimentele ei au trecut la „{other}”. | name, other ← the Other category's name key |
+| calendarGuideDemoMatches | {count, plural, =0{No event matches} =1{One event matches} other{{count} events match}} | {count, plural, =0{Kein Ereignis passt} =1{Ein Ereignis passt} other{{count} Ereignisse passen}} | {count, plural, =0{Niciun eveniment nu se potrivește} =1{Un eveniment se potrivește} few{{count} evenimente se potrivesc} other{{count} de evenimente se potrivesc}} | count: int |
+| calendarGuideDemoHolidays | {count, plural, =1{One public holiday in {year}} other{{count} public holidays in {year}}} | {count, plural, =1{Ein Feiertag im Jahr {year}} other{{count} Feiertage im Jahr {year}}} | {count, plural, =1{O sărbătoare legală în {year}} few{{count} sărbători legale în {year}} other{{count} de sărbători legale în {year}}} | count: int, year: String |
+| calendarGuideOpenPermissions (an action row) | Open “{permissions}” | „{permissions}“ öffnen | Deschide „{permissions}” | permissions ← permissionsTitle |
+| calendarGuideOpenSettings (an action row) | Open “{settingsRow}” | „{settingsRow}“ öffnen | Deschide „{settingsRow}” | settingsRow ← calendarSettingsRow |
+
+Reused as they are: the detail sheet's presence captions ("{attended}/{total} attended · last {days} days", "Streak {count} · best {best}"), the editor's count example captions, `quickAlarmSet`, `recurrenceSpecificDates`, `upcomingSearchHint`, `hide` / `show`, `eventMarkPresent` / `eventMarkMissed`.
+
+#### 6. The practice calendar page
+
+| key | en | de | ro |
+|---|---|---|---|
+| (title) calendarGuidePagePractice | Practice calendar | Übungskalender | Calendar de exercițiu |
+| calendarGuidePracticeBanner | Nothing here is saved. Tap, add, change — it all disappears when you leave. | Hier wird nichts gespeichert. Tippe, füge hinzu, ändere – beim Verlassen ist alles weg. | Nimic de aici nu se salvează. Atinge, adaugă, modifică – totul dispare când pleci. |
+
+The six demo events (`guide-demo-<slug>` ids; the demo picks categories from the visible catalog in order, cycling; the birthday takes the Birthday built-in when it is visible):
+
+| key | en | de | ro | shape |
+|---|---|---|---|---|
+| calendarGuideDemoEventDentist | Dentist | Zahnarzt | Dentist | one-time, today + 2, 09:00–09:45 |
+| calendarGuideDemoEventYoga | Yoga | Yoga | Yoga | weekly on today's weekday, 18:00–19:00, presence tracked, three past weeks marked present and one missed |
+| calendarGuideDemoEventRent | Rent | Miete | Chirie | monthly on the 1st, all day |
+| calendarGuideDemoEventBirthday | Mum's birthday | Mamas Geburtstag | Ziua mamei | yearly, start 1964-05-12, count from 0 (so the row reads the age) |
+| calendarGuideDemoEventBookClub | Book club | Lesekreis | Clubul de lectură | every 2 weeks on Thursday, 19:00 |
+| calendarGuideDemoEventFlight | Flight | Flug | Zbor | one-time, today + 9, all day, with a description |
+| calendarGuideDemoEventFlightNote | Gate opens two hours before. | Das Gate öffnet zwei Stunden vorher. | Poarta se deschide cu două ore înainte. | the Flight's description |

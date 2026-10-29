@@ -143,8 +143,9 @@ void main() {
     /// fold, so every id can be tapped without scrolling.
     Future<_Applied> open(
       WidgetTester tester,
-      CalendarGridFilters filters,
-    ) async {
+      CalendarGridFilters filters, {
+      bool sandbox = false,
+    }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(800, 1400);
@@ -153,6 +154,7 @@ void main() {
         applied.value = await CalendarFilterSheet.show(
           context,
           filters: filters,
+          sandbox: sandbox,
         );
         applied.returned = true;
       });
@@ -569,6 +571,53 @@ void main() {
       expect(find.byType(CalendarFilterSheet), findsNothing);
       expect(applied.returned, isTrue);
       expect(applied.value, isNull);
+    });
+
+    // The calendar guide's demos: the saved filters are the owner's list, so
+    // a sandbox has neither the Saved filter row nor its bookmark, and its
+    // category picker has no Create row; every other control drafts as ever
+    // and Apply returns the draft.
+    testWidgets('sandbox: no saved-filter row, no bookmark, and Apply returns '
+        'the draft', (tester) async {
+      seed(4);
+      await service.create(name: 'Training', filters: tracked);
+      final applied = await open(tester, tracked, sandbox: true);
+
+      expect(id(SemanticsIds.filterSavedFilter), findsNothing);
+      expect(id(SemanticsIds.filterSave), findsNothing);
+      expect(find.byType(FormTrailingButton), findsNothing);
+
+      await tap(tester, id(SemanticsIds.filterCategories));
+      expect(id(SemanticsIds.categoryPickCreate), findsNothing);
+      await tap(tester, pickerRow('Cat2'));
+      await tap(tester, pickerApply());
+      await tap(tester, id(SemanticsIds.filterPriority));
+      await tap(tester, id(SemanticsIds.filterListRow('priority-1')));
+      await tap(tester, id(SemanticsIds.filterListDone));
+      await tap(tester, id(SemanticsIds.filterOnlyShow));
+      await tap(tester, id(SemanticsIds.filterListRow('counted')));
+      await tap(tester, id(SemanticsIds.filterListDone));
+      await tap(tester, id(SemanticsIds.filterRepeat));
+      await tap(tester, id(SemanticsIds.filterRepeatRecurring));
+      await tap(tester, id(SemanticsIds.filterTime));
+      await tap(tester, id(SemanticsIds.filterTimeAllDay));
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      await tap(tester, id(SemanticsIds.filterMoney));
+      await tap(tester, id(SemanticsIds.filterPanelAll));
+      await tap(tester, id(SemanticsIds.filterReset));
+      await tap(tester, id(SemanticsIds.filterCategories));
+      await tap(tester, pickerRow('Cat1'));
+      await tap(tester, pickerApply());
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(
+        applied.value,
+        const CalendarGridFilters(
+          hiddenCategoryIds: {'c1'},
+          panelShowsAll: true,
+        ),
+      );
+      expect(service.presets.map((p) => p.name), ['Training']);
     });
 
     testWidgets('the saved-filter row reads the matching preset and its '

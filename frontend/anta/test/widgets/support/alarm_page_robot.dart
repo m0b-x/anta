@@ -299,12 +299,16 @@ class AlarmPageRobot {
   /// Pushes the page over whatever is on top, as a ring does, and returns its
   /// route. [instant] pushes it with no transition, the way `main.dart` does;
   /// without it the page arrives on a page transition like any other route.
+  /// [preview] pushes the calendar guide's preview of the page instead.
   Future<Route<void>> ring(
     AlertPayload payload, {
     AlertRingController? controller,
     bool instant = false,
+    bool preview = false,
   }) async {
-    final page = AlarmPage(payload: payload, controller: controller);
+    final page = preview
+        ? AlarmPage.preview(payload: payload)
+        : AlarmPage(payload: payload, controller: controller);
     final Route<void> route = instant
         ? PageRouteBuilder<void>(
             pageBuilder: (_, _, _) => page,
@@ -362,6 +366,12 @@ class AlarmPageRobot {
   Future<void> openEvent() => tap(AlarmAction.openEvent);
 
   Future<void> keep() => tap(AlarmAction.keep);
+
+  /// The system back gesture.
+  Future<void> systemBack() async {
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+  }
 
   /// A tap on the row that switches to the alarm's own database.
   Future<void> openDatabase() => _tap(_byId(SemanticsIds.alarmOpenDatabase));

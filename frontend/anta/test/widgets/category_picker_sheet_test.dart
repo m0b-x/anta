@@ -397,6 +397,81 @@ void main() {
     );
   });
 
+  // The calendar guide's demos: the Create row is the picker's one path into
+  // a category write, so a sandbox has none — not as the plain row, not as
+  // the no-match offer — while search and picking answer as ever.
+  testWidgets('sandbox: no Create row, search and picking unchanged', (
+    tester,
+  ) async {
+    seed(15);
+    final catalog = CalendarCategories.all;
+    String? picked;
+    await openSheet<String>(tester, (context) async {
+      picked = await CategoryPickerSheet.pickSingle(
+        context,
+        selectedId: 'c0',
+        sandbox: true,
+      );
+      return picked;
+    });
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate),
+      findsNothing,
+    );
+    expect(find.text('Create category'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'Dentist');
+    await tester.pumpAndSettle();
+    expect(find.text('No categories match'), findsOneWidget);
+    expect(find.text('Create "Dentist"'), findsNothing);
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate),
+      findsNothing,
+    );
+    expect(CategoryEditorRobot(tester).isOpen, isFalse);
+
+    await tester.enterText(find.byType(TextField), 'Cat14');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickRow('c14')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(picked, 'c14');
+    expect(identical(CalendarCategories.all, catalog), isTrue);
+  });
+
+  testWidgets('sandbox: multi mode still edits and returns its set', (
+    tester,
+  ) async {
+    seed(4);
+    Set<String>? applied;
+    await openSheet<Set<String>>(tester, (context) async {
+      applied = await CategoryPickerSheet.pickMulti(
+        context,
+        selected: const {'c1'},
+        sandbox: true,
+      );
+      return applied;
+    });
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate),
+      findsNothing,
+    );
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickSelectAll),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cat2'));
+    await tester.pumpAndSettle();
+    await tester.tap(pickerApply());
+    await tester.pumpAndSettle();
+
+    expect(applied, {'c0', 'c1', 'c3'});
+  });
+
   testWidgets('every row carries its category id', (tester) async {
     seed(3);
     await openSheet<Set<String>>(
