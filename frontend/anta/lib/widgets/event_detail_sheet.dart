@@ -148,6 +148,11 @@ class EventDetailSheet extends StatefulWidget {
   /// service locator to open it.
   final Future<String?> Function(String noteId)? resolveNoteTitle;
 
+  /// Where this occurrence's presence and the adherence stats are read from.
+  /// Null reads `EventPresence.isMissed`, the calendar's cache; the guide's
+  /// practice calendar keeps its marks in memory and hands its own reader.
+  final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
+
   const EventDetailSheet({
     super.key,
     required this.event,
@@ -159,6 +164,7 @@ class EventDetailSheet extends StatefulWidget {
     this.onPresenceChanged,
     this.onOpenWikiLink,
     this.resolveNoteTitle,
+    this.isMissed,
   });
 
   /// The sub-sheet shape: as tall as its content, clamped at the editor's
@@ -175,6 +181,7 @@ class EventDetailSheet extends StatefulWidget {
     void Function(DateTime day, bool missed)? onPresenceChanged,
     ValueChanged<String>? onOpenWikiLink,
     Future<String?> Function(String noteId)? resolveNoteTitle,
+    bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<EventDetailAction>(
@@ -203,6 +210,7 @@ class EventDetailSheet extends StatefulWidget {
           onPresenceChanged: onPresenceChanged,
           onOpenWikiLink: onOpenWikiLink,
           resolveNoteTitle: resolveNoteTitle,
+          isMissed: isMissed,
         ),
       ),
     );
@@ -250,7 +258,10 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
 
   /// This occurrence's presence, seeded from the facade and updated locally so
   /// the chips reflect the tap before the write lands.
-  late bool _missed = EventPresence.isMissed(widget.event, widget.day);
+  late bool _missed = (widget.isMissed ?? EventPresence.isMissed)(
+    widget.event,
+    widget.day,
+  );
 
   /// Adherence over the trailing window. Held in state rather than derived in
   /// `build` for the same reason as [_upcoming]: the walk covers up to 366
@@ -304,6 +315,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
       // from the local copy the chips already reflect.
       overrideDay: widget.day,
       overrideMissed: _missed,
+      isMissed: widget.isMissed,
     );
   }
 

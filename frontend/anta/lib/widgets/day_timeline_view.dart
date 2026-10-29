@@ -34,12 +34,18 @@ class DayTimelineView extends StatefulWidget {
   /// neither a block nor an all-day chip nor a column in the overlap solver.
   final CalendarMissedDisplay missedDisplay;
 
+  /// Where presence is read from; null reads `EventPresence.isMissed`. The
+  /// guide's practice calendar keeps its marks in memory and passes its own,
+  /// which no revision tracks — so with a reader the layout is never memoized.
+  final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
+
   const DayTimelineView({
     super.key,
     required this.day,
     required this.events,
     required this.onEventTap,
     this.missedDisplay = CalendarMissedDisplay.faded,
+    this.isMissed,
   });
 
   /// Vertical scale of the grid: logical pixels per hour.
@@ -91,6 +97,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
     final missedDisplay = widget.missedDisplay;
     final presenceRevision = EventPresence.revision;
     if (_layout != null &&
+        widget.isMissed == null &&
         identical(_layoutForEvents, events) &&
         _layoutForMissedDisplay == missedDisplay &&
         _layoutForPresenceRevision == presenceRevision) {
@@ -124,7 +131,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
   /// resolved through the same facade every other surface uses.
   bool _isMissed(CalendarEvent event) =>
       EventPresence.appliesTo(event) &&
-      EventPresence.isMissed(event, widget.day);
+      (widget.isMissed ?? EventPresence.isMissed)(event, widget.day);
 
   /// Minutes since midnight of "now", or `null` when [DayTimelineView.day] is
   /// not today.

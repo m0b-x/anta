@@ -119,6 +119,40 @@ abstract final class SemanticsIds {
   /// row is there whatever its text says.
   static String calendarGuideRow(String slug) => 'calendar-guide-$slug';
 
+  /// A hub row that opens one of the guide's pages, keyed by the page's slug;
+  /// the `page-` infix keeps it apart from a read row of the same slug.
+  static String calendarGuidePage(String slug) => 'calendar-guide-page-$slug';
+
+  /// One guide page's list: a flow waits on it after the push and scrolls
+  /// inside it, as it does in the hub's [calendarGuide].
+  static String calendarGuideTopic(String slug) => 'calendar-guide-topic-$slug';
+
+  /// The practice calendar's body and its band: a flow waits on the page
+  /// and reads the live caption without depending on its wording.
+  static const String calendarGuidePractice = 'calendar-guide-practice';
+  static const String calendarGuidePracticeBanner =
+      'calendar-guide-practice-banner';
+
+  /// The practice page's bar buttons and add button. Their own ids, not the
+  /// real calendar's, so a flow that taps one can never land on the other.
+  static const String practiceReset = 'practice-reset';
+  static const String practiceFilterOpen = 'practice-filter-open';
+  static const String practiceMore = 'practice-more';
+  static const String practiceAddEvent = 'practice-add-event';
+
+  /// A task page's "Try it" card, keyed by the page's slug: a container
+  /// node, so the stage's controls stay nodes of their own.
+  static String calendarGuideTry(String slug) => 'calendar-guide-try-$slug';
+
+  /// The card's live caption, read by a flow whatever it says.
+  static String calendarGuideTryCaption(String slug) =>
+      'calendar-guide-try-$slug-caption';
+
+  /// A control on a card's stage. Its own id, never the real calendar's, so
+  /// a flow that taps one can never land on the other.
+  static String calendarGuideTryControl(String slug, String control) =>
+      'try-$slug-$control';
+
   /// Calendar settings' rows that open a page or a sheet, and the two
   /// default-alert rows: a section header shares some of their words, and
   /// the rest read back a value. A fasting style row exists per enabled

@@ -28,8 +28,9 @@ retired with the fix.
 - §3 The newcomer review — the ledger, by area (A–E)
 - §4 Proposals for the owner, ranked
 - §5 Questions for the owner · §5b the owner's answers (2026-10-29)
-- §7 The hands-on rework: §7.0 the horizon fix · §7.1 decisions D13–D20
-  and the structure (the status line lives there) · §7.2 slice specs ·
+- §7 The hands-on rework: §7.0 the horizon fix · §7.1 decisions D13–D37
+  (D21–D37 the designer's defaults, under §7.2's spec) and the structure
+  (the status line lives there) · §7.2 slice specs ·
   §7.3 how to run this (the next session's prompt) · §7.4 the proposal
   the letters answered
 - §8 The strings: the rework's content spec, en / de / ro
@@ -625,7 +626,7 @@ changed. Gate: analyze clean, suite +10800 ~10 −1 (the Windows-only case),
 accordingly in the next content change ("about ten of each; open the app
 every week or so").
 
-### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0; gate green, suite +10818 ~10 −1), uncommitted — the `designer` next, then slice 1
+### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slice 3a (the card frame; the screen, events, kinds and alerts cards) building — slices 1–2 uncommitted
 
 **The owner's letters (2026-10-29, in three replies):** "did we take
 performance into account? can we make multiple pages?" → D13 was
@@ -761,6 +762,60 @@ so they never overlap an implementer or a `qa` build.
   extended to every `calendarGuide*` key; the live-label test kept.
   `26_guide.txt` walks the hub → a page → back (the practice calendar
   joins in slice 4).
+  **As built (2026-10-29, two `implementer` runs):** 1a landed every §8
+  string first (112 keys per ARB, after `calendarGuideNotesBody`, in the
+  record's order; the D25 and D32 amendments; `calendarGuideStartHere`
+  and `calendarGuideHowItWorks`; the three changed values; the page's
+  three calls re-pointed — `calendarGuideIntro(tryIt)`,
+  `calendarGuideOpeningBody(calendar, title)`,
+  `calendarGuidePermissionsBody(battery, permissions)`;
+  `reminder_word_test` extended; `railAuto/Always/Never` ←
+  `eventShowInDayRailAuto/Always/Never`, `other` ← `eventCategoryOther`,
+  `categoryAlerts` ← `eventCategoryAlerts`, `delete` ← `delete`). 1b:
+  `GuideMetrics` (`lib/constants/guide_metrics.dart`: the paragraph
+  numbers hoisted, `headingInset` 16, `headingGap` 8, `hubRowPadding`,
+  `hubGlyphSize` 24, `hubTitleGap` 16 — the tile and the glyph measurement
+  read the same constants); the content catalogue
+  `lib/models/calendar_guide_content.dart` (`CalendarGuideRow`,
+  `CalendarGuideTopic` — slug, glyph, title, caption, lead, rows, a null
+  `demo` seam for slice 3); `lib/widgets/calendar_guide_rows.dart`
+  (`CalendarGuideReadRow`, the old `_GuideRow` unchanged,
+  `calendarGuideParagraphStyle`, `calendarGuideReadEntry`);
+  `lib/pages/calendar_guide_topic_page.dart`; the hub rewritten (the
+  glyph rule cached per width / scale / locale / density, measured with
+  the practice title; search sections per page with the page row first);
+  ids `calendarGuidePage(slug)` / `calendarGuideTopic(slug)`; the row id
+  `calendar-guide-categories` retired with its pair; icons by grep — rail
+  `vertical_split_rounded` (the appearance page's), assume the fallback
+  `event_busy_outlined` (the editor's is a chip), priority
+  `flag_outlined`. Suites: `calendar_guide_page_test` 16 cases,
+  `calendar_guide_topic_page_test` 25; gate green, suite +10844 ~10 −1.
+  **Reviewed 2026-10-29** (one `reviewer`, 15 items, nothing on persisted
+  data; ten closed by one `implementer`, gate green, suite +10848 ~10 −1):
+  the search over-matched — the kit shows a whole section when the query
+  hits its title, so en "delete" listed every events row — and the hub now
+  keeps only the rows `matchSettingsEntry` matches (the page row first,
+  the kept rows as its keywords); `26_guide.txt` scrolls to the hub row
+  before tapping it; five sentences retyped labels against D5 and now
+  quote them (`calendarGuideCountBody` `{day1}` / `{day2}` / `{week3}` /
+  `{year1}` / `{year2}` ← `eventNumberedDays(n)` / `eventNumberedWeeks(3)`
+  / `eventElapsedYears(n)`; `calendarGuideAssumeBody`,
+  `calendarGuidePageAttendanceCaption`, `calendarGuideTryAttendance`
+  `{present}` / `{missed}`; `calendarGuidePriorityTitle` `{priority}` —
+  §8's text is superseded by the ARBs there); four `@` descriptions
+  corrected; German: "zeigt sie", "ihre Ereignisse" ×2, "So geht’s"; the
+  glyph measurement's style is `GuideMetrics.hubTitleFontSize` /
+  `hubTitleFontWeight`, held to the kit's title by a test; the catalogue's
+  rows build once per locale; the four unused section keys retired with
+  their `reminder_word_test` line; tests for the plain push, the card
+  membership and order, the search at de 2.0, the D37 pin. Left as found:
+  `CalendarGuideReadRow`'s 16 / 12 / 4; the id on the kit's container
+  wrapper (every kit row); the pre-existing collision of the row slug
+  `open` with the ⋮ row's id `calendar-guide-open` (never one screen; the
+  slugs are frozen); the new Dart files are LF in the working copy
+  (autocrlf normalises the commit). **Note for the commit:** the intro
+  promises a "Try it" corner on every page, which exists only from slice
+  3 — slices 1–3 ship together.
 - **Slice 2 — the practice calendar page.** `CalendarGuidePracticePage`:
   `SettingsAppBar`-sized bar with the real `CalendarViewMenu` (the format
   choice changes the demo grid; Overview → the caption), the funnel (→
@@ -788,6 +843,83 @@ so they never overlap an implementer or a `qa` build.
   editor, open, skip, delete, filter, format, each asserting the demo state
   and that no service saw a write (fakes); the page at `de` 2.0 on both
   sizes.
+  **As built (2026-10-29, one `implementer`):**
+  `lib/models/calendar_guide_demo.dart` (`GuideDemoCalendar` — the six
+  events, the demo's own presence map, skips and per-day descriptions, the
+  picked and focused day, format, panel mode, filters; the per-day map over
+  the focused month ± 1 plus a week each side, rebuilt on event / skip /
+  filter changes and page turns, `eventsFor` a lookup; `upcoming()` 35
+  days, memoized; `reset`, `isDirty`) and
+  `lib/pages/calendar_guide_practice_page.dart` (settings read once behind
+  a spinner gate; the bar, the band, the grid, the panel, the add button;
+  the editor / detail / description / dates / filter / menu / template
+  paths); `calendarGuidePracticeIcon` / `Slug` in the catalogue; the band
+  numbers and `captionTitleMaxChars` in `GuideMetrics` plus
+  `practiceHeaderInset` 4, `practiceChevronPadding` 8,
+  `practiceMarkerInset` 4 (the real grid's `AppSpacing` and a literal,
+  both off-limits here); ids `calendar-guide-practice`,
+  `calendar-guide-practice-banner`, `practice-reset`,
+  `practice-filter-open`, `practice-more`, `practice-add-event`, the hub
+  row `calendar-guide-page-practice`; an optional `identifier` on
+  `CalendarAddFab` and `CalendarOverflowMenu` (defaults unchanged). The
+  demo grid's header is a plain centred month title (no Today button, no
+  month picker — swipe only). Where a shared widget reads a static cache
+  the demo cannot feed: the grid bars and the timeline fade read
+  `EventPresence` (a missed demo day draws at full strength), the detail
+  sheet's chips open "present" on the missed Yoga day and its Skip row
+  reads `EventSkips` (always offered), the editor's skip picker starts
+  empty; the day panel, Upcoming and "Missed only" take the demo's facts
+  explicitly. Captions beyond the table: the template picker's Quick alarm
+  row → `calendarGuideWouldOpen(quickAlarmTitle)`; Add date / All dates →
+  `calendarGuideDemoChanged`; presence taps say nothing (no string); the
+  format choice does not dirty Start over. `PanelModeBar` keeps its expand
+  toggle (`expanded: false`, a no-op). Suite:
+  `calendar_guide_practice_page_test` (20 cases, a robot, a statement
+  interceptor on the in-memory database every calendar service and
+  `SettingsService` are bound to — zero statements after each case; the
+  matrix with the SDK's real Roboto through
+  `test/goldens/support/golden_fonts.dart`, the test font's one-em glyphs
+  having pushed the band to 322 dp). Gate green, suite +10868 ~10 −1.
+  Pre-existing, noticed: `DayTimelineView` overflows inside its blocks at
+  text scale 2.0 (`day_timeline_view.dart:366`).
+  **Reviewed 2026-10-29** (one `reviewer`, 24 items, none a write; 14
+  closed by one `implementer`, gate green, suite +10888 ~10 −1). The
+  lesson: a sandboxed widget that reads a **static cache by event id** lies
+  for a demo id, so the fix is a **read seam** whose default is today's
+  static read — `isMissed` (`bool Function(CalendarEvent, DateTime dayUtc)`,
+  default `EventPresence.isMissed`) on `DayBarsResolver.defaults` (threaded
+  to `EventDayBarProvider`), `DayTimelineView` (a reader skips its layout
+  memo — no revision tracks the demo's marks), `EventDetailSheet.show` and
+  `PresenceAdherence.compute`; `EventEditorSheet.show(initialSkippedDays:,
+  initialAlerts:)` (default the facades); `CalendarViewMenu(namesRoute:)`
+  (null keeps the per-platform choice); `PanelModeBar.onToggleExpanded`
+  nullable (null draws the button disabled). With them the missed Yoga
+  week fades in the grid and the timeline, the detail sheet opens "Missed"
+  with 4/5 from the demo's marks, a demo skip survives the editor's
+  picker, an alert added in the practice editor survives a reopen. Also:
+  the detail sheet's callbacks update the demo without `setState` (its
+  dispose flushes a task tick inside `finalizeTree`'s lock) and the page
+  rebuilds at the end of the frame; per-day descriptions reach the day
+  panel and `pendingOccurrenceDescription` is gated on `appliesTo`;
+  presence taps caption `eventAdherenceSummary` from the demo's marks;
+  `isDirty` compares with the seed (Apply unchanged, add-then-delete,
+  mark-then-unmark stay disabled); the seed waits for
+  `CategoryService.getInstance()` (the static facade is empty before the
+  calendar's bloc loads); the bars are memoized per day; added events
+  carry the `guide-demo-` prefix; the hub search finds the Practice row.
+  The suite binds all nine services and `SettingsService` to one
+  intercepted database (`PublicHolidayService.forTesting` and
+  `MarkdownBarService.forTesting` added — `getInstance` delegates to a
+  private `_create`), checks `CalendarTemplates` / `PublicHolidays` and
+  empty `SharedPreferences`, 38 cases. Left as found: the detail sheet's
+  Next row and stats go through `occursOnUtcDay`, which reads the static
+  `EventSkips` and so ignores demo skips (a third seam, not taken); the
+  plain month title; the `practice*` metrics copying the real grid's
+  values; demo events listing the owner's category alerts (read-only).
+  **For the `design-reviewer`:** at de 2.0 on 360 × 780 the month grid
+  leaves no room for the panel and the Day panel's presence button sits
+  under the add button — the real calendar's own geometry at that scale,
+  to be judged there.
 - **Slice 3 — the "Try it" cards on the task pages**, built to the
   designer's spec, one per page: screen (the two menus in a demo bar +
   `PanelModeBar` with the three captions); events (a three-row demo list +
@@ -834,6 +966,146 @@ button), and the practice page's banner and bar (the banner's one line,
 its ground, the bar at `AppBarMetrics`). Render the current hub and a kit
 page with real fonts first; return the spec with its defaults lettered;
 the owner answers before slice 1 builds.
+
+**The designer's spec (2026-10-29; one mock,
+https://claude.ai/artifact/ELx7HcgB9Tn2zKd35jAdDv; the renders and their
+`measure.txt` lived in that session's scratchpad):**
+
+- **Numbers** in a new `lib/constants/guide_metrics.dart` → `GuideMetrics`
+  (the `AlarmMetrics` precedent — a surface's own numbers, which
+  `FormMetrics` should not grow for one page; §2's "no new number" held for
+  a page of read rows): `paragraphFontSize` 14 and `paragraphLineHeight`
+  1.4 (hoisted from the page's private style), `cardInset` 16,
+  `leadToStage` 12, `stageToCaption` 8, `stageRadius` 12, `stagePadding`
+  12, `captionTitleMaxChars` 24, `bannerVerticalPadding` 8,
+  `bannerGlyphSize` 20, `bannerGap` 12, `bannerMaxTextScale` 1.5.
+- **The hub.** The kit `header:` carries the intro (its first two
+  sentences, D25). Two cards: "Start here" (chip `flag_rounded`,
+  `calendarGuideStartHere`) — Practice calendar, The calendar screen, Good
+  to know; "How do I…" (chip `help_outline_rounded`, `calendarGuideHowDoI`)
+  — the seven task rows. A hub row is a `ListTile` inside
+  `SettingsEntry.builder`, as Calendar settings' navigating rows: leading
+  24 `primary` page glyph (`ExcludeSemantics`), title the kit's 14 / 500
+  `onSurface`, caption the kit's 12 `onSurfaceVariant` wrapping freely,
+  trailing `chevron_right_rounded` 24 `onSurfaceVariant`, ink, `onTap`
+  pushes; `SettingsEntry.identifier` = `SemanticsIds.calendarGuidePage
+  (slug)` (`calendar-guide-page-<topic>`), one merged button node. The
+  glyph rule: when the longest word of any hub title plus the 40 dp glyph
+  column does not fit the title column (de "Übungskalender" at 2.0 on
+  360), every hub row drops its glyph together — measured as
+  `_choiceWordsFit` in `settings_page.dart` does, cached per width / text
+  scaler / locale. Page glyphs: practice `touch_app_rounded`, screen
+  `calendar_month_rounded`, events `event_rounded`, kinds
+  `event_repeat_rounded`, alerts `notifications_active_rounded`,
+  attendance `how_to_reg_rounded`, categories `category_rounded`, finding
+  `search_rounded`, setup `tune_rounded`, good `info_outline_rounded`; the
+  same glyph is the chip of that page's section in a search result.
+- **A task page.** `SettingsAppBar(title: calendarGuideTitle)` — the bar
+  names the guide, because the German page titles do not fit a bar (D26).
+  The kit `header:` holds the page title (`FormMetrics.titleFontSize` 20 /
+  `titleLineHeight` 1.3 / w500 `onSurface`, wrapping freely, 16 sides, 8
+  below, `Semantics(header: true, headingLevel: 1)`), then the lead in the
+  paragraph style. The first card is "Try it" (slice 3; chip
+  `touch_app_rounded`, title `calendarGuideTryIt`; one `SettingsEntry`
+  whose title is the lead-in — so it is searchable — and whose builder
+  draws the body: the lead-in in the paragraph style, `leadToStage`, the
+  stage, `stageToCaption`, the caption slot; no ink, no chevron, no tap on
+  the card; the entry is a container node `calendar-guide-try-<topic>`,
+  never merged, so the stage's controls stay separate nodes). The second
+  card is "How it works" (chip = the page glyph, title
+  `calendarGuideHowItWorks`) with today's `_GuideRow`s unchanged (D4, D7).
+  The stage: `RepaintBoundary` › a `pageGround` fill under a 1 dp
+  `outlineVariant` line, `stageRadius`, `stagePadding`; the widgets inside
+  keep their own grounds (a `FormRowGroup` is `rowGroup` on it). The live
+  caption: a `FormCaptionSlot` whose candidates are every string the card
+  can show (the longest fixed demo title; typed titles cut to
+  `captionTitleMaxChars` with "…", a 24-character stand-in among the
+  candidates), child `FormCaption` 13 / 18 `onSurfaceVariant` with no
+  `maxLines`, under `Semantics(liveRegion: true)`, id
+  `calendar-guide-try-<topic>-caption`; never empty where the card has a
+  resting state (D30).
+- **The practice page.** An `AppBar` as `calendar_page.dart:949`
+  (`AppBarMetrics`, `surface`, `scrolledUnderElevation` 0,
+  `CalendarViewMenu.titleSpacing`; leading back; title the real
+  `CalendarViewMenu`; actions: Start over `restart_alt_rounded` in the
+  saved-filters slot — tooltip `calendarGuideDemoReset`, id
+  `practice-reset`, 38 % until the demo differs from its seed — the funnel
+  with its badge, the real `CalendarOverflowMenu`). Under it a full-width
+  `primaryContainer` band, no radius, no ink (`RowMetrics.groupInset`
+  sides, `bannerVerticalPadding`; glyph `touch_app_rounded` at
+  `bannerGlyphSize` `onPrimaryContainer`, then `bannerGap`; line 1
+  `calendarGuidePracticeBanner` 14 / 500 / 20 `onPrimaryContainer`, never
+  changes; line 2 a `FormCaptionSlot` 13 / 18 `onPrimaryContainer` under
+  `liveRegion`, idle `calendarGuidePracticeIdle`, candidates every practice
+  caption with `calendarGuideDemoAddedShort`), the band under
+  `MediaQuery.withClampedTextScaling(maxScaleFactor: bannerMaxTextScale)`
+  — Material's own `MaterialBanner` clamp; id
+  `calendar-guide-practice-banner`; the body scopes and names its route
+  `calendarGuidePagePractice` (override `CalendarViewMenu`'s `namesRoute`).
+- **Measured (±1 dp):** a hub row 71 / 87 / 194–202 at 1.0 / 1.3 / 2.0
+  (de 160 at 2.0 without the glyph; 236 with it and a broken word); the
+  card 376 / 426 / 682 (en; the stage 170, 224 at 2.0); the caption slot
+  54 / 69–92 / 180–216; the banner 72 / 111 / 127 (clamped); the panel left
+  on 780 under a 336 grid 276 / 237 / 221. Contrast: caption on card 8.1
+  light / 9.6 dark, `primary` glyph 5.6 / 9.6, banner text 13.3 / 7.2, the
+  band against the bar 1.23 / 1.99 (the hue separates), the stage line
+  1.48 / 1.74 (not a control).
+- **The `design-reviewer` re-renders after the build:** the hub (en / de,
+  1.0 / 1.3 / 2.0, both themes, 360 and 412; the glyph-drop threshold at
+  de 2.0; a live query; a pressed row; the desktop focus ring); the events
+  page idle and after "Added" in en and de 2.0, the slot height equal in
+  both; the kinds page at de 2.0; the finding page with `viewInsets`; the
+  practice page's captions (idle, `AddedShort`, `DemoPanelUpcoming`,
+  `YouAreHere`) at 1.0 / 1.3 / 2.0 in de dark with the banner height
+  pinned, Start over disabled and enabled. Device-only, for `qa
+  screenshot`: the real grid at the AOSP 200 % curve, the TalkBack route
+  name and live-region announcements, the bar title at 2.0 ("Kalen…" is
+  the real calendar's own geometry). Out of scope, kit-wide (for
+  `docs/ui-language-adoption-roadmap.md`): the `SettingsSearchField` hint
+  clips at de 2.0; the kit's dividers run the full width.
+
+**D21–D35 — the designer's defaults, taken as delegated in the unattended
+session of 2026-10-29 (the recommended option stands; each reversible in
+one line):** **D21** (A) the hub is two kit cards, "Start here" (Practice,
+The calendar screen, Good to know) and "How do I…" (the seven task rows) —
+alternative: Good to know last as a one-row card, as Calendar settings
+does. **D22** (B) hub rows keep the page glyph and drop it on every row at
+once when a title word cannot fit — alternative: no glyph. **D23** (C) the
+Practice row is the first row of the first card, not set apart —
+alternative: a `primaryContainer` card above. **D24** (D) hub captions at
+the kit's 12 px wrap freely — alternative: two lines. **D25** (E) the
+intro drops "You can come back here any time…", which joins the Good to
+know "Opening the calendar" row — alternative: keep it (at 2.0 no row
+shows on the first screen). **D26** (F) a task page's bar names the guide;
+the page title is a 20 / 500 heading atop the list — alternative: the
+title in the bar (cut in German at 1.0). **D27** (G) "Try it" is the first
+card after the lead — alternative: the last. **D28** (H) the read rows sit
+in a "How it works" card — alternative: the page title repeated. **D29**
+(I) the stage is `pageGround` under a 1 dp `outlineVariant` line, radius
+12, inset 12 — alternative: a full-bleed band. **D30** (J) the live
+caption is never empty where the card has a resting state — screen
+`calendarGuideDemoFormat(Month)`, events `calendarGuideDemoLongPressHint`,
+kinds `calendarGuideDemoOneDay`, attendance the presence caption, finding
+`calendarGuideDemoMatches(6)`, setup `calendarGuideDemoHolidays`; alerts
+and categories keep an empty reserved slot until the first action —
+alternative: an idle string for those two. **D31** (K) the banner is a
+full-width `primaryContainer` band under a 1.5 text-scale clamp —
+alternative: the record's `rowGroup` on `pageGround` (measured invisible
+in dark, 1.09:1). **D32** (L) `calendarGuidePracticeBanner` is split into
+"Nothing here is saved." and `calendarGuidePracticeIdle`, and
+`calendarGuideDemoAddedShort` serves the practice page — alternative: one
+banner key plus a caption slot (+36–81 dp). **D33** (M) Start over is a
+bar action, disabled until something changed — alternative: a
+`TextButton` in the banner. **D34** (N) the numbers live in
+`GuideMetrics` — alternative: `FormMetrics`. **D35** (O) one glyph,
+`touch_app_rounded`, marks "tap here, nothing is saved" on the Practice
+row, the Try it chip and the banner — alternative: a glyph each. Two more
+of the lead's: **D36** the §8.1 `priority` row, which table 4 omits,
+lives on the events page after `description`; **D37** a live hub query
+shows one kit section per page with a match — titled with the page's
+name under its glyph, its first row the page's own navigating row, then
+the matching read rows (title or body) — and hides the page list while
+the query is live.
 
 ### 7.3 How to run this (the next session)
 

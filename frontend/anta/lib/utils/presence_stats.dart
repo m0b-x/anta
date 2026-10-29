@@ -54,13 +54,18 @@ abstract final class PresenceAdherence {
   /// see the result before the write reaches the facade — the detail sheet
   /// updates its toggle optimistically, and numbers that lagged it by a frame
   /// would read as the toggle having done nothing.
+  ///
+  /// [isMissed] replaces `EventPresence.isMissed` for a caller whose marks
+  /// live outside the facade (the guide's practice calendar); null reads it.
   static PresenceStats? compute(
     CalendarEvent event, {
     required DateTime today,
     DateTime? overrideDay,
     bool? overrideMissed,
+    bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
   }) {
     if (!EventPresence.appliesTo(event)) return null;
+    final readMissed = isMissed ?? EventPresence.isMissed;
 
     final override = overrideDay == null || overrideMissed == null
         ? null
@@ -82,9 +87,7 @@ abstract final class PresenceAdherence {
       if (!event.occursOn(day)) continue;
       sawOccurrence = true;
 
-      final missed = day == override
-          ? overrideMissed!
-          : EventPresence.isMissed(event, day);
+      final missed = day == override ? overrideMissed! : readMissed(event, day);
       if (!day.isBefore(windowStart)) {
         total++;
         if (!missed) attended++;

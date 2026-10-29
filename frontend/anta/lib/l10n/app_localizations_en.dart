@@ -6001,8 +6001,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideSearchHint => 'Search the guide';
 
   @override
-  String calendarGuideIntro(String title) {
-    return 'A short tour of the calendar. You can come back here any time: on the calendar, tap the three-dot button at the top right, then “$title”.';
+  String calendarGuideIntro(String tryIt) {
+    return 'A short tour of the calendar, one page per thing you will want to do. Each page has a “$tryIt” corner where you can tap without changing anything real.';
   }
 
   @override
@@ -6041,9 +6041,6 @@ class AppLocalizationsEn extends AppLocalizations {
   ) {
     return 'The title “$calendar” at the top is a menu: tap it to show a whole month, two weeks or a single week, or to open “$overview”. If the days ever shrink to one or two rows, you swiped up on them — pick “$month” from that menu again.';
   }
-
-  @override
-  String get calendarGuideSectionEvents => 'Events';
 
   @override
   String get calendarGuideAddTitle => 'Add an event';
@@ -6122,9 +6119,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideSectionAlerts => 'Reminders and alarms';
-
-  @override
   String get calendarGuideAlertAddTitle => 'Nothing rings unless you ask';
 
   @override
@@ -6153,8 +6147,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuidePermissionsTitle => 'Let the phone ring';
 
   @override
-  String calendarGuidePermissionsBody(String permissions) {
-    return 'The first time, ANTA asks for permission to show notifications and to set alarms. Allow them, or nothing rings. If something stays silent later, open the main menu (three lines, top left), then “$permissions”, and turn on what is missing.';
+  String calendarGuidePermissionsBody(String battery, String permissions) {
+    return 'The first time, ANTA asks for permission to show notifications and to set alarms. Allow them, or nothing rings. On a Samsung phone also turn on “$battery” there, or its battery saver can hold reminders back. If something stays silent later, open the main menu (three lines, top left), then “$permissions”, and turn on what is missing.';
   }
 
   @override
@@ -6170,7 +6164,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calendarGuideOpenOftenBody =>
-      'ANTA lines up the next reminders each time you open it. Open the app regularly — a daily reminder needs the app opened every day or two — and they keep coming.';
+      'ANTA lines up the next reminders each time you open it — about ten of each. Open the app every week or so and they never run out.';
 
   @override
   String get calendarGuideQuickAlarmTitle => 'A quick alarm';
@@ -6187,9 +6181,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String calendarGuideHubBody(String alerts) {
     return 'The three-dot button at the top right, then “$alerts”, lists every reminder and alarm of the next thirty days — each with a switch to pause it — and what went off recently.';
   }
-
-  @override
-  String get calendarGuideSectionFinding => 'Finding things';
 
   @override
   String get calendarGuideSearchTitle => 'Search';
@@ -6214,9 +6205,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String calendarGuideFiltersBody(String reset, String apply) {
     return 'The funnel button at the top hides categories or kinds of events from the calendar — handy, but easy to forget. While a filter is on, the funnel shows a number. If events seem to be missing, open the funnel and tap “$reset”, then “$apply”.';
   }
-
-  @override
-  String get calendarGuideSectionSettings => 'Make it yours';
 
   @override
   String get calendarGuideSettingsTitle => 'Where the settings are';
@@ -6247,14 +6235,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCategoriesTitle => 'Your own categories';
-
-  @override
-  String calendarGuideCategoriesBody(String settingsRow, String categories) {
-    return 'In “$settingsRow”, “$categories” lists them all. The + button creates one with its own icon and colour; the eye hides one you do not use, so it is no longer offered. Hiding a category does not remove its events.';
-  }
-
-  @override
   String get calendarGuideLanguageTitle => 'Language, dark mode and text size';
 
   @override
@@ -6269,8 +6249,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideOpeningTitle => 'Opening the calendar';
 
   @override
-  String calendarGuideOpeningBody(String calendar) {
-    return 'From the app\'s first screen, tap the menu button at the top left, then “$calendar”. ANTA reopens where you left it, so most days it starts straight on the calendar.';
+  String calendarGuideOpeningBody(String calendar, String title) {
+    return 'From the app\'s first screen, tap the menu button at the top left, then “$calendar”. ANTA reopens where you left it, so most days it starts straight on the calendar. You can come back here any time: on the calendar, tap the three-dot button at the top right, then “$title”.';
   }
 
   @override
@@ -6287,4 +6267,544 @@ class AppLocalizationsEn extends AppLocalizations {
   String calendarGuideNotesBody(String linkedNote) {
     return 'ANTA is also a notebook: the folders and notes behind the main menu. An event can point to a note through “$linkedNote” — for a shopping list or directions.';
   }
+
+  @override
+  String get calendarGuideAssumeTitle => 'Present unless you say otherwise';
+
+  @override
+  String calendarGuideAssumeBody(
+    String trackPresence,
+    String present,
+    String missed,
+    String assumeAbsent,
+  ) {
+    return 'With “$trackPresence” on, every day counts as “$present” until you mark it “$missed”. “$assumeAbsent” turns that around for things you rarely manage: a day counts as “$missed” until you mark it “$present”.';
+  }
+
+  @override
+  String get calendarGuideCountTitle => 'Counting the days';
+
+  @override
+  String calendarGuideCountBody(
+    String countOccurrences,
+    String countFromOne,
+    String countFromZero,
+    String day1,
+    String day2,
+    String week3,
+    String year1,
+    String year2,
+  ) {
+    return 'In a repeating event, “$countOccurrences” numbers its days. “$countFromOne” gives $day1, $day2, $week3; “$countFromZero” counts what has passed, so a birthday reads $year1, then $year2. The number shows beside the event on its day.';
+  }
+
+  @override
+  String calendarGuideRailTitle(String dayRail) {
+    return 'What “$dayRail” is';
+  }
+
+  @override
+  String calendarGuideRailBody(
+    String dayRail,
+    String settingsRow,
+    String appearance,
+    String railAuto,
+    String railAlways,
+    String railNever,
+  ) {
+    return '“$dayRail” is a thin strip at the left edge of a day with one mark per tracked event, so a habit stays visible even on a busy day. It is off until you turn it on in “$settingsRow”, under “$appearance”; after that each event can choose “$railAuto”, “$railAlways” or “$railNever”.';
+  }
+
+  @override
+  String get calendarGuidePerDayTitle => 'A note for one day only';
+
+  @override
+  String calendarGuidePerDayBody(
+    String perDay,
+    String thisDay,
+    String allDays,
+  ) {
+    return 'A repeating event shares one description across all its days. Turn on “$perDay” and each day can carry its own: open the event on that day and, above the description, choose “$thisDay” to write for that day alone or “$allDays” for the shared text.';
+  }
+
+  @override
+  String get calendarGuideSkippedTitle => 'Days you skipped';
+
+  @override
+  String calendarGuideSkippedBody(String skip, String skippedDays) {
+    return '“$skip” removes one day of a repeating event and leaves the others. The event\'s editing screen lists those days under “$skippedDays”; untick a day there to bring it back.';
+  }
+
+  @override
+  String calendarGuidePriorityTitle(String priority) {
+    return '“$priority” and the look';
+  }
+
+  @override
+  String calendarGuidePriorityBody(String priority, String iconColor) {
+    return '“$priority” orders the events of a busy day and decides which of them get a bar on the month when there are more than three. “$iconColor” gives one event its own icon or colour instead of its category\'s.';
+  }
+
+  @override
+  String get calendarGuideTryIt => 'Try it';
+
+  @override
+  String get calendarGuideHowDoI => 'How do I…';
+
+  @override
+  String get calendarGuidePagePractice => 'Practice calendar';
+
+  @override
+  String get calendarGuidePagePracticeCaption =>
+      'A calendar that saves nothing. Try everything here.';
+
+  @override
+  String get calendarGuidePageScreenCaption =>
+      'The month, the bars, the panel, the menus';
+
+  @override
+  String get calendarGuidePageEvents => 'Add, change or delete an event';
+
+  @override
+  String get calendarGuidePageEventsCaption =>
+      'The editor, saving, deleting, templates';
+
+  @override
+  String get calendarGuidePageKinds => 'One-time and repeating events';
+
+  @override
+  String get calendarGuidePageKindsCaption =>
+      'How the two kinds differ, and the quirks of each';
+
+  @override
+  String get calendarGuidePageAlerts => 'Get reminded';
+
+  @override
+  String get calendarGuidePageAlertsCaption =>
+      'Reminders, alarms, permissions, the quick alarm';
+
+  @override
+  String get calendarGuidePageAttendance => 'Keep track of attendance';
+
+  @override
+  String calendarGuidePageAttendanceCaption(
+    String present,
+    String missed,
+    String dayRail,
+  ) {
+    return '“$present” or “$missed”, counting, “$dayRail”, a note per day';
+  }
+
+  @override
+  String get calendarGuidePageCategories => 'Use categories';
+
+  @override
+  String get calendarGuidePageCategoriesCaption =>
+      'What they are; create, change, hide, delete';
+
+  @override
+  String get calendarGuidePageFinding => 'Find an event';
+
+  @override
+  String calendarGuidePageFindingCaption(String overview) {
+    return 'Search, filters, “$overview”';
+  }
+
+  @override
+  String get calendarGuidePageSetup => 'Set up the calendar';
+
+  @override
+  String get calendarGuidePageSetupCaption =>
+      'Holidays, the week\'s first day, language and dark mode';
+
+  @override
+  String get calendarGuidePageGoodCaption =>
+      'Opening the calendar, going back, the rest of ANTA';
+
+  @override
+  String get calendarGuideStartHere => 'Start here';
+
+  @override
+  String get calendarGuideHowItWorks => 'How it works';
+
+  @override
+  String get calendarGuideScreenLead =>
+      'What you see when the calendar opens, and what each part is for.';
+
+  @override
+  String get calendarGuideEventsLead =>
+      'An event is anything with a day: an appointment, a bill, a class. Here is how you add one, change it and remove it.';
+
+  @override
+  String get calendarGuideKindsLead =>
+      'Most events happen once. Some come back every week or month. The calendar treats the two a little differently.';
+
+  @override
+  String get calendarGuideAlertsLead =>
+      'Nothing rings by itself. You add a reminder or an alarm to the events that need one.';
+
+  @override
+  String get calendarGuideAttendanceLead =>
+      'For a class or a habit you want to keep count of, the calendar can remember which days you made it.';
+
+  @override
+  String get calendarGuideCategoriesLead =>
+      'A category gives an event its colour and icon. The app comes with a few; make your own and hide the ones you never use.';
+
+  @override
+  String get calendarGuideFindingLead =>
+      'Three ways to find something: search by name, hide what you do not want to see, or look at a whole year.';
+
+  @override
+  String get calendarGuideSetupLead =>
+      'A few settings make the calendar yours: whose holidays it shows, which day starts the week, and the app\'s language and look.';
+
+  @override
+  String get calendarGuideKindsOneTitle => 'One day, or many';
+
+  @override
+  String calendarGuideKindsOneBody(String repeat, String doesNotRepeat) {
+    return 'A new event is one-time: it lives on one day. Give it a rule in “$repeat” and it becomes repeating, showing on every matching day. Choose “$doesNotRepeat” again and it is one-time once more, on its start day.';
+  }
+
+  @override
+  String get calendarGuideKindsDatesTitle =>
+      'A one-time event can have extra dates';
+
+  @override
+  String calendarGuideKindsDatesBody(
+    String addDate,
+    String repeat,
+    String threeDates,
+    String dates,
+    String skip,
+  ) {
+    return '“$addDate” adds another day to a one-time event. It is then neither one-time nor repeating: “$repeat” reads “$threeDates”, the “$dates” row lists the days, and “$skip” works on each of them. From the event\'s page, “$addDate” saves at once.';
+  }
+
+  @override
+  String get calendarGuideKindsOnlyOneTitle =>
+      'What only a one-time event can do';
+
+  @override
+  String calendarGuideKindsOnlyOneBody(String removeAfter, String noticeSkip) {
+    return '“$removeAfter” is for one-time events only: the alarm deletes its event once you stop it. And “$noticeSkip” on the quiet notice before an alarm switches a one-time event\'s alert off, where on a repeating event it skips that day.';
+  }
+
+  @override
+  String get calendarGuideKindsOnlyRepeatTitle =>
+      'What only a repeating event can do';
+
+  @override
+  String calendarGuideKindsOnlyRepeatBody(
+    String trackPresence,
+    String countOccurrences,
+    String skip,
+    String skippedDays,
+  ) {
+    return '“$trackPresence”, “$countOccurrences” and a separate note per day appear once an event has more than one day. “$skip” drops one day and keeps the rest; “$skippedDays” in the editor lists them.';
+  }
+
+  @override
+  String get calendarGuideKindsOneChangeTitle => 'One change, every day';
+
+  @override
+  String get calendarGuideKindsOneChangeBody =>
+      'Editing a repeating event changes all of its days at once: a new time moves every session. To change just one day, skip it and add a one-time event for that day instead.';
+
+  @override
+  String get calendarGuideKindsTrickyTitle => 'Where repeating gets tricky';
+
+  @override
+  String calendarGuideKindsTrickyBody(
+    String ends,
+    String repeat,
+    String alsoBefore,
+  ) {
+    return 'A monthly event on the 31st skips the months without a 31st; a yearly one on 29 February shows only in leap years. “$ends” inside “$repeat” stops a rule after a date, and “$alsoBefore” lets it show on matching days before the start.';
+  }
+
+  @override
+  String get calendarGuideKindsBirthdayTitle => 'Birthdays';
+
+  @override
+  String calendarGuideKindsBirthdayBody(String birthday) {
+    return 'Picking the “$birthday” category on a new event makes it yearly and counts from 0 — set its start date to the real birth date and the event reads the person\'s age.';
+  }
+
+  @override
+  String get calendarGuideCatCreateTitle => 'Create one';
+
+  @override
+  String calendarGuideCatCreateBody(
+    String settingsRow,
+    String categories,
+    String createCategory,
+    String save,
+  ) {
+    return 'In “$settingsRow”, open “$categories” and tap the + button (“$createCategory”). Give it a name, pick an icon and a colour, then “$save”. It is offered in every event from then on.';
+  }
+
+  @override
+  String get calendarGuideCatChangeTitle => 'Change one';
+
+  @override
+  String get calendarGuideCatChangeBody =>
+      'Tap a category in the list to change its icon or colour. The ones that came with the app keep their names; your own can be renamed.';
+
+  @override
+  String get calendarGuideCatHideTitle => 'Hide the ones you do not use';
+
+  @override
+  String calendarGuideCatHideBody(String hide, String show) {
+    return 'The eye on a row (“$hide”) takes a category out of the pickers. Events that already have it keep their colour and stay on the calendar. Tap the eye again (“$show”) to bring it back.';
+  }
+
+  @override
+  String get calendarGuideCatDeleteTitle => 'Delete one';
+
+  @override
+  String calendarGuideCatDeleteBody(String delete, String other) {
+    return 'The ⋮ on your own category offers “$delete”. Its events are not lost: they move to “$other”. The categories that came with the app cannot be deleted, only hidden.';
+  }
+
+  @override
+  String get calendarGuideCatAlertsTitle => 'An alert for a whole category';
+
+  @override
+  String calendarGuideCatAlertsBody(String addAlert, String categoryAlerts) {
+    return 'Inside a category, “$addAlert” sets a reminder or alarm that every event in that category gets automatically — handy for appointments. An event can switch it off for itself with “$categoryAlerts”.';
+  }
+
+  @override
+  String get calendarGuideTryScreen =>
+      'Tap the title and the three dots, then switch the panel\'s mode.';
+
+  @override
+  String get calendarGuideTryEvents =>
+      'Add an event with +, open it, change it, delete it. Nothing here is real.';
+
+  @override
+  String get calendarGuideTryKinds =>
+      'Make the event repeat, give it extra dates, skip a day, and watch the month.';
+
+  @override
+  String get calendarGuideTryAlerts =>
+      'Add an alert to the demo event, then see what an alarm looks like.';
+
+  @override
+  String calendarGuideTryAttendance(String present, String missed) {
+    return 'Mark a few days “$present” or “$missed” and watch the count.';
+  }
+
+  @override
+  String get calendarGuideTryCategories =>
+      'Create a category, hide one, delete one — in this list only.';
+
+  @override
+  String get calendarGuideTryFinding =>
+      'Type a word, a category or a date, and filter the month.';
+
+  @override
+  String get calendarGuideTrySetup =>
+      'Pick a holiday set and a first day of the week; the sample week follows.';
+
+  @override
+  String calendarGuideWouldOpen(String what) {
+    return 'In the real calendar this would open “$what”.';
+  }
+
+  @override
+  String get calendarGuideWouldShare =>
+      'In the real calendar this would share a file with every event.';
+
+  @override
+  String get calendarGuideYouAreHere =>
+      'That is this guide — you are already in it.';
+
+  @override
+  String calendarGuideDemoFormat(String format) {
+    return 'Showing “$format”.';
+  }
+
+  @override
+  String calendarGuideDemoPanelDay(String day) {
+    return '“$day” lists what is on the picked day.';
+  }
+
+  @override
+  String calendarGuideDemoPanelTimeline(String timeline) {
+    return '“$timeline” draws the day by the hour; all-day events sit above.';
+  }
+
+  @override
+  String calendarGuideDemoPanelUpcoming(String upcoming) {
+    return '“$upcoming” lists what is coming over the next weeks, whatever day is picked.';
+  }
+
+  @override
+  String calendarGuidePickedDay(String date, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events',
+      one: 'one event',
+      zero: 'nothing planned',
+    );
+    return '$date: $_temp0';
+  }
+
+  @override
+  String calendarGuideDemoAdded(String title, String date) {
+    return 'Added “$title” on $date. Here it is gone when you leave; in the real calendar it stays.';
+  }
+
+  @override
+  String calendarGuideDemoChanged(String title) {
+    return 'Saved the change to “$title”.';
+  }
+
+  @override
+  String calendarGuideDemoDeleted(String title) {
+    return 'Deleted “$title” — all of its days.';
+  }
+
+  @override
+  String calendarGuideDemoSkipped(String date, String title) {
+    return 'Skipped $date for “$title”; the other days stay.';
+  }
+
+  @override
+  String calendarGuideDemoTemplate(String title) {
+    return 'Added “$title” from a template.';
+  }
+
+  @override
+  String calendarGuideDemoFiltered(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count filters on — the funnel shows them',
+      one: 'One filter on — the funnel shows it',
+      zero: 'No filter on',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get calendarGuideDemoReset => 'Start over';
+
+  @override
+  String get calendarGuideDemoLongPressHint =>
+      'Press and hold + for templates and the quick alarm.';
+
+  @override
+  String calendarGuideDemoAlertSet(String title, String alert) {
+    return '“$title” now has: $alert. In the real calendar this is saved with the event.';
+  }
+
+  @override
+  String get calendarGuideShowAlarm => 'Show me the alarm screen';
+
+  @override
+  String calendarGuideDemoHereOnly(String message) {
+    return '$message — here only.';
+  }
+
+  @override
+  String calendarGuideDemoOneDay(String date) {
+    return 'One day only: $date.';
+  }
+
+  @override
+  String calendarGuideDemoRepeats(String rule, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days this month',
+      one: 'one day this month',
+    );
+    return '$rule — $_temp0';
+  }
+
+  @override
+  String calendarGuideDemoCatCreated(String name) {
+    return 'Created “$name” — here only.';
+  }
+
+  @override
+  String calendarGuideDemoCatHidden(String name) {
+    return '“$name” is hidden: not offered for new events; its events stay.';
+  }
+
+  @override
+  String calendarGuideDemoCatDeleted(String name, String other) {
+    return 'Deleted “$name”; its events moved to “$other”.';
+  }
+
+  @override
+  String calendarGuideDemoMatches(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events match',
+      one: 'One event matches',
+      zero: 'No event matches',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String calendarGuideDemoHolidays(int count, String year) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count public holidays in $year',
+      one: 'One public holiday in $year',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String calendarGuideOpenPermissions(String permissions) {
+    return 'Open “$permissions”';
+  }
+
+  @override
+  String calendarGuideOpenSettings(String settingsRow) {
+    return 'Open “$settingsRow”';
+  }
+
+  @override
+  String get calendarGuidePracticeBanner => 'Nothing here is saved.';
+
+  @override
+  String get calendarGuidePracticeIdle =>
+      'Tap, add, change — it all disappears when you leave.';
+
+  @override
+  String calendarGuideDemoAddedShort(String title, String date) {
+    return 'Added “$title” on $date.';
+  }
+
+  @override
+  String get calendarGuideDemoEventDentist => 'Dentist';
+
+  @override
+  String get calendarGuideDemoEventYoga => 'Yoga';
+
+  @override
+  String get calendarGuideDemoEventRent => 'Rent';
+
+  @override
+  String get calendarGuideDemoEventBirthday => 'Mum\'s birthday';
+
+  @override
+  String get calendarGuideDemoEventBookClub => 'Book club';
+
+  @override
+  String get calendarGuideDemoEventFlight => 'Flight';
+
+  @override
+  String get calendarGuideDemoEventFlightNote => 'Gate opens two hours before.';
 }

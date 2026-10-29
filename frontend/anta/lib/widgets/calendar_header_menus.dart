@@ -37,7 +37,14 @@ class CalendarViewMenu extends StatelessWidget {
     required this.onPageSelected,
     this.format,
     this.onFormatSelected,
+    this.namesRoute,
   });
+
+  /// Whether the title names the route. Null is `AppBar`'s own choice per
+  /// platform; the guide's practice calendar passes false, because its body
+  /// names the route "Practice calendar" and the title only quotes the real
+  /// calendar's name.
+  final bool? namesRoute;
 
   /// The page this title sits on: its name is the label and its row is
   /// checked.
@@ -174,7 +181,7 @@ class CalendarViewMenu extends StatelessWidget {
       child: Semantics(
         button: true,
         header: true,
-        namesRoute: _namesRoute,
+        namesRoute: namesRoute ?? _namesRoute,
         hint: _hintFor(l10n.calendarViewMenuTooltip),
         child: PopupMenuButton<_ViewChoice>(
           tooltip: l10n.calendarViewMenuTooltip,
@@ -227,7 +234,12 @@ class CalendarOverflowMenu extends StatelessWidget {
     required this.onExport,
     required this.onGuide,
     required this.onSettings,
+    this.identifier = SemanticsIds.calendarMore,
   });
+
+  /// The button's `SemanticsIds` value: the calendar's own by default; the
+  /// guide's practice page gives its ⋮ one of its own.
+  final String identifier;
 
   final VoidCallback onAlerts;
 
@@ -256,7 +268,7 @@ class CalendarOverflowMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return AutomationId(
-      identifier: SemanticsIds.calendarMore,
+      identifier: identifier,
       child: PopupMenuButton<_OverflowAction>(
         icon: const Icon(Icons.more_vert),
         iconSize: AppBarMetrics.glyphSize,

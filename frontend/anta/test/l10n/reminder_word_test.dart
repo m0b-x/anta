@@ -51,6 +51,10 @@ void main() {
       s.alarmStop,
     ),
     'calendarGuideHubBody': (s) => s.calendarGuideHubBody(s.alertsTitle),
+    'calendarGuidePageAlertsCaption': (s) => s.calendarGuidePageAlertsCaption,
+    'calendarGuideAlertsLead': (s) => s.calendarGuideAlertsLead,
+    'calendarGuideCatAlertsBody': (s) =>
+        s.calendarGuideCatAlertsBody(s.eventAlertAdd, s.eventCategoryAlerts),
   };
 
   /// Strings that name an alert of either tier.
@@ -64,6 +68,13 @@ void main() {
     'alertsDefaultNone': (s) => s.alertsDefaultNone,
     'alertsEmpty': (s) => s.alertsEmpty,
     'alertsToggleLabel': (s) => s.alertsToggleLabel('Leg day'),
+    'calendarGuidePageAlerts': (s) => s.calendarGuidePageAlerts,
+    'calendarGuideKindsOnlyOneBody': (s) => s.calendarGuideKindsOnlyOneBody(
+      s.eventAlertRemoveAfter,
+      s.alertsSkipAction,
+    ),
+    'calendarGuideCatAlertsTitle': (s) => s.calendarGuideCatAlertsTitle,
+    'calendarGuideTryAlerts': (s) => s.calendarGuideTryAlerts,
   };
 
   /// English strings that say "reminder" without naming the tier, each with
@@ -73,10 +84,10 @@ void main() {
   const notTheTier = {
     'permissionExactAlarms': "Android's own name for the exact-alarm access",
     'alertsExactAlarmsOffBanner': 'quotes that name',
-    'calendarGuideSectionAlerts':
-        "the guide's heading over alerts of both tiers",
     'calendarGuideAlertAddBody': 'an event has no alert of either tier',
     'calendarGuideOpenOftenBody': 'alerts of either tier are lined up',
+    'calendarGuidePermissionsBody':
+        'the battery saver holds back alerts of either tier',
   };
 
   test('every language the app ships has a stem here', () {

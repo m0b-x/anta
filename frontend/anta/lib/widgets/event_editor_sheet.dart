@@ -215,6 +215,13 @@ class EventEditorSheet extends StatefulWidget {
   /// picker keeps.
   final bool sandbox;
 
+  /// The event's cancelled days and its own alerts as the caller keeps them,
+  /// in place of `EventSkips` / `EventAlerts`. Null reads the facades; the
+  /// guide's practice calendar keeps both in memory, so the facades hold
+  /// nothing for its events.
+  final Set<DateTime>? initialSkippedDays;
+  final List<EventAlert>? initialAlerts;
+
   const EventEditorSheet({
     super.key,
     required this.defaultDate,
@@ -225,6 +232,8 @@ class EventEditorSheet extends StatefulWidget {
     this.appearance = const CalendarAppearance(),
     this.showBack = false,
     this.sandbox = false,
+    this.initialSkippedDays,
+    this.initialAlerts,
   });
 
   static Future<EventEditorResult?> show(
@@ -237,6 +246,8 @@ class EventEditorSheet extends StatefulWidget {
     CalendarAppearance appearance = const CalendarAppearance(),
     bool showBack = false,
     bool sandbox = false,
+    Set<DateTime>? initialSkippedDays,
+    List<EventAlert>? initialAlerts,
   }) {
     return showModalBottomSheet<EventEditorResult>(
       context: context,
@@ -256,6 +267,8 @@ class EventEditorSheet extends StatefulWidget {
           appearance: appearance,
           showBack: showBack,
           sandbox: sandbox,
+          initialSkippedDays: initialSkippedDays,
+          initialAlerts: initialAlerts,
         ),
       ),
     );
@@ -463,9 +476,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// event, leaving the discard dialog with nothing to discard. Every other
   /// input in [_fingerprint] is a snapshot too, so [_skippedDays] stays the
   /// only thing that can move this one.
-  late final Set<DateTime> _initialSkippedDays = EventSkips.daysFor(
-    widget.initialEvent?.id ?? '',
-  );
+  late final Set<DateTime> _initialSkippedDays =
+      widget.initialSkippedDays ??
+      EventSkips.daysFor(widget.initialEvent?.id ?? '');
 
   /// Whether the event keeps one description per occurrence instead of one
   /// shared by every day, with its own description as the template each day
@@ -784,7 +797,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // read here for an event that does not exist yet.
     _alerts = initial == null
         ? const []
-        : List<EventAlert>.of(EventAlerts.alertsFor(initial.id));
+        : List<EventAlert>.of(
+            widget.initialAlerts ?? EventAlerts.alertsFor(initial.id),
+          );
     _seededAlertIds = {for (final alert in _alerts) alert.id};
     _removeAfterAlert = initial?.removeAfterAlert ?? false;
     _categoryAlerts = initial?.categoryAlerts ?? true;
@@ -1264,7 +1279,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// The cancelled days currently in play: the draft once the picker has been
   /// opened, otherwise whatever is persisted.
   Set<DateTime> get _effectiveSkippedDays =>
-      _skippedDays ?? EventSkips.daysFor(widget.initialEvent?.id ?? '');
+      _skippedDays ??
+      widget.initialSkippedDays ??
+      EventSkips.daysFor(widget.initialEvent?.id ?? '');
 
   /// Reviews and edits the cancelled days as a set.
   ///

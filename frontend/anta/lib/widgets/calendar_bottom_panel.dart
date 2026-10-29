@@ -515,7 +515,10 @@ class PanelModeBar extends StatelessWidget {
   /// panel's restore lands a tap on the shown segment is a choice too.
   final VoidCallback onTouched;
   final bool expanded;
-  final VoidCallback onToggleExpanded;
+
+  /// Null draws the expand button disabled, never hidden: the guide's
+  /// practice panel shows the real bar but never covers its grid.
+  final VoidCallback? onToggleExpanded;
 
   const PanelModeBar({
     super.key,

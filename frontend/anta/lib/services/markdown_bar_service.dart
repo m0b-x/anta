@@ -52,10 +52,22 @@ class MarkdownBarService extends ChangeNotifier {
   // Singleton
   // ---------------------------------------------------------------------------
 
-  static Future<MarkdownBarService> getInstance() async {
+  static Future<MarkdownBarService> getInstance() =>
+      _create(AppDatabase.getInstance);
+
+  /// Binds the singleton to an arbitrary [AppDatabase] so tests run against
+  /// `NativeDatabase.memory()` instead of opening a second, on-disk database.
+  /// Never use it in app code.
+  @visibleForTesting
+  static Future<MarkdownBarService> forTesting(AppDatabase db) =>
+      _create(() async => db);
+
+  static Future<MarkdownBarService> _create(
+    Future<AppDatabase> Function() open,
+  ) async {
     if (_instance == null) {
       _instance = MarkdownBarService._();
-      _instance!._db = await AppDatabase.getInstance();
+      _instance!._db = await open();
       await _instance!._load();
       DatabaseLifecycle.registerResetHandler(reset);
     }

@@ -46,10 +46,21 @@ class PublicHolidayService {
   /// which days an event occurs on. Both failure branches still call
   /// `configure`, which degrades to "computed built-ins, no user deltas"
   /// instead of that fallback.
-  static Future<PublicHolidayService> getInstance() async {
+  static Future<PublicHolidayService> getInstance() =>
+      _create(AppDatabase.getInstance);
+
+  /// Binds the singleton to an arbitrary [AppDatabase] so tests run the real
+  /// DAO against `NativeDatabase.memory()`. Never use it in app code.
+  @visibleForTesting
+  static Future<PublicHolidayService> forTesting(AppDatabase db) =>
+      _create(() async => db);
+
+  static Future<PublicHolidayService> _create(
+    Future<AppDatabase> Function() open,
+  ) async {
     if (_instance != null) return _instance!;
     final service = PublicHolidayService._();
-    service._db = await AppDatabase.getInstance();
+    service._db = await open();
     service._dao = service._db.publicHolidayDao;
     try {
       service._profile = await service._readProfile();

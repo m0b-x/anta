@@ -435,6 +435,18 @@ void main() {
       expect(mode, next);
     }
     expect(touches, 3);
+    // A host that passes its toggle gets the button enabled.
+    expect(
+      tester
+          .widget<IconButton>(
+            find.ancestor(
+              of: find.byTooltip('Expand panel'),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
     await tester.tap(find.byTooltip('Expand panel'));
     await pumpFrames(tester);
     expect(toggles, 1);

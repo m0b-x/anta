@@ -7623,18 +7623,18 @@
   "@calendarGuideSearchHint": {
     "description": "Hint of the search field on the calendar guide page"
   },
-  "calendarGuideIntro": "A short tour of the calendar. You can come back here any time: on the calendar, tap the three-dot button at the top right, then “{title}”.",
+  "calendarGuideIntro": "A short tour of the calendar, one page per thing you will want to do. Each page has a “{tryIt}” corner where you can tap without changing anything real.",
   "@calendarGuideIntro": {
-    "description": "Intro paragraph at the top of the calendar guide; title is the guide's own menu label",
+    "description": "Intro paragraph at the top of the calendar guide hub; tryIt is the guide's Try it label",
     "placeholders": {
-      "title": {
+      "tryIt": {
         "type": "String"
       }
     }
   },
   "calendarGuideSectionCalendar": "The calendar screen",
   "@calendarGuideSectionCalendar": {
-    "description": "Calendar guide section heading about the calendar screen"
+    "description": "Calendar guide page title about the calendar screen, on its hub row and its topic page"
   },
   "calendarGuideMonthTitle": "One month at a time",
   "@calendarGuideMonthTitle": {
@@ -7689,10 +7689,6 @@
         "type": "String"
       }
     }
-  },
-  "calendarGuideSectionEvents": "Events",
-  "@calendarGuideSectionEvents": {
-    "description": "Calendar guide section heading about events"
   },
   "calendarGuideAddTitle": "Add an event",
   "@calendarGuideAddTitle": {
@@ -7827,10 +7823,6 @@
       }
     }
   },
-  "calendarGuideSectionAlerts": "Reminders and alarms",
-  "@calendarGuideSectionAlerts": {
-    "description": "Calendar guide section heading about alerts"
-  },
   "calendarGuideAlertAddTitle": "Nothing rings unless you ask",
   "@calendarGuideAlertAddTitle": {
     "description": "Calendar guide row title about adding an alert"
@@ -7876,10 +7868,13 @@
   "@calendarGuidePermissionsTitle": {
     "description": "Calendar guide row title about notification and alarm permissions"
   },
-  "calendarGuidePermissionsBody": "The first time, ANTA asks for permission to show notifications and to set alarms. Allow them, or nothing rings. If something stays silent later, open the main menu (three lines, top left), then “{permissions}”, and turn on what is missing.",
+  "calendarGuidePermissionsBody": "The first time, ANTA asks for permission to show notifications and to set alarms. Allow them, or nothing rings. On a Samsung phone also turn on “{battery}” there, or its battery saver can hold reminders back. If something stays silent later, open the main menu (three lines, top left), then “{permissions}”, and turn on what is missing.",
   "@calendarGuidePermissionsBody": {
-    "description": "Calendar guide paragraph about permissions; permissions is the drawer's Permissions label",
+    "description": "Calendar guide paragraph about permissions; battery is the alert permissions' battery row label, permissions is the drawer's Permissions label",
     "placeholders": {
+      "battery": {
+        "type": "String"
+      },
       "permissions": {
         "type": "String"
       }
@@ -7908,7 +7903,7 @@
   "@calendarGuideOpenOftenTitle": {
     "description": "Calendar guide row title about opening the app regularly"
   },
-  "calendarGuideOpenOftenBody": "ANTA lines up the next reminders each time you open it. Open the app regularly — a daily reminder needs the app opened every day or two — and they keep coming.",
+  "calendarGuideOpenOftenBody": "ANTA lines up the next reminders each time you open it — about ten of each. Open the app every week or so and they never run out.",
   "@calendarGuideOpenOftenBody": {
     "description": "Calendar guide paragraph about why the app must be opened regularly"
   },
@@ -7937,10 +7932,6 @@
         "type": "String"
       }
     }
-  },
-  "calendarGuideSectionFinding": "Finding things",
-  "@calendarGuideSectionFinding": {
-    "description": "Calendar guide section heading about search, the overview and filters"
   },
   "calendarGuideSearchTitle": "Search",
   "@calendarGuideSearchTitle": {
@@ -7989,10 +7980,6 @@
         "type": "String"
       }
     }
-  },
-  "calendarGuideSectionSettings": "Make it yours",
-  "@calendarGuideSectionSettings": {
-    "description": "Calendar guide section heading about settings"
   },
   "calendarGuideSettingsTitle": "Where the settings are",
   "@calendarGuideSettingsTitle": {
@@ -8045,22 +8032,6 @@
       }
     }
   },
-  "calendarGuideCategoriesTitle": "Your own categories",
-  "@calendarGuideCategoriesTitle": {
-    "description": "Calendar guide row title about managing categories"
-  },
-  "calendarGuideCategoriesBody": "In “{settingsRow}”, “{categories}” lists them all. The + button creates one with its own icon and colour; the eye hides one you do not use, so it is no longer offered. Hiding a category does not remove its events.",
-  "@calendarGuideCategoriesBody": {
-    "description": "Calendar guide paragraph about managing categories; the placeholders are the settings labels",
-    "placeholders": {
-      "settingsRow": {
-        "type": "String"
-      },
-      "categories": {
-        "type": "String"
-      }
-    }
-  },
   "calendarGuideLanguageTitle": "Language, dark mode and text size",
   "@calendarGuideLanguageTitle": {
     "description": "Calendar guide row title about language, theme and text size"
@@ -8079,17 +8050,20 @@
   },
   "calendarGuideSectionGood": "Good to know",
   "@calendarGuideSectionGood": {
-    "description": "Calendar guide section heading for general tips"
+    "description": "Calendar guide page title for general tips, on its hub row and its topic page"
   },
   "calendarGuideOpeningTitle": "Opening the calendar",
   "@calendarGuideOpeningTitle": {
     "description": "Calendar guide row title about reaching the calendar"
   },
-  "calendarGuideOpeningBody": "From the app's first screen, tap the menu button at the top left, then “{calendar}”. ANTA reopens where you left it, so most days it starts straight on the calendar.",
+  "calendarGuideOpeningBody": "From the app's first screen, tap the menu button at the top left, then “{calendar}”. ANTA reopens where you left it, so most days it starts straight on the calendar. You can come back here any time: on the calendar, tap the three-dot button at the top right, then “{title}”.",
   "@calendarGuideOpeningBody": {
-    "description": "Calendar guide paragraph about reaching the calendar; calendar is the drawer's Calendar label",
+    "description": "Calendar guide paragraph about reaching the calendar and the guide; calendar is the drawer's Calendar label, title is the guide's own menu label",
     "placeholders": {
       "calendar": {
+        "type": "String"
+      },
+      "title": {
         "type": "String"
       }
     }
@@ -8114,5 +8088,819 @@
         "type": "String"
       }
     }
+  },
+  "calendarGuideAssumeTitle": "Present unless you say otherwise",
+  "@calendarGuideAssumeTitle": {
+    "description": "Calendar guide row title about the assume-absent switch"
+  },
+  "calendarGuideAssumeBody": "With “{trackPresence}” on, every day counts as “{present}” until you mark it “{missed}”. “{assumeAbsent}” turns that around for things you rarely manage: a day counts as “{missed}” until you mark it “{present}”.",
+  "@calendarGuideAssumeBody": {
+    "description": "Calendar guide paragraph about the presence default; the placeholders are the editor's and the detail sheet's labels",
+    "placeholders": {
+      "trackPresence": {
+        "type": "String"
+      },
+      "present": {
+        "type": "String"
+      },
+      "missed": {
+        "type": "String"
+      },
+      "assumeAbsent": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCountTitle": "Counting the days",
+  "@calendarGuideCountTitle": {
+    "description": "Calendar guide row title about counting occurrences"
+  },
+  "calendarGuideCountBody": "In a repeating event, “{countOccurrences}” numbers its days. “{countFromOne}” gives {day1}, {day2}, {week3}; “{countFromZero}” counts what has passed, so a birthday reads {year1}, then {year2}. The number shows beside the event on its day.",
+  "@calendarGuideCountBody": {
+    "description": "Calendar guide paragraph about counting occurrences; the first three placeholders are the editor's count labels, the rest the counts an event shows (Day 1, Day 2, Week 3, 1 year, 2 years)",
+    "placeholders": {
+      "countOccurrences": {
+        "type": "String"
+      },
+      "countFromOne": {
+        "type": "String"
+      },
+      "countFromZero": {
+        "type": "String"
+      },
+      "day1": {
+        "type": "String"
+      },
+      "day2": {
+        "type": "String"
+      },
+      "week3": {
+        "type": "String"
+      },
+      "year1": {
+        "type": "String"
+      },
+      "year2": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideRailTitle": "What “{dayRail}” is",
+  "@calendarGuideRailTitle": {
+    "description": "Calendar guide row title about the day rail; dayRail is the editor's Day rail label",
+    "placeholders": {
+      "dayRail": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideRailBody": "“{dayRail}” is a thin strip at the left edge of a day with one mark per tracked event, so a habit stays visible even on a busy day. It is off until you turn it on in “{settingsRow}”, under “{appearance}”; after that each event can choose “{railAuto}”, “{railAlways}” or “{railNever}”.",
+  "@calendarGuideRailBody": {
+    "description": "Calendar guide paragraph about the day rail; the placeholders are the editor's and the settings' labels and the three values of the editor's Day rail menu",
+    "placeholders": {
+      "dayRail": {
+        "type": "String"
+      },
+      "settingsRow": {
+        "type": "String"
+      },
+      "appearance": {
+        "type": "String"
+      },
+      "railAuto": {
+        "type": "String"
+      },
+      "railAlways": {
+        "type": "String"
+      },
+      "railNever": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePerDayTitle": "A note for one day only",
+  "@calendarGuidePerDayTitle": {
+    "description": "Calendar guide row title about per-day descriptions"
+  },
+  "calendarGuidePerDayBody": "A repeating event shares one description across all its days. Turn on “{perDay}” and each day can carry its own: open the event on that day and, above the description, choose “{thisDay}” to write for that day alone or “{allDays}” for the shared text.",
+  "@calendarGuidePerDayBody": {
+    "description": "Calendar guide paragraph about per-day descriptions; the placeholders are the editor's labels",
+    "placeholders": {
+      "perDay": {
+        "type": "String"
+      },
+      "thisDay": {
+        "type": "String"
+      },
+      "allDays": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideSkippedTitle": "Days you skipped",
+  "@calendarGuideSkippedTitle": {
+    "description": "Calendar guide row title about skipped days"
+  },
+  "calendarGuideSkippedBody": "“{skip}” removes one day of a repeating event and leaves the others. The event's editing screen lists those days under “{skippedDays}”; untick a day there to bring it back.",
+  "@calendarGuideSkippedBody": {
+    "description": "Calendar guide paragraph about skipped days; the placeholders are the detail sheet's and the editor's labels",
+    "placeholders": {
+      "skip": {
+        "type": "String"
+      },
+      "skippedDays": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePriorityTitle": "“{priority}” and the look",
+  "@calendarGuidePriorityTitle": {
+    "description": "Calendar guide row title about priority and appearance; priority is the editor's Priority label",
+    "placeholders": {
+      "priority": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePriorityBody": "“{priority}” orders the events of a busy day and decides which of them get a bar on the month when there are more than three. “{iconColor}” gives one event its own icon or colour instead of its category's.",
+  "@calendarGuidePriorityBody": {
+    "description": "Calendar guide paragraph about priority and appearance; the placeholders are the editor's labels",
+    "placeholders": {
+      "priority": {
+        "type": "String"
+      },
+      "iconColor": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideTryIt": "Try it",
+  "@calendarGuideTryIt": {
+    "description": "Label of the sandbox corner on each calendar guide page"
+  },
+  "calendarGuideHowDoI": "How do I…",
+  "@calendarGuideHowDoI": {
+    "description": "Calendar guide hub label over the task pages"
+  },
+  "calendarGuidePagePractice": "Practice calendar",
+  "@calendarGuidePagePractice": {
+    "description": "Calendar guide hub row and page title of the practice calendar"
+  },
+  "calendarGuidePagePracticeCaption": "A calendar that saves nothing. Try everything here.",
+  "@calendarGuidePagePracticeCaption": {
+    "description": "Calendar guide hub caption of the practice calendar row"
+  },
+  "calendarGuidePageScreenCaption": "The month, the bars, the panel, the menus",
+  "@calendarGuidePageScreenCaption": {
+    "description": "Calendar guide hub caption of the calendar screen page"
+  },
+  "calendarGuidePageEvents": "Add, change or delete an event",
+  "@calendarGuidePageEvents": {
+    "description": "Calendar guide hub row and page title about events"
+  },
+  "calendarGuidePageEventsCaption": "The editor, saving, deleting, templates",
+  "@calendarGuidePageEventsCaption": {
+    "description": "Calendar guide hub caption of the events page"
+  },
+  "calendarGuidePageKinds": "One-time and repeating events",
+  "@calendarGuidePageKinds": {
+    "description": "Calendar guide hub row and page title about one-time and repeating events"
+  },
+  "calendarGuidePageKindsCaption": "How the two kinds differ, and the quirks of each",
+  "@calendarGuidePageKindsCaption": {
+    "description": "Calendar guide hub caption of the event kinds page"
+  },
+  "calendarGuidePageAlerts": "Get reminded",
+  "@calendarGuidePageAlerts": {
+    "description": "Calendar guide hub row and page title about alerts"
+  },
+  "calendarGuidePageAlertsCaption": "Reminders, alarms, permissions, the quick alarm",
+  "@calendarGuidePageAlertsCaption": {
+    "description": "Calendar guide hub caption of the alerts page"
+  },
+  "calendarGuidePageAttendance": "Keep track of attendance",
+  "@calendarGuidePageAttendance": {
+    "description": "Calendar guide hub row and page title about attendance"
+  },
+  "calendarGuidePageAttendanceCaption": "“{present}” or “{missed}”, counting, “{dayRail}”, a note per day",
+  "@calendarGuidePageAttendanceCaption": {
+    "description": "Calendar guide hub caption of the attendance page; present and missed are the detail sheet's attendance labels, dayRail is the editor's Day rail label",
+    "placeholders": {
+      "present": {
+        "type": "String"
+      },
+      "missed": {
+        "type": "String"
+      },
+      "dayRail": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePageCategories": "Use categories",
+  "@calendarGuidePageCategories": {
+    "description": "Calendar guide hub row and page title about categories"
+  },
+  "calendarGuidePageCategoriesCaption": "What they are; create, change, hide, delete",
+  "@calendarGuidePageCategoriesCaption": {
+    "description": "Calendar guide hub caption of the categories page"
+  },
+  "calendarGuidePageFinding": "Find an event",
+  "@calendarGuidePageFinding": {
+    "description": "Calendar guide hub row and page title about finding events"
+  },
+  "calendarGuidePageFindingCaption": "Search, filters, “{overview}”",
+  "@calendarGuidePageFindingCaption": {
+    "description": "Calendar guide hub caption of the finding page; overview is the calendar's Overview label",
+    "placeholders": {
+      "overview": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePageSetup": "Set up the calendar",
+  "@calendarGuidePageSetup": {
+    "description": "Calendar guide hub row and page title about calendar settings"
+  },
+  "calendarGuidePageSetupCaption": "Holidays, the week's first day, language and dark mode",
+  "@calendarGuidePageSetupCaption": {
+    "description": "Calendar guide hub caption of the setup page"
+  },
+  "calendarGuidePageGoodCaption": "Opening the calendar, going back, the rest of ANTA",
+  "@calendarGuidePageGoodCaption": {
+    "description": "Calendar guide hub caption of the Good to know page"
+  },
+  "calendarGuideStartHere": "Start here",
+  "@calendarGuideStartHere": {
+    "description": "Calendar guide hub's first card title, over the practice calendar, The calendar screen and Good to know rows"
+  },
+  "calendarGuideHowItWorks": "How it works",
+  "@calendarGuideHowItWorks": {
+    "description": "Calendar guide topic page's card title over its read rows"
+  },
+  "calendarGuideScreenLead": "What you see when the calendar opens, and what each part is for.",
+  "@calendarGuideScreenLead": {
+    "description": "Lead line of the calendar guide's calendar screen page"
+  },
+  "calendarGuideEventsLead": "An event is anything with a day: an appointment, a bill, a class. Here is how you add one, change it and remove it.",
+  "@calendarGuideEventsLead": {
+    "description": "Lead line of the calendar guide's events page"
+  },
+  "calendarGuideKindsLead": "Most events happen once. Some come back every week or month. The calendar treats the two a little differently.",
+  "@calendarGuideKindsLead": {
+    "description": "Lead line of the calendar guide's event kinds page"
+  },
+  "calendarGuideAlertsLead": "Nothing rings by itself. You add a reminder or an alarm to the events that need one.",
+  "@calendarGuideAlertsLead": {
+    "description": "Lead line of the calendar guide's alerts page"
+  },
+  "calendarGuideAttendanceLead": "For a class or a habit you want to keep count of, the calendar can remember which days you made it.",
+  "@calendarGuideAttendanceLead": {
+    "description": "Lead line of the calendar guide's attendance page"
+  },
+  "calendarGuideCategoriesLead": "A category gives an event its colour and icon. The app comes with a few; make your own and hide the ones you never use.",
+  "@calendarGuideCategoriesLead": {
+    "description": "Lead line of the calendar guide's categories page"
+  },
+  "calendarGuideFindingLead": "Three ways to find something: search by name, hide what you do not want to see, or look at a whole year.",
+  "@calendarGuideFindingLead": {
+    "description": "Lead line of the calendar guide's finding page"
+  },
+  "calendarGuideSetupLead": "A few settings make the calendar yours: whose holidays it shows, which day starts the week, and the app's language and look.",
+  "@calendarGuideSetupLead": {
+    "description": "Lead line of the calendar guide's setup page"
+  },
+  "calendarGuideKindsOneTitle": "One day, or many",
+  "@calendarGuideKindsOneTitle": {
+    "description": "Calendar guide row title about one-time versus repeating events"
+  },
+  "calendarGuideKindsOneBody": "A new event is one-time: it lives on one day. Give it a rule in “{repeat}” and it becomes repeating, showing on every matching day. Choose “{doesNotRepeat}” again and it is one-time once more, on its start day.",
+  "@calendarGuideKindsOneBody": {
+    "description": "Calendar guide paragraph about one-time versus repeating events; the placeholders are the editor's labels",
+    "placeholders": {
+      "repeat": {
+        "type": "String"
+      },
+      "doesNotRepeat": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideKindsDatesTitle": "A one-time event can have extra dates",
+  "@calendarGuideKindsDatesTitle": {
+    "description": "Calendar guide row title about extra dates"
+  },
+  "calendarGuideKindsDatesBody": "“{addDate}” adds another day to a one-time event. It is then neither one-time nor repeating: “{repeat}” reads “{threeDates}”, the “{dates}” row lists the days, and “{skip}” works on each of them. From the event's page, “{addDate}” saves at once.",
+  "@calendarGuideKindsDatesBody": {
+    "description": "Calendar guide paragraph about extra dates; the placeholders are the editor's labels and its specific-dates summary for three dates",
+    "placeholders": {
+      "addDate": {
+        "type": "String"
+      },
+      "repeat": {
+        "type": "String"
+      },
+      "threeDates": {
+        "type": "String"
+      },
+      "dates": {
+        "type": "String"
+      },
+      "skip": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideKindsOnlyOneTitle": "What only a one-time event can do",
+  "@calendarGuideKindsOnlyOneTitle": {
+    "description": "Calendar guide row title about one-time-only features"
+  },
+  "calendarGuideKindsOnlyOneBody": "“{removeAfter}” is for one-time events only: the alarm deletes its event once you stop it. And “{noticeSkip}” on the quiet notice before an alarm switches a one-time event's alert off, where on a repeating event it skips that day.",
+  "@calendarGuideKindsOnlyOneBody": {
+    "description": "Calendar guide paragraph about one-time-only features; the placeholders are the alert sheet's and the notice's labels",
+    "placeholders": {
+      "removeAfter": {
+        "type": "String"
+      },
+      "noticeSkip": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideKindsOnlyRepeatTitle": "What only a repeating event can do",
+  "@calendarGuideKindsOnlyRepeatTitle": {
+    "description": "Calendar guide row title about repeating-only features"
+  },
+  "calendarGuideKindsOnlyRepeatBody": "“{trackPresence}”, “{countOccurrences}” and a separate note per day appear once an event has more than one day. “{skip}” drops one day and keeps the rest; “{skippedDays}” in the editor lists them.",
+  "@calendarGuideKindsOnlyRepeatBody": {
+    "description": "Calendar guide paragraph about repeating-only features; the placeholders are the editor's and the detail sheet's labels",
+    "placeholders": {
+      "trackPresence": {
+        "type": "String"
+      },
+      "countOccurrences": {
+        "type": "String"
+      },
+      "skip": {
+        "type": "String"
+      },
+      "skippedDays": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideKindsOneChangeTitle": "One change, every day",
+  "@calendarGuideKindsOneChangeTitle": {
+    "description": "Calendar guide row title about editing a repeating event"
+  },
+  "calendarGuideKindsOneChangeBody": "Editing a repeating event changes all of its days at once: a new time moves every session. To change just one day, skip it and add a one-time event for that day instead.",
+  "@calendarGuideKindsOneChangeBody": {
+    "description": "Calendar guide paragraph about editing a repeating event"
+  },
+  "calendarGuideKindsTrickyTitle": "Where repeating gets tricky",
+  "@calendarGuideKindsTrickyTitle": {
+    "description": "Calendar guide row title about recurrence edge cases"
+  },
+  "calendarGuideKindsTrickyBody": "A monthly event on the 31st skips the months without a 31st; a yearly one on 29 February shows only in leap years. “{ends}” inside “{repeat}” stops a rule after a date, and “{alsoBefore}” lets it show on matching days before the start.",
+  "@calendarGuideKindsTrickyBody": {
+    "description": "Calendar guide paragraph about recurrence edge cases; the placeholders are the repeat sheet's and the editor's labels",
+    "placeholders": {
+      "ends": {
+        "type": "String"
+      },
+      "repeat": {
+        "type": "String"
+      },
+      "alsoBefore": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideKindsBirthdayTitle": "Birthdays",
+  "@calendarGuideKindsBirthdayTitle": {
+    "description": "Calendar guide row title about birthday events"
+  },
+  "calendarGuideKindsBirthdayBody": "Picking the “{birthday}” category on a new event makes it yearly and counts from 0 — set its start date to the real birth date and the event reads the person's age.",
+  "@calendarGuideKindsBirthdayBody": {
+    "description": "Calendar guide paragraph about birthday events; birthday is the built-in Birthday category's name",
+    "placeholders": {
+      "birthday": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCatCreateTitle": "Create one",
+  "@calendarGuideCatCreateTitle": {
+    "description": "Calendar guide row title about creating a category"
+  },
+  "calendarGuideCatCreateBody": "In “{settingsRow}”, open “{categories}” and tap the + button (“{createCategory}”). Give it a name, pick an icon and a colour, then “{save}”. It is offered in every event from then on.",
+  "@calendarGuideCatCreateBody": {
+    "description": "Calendar guide paragraph about creating a category; the placeholders are the settings' and the category page's labels",
+    "placeholders": {
+      "settingsRow": {
+        "type": "String"
+      },
+      "categories": {
+        "type": "String"
+      },
+      "createCategory": {
+        "type": "String"
+      },
+      "save": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCatChangeTitle": "Change one",
+  "@calendarGuideCatChangeTitle": {
+    "description": "Calendar guide row title about changing a category"
+  },
+  "calendarGuideCatChangeBody": "Tap a category in the list to change its icon or colour. The ones that came with the app keep their names; your own can be renamed.",
+  "@calendarGuideCatChangeBody": {
+    "description": "Calendar guide paragraph about changing a category"
+  },
+  "calendarGuideCatHideTitle": "Hide the ones you do not use",
+  "@calendarGuideCatHideTitle": {
+    "description": "Calendar guide row title about hiding categories"
+  },
+  "calendarGuideCatHideBody": "The eye on a row (“{hide}”) takes a category out of the pickers. Events that already have it keep their colour and stay on the calendar. Tap the eye again (“{show}”) to bring it back.",
+  "@calendarGuideCatHideBody": {
+    "description": "Calendar guide paragraph about hiding categories; the placeholders are the eye button's labels",
+    "placeholders": {
+      "hide": {
+        "type": "String"
+      },
+      "show": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCatDeleteTitle": "Delete one",
+  "@calendarGuideCatDeleteTitle": {
+    "description": "Calendar guide row title about deleting a category"
+  },
+  "calendarGuideCatDeleteBody": "The ⋮ on your own category offers “{delete}”. Its events are not lost: they move to “{other}”. The categories that came with the app cannot be deleted, only hidden.",
+  "@calendarGuideCatDeleteBody": {
+    "description": "Calendar guide paragraph about deleting a category; delete is the Delete action label, other is the built-in Other category's name",
+    "placeholders": {
+      "delete": {
+        "type": "String"
+      },
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCatAlertsTitle": "An alert for a whole category",
+  "@calendarGuideCatAlertsTitle": {
+    "description": "Calendar guide row title about category alerts"
+  },
+  "calendarGuideCatAlertsBody": "Inside a category, “{addAlert}” sets a reminder or alarm that every event in that category gets automatically — handy for appointments. An event can switch it off for itself with “{categoryAlerts}”.",
+  "@calendarGuideCatAlertsBody": {
+    "description": "Calendar guide paragraph about category alerts; the placeholders are the category page's and the editor's labels",
+    "placeholders": {
+      "addAlert": {
+        "type": "String"
+      },
+      "categoryAlerts": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideTryScreen": "Tap the title and the three dots, then switch the panel's mode.",
+  "@calendarGuideTryScreen": {
+    "description": "Calendar guide prompt on the calendar screen page's Try it card"
+  },
+  "calendarGuideTryEvents": "Add an event with +, open it, change it, delete it. Nothing here is real.",
+  "@calendarGuideTryEvents": {
+    "description": "Calendar guide prompt on the events page's Try it card"
+  },
+  "calendarGuideTryKinds": "Make the event repeat, give it extra dates, skip a day, and watch the month.",
+  "@calendarGuideTryKinds": {
+    "description": "Calendar guide prompt on the event kinds page's Try it card"
+  },
+  "calendarGuideTryAlerts": "Add an alert to the demo event, then see what an alarm looks like.",
+  "@calendarGuideTryAlerts": {
+    "description": "Calendar guide prompt on the alerts page's Try it card"
+  },
+  "calendarGuideTryAttendance": "Mark a few days “{present}” or “{missed}” and watch the count.",
+  "@calendarGuideTryAttendance": {
+    "description": "Calendar guide prompt on the attendance page's Try it card; present and missed are the detail sheet's attendance labels",
+    "placeholders": {
+      "present": {
+        "type": "String"
+      },
+      "missed": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideTryCategories": "Create a category, hide one, delete one — in this list only.",
+  "@calendarGuideTryCategories": {
+    "description": "Calendar guide prompt on the categories page's Try it card"
+  },
+  "calendarGuideTryFinding": "Type a word, a category or a date, and filter the month.",
+  "@calendarGuideTryFinding": {
+    "description": "Calendar guide prompt on the finding page's Try it card"
+  },
+  "calendarGuideTrySetup": "Pick a holiday set and a first day of the week; the sample week follows.",
+  "@calendarGuideTrySetup": {
+    "description": "Calendar guide prompt on the setup page's Try it card"
+  },
+  "calendarGuideWouldOpen": "In the real calendar this would open “{what}”.",
+  "@calendarGuideWouldOpen": {
+    "description": "Calendar guide demo message for a menu row that opens another page; what is that page's label",
+    "placeholders": {
+      "what": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideWouldShare": "In the real calendar this would share a file with every event.",
+  "@calendarGuideWouldShare": {
+    "description": "Calendar guide demo message for the export row"
+  },
+  "calendarGuideYouAreHere": "That is this guide — you are already in it.",
+  "@calendarGuideYouAreHere": {
+    "description": "Calendar guide demo message for the guide's own menu row"
+  },
+  "calendarGuideDemoFormat": "Showing “{format}”.",
+  "@calendarGuideDemoFormat": {
+    "description": "Calendar guide demo message after picking a view; format is the picked view's label",
+    "placeholders": {
+      "format": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoPanelDay": "“{day}” lists what is on the picked day.",
+  "@calendarGuideDemoPanelDay": {
+    "description": "Calendar guide demo caption of the panel's day mode; day is that mode's label",
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoPanelTimeline": "“{timeline}” draws the day by the hour; all-day events sit above.",
+  "@calendarGuideDemoPanelTimeline": {
+    "description": "Calendar guide demo caption of the panel's timeline mode; timeline is that mode's label",
+    "placeholders": {
+      "timeline": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoPanelUpcoming": "“{upcoming}” lists what is coming over the next weeks, whatever day is picked.",
+  "@calendarGuideDemoPanelUpcoming": {
+    "description": "Calendar guide demo caption of the panel's upcoming mode; upcoming is that mode's label",
+    "placeholders": {
+      "upcoming": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePickedDay": "{date}: {count, plural, =0{nothing planned} =1{one event} other{{count} events}}",
+  "@calendarGuidePickedDay": {
+    "description": "Calendar guide demo summary of the picked day; date is the long weekday-date",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "calendarGuideDemoAdded": "Added “{title}” on {date}. Here it is gone when you leave; in the real calendar it stays.",
+  "@calendarGuideDemoAdded": {
+    "description": "Calendar guide demo message after adding an event",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoChanged": "Saved the change to “{title}”.",
+  "@calendarGuideDemoChanged": {
+    "description": "Calendar guide demo message after changing an event",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoDeleted": "Deleted “{title}” — all of its days.",
+  "@calendarGuideDemoDeleted": {
+    "description": "Calendar guide demo message after deleting an event",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoSkipped": "Skipped {date} for “{title}”; the other days stay.",
+  "@calendarGuideDemoSkipped": {
+    "description": "Calendar guide demo message after skipping a day",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoTemplate": "Added “{title}” from a template.",
+  "@calendarGuideDemoTemplate": {
+    "description": "Calendar guide demo message after adding an event from a template",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoFiltered": "{count, plural, =0{No filter on} =1{One filter on — the funnel shows it} other{{count} filters on — the funnel shows them}}",
+  "@calendarGuideDemoFiltered": {
+    "description": "Calendar guide demo message after filtering; count is the number of active filter axes",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "calendarGuideDemoReset": "Start over",
+  "@calendarGuideDemoReset": {
+    "description": "Calendar guide action that resets a Try it card"
+  },
+  "calendarGuideDemoLongPressHint": "Press and hold + for templates and the quick alarm.",
+  "@calendarGuideDemoLongPressHint": {
+    "description": "Calendar guide demo hint about the add button's long press"
+  },
+  "calendarGuideDemoAlertSet": "“{title}” now has: {alert}. In the real calendar this is saved with the event.",
+  "@calendarGuideDemoAlertSet": {
+    "description": "Calendar guide demo message after setting an alert; alert is the alert's description",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "alert": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideShowAlarm": "Show me the alarm screen",
+  "@calendarGuideShowAlarm": {
+    "description": "Calendar guide action row that shows a demo alarm screen"
+  },
+  "calendarGuideDemoHereOnly": "{message} — here only.",
+  "@calendarGuideDemoHereOnly": {
+    "description": "Calendar guide demo wrapper for a real message that only happened in the sandbox",
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoOneDay": "One day only: {date}.",
+  "@calendarGuideDemoOneDay": {
+    "description": "Calendar guide demo summary of a one-time event",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoRepeats": "{rule} — {count, plural, =1{one day this month} other{{count} days this month}}",
+  "@calendarGuideDemoRepeats": {
+    "description": "Calendar guide demo summary of a repeating event; rule is the recurrence in words",
+    "placeholders": {
+      "rule": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "calendarGuideDemoCatCreated": "Created “{name}” — here only.",
+  "@calendarGuideDemoCatCreated": {
+    "description": "Calendar guide demo message after creating a category",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoCatHidden": "“{name}” is hidden: not offered for new events; its events stay.",
+  "@calendarGuideDemoCatHidden": {
+    "description": "Calendar guide demo message after hiding a category",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoCatDeleted": "Deleted “{name}”; its events moved to “{other}”.",
+  "@calendarGuideDemoCatDeleted": {
+    "description": "Calendar guide demo message after deleting a category; other is the built-in Other category's name",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoMatches": "{count, plural, =0{No event matches} =1{One event matches} other{{count} events match}}",
+  "@calendarGuideDemoMatches": {
+    "description": "Calendar guide demo count of the events a search matches",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "calendarGuideDemoHolidays": "{count, plural, =1{One public holiday in {year}} other{{count} public holidays in {year}}}",
+  "@calendarGuideDemoHolidays": {
+    "description": "Calendar guide demo count of a holiday set's holidays in a year",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "year": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideOpenPermissions": "Open “{permissions}”",
+  "@calendarGuideOpenPermissions": {
+    "description": "Calendar guide action row that opens the permissions page; permissions is the drawer's Permissions label",
+    "placeholders": {
+      "permissions": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideOpenSettings": "Open “{settingsRow}”",
+  "@calendarGuideOpenSettings": {
+    "description": "Calendar guide action row that opens calendar settings; settingsRow is the calendar's settings label",
+    "placeholders": {
+      "settingsRow": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePracticeBanner": "Nothing here is saved.",
+  "@calendarGuidePracticeBanner": {
+    "description": "Banner over the calendar guide's practice calendar"
+  },
+  "calendarGuidePracticeIdle": "Tap, add, change — it all disappears when you leave.",
+  "@calendarGuidePracticeIdle": {
+    "description": "Line under the practice calendar's banner while nothing has been tried yet"
+  },
+  "calendarGuideDemoAddedShort": "Added “{title}” on {date}.",
+  "@calendarGuideDemoAddedShort": {
+    "description": "Practice calendar message after adding an event, under the banner that already says nothing is saved",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideDemoEventDentist": "Dentist",
+  "@calendarGuideDemoEventDentist": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventYoga": "Yoga",
+  "@calendarGuideDemoEventYoga": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventRent": "Rent",
+  "@calendarGuideDemoEventRent": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventBirthday": "Mum's birthday",
+  "@calendarGuideDemoEventBirthday": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventBookClub": "Book club",
+  "@calendarGuideDemoEventBookClub": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventFlight": "Flight",
+  "@calendarGuideDemoEventFlight": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventFlightNote": "Gate opens two hours before.",
+  "@calendarGuideDemoEventFlightNote": {
+    "description": "Description of the Flight demo event in the calendar guide"
   }
 }

@@ -235,6 +235,10 @@ class CalendarAddFab extends StatelessWidget {
   /// nothing.
   final ValueListenable<String?>? trace;
 
+  /// The button's `SemanticsIds` value: the calendar's own by default; the
+  /// guide's practice page gives its button one of its own.
+  final String identifier;
+
   /// The resting elevation, shared by the disabled and pressed states.
   static const double elevation = 2;
 
@@ -246,6 +250,7 @@ class CalendarAddFab extends StatelessWidget {
     required this.onPressed,
     this.onLongPressed,
     this.trace,
+    this.identifier = SemanticsIds.calendarAddEvent,
   });
 
   @override
@@ -271,7 +276,7 @@ class CalendarAddFab extends StatelessWidget {
         // The tooltip is the button's accessible name; it is manual so the
         // long press reaches the quick-add below instead of opening it.
         return AutomationId(
-          identifier: SemanticsIds.calendarAddEvent,
+          identifier: identifier,
           child: Tooltip(
             message: l10n.addEvent,
             triggerMode: TooltipTriggerMode.manual,

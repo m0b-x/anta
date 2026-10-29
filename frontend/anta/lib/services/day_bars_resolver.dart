@@ -125,9 +125,14 @@ class EventDayBarProvider implements DayBarProvider {
   final CalendarMissedDisplay missedDisplay;
   final bool railActive;
 
+  /// Where presence is read from; null reads `EventPresence.isMissed`. The
+  /// guide's practice calendar keeps its marks in memory and passes its own.
+  final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
+
   const EventDayBarProvider({
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.railActive = false,
+    this.isMissed,
   });
 
   @override
@@ -141,10 +146,10 @@ class EventDayBarProvider implements DayBarProvider {
     // sorts once when a day's memo entry is built (3.3), so this trusts that
     // order instead of copying and re-sorting on every cell, every frame.
     final bars = <DayBar>[];
+    final readMissed = isMissed ?? EventPresence.isMissed;
     for (final event in events) {
       if (railActive && eventInDayRail(event)) continue;
-      final missed =
-          EventPresence.appliesTo(event) && EventPresence.isMissed(event, day);
+      final missed = EventPresence.appliesTo(event) && readMissed(event, day);
       if (missed && missedDisplay == CalendarMissedDisplay.hidden) continue;
       var color = event.colorValue != null
           ? Color(event.colorValue!)
@@ -247,12 +252,14 @@ class DayBarsResolver {
     bool showHolidays = true,
     bool showFasting = true,
     bool showMoney = true,
+    bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
   }) {
     return DayBarsResolver(
       providers: [
         EventDayBarProvider(
           missedDisplay: missedDisplay,
           railActive: railActive,
+          isMissed: isMissed,
         ),
         if (showHolidays) PublicHolidayDayBarProvider(l10n),
         if (showFasting) FastingDayBarProvider(l10n),
