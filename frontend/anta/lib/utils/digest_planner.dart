@@ -208,6 +208,32 @@ abstract final class DigestPlanner {
   static int _leadOf(EventDigest digest) =>
       digest.leadDays.clamp(0, EventDigest.maxLeadDays);
 
+  /// The ids of the **enabled** digests [plan] leaves out: everything past
+  /// [DigestHorizon.maxDigests] in the planner's own display order.
+  ///
+  /// The cap lived in `create` and the sheet only, so sync could carry a
+  /// database past it — `nextSortOrder()` is per device, so two devices both
+  /// number their digests `0..n` and the surviving ten are an interleave — and
+  /// the over-cap cards sat in the hub with their switches on, firing nothing
+  /// and saying nothing. This is what lets the hub say so.
+  ///
+  /// The order is [plan]'s, and nothing re-denses `sort_order`: it is a synced
+  /// column, and a merge that rewrote it would fight between devices.
+  static Set<String> overCapIds({
+    required List<EventDigest> digests,
+    required DigestHorizon horizon,
+  }) {
+    final enabled = [
+      for (final digest in digests)
+        if (digest.enabled) digest,
+    ];
+    if (enabled.length <= horizon.maxDigests) return const {};
+    enabled.sort(_byDisplayOrder);
+    return {
+      for (final digest in enabled.skip(horizon.maxDigests)) digest.id,
+    };
+  }
+
   static int _byDisplayOrder(EventDigest a, EventDigest b) {
     final byOrder = a.sortOrder.compareTo(b.sortOrder);
     if (byOrder != 0) return byOrder;

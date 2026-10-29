@@ -316,6 +316,30 @@ void main() {
     );
   });
 
+  testWidgets('a save onto a category a pull deleted says so and hands back '
+      'nothing', (tester) async {
+    final existing = await custom('Yoga');
+    final robot = CategoryEditorRobot(tester);
+    final outcome = await robot.show(initial: existing);
+    await robot.typeName('Yoga flow');
+
+    // The DAO leaves a tombstoned row alone rather than resurrecting it, so
+    // the edit is lost with nothing thrown — the one failure the sheet used
+    // to report as a save.
+    await db.calendarCategoryDao.softDeleteById(existing.id);
+    await robot.save();
+
+    expect(robot.saveFailureShown, isTrue);
+    expect(robot.isOpen, isFalse);
+    expect(outcome.returned, isTrue);
+    expect(
+      outcome.result,
+      isNull,
+      reason: 'the caller would refresh against a category that does not '
+          'exist, and the picker would tick a dead id into its selection',
+    );
+  });
+
   testWidgets('the close button returns null and writes nothing', (
     tester,
   ) async {
@@ -516,10 +540,15 @@ void main() {
     expect(robot.swatches.isCollapsed, isFalse);
     expect(robot.swatches.hasSwatch(0xFF100000 + 9 * 0x010101), isTrue);
     expect(robot.swatches.hasDefault, isFalse);
-    expect(find.bySemanticsIdentifier(SemanticsIds.swatchDefault), findsNothing);
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.swatchDefault),
+      findsNothing,
+    );
     expect(robot.swatchRowIsContainer, isTrue);
     expect(
-      robot.swatches.nodeOf(SemanticsIds.swatchAdd).hasAction(SemanticsAction.tap),
+      robot.swatches
+          .nodeOf(SemanticsIds.swatchAdd)
+          .hasAction(SemanticsAction.tap),
       isTrue,
     );
     expect(
@@ -743,6 +772,36 @@ void main() {
       );
     });
 
+    testWidgets('an alert that arrived under the open sheet survives Save', (
+      tester,
+    ) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [seeded('a1')]);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: birthdays());
+      expect(robot.alertLabels, hasLength(1));
+
+      // Another device's alert for this category, applied by a pull while the
+      // sheet is up — so it was never on screen here.
+      await alerts.replaceForCategory(kBirthdayCategoryId, [
+        seeded('a1'),
+        seeded('a2'),
+      ]);
+      await alerts.reload();
+
+      await robot.removeAlert(0);
+      await robot.save();
+      // Read back from the table, not from the cache the save republished:
+      // the row itself must still be live.
+      await alerts.reload();
+
+      expect(
+        EventAlerts.categoryAlertsFor(
+          kBirthdayCategoryId,
+        ).map((alert) => alert.id),
+        ['a2'],
+      );
+    });
+
     testWidgets('Add alert leaves at the cap', (tester) async {
       await alerts.replaceForCategory(kBirthdayCategoryId, [
         for (var i = 0; i < kMaxAlertsPerCategory; i++) seeded('a$i'),
@@ -875,7 +934,7 @@ void main() {
         bloc = CalendarBloc(
           service: Completer<CalendarEventService>().future,
           alertReconciler: (_, _) async {},
-          alertWriter: (_, _) async {},
+          alertWriter: (_, _, {knownIds}) async {},
         );
       });
 

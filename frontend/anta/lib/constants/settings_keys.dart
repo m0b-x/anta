@@ -477,6 +477,14 @@ class SettingsKeys {
   /// overflow indicator is rendered in place of the last bar.
   static const int defaultCalendarMaxDayBars = 3;
 
+  /// Marker strip capacity, the 1-6 the appearance page has always offered.
+  /// Clamped on both sides of the boundary like every other count setting: a
+  /// value a restore or a sync wrote outside this range reaches a `Slider`,
+  /// which asserts it is inside its own, and `CalendarDayBars.stripHeight(0,
+  /// …)` would hand `rowHeightFor` a degenerate strip.
+  static const int minCalendarMaxDayBars = 1;
+  static const int maxCalendarMaxDayBars = 6;
+
   /// Character budget for an event description. 2000 is the value the field
   /// carried as a hardcoded `maxLength` before it became configurable.
   static const int defaultEventDescriptionLimit = 2000;

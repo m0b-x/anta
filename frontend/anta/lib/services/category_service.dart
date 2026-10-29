@@ -13,7 +13,9 @@ import '../database/daos/sync_dao.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import 'alert_scheduler.dart';
+import 'calendar_event_service.dart';
 import 'event_alert_service.dart';
+import 'event_template_service.dart';
 
 /// Loads and seeds the `calendar_categories` table and publishes a
 /// synchronous in-memory cache via [CalendarCategories.updateCache] so calendar
@@ -30,10 +32,24 @@ import 'event_alert_service.dart';
 /// write through the DAO and then reload so the cache stays authoritative, and
 /// every one of them is serialized onto a single chain ([_serialize]) so two
 /// writes issued from different callbacks cannot land — or republish the facade
-/// — out of order. Deleting a custom category reassigns its events to the
-/// built-in fallback so no event is ever orphaned.
+/// — out of order. Deleting a custom category reassigns its events *and its
+/// templates* to the built-in fallback so no event is ever orphaned, the
+/// ones a template will go on to build included.
 class CategoryService {
   static CategoryService? _instance;
+
+  /// The first construction while it is in flight ([EventAlertService]'s
+  /// pair), so two callers racing it do not each seed the catalog, load it
+  /// and publish their own facade.
+  static Future<CategoryService>? _initializing;
+
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how a
+  /// construction tells, past each of its awaits, that it has been overtaken:
+  /// this counter covers a switch that reached this service (and a restore's
+  /// deliberate re-init), the lifecycle's covers a switch that landed before
+  /// the construction had registered its handler and so never called [reset]
+  /// here at all.
+  static int _generation = 0;
 
   /// Every seeded built-in's id, the fallback `other` among them.
   static final _builtInIds = {
@@ -51,10 +67,8 @@ class CategoryService {
 
   CategoryService._();
 
-  static Future<CategoryService> getInstance() async {
-    if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
-  }
+  static Future<CategoryService> getInstance() =>
+      _createOnce(AppDatabase.getInstance);
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
   /// [AppDatabase.getInstance]'s `path_provider` lookup and device-id file.
@@ -64,7 +78,7 @@ class CategoryService {
   /// do. Never use it in app code — the singleton is what the
   /// [DatabaseLifecycle] reset contract is built on.
   @visibleForTesting
-  static Future<CategoryService> forTesting(AppDatabase db) async {
+  static Future<CategoryService> forTesting(AppDatabase db) {
     final existing = _instance;
     if (existing != null) {
       // Returning a singleton bound to some *other* database silently runs the
@@ -75,27 +89,69 @@ class CategoryService {
         'AppDatabase is already installed. Call CategoryService.reset() in '
         'tearDown, or this test runs against the previous one.',
       );
-      return existing;
+      return Future.value(existing);
     }
-    return _create(db);
+    return _createOnce(() async => db);
   }
 
-  static Future<CategoryService> _create(AppDatabase db) async {
-    final service = CategoryService._();
-    service._db = db;
-    service._dao = db.calendarCategoryDao;
-    await service._seedBuiltIns();
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// One construction at a time, and never one a database switch overtook.
+  ///
+  /// A construction the switch overtook seeded and read the database that was
+  /// just closed, so it discards itself and hands its caller the one the new
+  /// database installs — otherwise [_instance] would hold a dead handle for
+  /// the rest of the session and every category read and write, the `other`
+  /// fallback included, would hit it.
+  static Future<CategoryService> _createOnce(
+    Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<CategoryService> creating;
+    creating = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+
+      Future<CategoryService> restart() async {
+        if (identical(_initializing, creating)) _initializing = null;
+        final service = await _createOnce(open);
+        // This construction may already have published the closing
+        // database's catalog on its way through `_load`.
+        CalendarCategories.updateCache(service._cache);
+        return service;
+      }
+
+      try {
+        final db = await open();
+        if (overtaken()) return await restart();
+        final service = CategoryService._();
+        service._db = db;
+        service._dao = db.calendarCategoryDao;
+        await service._seedBuiltIns();
+        if (overtaken()) return await restart();
+        await service._load();
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
   /// Drops the cached singleton and clears the static [CalendarCategories]
   /// cache so stale categories from a closed database cannot leak into render
   /// paths before the next [getInstance] republishes them.
   static void reset() {
+    _generation++;
     _instance = null;
+    _initializing = null;
     CalendarCategories.updateCache(const []);
   }
 
@@ -111,10 +167,17 @@ class CategoryService {
   /// included (R80). It is also how the seed this service skipped during a
   /// bind's initial merge ([_seedBuiltIns]) still runs once the space has
   /// been read: the sync hooks reload the calendar after every pulled page.
-  Future<void> reload() async {
+  ///
+  /// On the write chain like every mutation (invariant 12), because it both
+  /// writes — [_seedBuiltIns]'s `seedMissing` batch — and republishes the
+  /// facade. Issued once per pulled page, so off the chain it could read
+  /// before a user's `create` or `reorder` and publish after it, dropping
+  /// that category or that order from [CalendarCategories] until the next
+  /// mutation while the grid repaints the stale list on the bumped revision.
+  Future<void> reload() => _serialize(() async {
     await _seedBuiltIns();
     await _load();
-  }
+  });
 
   // ── Cache load / built-in seed ───────────────────────────────────────
 
@@ -305,12 +368,18 @@ class CategoryService {
   ///     the user just retired. The editor sheet has no control for the flag,
   ///     so it can only ever echo a value it read — never one it was told.
   ///   * `is_built_in` is immutable by definition.
-  Future<void> updateCategory(CalendarCategory category) {
+  ///
+  /// Returns false when the category is no longer there to edit — a pull that
+  /// merged another device's delete of it while its editor was open. The DAO
+  /// deliberately leaves a tombstoned row alone rather than resurrecting it,
+  /// so the edit is lost, and the caller has to be able to say so instead of
+  /// handing a dead category on.
+  Future<bool> updateCategory(CalendarCategory category) {
     return _serialize(() => _persistUpdate(category));
   }
 
-  Future<void> _persistUpdate(CalendarCategory category) async {
-    await _dao.updateCategory(
+  Future<bool> _persistUpdate(CalendarCategory category) async {
+    final written = await _dao.updateCategory(
       CalendarCategoriesCompanion(
         id: Value(category.id),
         name: Value(category.name.trim()),
@@ -320,6 +389,7 @@ class CategoryService {
       ),
     );
     await _load();
+    return written;
   }
 
   /// Persists a new display order, given every id in the order it should
@@ -380,13 +450,21 @@ class CategoryService {
   /// and its alerts go as one act on this service's own database — and the
   /// alert facade is republished before the write chain moves on.
   ///
+  /// **The cascade's SQL is not the whole act.** It rewrites
+  /// `calendar_events.category` and `calendar_event_templates.category`
+  /// underneath two caches this service does not own, so both are re-read in
+  /// the same link: an event left holding the dead id is written back over
+  /// the reassignment by the next save of it (the editor seeds its draft from
+  /// the cached event), and a template left holding it stamps the dead id
+  /// onto every event built from it. [CalendarEventService.notifyExternalChange]
+  /// then tells a bloc already showing the calendar to re-read, so the moved
+  /// events reach the grid and the agenda without a restart — the shape
+  /// `AppSyncApplyHooks` uses after a pulled page.
+  ///
   /// The re-plan is only *requested*, once the chain's link has completed and
   /// without being awaited, so no category write ever queues behind a
   /// platform pass: the moved events no longer inherit anything, and a fire
-  /// armed for them must go. That pass may read an event cache the calendar
-  /// page has not re-read yet (the events still carry the deleted id, which
-  /// `EventAlerts.effectiveFor` resolves to `other` as rendering does); the
-  /// next pass heals whatever it planned from them.
+  /// armed for them must go. It plans from the cache the link just refreshed.
   Future<void> deleteCategory(String id) async {
     final deleted = await _serialize(() async {
       final category = CalendarCategories.byId(id);
@@ -396,9 +474,12 @@ class CategoryService {
       await _dao.tombstoneCascade(id, reassignTo: kFallbackCategoryId);
       await _load();
       await EventAlertService.refreshAfterCategoryRemoval();
+      await CalendarEventService.refreshAfterCategoryRemoval();
+      await EventTemplateService.refreshAfterCategoryRemoval();
       return true;
     });
     if (deleted) {
+      CalendarEventService.notifyExternalChange();
       unawaited(
         AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
       );

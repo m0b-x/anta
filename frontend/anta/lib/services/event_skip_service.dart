@@ -28,14 +28,25 @@ import 'event_presence_service.dart';
 class EventSkipService {
   static EventSkipService? _instance;
 
+  /// The first construction while it is in flight ([EventAlertService]'s
+  /// pair), so two callers racing it share one load rather than each
+  /// publishing its own.
+  static Future<EventSkipService>? _initializing;
+
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how a
+  /// construction tells, past each of its awaits, that it has been overtaken:
+  /// this counter covers a switch that reached this service (and a restore's
+  /// deliberate re-init), the lifecycle's covers a switch that landed before
+  /// the construction had registered its handler and so never called [reset]
+  /// here at all.
+  static int _generation = 0;
+
   late EventSkipDao _dao;
 
   EventSkipService._();
 
-  static Future<EventSkipService> getInstance() async {
-    if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
-  }
+  static Future<EventSkipService> getInstance() =>
+      _createOnce(AppDatabase.getInstance);
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
   /// [AppDatabase.getInstance]'s `path_provider` lookup and device-id file.
@@ -44,25 +55,64 @@ class EventSkipService {
   /// real facade against `NativeDatabase.memory()`. Never use it in app code —
   /// the singleton is what the [DatabaseLifecycle] reset contract is built on.
   @visibleForTesting
-  static Future<EventSkipService> forTesting(AppDatabase db) async {
-    if (_instance != null) return _instance!;
-    return _create(db);
-  }
+  static Future<EventSkipService> forTesting(AppDatabase db) =>
+      _createOnce(() async => db);
 
-  static Future<EventSkipService> _create(AppDatabase db) async {
-    final service = EventSkipService._();
-    service._dao = db.eventSkipDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// One construction at a time, and never one a database switch overtook.
+  ///
+  /// A construction the switch overtook read the database that was just
+  /// closed, so it discards itself and hands its caller the one the new
+  /// database installs — otherwise [_instance] would hold a dead handle for
+  /// the rest of the session while [CalendarEvent.occursOn] read the closed
+  /// database's cancelled days.
+  static Future<EventSkipService> _createOnce(
+    Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<EventSkipService> creating;
+    creating = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+
+      Future<EventSkipService> restart() async {
+        if (identical(_initializing, creating)) _initializing = null;
+        final service = await _createOnce(open);
+        // This construction may already have published the closing
+        // database's skips on its way through `_load`.
+        service._publish();
+        return service;
+      }
+
+      try {
+        final db = await open();
+        if (overtaken()) return await restart();
+        final service = EventSkipService._();
+        service._dao = db.eventSkipDao;
+        await service._load();
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
   /// Drops the cached singleton and clears the static facade, so marks from a
   /// closed database cannot leak into render paths before the next
   /// [getInstance] republishes. Invoked by [DatabaseLifecycle].
   static void reset() {
+    _generation++;
     _instance = null;
+    _initializing = null;
     EventSkips.resetCache();
   }
 
@@ -178,6 +228,43 @@ class EventSkipService {
     } catch (e) {
       debugPrint('[EventSkipService] Presence clear error: $e');
     }
+  }
+
+  /// Makes [next] the event's whole set of cancelled days, in **one** write.
+  ///
+  /// What the editor's Skipped days picker left behind, diffed against the
+  /// cache here rather than day by day at the caller: a term's worth of days
+  /// used to cost one transaction, one HLC, one outbox row, one day-cache
+  /// rescan and one state emit each. Returns whether anything changed, so the
+  /// bloc can skip all of that when an unchanged Save lands.
+  ///
+  /// Presence is cleared exactly as [markSkipped] clears it, one newly
+  /// cancelled day at a time: those writes are no-ops for a day carrying no
+  /// mark, and narrowing them on a published facade would miss a mark a pull
+  /// has merged but not yet republished.
+  Future<bool> setSkips(String eventId, Set<DateTime> next) async {
+    final wanted = {for (final day in next) _dateOnlyUtc(day)};
+    final current = _byEvent[eventId] ?? const <DateTime>{};
+    final add = wanted.difference(current);
+    final remove = current.difference(wanted);
+    if (!await _dao.applySkipDiff(eventId, add: add, remove: remove)) {
+      return false;
+    }
+    _writes++;
+    final days = _byEvent[eventId] ??= <DateTime>{};
+    days.addAll(add);
+    days.removeAll(remove);
+    if (days.isEmpty) _byEvent.remove(eventId);
+    _publishFor(eventId);
+    try {
+      final presence = await EventPresenceService.getInstance();
+      for (final day in add) {
+        await presence.clearMark(eventId, day);
+      }
+    } catch (e) {
+      debugPrint('[EventSkipService] Presence clear error: $e');
+    }
+    return true;
   }
 
   /// Restores this occurrence. The row survives as a tombstone — it is the

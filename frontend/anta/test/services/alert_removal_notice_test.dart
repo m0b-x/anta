@@ -1,7 +1,11 @@
+import 'package:drift/drift.dart' show Value, Variable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/event_skips.dart';
+import 'package:anta/constants/occurrence_descriptions.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -11,6 +15,9 @@ import 'package:anta/services/alert_removal_notice.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/event_occurrence_service.dart';
+import 'package:anta/services/event_presence_service.dart';
+import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/session_chip.dart';
 
 import '../database/support/db_test_support.dart';
@@ -44,7 +51,13 @@ void main() {
     notice.addListener(listener);
     addTearDown(() => notice.removeListener(listener));
 
-    notice.publish(event, alerts);
+    notice.publish(
+      event,
+      alerts: alerts,
+      marks: const {},
+      descriptions: const {},
+      skips: const {},
+    );
 
     expect(notified, 1);
     expect(notice.hasPending, isTrue);
@@ -59,7 +72,13 @@ void main() {
     var now = DateTime(2026, 9, 20, 7);
     notice.clock = () => now;
 
-    notice.publish(event, alerts);
+    notice.publish(
+      event,
+      alerts: alerts,
+      marks: const {},
+      descriptions: const {},
+      skips: const {},
+    );
     now = now.add(AlertRemovalNotice.freshness + const Duration(seconds: 1));
 
     expect(notice.take(), isNull);
@@ -69,6 +88,9 @@ void main() {
   group('AlertAcknowledgement', () {
     late AppDatabase db;
     late CalendarEventService events;
+    late EventPresenceService presence;
+    late EventOccurrenceService occurrences;
+    late EventSkipService skips;
 
     // No gateway is registered, so the reconcile `apply` ends with is inert —
     // what is under test is who gets to remove the event, not the platform.
@@ -76,9 +98,15 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       CalendarEventService.reset();
       EventAlertService.reset();
+      EventPresenceService.reset();
+      EventOccurrenceService.reset();
+      EventSkipService.reset();
       db = await openTestDatabase();
       events = await CalendarEventService.forTesting(db);
       final alertService = await EventAlertService.forTesting(db);
+      presence = await EventPresenceService.forTesting(db);
+      occurrences = await EventOccurrenceService.forTesting(db);
+      skips = await EventSkipService.forTesting(db);
       await events.upsert(event);
       await alertService.replaceForEvent('e1', alerts);
     });
@@ -86,6 +114,9 @@ void main() {
     tearDown(() async {
       CalendarEventService.reset();
       EventAlertService.reset();
+      EventPresenceService.reset();
+      EventOccurrenceService.reset();
+      EventSkipService.reset();
       await db.close();
     });
 
@@ -113,6 +144,63 @@ void main() {
       final offered = notice.take();
       expect(offered?.event.id, 'e1');
       expect(offered?.alerts, alerts);
+    });
+
+    test('undo puts back all four row sets the cascade took, under one stamp',
+        () async {
+      // C112: the notice used to carry the alerts alone, so the Undo restored
+      // an event whose attendance marks, day descriptions and cancelled days
+      // were gone for good — on this device and, since the tombstones carry
+      // their own HLC, on every paired one.
+      final marked = DateTime.utc(2026, 9, 20);
+      final cancelled = DateTime.utc(2026, 9, 22);
+      await events.upsert(
+        event.copyWith(
+          rule: const DailyRecurrence(),
+          tracksPresence: true,
+        ),
+      );
+      await presence.setStatus('e1', marked, PresenceStatus.present);
+      await occurrences.setDescription('e1', marked, 'ran 5k');
+      await skips.markSkipped('e1', cancelled);
+
+      expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
+      expect(EventPresence.marksFor('e1'), isEmpty);
+      expect(OccurrenceDescriptions.overridesFor('e1'), isEmpty);
+      expect(EventSkips.daysFor('e1'), isEmpty);
+
+      final offered = notice.take()!;
+      await events.restoreCascade(
+        offered.event,
+        marks: offered.marks,
+        descriptions: offered.descriptions,
+        skips: offered.skips,
+        alerts: offered.alerts,
+      );
+
+      expect(events.events.single.id, 'e1');
+      expect(EventAlerts.alertsFor('e1'), alerts);
+      expect(EventPresence.marksFor('e1'), {marked: PresenceStatus.present});
+      expect(OccurrenceDescriptions.overridesFor('e1'), {marked: 'ran 5k'});
+      expect(EventSkips.daysFor('e1'), {cancelled});
+
+      // One act, so one HLC across the five tables: the restore merges as a
+      // single ordered change rather than five another device can interleave.
+      final stamps = await db
+          .customSelect(
+            'SELECT hlc_timestamp FROM calendar_events WHERE id = ? '
+            'UNION SELECT hlc_timestamp FROM calendar_event_absences '
+            'WHERE event_id = ? AND is_deleted = 0 '
+            'UNION SELECT hlc_timestamp FROM calendar_event_occurrences '
+            'WHERE event_id = ? AND is_deleted = 0 '
+            'UNION SELECT hlc_timestamp FROM calendar_event_skips '
+            'WHERE event_id = ? AND is_deleted = 0 '
+            'UNION SELECT hlc_timestamp FROM calendar_event_alerts '
+            'WHERE event_id = ? AND is_deleted = 0',
+            variables: [for (var i = 0; i < 5; i++) Variable<String>('e1')],
+          )
+          .get();
+      expect(stamps, hasLength(1));
     });
 
     test('a reminder never does', () async {
@@ -143,6 +231,52 @@ void main() {
 
       expect(removed, isFalse);
       expect(events.events.single.id, 'e1');
+    });
+
+    test('the capture takes the rows, not the facades', () async {
+      // C149: the capture read `EventPresence.marksFor` and its two siblings,
+      // and on the path A3 actually runs on nobody has published them — an
+      // alarm page over a calendar that was never built, or a process the
+      // alarm launched. Here the three services are deliberately **not**
+      // constructed, which is that cold state: a facade read answers `{}` and
+      // the Undo restores an event stripped of everything but its event row.
+      final marked = DateTime.utc(2026, 9, 20);
+      final cleared = DateTime.utc(2026, 9, 21);
+      final cancelled = DateTime.utc(2026, 9, 22);
+      EventAlertService.reset();
+      EventPresenceService.reset();
+      EventOccurrenceService.reset();
+      EventSkipService.reset();
+      await events.upsert(
+        event.copyWith(rule: const DailyRecurrence(), tracksPresence: true),
+      );
+      await db.eventAbsenceDao.setStatus('e1', marked, PresenceStatus.present);
+      // Cleared long before the delete: its tombstone is older than the
+      // cascade, so the capture must leave it dead.
+      await db.eventAbsenceDao.setStatus('e1', cleared, PresenceStatus.missed);
+      await db.eventAbsenceDao.clearMark('e1', cleared);
+      await db.eventOccurrenceDao.upsert(
+        EventOccurrenceDescriptionsCompanion(
+          eventId: const Value('e1'),
+          day: Value(marked),
+          description: const Value('ran 5k'),
+          createdAt: Value(DateTime.now()),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await db.eventSkipDao.markSkipped('e1', cancelled);
+      expect(EventPresence.marksFor('e1'), isEmpty);
+      expect(OccurrenceDescriptions.overridesFor('e1'), isEmpty);
+      expect(EventSkips.daysFor('e1'), isEmpty);
+      expect(EventAlerts.alertsFor('e1'), isEmpty);
+
+      expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
+
+      final offered = notice.take()!;
+      expect(offered.marks, {marked: PresenceStatus.present});
+      expect(offered.descriptions, {marked: 'ran 5k'});
+      expect(offered.skips, {cancelled});
+      expect(offered.alerts, alerts);
     });
 
     test('an acknowledged alarm asks for its chip before A3 runs; a reminder never',

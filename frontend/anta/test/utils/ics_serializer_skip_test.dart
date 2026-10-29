@@ -16,6 +16,7 @@ void main() {
   CalendarEvent event({
     required RecurrenceRule rule,
     DateTime? startDate,
+    DateTime? endDate,
     String id = 'e1',
   }) {
     return CalendarEvent(
@@ -23,6 +24,7 @@ void main() {
       title: 'Leg day',
       categoryId: 'gym',
       startDate: startDate ?? DateTime.utc(2026, 8, 3),
+      endDate: endDate,
       rule: rule,
     );
   }
@@ -82,6 +84,44 @@ void main() {
       );
 
       expect(ics, contains('DTSTART;VALUE=DATE:20260810'));
+    });
+
+    test('a cancelled day past the expansion horizon is still excluded', () {
+      // An endless rule emits an `RRULE` with no `UNTIL`, so the horizon the
+      // workdays and holidays expansions need is no bound at all here: the
+      // importing calendar would fire on a day the user cancelled.
+      final beyond = DateTime.utc(2026, 8, 3).add(
+        const Duration(days: IcsSerializer.expansionHorizonDays + 7),
+      );
+      skip([beyond]);
+
+      final ics = export(event(rule: const DailyRecurrence()));
+
+      expect(ics, contains('RRULE:FREQ=DAILY'));
+      expect(ics, isNot(contains('UNTIL')));
+      expect(
+        ics,
+        contains(
+          'EXDATE;VALUE=DATE:${beyond.year}'
+          '${beyond.month.toString().padLeft(2, '0')}'
+          '${beyond.day.toString().padLeft(2, '0')}',
+        ),
+      );
+    });
+
+    test('a cancelled day past the event\'s end date is not an EXDATE', () {
+      // `UNTIL` already stops the rule there, so excluding the day would be
+      // noise — and the old horizon walk never reached it either.
+      skip([DateTime.utc(2026, 9, 7)]);
+
+      final ics = export(
+        event(
+          rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
+          endDate: DateTime.utc(2026, 8, 31),
+        ),
+      );
+
+      expect(ics, isNot(contains('EXDATE')));
     });
   });
 

@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
@@ -380,6 +382,56 @@ void main() {
     );
   });
 
+  testWidgets('a catalogue change behind the page is picked up, so a reorder '
+      'stays dense', (tester) async {
+    // The removed one sits *between* two live customs: `reorder` numbers only
+    // the ids it is handed, and a dead id in the middle of the list costs its
+    // index — the gap the dense `0..N-1` invariant cannot have.
+    final gone = await service.create(
+      name: 'Pilates',
+      colorValue: 0xFF445566,
+      iconKey: 'event',
+    );
+    await service.create(
+      name: 'Fitness',
+      colorValue: 0xFF112233,
+      iconKey: 'event',
+    );
+    await pumpPage(tester);
+    expect(find.text('Pilates'), findsOneWidget);
+
+    // What a pulled page leaves behind: the row is a tombstone,
+    // `CategoryService` is reloaded and the signal fires, all of it under
+    // this page. Started in the fake zone and drained the way a tap's write
+    // is — a drift transaction does not complete inside one `runAsync`.
+    final pulled = db.calendarCategoryDao
+        .softDeleteById(gone.id)
+        .then((_) => service.reload())
+        .then((_) => CalendarEventService.notifyExternalChange());
+    await settleWrites(tester);
+    await pulled;
+    await tester.pump();
+
+    expect(
+      find.text('Pilates'),
+      findsNothing,
+      reason: 'Delete on a row the pull already removed no-ops in the service '
+          'and the page would report a delete another device did',
+    );
+
+    await openRowMenu(tester, 1);
+    await tester.tap(find.text('Move to top'));
+    await settleWrites(tester);
+
+    expect(
+      CalendarCategories.all.map((c) => c.sortOrder).toList(),
+      List.generate(CalendarCategories.all.length, (i) => i),
+      reason: 'reorder numbers only the ids it is handed, so an order built '
+          'from the stale catalogue leaves the live rows no longer dense — '
+          'and the facade tie-breaks on id, which makes a position arbitrary',
+    );
+  });
+
   testWidgets('sort A–Z orders by the localized label', (tester) async {
     await pumpPage(tester);
 
@@ -441,6 +493,86 @@ void main() {
       findsNothing,
       reason: 'built-ins can be hidden; they still cannot be deleted',
     );
+  });
+
+  testWidgets('a query takes both order writers out of reach', (tester) async {
+    await addCustoms(4);
+    await pumpPage(tester);
+    final before = CalendarCategories.all.map((c) => c.id).toList();
+
+    await tester.enterText(find.byType(TextField), 'gym');
+    await tester.pumpAndSettle();
+
+    await openRowMenu(tester, 0);
+    expect(
+      find.text('Move to top'),
+      findsNothing,
+      reason: 'it rewrites the whole order, and the ranked list cannot show '
+          'the promotion — invariant 5, the same reason the handles are dead',
+    );
+    // The barrier, to get the row menu out of the way.
+    await tester.tapAt(const Offset(1, 1));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.more_vert),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<PopupMenuItem<void>>(
+            find.ancestor(
+              of: find.text('Sort A–Z'),
+              matching: find.byType(PopupMenuItem<void>),
+            ),
+          )
+          .enabled,
+      isFalse,
+      reason: 'disabled, not hidden',
+    );
+    await tester.tap(find.text('Sort A–Z'));
+    await settleWrites(tester);
+
+    expect(CalendarCategories.all.map((c) => c.id).toList(), before);
+  });
+
+  testWidgets('a write that fails says so', (tester) async {
+    await pumpPage(tester);
+    // What a multi-database switch leaves behind a page that stayed open. The
+    // eye renders the stored flag rather than an optimistic one, so without a
+    // message the tap is indistinguishable from a no-op.
+    await tester.runAsync(db.close);
+
+    await tester.tap(find.byIcon(Icons.visibility).first);
+    await settleWrites(tester);
+
+    expect(find.text("Couldn't save the change"), findsOneWidget);
+  });
+
+  testWidgets('a load that throws leaves no spinner behind', (tester) async {
+    // Unbound, `CategoryService.getInstance()` opens the file-backed
+    // database; a `path_provider` that refuses makes that open fail the way a
+    // real one can, before any file is touched. Before the guard the spinner
+    // was the page for good and the error escaped unhandled.
+    const pathProvider = MethodChannel('plugins.flutter.io/path_provider');
+    SharedPreferences.setMockInitialValues({});
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      pathProvider,
+      (call) async => throw PlatformException(code: 'unavailable'),
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(pathProvider, null));
+    CategoryService.reset();
+
+    await pumpPage(tester);
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byType(Card), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   // v42, D19: a bell on the row of a category whose events inherit an
@@ -536,7 +668,7 @@ void main() {
       bloc = CalendarBloc(
         service: Completer<CalendarEventService>().future,
         alertReconciler: (_, _) async {},
-        alertWriter: (_, _) async {},
+        alertWriter: (_, _, {knownIds}) async {},
       );
     });
 

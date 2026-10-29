@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -65,18 +67,46 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   SettingsQuery _query = SettingsQuery.empty;
   bool _isLoading = true;
 
+  /// The facade revision [_categories] was read at, so a catalogue change that
+  /// came from this page is not refreshed a second time.
+  int _categoryRevision = -1;
+
+  StreamSubscription<void>? _externalChanges;
+
   bool get _isFiltering => _query.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // A pull reloads `CategoryService` after every page it merges and a backup
+    // import does the same, both of them behind this page. Without this the
+    // page goes on holding the catalogue it opened with, and a drag, Move to
+    // top or Sort A–Z persists *that* order: `reorder` numbers only the ids it
+    // is handed, so a category that arrived meanwhile keeps a colliding
+    // `sort_order` and the dense `0..N-1` order the facade's tie-break needs
+    // is gone — on a synced row. Delete on a row the pull already removed is
+    // the other half: it no-ops in the service, and the page would report a
+    // delete that happened on another device.
+    _externalChanges = CalendarEventService.externalChanges.listen(
+      (_) => _onExternalChange(),
+    );
   }
 
   @override
   void dispose() {
+    _externalChanges?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// Re-reads the catalogue and the counts when the store moved behind the
+  /// page, guarded on the facade revision (the overview's shape) so the signal
+  /// this page's own delete now fires costs nothing.
+  void _onExternalChange() {
+    if (!mounted || _categoryRevision == CalendarCategories.revision) return;
+    _refresh();
+    unawaited(_refreshCounts());
   }
 
   Future<void> _load() async {
@@ -85,23 +115,37 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     // service is a warm singleton and its `getInstance()` costs nothing.
     final categoryFuture = CategoryService.getInstance();
     final eventFuture = CalendarEventService.getInstance();
-    final service = await categoryFuture;
-    final eventService = await eventFuture;
-    final counts = await eventService.countByCategory();
-    if (!mounted) return;
-    setState(() {
-      _service = service;
-      _eventService = eventService;
-      _categories = service.categories;
-      _counts = counts;
-      _isLoading = false;
-    });
+    try {
+      final service = await categoryFuture;
+      final eventService = await eventFuture;
+      final counts = await eventService.countByCategory();
+      if (!mounted) return;
+      setState(() {
+        _service = service;
+        _eventService = eventService;
+        _categories = service.categories;
+        _categoryRevision = CalendarCategories.revision;
+        _counts = counts;
+        _isLoading = false;
+      });
+    } catch (e) {
+      // Either `getInstance()` can throw — a database that failed to open
+      // after a switch. Without this the spinner is the page for good and the
+      // error escapes as an unhandled async error; the empty list at least
+      // says the catalogue could not be read and leaves the page usable.
+      debugPrint('[CalendarCategoriesPage] Load failed: $e');
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
   }
 
   void _refresh() {
     final service = _service;
     if (service == null) return;
-    setState(() => _categories = service.categories);
+    setState(() {
+      _categories = service.categories;
+      _categoryRevision = CalendarCategories.revision;
+    });
   }
 
   Future<void> _refreshCounts() async {
@@ -130,30 +174,45 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   ///
   /// Every mutation here is fired from a menu callback and never awaited, so
   /// an escaping error would surface as an unhandled async error rather than
-  /// anything the user can act on. Reconciling on failure is the feedback: an
-  /// optimistic order or a flipped visibility icon visibly springs back to
-  /// what is actually stored.
+  /// anything the user can act on. Reconciling on failure says half of it —
+  /// an optimistic order visibly springs back to what is actually stored —
+  /// but only half: the eye renders the stored flag, so a failed `setHidden`
+  /// springs back to nothing at all, and a failed delete leaves the row
+  /// exactly where the user left it. Hence the message.
   Future<bool> _guarded(Future<void> Function() write) async {
     try {
       await write();
       return true;
     } catch (e) {
       debugPrint('[CalendarCategoriesPage] Write failed: $e');
+      if (mounted) {
+        CustomSnackbar.showError(
+          context,
+          AppLocalizations.of(context)!.categoryChangeFailed,
+        );
+      }
       return false;
     } finally {
       if (mounted) _refresh();
     }
   }
 
+  /// Refreshes whatever the sheet answers.
+  ///
+  /// The sheet returns `null` when it was dismissed rather than saved — but a
+  /// drag-close after a failed alert write pops past its `PopScope` and
+  /// answers `null` with the category already written, and the row would then
+  /// be listed only after the page was reopened. One `setState` is cheaper
+  /// than trusting the answer.
   Future<void> _create() async {
-    final created = await CategoryEditorSheet.show(context);
-    if (created == null || !mounted) return;
+    await CategoryEditorSheet.show(context);
+    if (!mounted) return;
     _refresh();
   }
 
   Future<void> _edit(CalendarCategory category) async {
-    final updated = await CategoryEditorSheet.show(context, initial: category);
-    if (updated == null || !mounted) return;
+    await CategoryEditorSheet.show(context, initial: category);
+    if (!mounted) return;
     _refresh();
   }
 
@@ -282,6 +341,10 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
             icon: const Icon(Icons.more_vert),
             itemBuilder: (ctx) => [
               PopupMenuItem<void>(
+                // Disabled, not hidden, while a query is live: it rewrites the
+                // whole order, which the ranked list cannot show — the same
+                // reason the handles go dead.
+                enabled: !_isFiltering,
                 onTap: _sortAlphabetically,
                 child: Row(
                   children: [
@@ -537,19 +600,24 @@ class _CategoryRow extends StatelessWidget {
                   icon: const Icon(Icons.more_vert),
                   onSelected: onAction,
                   itemBuilder: (ctx) => [
-                    PopupMenuItem(
-                      value: _CategoryAction.moveToTop,
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.vertical_align_top_rounded,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(l10n.moveToTop),
-                        ],
+                    // Reorder and filtering are mutually exclusive, and this
+                    // writes the whole order: offered while the handles are
+                    // dead it would persist a promotion the ranked list never
+                    // shows, so there is nothing on screen to undo it by.
+                    if (dragIndex != null)
+                      PopupMenuItem(
+                        value: _CategoryAction.moveToTop,
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.vertical_align_top_rounded,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(l10n.moveToTop),
+                          ],
+                        ),
                       ),
-                    ),
                     PopupMenuItem(
                       value: _CategoryAction.toggleHidden,
                       child: Row(

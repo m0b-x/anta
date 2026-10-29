@@ -1,5 +1,7 @@
+import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
 import '../constants/event_skips.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
@@ -20,6 +22,12 @@ import '../models/recurrence_rule.dart';
 /// holidays it must skip, and holidays-only is expanded to explicit
 /// `RDATE`s. Both expansions are bounded by [expansionHorizonDays], so an
 /// export is always finite.
+///
+/// A `DESCRIPTION` carries the anchor occurrence's text (**v42**), so a
+/// per-occurrence override on the first day exports. The overrides on later
+/// days are **not** exported: RFC 5545 would need one `RECURRENCE-ID` `VEVENT`
+/// per overridden day, which is a different document shape than the one
+/// `RRULE` per event this writes.
 abstract final class IcsSerializer {
   static const String productId = '-//ANTA//Calendar Export//EN';
 
@@ -72,6 +80,9 @@ abstract final class IcsSerializer {
     if (first == null) return const [];
 
     final time = event.time;
+    // Through the one entry point for "what description does this event show
+    // on this day", so a per-occurrence override on the anchor exports.
+    final description = OccurrenceDescriptions.descriptionFor(event, first);
     final lines = <String>[
       'BEGIN:VEVENT',
       'UID:${event.id}@gym-notes',
@@ -85,9 +96,11 @@ abstract final class IcsSerializer {
       else if (time.endMinute != null)
         'DTEND:${_formatDateTime(first, time.endMinute!)}',
       'SUMMARY:${_escape(event.title)}',
-      if (event.description != null && event.description!.trim().isNotEmpty)
-        'DESCRIPTION:${_escape(event.description!)}',
-      'CATEGORIES:${_escape(event.categoryId)}',
+      if (description != null && description.trim().isNotEmpty)
+        'DESCRIPTION:${_escape(description)}',
+      // The stored category name, never its id: a user-created category's id
+      // is a UUID, and a receiving calendar shows this verbatim.
+      'CATEGORIES:${_escape(CalendarCategories.resolve(event.categoryId).name)}',
       'PRIORITY:${_icsPriority(event.priority)}',
     ];
 
@@ -281,21 +294,33 @@ abstract final class IcsSerializer {
     final skippable = EventSkips.appliesTo(event) && _hasRrule(event.rule);
     if (!isWorkdays && !skippable) return const [];
     final dates = <DateTime>{};
-    final last = _expansionEnd(event, first);
-    for (
-      var day = first;
-      !day.isAfter(last);
-      day = day.add(const Duration(days: 1))
-    ) {
-      if (skippable && EventSkips.isSkipped(event.id, day)) {
+    if (skippable) {
+      // Read from the rows rather than from the horizon walk below:
+      // [_ruleToRrule] emits an unbounded `RRULE` for an event with no end
+      // date, so a day cancelled past the horizon would be produced by the
+      // rule with nothing excluding it. The rows are finite, which keeps the
+      // output finite without a horizon; the event's own end date is the only
+      // bound, and it is the `RRULE`'s `UNTIL` too.
+      final end = event.endDate == null ? null : _dateOnly(event.endDate!);
+      for (final day in EventSkips.daysFor(event.id)) {
+        if (day.isBefore(first)) continue;
+        if (end != null && day.isAfter(end)) continue;
         // Only a day the RRULE actually produces belongs in EXDATE; a skip on
         // a day the rule never fires is a no-op, not an exception.
         if (event.rule.occursOn(day, first)) dates.add(day);
-        continue;
       }
-      if (!isWorkdays) continue;
-      if (day.weekday > DateTime.friday) continue;
-      if (PublicHolidays.isHoliday(day)) dates.add(day);
+    }
+    if (isWorkdays) {
+      final last = _expansionEnd(event, first);
+      for (
+        var day = first;
+        !day.isAfter(last);
+        day = day.add(const Duration(days: 1))
+      ) {
+        if (skippable && EventSkips.isSkipped(event.id, day)) continue;
+        if (day.weekday > DateTime.friday) continue;
+        if (PublicHolidays.isHoliday(day)) dates.add(day);
+      }
     }
     return dates.toList()..sort();
   }
@@ -403,7 +428,11 @@ abstract final class IcsSerializer {
   /// line with a single leading space. Measured in UTF-8 bytes, and never
   /// split inside a multi-byte character.
   static String _fold(String line) {
-    if (line.length <= 73) return line;
+    // Octets, not code units: a short line of Romanian or German diacritics
+    // is well under 75 characters and well over 75 bytes.
+    if (line.runes.fold<int>(0, (a, r) => a + _utf8Width(r)) <= 75) {
+      return line;
+    }
     final buffer = StringBuffer();
     var octets = 0;
     var isContinuation = false;

@@ -71,10 +71,32 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
   /// The whole save is one act under one HLC: removals queue as tombstones,
   /// inserts and edits as upserts, each set in one statement, and an
   /// unchanged row queues nothing.
+  ///
+  /// [knownIds] is the set the caller had when it built [entries], and it
+  /// bounds the removal: a row outside it is one the caller never saw, so it
+  /// survives rather than being read as removed. A sheet seeds it in
+  /// `initState` and saves minutes later, and a pull landing in between would
+  /// otherwise be tombstoned by a Save that never touched the alert rows.
+  /// `null` is "the caller saw whatever is there" — the bulk and test paths,
+  /// where the set handed in *is* the whole truth.
+  ///
+  /// It bounds the **resurrection** the same way, and for the same reason: an
+  /// entry whose stored row is already a tombstone, and whose id the caller
+  /// opened with, is a delete that arrived while the sheet was open — the
+  /// sheet is still listing it from its mount-time snapshot, not re-adding it
+  /// — so writing it live here under a fresh stamp would beat the remote
+  /// tombstone and lose that deletion on every paired device. With `null` a
+  /// re-added id still resurrects its row, which is what A3's Undo restores
+  /// its alerts with (`CalendarEventDao.restoreEventCascade`).
+  ///
+  /// [stamp] is supplied by [CalendarEventDao.restoreEventCascade] alone, so
+  /// the alerts A3's Undo puts back merge under the restore's one HLC.
   Future<void> replaceForEvent(
     String eventId,
-    List<EventAlertsCompanion> entries,
-  ) {
+    List<EventAlertsCompanion> entries, {
+    Set<String>? knownIds,
+    CrdtStamp? stamp,
+  }) {
     return transaction(() async {
       final existing = await (select(
         eventAlerts,
@@ -82,19 +104,20 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
       final byId = {for (final row in existing) row.id: row};
       final keep = {for (final entry in entries) entry.id.value};
       final now = DateTime.now();
-      final stamp = db.newStamp();
+      final shared = stamp ?? db.newStamp();
       final removed = <String>[];
       final written = <String>[];
 
       for (final row in existing) {
         if (row.isDeleted || keep.contains(row.id)) continue;
+        if (knownIds != null && !knownIds.contains(row.id)) continue;
         await (update(eventAlerts)..where((a) => a.id.equals(row.id))).write(
           EventAlertsCompanion(
             isDeleted: const Value(true),
             deletedAt: Value(now),
             updatedAt: Value(now),
-            hlcTimestamp: Value(stamp.hlc),
-            deviceId: Value(stamp.deviceId),
+            hlcTimestamp: Value(shared.hlc),
+            deviceId: Value(shared.deviceId),
             version: Value(row.version + 1),
           ),
         );
@@ -104,6 +127,12 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
       for (final entry in entries) {
         final row = byId[entry.id.value];
         if (row != null && _sameContent(row, entry, eventId)) continue;
+        if (row != null &&
+            row.isDeleted &&
+            knownIds != null &&
+            knownIds.contains(entry.id.value)) {
+          continue;
+        }
         written.add(entry.id.value);
         if (row == null) {
           await into(eventAlerts).insert(
@@ -111,8 +140,8 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
               eventId: Value(eventId),
               createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
               updatedAt: Value(now),
-              hlcTimestamp: Value(stamp.hlc),
-              deviceId: Value(stamp.deviceId),
+              hlcTimestamp: Value(shared.hlc),
+              deviceId: Value(shared.deviceId),
               version: const Value(1),
               isDeleted: const Value(false),
               deletedAt: const Value(null),
@@ -127,8 +156,8 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
             // the `CalendarEventDao.upsert` rule.
             createdAt: const Value.absent(),
             updatedAt: Value(now),
-            hlcTimestamp: Value(stamp.hlc),
-            deviceId: Value(stamp.deviceId),
+            hlcTimestamp: Value(shared.hlc),
+            deviceId: Value(shared.deviceId),
             version: Value(row.version + 1),
             isDeleted: const Value(false),
             deletedAt: const Value(null),
@@ -139,10 +168,10 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
       await db.enqueueMany(
         eventAlerts,
         removed,
-        stamp.hlc,
+        shared.hlc,
         op: OutboxOp.tombstone,
       );
-      await db.enqueueMany(eventAlerts, written, stamp.hlc);
+      await db.enqueueMany(eventAlerts, written, shared.hlc);
     });
   }
 

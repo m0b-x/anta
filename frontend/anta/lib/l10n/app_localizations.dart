@@ -736,6 +736,12 @@ abstract class AppLocalizations {
   /// **'Couldn\'t restore the holiday'**
   String get holidayRestoreFailed;
 
+  /// Snackbar on calendar settings when switching the holiday profile throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t switch the holiday set'**
+  String get holidayProfileSwitchFailed;
+
   /// Calendar event category: gym session
   ///
   /// In en, this message translates to:
@@ -855,6 +861,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t save the category'**
   String get categorySaveFailed;
+
+  /// Snackbar on the categories page when hiding, deleting or reordering a category fails
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save the change'**
+  String get categoryChangeFailed;
 
   /// Confirmation message when deleting a category that still has events
   ///
@@ -2355,6 +2367,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Linked note no longer exists'**
   String get eventLinkedNoteMissing;
+
+  /// Shown when an event is opened for editing after it was deleted elsewhere
+  ///
+  /// In en, this message translates to:
+  /// **'Event no longer exists'**
+  String get eventNoLongerExists;
 
   /// Tooltip for the button that opens the note linked to an event
   ///
@@ -9117,6 +9135,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'next {when}'**
   String digestNextFire(String when);
+
+  /// End of an enabled digest's caption in the Alerts hub, after digestDescribe*, when the database holds more digests than can fire and this one is past the limit (Weekly on Monday, 09:00 · not armed, 10 digests at most)
+  ///
+  /// In en, this message translates to:
+  /// **'not armed, {count} digests at most'**
+  String digestOverLimit(int count);
 
   /// Destructive row at the end of the digest sheet when it edits a digest, and the title of its confirmation
   ///

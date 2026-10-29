@@ -42,10 +42,18 @@ class CategoryAlertDao extends DatabaseAccessor<AppDatabase>
   /// resurrects its row, and the category's rows are read once rather than
   /// one `SELECT` per alert — and its queueing: one HLC for the save,
   /// removals as tombstones, inserts and edits as upserts.
+  ///
+  /// [knownIds] bounds the removal exactly as it does there: the category
+  /// editor seeds its rows in `initState` and saves minutes later, and an
+  /// alert a pull added for this category in between is not a row the user
+  /// chose to remove — and it bounds the resurrection the same way, so a
+  /// delete that landed while the editor was open is not written back live by
+  /// a Save that is still listing it from its mount-time snapshot.
   Future<void> replaceForCategory(
     String categoryId,
-    List<CalendarCategoryAlertsCompanion> entries,
-  ) {
+    List<CalendarCategoryAlertsCompanion> entries, {
+    Set<String>? knownIds,
+  }) {
     return transaction(() async {
       final existing = await (select(
         calendarCategoryAlerts,
@@ -59,6 +67,7 @@ class CategoryAlertDao extends DatabaseAccessor<AppDatabase>
 
       for (final row in existing) {
         if (row.isDeleted || keep.contains(row.id)) continue;
+        if (knownIds != null && !knownIds.contains(row.id)) continue;
         await (update(
           calendarCategoryAlerts,
         )..where((a) => a.id.equals(row.id))).write(
@@ -77,6 +86,12 @@ class CategoryAlertDao extends DatabaseAccessor<AppDatabase>
       for (final entry in entries) {
         final row = byId[entry.id.value];
         if (row != null && _sameContent(row, entry, categoryId)) continue;
+        if (row != null &&
+            row.isDeleted &&
+            knownIds != null &&
+            knownIds.contains(entry.id.value)) {
+          continue;
+        }
         written.add(entry.id.value);
         if (row == null) {
           await into(calendarCategoryAlerts).insert(

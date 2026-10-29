@@ -138,6 +138,54 @@ void main() {
     expect(bloc.eventsForDay(day), hasLength(1));
   });
 
+  /// One Save of the editor's Skipped days picker. It used to fan out into
+  /// one bloc event per changed day — one DAO transaction, one HLC, one
+  /// day-cache rescan, one alert reconcile and one emit each — so a term's
+  /// worth of days rescanned the grid and the agenda thirty times and put
+  /// thirty rows in the outbox.
+  test('a whole cancelled-days set is one write, one stamp and one emit', () async {
+    final second = day.add(const Duration(days: 1));
+    final third = day.add(const Duration(days: 2));
+    await dispatch(SetOccurrenceSkipped(eventId: 'e1', day: day));
+    final database = await AppDatabase.getInstance();
+    final emitted = <CalendarPageState>[];
+    final subscription = bloc.stream.listen(emitted.add);
+    addTearDown(subscription.cancel);
+    final before = loaded();
+
+    await dispatch(SetOccurrenceSkips(eventId: 'e1', days: {second, third}));
+    await pumpEventQueue();
+
+    expect(emitted, hasLength(1));
+    expect(loaded().membershipRevision, before.membershipRevision + 1);
+    expect(loaded().occurrenceRevision, before.occurrenceRevision);
+    // The day cache was invalidated once, for all three days at once.
+    expect(bloc.eventsForDay(day), hasLength(1));
+    expect(bloc.eventsForDay(second), isEmpty);
+    expect(bloc.eventsForDay(third), isEmpty);
+    final rows = await (database.select(
+      database.eventSkips,
+    )..where((s) => s.eventId.equals('e1'))).get();
+    expect(rows, hasLength(3));
+    expect(
+      rows.map((row) => row.hlcTimestamp).toSet(),
+      hasLength(1),
+      reason: 'one Save is one act of the user\'s, so one stamp',
+    );
+  });
+
+  test('an unchanged set emits nothing', () async {
+    await dispatch(SetOccurrenceSkipped(eventId: 'e1', day: day));
+    final emitted = <CalendarPageState>[];
+    final subscription = bloc.stream.listen(emitted.add);
+    addTearDown(subscription.cancel);
+
+    bloc.add(SetOccurrenceSkips(eventId: 'e1', days: {day}));
+    await pumpEventQueue();
+
+    expect(emitted, isEmpty);
+  });
+
   test('deleting the event clears its skips', () async {
     await dispatch(SetOccurrenceSkipped(eventId: 'e1', day: day));
     expect(EventSkips.isSkipped('e1', day), isTrue);

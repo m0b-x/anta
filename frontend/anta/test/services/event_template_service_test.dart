@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_templates.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_template.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_template_service.dart';
 
 import '../database/support/db_test_support.dart';
@@ -378,6 +380,37 @@ void main() {
 
       expect(event.tracksPresence, isFalse);
       expect(event.assumeAbsent, isFalse);
+    });
+
+    test('a stamped event cannot carry an unresolvable category id', () async {
+      // The long-press path stamps an event straight from a template, with no
+      // editor pass in between to repair a category id that stopped
+      // resolving — so deleting the category has to reach the template.
+      CategoryService.reset();
+      final categories = await CategoryService.forTesting(db);
+      addTearDown(CategoryService.reset);
+      final custom = await categories.create(
+        name: 'Yoga',
+        colorValue: 0xFF112233,
+        iconKey: 'event',
+      );
+      final created = await service.create(draft(categoryId: custom.id));
+
+      await categories.deleteCategory(custom.id);
+
+      final reloaded = service.templates.firstWhere((t) => t.id == created.id);
+      final event = reloaded.buildEvent(
+        id: 'e1',
+        startDate: DateTime.utc(2026, 8, 10),
+      );
+
+      expect(event.categoryId, kFallbackCategoryId);
+      expect(
+        CalendarCategories.byId(event.categoryId),
+        isNotNull,
+        reason: 'a dead id is dropped by every category allowlist and '
+            'exported as that uuid in .ics',
+      );
     });
   });
 }

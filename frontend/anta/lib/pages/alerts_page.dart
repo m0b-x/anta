@@ -34,6 +34,7 @@ import '../services/settings_service.dart';
 import '../utils/alert_labels.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/digest_labels.dart';
+import '../utils/digest_planner.dart';
 import '../widgets/agenda_list_view.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
@@ -630,6 +631,23 @@ class _AlertsPageState extends State<AlertsPage> {
   /// its first day; the rows under it keep their look until Tier 4.
   Widget _buildDigestGroup(AppLocalizations l10n) {
     final digests = EventDigests.all;
+    // Sync can carry a database past the cap, and the planner then arms the
+    // first ten silently: without this a card the user switched on would read
+    // exactly like one that fires. Read through the switches the store has
+    // not echoed yet, as the rows are: a cap set built from the stored flags
+    // alone would still caption the eleventh digest unarmed after the user
+    // has just switched the tenth off, and say nothing about an eleventh the
+    // user has just switched on.
+    final overCap = DigestPlanner.overCapIds(
+      digests: [
+        for (final digest in digests)
+          if (_pendingDigestEnabled[digest.id] case final pending?)
+            digest.copyWith(enabled: pending)
+          else
+            digest,
+      ],
+      horizon: kDigestHorizon,
+    );
     final nextFire = <String, DateTime>{};
     for (final fire in _digestFires) {
       nextFire.putIfAbsent(fire.digest.id, () => fire.fireAt);
@@ -650,7 +668,13 @@ class _AlertsPageState extends State<AlertsPage> {
             trailingGap: false,
             children: [
               for (final digest in digests)
-                _digestRow(digest, nextFire[digest.id], dayFormat, l10n),
+                _digestRow(
+                  digest,
+                  nextFire[digest.id],
+                  dayFormat,
+                  l10n,
+                  overCap: overCap.contains(digest.id),
+                ),
               if (digests.length < kDigestHorizon.maxDigests)
                 FormActionRow(
                   glyph: Icons.add_rounded,
@@ -669,12 +693,19 @@ class _AlertsPageState extends State<AlertsPage> {
   /// on, when next — a switched-off digest promises no fire, and dims as a
   /// switched-off alert's row does. A digest this build cannot read says so,
   /// with its switch disabled and no sheet behind it.
+  ///
+  /// [overCap] is an enabled digest the pass will not arm, because the
+  /// database holds more than [DigestHorizon.maxDigests] of them (sync can
+  /// carry it there). Its caption says so in place of the next fire it has
+  /// none of: the switch is on and reads as on, and the row is otherwise the
+  /// same row — the anatomy is Tier 4's, not this fix's.
   Widget _digestRow(
     EventDigest digest,
     DateTime? next,
     DateFormat dayFormat,
-    AppLocalizations l10n,
-  ) {
+    AppLocalizations l10n, {
+    bool overCap = false,
+  }) {
     final enabled = _pendingDigestEnabled[digest.id] ?? digest.enabled;
     final describe = _digestDescribe(digest, l10n);
     return FormPickerSwitchRow(
@@ -683,6 +714,8 @@ class _AlertsPageState extends State<AlertsPage> {
       label: _digestTitle(digest, l10n),
       caption: !digest.isReadable
           ? l10n.digestUnreadable
+          : overCap && enabled
+          ? '$describe · ${l10n.digestOverLimit(kDigestHorizon.maxDigests)}'
           : next == null || !enabled
           ? describe
           : '$describe · ${l10n.digestNextFire(dayFormat.format(next))}',

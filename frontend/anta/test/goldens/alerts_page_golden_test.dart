@@ -52,7 +52,7 @@ void main() {
     bloc = CalendarBloc(
       service: Completer<CalendarEventService>().future,
       alertReconciler: (_, _) async {},
-      alertWriter: (_, _) async {},
+      alertWriter: (_, _, {knownIds}) async {},
       allAlertsReconciler: (_) async {},
     );
     // ignore: invalid_use_of_visible_for_testing_member

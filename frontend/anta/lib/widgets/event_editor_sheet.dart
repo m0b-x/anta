@@ -104,12 +104,19 @@ class EventEditorSaved extends EventEditorResult {
   /// the event, so it rides [event] and cannot drift from what was saved.
   final List<EventAlert>? alerts;
 
+  /// The ids [alerts] was seeded from, which bound what the save may remove:
+  /// an alert that arrived by sync while the form was open is in neither set
+  /// and survives, instead of reading as one the user deleted. Null wherever
+  /// [alerts] is.
+  final Set<String>? knownAlertIds;
+
   const EventEditorSaved(
     this.event, {
     this.occurrenceDay,
     this.occurrenceDescription,
     this.skippedDays,
     this.alerts,
+    this.knownAlertIds,
   });
 }
 
@@ -355,8 +362,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// Anchors the scroll-into-view on focus.
   final GlobalKey _descriptionKey = GlobalKey();
   final ScrollController _bodyScroll = ScrollController();
-  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+  final FormHeaderHairline _hairline = FormHeaderHairline();
   late String _initialFingerprint;
+
+  /// [_alertsFingerprint] as the sheet opened, re-taken when — and only when —
+  /// [_seedDefaultAlert] actually adds the settings default.
+  late String _initialAlertsFingerprint;
   bool _leaving = false;
   late String _categoryId;
   String? _iconKey;
@@ -431,6 +442,19 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// first open rather than in `initState`, so an event with no skips costs
   /// nothing.
   Set<DateTime>? _skippedDays;
+
+  /// The persisted cancelled days as the sheet opened, read once — the
+  /// fingerprint's side of [_skippedDays].
+  ///
+  /// A snapshot, because `EventSkipService.reload()` republishes the whole
+  /// facade on every sync pull: fingerprinting the live set made an untouched
+  /// editor claim unsaved changes the moment a pull merged a skip for this
+  /// event, leaving the discard dialog with nothing to discard. Every other
+  /// input in [_fingerprint] is a snapshot too, so [_skippedDays] stays the
+  /// only thing that can move this one.
+  late final Set<DateTime> _initialSkippedDays = EventSkips.daysFor(
+    widget.initialEvent?.id ?? '',
+  );
 
   /// Whether the event keeps one description per occurrence instead of one
   /// shared by every day, with its own description as the template each day
@@ -559,6 +583,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// a row (it does — the row already existed) or writes nothing.
   bool _dayMaterialized = false;
 
+  /// The text [_dayBuffer] was seeded with, so the copy-on-write guard can
+  /// tell an untouched day from an edited one.
+  ///
+  /// Compared against *this* and not against the template as the form now
+  /// holds it: an edit in the shared scope moves the template and leaves the
+  /// day buffer on the text it was seeded from, and reading that gap as a
+  /// divergence forked the day the editor was opened from and pinned it to
+  /// the pre-edit text.
+  late final String _daySeedText;
+
   /// Set by the "reset to template" action: save then *deletes* the day's
   /// row rather than writing text, which is the only way back once a day has
   /// been materialized.
@@ -590,6 +624,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// landing late can never overwrite a choice already made.
   bool _alertsTouched = false;
 
+  /// The ids [_alerts] was seeded with. Rides the result so the write
+  /// tombstones only the rows this form was actually showing: a pull can add
+  /// an alert to this event while the sheet is open, and a whole-set save
+  /// would otherwise delete it without it ever having been on screen.
+  Set<String> _seededAlertIds = const {};
+
   /// Draft state for `CalendarEvent.removeAfterAlert` (**A3**). Meaningless
   /// unless the event is one-time and carries an alarm, and cleared on save in
   /// that case — the same shape [_assumeAbsent] follows.
@@ -600,10 +640,29 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   bool _categoryAlerts = true;
 
   /// The alerts the category the form currently has would hand down, read
-  /// synchronously from the facade on open and on every category pick. Shown
-  /// read-only beside the own ones; never part of [_alerts], so the cap, the
-  /// remove-after gate and the saved set stay the event's own.
-  List<CategoryAlert> _inheritedAlerts = const [];
+  /// synchronously from the facade. Shown read-only beside the own ones; never
+  /// part of [_alerts], so the cap, the remove-after gate and the saved set
+  /// stay the event's own.
+  ///
+  /// Memoized against the picked category **and** `EventAlerts.revision`
+  /// rather than resolved once on open: a pull, or the category editor reached
+  /// through the picker's inline create, can write a category's alerts while
+  /// this sheet is open, and the inherited rows — and the Category alerts
+  /// switch they gate — would otherwise keep showing the set the sheet opened
+  /// on. Re-reading a facade on every rebuild is what the agenda rows do.
+  List<CategoryAlert> get _inheritedAlerts {
+    final revision = EventAlerts.revision;
+    if (revision != _inheritedRevision || _inheritedCategoryId != _categoryId) {
+      _inheritedRevision = revision;
+      _inheritedCategoryId = _categoryId;
+      _inheritedCache = _categoryAlertsOf(_categoryId);
+    }
+    return _inheritedCache;
+  }
+
+  List<CategoryAlert> _inheritedCache = const [];
+  int _inheritedRevision = -1;
+  String? _inheritedCategoryId;
 
   TimedAlertDefault? _timedAlertDefault;
   AllDayAlertDefault? _allDayAlertDefault;
@@ -667,6 +726,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             : null);
     _dayMaterialized = storedOverride != null;
     _dayBuffer = storedOverride ?? _templateBuffer;
+    _daySeedText = _dayBuffer;
     _initialTemplateLength = _templateBuffer.length;
     _initialDayLength = _dayBuffer.length;
     // Seeded in the shared scope; the day scope is adopted below, once the
@@ -713,9 +773,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _alerts = initial == null
         ? const []
         : List<EventAlert>.of(EventAlerts.alertsFor(initial.id));
+    _seededAlertIds = {for (final alert in _alerts) alert.id};
     _removeAfterAlert = initial?.removeAfterAlert ?? false;
     _categoryAlerts = initial?.categoryAlerts ?? true;
-    _inheritedAlerts = _categoryAlertsOf(_categoryId);
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -747,8 +807,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (barBloc.state is! MarkdownBarLoaded) {
       barBloc.add(const LoadMarkdownBar());
     }
-    _bodyScroll.addListener(_onBodyScroll);
     _initialFingerprint = _fingerprint();
+    _initialAlertsFingerprint = _alertsFingerprint();
   }
 
   void _initRecurrenceFrom(RecurrenceRule rule) {
@@ -796,9 +856,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   @override
   void dispose() {
     _titleController.dispose();
-    _bodyScroll.removeListener(_onBodyScroll);
     _bodyScroll.dispose();
-    _headerScrolled.dispose();
+    _hairline.dispose();
     _descriptionController.removeListener(_relayDescriptionChange);
     _descriptionController.dispose();
     _descriptionRevision.dispose();
@@ -1298,6 +1357,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() {
       _date = sorted.first;
       _additionalDates = sorted.skip(1).toList();
+      // [_pickDate]'s rule, for the row that moves the anchor as a set: an
+      // Until left behind the new start is unused while the event is one-time
+      // and would make it never occur the moment a repeat rule returns.
+      if (_endDate != null && _endDate!.isBefore(_date)) _endDate = null;
       // Dropping back to a single date makes this a one-time event, which has
       // no occurrences to scope to.
       _syncScopeToRule();
@@ -1374,12 +1437,15 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// Three guards, each closing a way the seed could be a lie: an existing
   /// event's alerts are its own, a user who already added one has said what
   /// they want, and a default of `none` means new events get nothing at all.
-  void _seedDefaultAlert() {
-    if (_isEditing || _alertsTouched || _alerts.isNotEmpty) return;
+  ///
+  /// Reports whether it seeded, so the caller re-baselines the alert
+  /// fingerprint for the seed and for nothing else.
+  bool _seedDefaultAlert() {
+    if (_isEditing || _alertsTouched || _alerts.isNotEmpty) return false;
     final hasDefault = _isAllDay
         ? _allDayAlertDefault != null
         : _timedAlertDefault != null;
-    if (!hasDefault) return;
+    if (!hasDefault) return false;
     _alerts = [
       AlertEditorSheet.draft(
         eventId: '',
@@ -1388,6 +1454,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         allDayDefault: _allDayAlertDefault,
       ),
     ];
+    return true;
   }
 
   /// Opens the alert sheet on a brand-new alert, and keeps it only if the user
@@ -1477,7 +1544,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _descriptionSpanBuilder.configureColors(palette);
     final rerender =
         palette != _colorPalette || liveRendering != _liveMarkdownRendering;
-    final wasClean = !_isDirty;
+    var seeded = false;
     setState(() {
       _colorPalette = palette;
       _liveMarkdownRendering = liveRendering;
@@ -1486,9 +1553,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _dayRailEnabled = railStyle != DayRailStyle.none;
       _timedAlertDefault = alertSettings.timedDefault;
       _allDayAlertDefault = alertSettings.allDayDefault;
-      _seedDefaultAlert();
+      seeded = _seedDefaultAlert();
     });
-    if (wasClean) _initialFingerprint = _fingerprint();
+    // The seed is the settings' work, not the user's, so it is folded into
+    // the alert baseline alone — never gated on the rest of the form, which a
+    // keystroke may already have moved while this future was in flight.
+    if (seeded) _initialAlertsFingerprint = _alertsFingerprint();
     if (rerender) {
       _descriptionController.forceRepaint();
       _relayDescriptionChange();
@@ -1515,7 +1585,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (picked == null || !mounted) return;
     setState(() {
       _categoryId = picked;
-      _inheritedAlerts = _categoryAlertsOf(picked);
       // Birthdays are inherently yearly. When the user tags a brand-new,
       // still-one-time event as a birthday, pre-fill a yearly recurrence so it
       // repeats every year with no extra taps. A recurrence the user already
@@ -1765,6 +1834,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             clearColorValue: _colorValue == null,
           );
     final (occurrenceDay, occurrenceDescription) = _resolveOccurrenceOutcome(
+      event,
       description,
     );
     Navigator.of(context).pop(
@@ -1781,6 +1851,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             ? _skippedDays
             : null,
         alerts: List<EventAlert>.unmodifiable(_alerts),
+        knownAlertIds: Set<String>.unmodifiable(_seededAlertIds),
       ),
     );
   }
@@ -1789,14 +1860,28 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   ///
   /// A null day means "leave the occurrence table alone"; a non-null day with
   /// a null description means "delete that row". The copy-on-write rule lives
-  /// here: an untouched day whose text still equals [template] writes nothing,
-  /// so a sparse table stays sparse. A day that already had a row keeps it
-  /// even when its text matches again — only the explicit reset removes one.
+  /// here: a day with no row of its own writes nothing while its text is
+  /// still what it was seeded with — or equals [template] again — so a sparse
+  /// table stays sparse and editing the shared description in front of an
+  /// untouched day leaves that day following it. A day that already had a row
+  /// keeps it even when its text matches again — only the explicit reset
+  /// removes one.
   ///
   /// Returns nothing at all once the scope gate is closed — a rule that no
   /// longer repeats, or the per-day switch turned off: closing it must not
   /// merge an occurrence's text anywhere.
-  (DateTime?, String?) _resolveOccurrenceOutcome(String template) {
+  ///
+  /// Nor once [event]'s rule has stopped covering the day this editor was
+  /// opened from: the save itself would make that row unreachable from every
+  /// surface, so none is created. A row that already exists is left alone —
+  /// an occurrence row is never deleted to clean up, and it comes back with
+  /// the rule. The explicit reset is the one thing that outranks that gate:
+  /// it is a user action rather than cleanup, so it removes its row whatever
+  /// the saved rule goes on to cover.
+  (DateTime?, String?) _resolveOccurrenceOutcome(
+    CalendarEvent event,
+    String template,
+  ) {
     final day = widget.occurrenceDay;
     if (day == null || !_isEditing || !_scopeGateOpen) return (null, null);
     final dayText = _dayText.trim();
@@ -1807,8 +1892,30 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (_dayResetRequested && dayText == _dayResetBaseline.trim()) {
       return (day, null);
     }
-    if (!_dayMaterialized && dayText == template) return (null, null);
+    if (!_ruleOccursOn(event, day)) return (null, null);
+    if (!_dayMaterialized &&
+        (dayText == template || dayText == _daySeedText.trim())) {
+      return (null, null);
+    }
     return (day, dayText);
+  }
+
+  /// Whether the rule about to be saved still produces an occurrence on [day].
+  ///
+  /// `CalendarEvent.occursOnUtcDay` without its skip filter, deliberately: a
+  /// cancelled day's occurrence returns the moment the skip is lifted, so its
+  /// row is dormant rather than orphaned, while a day the saved rule no longer
+  /// covers is reachable from nowhere (`calendar_event_service.dart` keeps
+  /// both kinds of row through a rule change on purpose).
+  bool _ruleOccursOn(CalendarEvent event, DateTime day) {
+    final utcDay = _normalize(day);
+    final end = event.endDateUtc;
+    if (end != null && utcDay.isAfter(end)) return false;
+    return event.rule.occursOn(
+      utcDay,
+      event.startDateUtc,
+      retroactive: event.retroactive,
+    );
   }
 
   Future<void> _onDelete() async {
@@ -1837,11 +1944,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     );
     if (confirmed != true || !mounted) return;
     Navigator.of(context).pop(EventEditorDeleted(base.id));
-  }
-
-  void _onBodyScroll() {
-    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset >= 1;
-    if (scrolled != _headerScrolled.value) _headerScrolled.value = scrolled;
   }
 
   int get _descriptionCounterFrom => (_descriptionLimit * 9 / 10).ceil();
@@ -1889,6 +1991,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _weekdays = Set<int>.of(result.weekdays);
       _endDate = result.endDate == null ? null : _normalize(result.endDate!);
       _retroactive = result.retroactive;
+      // Same rule [_pickDate] applies, on the other row: the repeat sheet
+      // floors only its own picker at the start date, so an Until the user
+      // never touched comes back unchanged and can now precede a start the
+      // Dates row has moved since — a rule whose end is before its start
+      // occurs on no day at all.
+      if (_endDate != null && _endDate!.isBefore(_date)) _endDate = null;
+      // A recurring rule has no room for the one-time extras and the WHEN
+      // group stops showing them, so keeping them would let a later "Does not
+      // repeat" restore a date set no row has shown since the switch.
+      if (_mode == _RepeatMode.recurring) _additionalDates = [];
       if (!_countStyleTouched) _countStyle = _defaultCountStyleFor(_kind);
       _syncScopeToRule();
     });
@@ -1949,8 +2061,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   String _fingerprint() {
     final weekdays = _weekdays.toList()..sort();
-    final skipped = _effectiveSkippedDays.toList()..sort();
-    final alerts = _alerts.map((alert) => alert.props.join(',')).join(';');
+    final skipped = (_skippedDays ?? _initialSkippedDays).toList()..sort();
     return [
       _titleController.text,
       _templateText,
@@ -1971,7 +2082,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _isAllDay,
       _startMinute,
       _durationMinutes,
-      alerts,
       _removeAfterAlert,
       _categoryAlerts,
       _countOccurrences,
@@ -1987,7 +2097,20 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     ].join('\u0000');
   }
 
-  bool get _isDirty => _fingerprint() != _initialFingerprint;
+  /// The alert rows' side of the dirty comparison.
+  ///
+  /// Kept out of [_fingerprint] so the Calendar-settings seed, which lands
+  /// after the first frame, can be re-baselined **on its own**: gating the
+  /// whole re-baseline on the form being clean at that instant left the seeded
+  /// alert folded into the current fingerprint and absent from the baseline
+  /// whenever a keystroke landed first — which, with the title autofocused, is
+  /// the normal path.
+  String _alertsFingerprint() =>
+      _alerts.map((alert) => alert.props.join(',')).join(';');
+
+  bool get _isDirty =>
+      _fingerprint() != _initialFingerprint ||
+      _alertsFingerprint() != _initialAlertsFingerprint;
 
   Future<bool> _confirmLeave() async {
     if (!_isDirty) return true;
@@ -2808,7 +2931,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             leadingIdentifier: SemanticsIds.eventClose,
             title: _isEditing ? l10n.editEvent : l10n.addEvent,
             stackTitleAtLargeText: true,
-            scrolled: _headerScrolled,
+            scrolled: _hairline.scrolled,
             trailing: ListenableBuilder(
               listenable: Listenable.merge([
                 _descriptionRevision,
@@ -2831,108 +2954,110 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       ),
       body: [
         Expanded(
-          child: Semantics(
-            identifier: SemanticsIds.eventForm,
-            child: SingleChildScrollView(
-              controller: _bodyScroll,
-              padding: EdgeInsets.fromLTRB(
-                RowMetrics.groupInset,
-                FormMetrics.bodyTop,
-                RowMetrics.groupInset,
-                FormMetrics.bodyBottom +
-                    (_descriptionFocused ? 0 : bottomClearance),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FormRowGroup(
-                    children: [
-                      _buildTitleRow(l10n, icon, accent),
-                      FormPickerRow(
-                        glyph: Icons.label_outlined,
-                        identifier: SemanticsIds.eventCategory,
-                        label: l10n.eventCategory,
-                        value: CalendarCategories.labelOf(category, l10n),
-                        onTap: _pickCategory,
-                      ),
-                      FormPickerRow(
-                        glyph: Icons.palette_outlined,
-                        identifier: SemanticsIds.eventLook,
-                        label: l10n.eventAppearance,
-                        value: _iconKey != null || _colorValue != null
-                            ? l10n.eventLookCustom
-                            : l10n.eventLookDefault,
-                        valueLeading: FormValueDot(color: eventColor),
-                        onTap: _pickLook,
-                        dividerIndent: FormMetrics.dividerIndentPlain,
-                      ),
-                      _buildDescriptionCell(l10n, theme),
-                    ],
-                  ),
-                  FormSectionLabel(text: l10n.eventSectionWhen),
-                  FormRowGroup(
-                    children: _buildWhenRows(l10n, dateFormat, oneTimeDates),
-                  ),
-                  if (_ruleHasManyOccurrences) ...[
-                    FormSectionLabel(text: l10n.recurrenceScopeLabel),
+          child: _hairline.watch(
+            child: Semantics(
+              identifier: SemanticsIds.eventForm,
+              child: SingleChildScrollView(
+                controller: _bodyScroll,
+                padding: EdgeInsets.fromLTRB(
+                  RowMetrics.groupInset,
+                  FormMetrics.bodyTop,
+                  RowMetrics.groupInset,
+                  FormMetrics.bodyBottom +
+                      (_descriptionFocused ? 0 : bottomClearance),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     FormRowGroup(
-                      children: _buildOccurrenceRows(l10n, dateFormat),
+                      children: [
+                        _buildTitleRow(l10n, icon, accent),
+                        FormPickerRow(
+                          glyph: Icons.label_outlined,
+                          identifier: SemanticsIds.eventCategory,
+                          label: l10n.eventCategory,
+                          value: CalendarCategories.labelOf(category, l10n),
+                          onTap: _pickCategory,
+                        ),
+                        FormPickerRow(
+                          glyph: Icons.palette_outlined,
+                          identifier: SemanticsIds.eventLook,
+                          label: l10n.eventAppearance,
+                          value: _iconKey != null || _colorValue != null
+                              ? l10n.eventLookCustom
+                              : l10n.eventLookDefault,
+                          valueLeading: FormValueDot(color: eventColor),
+                          onTap: _pickLook,
+                          dividerIndent: FormMetrics.dividerIndentPlain,
+                        ),
+                        _buildDescriptionCell(l10n, theme),
+                      ],
+                    ),
+                    FormSectionLabel(text: l10n.eventSectionWhen),
+                    FormRowGroup(
+                      children: _buildWhenRows(l10n, dateFormat, oneTimeDates),
+                    ),
+                    if (_ruleHasManyOccurrences) ...[
+                      FormSectionLabel(text: l10n.recurrenceScopeLabel),
+                      FormRowGroup(
+                        children: _buildOccurrenceRows(l10n, dateFormat),
+                      ),
+                    ],
+                    FormSectionLabel(text: l10n.eventAlerts),
+                    FormRowGroup(children: _buildAlertRows(l10n)),
+                    FormSectionLabel(text: l10n.eventSectionDetails),
+                    FormRowGroup(
+                      children: [
+                        FormMenuRow<int>(
+                          glyph: Icons.flag_outlined,
+                          identifier: SemanticsIds.eventPriority,
+                          label: l10n.eventPriority,
+                          value: EventPriorities.labelOf(_priority, l10n),
+                          selected: _priority,
+                          menuWidth: _priorityMenuWidth,
+                          items: [
+                            for (
+                              var p = kMinEventPriority;
+                              p <= kMaxEventPriority;
+                              p++
+                            )
+                              FormMenuItem(
+                                value: p,
+                                label: EventPriorities.labelOf(p, l10n),
+                                icon: EventPriorities.iconFor(p),
+                              ),
+                          ],
+                          onSelected: (p) => setState(() => _priority = p),
+                        ),
+                        _buildLinkedNoteRow(l10n, theme),
+                      ],
+                    ),
+                    FormRowGroup(
+                      trailingGap: false,
+                      children: [
+                        ListenableBuilder(
+                          listenable: _titleController,
+                          builder: (context, _) => FormActionRow(
+                            glyph: Icons.bookmark_add_outlined,
+                            identifier: SemanticsIds.eventSaveAsTemplate,
+                            label: l10n.saveAsTemplate,
+                            onTap: _titleController.text.trim().isEmpty
+                                ? null
+                                : _onSaveAsTemplate,
+                          ),
+                        ),
+                        if (_isEditing)
+                          FormActionRow(
+                            glyph: Icons.delete_outline_rounded,
+                            identifier: SemanticsIds.eventDelete,
+                            label: l10n.deleteEvent,
+                            destructive: true,
+                            onTap: _onDelete,
+                          ),
+                      ],
                     ),
                   ],
-                  FormSectionLabel(text: l10n.eventAlerts),
-                  FormRowGroup(children: _buildAlertRows(l10n)),
-                  FormSectionLabel(text: l10n.eventSectionDetails),
-                  FormRowGroup(
-                    children: [
-                      FormMenuRow<int>(
-                        glyph: Icons.flag_outlined,
-                        identifier: SemanticsIds.eventPriority,
-                        label: l10n.eventPriority,
-                        value: EventPriorities.labelOf(_priority, l10n),
-                        selected: _priority,
-                        menuWidth: _priorityMenuWidth,
-                        items: [
-                          for (
-                            var p = kMinEventPriority;
-                            p <= kMaxEventPriority;
-                            p++
-                          )
-                            FormMenuItem(
-                              value: p,
-                              label: EventPriorities.labelOf(p, l10n),
-                              icon: EventPriorities.iconFor(p),
-                            ),
-                        ],
-                        onSelected: (p) => setState(() => _priority = p),
-                      ),
-                      _buildLinkedNoteRow(l10n, theme),
-                    ],
-                  ),
-                  FormRowGroup(
-                    trailingGap: false,
-                    children: [
-                      ListenableBuilder(
-                        listenable: _titleController,
-                        builder: (context, _) => FormActionRow(
-                          glyph: Icons.bookmark_add_outlined,
-                          identifier: SemanticsIds.eventSaveAsTemplate,
-                          label: l10n.saveAsTemplate,
-                          onTap: _titleController.text.trim().isEmpty
-                              ? null
-                              : _onSaveAsTemplate,
-                        ),
-                      ),
-                      if (_isEditing)
-                        FormActionRow(
-                          glyph: Icons.delete_outline_rounded,
-                          identifier: SemanticsIds.eventDelete,
-                          label: l10n.deleteEvent,
-                          destructive: true,
-                          onTap: _onDelete,
-                        ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
           ),

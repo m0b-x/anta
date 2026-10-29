@@ -33,41 +33,100 @@ class EventDigestService implements DigestWriter {
   static EventDigestService? _instance;
   static const Uuid _uuid = Uuid();
 
+  /// The first construction while it is in flight ([EventAlertService]'s
+  /// pair), so two callers racing it share one load rather than each
+  /// publishing its own.
+  static Future<EventDigestService>? _initializing;
+
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how a
+  /// construction tells, past each of its awaits, that it has been overtaken:
+  /// this counter covers a switch that reached this service (and a restore's
+  /// deliberate re-init), the lifecycle's covers a switch that landed before
+  /// the construction had registered its handler and so never called [reset]
+  /// here at all.
+  static int _generation = 0;
+
   late EventDigestDao _dao;
 
   EventDigestService._();
 
-  static Future<EventDigestService> getInstance() async {
-    if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
-  }
+  static Future<EventDigestService> getInstance() =>
+      _createOnce(AppDatabase.getInstance);
 
   /// Binds the singleton to an arbitrary [AppDatabase] so tests run the real
   /// DAO against `NativeDatabase.memory()`. Never use it in app code.
   @visibleForTesting
-  static Future<EventDigestService> forTesting(AppDatabase db) async {
-    if (_instance != null) return _instance!;
-    return _create(db);
-  }
+  static Future<EventDigestService> forTesting(AppDatabase db) =>
+      _createOnce(() async => db);
 
-  static Future<EventDigestService> _create(AppDatabase db) async {
-    final service = EventDigestService._();
-    service._dao = db.eventDigestDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// One construction at a time, and never one a database switch overtook.
+  ///
+  /// A construction the switch overtook read the database that was just
+  /// closed, so it discards itself and hands its caller the one the new
+  /// database installs — otherwise [_instance] would hold a dead handle for
+  /// the rest of the session, the hub listing nothing and every write
+  /// throwing until the next switch.
+  static Future<EventDigestService> _createOnce(
+    Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<EventDigestService> creating;
+    creating = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+
+      Future<EventDigestService> restart() async {
+        if (identical(_initializing, creating)) _initializing = null;
+        final service = await _createOnce(open);
+        // This construction may already have published the closing
+        // database's digests on its way through `_load` — but only what the
+        // replacement actually read is worth publishing over them. A
+        // replacement whose own read failed holds the initial empty list, and
+        // publishing that is the empty facade [_load] refuses to publish for
+        // the same reason: the next reconcile would read it as "no digests
+        // configured" and disarm every standing one.
+        if (service._published) EventDigests.updateCache(service._cache);
+        return service;
+      }
+
+      try {
+        final db = await open();
+        if (overtaken()) return await restart();
+        final service = EventDigestService._();
+        service._dao = db.eventDigestDao;
+        await service._load();
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
   /// Drops the cached singleton and clears the facade, so a digest from a
   /// closed database can neither list nor arm before the next [getInstance]
   /// republishes. Invoked by [DatabaseLifecycle].
   static void reset() {
+    _generation++;
     _instance = null;
+    _initializing = null;
     EventDigests.resetCache();
   }
 
   List<EventDigest> _cache = const [];
+
+  /// Whether [_cache] reflects a read that succeeded, so a `restart()` can
+  /// tell this instance's digests from the empty list it starts with.
+  bool _published = false;
 
   /// The tail of the write chain — `null` while idle (see [_serialize]).
   Future<void>? _writes;
@@ -100,14 +159,23 @@ class EventDigestService implements DigestWriter {
     }
   }
 
+  /// Re-reads the table and publishes it. A read that fails publishes
+  /// **nothing** and keeps the cache it had: an empty facade is not "no
+  /// digests configured" to the reconcile that follows a pull — it plans zero
+  /// digests, finds every armed row absent from what it wants and cancels it
+  /// on the platform. A transient lock would therefore disarm every standing
+  /// digest, and the next healthy pass would re-arm them under new os ids.
+  /// Silence leaves the last good answer standing instead.
   Future<void> _load() async {
+    final List<EventDigestRow> rows;
     try {
-      final rows = await _dao.getAll();
-      _cache = List.unmodifiable(rows.map(_rowToDigest));
+      rows = await _dao.getAll();
     } catch (e) {
       debugPrint('[EventDigestService] Load error: $e');
-      _cache = const [];
+      return;
     }
+    _cache = List.unmodifiable(rows.map(_rowToDigest));
+    _published = true;
     EventDigests.updateCache(_cache);
   }
 
@@ -134,9 +202,16 @@ class EventDigestService implements DigestWriter {
 
   /// Writes [digest] back in place — an edit from the sheet. Keeps its
   /// `created_at` and its position.
+  ///
+  /// A digest no longer live is **refused**, [setEnabled]'s rule: the sheet
+  /// is open on a row a pull can tombstone from another device underneath it,
+  /// and [EventDigestDao.upsertDigest] would resurrect that tombstone under a
+  /// fresh local stamp — back permanently, re-armed, and one over the
+  /// planner's horizon, which then silently drops a digest from every pass.
   @override
   Future<void> update(EventDigest digest) {
     return _serialize(() async {
+      if (!_cache.any((live) => live.id == digest.id)) return;
       await _dao.upsertDigest(_toCompanion(digest));
       await _load();
     });

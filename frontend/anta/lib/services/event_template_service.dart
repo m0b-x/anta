@@ -25,14 +25,25 @@ class EventTemplateService {
   static EventTemplateService? _instance;
   static const Uuid _uuid = Uuid();
 
+  /// The first construction while it is in flight ([EventAlertService]'s
+  /// pair), so two callers racing it share one load rather than each
+  /// publishing its own.
+  static Future<EventTemplateService>? _initializing;
+
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how a
+  /// construction tells, past each of its awaits, that it has been overtaken:
+  /// this counter covers a switch that reached this service (and a restore's
+  /// deliberate re-init), the lifecycle's covers a switch that landed before
+  /// the construction had registered its handler and so never called [reset]
+  /// here at all.
+  static int _generation = 0;
+
   late EventTemplateDao _dao;
 
   EventTemplateService._();
 
-  static Future<EventTemplateService> getInstance() async {
-    if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
-  }
+  static Future<EventTemplateService> getInstance() =>
+      _createOnce(AppDatabase.getInstance);
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
   /// [AppDatabase.getInstance]'s `path_provider` lookup and device-id file.
@@ -41,25 +52,86 @@ class EventTemplateService {
   /// real facade against `NativeDatabase.memory()`. Never use it in app code —
   /// the singleton is what the [DatabaseLifecycle] reset contract is built on.
   @visibleForTesting
-  static Future<EventTemplateService> forTesting(AppDatabase db) async {
-    if (_instance != null) return _instance!;
-    return _create(db);
+  static Future<EventTemplateService> forTesting(AppDatabase db) =>
+      _createOnce(() async => db);
+
+  /// One construction at a time, and never one a database switch overtook.
+  ///
+  /// A construction the switch overtook read the database that was just
+  /// closed, so it discards itself and hands its caller the one the new
+  /// database installs — otherwise [_instance] would hold a dead handle for
+  /// the rest of the session and every picker would read through it.
+  static Future<EventTemplateService> _createOnce(
+    Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<EventTemplateService> creating;
+    creating = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+
+      Future<EventTemplateService> restart() async {
+        if (identical(_initializing, creating)) _initializing = null;
+        final service = await _createOnce(open);
+        // This construction may already have published the closing
+        // database's templates on its way through `_load`.
+        CalendarTemplates.updateCache(service._cache);
+        return service;
+      }
+
+      try {
+        final db = await open();
+        if (overtaken()) return await restart();
+        final service = EventTemplateService._();
+        service._dao = db.eventTemplateDao;
+        await service._load();
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
-  static Future<EventTemplateService> _create(AppDatabase db) async {
-    final service = EventTemplateService._();
-    service._dao = db.eventTemplateDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// Republishes the facade after `CategoryService.deleteCategory`'s cascade
+  /// moved this table's rows onto the fallback in SQL
+  /// ([EventAlertService.refreshAfterCategoryRemoval]'s pair): the picker and
+  /// the templates page both resolve a template's category at build time, and
+  /// a cached row still naming the dead id goes on stamping it onto every
+  /// event built from it.
+  ///
+  /// Waits for a construction still in flight rather than missing it, and
+  /// never starts one: with no instance there is no cache to be stale.
+  static Future<void> refreshAfterCategoryRemoval() async {
+    var service = _instance;
+    final pending = _initializing;
+    if (service == null && pending != null) {
+      try {
+        service = await pending;
+      } catch (_) {
+        // That construction's failure is its own caller's to report; with no
+        // instance there is nothing published to refresh.
+      }
+    }
+    await service?._load();
   }
 
   /// Drops the cached singleton and clears the static facade, so templates
   /// from a closed database cannot leak into the pickers before the next
   /// [getInstance] republishes. Invoked by [DatabaseLifecycle].
   static void reset() {
+    _generation++;
     _instance = null;
+    _initializing = null;
     CalendarTemplates.resetCache();
   }
 

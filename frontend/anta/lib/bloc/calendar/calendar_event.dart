@@ -7,6 +7,7 @@ import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
 import '../../models/event_alert.dart';
 import '../../models/event_digest.dart';
+import '../../services/alert_removal_notice.dart';
 
 sealed class CalendarPageEvent extends Equatable {
   const CalendarPageEvent();
@@ -81,10 +82,20 @@ final class CreateCalendarEvent extends CalendarPageEvent {
   /// removed them.
   final List<EventAlert>? alerts;
 
-  const CreateCalendarEvent({required this.event, this.alerts});
+  /// The alert ids the dispatch site was looking at when it built [alerts], so
+  /// the write tombstones only those — see
+  /// `EventAlertService.replaceForEvent`. `null` is "the whole set as it
+  /// stands", which is what a create means: there is nothing there yet.
+  final Set<String>? knownAlertIds;
+
+  const CreateCalendarEvent({
+    required this.event,
+    this.alerts,
+    this.knownAlertIds,
+  });
 
   @override
-  List<Object?> get props => [event, alerts];
+  List<Object?> get props => [event, alerts, knownAlertIds];
 }
 
 final class UpdateCalendarEvent extends CalendarPageEvent {
@@ -94,10 +105,35 @@ final class UpdateCalendarEvent extends CalendarPageEvent {
   /// "this event has no alerts any more".
   final List<EventAlert>? alerts;
 
-  const UpdateCalendarEvent({required this.event, this.alerts});
+  /// See [CreateCalendarEvent.knownAlertIds]. The editor seeds it in
+  /// `initState`, so an alert a sync pull added while the form was open
+  /// survives a Save that never showed it.
+  final Set<String>? knownAlertIds;
+
+  const UpdateCalendarEvent({
+    required this.event,
+    this.alerts,
+    this.knownAlertIds,
+  });
 
   @override
-  List<Object?> get props => [event, alerts];
+  List<Object?> get props => [event, alerts, knownAlertIds];
+}
+
+/// A3's Undo: the event an acknowledged alarm deleted, put back with the four
+/// child row sets the cascade took with it, under one HLC.
+///
+/// Its own event rather than a [CreateCalendarEvent] with more fields: a
+/// create means "there is nothing there yet", while this writes over four
+/// tables of tombstones and is the one dispatch that does.
+final class RestoreRemovedEvent extends CalendarPageEvent {
+  /// The notice the removal published, taken by the page that offers Undo.
+  final RemovedEventNotice notice;
+
+  const RestoreRemovedEvent({required this.notice});
+
+  @override
+  List<Object?> get props => [notice];
 }
 
 final class DeleteCalendarEvent extends CalendarPageEvent {
@@ -194,6 +230,24 @@ final class ClearOccurrenceSkipped extends CalendarPageEvent {
 
   @override
   List<Object?> get props => [eventId, day];
+}
+
+/// Makes [days] the event's whole set of cancelled occurrences — what the
+/// editor's Skipped days picker left behind, as one event.
+///
+/// Its own event rather than one [SetOccurrenceSkipped] or
+/// [ClearOccurrenceSkipped] per changed day, because a term's worth of days
+/// cost a transaction, an HLC, a day-cache rescan, an alert reconcile and a
+/// state emit each. The two single-day events stay for the surfaces that
+/// really do cancel one day — the day panel and the alert notice's undo.
+final class SetOccurrenceSkips extends CalendarPageEvent {
+  final String eventId;
+  final Set<DateTime> days;
+
+  const SetOccurrenceSkips({required this.eventId, required this.days});
+
+  @override
+  List<Object?> get props => [eventId, days];
 }
 
 /// Flips one alert's `enabled` flag from the Alerts hub (**v40**, §5.6).

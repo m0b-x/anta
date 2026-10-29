@@ -343,6 +343,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get holidayRestoreFailed => 'Sărbătoarea nu a putut fi restaurată';
 
   @override
+  String get holidayProfileSwitchFailed =>
+      'Setul de sărbători nu a putut fi schimbat';
+
+  @override
   String get eventCategoryGym => 'Sală';
 
   @override
@@ -404,6 +408,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get categorySaveFailed => 'Categoria nu a putut fi salvată';
+
+  @override
+  String get categoryChangeFailed => 'Modificarea nu a putut fi salvată';
 
   @override
   String deleteCategoryConfirmWithEvents(int count, String name) {
@@ -1410,6 +1417,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventLinkedNoteMissing => 'Nota asociată nu mai există';
+
+  @override
+  String get eventNoLongerExists => 'Evenimentul nu mai există';
 
   @override
   String get eventOpenLinkedNote => 'Deschide nota asociată';
@@ -5480,6 +5490,11 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String digestNextFire(String when) {
     return 'următorul $when';
+  }
+
+  @override
+  String digestOverLimit(int count) {
+    return 'neprogramat, cel mult $count rezumate';
   }
 
   @override

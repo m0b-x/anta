@@ -748,15 +748,29 @@ class SettingsService {
   }
 
   // Calendar - Max number of bars shown per day cell (overflow shows "+N").
+  // Clamped on both sides of the boundary, the rail cap's shape: the
+  // appearance page hands the stored value straight to a `Slider`.
+  static int _decodeCalendarMaxDayBars(String? raw) {
+    return _decodeInt(raw, SettingsKeys.defaultCalendarMaxDayBars).clamp(
+      SettingsKeys.minCalendarMaxDayBars,
+      SettingsKeys.maxCalendarMaxDayBars,
+    );
+  }
+
   Future<int> getCalendarMaxDayBars() async {
-    return _getInt(
-      SettingsKeys.calendarMaxDayBars,
-      SettingsKeys.defaultCalendarMaxDayBars,
+    return _decodeCalendarMaxDayBars(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarMaxDayBars),
     );
   }
 
   Future<void> setCalendarMaxDayBars(int value) async {
-    await _setInt(SettingsKeys.calendarMaxDayBars, value);
+    await _setInt(
+      SettingsKeys.calendarMaxDayBars,
+      value.clamp(
+        SettingsKeys.minCalendarMaxDayBars,
+        SettingsKeys.maxCalendarMaxDayBars,
+      ),
+    );
   }
 
   // Calendar - character budget for an event description. Clamped on both
@@ -1846,9 +1860,8 @@ class SettingsService {
         values[SettingsKeys.calendarShowFilterChips],
         SettingsKeys.defaultCalendarShowFilterChips,
       ),
-      maxDayBars: _decodeInt(
+      maxDayBars: _decodeCalendarMaxDayBars(
         values[SettingsKeys.calendarMaxDayBars],
-        SettingsKeys.defaultCalendarMaxDayBars,
       ),
       showRecurrenceLabels: _decodeBool(
         values[SettingsKeys.calendarShowRecurrenceLabels],

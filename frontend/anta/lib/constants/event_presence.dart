@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart' show visibleForTesting;
-
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 
@@ -104,10 +102,13 @@ class EventPresence {
   }
 
   /// Every explicit mark of [eventId], date-only UTC — the [EventSkips.daysFor]
-  /// parallel. Exposed for the **5.5** publish-sharing guard, which has to
-  /// compare published map *identity*: value equality cannot tell a shared
-  /// entry from a deep copy that happens to match.
-  @visibleForTesting
+  /// parallel. Read by A3's removal notice, which has to capture the marks
+  /// before the delete cascades them, and by the **5.5** publish-sharing
+  /// guard, which compares published map *identity*: value equality cannot
+  /// tell a shared entry from a deep copy that happens to match.
+  ///
+  /// The published map itself, never a copy: a caller that keeps it past the
+  /// next publish copies it.
   static Map<DateTime, PresenceStatus> marksFor(String eventId) =>
       _byEvent[eventId] ?? const <DateTime, PresenceStatus>{};
 }

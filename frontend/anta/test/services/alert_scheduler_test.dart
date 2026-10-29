@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/alert_hub_entry.dart';
@@ -374,7 +375,7 @@ void main() {
       // The sound is named for every alarm-tier fire, the phone's default
       // included, and the fork's arming shape closes it — see
       // `alertArmSignature`.
-      expect(rows.single.backend, 'fake#system:default~clock~10~n120');
+      expect(rows.single.backend, 'fake#system:default~clock~10~n120~s10');
       expect(rows.single.day, DateTime.utc(2026, 9, 20).millisecondsSinceEpoch);
       expect(gateway.platform, hasLength(1));
     });
@@ -427,7 +428,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final row = (await registrations()).single;
       expect(row.osId, before, reason: 're-armed in place, not re-issued');
-      expect(row.backend, 'fake@floor#system:default~clock~10~n120');
+      expect(row.backend, 'fake@floor#system:default~clock~10~n120~s10');
 
       // And settles again: the third pass has nothing left to do.
       gateway.resetCalls();
@@ -486,7 +487,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final rearmed = (await registrations()).single;
       expect(rearmed.osId, before.osId, reason: 're-armed in place');
-      expect(rearmed.backend, 'fake#system:default~clock~10~n120');
+      expect(rearmed.backend, 'fake#system:default~clock~10~n120~s10');
 
       // Once: the next pass finds the fork's own token and does nothing.
       gateway.resetCalls();
@@ -518,10 +519,89 @@ void main() {
         );
         expect(
           (await registrations()).single.backend,
-          'fake#content://media/7~clock~10~n120',
+          'fake#content://media/7~clock~10~n120~s10',
         );
       },
     );
+
+    test('a holiday profile switch re-arms what it moved', () async {
+      // C115: `WorkdaysRecurrence.occursOn` consults
+      // `PublicHolidays.isHoliday`, so the profile decides which days the
+      // event occurs on and therefore which days its alarm fires. 2026-11-30
+      // and 12-01 are workdays under Generic and Romanian holidays (St Andrew,
+      // the National Day), so the fire has to move to 12-02 — and nothing
+      // dispatches a calendar event for a settings row.
+      now = DateTime(2026, 11, 30, 9);
+      final holidays = await PublicHolidayService.getInstance();
+      // A tear-down has no phone to arm, and the pass a switch requests
+      // outlives the test that asked for it (C152).
+      addTearDown(
+        () => holidays.setProfile(HolidayProfile.generic, reconcile: false),
+      );
+      await seed(event: eventOf(rule: const WorkdaysRecurrence()));
+      final scheduler = schedulerOf(
+        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+      );
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(
+        (await registrations()).single.day,
+        DateTime.utc(2026, 11, 30).millisecondsSinceEpoch,
+      );
+      gateway.resetCalls();
+
+      await holidays.setProfile(HolidayProfile.romania);
+      // C152: the switch requests the pass and does not await it, so the
+      // assertions wait for the request instead.
+      await pumpEventQueue();
+
+      final pending = (await registrations()).where(
+        (row) => row.state == AlertRegistrationState.pending.name,
+      );
+      expect(
+        pending.single.day,
+        DateTime.utc(2026, 12, 2).millisecondsSinceEpoch,
+        reason: 'the switch ran the pass itself',
+      );
+      expect(gateway.scheduled, hasLength(1));
+      expect(gateway.cancelled, hasLength(1));
+    });
+
+    test('a profile switch requests the pass rather than awaiting it, and '
+        'the caller can own it instead', () async {
+      // C152: the pass is requested after the republish and never awaited
+      // inside the service — the `CategoryService.deleteCategory` shape, so
+      // no settings write blocks on a platform pass — and the one caller
+      // that owns the pass itself turns it off: calendar settings' Reset to
+      // defaults changes the holiday set again right after the switch and
+      // runs one pass for all of its writes.
+      now = DateTime(2026, 11, 30, 9);
+      final holidays = await PublicHolidayService.getInstance();
+      addTearDown(
+        () => holidays.setProfile(HolidayProfile.generic, reconcile: false),
+      );
+      await seed(event: eventOf(rule: const WorkdaysRecurrence()));
+      final scheduler = schedulerOf(
+        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+      );
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      gateway.resetCalls();
+
+      await holidays.setProfile(HolidayProfile.romania);
+      expect(
+        gateway.scheduled,
+        isEmpty,
+        reason: 'the switch returns before the pass it requested',
+      );
+      await pumpEventQueue();
+      expect(gateway.scheduled, hasLength(1));
+
+      gateway.resetCalls();
+      await holidays.setProfile(HolidayProfile.generic, reconcile: false);
+      await pumpEventQueue();
+
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+    });
 
     test('a reminder is not re-armed by a sound it cannot play', () async {
       // The reminder tier plays through a notification channel whose sound
@@ -734,7 +814,7 @@ void main() {
         await scheduler.reconcileAll(AlertReconcileReason.resumed);
 
         await expectLeftAlone(before);
-        expect(before.backend, 'fake#system:default~clock~10~n120');
+        expect(before.backend, 'fake#system:default~clock~10~n120~s10');
       },
     );
 
@@ -1683,7 +1763,7 @@ void main() {
         expect(gateway.notices[alarm.osId], DateTime(2026, 9, 20, 16));
         // A reminder announces nothing: the notice is about an *alarm*.
         expect(gateway.notices[reminder.osId], isNull);
-        expect(alarm.backend, 'fake#system:default~clock~10~n120');
+        expect(alarm.backend, 'fake#system:default~clock~10~n120~s10');
         expect(reminder.backend, 'fake');
       },
     );
@@ -1728,7 +1808,7 @@ void main() {
         expect(gateway.scheduled, hasLength(1));
         final row = (await registrations()).single;
         expect(gateway.notices, containsPair(row.osId, isNull));
-        expect(row.backend, 'fake#system:default~clock~10~n0');
+        expect(row.backend, 'fake#system:default~clock~10~n0~s10');
       },
     );
 
@@ -2044,7 +2124,39 @@ void main() {
         final rows = await registrations();
         expect(
           rows.singleWhere((row) => row.alertId == 'a1').backend,
-          'fake#system:default~clock~15~n120',
+          'fake#system:default~clock~15~n120~s10',
+        );
+        expect(rows.singleWhere((row) => row.alertId == 'r1').backend, 'fake');
+      },
+    );
+
+    test(
+      'the arm signature moves with Silence after, alarm tier only',
+      () async {
+        // C114: the gateway freezes the length into the platform entry as
+        // `timeoutAfterMillis` at arm time, so without the token the slider's
+        // new value never reached a standing alarm — the fast path skipped the
+        // entry for good. A reminder's ring length is not a thing.
+        await seed(
+          eventAlerts: [
+            alertOf(id: 'a1'),
+            alertOf(id: 'r1', mode: AlertMode.notify, offsetMinutes: 30),
+          ],
+        );
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
+
+        await (await SettingsService.getInstance())
+            .setAlertSilenceAfterMinutes(2);
+        await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+        expect(gateway.scheduled, hasLength(1));
+        expect(gateway.scheduled.single.alert.id, 'a1');
+        final rows = await registrations();
+        expect(
+          rows.singleWhere((row) => row.alertId == 'a1').backend,
+          'fake#system:default~clock~10~n120~s2',
         );
         expect(rows.singleWhere((row) => row.alertId == 'r1').backend, 'fake');
       },
@@ -3047,7 +3159,7 @@ void main() {
           fireAt: Value(DateTime(2026, 9, 20, 18).millisecondsSinceEpoch),
           kind: Value(AlertKind.scheduled.name),
           state: Value(AlertRegistrationState.pending.name),
-          backend: const Value('fake#system:default~clock~10~n120'),
+          backend: const Value('fake#system:default~clock~10~n120~s10'),
           createdAt: Value(now),
           updatedAt: Value(now),
         ),
@@ -3101,7 +3213,7 @@ void main() {
             fireAt: Value(snoozeAt.millisecondsSinceEpoch),
             kind: Value(AlertKind.snooze.name),
             state: Value(AlertRegistrationState.pending.name),
-            backend: const Value('fake#system:default~clock~10~n120'),
+            backend: const Value('fake#system:default~clock~10~n120~s10'),
             createdAt: Value(now),
             updatedAt: Value(now),
           ),

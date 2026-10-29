@@ -162,15 +162,23 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// An edit that changes nothing but `updated_at` writes nothing, the way
   /// `CategoryService.setHidden` already refuses a repeated tap, so a save of
   /// an unchanged category does not read as a change once devices merge.
-  Future<void> updateCategory(CalendarCategoriesCompanion entry) {
+  ///
+  /// Returns whether the row was **there to write**, not whether a statement
+  /// ran: a save that stores exactly what is already stored is a success the
+  /// caller has nothing to say about, while a missing or tombstoned row means
+  /// the edit is lost — the one case the editor sheet must not report as
+  /// saved, since it would hand a dead category back to its caller.
+  Future<bool> updateCategory(CalendarCategoriesCompanion entry) {
     return transaction(() async {
       final id = entry.id.value;
       final existing = await _liveById(id);
-      if (existing == null) return;
+      if (existing == null) return false;
       final merged = existing.copyWithCompanion(
         entry.copyWith(createdAt: const Value.absent()),
       );
-      if (merged.copyWith(updatedAt: existing.updatedAt) == existing) return;
+      if (merged.copyWith(updatedAt: existing.updatedAt) == existing) {
+        return true;
+      }
       final stamp = await db.stampLocal(calendarCategories, id);
       await (update(calendarCategories)..where((c) => c.id.equals(id))).write(
         entry.copyWith(
@@ -180,6 +188,7 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
           version: Value(existing.version + 1),
         ),
       );
+      return true;
     });
   }
 
@@ -202,9 +211,14 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Deletes a custom category as the one act it is to the user: its live
-  /// events move to [reassignTo], its live alerts tombstone, and the category
-  /// tombstones, all under **one** HLC and each row queued — so another device
-  /// merges the delete whole rather than three changes it could interleave.
+  /// events and templates move to [reassignTo], its live alerts tombstone,
+  /// and the category tombstones, all under **one** HLC and each row queued —
+  /// so another device merges the delete whole rather than four changes it
+  /// could interleave.
+  ///
+  /// The templates move for the same reason the events do: `CategoryService`'s
+  /// contract is that no event is ever orphaned, and a template left on the
+  /// dead id goes on stamping it onto every event built from it.
   ///
   /// [softDeleteById]'s refusals are checked before anything is written: a
   /// built-in, missing or already-tombstoned category moves no event and
@@ -215,6 +229,7 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
       if (existing == null) return false;
       final stamp = db.newStamp();
       await db.calendarEventDao.reassignCategory(id, reassignTo, stamp: stamp);
+      await db.eventTemplateDao.reassignCategory(id, reassignTo, stamp: stamp);
       await db.categoryAlertDao.tombstoneForCategory(id, stamp: stamp);
       await _tombstone(existing, stamp);
       return true;

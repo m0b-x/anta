@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
@@ -12,6 +14,7 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/pages/calendar_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -20,6 +23,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/quick_alarm_request.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/quick_alarm.dart';
@@ -27,6 +31,7 @@ import 'package:anta/widgets/calendar_day_bars.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 
 import '../database/support/db_test_support.dart';
+import '../services/permission_support.dart';
 
 /// Where the Quick Settings tile and the launcher shortcut land (OS-5, **B9**):
 /// `main.dart`'s drain publishes a `QuickAlarmRequest` and brings the calendar
@@ -80,7 +85,7 @@ void main() {
     bloc = CalendarBloc(
       service: service,
       alertReconciler: (eventId, reason) async => reconciled.add(eventId),
-      alertWriter: (eventId, alerts) async =>
+      alertWriter: (eventId, alerts, {knownIds}) async =>
           writes.add((eventId: eventId, alerts: alerts)),
     );
     await dispatch(const LoadCalendarEvents());
@@ -236,6 +241,62 @@ void main() {
     expect(reconciled, [created.id, created.id]);
     // The snackbar's own timer and its dismissal run under the fake clock;
     // left pending they would complete against a torn-down tree.
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+  });
+
+  testWidgets('a blocked alarm replaces the Undo bar rather than being '
+      'replaced by it', (tester) async {
+    // C148: `CustomSnackbar` opens by hiding whatever is on screen, so the
+    // permission check cannot *follow* the Undo bar — it would take it down
+    // again a few hundred ms after Save. The check is awaited first and the
+    // Undo bar is raised only when it said nothing, which keeps the one
+    // message after Save the one that matters.
+    final gateway = FakePermissionGateway(
+      statuses: {
+        ...allGranted,
+        AppPermission.notifications: PermissionStatus.denied,
+      },
+    );
+    // Held open so the assertion lands while the check is in flight: a bar
+    // raised and hidden again is indistinguishable from one never raised
+    // once both animations have run.
+    final reading = Completer<void>();
+    gateway.statusGate = reading;
+    final permissions = permissionServiceOver(gateway);
+    GetIt.I.registerSingleton<PermissionService>(permissions);
+    addTearDown(() => GetIt.I.unregister<PermissionService>());
+    // The prompt is latched elsewhere; this path is only about the message.
+    await (await SettingsService.getInstance()).setAlertNotificationsAsked(
+      true,
+    );
+
+    QuickAlarmRequest.instance.publish();
+    await pumpCalendar(tester);
+    await tapAndAwaitState(
+      tester,
+      find.bySemanticsIdentifier(SemanticsIds.quickAlarmSave),
+      until: (state) =>
+          state is CalendarPageLoaded && state.allEvents.isNotEmpty,
+    );
+
+    expect(find.text('Undo'), findsNothing);
+    expect(find.textContaining('Alarm set for'), findsNothing);
+
+    await tester.runAsync(() async {
+      reading.complete();
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump();
+      }
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.textContaining("can't ring"), findsOneWidget);
+    expect(find.text('Undo'), findsNothing);
+    expect(find.textContaining('Alarm set for'), findsNothing);
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(seconds: 1));
     }

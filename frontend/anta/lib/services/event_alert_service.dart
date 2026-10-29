@@ -12,8 +12,15 @@ import '../models/event_alert.dart';
 
 /// Writes one event's complete alert set. The seam `CalendarBloc` holds, so a
 /// bloc test can watch the call without standing up a database.
+///
+/// `knownIds` rides along because the set is built on a surface and written a
+/// layer away: see [EventAlertService.replaceForEvent].
 typedef AlertWriter =
-    Future<void> Function(String eventId, List<EventAlert> alerts);
+    Future<void> Function(
+      String eventId,
+      List<EventAlert> alerts, {
+      Set<String>? knownIds,
+    });
 
 /// Owns the rows of `calendar_event_alerts` and, since **v42**,
 /// `calendar_category_alerts`, and publishes both to the synchronous
@@ -113,10 +120,11 @@ class EventAlertService {
   /// with.
   static Future<void> replaceForEventById(
     String eventId,
-    List<EventAlert> alerts,
-  ) async {
+    List<EventAlert> alerts, {
+    Set<String>? knownIds,
+  }) async {
     final service = await getInstance();
-    await service.replaceForEvent(eventId, alerts);
+    await service.replaceForEvent(eventId, alerts, knownIds: knownIds);
   }
 
   /// Mutable working copy behind the published facade. A single event's edit
@@ -217,7 +225,17 @@ class EventAlertService {
   /// would keep ringing after the category dropped it. Such an alert is
   /// filtered out — and asserted against in debug, since a caller handing one
   /// in has mixed `EventAlerts.effectiveFor` into an own-alert list.
-  Future<void> replaceForEvent(String eventId, List<EventAlert> alerts) async {
+  ///
+  /// [knownIds] are the alerts the caller was looking at when it built
+  /// [alerts] — the editor's seed, read in its `initState`. Only those may be
+  /// tombstoned, so an alert that arrived by sync under the open sheet is not
+  /// removed by a Save that never showed it; `null` keeps the plain whole-set
+  /// meaning. Passed straight to the DAO, which owns the removal.
+  Future<void> replaceForEvent(
+    String eventId,
+    List<EventAlert> alerts, {
+    Set<String>? knownIds,
+  }) async {
     assert(
       alerts.every((alert) => alert.categoryId == null),
       'replaceForEvent was handed an inherited alert',
@@ -229,13 +247,35 @@ class EventAlertService {
     ];
     await _dao.replaceForEvent(eventId, [
       for (final alert in owned) _toCompanion(alert),
-    ]);
-    if (owned.isEmpty) {
+    ], knownIds: knownIds);
+    // The rows the DAO spared are still this event's alerts, so the cache
+    // keeps them rather than waiting for the next full load to find them
+    // again. Appended after the saved set: they arrived later than everything
+    // the caller was shown, which is where `_load`'s `created_at` order puts
+    // them too.
+    final next = [...owned, ..._unseenAlerts(eventId, owned, knownIds)];
+    if (next.isEmpty) {
       _byEvent.remove(eventId);
     } else {
-      _byEvent[eventId] = owned;
+      _byEvent[eventId] = next;
     }
     _publishFor(eventId);
+  }
+
+  /// The cached alerts of [eventId] that [knownIds] does not cover and [saved]
+  /// does not carry: the rows the DAO spared because the caller never saw
+  /// them. Empty when the caller claimed the whole set.
+  List<EventAlert> _unseenAlerts(
+    String eventId,
+    List<EventAlert> saved,
+    Set<String>? knownIds,
+  ) {
+    if (knownIds == null) return const [];
+    final savedIds = {for (final alert in saved) alert.id};
+    return [
+      for (final alert in _byEvent[eventId] ?? const <EventAlert>[])
+        if (!knownIds.contains(alert.id) && !savedIds.contains(alert.id)) alert,
+    ];
   }
 
   /// Cascade for a deleted event. Called after the event service's delete
@@ -254,12 +294,14 @@ class EventAlertService {
       EventAlerts.categoryAlertsFor(categoryId);
 
   /// Makes [alerts] the complete set for [categoryId] — [replaceForEvent]'s
-  /// contract: removed alerts tombstoned, kept ones re-stamped only if they
-  /// changed, new ones inserted, one transaction in the DAO, one republish.
+  /// contract, [knownIds] included: removed alerts tombstoned, kept ones
+  /// re-stamped only if they changed, new ones inserted, an alert the caller
+  /// never saw left alone, one transaction in the DAO, one republish.
   Future<void> replaceForCategory(
     String categoryId,
-    List<CategoryAlert> alerts,
-  ) async {
+    List<CategoryAlert> alerts, {
+    Set<String>? knownIds,
+  }) async {
     final owned = [
       for (final alert in alerts)
         alert.categoryId == categoryId
@@ -268,13 +310,31 @@ class EventAlertService {
     ];
     await _categoryDao.replaceForCategory(categoryId, [
       for (final alert in owned) _toCategoryCompanion(alert),
-    ]);
-    if (owned.isEmpty) {
+    ], knownIds: knownIds);
+    final next = [
+      ...owned,
+      ..._unseenCategoryAlerts(categoryId, owned, knownIds),
+    ];
+    if (next.isEmpty) {
       _byCategory.remove(categoryId);
     } else {
-      _byCategory[categoryId] = owned;
+      _byCategory[categoryId] = next;
     }
     _publishCategories();
+  }
+
+  /// [_unseenAlerts] for the category half.
+  List<CategoryAlert> _unseenCategoryAlerts(
+    String categoryId,
+    List<CategoryAlert> saved,
+    Set<String>? knownIds,
+  ) {
+    if (knownIds == null) return const [];
+    final savedIds = {for (final alert in saved) alert.id};
+    return [
+      for (final alert in _byCategory[categoryId] ?? const <CategoryAlert>[])
+        if (!knownIds.contains(alert.id) && !savedIds.contains(alert.id)) alert,
+    ];
   }
 
   /// Tombstones every alert of [categoryId] — what a category delete means
@@ -440,6 +500,20 @@ class EventAlertService {
       enabled: row.enabled,
     );
   }
+
+  /// [row] as every reader of the facade sees it. Public for the one capture
+  /// that reads `calendar_event_alerts` from outside this service —
+  /// `CalendarEventService.captureCascade`, which runs where this service may
+  /// never have been constructed, so the facade cannot answer for it
+  /// ([companionFor]'s inverse).
+  static EventAlert alertFrom(EventAlertRow row) => _rowToAlert(row);
+
+  /// [alert] as the row a write stores. Public so the one cascade that writes
+  /// `calendar_event_alerts` from outside this service —
+  /// `CalendarEventService.restoreCascade`, which needs the alerts under the
+  /// restore's shared stamp — maps an alert the one way this service does.
+  static EventAlertsCompanion companionFor(EventAlert alert) =>
+      _toCompanion(alert);
 
   static EventAlertsCompanion _toCompanion(
     EventAlert alert, {

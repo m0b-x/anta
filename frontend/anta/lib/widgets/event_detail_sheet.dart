@@ -261,11 +261,14 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// The event's alerts — its own, then its category's while it inherits
   /// them (**v42**) — read once from the synchronous facade. Rebuilding this
   /// list in `build` would be another map probe per scroll frame for a set
-  /// that cannot change while a read-only sheet is open. An inherited alert
-  /// the category editor paused (D5) fires for no event and is left out.
+  /// that cannot change while a read-only sheet is open. A switched-off alert
+  /// is left out on either side (D5): it fires for no one, the badge is
+  /// already gone from the day panel and the agenda, and a row carrying only
+  /// its tier reads exactly like an armed one whose registry read has not
+  /// landed yet. With the last of them the group goes too.
   late final List<EventAlert> _alerts = [
     for (final alert in EventAlerts.effectiveFor(widget.event))
-      if (alert.categoryId == null || alert.enabled) alert,
+      if (alert.enabled) alert,
   ];
 
   /// When each alert is next due, keyed by alert id — resolved **once** from

@@ -29,6 +29,19 @@ class OverviewViewService {
   /// Enforced at [create], the only growth path.
   static const int maxViews = 50;
 
+  /// The first construction while it is in flight ([EventAlertService]'s
+  /// pair), so two callers racing it share one load rather than each caching
+  /// its own view list.
+  static Future<OverviewViewService>? _initializing;
+
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how a
+  /// construction tells, past each of its awaits, that it has been overtaken:
+  /// this counter covers a switch that reached this service (and a restore's
+  /// deliberate re-init), the lifecycle's covers a switch that landed before
+  /// the construction had registered its handler and so never called [reset]
+  /// here at all.
+  static int _generation = 0;
+
   late OverviewViewDao _dao;
 
   /// Clock seam: what a view's period is decoded against and written back
@@ -40,32 +53,64 @@ class OverviewViewService {
 
   OverviewViewService._();
 
-  static Future<OverviewViewService> getInstance() async {
-    if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
-  }
+  static Future<OverviewViewService> getInstance() =>
+      _createOnce(AppDatabase.getInstance);
 
   /// Binds the singleton to an arbitrary [AppDatabase] so tests run the real
   /// DAO against `NativeDatabase.memory()`. Never use it in app code.
   @visibleForTesting
-  static Future<OverviewViewService> forTesting(AppDatabase db) async {
-    if (_instance != null) return _instance!;
-    return _create(db);
-  }
+  static Future<OverviewViewService> forTesting(AppDatabase db) =>
+      _createOnce(() async => db);
 
-  static Future<OverviewViewService> _create(AppDatabase db) async {
-    final service = OverviewViewService._();
-    service._dao = db.overviewViewDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// One construction at a time, and never one a database switch overtook.
+  ///
+  /// A construction the switch overtook read the database that was just
+  /// closed, so it discards itself and hands its caller the one the new
+  /// database installs — otherwise the overview would hold a service bound to
+  /// a dead handle for the rest of the session.
+  static Future<OverviewViewService> _createOnce(
+    Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<OverviewViewService> creating;
+    creating = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+
+      Future<OverviewViewService> restart() async {
+        if (identical(_initializing, creating)) _initializing = null;
+        return await _createOnce(open);
+      }
+
+      try {
+        final db = await open();
+        if (overtaken()) return await restart();
+        final service = OverviewViewService._();
+        service._dao = db.overviewViewDao;
+        await service._load();
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
   /// Drops the cached singleton so the next [getInstance] rebinds to the
   /// currently-active database. Invoked by [DatabaseLifecycle].
   static void reset() {
+    _generation++;
     _instance = null;
+    _initializing = null;
   }
 
   List<OverviewView> _cache = const [];

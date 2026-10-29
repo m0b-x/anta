@@ -340,6 +340,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get holidayRestoreFailed => 'Couldn\'t restore the holiday';
 
   @override
+  String get holidayProfileSwitchFailed => 'Couldn\'t switch the holiday set';
+
+  @override
   String get eventCategoryGym => 'Gym';
 
   @override
@@ -400,6 +403,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get categorySaveFailed => 'Couldn\'t save the category';
+
+  @override
+  String get categoryChangeFailed => 'Couldn\'t save the change';
 
   @override
   String deleteCategoryConfirmWithEvents(int count, String name) {
@@ -1387,6 +1393,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventLinkedNoteMissing => 'Linked note no longer exists';
+
+  @override
+  String get eventNoLongerExists => 'Event no longer exists';
 
   @override
   String get eventOpenLinkedNote => 'Open linked note';
@@ -5389,6 +5398,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String digestNextFire(String when) {
     return 'next $when';
+  }
+
+  @override
+  String digestOverLimit(int count) {
+    return 'not armed, $count digests at most';
   }
 
   @override

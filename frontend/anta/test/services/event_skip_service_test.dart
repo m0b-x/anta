@@ -136,6 +136,78 @@ void main() {
     });
   });
 
+  /// One Save of the editor's Skipped days picker. A term's worth of days
+  /// used to cost a transaction, an HLC and an outbox row each, because the
+  /// picker was applied one day at a time.
+  group('setSkips', () {
+    final thirdDay = DateTime.utc(2026, 8, 12);
+
+    test('writes the whole diff under one stamp', () async {
+      await service.markSkipped('e1', day);
+      await service.markSkipped('e1', otherDay);
+      await service.unskip('e1', otherDay);
+
+      expect(
+        await service.setSkips('e1', {otherDay, thirdDay}),
+        isTrue,
+      );
+
+      expect(EventSkips.daysFor('e1'), {otherDay, thirdDay});
+      final rows = await allRows();
+      expect(rows, hasLength(3));
+      // The day that left, the tombstone that came back and the fresh mark
+      // all carry one HLC: this is one act of the user's, not three.
+      expect(rows.map((r) => r.hlcTimestamp).toSet(), hasLength(1));
+      expect(
+        await db.syncOutboxDao.pendingForTable('calendar_event_skips'),
+        hasLength(3),
+      );
+    });
+
+    test('keeps every row\'s soft-delete semantics and versions', () async {
+      await service.markSkipped('e1', day);
+      await service.markSkipped('e1', otherDay);
+      await service.unskip('e1', otherDay);
+      final resurrected = await rowFor('e1', otherDay);
+
+      await service.setSkips('e1', {otherDay});
+
+      final left = await rowFor('e1', day);
+      expect(left.isDeleted, isTrue);
+      expect(left.deletedAt, isNotNull);
+      expect(left.version, 2);
+      final back = await rowFor('e1', otherDay);
+      expect(back.isDeleted, isFalse);
+      expect(back.createdAt, resurrected.createdAt);
+      expect(back.version, resurrected.version + 1);
+    });
+
+    test('an unchanged Save writes nothing and answers false', () async {
+      await service.markSkipped('e1', day);
+      final before = await rowFor('e1', day);
+
+      expect(await service.setSkips('e1', {day}), isFalse);
+
+      expect((await rowFor('e1', day)).version, before.version);
+    });
+
+    test('a naive local day normalizes to the same row', () async {
+      await service.setSkips('e1', {DateTime(2026, 8, 10, 22, 15)});
+
+      expect(EventSkips.isSkipped('e1', day), isTrue);
+      expect(await allRows(), hasLength(1));
+    });
+
+    test('a newly cancelled day loses its absence mark', () async {
+      final presence = await EventPresenceService.getInstance();
+      await presence.setStatus('e1', day, PresenceStatus.missed);
+
+      await service.setSkips('e1', {day});
+
+      expect(EventPresence.isMissed(eventOf('e1'), day), isFalse);
+    });
+  });
+
   group('presence interaction', () {
     test('cancelling a day clears its absence mark', () async {
       final presence = await EventPresenceService.getInstance();

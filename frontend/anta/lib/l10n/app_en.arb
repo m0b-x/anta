@@ -458,6 +458,10 @@
   "@holidayRestoreFailed": {
     "description": "Message over the removed-holidays sheet when restoring a holiday throws"
   },
+  "holidayProfileSwitchFailed": "Couldn't switch the holiday set",
+  "@holidayProfileSwitchFailed": {
+    "description": "Snackbar on calendar settings when switching the holiday profile throws"
+  },
   "eventCategoryGym": "Gym",
   "@eventCategoryGym": {
     "description": "Calendar event category: gym session"
@@ -542,6 +546,10 @@
   "categorySaveFailed": "Couldn't save the category",
   "@categorySaveFailed": {
     "description": "Snackbar shown when saving a category from the editor sheet fails"
+  },
+  "categoryChangeFailed": "Couldn't save the change",
+  "@categoryChangeFailed": {
+    "description": "Snackbar on the categories page when hiding, deleting or reordering a category fails"
   },
   "deleteCategoryConfirmWithEvents": "{count, plural, =1{Move 1 event to Other and delete \"{name}\"?} other{Move {count} events to Other and delete \"{name}\"?}}",
   "@deleteCategoryConfirmWithEvents": {
@@ -1685,6 +1693,10 @@
   "eventLinkedNoteMissing": "Linked note no longer exists",
   "@eventLinkedNoteMissing": {
     "description": "Shown when the note linked to an event has been deleted"
+  },
+  "eventNoLongerExists": "Event no longer exists",
+  "@eventNoLongerExists": {
+    "description": "Shown when an event is opened for editing after it was deleted elsewhere"
   },
   "eventOpenLinkedNote": "Open linked note",
   "@eventOpenLinkedNote": {
@@ -6810,6 +6822,16 @@
       "when": {
         "type": "String",
         "example": "Sat 1 Nov"
+      }
+    }
+  },
+  "digestOverLimit": "not armed, {count} digests at most",
+  "@digestOverLimit": {
+    "description": "End of an enabled digest's caption in the Alerts hub, after digestDescribe*, when the database holds more digests than can fire and this one is past the limit (Weekly on Monday, 09:00 · not armed, 10 digests at most)",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "10"
       }
     }
   },

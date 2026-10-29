@@ -46,7 +46,8 @@ void main() {
   late AppDatabase db;
   late CalendarBloc bloc;
   late List<({String eventId, AlertReconcileReason reason})> calls;
-  late List<({String eventId, List<EventAlert> alerts})> writes;
+  late List<({String eventId, List<EventAlert> alerts, Set<String>? knownIds})>
+  writes;
 
   /// The whole-horizon seam a digest's write reconciles through (D22).
   late List<AlertReconcileReason> fullCalls;
@@ -91,8 +92,8 @@ void main() {
         calls.add((eventId: eventId, reason: reason));
         order.add('reconcile');
       },
-      alertWriter: (eventId, alerts) async {
-        writes.add((eventId: eventId, alerts: alerts));
+      alertWriter: (eventId, alerts, {knownIds}) async {
+        writes.add((eventId: eventId, alerts: alerts, knownIds: knownIds));
         order.add('write');
       },
       allAlertsReconciler: (reason) async => fullCalls.add(reason),
@@ -128,8 +129,7 @@ void main() {
   );
 
   group('a quick alarm (Session 6)', () {
-    test('creates exactly one event with one alert, reconciled once',
-        () async {
+    test('creates exactly one event with one alert, reconciled once', () async {
       await dispatch(const LoadCalendarEvents());
       calls.clear();
       writes.clear();
@@ -200,67 +200,97 @@ void main() {
       categoryId: 'gym',
     );
 
-    test('cancels one occurrence of a recurring event, and Undo restores it',
-        () async {
-      await dispatch(const LoadCalendarEvents());
-      final event = eventOf(rule: const DailyRecurrence());
-      await dispatch(CreateCalendarEvent(event: event));
-      calls.clear();
-      final day = DateTime.utc(2026, 9, 22);
-      final action = AlertSkipAction.resolve(
-        event: event,
-        payload: payloadFor(event, day),
-        today: DateTime.utc(2026, 9, 22),
-      )!;
-      expect(action.apply, isA<SetOccurrenceSkipped>());
+    EventAlert alarmOf(CalendarEvent event) =>
+        EventAlert(id: 'a1', eventId: event.id, mode: AlertMode.ring);
 
-      await dispatch(action.apply);
+    test(
+      'cancels one occurrence of a recurring event, and Undo restores it',
+      () async {
+        await dispatch(const LoadCalendarEvents());
+        final event = eventOf(rule: const DailyRecurrence());
+        final alert = alarmOf(event);
+        await dispatch(CreateCalendarEvent(event: event, alerts: [alert]));
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alert],
+          },
+        );
+        calls.clear();
+        writes.clear();
+        final day = DateTime.utc(2026, 9, 22);
+        final action = AlertSkipAction.resolve(
+          event: event,
+          payload: payloadFor(event, day),
+          today: DateTime.utc(2026, 9, 22),
+        )!;
+        expect(action.apply, isA<SetOccurrenceSkipped>());
 
-      expect(EventSkips.isSkipped(event.id, day), isTrue);
-      expect(EventSkips.isSkipped(event.id, DateTime.utc(2026, 9, 23)), isFalse);
-      // Exactly one reconcile, for this event: that is what takes the
-      // alarm off the platform.
-      expect(calls, hasLength(1));
-      expect(calls.single.eventId, event.id);
-      expect(writes, isEmpty);
+        await dispatch(action.apply);
 
-      await dispatch(action.undo);
-      expect(EventSkips.isSkipped(event.id, day), isFalse);
-      expect(calls, hasLength(2));
-    });
+        expect(EventSkips.isSkipped(event.id, day), isTrue);
+        expect(
+          EventSkips.isSkipped(event.id, DateTime.utc(2026, 9, 23)),
+          isFalse,
+        );
+        // Exactly one reconcile, for this event: that is what takes the
+        // alarm off the platform.
+        expect(calls, hasLength(1));
+        expect(calls.single.eventId, event.id);
+        expect(writes, isEmpty);
 
-    test('switches a one-time event\'s alert off, and Undo switches it on',
-        () async {
-      await dispatch(const LoadCalendarEvents());
-      final event = eventOf();
-      final alert = EventAlert(id: 'a1', eventId: event.id, mode: AlertMode.ring);
-      await dispatch(CreateCalendarEvent(event: event, alerts: [alert]));
-      EventAlerts.updateCache(byEvent: {event.id: [alert]});
-      calls.clear();
-      writes.clear();
-      final action = AlertSkipAction.resolve(
-        event: event,
-        payload: payloadFor(event, DateTime.utc(2026, 9, 20)),
-        today: DateTime.utc(2026, 9, 19),
-      )!;
-      expect(action.apply, isA<ToggleEventAlert>());
+        await dispatch(action.undo);
+        expect(EventSkips.isSkipped(event.id, day), isFalse);
+        expect(calls, hasLength(2));
+      },
+    );
 
-      await dispatch(action.apply);
+    test(
+      'switches a one-time event\'s alert off, and Undo switches it on',
+      () async {
+        await dispatch(const LoadCalendarEvents());
+        final event = eventOf();
+        final alert = EventAlert(
+          id: 'a1',
+          eventId: event.id,
+          mode: AlertMode.ring,
+        );
+        await dispatch(CreateCalendarEvent(event: event, alerts: [alert]));
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alert],
+          },
+        );
+        calls.clear();
+        writes.clear();
+        final action = AlertSkipAction.resolve(
+          event: event,
+          payload: payloadFor(event, DateTime.utc(2026, 9, 20)),
+          today: DateTime.utc(2026, 9, 19),
+        )!;
+        expect(action.apply, isA<ToggleEventAlert>());
 
-      expect(writes, hasLength(1));
-      expect(writes.single.alerts.single.enabled, isFalse);
-      expect(calls, hasLength(1));
-      // A one-time event cannot be skipped — a cancelled occurrence of one
-      // would be a deletion — so nothing reached the skip table.
-      expect(EventSkips.isSkipped(event.id, DateTime.utc(2026, 9, 20)), isFalse);
+        await dispatch(action.apply);
 
-      EventAlerts.updateCache(
-        byEvent: {event.id: [alert.copyWith(enabled: false)]},
-      );
-      await dispatch(action.undo);
-      expect(writes, hasLength(2));
-      expect(writes.last.alerts.single.enabled, isTrue);
-    });
+        expect(writes, hasLength(1));
+        expect(writes.single.alerts.single.enabled, isFalse);
+        expect(calls, hasLength(1));
+        // A one-time event cannot be skipped — a cancelled occurrence of one
+        // would be a deletion — so nothing reached the skip table.
+        expect(
+          EventSkips.isSkipped(event.id, DateTime.utc(2026, 9, 20)),
+          isFalse,
+        );
+
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alert.copyWith(enabled: false)],
+          },
+        );
+        await dispatch(action.undo);
+        expect(writes, hasLength(2));
+        expect(writes.last.alerts.single.enabled, isTrue);
+      },
+    );
 
     test("opts a one-time event out of its category's alerts for an "
         'inherited alarm, and Undo opts it back in (v42)', () async {
@@ -317,12 +347,43 @@ void main() {
       );
     });
 
-    test("resolves to nothing when a one-time event's alert is gone or off",
-        () {
-      final event = eventOf();
-      final alert = EventAlert(id: 'a1', eventId: event.id, mode: AlertMode.ring);
-      final payload = payloadFor(event, DateTime.utc(2026, 9, 20));
-      final today = DateTime.utc(2026, 9, 19);
+    test(
+      'resolves to nothing when the occurrence is already cancelled',
+      () async {
+        // The notice sits on the shade for the whole lead time, so the user
+        // can cancel that day from the day list meanwhile: Skip would apply
+        // nothing and its Undo would bring the occurrence — and its alarm —
+        // back.
+        await dispatch(const LoadCalendarEvents());
+        final event = eventOf(rule: const DailyRecurrence());
+        final alert = alarmOf(event);
+        await dispatch(CreateCalendarEvent(event: event, alerts: [alert]));
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alert],
+          },
+        );
+        final day = DateTime.utc(2026, 9, 22);
+        await dispatch(SetOccurrenceSkipped(eventId: event.id, day: day));
+        expect(EventSkips.isSkipped(event.id, day), isTrue);
+
+        expect(
+          AlertSkipAction.resolve(
+            event: event,
+            payload: payloadFor(event, day),
+            today: DateTime.utc(2026, 9, 22),
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test("resolves to nothing when a recurring event's alert is gone or off", () {
+      // A notice for an alert since deleted or switched off must not cancel
+      // the whole occurrence.
+      final event = eventOf(rule: const DailyRecurrence());
+      final payload = payloadFor(event, DateTime.utc(2026, 9, 22));
+      final today = DateTime.utc(2026, 9, 22);
 
       EventAlerts.updateCache(byEvent: const {});
       expect(
@@ -330,18 +391,62 @@ void main() {
         isNull,
       );
       EventAlerts.updateCache(
-        byEvent: {event.id: [alert.copyWith(enabled: false)]},
+        byEvent: {
+          event.id: [alarmOf(event).copyWith(enabled: false)],
+        },
       );
       expect(
         AlertSkipAction.resolve(event: event, payload: payload, today: today),
         isNull,
       );
-      EventAlerts.updateCache(byEvent: {event.id: [alert]});
+      EventAlerts.updateCache(
+        byEvent: {
+          event.id: [alarmOf(event)],
+        },
+      );
       expect(
         AlertSkipAction.resolve(event: event, payload: payload, today: today),
         isNotNull,
       );
     });
+
+    test(
+      "resolves to nothing when a one-time event's alert is gone or off",
+      () {
+        final event = eventOf();
+        final alert = EventAlert(
+          id: 'a1',
+          eventId: event.id,
+          mode: AlertMode.ring,
+        );
+        final payload = payloadFor(event, DateTime.utc(2026, 9, 20));
+        final today = DateTime.utc(2026, 9, 19);
+
+        EventAlerts.updateCache(byEvent: const {});
+        expect(
+          AlertSkipAction.resolve(event: event, payload: payload, today: today),
+          isNull,
+        );
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alert.copyWith(enabled: false)],
+          },
+        );
+        expect(
+          AlertSkipAction.resolve(event: event, payload: payload, today: today),
+          isNull,
+        );
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alert],
+          },
+        );
+        expect(
+          AlertSkipAction.resolve(event: event, payload: payload, today: today),
+          isNotNull,
+        );
+      },
+    );
   });
 
   test('creating an event reconciles it once', () async {
@@ -387,6 +492,46 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     expect(calls, isEmpty);
+  });
+
+  /// A sheet open while a pull tombstones the event it is editing: the Save
+  /// still arrives, and `upsert` would clear `is_deleted` under a fresh stamp
+  /// — undoing the remote delete on every device.
+  test('updating an event the bloc does not hold leaves it deleted', () async {
+    await dispatch(const LoadCalendarEvents());
+    await dispatch(CreateCalendarEvent(event: eventOf()));
+    await dispatch(const DeleteCalendarEvent(eventId: 'e1'));
+    calls.clear();
+    writes.clear();
+
+    bloc.add(
+      UpdateCalendarEvent(
+        event: eventOf(title: 'saved from the open sheet'),
+        alerts: const [],
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final state = bloc.state as CalendarPageLoaded;
+    expect(state.allEvents.map((e) => e.id), isNot(contains('e1')));
+    expect(writes, isEmpty);
+    expect(calls, isEmpty);
+  });
+
+  test('an update carries the alert ids its sheet was showing', () async {
+    await dispatch(const LoadCalendarEvents());
+    await dispatch(CreateCalendarEvent(event: eventOf()));
+    writes.clear();
+
+    await dispatch(
+      UpdateCalendarEvent(
+        event: eventOf(title: 'Leg day, later'),
+        alerts: const [],
+        knownAlertIds: const {'seeded'},
+      ),
+    );
+
+    expect(writes.single.knownIds, {'seeded'});
   });
 
   test('skipping an occurrence reconciles the event once', () async {
@@ -453,9 +598,9 @@ void main() {
     await dispatch(const LoadCalendarEvents());
     await dispatch(
       CreateCalendarEvent(
-        event: eventOf(rule: const DailyRecurrence()).copyWith(
-          perOccurrenceDescriptions: true,
-        ),
+        event: eventOf(
+          rule: const DailyRecurrence(),
+        ).copyWith(perOccurrenceDescriptions: true),
       ),
     );
     calls.clear();
@@ -522,9 +667,7 @@ void main() {
     );
     expect(writes, isEmpty, reason: 'null means the caller never showed them');
 
-    await dispatch(
-      UpdateCalendarEvent(event: eventOf(), alerts: const []),
-    );
+    await dispatch(UpdateCalendarEvent(event: eventOf(), alerts: const []));
     expect(writes, hasLength(1));
     expect(writes.single.alerts, isEmpty);
   });
@@ -536,7 +679,8 @@ void main() {
       alertReconciler: (eventId, reason) async {
         calls.add((eventId: eventId, reason: reason));
       },
-      alertWriter: (eventId, alerts) async => throw StateError('no database'),
+      alertWriter: (eventId, alerts, {knownIds}) async =>
+          throw StateError('no database'),
     );
     await dispatch(const LoadCalendarEvents());
     calls.clear();
@@ -574,26 +718,44 @@ void main() {
 
     tearDown(EventAlerts.resetCache);
 
-    test('writes the whole set with one alert flipped, then reconciles once',
-        () async {
+    test(
+      'writes the whole set with one alert flipped, then reconciles once',
+      () async {
+        await seed();
+        final before = (bloc.state as CalendarPageLoaded).occurrenceRevision;
+
+        await dispatch(
+          const ToggleEventAlert(eventId: 'e1', alertId: 'a2', enabled: false),
+        );
+
+        expect(writes, hasLength(1));
+        expect(writes.single.eventId, 'e1');
+        expect(writes.single.alerts, [
+          reminder,
+          alarm.copyWith(enabled: false),
+        ]);
+        expect(calls, hasLength(1));
+        expect(calls.single.eventId, 'e1');
+        expect(order, ['write', 'reconcile']);
+        expect(
+          (bloc.state as CalendarPageLoaded).occurrenceRevision,
+          before + 1,
+          reason: 'the row badges re-render on this revision',
+        );
+      },
+    );
+
+    test('bounds the write by the set it was built from', () async {
+      // C151: the hub wrote with `knownIds: null`, so a pull landing between
+      // the facade read and the DAO's `SELECT` had its alert tombstoned — or
+      // its own tombstone undone — by a switch that never drew the row.
       await seed();
-      final before = (bloc.state as CalendarPageLoaded).occurrenceRevision;
 
       await dispatch(
         const ToggleEventAlert(eventId: 'e1', alertId: 'a2', enabled: false),
       );
 
-      expect(writes, hasLength(1));
-      expect(writes.single.eventId, 'e1');
-      expect(writes.single.alerts, [reminder, alarm.copyWith(enabled: false)]);
-      expect(calls, hasLength(1));
-      expect(calls.single.eventId, 'e1');
-      expect(order, ['write', 'reconcile']);
-      expect(
-        (bloc.state as CalendarPageLoaded).occurrenceRevision,
-        before + 1,
-        reason: 'the row badges re-render on this revision',
-      );
+      expect(writes.single.knownIds, {'a1', 'a2'});
     });
 
     test('setting the value an alert already has does nothing', () async {
@@ -738,15 +900,22 @@ void main() {
       expect(revision(), before);
     });
 
-    test('an edit whose digest vanished meanwhile is written back', () async {
+    /// A pull can tombstone the open row from another device while the sheet
+    /// is up. An upsert would resurrect it under a stamp that beats that
+    /// tombstone for good — re-armed, and one over the planner's horizon.
+    test('an edit whose digest vanished meanwhile is refused', () async {
       final before = await loadedRevision();
+      final emitted = <CalendarPageState>[];
+      final subscription = bloc.stream.listen(emitted.add);
+      addTearDown(subscription.cancel);
 
-      await dispatch(
-        const SaveEventDigest(EventDigest(id: 'gone', name: 'Kept')),
-      );
+      bloc.add(const SaveEventDigest(EventDigest(id: 'gone', name: 'Kept')));
+      await pumpEventQueue();
 
-      expect(EventDigests.byId('gone')?.name, 'Kept');
-      expect(revision(), before + 1);
+      expect(EventDigests.byId('gone'), isNull);
+      expect(emitted, isEmpty);
+      expect(fullCalls, isEmpty);
+      expect(revision(), before);
     });
 
     test('a delete tombstones it, reconciles all, bumps', () async {
@@ -779,4 +948,3 @@ void main() {
     });
   });
 }
-

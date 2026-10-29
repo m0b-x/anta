@@ -1,14 +1,22 @@
+import 'dart:async';
+
+import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_templates.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_event.dart' show kFallbackCategoryId;
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/event_template.dart';
+import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/event_template_service.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -23,14 +31,17 @@ import '../database/support/db_test_support.dart';
 void main() {
   late AppDatabase db;
   late CategoryService service;
+  late _HeldCategoryRead gate;
 
   setUp(() async {
     CategoryService.reset();
-    db = await openTestDatabase();
+    gate = _HeldCategoryRead();
+    db = await openTestDatabase(interceptor: gate);
     service = await CategoryService.forTesting(db);
   });
 
   tearDown(() async {
+    gate.release();
     CategoryService.reset();
     await db.close();
   });
@@ -457,6 +468,92 @@ void main() {
 
       expect(EventAlerts.categoryAlertsFor('birthday'), hasLength(1));
     });
+
+    test('a template in the deleted category is reassigned to the '
+        'fallback', () async {
+      final custom = await customWithAlerts();
+      final templates = await EventTemplateService.forTesting(db);
+      addTearDown(EventTemplateService.reset);
+      final mine = await templates.create(
+        EventTemplate(id: '', name: 'Yoga flow', categoryId: custom.id),
+      );
+      final other = await templates.create(
+        const EventTemplate(id: '', name: 'Push day', categoryId: 'gym'),
+      );
+
+      await service.deleteCategory(custom.id);
+
+      final stored = {
+        for (final row in await db.eventTemplateDao.getAll())
+          row.id: row.category,
+      };
+      expect(
+        stored[mine.id],
+        kFallbackCategoryId,
+        reason: 'a template left on the dead id stamps it onto every event '
+            '`buildEvent` creates, with no editor pass to repair it',
+      );
+      expect(
+        stored[other.id],
+        'gym',
+        reason: 'another category\'s templates are not the delete\'s business',
+      );
+      expect(
+        CalendarTemplates.all.firstWhere((t) => t.id == mine.id).categoryId,
+        kFallbackCategoryId,
+        reason: 'the facade the picker reads is republished, not left stale',
+      );
+    });
+
+    test('the deleted category\'s events are gone from the event '
+        'cache', () async {
+      final custom = await customWithAlerts();
+      final events = await CalendarEventService.forTesting(db);
+      addTearDown(CalendarEventService.reset);
+      await db.calendarEventDao.upsert(
+        CalendarEventsCompanion.insert(
+          id: 'e1',
+          title: 'Cleaning',
+          category: custom.id,
+          startDate: DateTime.utc(2026, 8, 1),
+          ruleKind: 'oneTime',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      await events.reload();
+      expect(events.events.single.categoryId, custom.id);
+
+      await service.deleteCategory(custom.id);
+
+      expect(
+        events.events.map((e) => e.categoryId),
+        [kFallbackCategoryId],
+        reason: 'the cascade rewrote the column in SQL; an event left holding '
+            'the dead id in memory is written back over the reassignment by '
+            'the next save of it',
+      );
+    });
+
+    test('a delete tells a loaded calendar the store moved', () async {
+      final custom = await customWithAlerts();
+      final before = CalendarEventService.externalRevision;
+      final fired = <void>[];
+      final signal = CalendarEventService.externalChanges.listen(fired.add);
+      addTearDown(signal.cancel);
+
+      await service.deleteCategory(custom.id);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        CalendarEventService.externalRevision,
+        greaterThan(before),
+        reason: 'the page\'s `CategoryAlertsChanged` bumps `occurrenceRevision` '
+            'alone and re-reads no events, so without this signal the moved '
+            'events only reach the grid after a restart',
+      );
+      expect(fired, hasLength(1));
+    });
   });
 
   group('the seed against a space', () {
@@ -558,4 +655,112 @@ void main() {
       expect(CalendarCategories.byId('gym'), isNotNull);
     });
   });
+
+  group('a construction in flight', () {
+    test('racing first callers share one construction', () async {
+      CategoryService.reset();
+
+      final first = CategoryService.forTesting(db);
+      final second = CategoryService.forTesting(db);
+
+      expect(identical(await first, await second), isTrue);
+    });
+
+    /// The calendar's first touch seeding the catalog while the user switches
+    /// database or restores a backup. Without the guard the seed and load the
+    /// switch overtook install themselves over the new database's, so every
+    /// later category read and write — `other`, the fallback every orphaned
+    /// event resolves to, included — goes through a closed handle.
+    test('a switch while it is in flight discards it', () async {
+      final custom = await service.create(
+        name: 'Sauna',
+        colorValue: 0xFF112233,
+        iconKey: 'gym',
+      );
+      final other = await openTestDatabase();
+      addTearDown(other.close);
+      CategoryService.reset();
+
+      final leaving = CategoryService.forTesting(db);
+      CategoryService.reset();
+      final arrived = await CategoryService.forTesting(other);
+      final discarded = await leaving;
+
+      expect(
+        identical(discarded, arrived),
+        isTrue,
+        reason: 'the construction the switch overtook must not be handed out',
+      );
+      expect(
+        CalendarCategories.byId(custom.id),
+        isNull,
+        reason: "the closing database's catalog must never be published",
+      );
+    });
+  });
+
+  /// `AppSyncApplyHooks._appReloadCalendar` reloads the catalog once per
+  /// pulled page. Off the write chain its `getAll` can land before a user's
+  /// create and its `updateCache` after it, so the new category drops out of
+  /// the facade until the next mutation while the grid repaints the stale
+  /// list on the bumped revision (invariant 12).
+  test('a reload cannot publish a catalog a create landed in', () async {
+    gate.holdNextCategoryRead();
+    final reload = service.reload();
+    await pumpEventQueue();
+    expect(gate.held, isTrue);
+
+    final creating = service.create(
+      name: 'Sauna',
+      colorValue: 0xFF112233,
+      iconKey: 'gym',
+    );
+    await pumpEventQueue();
+
+    gate.release();
+    await reload;
+    final created = await creating;
+
+    expect(CalendarCategories.byId(created.id), isNotNull);
+  });
+}
+
+/// Delivers the catalog's reload late: the `SELECT` runs at once, so its rows
+/// are what the table held when the reload asked, and they are handed back
+/// only on [release] — the window a sync pull's reload is open for, in which
+/// a user's own create lands.
+class _HeldCategoryRead extends QueryInterceptor {
+  Completer<void>? _hold;
+  bool _armed = false;
+  bool held = false;
+
+  /// Holds the next read of `calendar_categories`, which is the reload's:
+  /// one shot, so the write that follows inside the window runs freely.
+  void holdNextCategoryRead() {
+    _armed = true;
+    _hold = Completer<void>();
+  }
+
+  void release() {
+    final hold = _hold;
+    _hold = null;
+    _armed = false;
+    if (hold != null && !hold.isCompleted) hold.complete();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await super.runSelect(executor, statement, args);
+    final hold = _hold;
+    if (_armed && hold != null && statement.contains('calendar_categories')) {
+      _armed = false;
+      held = true;
+      await hold.future;
+    }
+    return rows;
+  }
 }

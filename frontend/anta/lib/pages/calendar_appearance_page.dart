@@ -498,9 +498,11 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
             title: title,
             description: description,
             value: _appearance.maxDayBars,
-            min: 1,
-            max: 6,
-            divisions: 5,
+            min: SettingsKeys.minCalendarMaxDayBars,
+            max: SettingsKeys.maxCalendarMaxDayBars,
+            divisions:
+                SettingsKeys.maxCalendarMaxDayBars -
+                SettingsKeys.minCalendarMaxDayBars,
             captionStyle: TextStyle(
               fontSize: 12,
               color: colorScheme.onSurfaceVariant,

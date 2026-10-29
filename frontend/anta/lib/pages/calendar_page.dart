@@ -11,6 +11,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
+import '../controllers/alert_permission_check.dart';
 import '../controllers/calendar_export_controller.dart';
 import '../controllers/event_sheets_flow.dart';
 import '../constants/app_bar_metrics.dart';
@@ -537,9 +538,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// Serves — and clears — the event an acknowledged alert deleted (**A3**).
   ///
   /// Two writes, both through the bloc: the reload is what drops the deleted
-  /// event out of a state the page never saw change, and Undo is an ordinary
-  /// create, which resurrects the tombstone by the DAO's existing rule and
-  /// carries the alerts the cascade took with it.
+  /// event out of a state the page never saw change, and Undo hands the whole
+  /// notice back, so the restore puts the event, its alerts, its presence
+  /// marks, its day descriptions and its skipped days back under one stamp —
+  /// the cascade took all four, and an Undo that carried only the alerts lost
+  /// the other three for good, here and on every paired device.
   void _serveRemovalNotice() {
     if (!mounted) return;
     final notice = AlertRemovalNotice.instance.take();
@@ -551,9 +554,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       context,
       message: l10n.eventAlertEventRemoved,
       actionLabel: l10n.undo,
-      onAction: () => bloc.add(
-        CreateCalendarEvent(event: notice.event, alerts: notice.alerts),
-      ),
+      onAction: () => bloc.add(RestoreRemovedEvent(notice: notice)),
     );
   }
 
@@ -1457,6 +1458,16 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       id: const Uuid().v4(),
     );
     bloc.add(CreateCalendarEvent(event: event, alerts: [alert]));
+    // The one path that arms an alarm without the editor's flow, so the one
+    // that would otherwise promise a ring a phone with its notifications off
+    // can never give. Awaited *before* the Undo bar and in its place:
+    // `CustomSnackbar` opens by hiding whatever is on screen, so a check run
+    // after the bar would take it down again a few hundred ms after Save —
+    // and of the two messages the blocked alarm is the one that matters, since
+    // an Undo for an alarm that cannot speak is the lesser news.
+    if (await AlertPermissionCheck.afterSave(context) || !context.mounted) {
+      return;
+    }
     final now = DateTime.now();
     final today = DateTime.utc(now.year, now.month, now.day);
     final time = EventTimeFormatter.formatMinute(draft.startMinute, context);
@@ -1597,10 +1608,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     await AppNavigator.toCalendarSettings(context);
     if (!mounted) return;
     // `didPopNext` already re-read the appearance settings. The reload stays
-    // unconditional rather than going through `_reloadIfStale`: Settings ->
-    // Categories can delete a category, which reassigns its events to `other`
-    // in a transaction behind the service's cache — an event-row change that
-    // bumps no revision.
+    // unconditional rather than going through `_reloadIfStale`, but no longer
+    // because it has to: the category delete it was written for — Settings ->
+    // Categories, which reassigns the events to `other` behind the service's
+    // cache — now bumps `externalRevision` and fires the stream (C71), so
+    // this is a third read of `calendar_events` for one delete. Redundant but
+    // safe, and left standing deliberately: a reload is cheap, while the
+    // external path's ordering against a returning route is not something to
+    // re-time without a device. Drop it with that measurement in hand.
     bloc.add(const LoadCalendarEvents());
   }
 

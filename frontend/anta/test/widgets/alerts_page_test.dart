@@ -131,7 +131,7 @@ void main() {
     bloc = CalendarBloc(
       service: Completer<CalendarEventService>().future,
       alertReconciler: (_, _) async {},
-      alertWriter: (eventId, alerts) async =>
+      alertWriter: (eventId, alerts, {knownIds}) async =>
           writes.add((eventId: eventId, alerts: alerts)),
       allAlertsReconciler: (_) async {},
       digestWriter: () async => digestWriter,
@@ -220,15 +220,24 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final yesterday = DateTime.now().subtract(const Duration(days: 1));
-    AlertHistoryEntry historyOf(AlertOutcome outcome, int hour, {bool removed = false}) =>
-        AlertHistoryEntry(
-          event: removed ? null : eventOf(),
-          alert: removed ? null : alarm,
-          day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
-          fireAt: DateTime(yesterday.year, yesterday.month, yesterday.day, hour),
-          settledAt: DateTime(yesterday.year, yesterday.month, yesterday.day, hour, 1),
-          outcome: outcome,
-        );
+    AlertHistoryEntry historyOf(
+      AlertOutcome outcome,
+      int hour, {
+      bool removed = false,
+    }) => AlertHistoryEntry(
+      event: removed ? null : eventOf(),
+      alert: removed ? null : alarm,
+      day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
+      fireAt: DateTime(yesterday.year, yesterday.month, yesterday.day, hour),
+      settledAt: DateTime(
+        yesterday.year,
+        yesterday.month,
+        yesterday.day,
+        hour,
+        1,
+      ),
+      outcome: outcome,
+    );
     await pumpHub(
       tester,
       () => [entryOf()],
@@ -270,7 +279,13 @@ void main() {
           alert: alarm,
           day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
           fireAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 7),
-          settledAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 7, 1),
+          settledAt: DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            7,
+            1,
+          ),
           outcome: AlertOutcome.stopped,
         ),
       ],
@@ -566,33 +581,34 @@ void main() {
     expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
   });
 
-  testWidgets('a snoozed row shows both times and cancels instead of toggling', (
-    tester,
-  ) async {
-    await pumpHub(
-      tester,
-      () => [
-        entryOf(
-          hour: 18,
-          minute: 0,
-          originalFireAt: DateTime(
-            fireDay.year,
-            fireDay.month,
-            fireDay.day,
-            17,
-            50,
+  testWidgets(
+    'a snoozed row shows both times and cancels instead of toggling',
+    (tester) async {
+      await pumpHub(
+        tester,
+        () => [
+          entryOf(
+            hour: 18,
+            minute: 0,
+            originalFireAt: DateTime(
+              fireDay.year,
+              fireDay.month,
+              fireDay.day,
+              17,
+              50,
+            ),
+            snoozeOsId: 77,
           ),
-          snoozeOsId: 77,
-        ),
-      ],
-    );
+        ],
+      );
 
-    expect(find.text('Snoozed · 10 min before'), findsOneWidget);
-    expect(find.textContaining('5:50'), findsOneWidget);
-    expect(find.textContaining('6:00'), findsOneWidget);
-    expect(find.byType(Switch), findsNothing);
-    expect(find.byTooltip('Cancel snooze'), findsOneWidget);
-  });
+      expect(find.text('Snoozed · 10 min before'), findsOneWidget);
+      expect(find.textContaining('5:50'), findsOneWidget);
+      expect(find.textContaining('6:00'), findsOneWidget);
+      expect(find.byType(Switch), findsNothing);
+      expect(find.byTooltip('Cancel snooze'), findsOneWidget);
+    },
+  );
 
   testWidgets('a registry change re-reads the rows', (tester) async {
     var rows = [entryOf()];
@@ -813,6 +829,52 @@ void main() {
 
       expect(byId(SemanticsIds.alertsDigestRow('d9')), findsOneWidget);
       expect(byId(SemanticsIds.alertsDigestAdd), findsNothing);
+    });
+
+    testWidgets('a digest past the cap says it is not armed', (tester) async {
+      // C113: sync can carry a database past `maxDigests` — `nextSortOrder()`
+      // is per device — and the planner then arms the first ten silently. The
+      // eleventh card's switch is on, so without this it read exactly like a
+      // card that fires.
+      EventDigests.updateCache(
+        List.unmodifiable([
+          for (var i = 0; i < 11; i++)
+            EventDigest(id: 'd$i', name: 'Digest $i', sortOrder: i),
+        ]),
+      );
+      tallSurface(tester);
+      await pumpHub(tester, () => const [], use24HourFormat: true);
+
+      expect(byId(SemanticsIds.alertsDigestRow('d10')), findsOneWidget);
+      expect(
+        find.text('Monthly on the 1st, 09:00 · not armed, 10 digests at most'),
+        findsOneWidget,
+      );
+      // The ten the pass does arm say nothing of the kind.
+      expect(find.text('Monthly on the 1st, 09:00'), findsNWidgets(10));
+    });
+
+    testWidgets('the cap reads the switch the user has just moved', (
+      tester,
+    ) async {
+      // C154: the row's switch reads `_pendingDigestEnabled` before the
+      // facade republishes, so the caption has to read it too — switching one
+      // of the first ten off leaves the eleventh armed, and the two must
+      // answer at the same moment.
+      EventDigests.updateCache(
+        List.unmodifiable([
+          for (var i = 0; i < 11; i++)
+            EventDigest(id: 'd$i', name: 'Digest $i', sortOrder: i),
+        ]),
+      );
+      tallSurface(tester);
+      await pumpHub(tester, () => const [], use24HourFormat: true);
+      expect(find.textContaining('not armed'), findsOneWidget);
+
+      await tester.tap(byId(SemanticsIds.alertsDigestSwitch('d0')));
+      await tester.pump();
+
+      expect(find.textContaining('not armed'), findsNothing);
     });
 
     testWidgets('a row opens its sheet, and an edit dispatches '
@@ -1040,10 +1102,7 @@ void main() {
         tester,
         () => [entryOf()],
         loadDigests: () async => [fireOf(morning, at)],
-        loadRecent: () async => [
-          delivered(17),
-          delivered(9, digest: morning),
-        ],
+        loadRecent: () async => [delivered(17), delivered(9, digest: morning)],
         use24HourFormat: true,
         textScaler: const TextScaler.linear(2.0),
       );

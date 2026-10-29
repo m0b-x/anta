@@ -101,6 +101,122 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Applies one Save's whole cancelled-days diff: [add] by [markSkipped]'s
+  /// three cases, [remove] by [unskip]'s, in one transaction under **one**
+  /// shared stamp.
+  ///
+  /// A term's worth of days used to cost one transaction, one HLC and one
+  /// outbox row each, because the editor's picker was applied one day at a
+  /// time. The per-row semantics are unchanged — a fresh mark inserts at
+  /// `version 1`, a tombstone is resurrected with its `created_at` intact, an
+  /// already-live day is left alone, and a day that is not live cannot be
+  /// tombstoned — so only the number of commits differs. Returns whether it
+  /// wrote anything.
+  ///
+  /// [stamp] is supplied by [CalendarEventDao.restoreEventCascade] alone, so
+  /// the days A3's Undo puts back merge under the restore's one HLC.
+  Future<bool> applySkipDiff(
+    String eventId, {
+    required Set<DateTime> add,
+    required Set<DateTime> remove,
+    CrdtStamp? stamp,
+  }) async {
+    if (add.isEmpty && remove.isEmpty) return false;
+    return transaction(() async {
+      // Keyed on the whole second the column stores, never on the read-back
+      // `DateTime`: drift hands that back in local time, so a UTC date-only
+      // key would never match it in Dart ([getByDayKeysIncludingDeleted]).
+      final existing = {
+        for (final row in await (select(eventSkips)..where(
+              (a) => a.eventId.equals(eventId) & a.day.isIn({...add, ...remove}),
+            ))
+            .get())
+          dayMs(row.day): row,
+      };
+
+      final now = DateTime.now();
+      final shared = stamp ?? db.newStamp();
+      final inserted = <DateTime>[];
+      final revived = <DateTime>[];
+      final tombstoned = <DateTime>[];
+
+      for (final day in add) {
+        final row = existing[dayMs(day)];
+        if (row == null) {
+          inserted.add(day);
+        } else if (row.isDeleted) {
+          revived.add(day);
+        }
+      }
+      for (final day in remove) {
+        final row = existing[dayMs(day)];
+        if (row != null && !row.isDeleted) tombstoned.add(day);
+      }
+      if (inserted.isEmpty && revived.isEmpty && tombstoned.isEmpty) {
+        return false;
+      }
+
+      await batch((b) {
+        b.insertAll(eventSkips, [
+          for (final day in inserted)
+            EventSkipsCompanion(
+              eventId: Value(eventId),
+              day: Value(day),
+              createdAt: Value(now),
+              updatedAt: Value(now),
+              hlcTimestamp: Value(shared.hlc),
+              deviceId: Value(shared.deviceId),
+              version: const Value(1),
+              isDeleted: const Value(false),
+            ),
+        ]);
+        for (final day in revived) {
+          b.update(
+            eventSkips,
+            EventSkipsCompanion(
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+              updatedAt: Value(now),
+              hlcTimestamp: Value(shared.hlc),
+              deviceId: Value(shared.deviceId),
+              version: Value(existing[dayMs(day)]!.version + 1),
+            ),
+            where: (a) => a.eventId.equals(eventId) & a.day.equals(day),
+          );
+        }
+        for (final day in tombstoned) {
+          b.update(
+            eventSkips,
+            EventSkipsCompanion(
+              isDeleted: const Value(true),
+              deletedAt: Value(now),
+              updatedAt: Value(now),
+              hlcTimestamp: Value(shared.hlc),
+              deviceId: Value(shared.deviceId),
+              version: Value(existing[dayMs(day)]!.version + 1),
+            ),
+            where: (a) => a.eventId.equals(eventId) & a.day.equals(day),
+          );
+        }
+      });
+
+      await db.enqueueMany(
+        eventSkips,
+        [
+          for (final day in [...inserted, ...revived]) dayRowKey(eventId, day),
+        ],
+        shared.hlc,
+      );
+      await db.enqueueMany(
+        eventSkips,
+        [for (final day in tombstoned) dayRowKey(eventId, day)],
+        shared.hlc,
+        op: OutboxOp.tombstone,
+      );
+      return true;
+    });
+  }
+
   /// Restores one occurrence, the [NoteDao.softDeleteNote] shape: the row
   /// survives as a tombstone so the toggle carries an order once devices
   /// merge. A missing or already-tombstoned row is a no-op.

@@ -222,6 +222,32 @@ void main() {
       );
     });
 
+    test('an out-of-range bar cap is clamped, never trusted', () async {
+      // The appearance page hands the stored value straight to a `Slider`,
+      // which asserts it is inside its own range, so a restore or a sync from
+      // a build with different bounds would make that page throw. Both the
+      // setter and the decoder clamp, the rail cap's shape.
+      await db.userSettingsDao.setValue(SettingsKeys.calendarMaxDayBars, '20');
+
+      final bundle = await settings.getCalendarPageSettings();
+
+      expect(bundle.appearance.maxDayBars, SettingsKeys.maxCalendarMaxDayBars);
+      expect(
+        await settings.getCalendarMaxDayBars(),
+        SettingsKeys.maxCalendarMaxDayBars,
+      );
+
+      await settings.setCalendarMaxDayBars(0);
+      expect(
+        await settings.getCalendarMaxDayBars(),
+        SettingsKeys.minCalendarMaxDayBars,
+      );
+      expect(
+        (await settings.getCalendarAppearance()).maxDayBars,
+        SettingsKeys.minCalendarMaxDayBars,
+      );
+    });
+
     test('an unknown rail style falls back to off', () async {
       // Forward compatibility, and the direction matters: a style this build
       // cannot draw must leave the grid exactly as it was, not paint garbage.

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../constants/public_holidays.dart';
@@ -5,6 +7,7 @@ import '../constants/settings_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/public_holiday_dao.dart';
+import 'alert_scheduler.dart';
 
 /// Owns the user's holiday **deltas** in the `public_holidays` table and
 /// publishes them to the synchronous [PublicHolidays] facade, which layers
@@ -97,7 +100,23 @@ class PublicHolidayService {
   /// Custom rows (`profile = 'custom'`) are never touched.
   ///
   /// No-op when [next] equals the current [profile].
-  Future<void> setProfile(HolidayProfile next) async {
+  ///
+  /// Requests an alert reconcile afterwards, once [_load] has republished —
+  /// the `CategoryService.deleteCategory` shape, unawaited after the write so
+  /// no settings row ever blocks on a platform pass, and for a stronger
+  /// reason than that precedent: a `workdays` or `holidays` event consults
+  /// `PublicHolidays.isHoliday` from inside `occursOn`, so the profile decides
+  /// which days it occurs on and therefore which days its alarms fire.
+  /// Without it a switch on a holiday's eve left the phone ringing for an
+  /// occurrence the calendar no longer shows, and a day that stopped being a
+  /// holiday unarmed, until the next launch or resume happened to run a pass.
+  ///
+  /// [reconcile] is off for the one caller that owns the pass itself, the way
+  /// [clearSuppressed] always has been: calendar settings' "Reset to
+  /// defaults" changes the holiday set again right after this and runs one
+  /// pass for all of its writes, so a pass armed from here would plan from a
+  /// set the next line invalidates. One authoritative pass per user action.
+  Future<void> setProfile(HolidayProfile next, {bool reconcile = true}) async {
     if (next == _profile) return;
     final previous = _profile;
     await _db.transaction(() async {
@@ -106,6 +125,10 @@ class PublicHolidayService {
       _profile = next;
     });
     await _load();
+    if (!reconcile) return;
+    unawaited(
+      AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
+    );
   }
 
   Future<HolidayProfile> _readProfile() async {
@@ -222,6 +245,23 @@ class PublicHolidayService {
   Future<void> restoreSuppressed(DateTime date, PublicHoliday holiday) async {
     final key = DateTime.utc(date.year, date.month, date.day);
     await _dao.deleteOn(key, holiday.name);
+    await _load();
+  }
+
+  /// Restores every holiday the user removed from the **active** profile, by
+  /// dropping that profile's stored rows — the removal half of [setProfile]
+  /// without the switch. Custom rows carry their own profile key and are
+  /// never touched.
+  ///
+  /// Calendar settings' "Reset to defaults" needs it: [setProfile] no-ops
+  /// when the profile is already the one being reset to, which left the
+  /// Removed holidays row as the one state a reset did not reach.
+  ///
+  /// The caller owns the alert reconcile — the profile decides which days a
+  /// `workdays` or `holidays` event occurs on, and the reset already runs one
+  /// pass for all of its writes.
+  Future<void> clearSuppressed() async {
+    await _dao.deleteProfile(_profile.name);
     await _load();
   }
 

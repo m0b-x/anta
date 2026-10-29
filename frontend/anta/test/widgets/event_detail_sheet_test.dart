@@ -428,6 +428,51 @@ void main() {
       expect(find.text('The day before, 20:00'), findsNothing);
     });
 
+    testWidgets('a switched-off own alert is not listed, and the group goes '
+        'with the last of them', (tester) async {
+      EventAlerts.updateCache(
+        byEvent: {
+          'e1': const [
+            EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring),
+            EventAlert(
+              id: 'a2',
+              eventId: 'e1',
+              mode: AlertMode.notify,
+              offsetMinutes: 30,
+              enabled: false,
+            ),
+          ],
+        },
+      );
+      await openSheet(tester, event(time: const EventTime(startMinute: 450)));
+
+      expect(find.text('At start'), findsOneWidget);
+      // The hub dims this one and shows its switch off; the sheet must not
+      // draw it like an armed alert whose registry read is still in flight.
+      expect(find.text('30 min before'), findsNothing);
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.eventDetailClose),
+      );
+      await tester.pumpAndSettle();
+      EventAlerts.updateCache(
+        byEvent: {
+          'e1': const [
+            EventAlert(
+              id: 'a1',
+              eventId: 'e1',
+              mode: AlertMode.ring,
+              enabled: false,
+            ),
+          ],
+        },
+      );
+      await openSheet(tester, event(time: const EventTime(startMinute: 450)));
+
+      expect(find.text('At start'), findsNothing);
+      expect(find.text('ALERTS'), findsNothing);
+    });
+
     group('inherited from the category', () {
       setUp(() {
         CalendarCategories.updateCache(const [

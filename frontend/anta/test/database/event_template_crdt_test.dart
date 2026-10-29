@@ -112,6 +112,30 @@ void main() {
     );
 
     test(
+      'an edit that changes nothing brings a tombstoned template back, '
+      'deliberately',
+      () async {
+        // Per-row last-write-wins: the no-change short-circuit is gated on a
+        // live row on purpose, so even a Save that decides nothing beats a
+        // tombstone another device wrote. `CalendarCategoryDao.updateCategory`
+        // refuses the same write because its events have already moved to the
+        // fallback; a template has no dependant to strand.
+        await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
+        await db.eventTemplateDao.softDeleteById('t1');
+        final tombstoned = await rowFor('t1');
+
+        await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
+
+        final row = await rowFor('t1');
+        expect(row.isDeleted, isFalse);
+        expect(row.deletedAt, isNull);
+        expect(row.name, 'Push day');
+        expect(row.version, tombstoned.version + 1);
+        expect(await db.eventTemplateDao.getAll(), hasLength(1));
+      },
+    );
+
+    test(
       'an import stamps fresh identity but keeps the audit fields',
       () async {
         final created = DateTime.utc(2020, 5, 4);

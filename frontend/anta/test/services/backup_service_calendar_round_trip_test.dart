@@ -20,6 +20,7 @@ import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/event_template.dart';
+import 'package:anta/models/fasting_schedule.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -36,6 +37,7 @@ import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/event_template_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
+import 'package:anta/services/settings_service.dart';
 
 /// Drives the exact code path onboarding takes to restore a backup —
 /// `BackupService.getInstance()` then `importFromJson()` — over a database
@@ -167,6 +169,18 @@ void main() {
     const paletteColor = 0xFF0FF00F;
     await (await CalendarPaletteService.getInstance()).add(paletteColor);
 
+    // The fasting schedule is hand-authored like the palette — weekdays, kept
+    // months and dates typed in one by one — and nothing else in the archive
+    // could rebuild it.
+    final fasting = FastingSchedule(
+      weekdays: const {DateTime.wednesday, DateTime.friday},
+      weekdayScope: FastingWeekdayScope.allFasts,
+      months: const {1, 2, 3, 11, 12},
+      skipDates: {DateTime.utc(2026, 3, 4)},
+      forceDates: {DateTime.utc(2026, 1, 7)},
+    );
+    await (await SettingsService.getInstance()).setFastingSchedule(fasting);
+
     final backup = await BackupService.getInstance();
     final exported = await backup.exportAllData();
     expect(exported['version'], 7);
@@ -186,6 +200,7 @@ void main() {
     // reach it — clearing the row is what makes its assertion prove the
     // import restored it rather than that it was never gone.
     await db.userSettingsDao.setValue(SettingsKeys.calendarCustomColors, '');
+    await db.userSettingsDao.setValue(SettingsKeys.calendarFastingSchedule, '');
     DatabaseLifecycle.notifyDatabaseSwitching();
 
     expect(
@@ -295,6 +310,13 @@ void main() {
     // and a lost swatch is silent: every picker just stops offering a colour
     // the user mixed.
     expect(CalendarPalette.custom, [paletteColor]);
+
+    // Same silence as the palette, one row over: a restore to a new install
+    // that loses the schedule starts marking days the user had turned off.
+    expect(
+      await (await SettingsService.getInstance()).getFastingSchedule(),
+      fasting,
+    );
   });
 
   test('an archive written before v37 restores the old reading', () async {

@@ -342,6 +342,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Der Feiertag konnte nicht wiederhergestellt werden';
 
   @override
+  String get holidayProfileSwitchFailed =>
+      'Die Feiertage konnten nicht gewechselt werden';
+
+  @override
   String get eventCategoryGym => 'Training';
 
   @override
@@ -403,6 +407,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get categorySaveFailed => 'Kategorie konnte nicht gespeichert werden';
+
+  @override
+  String get categoryChangeFailed =>
+      'Die Änderung konnte nicht gespeichert werden';
 
   @override
   String deleteCategoryConfirmWithEvents(int count, String name) {
@@ -1391,6 +1399,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventLinkedNoteMissing => 'Verknüpfte Notiz existiert nicht mehr';
+
+  @override
+  String get eventNoLongerExists => 'Ereignis existiert nicht mehr';
 
   @override
   String get eventOpenLinkedNote => 'Verknüpfte Notiz öffnen';
@@ -5421,6 +5432,11 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String digestNextFire(String when) {
     return 'nächste $when';
+  }
+
+  @override
+  String digestOverLimit(int count) {
+    return 'nicht aktiv, höchstens $count Zusammenfassungen';
   }
 
   @override

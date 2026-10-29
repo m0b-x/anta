@@ -224,11 +224,11 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   /// going back to Alarm shows what it showed before.
   late bool _removeAfter;
 
-  /// Whether this sheet has turned the alert into a reminder. A reminder
+  /// Whether this sheet has turned an **alarm** into a reminder. A reminder
   /// cannot be what deletes an event, so an alarm made a reminder here takes
-  /// the removal with it — while an alert that arrived a reminder and stays
-  /// one hands the event's flag back as it came, because that flag belongs to
-  /// whichever of the event's alerts rings.
+  /// the removal with it — while an alert that arrived a reminder hands the
+  /// event's flag back as it came however many tiers it is walked through,
+  /// because that flag belongs to whichever of the event's alerts rings.
   bool _demoted = false;
 
   /// The alert's own sound, `null` for "follow the app setting". Kept across a
@@ -349,7 +349,12 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     if (mode == _mode) return;
     setState(() {
       _mode = mode;
-      if (mode == AlertMode.notify) _demoted = true;
+      // Only an alarm can be demoted: an alert that arrived a reminder never
+      // owned the event's flag, so a round trip through Alarm must not clear
+      // the removal a different alarm alert of the event owns.
+      if (mode == AlertMode.notify) {
+        _demoted = widget.alert.mode == AlertMode.ring;
+      }
     });
   }
 

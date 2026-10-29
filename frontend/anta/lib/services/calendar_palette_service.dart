@@ -36,6 +36,14 @@ class CalendarPaletteService {
   /// is merely stale; this one owns a list it rewrites whole.
   static Future<CalendarPaletteService>? _initializing;
 
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how a
+  /// construction tells, past each of its awaits, that it has been overtaken:
+  /// this counter covers a restore's deliberate re-init inside one database
+  /// lifetime (`BackupService.importFromJson`), the lifecycle's covers a
+  /// switch that landed before the construction had registered its handler
+  /// and so never called [reset] here at all.
+  static int _generation = 0;
+
   late SettingsService _settings;
   List<int> _custom = const [];
 
@@ -51,28 +59,70 @@ class CalendarPaletteService {
 
   CalendarPaletteService._();
 
-  static Future<CalendarPaletteService> getInstance() {
+  static Future<CalendarPaletteService> getInstance() => _createOnce();
+
+  /// One construction at a time, and never one a [reset] overtook.
+  ///
+  /// A construction the reset overtook read the palette row as it stood
+  /// before the restore — or in a database that is already closed — so it
+  /// discards itself and hands its caller the instance the new state
+  /// installs. Publishing that stale list is not merely stale here: [_commit]
+  /// rewrites the whole row from memory, so the next colour the user picks
+  /// would persist the pre-restore swatches over the restored ones.
+  static Future<CalendarPaletteService> _createOnce() {
     final existing = _instance;
     if (existing != null) return Future.value(existing);
-    return _initializing ??= _create();
-  }
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<CalendarPaletteService> creating;
+    creating = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
 
-  static Future<CalendarPaletteService> _create() async {
-    try {
-      final service = CalendarPaletteService._();
-      service._settings = await SettingsService.getInstance();
-      await service._load();
-      _instance = service;
-      DatabaseLifecycle.registerResetHandler(reset);
-      return service;
-    } finally {
-      _initializing = null;
-    }
+      Future<CalendarPaletteService> restart() async {
+        if (identical(_initializing, creating)) _initializing = null;
+        final service = await _createOnce();
+        // This construction may already have published the pre-reset
+        // swatches on its way through `_load`.
+        service._publish();
+        return service;
+      }
+
+      try {
+        final settings = await SettingsService.getInstance();
+        if (overtaken()) return await restart();
+        final service = CalendarPaletteService._();
+        service._settings = settings;
+        await service._load();
+        if (overtaken()) return await restart();
+        // The legacy fold **writes** the palette row, so it runs out here
+        // under the construction's guard rather than inside `_load`. It is
+        // reachable precisely because `recent_event_colors` is *not* in the
+        // backup's allow-list: a restore leaves this device's own recents
+        // standing, so a construction the restore overtook would fold them
+        // into its pre-reset swatches and persist that list over the restored
+        // one — the facade then showing the restored palette and SQLite the
+        // old one. [reload] does not fold; the fold is once-only.
+        await service._foldLegacy(overtaken);
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_initializing, creating)) _initializing = null;
+      }
+    }();
+    return _initializing = creating;
   }
 
   /// Drops the cached singleton and the published palette, so custom colours
-  /// from a closed database cannot leak into the next one's pickers.
+  /// from a closed database — or from before a restore — cannot leak into the
+  /// next one's pickers.
   static void reset() {
+    _generation++;
     _instance = null;
     _initializing = null;
     CalendarPalette.resetCache();
@@ -86,11 +136,12 @@ class CalendarPaletteService {
 
   Future<void> reload() => _load();
 
-  /// Reads the stored swatches, then folds the retired recents in.
+  /// Reads the stored swatches.
   ///
-  /// The two are guarded separately on purpose: a fold that fails must not
-  /// discard a set that was read successfully, and neither failure may leave
-  /// the service thinking an unreadable palette is an empty one.
+  /// A failed read may not leave the service thinking an unreadable palette is
+  /// an empty one — [_loaded] is what every write checks before rewriting the
+  /// row from memory. The retired recents are folded in by [_foldLegacy],
+  /// which writes and therefore runs under the construction's guard instead.
   Future<void> _load() async {
     try {
       _custom = _normalize(await _settings.getCustomCalendarColors());
@@ -100,25 +151,42 @@ class CalendarPaletteService {
       _custom = const [];
       _loaded = false;
     }
-    if (_loaded) {
-      try {
-        await _foldLegacyRecents();
-      } catch (e) {
-        debugPrint('[CalendarPaletteService] Legacy fold error: $e');
-      }
-    }
-    CalendarPalette.updateCache(_custom);
+    _publish();
   }
 
-  /// Carries the retired recent-colors list into the permanent palette once.
+  /// Republishes this instance's swatches to the synchronous facade.
+  void _publish() => CalendarPalette.updateCache(_custom);
+
+  /// [_foldLegacyRecents] for the one caller that may run it — the
+  /// construction, which holds the [overtaken] guard the fold's write needs.
+  ///
+  /// Guarded apart from [_load] for the reason the read is: a fold that fails
+  /// must not discard a set that was read successfully, and an unreadable
+  /// palette is never folded into.
+  Future<void> _foldLegacy(bool Function() overtaken) async {
+    if (!_loaded) return;
+    try {
+      if (await _foldLegacyRecents(overtaken)) _publish();
+    } catch (e) {
+      debugPrint('[CalendarPaletteService] Legacy fold error: $e');
+    }
+  }
+
+  /// Carries the retired recent-colors list into the permanent palette once,
+  /// returning whether it changed [_custom].
   ///
   /// Those colours are exactly what this feature makes permanent — a user who
   /// mixed one on the wheel last week should find it waiting, not have to mix
   /// it again — and clearing the row afterwards is what keeps the fold from
   /// resurrecting a swatch the user then deleted.
-  Future<void> _foldLegacyRecents() async {
+  ///
+  /// [overtaken] is re-read between the recents and the write: a restore can
+  /// land while this very read is in flight, and the write that follows it
+  /// rewrites the whole palette row from a `_custom` that predates the
+  /// restore.
+  Future<bool> _foldLegacyRecents(bool Function() overtaken) async {
     final legacy = await _settings.getRecentEventColors();
-    if (legacy.isEmpty) return;
+    if (legacy.isEmpty || overtaken()) return false;
     final folded = _normalize([
       ..._custom,
       ...legacy.where((c) => !CalendarPalette.isDefault(c)),
@@ -127,11 +195,14 @@ class CalendarPaletteService {
     // palette write lands would lose those colours outright if the write
     // failed or the process died between the two, and the fold — being
     // once-only by design — would never run again to recover them.
+    var changed = false;
     if (folded.length != _custom.length) {
       _custom = folded;
       await _settings.setCustomCalendarColors(_custom);
+      changed = true;
     }
     await _settings.clearRecentEventColors();
+    return changed;
   }
 
   /// Drops built-ins and duplicates, then applies the cap. Order is

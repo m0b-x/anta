@@ -157,6 +157,70 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Puts [descriptions] back under the restore's shared [stamp], the
+  /// [EventAbsenceDao.restoreForEvent] twin for
+  /// [CalendarEventDao.restoreEventCascade]: `created_at` survives on a row
+  /// that is still there, and `''` is restored as the deliberately blanked day
+  /// it is rather than read as a day with no override.
+  Future<void> restoreForEvent(
+    String eventId,
+    Map<DateTime, String> descriptions, {
+    required CrdtStamp stamp,
+  }) {
+    if (descriptions.isEmpty) return Future.value();
+    return transaction(() async {
+      final existing = {
+        for (final row in await (select(eventOccurrenceDescriptions)..where(
+              (o) =>
+                  o.eventId.equals(eventId) & o.day.isIn(descriptions.keys),
+            ))
+            .get())
+          dayMs(row.day): row,
+      };
+      final now = DateTime.now();
+      await batch((b) {
+        for (final entry in descriptions.entries) {
+          final row = existing[dayMs(entry.key)];
+          if (row == null) {
+            b.insert(
+              eventOccurrenceDescriptions,
+              EventOccurrenceDescriptionsCompanion(
+                eventId: Value(eventId),
+                day: Value(entry.key),
+                description: Value(entry.value),
+                createdAt: Value(now),
+                updatedAt: Value(now),
+                hlcTimestamp: Value(stamp.hlc),
+                deviceId: Value(stamp.deviceId),
+                version: const Value(1),
+                isDeleted: const Value(false),
+              ),
+            );
+            continue;
+          }
+          b.update(
+            eventOccurrenceDescriptions,
+            EventOccurrenceDescriptionsCompanion(
+              description: Value(entry.value),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+              updatedAt: Value(now),
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: Value(row.version + 1),
+            ),
+            where: (o) => o.eventId.equals(eventId) & o.day.equals(entry.key),
+          );
+        }
+      });
+      await db.enqueueMany(
+        eventOccurrenceDescriptions,
+        [for (final day in descriptions.keys) dayRowKey(eventId, day)],
+        stamp.hlc,
+      );
+    });
+  }
+
   /// The [tombstoneForEvent] statement over every event, for
   /// [CalendarEventDao.tombstoneAll]: only the rows [ownedRowsWhere] allows,
   /// under the wipe's [stamp].

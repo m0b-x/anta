@@ -233,6 +233,74 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Puts [marks] back under the restore's shared [stamp], the
+  /// [tombstoneForEvent] inverse for [CalendarEventDao.restoreEventCascade]:
+  /// a tombstoned row is written in place with its `created_at` intact — the
+  /// day keeps the date it was first marked — and a row the cascade's own
+  /// delete has since removed from the table is re-inserted at `version 1`,
+  /// the [setStatus] cases without the no-op branch, since a restore is
+  /// exactly the write that must move the stamp.
+  Future<void> restoreForEvent(
+    String eventId,
+    Map<DateTime, PresenceStatus> marks, {
+    required CrdtStamp stamp,
+  }) {
+    if (marks.isEmpty) return Future.value();
+    return transaction(() async {
+      // Keyed on the whole second the column stores, never on the read-back
+      // `DateTime`: drift hands that back in local time, so a UTC date-only
+      // key would never match it in Dart ([EventSkipDao.applySkipDiff]).
+      final existing = {
+        for (final row in await (select(eventAbsences)..where(
+              (a) => a.eventId.equals(eventId) & a.day.isIn(marks.keys),
+            ))
+            .get())
+          dayMs(row.day): row,
+      };
+      final now = DateTime.now();
+      await batch((b) {
+        for (final mark in marks.entries) {
+          final row = existing[dayMs(mark.key)];
+          if (row == null) {
+            b.insert(
+              eventAbsences,
+              EventAbsencesCompanion(
+                eventId: Value(eventId),
+                day: Value(mark.key),
+                status: Value(mark.value.name),
+                createdAt: Value(now),
+                updatedAt: Value(now),
+                hlcTimestamp: Value(stamp.hlc),
+                deviceId: Value(stamp.deviceId),
+                version: const Value(1),
+                isDeleted: const Value(false),
+              ),
+            );
+            continue;
+          }
+          b.update(
+            eventAbsences,
+            EventAbsencesCompanion(
+              status: Value(mark.value.name),
+              isDeleted: const Value(false),
+              deletedAt: const Value(null),
+              updatedAt: Value(now),
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+              version: Value(row.version + 1),
+            ),
+            where: (a) => a.eventId.equals(eventId) & a.day.equals(mark.key),
+          );
+        }
+      });
+      await db.enqueueMany(
+        eventAbsences,
+        [for (final day in marks.keys) dayRowKey(eventId, day)],
+        stamp.hlc,
+      );
+    });
+  }
+
   /// The [tombstoneForEvent] statement over every event, for
   /// [CalendarEventDao.tombstoneAll]: only the rows [ownedRowsWhere] allows,
   /// under the wipe's [stamp].

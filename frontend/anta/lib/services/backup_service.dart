@@ -267,6 +267,14 @@ class BackupService {
       // one above it; the labels themselves travel on the note and folder
       // rows, not here.
       SettingsKeys.labelStyle,
+      // The fasting schedule is authored content like the palette above:
+      // weekdays, kept months and the dates the user typed in by hand, none
+      // of which is recoverable from anything else in the archive. Additive
+      // — a backup written before these keys existed leaves the defaults.
+      SettingsKeys.calendarFastingSchedule,
+      SettingsKeys.calendarFastingTraditions,
+      SettingsKeys.calendarFastingAppearance,
+      SettingsKeys.calendarFastingOrthodoxGreatFasts,
       // Which editor surface the note opens on: live rendering, and whether
       // the deprecated preview is available at all. Additive — a backup
       // written before these keys existed simply leaves both at their

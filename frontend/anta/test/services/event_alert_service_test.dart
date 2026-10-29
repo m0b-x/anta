@@ -70,8 +70,9 @@ void main() {
   Future<List<EventAlertRow>> allRows() => db.select(db.eventAlerts).get();
 
   Future<EventAlertRow> rowFor(String id) {
-    return (db.select(db.eventAlerts)..where((a) => a.id.equals(id)))
-        .getSingle();
+    return (db.select(
+      db.eventAlerts,
+    )..where((a) => a.id.equals(id))).getSingle();
   }
 
   group('replaceForEvent', () {
@@ -87,15 +88,18 @@ void main() {
       expect(EventAlerts.alertsFor('e2'), isEmpty);
     });
 
-    test('a first save is a live version-1 row with stamped identity', () async {
-      await service.replaceForEvent('e1', [alertOf('a1')]);
+    test(
+      'a first save is a live version-1 row with stamped identity',
+      () async {
+        await service.replaceForEvent('e1', [alertOf('a1')]);
 
-      final row = await rowFor('a1');
-      expect(row.version, 1);
-      expect(row.isDeleted, isFalse);
-      expect(row.hlcTimestamp, isNotEmpty);
-      expect(row.deviceId, 'test-device');
-    });
+        final row = await rowFor('a1');
+        expect(row.version, 1);
+        expect(row.isDeleted, isFalse);
+        expect(row.hlcTimestamp, isNotEmpty);
+        expect(row.deviceId, 'test-device');
+      },
+    );
 
     test('a removed alert is tombstoned, not deleted', () async {
       await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
@@ -108,6 +112,61 @@ void main() {
       expect(gone.deletedAt, isNotNull);
       expect(gone.version, 2);
       expect(await allRows(), hasLength(2));
+    });
+
+    test(
+      'an alert the save never saw survives it, a dropped one does not',
+      () async {
+        // The two rows the editor opened on, and the ids it seeded from.
+        await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
+        final seeded = {
+          for (final alert in EventAlerts.alertsFor('e1')) alert.id,
+        };
+        // A pull adds a third while the form is open, and the app reloads.
+        await service.replaceForEvent('e1', [
+          alertOf('a1'),
+          alertOf('a2'),
+          alertOf('a3'),
+        ]);
+        await service.reload();
+
+        // Save: the form's own set, bounded by what it was showing.
+        await service.replaceForEvent('e1', [alertOf('a1')], knownIds: seeded);
+
+        expect(EventAlerts.alertsFor('e1').map((a) => a.id), ['a1', 'a3']);
+        expect((await rowFor('a3')).isDeleted, isFalse);
+        expect(
+          (await rowFor('a2')).isDeleted,
+          isTrue,
+          reason: 'an id the form was showing and dropped is still a removal',
+        );
+      },
+    );
+
+    test('a delete that landed under the open sheet is not resurrected',
+        () async {
+      // C150: `_sameContent` is false for a tombstone, so every id the caller
+      // still lists fell into the update branch, which clears `is_deleted`
+      // under a fresh stamp — a pull's delete, re-upserted live by a Save
+      // that was only showing its mount-time snapshot, lost on every paired
+      // device. `knownIds` makes it exact: the caller opened on `a2`.
+      await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
+      final seeded = {for (final alert in EventAlerts.alertsFor('e1')) alert.id};
+      // The pull: `a2` is tombstoned elsewhere and the app reloads.
+      await service.replaceForEvent('e1', [alertOf('a1')]);
+      await service.reload();
+      final tombstone = await rowFor('a2');
+
+      // Save: the form's own set, still carrying `a2`.
+      await service.replaceForEvent('e1', [
+        alertOf('a1'),
+        alertOf('a2'),
+      ], knownIds: seeded);
+
+      final row = await rowFor('a2');
+      expect(row.isDeleted, isTrue);
+      expect(row.version, tombstone.version);
+      expect(row.hlcTimestamp, tombstone.hlcTimestamp);
     });
 
     test('an empty list tombstones every alert of the event', () async {
@@ -177,12 +236,15 @@ void main() {
       expect((await rowFor('b1')).isDeleted, isFalse);
     });
 
-    test('an alert carrying the wrong event id is re-homed, not stranded', () async {
-      await service.replaceForEvent('e1', [alertOf('a1', eventId: 'other')]);
+    test(
+      'an alert carrying the wrong event id is re-homed, not stranded',
+      () async {
+        await service.replaceForEvent('e1', [alertOf('a1', eventId: 'other')]);
 
-      expect(EventAlerts.alertsFor('e1').single.eventId, 'e1');
-      expect((await rowFor('a1')).eventId, 'e1');
-    });
+        expect(EventAlerts.alertsFor('e1').single.eventId, 'e1');
+        expect((await rowFor('a1')).eventId, 'e1');
+      },
+    );
   });
 
   group('the facade', () {
@@ -280,7 +342,8 @@ void main() {
       expect(
         left.map((r) => r.osId),
         [202],
-        reason: 'a registration describes this phone\'s scheduler, so it is '
+        reason:
+            'a registration describes this phone\'s scheduler, so it is '
             'hard-deleted while the alert it came from tombstones',
       );
     });
@@ -331,23 +394,29 @@ void main() {
       expect(exported.keys, isNot(contains('isDeleted')));
     });
 
-    test('import preserves audit timestamps but stamps fresh identity', () async {
-      final created = DateTime.fromMillisecondsSinceEpoch(1600000000000);
-      await service.importData([
-        {
-          EventAlertKeys.id: 'a1',
-          EventAlertKeys.eventId: 'e1',
-          EventAlertKeys.createdAtMs: created.millisecondsSinceEpoch,
-          EventAlertKeys.updatedAtMs: created.millisecondsSinceEpoch,
-        },
-      ]);
+    test(
+      'import preserves audit timestamps but stamps fresh identity',
+      () async {
+        final created = DateTime.fromMillisecondsSinceEpoch(1600000000000);
+        await service.importData([
+          {
+            EventAlertKeys.id: 'a1',
+            EventAlertKeys.eventId: 'e1',
+            EventAlertKeys.createdAtMs: created.millisecondsSinceEpoch,
+            EventAlertKeys.updatedAtMs: created.millisecondsSinceEpoch,
+          },
+        ]);
 
-      final row = await rowFor('a1');
-      expect(row.createdAt.millisecondsSinceEpoch, created.millisecondsSinceEpoch);
-      expect(row.deviceId, 'test-device');
-      expect(row.version, 1);
-      expect(row.isDeleted, isFalse);
-    });
+        final row = await rowFor('a1');
+        expect(
+          row.createdAt.millisecondsSinceEpoch,
+          created.millisecondsSinceEpoch,
+        );
+        expect(row.deviceId, 'test-device');
+        expect(row.version, 1);
+        expect(row.isDeleted, isFalse);
+      },
+    );
 
     test('a malformed row is skipped and the rest still imports', () async {
       await service.importData([
@@ -369,16 +438,19 @@ void main() {
       expect(EventAlerts.alertsFor('e1'), isEmpty);
     });
 
-    test('clearAllForImport is the strand rule, and it empties the table', () async {
-      await service.replaceForEvent('e1', [alertOf('a1')]);
+    test(
+      'clearAllForImport is the strand rule, and it empties the table',
+      () async {
+        await service.replaceForEvent('e1', [alertOf('a1')]);
 
-      await service.clearAllForImport();
+        await service.clearAllForImport();
 
-      // An alert left against an id the event import has just handed to a
-      // different event does not draw a stale badge — it rings.
-      expect(await allRows(), isEmpty);
-      expect(EventAlerts.alertsFor('e1'), isEmpty);
-    });
+        // An alert left against an id the event import has just handed to a
+        // different event does not draw a stale badge — it rings.
+        expect(await allRows(), isEmpty);
+        expect(EventAlerts.alertsFor('e1'), isEmpty);
+      },
+    );
   });
 
   group('removeAfterAlert on the event', () {
@@ -516,6 +588,60 @@ void main() {
       final added = await categoryRow('c3');
       expect(added.version, 1);
       expect(added.deviceId, 'test-device');
+    });
+
+    test('a category alert the save never saw survives it', () async {
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+      ]);
+      final seeded = {
+        for (final alert in EventAlerts.categoryAlertsFor('birthday')) alert.id,
+      };
+      // Another device's alert for the same category, applied under the open
+      // sheet.
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+        categoryAlertOf('c3'),
+      ]);
+      await service.reload();
+
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+      ], knownIds: seeded);
+
+      expect(EventAlerts.categoryAlertsFor('birthday').map((a) => a.id), [
+        'c1',
+        'c3',
+      ]);
+      expect((await categoryRow('c3')).isDeleted, isFalse);
+      expect((await categoryRow('c2')).isDeleted, isTrue);
+    });
+
+    test('a category delete under the open sheet is not resurrected',
+        () async {
+      // C150's category half: the same update branch, one table over.
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+      ]);
+      final seeded = {
+        for (final alert in EventAlerts.categoryAlertsFor('birthday')) alert.id,
+      };
+      await service.replaceForCategory('birthday', [categoryAlertOf('c1')]);
+      await service.reload();
+      final tombstone = await categoryRow('c2');
+
+      await service.replaceForCategory('birthday', [
+        categoryAlertOf('c1'),
+        categoryAlertOf('c2'),
+      ], knownIds: seeded);
+
+      final row = await categoryRow('c2');
+      expect(row.isDeleted, isTrue);
+      expect(row.version, tombstone.version);
+      expect(row.hlcTimestamp, tombstone.hlcTimestamp);
     });
 
     test('an unchanged alert is not re-stamped', () async {

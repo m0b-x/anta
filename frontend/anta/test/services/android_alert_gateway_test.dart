@@ -302,11 +302,11 @@ void main() {
       // token must not move: nothing about how one is armed changed.
       expect(kAlertArmClockToken, '~clock');
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120),
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
         contains(kAlertArmClockToken),
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120),
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
         'alarm',
       );
     });
@@ -329,16 +329,16 @@ void main() {
       // changed lead — off included — has to re-arm the alarm for its notice
       // to move or go; a reminder never has one.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 0),
-        'alarm#system:default~clock~10~n0',
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 0, silenceAfterMinutes: 10),
+        'alarm#system:default~clock~10~n0~s10',
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 60),
-        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120)),
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 60, silenceAfterMinutes: 10),
+        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10)),
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 0),
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120),
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 0, silenceAfterMinutes: 10),
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
       );
     });
 
@@ -348,13 +348,13 @@ void main() {
       // standing alarm the way a changed sound does — and a reminder, which
       // snoozes from the payload alone, must not be re-armed for it.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120),
-        'alarm#system:default~clock~10~n120',
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        'alarm#system:default~clock~10~n120~s10',
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 5, noticeLeadMinutes: 120),
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 5, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
         isNot(
-          alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120),
+          alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
         ),
       );
       expect(
@@ -363,13 +363,34 @@ void main() {
           fire: fireWith(mode: AlertMode.notify),
           snoozeMinutes: 5,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
         alertArmSignature(
           context: 'alarm',
           fire: fireWith(mode: AlertMode.notify),
           snoozeMinutes: 10,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
+      );
+    });
+
+    test('the arm signature carries Silence after for the alarm tier', () {
+      // C114: the binding freezes the length into the platform entry as
+      // `timeoutAfterMillis`, so a changed slider has to re-arm every standing
+      // alarm the way a changed snooze length does. A reminder's ring has no
+      // length to silence.
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 2),
+        'alarm#system:default~clock~10~n120~s2',
+      );
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 2),
+        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10)),
+      );
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 2),
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
       );
     });
 
@@ -380,8 +401,8 @@ void main() {
       // every standing alarm once the asset was gone — none may stay pointed
       // at a file the new build no longer carries.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120),
-        'alarm#system:default~clock~10~n120',
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        'alarm#system:default~clock~10~n120~s10',
       );
       // A reminder plays through a channel whose sound Android froze at
       // creation, so a sound can never change what one does.
@@ -394,6 +415,7 @@ void main() {
           ),
           snoozeMinutes: 10,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
         'alarm',
       );
@@ -405,8 +427,9 @@ void main() {
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
           snoozeMinutes: 10,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
-        'alarm#content://media/7~clock~10~n120',
+        'alarm#content://media/7~clock~10~n120~s10',
       );
       expect(
         alertArmSignature(
@@ -414,8 +437,9 @@ void main() {
           fire: fireWith(),
           snoozeMinutes: 10,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
-        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120)),
+        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10)),
       );
       // Stable: equal inputs, equal token, or the diff cancels and re-arms the
       // same set on every pass.
@@ -425,12 +449,14 @@ void main() {
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
           snoozeMinutes: 10,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
         alertArmSignature(
           context: 'alarm',
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
           snoozeMinutes: 10,
           noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
         ),
       );
     });

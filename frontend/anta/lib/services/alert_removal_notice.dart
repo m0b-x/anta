@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../constants/event_alerts.dart';
+import '../constants/event_presence.dart';
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
@@ -10,10 +10,14 @@ import 'database_manager.dart';
 import 'session_chip.dart';
 
 /// An event deleted because one of its alerts was acknowledged (**A3**), held
-/// with everything needed to put it back.
+/// with everything needed to put it back: the delete cascades four child
+/// tables, so all four row sets ride along, not the alerts alone.
 typedef RemovedEventNotice = ({
   CalendarEvent event,
   List<EventAlert> alerts,
+  Map<DateTime, PresenceStatus> marks,
+  Map<DateTime, String> descriptions,
+  Set<DateTime> skips,
   DateTime at,
 });
 
@@ -27,10 +31,12 @@ typedef RemovedEventNotice = ({
 /// not: the ring path reaches it from places that hold no container, and it
 /// holds no database reference of its own.
 ///
-/// The alerts ride along because the delete cascaded them: `upsert` resurrects
-/// the event's own tombstone, but an alert row it tombstoned in the same
-/// transaction would stay dead, and an event restored without the alarm that
-/// removed it is not the event the user had.
+/// The child rows ride along because the delete cascaded them: `upsert`
+/// resurrects the event's own tombstone, but an alert, absence mark, day
+/// description or skip it tombstoned in the same transaction would stay dead —
+/// on this device and, since the tombstones carry their own HLC, on every
+/// paired one — and an event restored without the alarm that removed it, its
+/// attendance marks and its cancelled days is not the event the user had.
 class AlertRemovalNotice extends ChangeNotifier {
   static final AlertRemovalNotice instance = AlertRemovalNotice();
 
@@ -50,8 +56,21 @@ class AlertRemovalNotice extends ChangeNotifier {
   /// Whether there is a fresh notice waiting. Cheap enough for a listener.
   bool get hasPending => _pending != null;
 
-  void publish(CalendarEvent event, List<EventAlert> alerts) {
-    _pending = (event: event, alerts: alerts, at: clock());
+  void publish(
+    CalendarEvent event, {
+    required List<EventAlert> alerts,
+    required Map<DateTime, PresenceStatus> marks,
+    required Map<DateTime, String> descriptions,
+    required Set<DateTime> skips,
+  }) {
+    _pending = (
+      event: event,
+      alerts: alerts,
+      marks: marks,
+      descriptions: descriptions,
+      skips: skips,
+      at: clock(),
+    );
     notifyListeners();
   }
 
@@ -113,11 +132,22 @@ abstract final class AlertAcknowledgement {
       // what is true now. "Keep the event" clears the flag on the event, and
       // a Stop that arrives from the notification afterwards must honour it.
       if (!target.removeAfterAlert) return false;
-      // Captured **before** the delete: the cascade tombstones the alert rows,
-      // and the facade is republished from what survives.
-      final alerts = List<EventAlert>.of(EventAlerts.alertsFor(target.id));
+      // Captured **before** the delete, all four sets: the cascade tombstones
+      // the alert, absence, description and skip rows under its own stamp, and
+      // every facade is republished from what survives — so by the time Undo
+      // runs there is nothing left to read them from.
+      //
+      // From the tables, never the facades: nothing on this path publishes
+      // them — see `CalendarEventService.captureCascade`.
+      final captured = await service.captureCascade(target.id);
       await service.deleteById(target.id);
-      AlertRemovalNotice.instance.publish(target, alerts);
+      AlertRemovalNotice.instance.publish(
+        target,
+        alerts: captured.alerts,
+        marks: captured.marks,
+        descriptions: captured.descriptions,
+        skips: captured.skips,
+      );
       await AlertScheduler.reconcileEventById(
         target.id,
         AlertReconcileReason.ringHandled,

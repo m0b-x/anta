@@ -60,6 +60,15 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
         return;
       }
 
+      // Per-row last-write-wins, deliberately (sync phase record §3.4 (4): an
+      // upsert newer than a local tombstone resurrects) — and because this
+      // short-circuit is gated on a live row, even a Save that changes
+      // nothing is such an upsert. A template has no dependant to strand,
+      // which is what separates it from `CalendarCategoryDao.updateCategory`,
+      // where the deleted category's events have already moved to the
+      // fallback and bringing the row back would leave them there; digests
+      // and saved views take this same upsert and refuse only a *new* row
+      // past their cap, in the service.
       if (!existing.isDeleted && db.changesNothing(existing, entry)) return;
       final stamp = await db.stampLocal(eventTemplates, id);
       await (update(eventTemplates)..where((t) => t.id.equals(id))).write(
@@ -100,6 +109,40 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
           version: Value(existing.version + 1),
         ),
       );
+    });
+  }
+
+  /// Moves every live template in [fromId] onto [toId], the
+  /// [CalendarEventDao.reassignCategory] shape and for the same reason: a
+  /// template that keeps a deleted category's id stamps that dead id onto
+  /// every event `EventTemplate.buildEvent` creates from it, with no editor
+  /// pass in between to repair it — while the picker already draws it as
+  /// Other, since rendering resolves an unknown id to the fallback.
+  ///
+  /// `RETURNING id` names the moved templates, so exactly those are queued
+  /// with no read first. [stamp] is the category delete's own, when this is
+  /// part of [CalendarCategoryDao.tombstoneCascade].
+  Future<int> reassignCategory(String fromId, String toId, {CrdtStamp? stamp}) {
+    return transaction(() async {
+      final shared = stamp ?? db.newStamp();
+      final moved = await customWriteReturning(
+        'UPDATE calendar_event_templates SET category = ?, updated_at = ?, '
+        'hlc_timestamp = ?, device_id = ?, version = version + 1 '
+        'WHERE category = ? AND is_deleted = 0 RETURNING id',
+        variables: [
+          Variable<String>(toId),
+          Variable<DateTime>(DateTime.now()),
+          Variable<String>(shared.hlc),
+          Variable<String>(shared.deviceId),
+          Variable<String>(fromId),
+        ],
+        updates: {eventTemplates},
+        updateKind: UpdateKind.update,
+      );
+      await db.enqueueMany(eventTemplates, [
+        for (final row in moved) row.read<String>('id'),
+      ], shared.hlc);
+      return moved.length;
     });
   }
 

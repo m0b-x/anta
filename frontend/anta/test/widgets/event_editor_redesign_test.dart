@@ -974,6 +974,67 @@ void main() {
       expect(saved.event.startDate, target);
     });
 
+    testWidgets('dates moved past the Until date drop it before a repeat rule', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: SpecificDatesRecurrence(
+            dates: {startDate, DateTime.utc(2026, 9, 26)},
+          ),
+          endDate: DateTime.utc(2026, 9, 27),
+        ),
+      );
+      // The whole set moves past the Until date the event still carries: the
+      // repeat sheet floors only its own picker at the start, so without a
+      // clamp the stale end comes back and the event occurs on no day.
+      await tapText(tester, 'Add date');
+      for (final day in [
+        startDate,
+        DateTime.utc(2026, 9, 26),
+        DateTime.utc(2026, 9, 28),
+      ]) {
+        await tester.tap(
+          find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == day),
+        );
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.datePickerSave));
+      await tester.pumpAndSettle();
+      await pickRepeat(tester, 'Weekly');
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.startDate, DateTime.utc(2026, 9, 28));
+      expect(saved.event.endDate, isNull);
+      expect(saved.event.occursOn(DateTime.utc(2026, 10, 2)), isTrue);
+    });
+
+    testWidgets('switching to a repeat rule drops the one-time extras', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: SpecificDatesRecurrence(
+            dates: {
+              startDate,
+              DateTime.utc(2026, 9, 26),
+              DateTime.utc(2026, 9, 27),
+            },
+          ),
+        ),
+      );
+      await pickRepeat(tester, 'Weekly');
+      await pickRepeat(tester, 'Does not repeat');
+
+      // Nothing has shown the extra dates since the first switch, so going
+      // back to one-time must not restore the set the user left behind.
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.rule, isA<OneTimeRecurrence>());
+      expect(saved.event.startDate, startDate);
+    });
+
     testWidgets('the repeat row reads the rule, its scope and its end', (
       tester,
     ) async {
@@ -1529,6 +1590,152 @@ void main() {
       expect(saved.occurrenceDescription, isNull);
     });
 
+    testWidgets('a template edit on an unmaterialised day writes no row', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: const DailyRecurrence(),
+          description: 'template',
+          perOccurrenceDescriptions: true,
+        ),
+        day: startDate,
+      );
+      expect(find.text('All days'), findsOneWidget);
+      expect(
+        find.text('Reset day'),
+        findsNothing,
+        reason: 'this day has no row of its own',
+      );
+
+      descriptionOf(tester).text = 'template, edited';
+      await tester.pump();
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.description, 'template, edited');
+      // The shared description moved; the day the editor was opened from
+      // never did, so nothing may be written for it — the copy-on-write rule.
+      expect(saved.occurrenceDay, isNull);
+      expect(saved.occurrenceDescription, isNull);
+    });
+
+    testWidgets('a day edit on an unmaterialised day writes that day', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: const DailyRecurrence(),
+          description: 'template',
+          perOccurrenceDescriptions: true,
+        ),
+        day: startDate,
+      );
+      await tapText(tester, 'This day');
+      expect(descriptionOf(tester).text, 'template');
+
+      descriptionOf(tester).text = 'just today';
+      await tester.pump();
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.description, 'template');
+      expect(saved.occurrenceDay, startDate);
+      expect(saved.occurrenceDescription, 'just today');
+    });
+
+    testWidgets('a day the saved rule no longer covers gets no row', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: const DailyRecurrence(),
+          description: 'template',
+          perOccurrenceDescriptions: true,
+        ),
+        day: startDate,
+      );
+      await tapText(tester, 'This day');
+      descriptionOf(tester).text = 'just today';
+      await tester.pump();
+
+      // The start moves past the day the editor was opened from, so the rule
+      // being saved stops covering it — a row there would be reachable from
+      // no surface at all.
+      await tapText(tester, 'Start date');
+      final target = DateTime.utc(2026, 9, 28);
+      await tester.tap(
+        find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == target),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.startDate, target);
+      expect(saved.occurrenceDay, isNull);
+      expect(saved.occurrenceDescription, isNull);
+    });
+
+    testWidgets('a row on a day the saved rule drops is left alone', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: const DailyRecurrence(),
+          description: 'template',
+          perOccurrenceDescriptions: true,
+        ),
+        day: startDate,
+        pendingDay: 'own text',
+      );
+      await tapText(tester, 'Start date');
+      final target = DateTime.utc(2026, 9, 28);
+      await tester.tap(
+        find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == target),
+      );
+      await tester.pumpAndSettle();
+
+      // An occurrence row is never deleted to clean up: the day the rule
+      // dropped keeps its row, dormant, and reads again when the rule returns.
+      final saved = await saveAnd(tester, results);
+      expect(saved.occurrenceDay, isNull);
+      expect(saved.occurrenceDescription, isNull);
+    });
+
+    testWidgets('Reset day survives the rule dropping that day', (
+      tester,
+    ) async {
+      // C146: never deleting a row is about *cleanup*. A reset is a user
+      // action, so one Save that both presses Reset day and moves the start
+      // past the day the editor was opened from still removes the row —
+      // otherwise it survives with its old text and resurfaces the moment
+      // the rule covers that day again.
+      final results = await open(
+        tester,
+        initial: eventOf(
+          rule: const DailyRecurrence(),
+          description: 'template',
+          perOccurrenceDescriptions: true,
+        ),
+        day: startDate,
+        pendingDay: 'own text',
+      );
+      await tapText(tester, 'Reset day');
+
+      await tapText(tester, 'Start date');
+      final target = DateTime.utc(2026, 9, 28);
+      await tester.tap(
+        find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == target),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.startDate, target);
+      expect(saved.occurrenceDay, startDate);
+      expect(saved.occurrenceDescription, isNull);
+    });
+
     testWidgets('the full editor opens on the description and folds back', (
       tester,
     ) async {
@@ -1806,6 +2013,31 @@ void main() {
       await tapText(tester, 'Skipped days');
       await tester.tap(find.bySemanticsIdentifier(SemanticsIds.datePickerSave));
       await tester.pumpAndSettle();
+      await tapTooltip(tester, 'Cancel');
+      expect(dialog, findsNothing);
+      expect(results.single, isNull);
+    });
+
+    testWidgets('a pull that moves the skipped days leaves the form clean', (
+      tester,
+    ) async {
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {DateTime.utc(2026, 9, 26)},
+        },
+      );
+      final results = await open(
+        tester,
+        initial: eventOf(rule: const DailyRecurrence()),
+      );
+      // `EventSkipService.reload()` republishes the whole facade on every
+      // calendar pull: an editor nobody has touched must not claim unsaved
+      // changes because of one.
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {DateTime.utc(2026, 9, 26), DateTime.utc(2026, 9, 27)},
+        },
+      );
       await tapTooltip(tester, 'Cancel');
       expect(dialog, findsNothing);
       expect(results.single, isNull);

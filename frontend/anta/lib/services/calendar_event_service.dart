@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants/event_presence.dart';
 import '../constants/json_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_event_dao.dart';
 import '../models/calendar_event.dart';
+import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../models/recurrence_rule_codec.dart';
 import 'alert_scheduler.dart';
@@ -92,6 +94,23 @@ class CalendarEventService {
     _externalChanges.add(null);
   }
 
+  /// Re-reads a loaded cache after `CategoryService.deleteCategory`'s cascade
+  /// rewrote `calendar_events.category` in SQL behind it
+  /// ([EventAlertService.refreshAfterCategoryRemoval]'s pair).
+  ///
+  /// Without it every event of the deleted category keeps the dead id in
+  /// memory, and the next save of one — the editor seeds its draft from the
+  /// cached event and writes the id back verbatim — undoes the reassignment
+  /// on a synced column, while the agenda's allowlist drops those events
+  /// until then even with Other ticked.
+  ///
+  /// Only a live instance is refreshed, never constructed: with no instance
+  /// there is no cache to be stale, and a service must not open the database
+  /// from inside another service's write chain.
+  static Future<void> refreshAfterCategoryRemoval() async {
+    await _instance?._load();
+  }
+
   static void reset() {
     _instance = null;
     externalRevision++;
@@ -163,26 +182,127 @@ class CalendarEventService {
   }
 
   Future<void> upsert(CalendarEvent event) async {
-    // Normalize both bounds to date-only UTC so equality and ordering are
-    // calendar-day stable across timezones.
+    final normalized = _normalized(event);
+    final now = DateTime.now();
+    await _dao.upsert(_eventToCompanion(normalized, updatedAt: now));
+    _writes++;
+    _cacheWritten(normalized);
+  }
+
+  /// Both date bounds as date-only UTC, so equality and ordering are
+  /// calendar-day stable across timezones.
+  static CalendarEvent _normalized(CalendarEvent event) {
     final normalizedEnd = event.endDate == null
         ? event
         : event.copyWith(endDate: _dateOnlyUtc(event.endDate!));
-    final normalized = normalizedEnd.copyWith(
+    return normalizedEnd.copyWith(
       startDate: _dateOnlyUtc(event.startDate),
       assumeAbsentFrom: event.assumeAbsentFrom == null
           ? null
           : _dateOnlyUtc(event.assumeAbsentFrom!),
     );
-    final now = DateTime.now();
-    await _dao.upsert(_eventToCompanion(normalized, updatedAt: now));
-    _writes++;
+  }
+
+  void _cacheWritten(CalendarEvent normalized) {
     final next = [
       for (final e in _cache)
         if (e.id != normalized.id) e,
     ];
     _insertByStart(next, normalized);
     _cache = List.unmodifiable(next);
+  }
+
+  /// Everything [deleteById]'s cascade is about to tombstone for [id]: the
+  /// capture A3 takes before the delete, so its Undo has the four child row
+  /// sets to hand to [restoreCascade].
+  ///
+  /// Read from the four tables rather than from their facades, which is the
+  /// cheaper read but the wrong one here: A3 runs from an alarm page over a
+  /// calendar that was never built, or in a process the alarm itself launched,
+  /// and on that path nobody has published them — the scheduler's warm-up does
+  /// not load presence at all, and the only other publisher is
+  /// `CalendarBloc`'s load. A facade read answered `{}` and every attendance
+  /// mark stayed tombstoned, here and — through its own HLC — on every paired
+  /// device. A table read is the one capture whose answer does not depend on
+  /// who happened to load first.
+  ///
+  /// **Live rows only**, as the facades held: a tombstone older than the
+  /// delete is a day the user had already cleared, reset or un-skipped, and
+  /// [restoreCascade] must not resurrect it.
+  Future<
+    ({
+      List<EventAlert> alerts,
+      Map<DateTime, PresenceStatus> marks,
+      Map<DateTime, String> descriptions,
+      Set<DateTime> skips,
+    })
+  >
+  captureCascade(String id) async {
+    final alerts = await _db.eventAlertDao.getAllActive();
+    final marks = await _db.eventAbsenceDao.getActiveKeys();
+    final descriptions = await _db.eventOccurrenceDao.getActive();
+    final skips = await _db.eventSkipDao.getActiveKeys();
+    return (
+      alerts: [
+        for (final row in alerts)
+          if (row.eventId == id) EventAlertService.alertFrom(row),
+      ],
+      marks: {
+        for (final row in marks)
+          if (row.eventId == id) _dateOnlyUtc(row.day): row.status,
+      },
+      descriptions: {
+        for (final row in descriptions)
+          if (row.eventId == id) _dateOnlyUtc(row.day): row.description,
+      },
+      skips: {
+        for (final row in skips)
+          if (row.eventId == id) _dateOnlyUtc(row.day),
+      },
+    );
+  }
+
+  /// Puts back the event an acknowledged alarm deleted, with everything the
+  /// cascade took with it (**A3**'s Undo): [deleteById]'s inverse, one HLC for
+  /// the five tables, and the four child sets handed in rather than re-read —
+  /// the delete tombstoned them, so there is nothing live left here to read.
+  ///
+  /// Without the three sets beside [alerts] the Undo restored an event that
+  /// had lost its attendance marks, its per-day descriptions and its cancelled
+  /// days for good, here and on every paired device.
+  Future<void> restoreCascade(
+    CalendarEvent event, {
+    required Map<DateTime, PresenceStatus> marks,
+    required Map<DateTime, String> descriptions,
+    required Set<DateTime> skips,
+    required List<EventAlert> alerts,
+  }) async {
+    assert(
+      alerts.every((alert) => alert.categoryId == null),
+      'restoreCascade was handed an inherited alert',
+    );
+    final normalized = _normalized(event);
+    await _dao.restoreEventCascade(
+      _eventToCompanion(normalized, updatedAt: DateTime.now()),
+      marks: marks,
+      descriptions: descriptions,
+      skips: skips,
+      alerts: [
+        for (final alert in alerts)
+          if (alert.categoryId == null)
+            EventAlertService.companionFor(
+              alert.eventId == normalized.id
+                  ? alert
+                  : alert.copyWith(eventId: normalized.id),
+            ),
+      ],
+    );
+    _writes++;
+    _cacheWritten(normalized);
+    await _refreshOccurrences();
+    await _refreshPresence();
+    await _refreshSkips();
+    await _refreshAlerts();
   }
 
   /// Deletes the event and cascades to its per-occurrence description and

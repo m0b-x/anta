@@ -92,18 +92,24 @@ typedef AllAlertsReconciler =
 /// setting has to reach every standing alarm the same way a changed sound
 /// does. The notice lead closes it (OS-3, `~n`): the upcoming notice is armed
 /// beside the alarm at `fireAt − lead`, and a changed lead — off included —
-/// has to re-arm the alarm so its notice moves or goes. Both are the
-/// scheduler's once-per-pass settings values, never a read of the gateway's
-/// own.
+/// has to re-arm the alarm so its notice moves or goes. Silence after closes
+/// it (`~s`): the gateway freezes it into the platform entry as
+/// `timeoutAfterMillis` at arm time, so without it a slider dragged from ten
+/// minutes to two left every standing alarm ringing for the old ten and no
+/// later pass repaired it — the fast path skipped an entry whose signature had
+/// not moved. All three are the scheduler's once-per-pass settings values,
+/// never a read of the gateway's own.
 String alertArmSignature({
   required String context,
   required PlannedFire fire,
   required int snoozeMinutes,
   required int noticeLeadMinutes,
+  required int silenceAfterMinutes,
 }) {
   if (fire.alert.mode != AlertMode.ring) return context;
   final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
-  return '$context#$sound$kAlertArmClockToken~$snoozeMinutes~n$noticeLeadMinutes';
+  return '$context#$sound$kAlertArmClockToken~$snoozeMinutes'
+      '~n$noticeLeadMinutes~s$silenceAfterMinutes';
 }
 
 /// What a digest entry is armed **under**: the pass's [context] and a hash of
@@ -967,6 +973,7 @@ class AlertScheduler {
               fire: fire,
               snoozeMinutes: settings.snoozeMinutes,
               noticeLeadMinutes: settings.noticeLeadMinutes,
+              silenceAfterMinutes: settings.silenceAfterMinutes,
             ),
           ),
           createdAt: Value(now),
@@ -1174,6 +1181,7 @@ class AlertScheduler {
             fire: planned,
             snoozeMinutes: settings.snoozeMinutes,
             noticeLeadMinutes: settings.noticeLeadMinutes,
+            silenceAfterMinutes: settings.silenceAfterMinutes,
           );
           arm = () => _gateway.schedule(
             planned,
@@ -1683,6 +1691,7 @@ class AlertScheduler {
     var snoozeMinutes =
         payload?.snoozeMinutes ?? SettingsKeys.defaultAlertSnoozeMinutes;
     var noticeLeadMinutes = SettingsKeys.defaultAlertNoticeLeadMinutes;
+    var silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
     // A snooze is the same alert again ten minutes later, so it rings the same
     // sound. Another database's alarm keeps the shipped default: its
     // `alert_sound` lives in a file that is not open.
@@ -1708,6 +1717,7 @@ class AlertScheduler {
             .getAlertSettings();
         snoozeMinutes = alertSettings.snoozeMinutes;
         noticeLeadMinutes = alertSettings.noticeLeadMinutes;
+        silenceAfterMinutes = alertSettings.silenceAfterMinutes;
         soundSetting = alertSettings.sound;
         for (final candidate in eventService.events) {
           if (candidate.id != eventId) continue;
@@ -1835,6 +1845,7 @@ class AlertScheduler {
             fire: fire,
             snoozeMinutes: snoozeMinutes,
             noticeLeadMinutes: noticeLeadMinutes,
+            silenceAfterMinutes: silenceAfterMinutes,
           ),
         ),
         createdAt: Value(now),

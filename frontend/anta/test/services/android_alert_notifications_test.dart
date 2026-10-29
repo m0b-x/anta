@@ -1136,6 +1136,7 @@ void main() {
         fire: fireOf(mode),
         snoozeMinutes: 10,
         noticeLeadMinutes: 120,
+        silenceAfterMinutes: 10,
       );
 
       // A reminder's signature is the context and nothing more, which is why
@@ -1148,7 +1149,7 @@ void main() {
       );
       expect(
         signatureOf(AlertMode.ring, contextOf()),
-        'alarm~g4.en.h#system:default~clock~10~n120',
+        'alarm~g4.en.h#system:default~clock~10~n120~s10',
       );
       expect(
         signatureOf(AlertMode.ring, contextOf(use24Hour: true)),

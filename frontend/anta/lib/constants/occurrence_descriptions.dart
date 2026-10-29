@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart' show visibleForTesting;
-
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 
@@ -80,10 +78,14 @@ class OccurrenceDescriptions {
     return forEvent != null && forEvent.isNotEmpty;
   }
 
-  /// Every override of [eventId], date-only UTC keys. Exposed for the **5.5**
-  /// publish-sharing guard, which has to compare published map *identity*:
-  /// value equality cannot tell a shared entry from a deep copy that matches.
-  @visibleForTesting
+  /// Every override of [eventId], date-only UTC keys. Read by A3's removal
+  /// notice, which has to capture the overrides before the delete cascades
+  /// them, and by the **5.5** publish-sharing guard, which compares published
+  /// map *identity*: value equality cannot tell a shared entry from a deep
+  /// copy that matches.
+  ///
+  /// The published map itself, never a copy: a caller that keeps it past the
+  /// next publish copies it.
   static Map<DateTime, String> overridesFor(String eventId) =>
       _byEvent[eventId] ?? const <DateTime, String>{};
 

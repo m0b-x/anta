@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -411,6 +412,68 @@ void main() {
 
       expect(find.text('Preview and tune how the grid looks'), findsOneWidget);
       expect(find.text('Holiday set'), findsNothing);
+    });
+
+    group('its reset to defaults', () {
+      /// Scrolls the footer into view, presses Reset and confirms.
+      Future<void> tapReset(WidgetTester tester) async {
+        for (var i = 0; i < 60; i++) {
+          if (find.text('Reset to defaults').evaluate().isNotEmpty) break;
+          await tester.drag(find.byType(ListView), const Offset(0, -400));
+          await tester.pumpAndSettle();
+        }
+        await tester.ensureVisible(find.text('Reset to defaults'));
+        await tester.pump();
+        await tester.tap(find.text('Reset to defaults'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Reset'));
+        await settleWrites(tester);
+      }
+
+      testWidgets("leaves the appearance page's folds alone", (tester) async {
+        // Both pages keep their folds in the one stored set, and the
+        // appearance page has its own reset, which deliberately leaves them
+        // folded. `'appearance'` is this page's own section id — the
+        // underscore is the whole difference.
+        await settings.setCalendarSettingsCollapsedSections({
+          'calendar',
+          'appearance',
+          'appearance_cell',
+          'appearance_rail',
+        });
+
+        await pumpSettingsPage(tester);
+        await tapReset(tester);
+
+        expect(await settings.getCalendarSettingsCollapsedSections(), {
+          'appearance_cell',
+          'appearance_rail',
+        });
+      });
+
+      testWidgets('clears the holidays removed from this profile', (
+        tester,
+      ) async {
+        final holidays = await PublicHolidayService.getInstance();
+        expect(
+          holidays.profile,
+          HolidayProfile.generic,
+          reason: 'the reset switches to Generic, so this is the no-op case',
+        );
+        await tester.runAsync(() => holidays.removeOn(DateTime.utc(2026, 1, 1)));
+        expect(await tester.runAsync(holidays.suppressedHolidays), hasLength(1));
+
+        await pumpSettingsPage(tester);
+        await tapReset(tester);
+
+        expect(
+          await tester.runAsync(holidays.suppressedHolidays),
+          isEmpty,
+          reason: '`setProfile` no-ops when the profile is already the one '
+              'being reset to, so the suppressions were the one state this '
+              'reset left standing',
+        );
+      });
     });
   });
 }

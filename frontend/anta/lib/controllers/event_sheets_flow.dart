@@ -10,7 +10,6 @@ import '../constants/app_constants.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/event_alerts.dart';
 import '../constants/event_presence.dart';
-import '../constants/event_skips.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
@@ -387,7 +386,7 @@ class EventSheetsFlow {
   }) async {
     final dates = event.explicitDates;
     if (dates == null) return null;
-    final eventsForDay = context.read<CalendarBloc>().eventsForDay;
+    final eventsForDay = context.read<CalendarBloc>().allEventsForDay;
     final picked = await CalendarDatePickerSheet.pickMulti(
       context,
       initialSelection: dates,
@@ -401,6 +400,15 @@ class EventSheetsFlow {
     return event.withExplicitDates(picked);
   }
 
+  /// Whether the bloc still holds an event with [id]. A state that has not
+  /// loaded yet answers yes: it knows of no event at all, which is not the
+  /// same as knowing this one is gone.
+  static bool _blocHolds(BuildContext context, String id) {
+    final state = context.read<CalendarBloc>().state;
+    if (state is! CalendarPageLoaded) return true;
+    return state.allEvents.any((event) => event.id == id);
+  }
+
   /// Unguarded body of [openEditor], for the callers that already hold the
   /// sheet slot — the detail sheet's edit loop and the template quick-add.
   Future<EventEditorResult?> editorSheet(
@@ -411,10 +419,25 @@ class EventSheetsFlow {
     String? pendingOccurrenceDescription,
     bool showBack = false,
   }) async {
+    // A pull can tombstone the event between the tap that opened the trip and
+    // this one: the form would then save an event that no longer exists, and
+    // the bloc refuses that write, so the sheet would ask for a title and
+    // throw the answer away. Say so instead of opening it. The stored copy is
+    // deliberately *not* adopted in its place — the trip's copy is ahead of
+    // the bloc after an edit of its own (see `afterKeep`).
+    if (initialEvent != null && !_blocHolds(context, initialEvent.id)) {
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.eventNoLongerExists,
+      );
+      return null;
+    }
     // The bloc's per-day lookup is already memoized and O(1), so handing it
     // to the picker costs nothing and lets the grid show which days are
-    // already busy while the user schedules.
-    final eventsForDay = context.read<CalendarBloc>().eventsForDay;
+    // already busy while the user schedules. The **unfiltered** one: the
+    // picker's bar is a "taken" signal, and a filtered event still occurs, so
+    // inheriting the grid's lens would show a busy day as free.
+    final eventsForDay = context.read<CalendarBloc>().allEventsForDay;
     final result = await EventEditorSheet.show(
       context,
       defaultDate: initialEvent?.startDate ?? day ?? DateTime.now(),
@@ -428,7 +451,7 @@ class EventSheetsFlow {
     if (result == null || !context.mounted) return result;
     final bloc = context.read<CalendarBloc>();
     switch (result) {
-      case EventEditorSaved(:final event, :final alerts):
+      case EventEditorSaved(:final event, :final alerts, :final knownAlertIds):
         // Read before the dispatch: once the write lands, the facade answers
         // with the alerts being saved. Inherited ones included, as the saved
         // side is.
@@ -436,9 +459,21 @@ class EventSheetsFlow {
             ? const <EventAlert>[]
             : EventAlerts.effectiveFor(initialEvent);
         if (initialEvent == null) {
-          bloc.add(CreateCalendarEvent(event: event, alerts: alerts));
+          bloc.add(
+            CreateCalendarEvent(
+              event: event,
+              alerts: alerts,
+              knownAlertIds: knownAlertIds,
+            ),
+          );
         } else {
-          bloc.add(UpdateCalendarEvent(event: event, alerts: alerts));
+          bloc.add(
+            UpdateCalendarEvent(
+              event: event,
+              alerts: alerts,
+              knownAlertIds: knownAlertIds,
+            ),
+          );
         }
         // The event write lands first so a day override can never reference an
         // event the bloc has not seen yet.
@@ -574,8 +609,10 @@ class EventSheetsFlow {
     }
   }
 
-  /// Applies the editor's cancelled-days set as a diff against what is
-  /// persisted, so an unchanged day costs no write and no version bump.
+  /// Hands the editor's cancelled-days set to the bloc as one event, which
+  /// diffs it against what is persisted so an unchanged day costs no write
+  /// and no version bump — and a Save over thirty days costs one transaction
+  /// rather than thirty.
   ///
   /// A null set means the picker was never opened — leave the table alone.
   void _dispatchSkipResult(
@@ -585,13 +622,7 @@ class EventSheetsFlow {
   ) {
     final next = result.skippedDays;
     if (next == null) return;
-    final current = EventSkips.daysFor(eventId);
-    for (final day in next.difference(current)) {
-      bloc.add(SetOccurrenceSkipped(eventId: eventId, day: day));
-    }
-    for (final day in current.difference(next)) {
-      bloc.add(ClearOccurrenceSkipped(eventId: eventId, day: day));
-    }
+    bloc.add(SetOccurrenceSkips(eventId: eventId, days: next));
   }
 
   /// The linked note's title for the detail sheet's row, or null once the

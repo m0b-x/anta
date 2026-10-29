@@ -98,7 +98,7 @@ void main() {
     bloc = CalendarBloc(
       service: service,
       alertReconciler: (eventId, reason) async {},
-      alertWriter: (eventId, alerts) async {},
+      alertWriter: (eventId, alerts, {knownIds}) async {},
     );
     final loaded = bloc.stream.first.timeout(const Duration(seconds: 30));
     bloc.add(const LoadCalendarEvents());

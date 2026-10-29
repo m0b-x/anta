@@ -90,6 +90,57 @@ void main() {
     });
   });
 
+  group('a day the clocks change', () {
+    // Dart reads the Win32 zone on Windows and ignores `TZ`, so these two run
+    // against the machine's own zone: both of the owner's sit in
+    // Europe/Bucharest, where 2026-10-25 repeats 03:00–03:59 and 2026-03-29
+    // skips it. A zone without those transitions has no case to answer, and
+    // saying so beats failing for the wrong reason.
+    final repeatedHour =
+        DateTime(2026, 10, 25, 3, 30).timeZoneOffset >
+        DateTime(2026, 10, 25, 23, 59).timeZoneOffset;
+    final springGap = DateTime(2026, 3, 29, 0, 3 * 60).hour != 3;
+
+    test(
+      '"in 1 hour" inside the repeated hour stays on the same day',
+      () {
+        // The first pass of 03:30, before the clocks go back: the alarm is an
+        // hour away, on the second pass of the same wall clock — and the day
+        // must not roll, which would put it 23 hours out (review C60).
+        final now = DateTime(2026, 10, 25, 3, 30);
+        final moment = quickAlarmAfter(now, const Duration(hours: 1));
+
+        expect(moment, (day: DateTime.utc(2026, 10, 25), minute: 3 * 60 + 30));
+        expect(
+          quickAlarmDayFor(day: moment.day, minute: moment.minute, now: now),
+          DateTime.utc(2026, 10, 25),
+        );
+      },
+      skip: repeatedHour
+          ? null
+          : 'the host zone has no fall-back transition on 2026-10-25',
+    );
+
+    test(
+      'the next quarter hour inside the spring gap moves forward, not back',
+      () {
+        // 02:50 with the gap at 03:00: the next quarter hour does not exist,
+        // so it is the first instant after it — 04:00 the same day.
+        final now = DateTime(2026, 3, 29, 2, 50);
+        final moment = quickAlarmDefaultFor(now);
+
+        expect(moment, (day: DateTime.utc(2026, 3, 29), minute: 4 * 60));
+        expect(
+          quickAlarmDayFor(day: moment.day, minute: moment.minute, now: now),
+          DateTime.utc(2026, 3, 29),
+        );
+      },
+      skip: springGap
+          ? null
+          : 'the host zone has no spring-forward gap on 2026-03-29',
+    );
+  });
+
   group('the event and its alert', () {
     final draft = QuickAlarmDraft(
       day: DateTime.utc(2026, 9, 23),

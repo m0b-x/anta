@@ -55,7 +55,11 @@ class CategoryEditorRobot {
 
   Finder _byId(String id) => _in(find.bySemanticsIdentifier(id));
 
-  AppLocalizations get _l10n => AppLocalizations.of(tester.element(_sheet))!;
+  /// Resolved from the host page's button rather than from the sheet: the
+  /// failure notice goes into the navigator's overlay, so it outlives a sheet
+  /// that popped on a save it could not make.
+  AppLocalizations get _l10n =>
+      AppLocalizations.of(tester.element(find.text(_openLabel)))!;
 
   Finder get _close => _byId(SemanticsIds.categoryEditorClose);
 

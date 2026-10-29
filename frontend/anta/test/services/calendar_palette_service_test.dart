@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show QueryInterceptor, QueryExecutor;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -290,6 +292,90 @@ void main() {
     expect(both.first.customColors, hasLength(2));
   });
 
+  group('a reset landing inside an in-flight construction', () {
+    // The restore path: `BackupService.importFromJson` rewrites the palette
+    // row, then resets this service and re-initialises it immediately, all
+    // inside one database lifetime. Any `getInstance()` already in flight —
+    // a picker's `initState`, a settings page's prewarm — read the row as it
+    // stood before the import, and because `_commit` rewrites the whole row
+    // from memory, publishing that list would let the next colour the user
+    // picks persist the pre-restore swatches over the restored ones.
+    late AppDatabase db;
+    late SettingsService settings;
+    late _GatedReads gate;
+
+    const restored = 0xFF0A0B0C;
+
+    setUp(() async {
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      gate = _GatedReads();
+      db = await openTestDatabase(interceptor: gate);
+      settings = SettingsService.forTesting(db);
+      await settings.setCustomCalendarColors(const [customA, customB]);
+    });
+
+    tearDown(() async {
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      await db.close();
+    });
+
+    test('the overtaken construction neither publishes nor persists', () async {
+      gate.holdKey = SettingsKeys.calendarCustomColors;
+      final overtaken = CalendarPaletteService.getInstance();
+      await gate.held;
+
+      gate.holdKey = null;
+      await settings.setCustomCalendarColors(const [restored]);
+      CalendarPaletteService.reset();
+      final fresh = await CalendarPaletteService.getInstance();
+      gate.release();
+
+      expect(identical(await overtaken, fresh), isTrue);
+      expect(CalendarPalette.custom, [restored]);
+
+      await (await overtaken).add(customA);
+      expect(
+        await settings.getCustomCalendarColors(),
+        [restored, customA],
+        reason: 'the restored swatch must survive the next colour picked',
+      );
+    });
+
+    /// C153: the legacy fold ran inside `_load`, where the generation guard
+    /// cannot reach it, and it writes the whole palette row. A restore
+    /// landing while the fold is reading the recents it is about to fold
+    /// therefore persisted the pre-reset swatches over the restored ones —
+    /// reachable precisely because `recent_event_colors` is not in the
+    /// backup's allow-list, so the restore leaves this device's own row
+    /// standing for the fold to find.
+    test('a fold the restore overtook never writes its palette', () async {
+      const legacy = 0xFF0D0E0F;
+      await db.userSettingsDao.setValue(
+        SettingsKeys.recentEventColors,
+        '$legacy',
+      );
+      gate.holdKey = SettingsKeys.recentEventColors;
+      final overtaken = CalendarPaletteService.getInstance();
+      await gate.held;
+
+      gate.holdKey = null;
+      await settings.setCustomCalendarColors(const [restored]);
+      CalendarPaletteService.reset();
+      final fresh = await CalendarPaletteService.getInstance();
+      gate.release();
+
+      expect(identical(await overtaken, fresh), isTrue);
+      expect(
+        await settings.getCustomCalendarColors(),
+        [restored, legacy],
+        reason: 'the fresh instance folded; the overtaken one wrote nothing',
+      );
+      expect(CalendarPalette.custom, [restored, legacy]);
+    });
+  });
+
   test('a recolour is published with the pair that produced it', () async {
     await service.add(customA);
 
@@ -308,6 +394,37 @@ void main() {
     expect(CalendarPalette.custom, isEmpty);
     expect(CalendarPalette.all, CalendarColors.swatchPalette);
   });
+}
+
+/// Holds a select for a named settings key *after* it has read the rows, so a
+/// test can let a construction observe the pre-restore value and only then
+/// resume it — which is the race C83 is about.
+class _GatedReads extends QueryInterceptor {
+  String? holdKey;
+
+  final Completer<void> _held = Completer<void>();
+  final Completer<void> _resume = Completer<void>();
+
+  /// Completes once a held read has its rows and is parked.
+  Future<void> get held => _held.future;
+
+  void release() {
+    if (!_resume.isCompleted) _resume.complete();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final needle = holdKey;
+    final rows = await super.runSelect(executor, statement, args);
+    if (needle == null || !args.contains(needle)) return rows;
+    if (!_held.isCompleted) _held.complete();
+    await _resume.future;
+    return rows;
+  }
 }
 
 /// Fails selects touching a named table while [failMatching] is set, so a test

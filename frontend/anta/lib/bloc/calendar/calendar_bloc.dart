@@ -223,12 +223,14 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<ChangeCalendarFilters>(_onChangeCalendarFilters);
     on<CreateCalendarEvent>(_onCreateEvent);
     on<UpdateCalendarEvent>(_onUpdateEvent);
+    on<RestoreRemovedEvent>(_onRestoreRemovedEvent);
     on<DeleteCalendarEvent>(_onDeleteEvent);
     on<SetOccurrenceDescription>(_onSetOccurrenceDescription);
     on<ClearOccurrenceDescription>(_onClearOccurrenceDescription);
     on<SetOccurrencePresence>(_onSetOccurrencePresence);
     on<SetOccurrenceSkipped>(_onSetOccurrenceSkipped);
     on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
+    on<SetOccurrenceSkips>(_onSetOccurrenceSkips);
     on<ToggleEventAlert>(_onToggleEventAlert);
     on<CategoryAlertsChanged>(_onCategoryAlertsChanged);
     on<SaveEventDigest>(_onSaveEventDigest);
@@ -871,7 +873,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Create error: $e');
       return;
     }
-    await _persistAlerts(normalized.id, event.alerts);
+    await _persistAlerts(normalized.id, event.alerts, event.knownAlertIds);
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
         service.events,
@@ -903,12 +905,75 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     );
   }
 
+  /// A3's Undo. Not a create: `CalendarEventService.restoreCascade` writes the
+  /// event, its alerts, its absence marks, its day descriptions and its skips
+  /// under **one** HLC, where `_onCreateEvent` would put back the event and
+  /// the alerts and leave the other three row sets tombstoned for good.
+  ///
+  /// All three child revisions bump beside `allEvents`: the restore moves
+  /// membership (the skips), the day panel's descriptions and the presence
+  /// marks at once, and the agenda has to rescan.
+  Future<void> _onRestoreRemovedEvent(
+    RestoreRemovedEvent event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    final notice = event.notice;
+    final restored = notice.event.copyWith(
+      startDate: _dateOnly(notice.event.startDate),
+    );
+    final CalendarEventService service;
+    try {
+      service = await _svc();
+      await service.restoreCascade(
+        restored,
+        marks: notice.marks,
+        descriptions: notice.descriptions,
+        skips: notice.skips,
+        alerts: notice.alerts,
+      );
+    } catch (e) {
+      debugPrint('[CalendarBloc] Restore error: $e');
+      return;
+    }
+    try {
+      await (await NoteMoneyLedgerService.getInstance()).refresh(
+        service.events,
+      );
+    } catch (e) {
+      debugPrint('[CalendarBloc] Money ledger refresh error: $e');
+    }
+    unawaited(
+      _reconcileAlerts(restored.id, AlertReconcileReason.eventChanged),
+    );
+    _invalidateDayCache();
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(
+      latest.copyWith(
+        allEvents: service.events,
+        selectedDay: restored.startDate,
+        focusedDay: restored.startDate,
+        membershipRevision: latest.membershipRevision + 1,
+        occurrenceRevision: latest.occurrenceRevision + 1,
+        presenceRevision: latest.presenceRevision + 1,
+      ),
+    );
+  }
+
   Future<void> _onUpdateEvent(
     UpdateCalendarEvent event,
     Emitter<CalendarPageState> emit,
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    // The [DeleteCalendarEvent] guard, read the other way round:
+    // `CalendarEventService.upsert` clears `is_deleted` under a fresh stamp,
+    // so a save from a sheet that was still open when a pull tombstoned the
+    // event would resurrect it on every device and the remote delete would
+    // lose. An event the bloc no longer holds has nothing here to write.
+    if (!current.allEvents.any((e) => e.id == event.event.id)) return;
     final normalized = event.event.copyWith(
       startDate: _dateOnly(event.event.startDate),
     );
@@ -920,7 +985,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Update error: $e');
       return;
     }
-    await _persistAlerts(normalized.id, event.alerts);
+    await _persistAlerts(normalized.id, event.alerts, event.knownAlertIds);
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
         service.events,
@@ -944,10 +1009,14 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// rows — so a pass that overtook this write would arm the previous set and
   /// only correct itself at the next launch. A `null` set means the dispatch
   /// site never showed alerts, which is not the same as showing none.
-  Future<void> _persistAlerts(String eventId, List<EventAlert>? alerts) async {
+  Future<void> _persistAlerts(
+    String eventId,
+    List<EventAlert>? alerts,
+    Set<String>? knownIds,
+  ) async {
     if (alerts == null) return;
     try {
-      await _writeAlerts(eventId, alerts);
+      await _writeAlerts(eventId, alerts, knownIds: knownIds);
     } catch (e) {
       debugPrint('[CalendarBloc] Alert write error: $e');
     }
@@ -1150,6 +1219,35 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     emit(latest.copyWith(membershipRevision: latest.membershipRevision + 1));
   }
 
+  /// Applies a whole cancelled-days set — the editor's Save — as one write.
+  ///
+  /// [_onSetOccurrenceSkipped]'s cache, alert and revision rules exactly
+  /// once, however many days moved; a Save that changed nothing writes
+  /// nothing and emits nothing, so the grid and the agenda do not rescan.
+  Future<void> _onSetOccurrenceSkips(
+    SetOccurrenceSkips event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    final bool changed;
+    try {
+      final service = await EventSkipService.getInstance();
+      changed = await service.setSkips(event.eventId, event.days);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Skip set error: $e');
+      return;
+    }
+    if (!changed) return;
+    _invalidateDayCache();
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.occurrenceChanged),
+    );
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(membershipRevision: latest.membershipRevision + 1));
+  }
+
   static DateTime _dateOnly(DateTime date) {
     return DateTime.utc(date.year, date.month, date.day);
   }
@@ -1184,7 +1282,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     }
     if (!changed) return;
     try {
-      await _writeAlerts(event.eventId, next);
+      // Bounded by the very set the toggle was built from: a pull landing
+      // between the facade read and the DAO's `SELECT` must not have its
+      // delete undone — nor its alert tombstoned — by a switch that never
+      // drew the row. `next` carries exactly the ids of `alerts`, so the
+      // removal half is a no-op either way.
+      await _writeAlerts(
+        event.eventId,
+        next,
+        knownIds: {for (final alert in alerts) alert.id},
+      );
     } catch (e) {
       debugPrint('[CalendarBloc] Alert toggle error: $e');
       return;
@@ -1210,8 +1317,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   }
 
   /// Creates [SaveEventDigest.digest] when it has no id yet — the service
-  /// mints the id and the position — else writes it back in place; an edit
-  /// whose digest vanished meanwhile upserts, the saved views' behaviour.
+  /// mints the id and the position — else writes it back in place.
+  ///
+  /// An edit whose digest is gone is refused, [_onDeleteEventDigest]'s rule
+  /// and the service's: a pull can tombstone the open row from another
+  /// device, and an upsert would resurrect it under a stamp that beats that
+  /// tombstone for good.
   ///
   /// A save equal to the stored digest writes nothing: an unchanged upsert
   /// would still bump `version` and could win a merge over a real edit made
@@ -1225,7 +1336,8 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final digest = event.digest;
     await _writeDigest(emit, 'save', (writer) async {
       if (digest.id.isEmpty) return await writer.create(digest) != null;
-      if (EventDigests.byId(digest.id) == digest) return false;
+      final live = EventDigests.byId(digest.id);
+      if (live == null || live == digest) return false;
       await writer.update(digest);
       return true;
     });

@@ -65,6 +65,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   static const String _sectionEvents = 'events';
   static const String _sectionAlerts = 'alerts';
 
+  /// The prefix every fold id of [CalendarAppearancePage] carries. Both pages
+  /// keep their folds in the one stored set, so a reset here has to tell them
+  /// apart — and the trailing underscore is what keeps this page's own
+  /// [_sectionAppearance] out of the match.
+  static const String _appearanceSectionPrefix = 'appearance_';
+
   SettingsService? _settings;
   bool _isLoading = true;
   Set<String> _collapsedSections = const {};
@@ -503,12 +509,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         try {
           await _holidayService?.setProfile(next);
         } catch (e) {
+          debugPrint('[CalendarSettings] holiday profile switch failed: $e');
           if (!context.mounted) return;
           setState(() => _holidayProfile = _holidayService?.profile ?? next);
-          CustomSnackbar.showError(
-            context,
-            'Failed to switch holiday profile: $e',
-          );
+          CustomSnackbar.showError(context, l10n.holidayProfileSwitchFailed);
         }
       },
       items: [
@@ -1012,6 +1016,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
               _onHapticFeedback();
               setState(() => _silenceAfterMinutes = value);
               await _settings?.setAlertSilenceAfterMinutes(value);
+              // Frozen into every alarm-tier entry as `timeoutAfterMillis` at
+              // arm time, so a standing alarm would ring for the old length
+              // until something unrelated re-scheduled it — the snooze
+              // slider's catch-up, for the same reason.
+              await AlertScheduler.reconcileAllQuietly(
+                AlertReconcileReason.eventChanged,
+              );
             },
           ),
         ),
@@ -1306,13 +1317,31 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setAlertSound(shipped.sound);
     // The page resets to how it ships, and it ships open — leaving a section
     // folded after a reset hides rows the user just asked to see restored.
-    await _settings?.setCalendarSettingsCollapsedSections(const {});
+    // Only this page's sections, though: the appearance page's folds live in
+    // the same stored set and that page has its own reset, which deliberately
+    // leaves them alone.
+    final keptFolds = _collapsedSections
+        .where((id) => id.startsWith(_appearanceSectionPrefix))
+        .toSet();
+    await _settings?.setCalendarSettingsCollapsedSections(keptFolds);
     await _settings?.setFastingTraditions(const {});
     await _settings?.setFastingAppearance(const FastingAppearance());
     await _settings?.setFastingOrthodoxGreatFasts(true);
     await _settings?.setFastingSchedule(const FastingSchedule());
     try {
-      await _holidayService?.setProfile(HolidayProfile.generic);
+      // The reset owns the alert pass — `clearSuppressed` below changes the
+      // holiday set again, so a pass of the switch's own would plan from a
+      // set this line then invalidates.
+      await _holidayService?.setProfile(
+        HolidayProfile.generic,
+        reconcile: false,
+      );
+      // A switch drops the profile it left behind, but it no-ops when the
+      // profile is already Generic — and a profile the user returned to can
+      // still carry rows from an earlier stint. Without this the Removed
+      // holidays row is the one state the reset leaves standing, and only on
+      // some installs. The pass below reconciles for it.
+      await _holidayService?.clearSuppressed();
     } catch (_) {
       // Keep the previously persisted profile on failure; the dropdown
       // resyncs from the service below.
@@ -1339,7 +1368,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _alertSound = shipped.sound;
       _alertSoundTitle = null;
       _alertSoundTitleResolved = false;
-      _collapsedSections = const {};
+      _collapsedSections = keptFolds;
     });
     // A reset can move the sound off a picked one, so the standing alarms owe
     // the same catch-up an ordinary edit gets.

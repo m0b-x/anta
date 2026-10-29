@@ -654,8 +654,11 @@ void main() {
       expect((result.value as AlertEditorSaved).removeAfterAlert, isTrue);
     });
 
-    testWidgets('a reminder made an alarm shows the removal the event '
-        'carries', (tester) async {
+    testWidgets('a reminder shows the removal the event carries on the Alarm '
+        'tier, and a round trip hands it back', (tester) async {
+      // The contract is "false only when this sheet made an **alarm** a
+      // reminder": this alert arrived a reminder, so walking it through Alarm
+      // and back must not clear the flag the event's real alarm owns.
       final sheet = AlertSheetRobot(tester);
       final result = await openSheet(
         tester,
@@ -668,7 +671,23 @@ void main() {
       await sheet.chooseTier(AlertMode.notify);
       await sheet.save();
 
-      // It was an alarm here and is saved a reminder: the removal goes.
+      expect((result.value as AlertEditorSaved).removeAfterAlert, isTrue);
+    });
+
+    testWidgets('an alarm made a reminder takes the removal with it', (
+      tester,
+    ) async {
+      final sheet = AlertSheetRobot(tester);
+      final result = await openSheet(
+        tester,
+        initial: alert.copyWith(mode: AlertMode.ring),
+        showRemoveAfter: true,
+        removeAfterAlert: true,
+      );
+
+      await sheet.chooseTier(AlertMode.notify);
+      await sheet.save();
+
       expect((result.value as AlertEditorSaved).removeAfterAlert, isFalse);
     });
   });

@@ -104,6 +104,12 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   late List<CategoryAlert> _alerts;
   bool _alertsTouched = false;
 
+  /// The ids [_alerts] was seeded with, handed to `replaceForCategory` so the
+  /// save tombstones only the rows this sheet was showing: a pull can add an
+  /// alert to this category while the sheet is open, and a whole-set write
+  /// would otherwise delete one that was never on screen.
+  late Set<String> _seededAlertIds;
+
   /// Held while the alert sheet is up, so a second tap on a row or on Add
   /// alert during its opening animation cannot stack a second sheet.
   bool _alertSheetOpen = false;
@@ -127,8 +133,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   bool get _isEditing => widget.initial != null;
   bool get _isBuiltIn => widget.initial?.isBuiltIn ?? false;
 
-  IconData get _icon =>
-      CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded;
+  IconData get _icon => CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded;
 
   @override
   void initState() {
@@ -142,6 +147,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     _alerts = initial == null
         ? const []
         : List<CategoryAlert>.of(EventAlerts.categoryAlertsFor(initial.id));
+    _seededAlertIds = {for (final alert in _alerts) alert.id};
   }
 
   @override
@@ -348,6 +354,13 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// ([CategoryAlertsChanged]) and, when it left an alert that can fire,
   /// followed by the permission check every saved alert gets — the message
   /// only: a category alert has no one next fire to count down to.
+  ///
+  /// A category that is no longer there to edit — a pull merged another
+  /// device's delete of it while this sheet was open — is not a throw but a
+  /// deliberate no-op in the DAO, so it has its own path: the same message
+  /// the `catch` raises, and a pop with **nothing**. Handing the draft back
+  /// would have the caller refresh against a category that does not exist,
+  /// and the picker's inline-create path tick a dead id into its selection.
   Future<void> _onSave() async {
     if (!_canSave) return;
     setState(() => _saving = true);
@@ -369,13 +382,25 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
           colorValue: _colorValue,
           iconKey: _iconKey,
         );
-        await service.updateCategory(updated);
+        if (!await service.updateCategory(updated)) {
+          if (!mounted) return;
+          // Whatever an earlier partial save left here named the same row,
+          // and that row is gone: ✕ and back must hand back nothing too.
+          _written = null;
+          _raiseSaveFailed(l10n);
+          Navigator.of(context).pop();
+          return;
+        }
         saved = updated;
       }
       _written = saved;
       if (_alertsTouched) {
         final alerts = await EventAlertService.getInstance();
-        await alerts.replaceForCategory(saved.id, _alerts);
+        await alerts.replaceForCategory(
+          saved.id,
+          _alerts,
+          knownIds: _seededAlertIds,
+        );
         // A category alert touches every event in the category, so the whole
         // plan is redone (D22).
         unawaited(
@@ -398,14 +423,20 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       debugPrint('[CategoryEditorSheet] Save failed: $e');
       if (!mounted) return;
       setState(() => _saving = false);
-      // In the overlay, not the page's `Scaffold`: this sheet is a route
-      // above that page, and a bar raised there is drawn under the sheet.
-      OverlaySnackbar.show(
-        context,
-        l10n.categorySaveFailed,
-        duration: AppConstants.snackbarErrorDuration,
-      );
+      _raiseSaveFailed(l10n);
     }
+  }
+
+  /// In the overlay, not the page's `Scaffold`: this sheet is a route above
+  /// that page, and a bar raised there is drawn under the sheet. The entry
+  /// goes into the navigator's own overlay, so it still shows over the page
+  /// when this sheet pops away under it.
+  void _raiseSaveFailed(AppLocalizations l10n) {
+    OverlaySnackbar.show(
+      context,
+      l10n.categorySaveFailed,
+      duration: AppConstants.snackbarErrorDuration,
+    );
   }
 
   @override

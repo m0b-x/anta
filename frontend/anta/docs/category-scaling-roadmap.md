@@ -752,9 +752,12 @@ all applied:
   names its category through `labelOf` like every other surface. Two stale
   references to a `CalendarIcons.palette` that no longer exists, corrected.
 
-One thing deliberately left: `CategoryService.reload()` has no caller in `lib/`
-or `test/`. It is kept because all seven calendar services expose it and the
-cloud-sync category phase will want it — not because anything reads it today.
+One thing deliberately left: `CategoryService.reload()` had no caller in `lib/`
+or `test/`. It was kept because all seven calendar services expose it and the
+cloud-sync category phase would want it. That phase arrived:
+`AppSyncApplyHooks._appReloadCalendar` calls it once per pulled page, so since
+the 2026-10-26 review's C74 it runs on the serialized write chain like every
+mutation (invariant 12) — it seeds as well as reads.
 
 ## Invariants — do not break
 

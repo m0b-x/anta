@@ -298,6 +298,31 @@ void main() {
       expect(plan.map((fire) => fire.digest.id), ['a', 'c']);
     });
 
+    test('overCapIds names the enabled tail the plan leaves out', () {
+      // C113: what the hub reads to say a switched-on digest is not armed.
+      // Same order as the plan, and a disabled digest is never in it — it
+      // takes no room under the cap and promises no fire either way.
+      const horizon = DigestHorizon(perDigest: 1, maxDigests: 2);
+      final digests = [
+        digestOf(id: 'c', sortOrder: 2),
+        digestOf(id: 'off', sortOrder: 0, enabled: false),
+        digestOf(id: 'a', sortOrder: 1),
+        digestOf(id: 'b', sortOrder: 3),
+      ];
+
+      expect(
+        DigestPlanner.overCapIds(digests: digests, horizon: horizon),
+        {'b'},
+      );
+      expect(
+        DigestPlanner.overCapIds(
+          digests: digests.take(2).toList(),
+          horizon: horizon,
+        ),
+        isEmpty,
+      );
+    });
+
     test('the plan is soonest first, then by digest id', () {
       final plan = planOf([
         digestOf(id: 'z', cadence: DigestCadence.daily, anchor: 0),

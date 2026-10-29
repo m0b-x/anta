@@ -162,6 +162,102 @@ void main() {
     expect(rebound.digests, isEmpty);
   });
 
+  test('racing first callers share one construction', () async {
+    DatabaseLifecycle.notifyDatabaseSwitching();
+
+    final first = EventDigestService.forTesting(db);
+    final second = EventDigestService.forTesting(db);
+
+    expect(identical(await first, await second), isTrue);
+  });
+
+  /// The `AlertScheduler` pass asking for the service while the user switches
+  /// database. Without the in-flight guard the construction the switch
+  /// overtook finishes against the closing database, publishes its digests
+  /// and installs itself, so every later caller holds a dead handle: the hub
+  /// lists nothing and every write throws until the next switch.
+  test('a switch while the first construction is in flight discards it',
+      () async {
+    await save();
+    final other = await openTestDatabase();
+    addTearDown(other.close);
+    DatabaseLifecycle.notifyDatabaseSwitching();
+
+    final leaving = EventDigestService.forTesting(db);
+    EventDigestService.reset();
+    final arrived = await EventDigestService.forTesting(other);
+    final discarded = await leaving;
+
+    expect(
+      identical(discarded, arrived),
+      isTrue,
+      reason: 'the construction the switch overtook must not be handed out',
+    );
+    expect(
+      EventDigests.all,
+      isEmpty,
+      reason: "the closing database's digests must never be published",
+    );
+  });
+
+  /// A sync pull landing during a switch, or a transient sqlite lock. An
+  /// empty facade is not "no digests" to the reconcile that follows: it would
+  /// cancel every armed digest on the platform and re-arm them under new os
+  /// ids on the next healthy pass.
+  test('a load that fails keeps the digests it had', () async {
+    final id = await save();
+
+    await db.close();
+    await service.reload();
+
+    expect(EventDigests.byId(id), isNotNull);
+    expect(service.digests, hasLength(1));
+  });
+
+  /// C145: the restart published the replacement's cache unconditionally, so
+  /// a replacement whose own load failed published the initial empty list —
+  /// the facade the test above exists to prevent, one path over.
+  test('a restart whose own load failed publishes nothing', () async {
+    final id = await save();
+    final standing = EventDigests.all;
+    // Every read from here on fails, the replacement's included.
+    await db.close();
+    EventDigestService.reset();
+
+    final leaving = EventDigestService.forTesting(db);
+    // Overtaken past its `await open()`, so it discards itself and restarts;
+    // and what its `_load` had published is still standing in the facade.
+    EventDigestService.reset();
+    EventDigests.updateCache(standing);
+    await leaving;
+
+    expect(EventDigests.byId(id), isNotNull);
+    expect(EventDigests.all, standing);
+  });
+
+  /// The sheet is open on a digest the hub listed; a pull applies that
+  /// digest's tombstone from another device. `upsertDigest` resurrects a
+  /// tombstone by design, so without the refusal Save brings the digest back
+  /// under a stamp that beats the remote tombstone for good — re-armed, and
+  /// one over the planner's horizon, which then drops a digest from every
+  /// pass.
+  test('an edit of a tombstoned digest is refused', () async {
+    final id = await save();
+    await service.delete(id);
+    final tombstone = await (db.select(
+      db.eventDigests,
+    )..where((t) => t.id.equals(id))).getSingle();
+
+    await service.update(EventDigest(id: id, name: 'Back'));
+
+    final row = await (db.select(
+      db.eventDigests,
+    )..where((t) => t.id.equals(id))).getSingle();
+    expect(row.isDeleted, isTrue);
+    expect(row.version, tombstone.version);
+    expect(EventDigests.byId(id), isNull);
+  });
+
   group('backup', () {
     test('round-trips digests, the switch included', () async {
       final id = await save();

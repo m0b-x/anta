@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../constants/event_presence.dart';
 import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
 import '../crdt/merge_outcome.dart';
@@ -55,13 +56,17 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// backed-up ids through here — from restoring events nothing can render.
   ///
   /// A save of a live event that changes nothing writes nothing.
-  Future<void> upsert(CalendarEventsCompanion entry) {
+  ///
+  /// [shared] is supplied only by [restoreEventCascade], which writes five
+  /// tables under one HLC; the row is queued either way, so it leaves on the
+  /// next push whoever minted the stamp.
+  Future<void> upsert(CalendarEventsCompanion entry, {CrdtStamp? shared}) {
     return transaction(() async {
       final id = entry.id.value;
       final existing = await _byId(id);
 
       if (existing == null) {
-        final stamp = await db.stampLocal(calendarEvents, id);
+        final stamp = await _stampFor(id, shared);
         await into(calendarEvents).insert(
           entry.copyWith(
             hlcTimestamp: Value(stamp.hlc),
@@ -73,7 +78,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       }
 
       if (!existing.isDeleted && db.changesNothing(existing, entry)) return;
-      final stamp = await db.stampLocal(calendarEvents, id);
+      final stamp = await _stampFor(id, shared);
       await (update(calendarEvents)..where((e) => e.id.equals(id))).write(
         entry.copyWith(
           createdAt: const Value.absent(),
@@ -115,6 +120,47 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       await db.eventOccurrenceDao.tombstoneForEvent(id, stamp: stamp);
       await db.eventSkipDao.tombstoneForEvent(id, stamp: stamp);
       await db.eventAlertDao.tombstoneForEvent(id, stamp: stamp);
+    });
+  }
+
+  /// Puts a cascaded delete back as the one act it is to the user — the Undo
+  /// of A3's "Removed" snackbar — mirroring [tombstoneEventCascade]: the event
+  /// row and the absence marks, day descriptions, skips and alerts it names
+  /// are written under **one** fresh HLC, so the restore merges as one ordered
+  /// change on every paired device instead of five another device could
+  /// interleave. Without it only the event and its alerts came back and the
+  /// other three row sets stayed tombstoned for good, here and everywhere.
+  ///
+  /// The children are keyed to what the caller captured, never to "every
+  /// tombstone this event owns": a day the user had cleared, reset or
+  /// un-skipped long before the delete must stay that way.
+  Future<void> restoreEventCascade(
+    CalendarEventsCompanion entry, {
+    required Map<DateTime, PresenceStatus> marks,
+    required Map<DateTime, String> descriptions,
+    required Set<DateTime> skips,
+    required List<EventAlertsCompanion> alerts,
+  }) {
+    final id = entry.id.value;
+    return transaction(() async {
+      final stamp = db.newStamp();
+      // Queued here rather than inside [upsert]: the four children queue what
+      // they wrote under this same HLC, and the event row is the fifth.
+      await db.enqueue(calendarEvents, id, stamp.hlc);
+      await upsert(entry, shared: stamp);
+      await db.eventAbsenceDao.restoreForEvent(id, marks, stamp: stamp);
+      await db.eventOccurrenceDao.restoreForEvent(
+        id,
+        descriptions,
+        stamp: stamp,
+      );
+      await db.eventSkipDao.applySkipDiff(
+        id,
+        add: skips,
+        remove: const {},
+        stamp: stamp,
+      );
+      await db.eventAlertDao.replaceForEvent(id, alerts, stamp: stamp);
     });
   }
 
@@ -171,6 +217,13 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       return ids;
     });
   }
+
+  /// The stamp [upsert] writes under: its own, queued by [CrdtWrite], or the
+  /// cascade's, which [restoreEventCascade] has already queued.
+  Future<CrdtStamp> _stampFor(String id, CrdtStamp? shared) =>
+      shared == null
+      ? db.stampLocal(calendarEvents, id)
+      : Future.value(shared);
 
   Future<void> _tombstone(String id, CrdtStamp stamp) async {
     final existing = await _byId(id);
