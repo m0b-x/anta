@@ -27,14 +27,17 @@ import 'quick_alarm_sheet.dart';
 /// Permissions page, the one thing here that is not a demo, because she has
 /// to grant those on her own phone. Nothing is armed and nothing is saved.
 class GuideAlertsDemo extends GuideCardDemo {
-  GuideAlertsDemo() : _today = _todayUtc();
+  GuideAlertsDemo({DateTime Function() now = DateTime.now})
+    : _now = now,
+      _today = _todayUtc(now());
+
+  /// Handed on to the quick alarm sheet, so its times read the same day.
+  final DateTime Function() _now;
 
   static const String slug = 'alerts';
 
-  static DateTime _todayUtc() {
-    final now = DateTime.now();
-    return DateTime.utc(now.year, now.month, now.day);
-  }
+  static DateTime _todayUtc(DateTime now) =>
+      DateTime.utc(now.year, now.month, now.day);
 
   /// Date-only UTC, read once.
   final DateTime _today;
@@ -52,17 +55,38 @@ class GuideAlertsDemo extends GuideCardDemo {
   @override
   String? idle(AppLocalizations l10n) => null;
 
+  /// What an alert of the timed seed can say, each at its widest digits.
+  static List<String> _describes(AppLocalizations l10n) => [
+    l10n.eventAlertAtStart,
+    for (final n in const [1, 2, 22, 999]) ...[
+      l10n.eventAlertMinutesBefore(n),
+      l10n.eventAlertHoursBefore(n),
+      l10n.eventAlertDaysBefore(n),
+    ],
+  ];
+
+  /// The stand-in alert row's words — the longest description and the
+  /// longer tier — made once per language.
+  (String, String) _standIn(AppLocalizations l10n) {
+    if (_standInLocale != l10n.localeName) {
+      _standInLocale = l10n.localeName;
+      String longest(Iterable<String> texts) =>
+          texts.reduce((a, b) => b.length > a.length ? b : a);
+      _standInWords = (
+        longest(_describes(l10n)),
+        longest([l10n.eventAlertModeRing, l10n.eventAlertModeNotify]),
+      );
+    }
+    return _standInWords;
+  }
+
+  (String, String) _standInWords = ('', '');
+  String? _standInLocale;
+
   @override
   List<String> candidates(AppLocalizations l10n) {
     final quote = calendarGuideLongestQuote;
-    final describes = [
-      l10n.eventAlertAtStart,
-      for (final n in const [1, 2, 22, 999]) ...[
-        l10n.eventAlertMinutesBefore(n),
-        l10n.eventAlertHoursBefore(n),
-        l10n.eventAlertDaysBefore(n),
-      ],
-    ];
+    final describes = _describes(l10n);
     final times = [
       for (final use24Hour in const [false, true])
         EventTimeFormatter.formatMinuteFor(
@@ -76,12 +100,15 @@ class GuideAlertsDemo extends GuideCardDemo {
       AgendaListView.anchorLabel(l10n.localeName, DateTime.utc(2027, 9, 30)),
     ];
     return [
-      for (final alert in describes) l10n.calendarGuideDemoAlertSet(quote, alert),
+      for (final alert in describes)
+        l10n.calendarGuideDemoAlertSet(quote, alert),
       l10n.calendarGuideDemoChanged(quote),
       for (final time in times) ...[
         l10n.calendarGuideDemoHereOnly(l10n.quickAlarmSet(quote, time)),
         for (final day in days)
-          l10n.calendarGuideDemoHereOnly(l10n.quickAlarmSetOn(quote, time, day)),
+          l10n.calendarGuideDemoHereOnly(
+            l10n.quickAlarmSetOn(quote, time, day),
+          ),
       ],
     ];
   }
@@ -137,9 +164,7 @@ class GuideAlertsDemo extends GuideCardDemo {
       case null:
         return;
       case AlertEditorSaved(alert: final saved, :final removeAfterAlert):
-        _alerts = [
-          for (final a in _alerts) a.id == saved.id ? saved : a,
-        ];
+        _alerts = [for (final a in _alerts) a.id == saved.id ? saved : a];
         _event = event.copyWith(removeAfterAlert: removeAfterAlert);
         _saidAlert(event, saved);
       case AlertEditorRemoved():
@@ -196,6 +221,9 @@ class GuideAlertsDemo extends GuideCardDemo {
       whenLabel: labels.whenLabel(time: event.time, day: day, fireAt: fireAt),
       glyphKey: CalendarCategories.iconKeyFor(event),
       languageCode: labels.languageCode,
+      // As the scheduler stamps it: the Remove / Keep row shows when she
+      // turned removal on. The preview's Keep only closes the page.
+      removeAfterAlert: event.removeAfterAlert,
     );
     AppNavigator.push<void>(
       context,
@@ -210,7 +238,7 @@ class GuideAlertsDemo extends GuideCardDemo {
   /// The real quick alarm sheet; its draft is reported in the words the
   /// calendar's own message uses, and kept nowhere.
   Future<void> _quickAlarm(BuildContext context) async {
-    final draft = await QuickAlarmSheet.show(context, day: _today);
+    final draft = await QuickAlarmSheet.show(context, day: _today, now: _now);
     if (draft == null || !context.mounted) return;
     final title = calendarGuideQuote(
       buildQuickAlarmEvent(draft, id: _alertId()).title,
@@ -239,48 +267,92 @@ class GuideAlertsDemo extends GuideCardDemo {
         EventTimeFormatter.formatMinute(minute, context);
     String control(String name) =>
         SemanticsIds.calendarGuideTryControl(slug, name);
+    final titleRow = FormReadTitleRow(
+      leading: EventAvatar(
+        icon: CalendarCategories.iconFor(event),
+        color: EventSummaryProvider.colorFor(
+          event,
+          CalendarCategories.resolve(event.categoryId),
+        ),
+      ),
+      title: event.title,
+      caption: [
+        l10n.upcomingTomorrow,
+        if (time != null)
+          EventTimeFormatter.formatRangeOfContext(time, context),
+      ].join(' · '),
+    );
+    final (standInLabel, standInValue) = _standIn(l10n);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        FormRowGroup(
+        Stack(
           children: [
-            FormReadTitleRow(
-              leading: EventAvatar(
-                icon: CalendarCategories.iconFor(event),
-                color: EventSummaryProvider.colorFor(
-                  event,
-                  CalendarCategories.resolve(event.categoryId),
+            // The group's height: the editor's limit of alerts, each as
+            // wide as an alert's words get, laid out unseen, so adding or
+            // removing one never moves the card or the page under her
+            // finger. The rows scroll inside it.
+            ExcludeSemantics(
+              child: ExcludeFocus(
+                child: IgnorePointer(
+                  child: Opacity(
+                    opacity: 0,
+                    child: FormRowGroup(
+                      children: [
+                        titleRow,
+                        for (var i = 0; i < kMaxAlertsPerEvent; i++)
+                          FormPickerRow(
+                            glyph: Icons.notifications_outlined,
+                            label: standInLabel,
+                            value: standInValue,
+                            onTap: () {},
+                          ),
+                        FormActionRow(
+                          glyph: Icons.add_rounded,
+                          label: l10n.eventAlertAdd,
+                          onTap: null,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              title: event.title,
-              caption: [
-                l10n.upcomingTomorrow,
-                if (time != null)
-                  EventTimeFormatter.formatRangeOfContext(time, context),
-              ].join(' · '),
             ),
-            // The editor's own alert rows: the glyph names the tier, the
-            // value says it.
-            for (final (index, alert) in _alerts.indexed)
-              FormPickerRow(
-                glyph: alert.isAlarm
-                    ? Icons.alarm_outlined
-                    : Icons.notifications_outlined,
-                label: alert.describe(l10n, event, formatMinute: formatMinute),
-                value: alert.isAlarm
-                    ? l10n.eventAlertModeRing
-                    : l10n.eventAlertModeNotify,
-                identifier: control('alert-$index'),
-                onTap: () => _editAlert(context, event, alert),
+            Positioned.fill(
+              child: SingleChildScrollView(
+                child: FormRowGroup(
+                  children: [
+                    titleRow,
+                    // The editor's own alert rows: the glyph names the
+                    // tier, the value says it.
+                    for (final (index, alert) in _alerts.indexed)
+                      FormPickerRow(
+                        glyph: alert.isAlarm
+                            ? Icons.alarm_outlined
+                            : Icons.notifications_outlined,
+                        label: alert.describe(
+                          l10n,
+                          event,
+                          formatMinute: formatMinute,
+                        ),
+                        value: alert.isAlarm
+                            ? l10n.eventAlertModeRing
+                            : l10n.eventAlertModeNotify,
+                        identifier: control('alert-$index'),
+                        onTap: () => _editAlert(context, event, alert),
+                      ),
+                    FormActionRow(
+                      glyph: Icons.add_rounded,
+                      label: l10n.eventAlertAdd,
+                      identifier: control('add'),
+                      // Disabled, never hidden, at the editor's own limit.
+                      onTap: _alerts.length < kMaxAlertsPerEvent
+                          ? () => _addAlert(context, event)
+                          : null,
+                    ),
+                  ],
+                ),
               ),
-            FormActionRow(
-              glyph: Icons.add_rounded,
-              label: l10n.eventAlertAdd,
-              identifier: control('add'),
-              // Disabled, never hidden, at the editor's own limit.
-              onTap: _alerts.length < kMaxAlertsPerEvent
-                  ? () => _addAlert(context, event)
-                  : null,
             ),
           ],
         ),

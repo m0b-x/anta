@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/app_spacing.dart';
+import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -10,10 +13,13 @@ import '../models/calendar_guide_demo.dart';
 import '../models/recurrence_rule.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
+import '../services/settings_service.dart';
 import '../utils/event_agenda.dart';
 import 'calendar_add_fab.dart';
+import 'calendar_date_picker_sheet.dart';
 import 'calendar_guide_try_card.dart';
 import 'event_avatar.dart';
+import 'event_description_sheet.dart';
 import 'event_detail_sheet.dart';
 import 'event_editor_sheet.dart';
 import 'event_template_picker_sheet.dart';
@@ -24,7 +30,8 @@ import 'form_rows.dart';
 /// in its sandbox mode; + adds through the same editor, and its long press
 /// offers the owner's own templates. Every answer lands in this demo.
 class GuideEventsDemo extends GuideCardDemo {
-  GuideEventsDemo() : _today = _todayUtc();
+  GuideEventsDemo({DateTime Function() now = DateTime.now})
+    : _today = _todayUtc(now());
 
   static const String slug = 'events';
 
@@ -32,10 +39,8 @@ class GuideEventsDemo extends GuideCardDemo {
   /// makes room: the demo stays a demo, not a list to manage.
   static const int maxAdded = 3;
 
-  static DateTime _todayUtc() {
-    final now = DateTime.now();
-    return DateTime.utc(now.year, now.month, now.day);
-  }
+  static DateTime _todayUtc(DateTime now) =>
+      DateTime.utc(now.year, now.month, now.day);
 
   /// Date-only UTC, read once, as the practice page reads it.
   final DateTime _today;
@@ -48,7 +53,13 @@ class GuideEventsDemo extends GuideCardDemo {
   List<CalendarEvent>? _seedEvents;
   List<CalendarEvent>? _events;
   final Map<String, Set<DateTime>> _skips = {};
+
+  /// The days' own texts of an event that keeps one per day, written by the
+  /// detail sheet's quick edit and read back into the sheet.
+  final Map<String, Map<DateTime, String>> _descriptions = {};
   int _nextId = 0;
+
+  String? _descriptionOn(String id, DateTime day) => _descriptions[id]?[day];
 
   @override
   bool get needsAppearance => true;
@@ -59,8 +70,7 @@ class GuideEventsDemo extends GuideCardDemo {
     super.dispose();
   }
 
-  static DateFormat _dates(AppLocalizations l10n) =>
-      DateFormat.yMMMMEEEEd(l10n.localeName);
+  final GuideLocaleFormat _dates = GuideLocaleFormat(DateFormat.yMMMMEEEEd);
 
   @override
   String idle(AppLocalizations l10n) => l10n.calendarGuideDemoLongPressHint;
@@ -68,7 +78,7 @@ class GuideEventsDemo extends GuideCardDemo {
   @override
   List<String> candidates(AppLocalizations l10n) {
     final quote = calendarGuideLongestQuote;
-    final date = calendarGuideLongestDate(_dates(l10n));
+    final date = calendarGuideLongestDate(_dates.of(l10n));
     return [
       l10n.calendarGuideDemoLongPressHint,
       l10n.calendarGuideDemoAdded(quote, date),
@@ -185,7 +195,10 @@ class GuideEventsDemo extends GuideCardDemo {
     if (skipped != null && skipped.isNotEmpty) _skips[event.id] = {...skipped};
     final title = calendarGuideQuote(event.title);
     final start = event.startDateUtc;
-    say((l10n) => l10n.calendarGuideDemoAdded(title, _dates(l10n).format(start)));
+    say(
+      (l10n) =>
+          l10n.calendarGuideDemoAdded(title, _dates.of(l10n).format(start)),
+    );
   }
 
   /// The add button's long press: the owner's own templates, read only, the
@@ -211,7 +224,8 @@ class GuideEventsDemo extends GuideCardDemo {
 
   /// The calendar's trip through an event's sheets, cut to what this page
   /// teaches: the detail sheet, then the editor from its Edit, with Back
-  /// returning to the detail; a skip from the detail sheet is kept too.
+  /// returning to the detail; a skip, a description and the dates the
+  /// detail sheet changes are kept too.
   Future<void> _open(BuildContext context, CalendarEvent event) async {
     var current = event;
     final day = _dayOf(event);
@@ -221,6 +235,11 @@ class GuideEventsDemo extends GuideCardDemo {
         context,
         event: current,
         day: day,
+        // Only while the event keeps one text per day, as the practice page
+        // passes it: a dormant row must not show as the event's text.
+        pendingOccurrenceDescription: OccurrenceDescriptions.appliesTo(current)
+            ? _descriptionOn(current.id, day)
+            : null,
       );
       if (action == null || !context.mounted) return;
       final title = calendarGuideQuote(current.title);
@@ -229,7 +248,7 @@ class GuideEventsDemo extends GuideCardDemo {
           (_skips[current.id] ??= {}).add(day);
           say(
             (l10n) => l10n.calendarGuideDemoSkipped(
-              _dates(l10n).format(day),
+              _dates.of(l10n).format(day),
               title,
             ),
           );
@@ -262,16 +281,82 @@ class GuideEventsDemo extends GuideCardDemo {
               say((l10n) => l10n.calendarGuideDemoChanged(saved));
               if (!_occursOn(current, day)) return;
           }
-        // A demo event has no note, no dates of its own and no text to
-        // edit in place: the sheet offers none of these for the seed, and an
-        // added event's are what the editor shows.
-        case EventDetailAction.openNote:
+        // The practice page's handling (`_eventTrip`), on this demo's list.
         case EventDetailAction.editDescription:
+          final edited = await _editDescription(context, current, day);
+          if (edited == null || !context.mounted) continue;
+          current = edited;
+          final saved = calendarGuideQuote(current.title);
+          say((l10n) => l10n.calendarGuideDemoChanged(saved));
         case EventDetailAction.addDate:
         case EventDetailAction.showDates:
+          final dates = current.explicitDates;
+          if (dates == null) continue;
+          final picked = await CalendarDatePickerSheet.pickMulti(
+            context,
+            initialSelection: dates,
+            firstDate: CalendarBounds.earliest,
+            lastDate: CalendarBounds.latest,
+            dayLoad: (d) => _events!.where((e) => _occursOn(e, d)).length,
+            appearance: appearance,
+            initialView: action == EventDetailAction.showDates
+                ? CalendarDatePickerView.list
+                : CalendarDatePickerView.month,
+          );
+          if (!context.mounted) return;
+          if (picked == null || setEquals(picked, dates)) continue;
+          current = current.withExplicitDates(picked);
+          _replace(current);
+          final saved = calendarGuideQuote(current.title);
+          say((l10n) => l10n.calendarGuideDemoChanged(saved));
+          if (!_occursOn(current, day)) return;
+        // A demo event carries no note: the sandboxed editor has no Linked
+        // note row.
+        case EventDetailAction.openNote:
           return;
       }
     }
+  }
+
+  /// The detail sheet's quick description edit, as the practice page opens
+  /// it (`_editDescription`): the day's own text for an event that keeps
+  /// one per day, else the event's. Null when nothing changed.
+  Future<CalendarEvent?> _editDescription(
+    BuildContext context,
+    CalendarEvent event,
+    DateTime day,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final perDay = OccurrenceDescriptions.appliesTo(event);
+    final seed = perDay
+        ? (_descriptionOn(event.id, day) ?? event.description ?? '')
+        : (event.description ?? '');
+    final settings = await SettingsService.getInstance();
+    final limit = await settings.getEventDescriptionLimit();
+    if (!context.mounted) return null;
+    final edited = await EventDescriptionSheet.show(
+      context,
+      initialText: seed,
+      heading: event.title,
+      limit: limit,
+      grandfatheredLength: seed.length,
+      scopeCaption: perDay
+          ? l10n.eventDescriptionScopeThisDayHint
+          : (event.rule is OneTimeRecurrence
+                ? null
+                : l10n.eventDescriptionAppliesAllOccurrences),
+    );
+    if (edited == null || edited == seed) return null;
+    if (perDay) {
+      (_descriptions[event.id] ??= {})[day] = edited;
+      return event;
+    }
+    final updated = event.copyWith(
+      description: edited,
+      clearDescription: edited.isEmpty,
+    );
+    _replace(updated);
+    return updated;
   }
 
   Widget _row(BuildContext context, CalendarEvent event) {

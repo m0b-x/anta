@@ -55,10 +55,29 @@ class PublicHolidayService {
   static Future<PublicHolidayService> forTesting(AppDatabase db) =>
       _create(() async => db);
 
+  /// The construction in flight, so a second cold caller waits for it
+  /// rather than starting its own: the restored calendar still loading under
+  /// the guide's hub and a guide page's read both ask, and two constructions
+  /// would each `configure` the facade and each register [reset].
+  static Future<PublicHolidayService>? _initializing;
+
   static Future<PublicHolidayService> _create(
     Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _initializing;
+    if (pending != null) return pending;
+    late final Future<PublicHolidayService> creating;
+    creating = _construct(open).whenComplete(() {
+      if (identical(_initializing, creating)) _initializing = null;
+    });
+    return _initializing = creating;
+  }
+
+  static Future<PublicHolidayService> _construct(
+    Future<AppDatabase> Function() open,
   ) async {
-    if (_instance != null) return _instance!;
     final service = PublicHolidayService._();
     service._db = await open();
     service._dao = service._db.publicHolidayDao;
@@ -89,6 +108,7 @@ class PublicHolidayService {
   /// Invoked by [DatabaseLifecycle] when the active database changes.
   static void reset() {
     _instance = null;
+    _initializing = null;
     PublicHolidays.resetCache();
   }
 

@@ -98,8 +98,9 @@ class GuideScreenDemo extends GuideCardDemo {
                       child: CalendarViewMenu(
                         page: CalendarViewPage.calendar,
                         onPageSelected: (_) => say(
-                          (l10n) =>
-                              l10n.calendarGuideWouldOpen(l10n.calendarOverview),
+                          (l10n) => l10n.calendarGuideWouldOpen(
+                            l10n.calendarOverview,
+                          ),
                         ),
                         format: _format,
                         onFormatSelected: _setFormat,

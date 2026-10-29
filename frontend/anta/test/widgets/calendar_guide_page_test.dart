@@ -433,6 +433,19 @@ void main() {
     }
   });
 
+  testWidgets('a word of a "Try it" lead-in finds its page\'s row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    // Only the setup card's lead-in speaks of the sample week.
+    await tester.enterText(find.byType(TextField), 'sample week');
+    await tester.pumpAndSettle();
+    expect(_page(CalendarGuideTopic.setup), findsOneWidget);
+    expect(_page(CalendarGuideTopic.attendance), findsNothing);
+  });
+
   testWidgets("a search hit's page row opens that page", (tester) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();

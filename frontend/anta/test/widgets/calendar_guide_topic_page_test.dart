@@ -4,12 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/calendar_guide_content.dart';
 import 'package:anta/pages/calendar_guide_topic_page.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+
+import '../database/support/db_test_support.dart';
+import '../goldens/support/golden_fonts.dart';
 
 Widget _host(
   CalendarGuideTopic topic, {
@@ -56,6 +61,8 @@ Iterable<String> _textsUnder(WidgetTester tester, Finder row) => tester
 
 /// No laid-out text on the page is cut: every paragraph is as tall as its
 /// lines need and none ran out of lines. The bar's title is the kit's bar's.
+/// The unseen copies that size a slot are not drawn: a stand-in cut at its
+/// row's limit is not a clipped label.
 void _expectNoClippedText(WidgetTester tester) {
   final paragraphs = tester.renderObjectList<RenderParagraph>(
     find.descendant(
@@ -63,7 +70,15 @@ void _expectNoClippedText(WidgetTester tester) {
       matching: find.byType(RichText),
     ),
   );
+  bool unseen(RenderObject paragraph) {
+    for (RenderObject? o = paragraph; o != null; o = o.parent) {
+      if (o is RenderOpacity && o.opacity == 0) return true;
+    }
+    return false;
+  }
+
   for (final paragraph in paragraphs) {
+    if (unseen(paragraph)) continue;
     final reason = paragraph.text.toPlainText();
     expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
     expect(
@@ -132,6 +147,25 @@ const Map<CalendarGuideTopic, List<String>> _slugs = {
 
 void main() {
   final en = AppLocalizationsEn();
+  late AppDatabase db;
+
+  // Real glyphs: the test font draws every glyph a full em wide, and the
+  // "Try it" stages hold real rows whose values clamp at two lines — the
+  // clipping checks below would be measuring the font.
+  setUpAll(loadGoldenFonts);
+
+  // The events and kinds cards read the calendar's look once; an unbound
+  // service would leave a half-built singleton behind for the next case.
+  setUp(() async {
+    db = await openTestDatabase();
+    SettingsService.reset();
+    SettingsService.forTesting(db);
+  });
+
+  tearDown(() async {
+    SettingsService.reset();
+    await db.close();
+  });
 
   test('the catalogue holds table 4, in order, each slug once', () {
     for (final topic in CalendarGuideTopic.values) {
@@ -161,7 +195,20 @@ void main() {
       );
       // The bar names the guide; the page's own name is the list's heading.
       expect(find.text(en.calendarGuideTitle), findsOneWidget);
-      expect(find.byType(TextField), findsNothing);
+      // No search field of the page's own; the finding card's is its stage's.
+      expect(
+        find.byType(TextField),
+        topic == CalendarGuideTopic.finding ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(
+            SemanticsIds.calendarGuideTry(topic.slug),
+          ),
+          matching: find.byType(TextField),
+        ),
+        topic == CalendarGuideTopic.finding ? findsOneWidget : findsNothing,
+      );
       final heading = tester
           .getSemantics(find.text(topic.title(en)))
           .getSemanticsData();
@@ -169,6 +216,9 @@ void main() {
       expect(heading.headingLevel, 1);
       final lead = topic.lead(en);
       if (lead != null) expect(find.text(lead), findsOneWidget);
+      // A page with something to try opens on its "Try it" card; "How it
+      // works" follows it.
+      await _scrollTo(tester, find.text(en.calendarGuideHowItWorks));
       expect(find.text(en.calendarGuideHowItWorks), findsOneWidget);
 
       for (final row in topic.rows(en)) {

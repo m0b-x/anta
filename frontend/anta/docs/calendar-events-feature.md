@@ -7391,3 +7391,44 @@ Unchanged: the arm signature, the registry identity, the digest horizon;
 the `alert_scheduler_test` cases that tell a two-fire story pin
 `AlertHorizon(perAlert: 2, …)` explicitly, and the hub's listing test pins
 the shipped 10.
+
+## Addendum (2026-10-29, later): the hands-on guide — a hub, topic pages, "Try it" cards and a practice calendar
+
+The guide page of the morning became a hub the same day (`docs/calendar-
+guide-page.md` §7, the owner's letters D13–D20 and the designer's defaults
+D21–D37): `CalendarGuidePage` lists the Practice calendar, The calendar
+screen, a "How do I…" card of seven task pages and Good to know, each a
+kit row with a chevron and a plain push (`CalendarGuideTopicPage(topic)`,
+never stamped — a relaunch lands on the hub); its search keeps only the
+rows `matchSettingsEntry` matches, one section per page with the page's
+own row first. A topic page is a settings-kit page whose bar names the
+guide, with the page title as a heading, a lead, one **"Try it" card**
+first and a "How it works" card of the read rows (D4 / D7 unchanged;
+the rows redistributed per §8.2 table 4, the six new Events rows of
+§8.1, the eight kinds rows and six categories rows of §8.2). A card is
+a lead-in, a stage of the **real** widgets of that task under
+`sandbox: true` (slice 0's seams on the editor, the category picker, the
+Look sheet, the filter sheet, the category editor, the icon picker, and
+`AlarmPage.preview`), and a live caption in a `FormCaptionSlot` sized over
+every string the card can show, so text changes and geometry never; the
+demo state is the page's, not the card's. `CalendarGuidePracticePage` is a
+calendar that saves nothing: the real bar (`CalendarViewMenu`, Start
+over, the funnel with its badge, `CalendarOverflowMenu` whose rows only
+caption), a `primaryContainer` band whose first line never changes and
+whose second is the live caption, a `TableCalendar` over a page-owned
+`GuideDemoCalendar` (six seed events, its own presence map, skips and
+per-day descriptions, a per-day map rebuilt on changes), the panel modes
+and the add button into the sandboxed editor, the detail sheet, the
+template picker (read-only) and the filter sheet. Where a shared widget
+read a static cache by event id it took a read seam whose default is the
+static read (`isMissed` on `DayBarsResolver.defaults`, `DayTimelineView`,
+`EventDetailSheet.show`, `PresenceAdherence.compute`;
+`EventEditorSheet.show(initialSkippedDays:, initialAlerts:)`;
+`CalendarViewMenu(namesRoute:)`; `PanelModeBar.onToggleExpanded` nullable).
+Every string of the rework is in the ARBs (`calendarGuide*`, 181 keys);
+the guide's suites run each case over a statement interceptor on the test
+database and assert nothing was written. The device pass is still 27
+flows: `26_guide` walks the hub, the practice page and a card. No data
+semantics changed; `PublicHolidayService.getInstance()` gained an
+in-flight guard and `MarkdownBarService` / `PublicHolidayService` a
+`forTesting`.

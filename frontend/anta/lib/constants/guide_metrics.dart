@@ -85,6 +85,17 @@ abstract final class GuideMetrics {
   /// the card in dark (D29), and a line any heavier would read as a control.
   static const double stageOutline = 1;
 
+  /// The kinds card's month of dots at twice the year tiles' size: a tile's
+  /// matrix is a glance at one month of twelve, this one is the thing to
+  /// watch, and its dots are drawn, so they scale without blur.
+  static const double stageMatrixScale = 2;
+
+  /// The setup card's sample week: the appearance page's preview, drawn on a
+  /// stage narrower than that page — a 36 dp column a day on a 360 phone —
+  /// cuts its Romanian "dum." off past 1.25. It is a picture of the grid, so
+  /// it stops growing here, as the practice page's banner does.
+  static const double sampleWeekMaxTextScale = 1.2;
+
   /// The demo grid's header, the calendar page's geometry: the title row
   /// tightened so the month name and its chevrons sit on one line.
   static const double practiceHeaderInset = 4;

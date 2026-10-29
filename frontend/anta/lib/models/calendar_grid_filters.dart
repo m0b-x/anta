@@ -154,6 +154,11 @@ class CalendarGridFilters extends Equatable {
   /// `CalendarBloc`, which keeps the per-day loop free while this is false.
   bool get hasOccurrenceAxis => missedOnly;
 
+  /// How many axes [activeCount] counts — the most it can ever say, for a
+  /// caption sized before any filter is set. A new axis bumps it together
+  /// with [activeCount]; a test holds the two to each other.
+  static const int axisCount = 14;
+
   /// How many axes are currently narrowing the grid — the number the app-bar
   /// badge shows and the summary chips undo one at a time. Categories count
   /// once however many ids are hidden, matching

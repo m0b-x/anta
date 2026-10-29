@@ -207,7 +207,10 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
     return SettingsEntry(
       title: topic.title(l10n),
       description: topic.caption(l10n),
+      // The card's lead-in too: what the page lets her try is a reason to
+      // open it.
       keywords: [
+        ?topic.tryLead(l10n),
         for (final row in rows) ...[row.title, row.body],
       ],
       identifier: SemanticsIds.calendarGuidePage(topic.slug),

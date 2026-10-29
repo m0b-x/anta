@@ -2,21 +2,24 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/calendar_colors.dart';
+import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_guide_demo.dart';
-import '../models/day_bar.dart';
 import '../models/recurrence_rule.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/recurrence_formatter.dart';
-import 'agenda_month_grid.dart';
+import '../utils/calendar_week_start.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'calendar_guide_try_card.dart';
 import 'event_avatar.dart';
 import 'event_repeat_sheet.dart';
 import 'form_rows.dart';
+import 'month_dot_matrix.dart';
 
 /// The kinds page's card: one demo event, its Repeat row through the real
 /// repeat sheet, Add date through the real multi-date picker, Skip this day
@@ -29,14 +32,13 @@ import 'form_rows.dart';
 /// 2.0, and at 360 wide its columns are narrow enough for "Mo" to wrap, so
 /// on this stage it cut its own labels.
 class GuideKindsDemo extends GuideCardDemo {
-  GuideKindsDemo() : _today = _todayUtc();
+  GuideKindsDemo({DateTime Function() now = DateTime.now})
+    : _today = _todayUtc(now());
 
   static const String slug = 'kinds';
 
-  static DateTime _todayUtc() {
-    final now = DateTime.now();
-    return DateTime.utc(now.year, now.month, now.day);
-  }
+  static DateTime _todayUtc(DateTime now) =>
+      DateTime.utc(now.year, now.month, now.day);
 
   /// Date-only UTC, read once.
   final DateTime _today;
@@ -59,50 +61,83 @@ class GuideKindsDemo extends GuideCardDemo {
   DateTime get _firstDay => DateTime.utc(_today.year - 1);
   DateTime get _lastDay => DateTime.utc(_today.year + 1, 12, 31);
 
-  static DateFormat _dates(AppLocalizations l10n) =>
-      DateFormat.yMMMMEEEEd(l10n.localeName);
+  final GuideLocaleFormat _dates = GuideLocaleFormat(DateFormat.yMMMMEEEEd);
+
+  /// The Date row's value.
+  final GuideLocaleFormat _shortDates = GuideLocaleFormat(DateFormat.yMMMEd);
 
   @override
   String idle(AppLocalizations l10n) =>
-      l10n.calendarGuideDemoOneDay(_dates(l10n).format(_today));
+      l10n.calendarGuideDemoOneDay(_dates.of(l10n).format(_today));
+
+  /// The widest rule words each kind can produce: every weekday at the
+  /// largest interval. The formatter writes no end date, so an Until adds
+  /// nothing to them.
+  static const List<RecurrenceRule> _widestRules = [
+    DailyRecurrence(interval: EventRepeatDraft.maxInterval),
+    WeeklyRecurrence(
+      weekdays: {1, 2, 3, 4, 5, 6, 7},
+      interval: EventRepeatDraft.maxInterval,
+    ),
+    MonthlyRecurrence(interval: EventRepeatDraft.maxInterval),
+    YearlyRecurrence(interval: EventRepeatDraft.maxInterval),
+    WorkdaysRecurrence(),
+    WeekendsRecurrence(),
+    PublicHolidaysOnlyRecurrence(),
+  ];
+
+  /// Every rule's widest words, each with the "always" suffix too.
+  static Iterable<String> _widestRuleWords(AppLocalizations l10n) sync* {
+    for (final rule in _widestRules) {
+      for (final retroactive in const [false, true]) {
+        yield RecurrenceFormatter.format(
+          rule,
+          l10n,
+          l10n.localeName,
+          retroactive: retroactive,
+        );
+      }
+    }
+  }
 
   @override
   List<String> candidates(AppLocalizations l10n) {
-    final date = calendarGuideLongestDate(_dates(l10n));
+    final date = calendarGuideLongestDate(_dates.of(l10n));
     final title = l10n.calendarGuideDemoEventDentist;
-    // The widest rule words each kind can produce: every weekday at the
-    // largest interval, and each with the "always" suffix.
-    const rules = <RecurrenceRule>[
-      DailyRecurrence(interval: EventRepeatDraft.maxInterval),
-      WeeklyRecurrence(
-        weekdays: {1, 2, 3, 4, 5, 6, 7},
-        interval: EventRepeatDraft.maxInterval,
-      ),
-      MonthlyRecurrence(interval: EventRepeatDraft.maxInterval),
-      YearlyRecurrence(interval: EventRepeatDraft.maxInterval),
-      WorkdaysRecurrence(),
-      WeekendsRecurrence(),
-      PublicHolidaysOnlyRecurrence(),
-    ];
     const counts = [0, 1, 2, 22, 31];
     return [
       l10n.calendarGuideDemoOneDay(date),
-      for (final rule in rules)
-        for (final retroactive in const [false, true])
-          for (final count in counts)
-            l10n.calendarGuideDemoRepeats(
-              RecurrenceFormatter.format(
-                rule,
-                l10n,
-                l10n.localeName,
-                retroactive: retroactive,
-              ),
-              count,
-            ),
-      for (final count in const [2, 22, 99]) l10n.recurrenceSpecificDates(count),
+      for (final words in _widestRuleWords(l10n))
+        for (final count in counts) l10n.calendarGuideDemoRepeats(words, count),
+      for (final count in const [2, 22, 99])
+        l10n.recurrenceSpecificDates(count),
       l10n.calendarGuideDemoSkipped(date, title),
     ];
   }
+
+  /// What the rows that carry the rule's words and the picked day are
+  /// sized for — every kind's widest words, and the widest short date — so
+  /// a rule or a day changes words and never the stage. Once per language.
+  ({List<String> words, String date}) _rowSizes(AppLocalizations l10n) {
+    if (_rowSizesLocale != l10n.localeName) {
+      _rowSizesLocale = l10n.localeName;
+      _rowSizesCache = (
+        words: {
+          l10n.recurrenceNone,
+          l10n.recurrenceSpecificDates(99),
+          ..._widestRuleWords(l10n),
+        }.toList(),
+        date: calendarGuideLongestDate(_shortDates.of(l10n)),
+      );
+    }
+    return _rowSizesCache;
+  }
+
+  ({List<String> words, String date}) _rowSizesCache = (
+    words: const [],
+    date: '',
+  );
+  String? _rowSizesLocale;
 
   /// The record's Dentist, one time, today.
   CalendarEvent _seed(AppLocalizations l10n) => CalendarEvent(
@@ -132,13 +167,25 @@ class GuideKindsDemo extends GuideCardDemo {
     return count;
   }
 
-  String _ruleWords(AppLocalizations l10n, CalendarEvent event) =>
-      RecurrenceFormatter.format(
+  /// [event]'s rule in words, written again only when the event or the
+  /// language changes: the stage and the caption read it on every build.
+  String _ruleWords(AppLocalizations l10n, CalendarEvent event) {
+    if (!identical(event, _wordsEvent) || l10n.localeName != _wordsLocale) {
+      _wordsEvent = event;
+      _wordsLocale = l10n.localeName;
+      _words = RecurrenceFormatter.format(
         event.rule,
         l10n,
         l10n.localeName,
         retroactive: event.retroactive,
       );
+    }
+    return _words;
+  }
+
+  CalendarEvent? _wordsEvent;
+  String? _wordsLocale;
+  String _words = '';
 
   /// The caption for the event as it now stands: one day, its dates, or
   /// its rule and how often it falls this month.
@@ -148,7 +195,7 @@ class GuideKindsDemo extends GuideCardDemo {
     say(
       (l10n) => switch (event.rule) {
         OneTimeRecurrence() => l10n.calendarGuideDemoOneDay(
-          _dates(l10n).format(start),
+          _dates.of(l10n).format(start),
         ),
         SpecificDatesRecurrence(:final dates) => l10n.recurrenceSpecificDates(
           dates.length,
@@ -236,7 +283,9 @@ class GuideKindsDemo extends GuideCardDemo {
       RepeatKind.holidays => const PublicHolidaysOnlyRecurrence(),
     };
     final end = draft.endDate;
-    final endDay = end == null ? null : DateTime.utc(end.year, end.month, end.day);
+    final endDay = end == null
+        ? null
+        : DateTime.utc(end.year, end.month, end.day);
     final keepsEnd = endDay != null && !endDay.isBefore(start);
     return event.copyWith(
       rule: rule,
@@ -255,15 +304,31 @@ class GuideKindsDemo extends GuideCardDemo {
     _sayShape(event);
   }
 
+  /// The repeat sheet's last answer. The editor keeps its kind, interval,
+  /// weekdays, end and "also before" through a switch to "does not repeat"
+  /// for as long as it is open, so turning Repeat back on finds the rule she
+  /// had; the event here keeps none of them once it stops repeating, so the
+  /// demo keeps them for it.
+  EventRepeatDraft? _lastDraft;
+
+  static bool _repeats(CalendarEvent event) =>
+      event.rule is! OneTimeRecurrence &&
+      event.rule is! SpecificDatesRecurrence;
+
   Future<void> _repeat(BuildContext context, CalendarEvent event) async {
-    final draft = _draftOf(event);
+    final last = _lastDraft;
+    final draft = _repeats(event) || last == null
+        ? _draftOf(event)
+        : last.copyWith(recurring: false);
     final picked = await EventRepeatSheet.show(
       context,
       draft: draft,
       startDate: event.startDateUtc,
       appearance: appearance,
     );
-    if (picked == null || picked == draft) return;
+    if (picked == null) return;
+    _lastDraft = picked;
+    if (picked == draft) return;
     _update(_withDraft(event, picked));
   }
 
@@ -306,12 +371,36 @@ class GuideKindsDemo extends GuideCardDemo {
     return mask;
   }
 
+  /// The month's marked and faded days, worked out again only when the
+  /// event or its skips change, never on a rebuild that changed neither.
+  ({int marked, int missed}) _masksOf(CalendarEvent event) {
+    final key = (event, _skips.length);
+    if (!identical(key.$1, _masksKey?.$1) || key.$2 != _masksKey?.$2) {
+      _masksKey = key;
+      _masks = (
+        marked: _maskOf((day) => _occurs(event, day)),
+        // A skipped day still belongs to a repeating event's pattern:
+        // faded, as a missed one is, never gone.
+        missed: event.rule is OneTimeRecurrence
+            ? 0
+            : _maskOf(
+                (day) => event.occursOnUtcDay(day) && _skips.contains(day),
+              ),
+      );
+    }
+    return _masks;
+  }
+
+  (CalendarEvent, int)? _masksKey;
+  ({int marked, int missed}) _masks = (marked: 0, missed: 0);
+
   void _skip(CalendarEvent event, DateTime day) {
     _skips.add(day);
     _picked = null;
     final title = calendarGuideQuote(event.title);
     say(
-      (l10n) => l10n.calendarGuideDemoSkipped(_dates(l10n).format(day), title),
+      (l10n) =>
+          l10n.calendarGuideDemoSkipped(_dates.of(l10n).format(day), title),
     );
   }
 
@@ -319,41 +408,75 @@ class GuideKindsDemo extends GuideCardDemo {
   Widget buildStage(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final event = _event ??= _seed(l10n);
+    final colorScheme = Theme.of(context).colorScheme;
     final category = CalendarCategories.resolve(event.categoryId);
     final colorValue = event.colorValue;
     // The bar rule, not the avatar's: the event's own colour, else its
     // category's.
-    final bars = [
-      DayBar(
-        key: event.barKey,
-        color: colorValue == null ? category.color : Color(colorValue),
-        priority: event.priority - kMinEventPriority,
-        semanticLabel: event.title,
-      ),
-    ];
+    final color = colorValue == null ? category.color : Color(colorValue);
     final words = _ruleWords(l10n, event);
     final picked = _picked;
+    final canSkip =
+        event.rule is! OneTimeRecurrence &&
+        picked != null &&
+        _occurs(event, picked);
     String control(String name) =>
         SemanticsIds.calendarGuideTryControl(slug, name);
+    final sizes = _rowSizes(l10n);
+    final masks = _masksOf(event);
+    final avatar = EventAvatar(
+      icon: CalendarCategories.iconFor(event),
+      color: EventSummaryProvider.colorFor(event, category),
+    );
+    Widget titleRow(String words) =>
+        FormReadTitleRow(leading: avatar, title: event.title, caption: words);
+    Widget repeatRow(String words, {VoidCallback? onTap, String? id}) =>
+        FormPickerRow(
+          glyph: Icons.repeat_rounded,
+          label: l10n.eventRepeat,
+          value: words,
+          identifier: id,
+          onTap: onTap,
+        );
+    Widget dayRow(String? value, {VoidCallback? onTap, String? id}) =>
+        FormPickerRow(
+          glyph: Icons.calendar_today_outlined,
+          label: l10n.eventDateLabel,
+          value: value,
+          identifier: id,
+          onTap: onTap,
+        );
+    // A row as tall as the tallest of its candidates: the words wrap at a
+    // large text size, and the row must not move what is under it when they
+    // change. The group reads the hairline off its direct child, so the
+    // wrapper carries the row's own indent.
+    Widget sized(double indent, Iterable<Widget> candidates, Widget row) =>
+        FormIndentedRow(
+          dividerIndent: indent,
+          child: FormCaptionSlot(
+            alignment: AlignmentDirectional.centerStart,
+            candidates: candidates.toList(),
+            child: row,
+          ),
+        );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         FormRowGroup(
           children: [
-            FormReadTitleRow(
-              leading: EventAvatar(
-                icon: CalendarCategories.iconFor(event),
-                color: EventSummaryProvider.colorFor(event, category),
-              ),
-              title: event.title,
-              caption: words,
+            sized(
+              FormMetrics.dividerIndentTitle,
+              sizes.words.map(titleRow),
+              titleRow(words),
             ),
-            FormPickerRow(
-              glyph: Icons.repeat_rounded,
-              label: l10n.eventRepeat,
-              value: words,
-              identifier: control('repeat'),
-              onTap: () => _repeat(context, event),
+            sized(
+              FormMetrics.dividerIndentGlyph,
+              [for (final w in sizes.words) repeatRow(w, onTap: () {})],
+              repeatRow(
+                words,
+                id: control('repeat'),
+                onTap: () => _repeat(context, event),
+              ),
             ),
             // Disabled, never hidden: a repeating event has no dates of its
             // own to add to.
@@ -365,34 +488,60 @@ class GuideKindsDemo extends GuideCardDemo {
                   ? null
                   : () => _addDate(context, event),
             ),
-            // A one-day event has nothing to skip, and a day must be picked
-            // first; disabled until both hold.
+            sized(
+              FormMetrics.dividerIndentGlyph,
+              [dayRow(null, onTap: () {}), dayRow(sizes.date, onTap: () {})],
+              dayRow(
+                picked == null ? null : _shortDates.of(l10n).format(picked),
+                id: control('day'),
+                onTap: () => _pickDay(context, event),
+              ),
+            ),
+            // A one-day event has nothing to skip, and the picked day must
+            // be one it falls on; disabled until both hold.
             FormActionRow(
               glyph: Icons.event_busy_outlined,
               label: l10n.eventSkipOccurrence,
               identifier: control('skip'),
-              onTap: event.rule is OneTimeRecurrence || picked == null
-                  ? null
-                  : () => _skip(event, picked),
+              onTap: canSkip ? () => _skip(event, picked) : null,
             ),
           ],
         ),
-        AgendaMonthGrid(
-          month: _month,
-          firstDay: _firstDay,
-          lastDay: _lastDay,
-          today: _today,
-          selectedDay: picked,
-          appearance: appearance,
-          hasEntry: (day) => _occurs(event, day),
-          barsFor: (day) => _occurs(event, day) ? bars : null,
-          onDaySelected: (day) {
-            _picked = day;
-            changed();
-          },
-          // The grid pages itself; the month is kept so a rebuild leaves it
-          // where she swiped to.
-          onPageChanged: (month) => _month = month,
+        // Drawn as the year tiles draw it, at a size she can read; what it
+        // shows, the caption says.
+        ExcludeSemantics(
+          child: Center(
+            child: SizedBox(
+              width: MonthDotMatrix.width * GuideMetrics.stageMatrixScale,
+              height: MonthDotMatrix.height * GuideMetrics.stageMatrixScale,
+              child: FittedBox(
+                child: MonthDotMatrix(
+                  daysInMonth: _monthEnd.day,
+                  firstWeekdayColumn: weekdayColumnOf(
+                    _monthStart,
+                    appearance.weekStart,
+                  ),
+                  markedMask: masks.marked,
+                  missedMask: masks.missed,
+                  windowMask: (1 << _monthEnd.day) - 1,
+                  todayIndex: _today.day - 1,
+                  markedColor: color,
+                  missedColor: color.withValues(
+                    alpha: CalendarColors.missedEventAlpha,
+                  ),
+                  unmarkedColor: colorScheme.outline.withValues(
+                    alpha: MonthDotMatrix.unmarkedAlpha,
+                  ),
+                  outsideColor: colorScheme.outline.withValues(
+                    alpha: MonthDotMatrix.outsideAlpha,
+                  ),
+                  todayColor: appearance.accentOr(colorScheme.primary),
+                  backgroundColor: colorScheme.pageGround,
+                  outlineColor: colorScheme.outline,
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );

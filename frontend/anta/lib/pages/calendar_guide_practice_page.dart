@@ -763,7 +763,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       case EventTemplatePicked(:final template):
         final event = template.buildEvent(id: demo.newId(), startDate: day);
         demo.add(event);
-        _changed(l10n.calendarGuideDemoTemplate(calendarGuideQuote(event.title)));
+        _changed(
+          l10n.calendarGuideDemoTemplate(calendarGuideQuote(event.title)),
+        );
       case EventTemplateBlank():
         await _addEvent(day);
       case EventTemplateQuickAlarm():
@@ -818,14 +820,19 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         case EventDetailAction.skipOccurrence:
           demo.skip(current.id, day);
           _changed(
-            l10n.calendarGuideDemoSkipped(_date(day), calendarGuideQuote(current.title)),
+            l10n.calendarGuideDemoSkipped(
+              _date(day),
+              calendarGuideQuote(current.title),
+            ),
           );
           return;
         case EventDetailAction.editDescription:
           final edited = await _editDescription(current, day);
           if (edited == null || !mounted) continue;
           current = edited;
-          _changed(l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)));
+          _changed(
+            l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)),
+          );
         case EventDetailAction.addDate:
         case EventDetailAction.showDates:
           final dates = current.explicitDates;
@@ -845,7 +852,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           if (picked == null || setEquals(picked, dates)) continue;
           current = current.withExplicitDates(picked);
           demo.replace(current);
-          _changed(l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)));
+          _changed(
+            l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)),
+          );
           if (!demo.occursOn(current, day)) return;
         case EventDetailAction.edit:
           final result = await EventEditorSheet.show(
@@ -871,7 +880,11 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
               continue;
             case EventEditorDeleted():
               demo.remove(current.id);
-              _changed(l10n.calendarGuideDemoDeleted(calendarGuideQuote(current.title)));
+              _changed(
+                l10n.calendarGuideDemoDeleted(
+                  calendarGuideQuote(current.title),
+                ),
+              );
               return;
             case EventEditorSaved():
               current = result.event;
@@ -886,7 +899,11 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
                   result.occurrenceDescription,
                 );
               }
-              _changed(l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)));
+              _changed(
+                l10n.calendarGuideDemoChanged(
+                  calendarGuideQuote(current.title),
+                ),
+              );
               if (!demo.occursOn(current, day)) return;
           }
       }

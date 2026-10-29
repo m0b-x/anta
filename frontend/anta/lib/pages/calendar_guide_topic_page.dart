@@ -5,10 +5,15 @@ import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_guide_content.dart';
+import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/settings_search.dart';
 import '../widgets/calendar_guide_rows.dart';
 import '../widgets/calendar_guide_try_alerts.dart';
+import '../widgets/calendar_guide_try_attendance.dart';
+import '../widgets/calendar_guide_try_categories.dart';
+import '../widgets/calendar_guide_try_finding.dart';
+import '../widgets/calendar_guide_try_setup.dart';
 import '../widgets/calendar_guide_try_card.dart';
 import '../widgets/calendar_guide_try_events.dart';
 import '../widgets/calendar_guide_try_kinds.dart';
@@ -26,27 +31,40 @@ import '../widgets/unified_app_bars.dart';
 /// a bar; the page title is the list's heading instead. No search field — the
 /// hub searches every page.
 class CalendarGuideTopicPage extends StatefulWidget {
-  const CalendarGuideTopicPage({super.key, required this.topic});
+  const CalendarGuideTopicPage({
+    super.key,
+    required this.topic,
+    this.now = DateTime.now,
+  });
 
   final CalendarGuideTopic topic;
+
+  /// The clock the card's demo reads today from, once: a seam for a suite
+  /// that needs a particular day (the last days of a year).
+  final DateTime Function() now;
 
   @override
   State<CalendarGuideTopicPage> createState() => _CalendarGuideTopicPageState();
 }
 
 /// The demo of [topic]'s card, or null for a page without one.
-GuideCardDemo? _demoFor(CalendarGuideTopic topic) => switch (topic) {
-  CalendarGuideTopic.screen => GuideScreenDemo(),
-  CalendarGuideTopic.events => GuideEventsDemo(),
-  CalendarGuideTopic.kinds => GuideKindsDemo(),
-  CalendarGuideTopic.alerts => GuideAlertsDemo(),
-  _ => null,
-};
+GuideCardDemo? _demoFor(CalendarGuideTopic topic, DateTime Function() now) =>
+    switch (topic) {
+      CalendarGuideTopic.screen => GuideScreenDemo(),
+      CalendarGuideTopic.events => GuideEventsDemo(now: now),
+      CalendarGuideTopic.kinds => GuideKindsDemo(now: now),
+      CalendarGuideTopic.alerts => GuideAlertsDemo(now: now),
+      CalendarGuideTopic.attendance => GuideAttendanceDemo(now: now),
+      CalendarGuideTopic.categories => GuideCategoriesDemo(),
+      CalendarGuideTopic.finding => GuideFindingDemo(now: now),
+      CalendarGuideTopic.setup => GuideSetupDemo(now: now),
+      _ => null,
+    };
 
 class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
   /// The card's demo, here rather than in the card: the list disposes a card
   /// scrolled out of view, and what she did on it must survive that.
-  late final GuideCardDemo? _demo = _demoFor(widget.topic);
+  late final GuideCardDemo? _demo = _demoFor(widget.topic, widget.now);
 
   /// The caption slot's candidates, built once per locale.
   List<String> _candidates = const [];
@@ -59,15 +77,28 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
   }
 
   /// The owner's calendar look for the stage's pickers and add button, read
-  /// once, as the practice page reads it; the defaults stand until then.
+  /// once, as the practice page reads it; the defaults stand until then. The
+  /// setup card also starts from her holiday set, read after it and on its
+  /// own: a holiday read that throws still leaves her look on the stage, and
+  /// the menu shows Generic until the service answers (its row is sized for
+  /// every set, so the answer moves nothing).
   Future<void> _loadAppearance() async {
+    final demo = _demo;
     try {
       final settings = await SettingsService.getInstance();
       final loaded = await settings.getCalendarPageSettings();
       if (!mounted) return;
-      _demo?.appearance = loaded.appearance;
+      demo?.appearance = loaded.appearance;
     } catch (e, st) {
       debugPrint('[CalendarGuideTopicPage] Settings load failed: $e\n$st');
+    }
+    if (demo is! GuideSetupDemo) return;
+    try {
+      final holidays = await PublicHolidayService.getInstance();
+      if (!mounted) return;
+      demo.holidayProfile = holidays.profile;
+    } catch (e, st) {
+      debugPrint('[CalendarGuideTopicPage] Holiday set load failed: $e\n$st');
     }
   }
 

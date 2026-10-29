@@ -148,8 +148,11 @@ abstract final class SemanticsIds {
   static String calendarGuideTryCaption(String slug) =>
       'calendar-guide-try-$slug-caption';
 
-  /// A control on a card's stage. Its own id, never the real calendar's, so
-  /// a flow that taps one can never land on the other.
+  /// A control a card adds to its stage. The real widgets a stage draws
+  /// keep their own ids — the screen card's title menu is
+  /// `calendar-view-menu` with its rows — because the real calendar and a
+  /// card never share a screen, so a flow cannot land on the wrong one; the
+  /// controls the cards add are `try-*`.
   static String calendarGuideTryControl(String slug, String control) =>
       'try-$slug-$control';
 

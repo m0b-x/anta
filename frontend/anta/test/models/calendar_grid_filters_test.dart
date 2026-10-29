@@ -68,6 +68,28 @@ void main() {
       expect(allows(filters, event(priority: kMinEventPriority)), isTrue);
       expect(allows(filters, event(priority: kMaxEventPriority)), isTrue);
     });
+
+    test('axisCount is what a filter set on every axis counts', () {
+      const everyAxis = CalendarGridFilters(
+        hiddenCategoryIds: {'gym'},
+        priorities: {1},
+        eventType: AgendaEventType.recurring,
+        timing: CalendarEventTiming.timed,
+        trackedOnly: true,
+        linkedNotesOnly: true,
+        moneyOnly: true,
+        withDescriptionOnly: true,
+        countedOnly: true,
+        missedOnly: true,
+        hideEnded: true,
+        showHolidays: false,
+        showFasting: false,
+        showMoney: false,
+        panelShowsAll: true,
+      );
+
+      expect(everyAxis.activeCount, CalendarGridFilters.axisCount);
+    });
   });
 
   group('axes', () {

@@ -21,13 +21,25 @@ class GuideTryCardRobot {
   Finder control(String name) =>
       _byId(SemanticsIds.calendarGuideTryControl(slug, name));
 
+  /// The card's own slot: the last, after any slot a stage holds.
   Finder get _slot =>
-      find.descendant(of: card, matching: find.byType(FormCaptionSlot));
+      find.descendant(of: card, matching: find.byType(FormCaptionSlot)).last;
 
   /// The live caption as it reads now; empty in the reserved slot.
   String get caption {
     final slot = tester.widget<FormCaptionSlot>(_slot);
     return ((slot.child as Semantics).child! as FormCaption).text;
+  }
+
+  /// What the stage's own caption slot shows — the card's first slot that
+  /// holds a caption — rather than the unseen candidates laid out under it.
+  String get stageCaption {
+    final slot = tester
+        .widgetList<FormCaptionSlot>(
+          find.descendant(of: card, matching: find.byType(FormCaptionSlot)),
+        )
+        .firstWhere((slot) => slot.child is FormCaption);
+    return (slot.child as FormCaption).text;
   }
 
   Size get slotSize => tester.getSize(_slot);
@@ -65,8 +77,15 @@ class GuideTryCardRobot {
     return row.onTap != null;
   }
 
+  /// The stage's [name] chip, for its selected and disabled states.
+  FormChip chip(String name) => tester.widget<FormChip>(
+    find.ancestor(of: control(name), matching: find.byType(FormChip)),
+  );
+
   /// Whether the card draws [text] anywhere — its stage, or the events
   /// stage's unseen sizing rows, which hold only the seed's titles.
-  bool shows(String text) =>
-      find.descendant(of: card, matching: find.text(text)).evaluate().isNotEmpty;
+  bool shows(String text) => find
+      .descendant(of: card, matching: find.text(text))
+      .evaluate()
+      .isNotEmpty;
 }

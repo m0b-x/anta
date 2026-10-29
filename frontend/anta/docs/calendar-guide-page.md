@@ -626,7 +626,7 @@ changed. Gate: analyze clean, suite +10800 ~10 −1 (the Windows-only case),
 accordingly in the next content change ("about ten of each; open the app
 every week or so").
 
-### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slice 3a (the card frame; the screen, events, kinds and alerts cards) building — slices 1–2 uncommitted
+### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slices 1–2 COMMITTED by the owner as `21a90993` (which also swept in slice 3a's files mid-run); slice 3a (the card frame; the screen, events, kinds and alerts cards) built 2026-10-29 (gate green, suite +10937 ~10 −1); slice 3b (attendance, categories, finding, setup) built 2026-10-29 (gate green, suite +10985 ~10 −1); slice 3 reviewed and fixed 2026-10-29 (19 items, none a write; eleven closed; gate green, suite +11000 ~10 −1); slice 4 running — the `design-reviewer` rendering, then `qa pass calendar` and `qa pass alerts`; `26_guide.txt` extended and the skills and the feature doc updated — slice 3, the flow and the docs uncommitted
 
 **The owner's letters (2026-10-29, in three replies):** "did we take
 performance into account? can we make multiple pages?" → D13 was
@@ -947,6 +947,134 @@ so they never overlap an implementer or a `qa` build.
   `RepaintBoundary`, the caption (a live region, text changes, geometry
   never). Tests per card: every affordance driven, the caption asserted,
   no write seen.
+  **As built, 3a (2026-10-29, one `implementer`, resumed once past its
+  turn cap):** the frame `lib/widgets/calendar_guide_try_card.dart` — an
+  abstract `GuideCardDemo` (the stage, the caption, the candidates, the
+  appearance and a `needsAppearance` flag), `calendarGuideTrySection`, the
+  stateless `CalendarGuideTryCard`, the shared `calendarGuideQuote` /
+  `calendarGuideLongestQuote` / `calendarGuideLongestDate` (the practice
+  page's private `_quote` moved there); the topic page is stateful and
+  owns and disposes the demo (the kit's list disposes a card scrolled
+  away), draws the card first, computes the candidates once per locale and
+  reads `getCalendarPageSettings()` once for a demo that needs it; the
+  catalogue's `demo` seam became `tryLead(l10n)` (the lead-in per page,
+  null for Good to know) and the demo factory lives in the page (a factory
+  in the card file would cycle the imports); `GuideMetrics.cardInset`,
+  `leadToStage`, `stageToCaption`, `stageRadius`, `stagePadding`,
+  `stageOutline`, `stageMatrixScale` 2; ids `calendarGuideTry(slug)`,
+  `calendarGuideTryCaption(slug)`, `calendarGuideTryControl(slug, c)`
+  (`try-<slug>-<c>`). The four demos
+  `lib/widgets/calendar_guide_try_screen.dart` / `_events` / `_kinds` /
+  `_alerts`: screen — the real `CalendarViewMenu` (its own
+  `calendar-view-menu` id), `CalendarOverflowMenu` (`try-screen-more`) and
+  `PanelModeBar` (expand disabled); events — three seed rows
+  (`try-events-row-<id>`), the real detail sheet (read-only, no
+  callbacks: Skip kept in the demo, the quick description, note and dates
+  actions just close it), the sandboxed editor, `CalendarAddFab`
+  (`try-events-add`) and the template picker; the stage height is fixed by
+  an unseen copy of the three seed rows plus `fabClearance`, the rows
+  scroll inside it and a fourth added row drops the oldest added one;
+  alerts — the real `AlertEditorSheet` (add, edit, Remove — removal
+  captions `calendarGuideDemoChanged`, no string of its own),
+  `AlarmPage.preview` pushed on its own page route with a payload built as
+  the scheduler builds one through `AlertLabels`, `QuickAlarmSheet`
+  (`quickAlarmSetOn` for another day, as the calendar does) and the real
+  Permissions page (`try-alerts-add` / `-alert-<i>` / `-show-alarm` /
+  `-quick` / `-permissions`); kinds — the real `EventRepeatSheet`,
+  `pickMulti` and `pickSingle`, and `MonthDotMatrix` at twice its size
+  with a Date row through the single-day picker, this month only
+  (`try-kinds-repeat` / `-add-date` / `-day` / `-skip`) — the overview's
+  `AgendaMonthGrid` clipped its 24 px weekday row at 2.0 ("Mo" wraps at
+  360), which the real overview may share. Static reads: the rows read
+  `CalendarCategories`, the template picker `CalendarTemplates`,
+  `occursOnUtcDay` the empty `EventSkips`. Suite:
+  `calendar_guide_try_cards_test` (49 cases, `GuideTryCardRobot`, the
+  practice suite's write log moved to `support/sandbox_write_log.dart` and
+  shared; the topic suite binds `SettingsService` and loads the real
+  fonts — the test font's one-em glyphs overran the ro Repeat value's two
+  lines). Gate green, suite +10937 ~10 −1. The hub does not search the
+  lead-ins (3b adds them as keywords on the page row).
+  **As built, 3b (2026-10-29, one `implementer`):**
+  `lib/widgets/calendar_guide_try_attendance.dart` (the practice seed's
+  Yoga with its marks through `GuideDemoCalendar` and its `isMissed`
+  reader, `PresenceAdherence.compute`; today's row with the day panel's
+  presence button as a `FormTrailingButton` — the picker row's only
+  trailing type, `outline` instead of the IconButton default; four
+  past-week chips; the count switch with both style chips always drawn
+  and disabled while off — appearing on toggle would move the caption —
+  and the editor's example caption in a slot; ids `today`, `day-0…3`,
+  `count`, `count-numbered` / `-elapsed`), `_try_categories.dart` (two
+  visible built-ins — `builtInSeeds` when the cache is empty — and one
+  custom demo category named after the Book club; eye and ⋮ per row, the
+  menu a `showMenu` + `PopupMenuItem(enabled:)` as the saved-filters ⋮
+  because `showFormMenu`'s items cannot be disabled, the ⋮ tooltip
+  Material's; no "Built-in" line — it broke mid-word beside two buttons at
+  2.0 on 360, a built-in shows by its disabled Delete; the list sized for
+  three rows, extra rows scroll, Create disabled at six; ids `row-<i>`,
+  `eye-<i>`, `more-<i>`, `edit` / `delete`, `add`), `_try_finding.dart`
+  (`FormSearchRow` with the hint `search` — `upcomingSearchHint` cut off at
+  2.0 inside the stage; `EventSearchQuery.parse` + `EventQueryMatcher`
+  over the six seeds from the 1st of this month to a year ahead so the
+  birthday counts and the idle "6" is the real count; the funnel as a
+  `FormActionRow` whose glyph fills when a filter is on (no badge on an
+  action row), Missed only through the demo's `isMissed`;
+  `MonthDotMatrix` at 2×; ids `search`, `match-<key>`, `filter`),
+  `_try_setup.dart` (`FormMenuRow` of every holiday set, the row's height
+  held by a slot over every set; the next three holidays in a slot whose
+  candidates are every set's own three lines; a `SegmentedButton` with
+  the copied `_choiceWordsFit` rule turning `CalendarAppearancePreview`,
+  clamped at `GuideMetrics.sampleWeekMaxTextScale` 1.2 — a day column is
+  36.3 dp on 360 and "dum." needs 37.6 at 1.3; the current profile read
+  once from `PublicHolidayService.getInstance().profile` by the topic
+  page; ids `holidays`, `holidays-<profile>`, `week-monday` / `-saturday`
+  / `-sunday`, `settings`); the hub's page rows take `tryLead` as a
+  keyword. Gate green, suite +10985 ~10 −1. Noticed, pre-existing: the
+  overview's `upcomingSearchHint` is probably cut off at 2.0 on narrow
+  phones too.
+  **Reviewed 2026-10-29** (one `reviewer` over 3a + 3b, resumed once past
+  its turn cap, 19 items, none a write; eleven closed by one
+  `implementer`, gate green, suite +11000 ~10 −1): the setup card merged
+  both years' holiday maps into one set of distinct dates and counts only
+  the shown year — `HolidaySeeds.forYear(unitedStates, 2028)` holds
+  2027-12-31 (a Saturday 1 January observed the year before) and
+  `forYear(2027)` holds it too, so on 2027-12-26 the next-three list named
+  one holiday twice and the 2028 count took a 2027 day (the seeds keep that
+  behaviour; the card merges); every demo with a clock takes `now`
+  (default `DateTime.now`, threaded from the page, handed to
+  `QuickAlarmSheet.show(now:)` too); the events card handles the detail
+  sheet's Add date, Dates and description edit as the practice page does
+  (they had closed the sheet silently — the sheet shows Add date for a
+  one-time event and the description cell for every event); the alerts
+  stage is sized by an unseen copy at `kMaxAlertsPerEvent` with the rows
+  scrolling inside (it had grown 135 dp per alert at de 2.0: 557 → 1232;
+  now 1232 throughout — **taller than a 780 screen, for the
+  `design-reviewer` to cap**) and the kinds card's title, Repeat and Date
+  rows sit in slots sized over every rule's widest words and the widest
+  short date (640 → 906 before; 906 throughout); the alarm preview's
+  payload carries `removeAfterAlert`; the kinds card keeps the repeat
+  sheet's last answer and reopens on it after "does not repeat" (as the
+  editor keeps its draft within a session); per-build work removed — a
+  per-locale `GuideLocaleFormat` cache in the card file, the rule words,
+  dot masks and slot sizes memoized, setup's counts, next-holiday lines,
+  weekday labels and word-fit memoized, attendance's count until a mark
+  changes, finding's match list and month mask on (query, filters,
+  locale); the topic page applies the look before the holiday read, each
+  in its own `try`; `PublicHolidayService._create` has an in-flight guard
+  (`reset()` clears it; `test/services/public_holiday_service_test.dart`);
+  finding's gap is `RowMetrics.groupGap` and `CalendarGridFilters.axisCount`
+  is named once with a test; the `calendarGuideTryControl` doc says the
+  title menu keeps its own ids. Tests: the keyboard case asserts the
+  field's bottom above the inset; the semantics-node group covers every
+  card; Missed only through the demo's marks; setup from a Romania
+  profile; Save returns to the detail sheet; the 2.0 matrix renders one
+  changed state per card; "a stage never changes height at text scale
+  2.0". Left as found, by decision: the caption stand-ins by character
+  count (`'W' × 24`, the longest date by length); seed titles under a
+  live locale change; the longest weekly rule ellipsized in the Repeat
+  row at de 2.0 (the editor's row cuts it the same way). The fix pass ran
+  `dart format lib` by mistake and restored the 44 untouched files from
+  HEAD with CRLF after matching their token streams; `git status` shows
+  only the slice's files.
 - **Slice 4 — close.** `26_guide.txt` extended (hub → practice: pick a day,
   + → the editor → a title → Save → the row present; open it; the funnel;
   the ⋮ → a caption; back; a task page's card; back to the calendar);
