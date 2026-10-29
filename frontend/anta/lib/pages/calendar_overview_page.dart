@@ -2428,6 +2428,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         CalendarOverflowMenu(
           onAlerts: () => AppNavigator.toAlertsFromCalendar(context),
           onExport: (_events?.isNotEmpty ?? false) ? _exportEvents : null,
+          onGuide: () => AppNavigator.toCalendarGuide(context),
           onSettings: _openSettings,
         ),
       ],

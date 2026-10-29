@@ -333,6 +333,7 @@ void main() {
             CalendarOverflowMenu(
               onAlerts: () {},
               onExport: () {},
+              onGuide: () {},
               onSettings: () {},
             ),
           ],
@@ -349,19 +350,20 @@ void main() {
     Widget overflow({
       VoidCallback? onAlerts,
       VoidCallback? onExport,
+      VoidCallback? onGuide,
       VoidCallback? onSettings,
       bool exportEnabled = true,
     }) {
       return CalendarOverflowMenu(
         onAlerts: onAlerts ?? () {},
         onExport: exportEnabled ? (onExport ?? () {}) : null,
+        onGuide: onGuide ?? () {},
         onSettings: onSettings ?? () {},
       );
     }
 
-    testWidgets('Alerts, Export, then Calendar settings below a divider', (
-      tester,
-    ) async {
+    testWidgets('Alerts, Export, then the guide and Calendar settings below '
+        'the divider', (tester) async {
       await tester.pumpWidget(
         host(title: const Text('Calendar'), actions: [overflow()]),
       );
@@ -371,10 +373,12 @@ void main() {
       final alerts = tester.getTopLeft(find.text('Alerts')).dy;
       final export = tester.getTopLeft(find.text('Export events (.ics)')).dy;
       final divider = tester.getTopLeft(find.byType(PopupMenuDivider)).dy;
+      final guide = tester.getTopLeft(find.text('How the calendar works')).dy;
       final settings = tester.getTopLeft(find.text('Calendar settings')).dy;
       expect(alerts, lessThan(export));
       expect(export, lessThan(divider));
-      expect(divider, lessThan(settings));
+      expect(divider, lessThan(guide));
+      expect(guide, lessThan(settings));
       expect(find.byIcon(Icons.check_rounded), findsNothing);
     });
 
@@ -387,6 +391,7 @@ void main() {
             overflow(
               onAlerts: () => calls.add('alerts'),
               onExport: () => calls.add('export'),
+              onGuide: () => calls.add('guide'),
               onSettings: () => calls.add('settings'),
             ),
           ],
@@ -395,6 +400,7 @@ void main() {
       for (final (id, call) in [
         (SemanticsIds.calendarAlertsOpen, 'alerts'),
         (SemanticsIds.calendarExport, 'export'),
+        (SemanticsIds.calendarGuideOpen, 'guide'),
         (SemanticsIds.calendarSettingsOpen, 'settings'),
       ]) {
         await open(tester, more);
@@ -402,7 +408,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(calls.last, call);
       }
-      expect(calls, ['alerts', 'export', 'settings']);
+      expect(calls, ['alerts', 'export', 'guide', 'settings']);
     });
 
     testWidgets('Export is disabled while there is nothing to export', (
@@ -516,6 +522,7 @@ void main() {
             CalendarOverflowMenu(
               onAlerts: () {},
               onExport: () {},
+              onGuide: () {},
               onSettings: () {},
             ),
           ],
@@ -551,6 +558,7 @@ void main() {
             CalendarOverflowMenu(
               onAlerts: () {},
               onExport: () {},
+              onGuide: () {},
               onSettings: () {},
             ),
           ],

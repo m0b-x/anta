@@ -6031,4 +6031,301 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventDatesAllPast => 'Alle vergangen';
+
+  @override
+  String get calendarGuideTitle => 'So funktioniert der Kalender';
+
+  @override
+  String get calendarGuideSearchHint => 'Im Leitfaden suchen';
+
+  @override
+  String calendarGuideIntro(String title) {
+    return 'Ein kurzer Rundgang durch den Kalender. Du kommst jederzeit hierher zurück: Tippe im Kalender oben rechts auf die drei Punkte und dann auf „$title“.';
+  }
+
+  @override
+  String get calendarGuideSectionCalendar => 'Der Kalender';
+
+  @override
+  String get calendarGuideMonthTitle => 'Ein Monat auf einen Blick';
+
+  @override
+  String get calendarGuideMonthBody =>
+      'Heute hat einen hellen Kreis, der angetippte Tag einen ausgefüllten. Wische nach links oder rechts, um andere Monate zu sehen. Die kleine Heute-Taste neben dem Monatsnamen bringt dich zurück zu heute.';
+
+  @override
+  String get calendarGuideMarksTitle => 'Die farbigen Balken unter einem Tag';
+
+  @override
+  String get calendarGuideMarksBody =>
+      'Ein Balken unter einem Tag bedeutet, dass dort etwas geplant ist – in der Farbe der Kategorie des Ereignisses. Feiertage und Wochenenden haben eigene Balken. Tippe auf den Tag, um zu sehen, was ansteht.';
+
+  @override
+  String get calendarGuidePanelTitle => 'Was an dem Tag ansteht';
+
+  @override
+  String calendarGuidePanelBody(String day, String timeline, String upcoming) {
+    return 'Der Bereich unter den Tagen zeigt den angetippten Tag. „$day“ listet seine Ereignisse auf – tippe auf eines, um die Details zu lesen. „$timeline“ zeichnet sie nach Uhrzeit. „$upcoming“ listet auf, was in den nächsten Wochen ansteht.';
+  }
+
+  @override
+  String get calendarGuideViewsTitle => 'Monat, zwei Wochen oder eine Woche';
+
+  @override
+  String calendarGuideViewsBody(
+    String calendar,
+    String overview,
+    String month,
+  ) {
+    return 'Der Titel „$calendar“ oben ist ein Menü: Tippe darauf, um einen ganzen Monat, zwei Wochen oder eine einzelne Woche zu zeigen oder „$overview“ zu öffnen. Wenn die Tage plötzlich nur noch ein oder zwei Reihen füllen, hast du nach oben gewischt – wähle in diesem Menü wieder „$month“.';
+  }
+
+  @override
+  String get calendarGuideSectionEvents => 'Ereignisse';
+
+  @override
+  String get calendarGuideAddTitle => 'Ein Ereignis hinzufügen';
+
+  @override
+  String calendarGuideAddBody(String save) {
+    return 'Tippe unten rechts auf die Taste +: Sie fügt zum ausgewählten Tag hinzu. Gib einen Namen ein und tippe oben rechts auf „$save“. „$save“ bleibt grau, bis das Ereignis einen Namen hat.';
+  }
+
+  @override
+  String get calendarGuideTimeTitle => 'Eine Uhrzeit festlegen';
+
+  @override
+  String calendarGuideTimeBody(String allDay, String starts, String ends) {
+    return 'Ein neues Ereignis gilt zunächst für den ganzen Tag. Für einen Termin schalte „$allDay“ aus, tippe auf „$starts“ und gib die Uhrzeit über das Tastenfeld ein – es schließt sich von selbst, sobald die Uhrzeit vollständig ist. „$ends“ ist optional.';
+  }
+
+  @override
+  String get calendarGuideCategoryTitle => 'Kategorien';
+
+  @override
+  String calendarGuideCategoryBody(String category) {
+    return 'Jedes Ereignis hat eine Kategorie – die Zeile „$category“ unter dem Namen. Sie gibt dem Ereignis seine Farbe und sein Symbol im Kalender. Tippe auf die Zeile, um eine andere zu wählen oder ganz unten in der Liste eine eigene anzulegen.';
+  }
+
+  @override
+  String get calendarGuideRepeatTitle => 'Etwas, das sich wiederholt';
+
+  @override
+  String calendarGuideRepeatBody(String repeat, String done) {
+    return 'Für einen wöchentlichen Kurs oder eine monatliche Rechnung tippe auf „$repeat“, wähle täglich, wöchentlich, monatlich oder jährlich und dann „$done“. Das Ereignis erscheint dann an jedem passenden Tag, und eine Änderung daran ändert alle Tage.';
+  }
+
+  @override
+  String get calendarGuideOpenTitle => 'Lesen, ändern oder löschen';
+
+  @override
+  String calendarGuideOpenBody(String edit, String deleteEvent, String skip) {
+    return 'Tippe auf ein Ereignis an seinem Tag, um es zu lesen, und oben rechts auf „$edit“, um es zu ändern. „$deleteEvent“ steht ganz unten im Bearbeitungsbildschirm; bei einem wiederholten Ereignis entfernt es alle Tage. Um nur einen Tag auszulassen, nimm stattdessen „$skip“ auf der Seite des Ereignisses.';
+  }
+
+  @override
+  String get calendarGuideDescriptionTitle => 'Notizen zu einem Ereignis';
+
+  @override
+  String get calendarGuideDescriptionBody =>
+      'Unter dem Namen ist Platz für eine Beschreibung: eine Adresse, eine Telefonnummer, was mitzubringen ist. Sie erscheint, wenn du das Ereignis öffnest, und ihre ersten Zeilen in der Liste des Tages.';
+
+  @override
+  String calendarGuideUnsavedTitle(String save) {
+    return 'Gespeichert wird erst mit „$save“';
+  }
+
+  @override
+  String get calendarGuideUnsavedBody =>
+      'Wenn du ein Ereignis schließt, das du gerade änderst, fragt die App, ob du weiter bearbeiten oder die Änderungen verwerfen willst. Ein gespeichertes Ereignis bleibt auf dem Telefon – ganz ohne Internet.';
+
+  @override
+  String get calendarGuideTrackTitle => 'Anwesenheit festhalten';
+
+  @override
+  String calendarGuideTrackBody(
+    String trackPresence,
+    String present,
+    String missed,
+  ) {
+    return 'Für einen Kurs oder ein Training, bei dem du mitzählen willst, schalte im Ereignis „$trackPresence“ ein – der Schalter erscheint, sobald sich das Ereignis wiederholt. Jeder Tag lässt sich dann auf der Seite des Ereignisses als „$present“ oder „$missed“ markieren, und verpasste Tage werden im Kalender blasser.';
+  }
+
+  @override
+  String get calendarGuideTemplatesTitle => 'Vorlagen';
+
+  @override
+  String calendarGuideTemplatesBody(String saveAsTemplate) {
+    return 'Ein Ereignis, das du oft anlegst, kannst du ganz unten im Bearbeitungsbildschirm mit „$saveAsTemplate“ als Vorlage speichern. Zum Verwenden halte die Taste + (oder einen Tag) gedrückt und wähle die Vorlage aus der Liste.';
+  }
+
+  @override
+  String get calendarGuideSectionAlerts => 'Erinnerungen und Alarme';
+
+  @override
+  String get calendarGuideAlertAddTitle => 'Es klingelt nur, wenn du es willst';
+
+  @override
+  String calendarGuideAlertAddBody(
+    String alerts,
+    String addAlert,
+    String done,
+    String save,
+  ) {
+    return 'Ein Ereignis hat keine Erinnerung, bis du eine hinzufügst. Scrolle beim Anlegen oder Bearbeiten eines Ereignisses nach unten zu „$alerts“ und tippe auf „$addAlert“. Wähle, wann sie losgehen soll, tippe auf „$done“ und dann auf „$save“. Ein kleines Glocken- oder Alarmsymbol markiert das Ereignis dann.';
+  }
+
+  @override
+  String get calendarGuideAlertKindsTitle => 'Mitteilung oder Alarm';
+
+  @override
+  String calendarGuideAlertKindsBody(
+    String reminder,
+    String alarm,
+    String allDay,
+  ) {
+    return '„$reminder“: eine Benachrichtigung, die du wegwischen oder schlummern lassen kannst. „$alarm“: klingelt wie ein Wecker, bis du ihn stoppst, auch bei gesperrtem Telefon. Um Minuten vorher erinnert zu werden, braucht das Ereignis eine Startzeit – schalte zuerst „$allDay“ aus.';
+  }
+
+  @override
+  String get calendarGuidePermissionsTitle =>
+      'Dem Telefon das Klingeln erlauben';
+
+  @override
+  String calendarGuidePermissionsBody(String permissions) {
+    return 'Beim ersten Mal bittet ANTA um die Erlaubnis, Benachrichtigungen zu zeigen und Alarme zu stellen. Erlaube beides, sonst klingelt nichts. Bleibt später etwas stumm, öffne das Hauptmenü (drei Striche, oben links), dann „$permissions“, und schalte ein, was fehlt.';
+  }
+
+  @override
+  String get calendarGuideRingTitle => 'Wenn es klingelt';
+
+  @override
+  String calendarGuideRingBody(String done, String snooze, String stop) {
+    return 'Eine Mitteilung erscheint als Benachrichtigung mit „$done“ und „$snooze“. Ein Alarm füllt den Bildschirm mit „$stop“ und „$snooze“; Schlummern bringt ihn ein paar Minuten später zurück. Ein Alarm, den niemand beantwortet, verstummt nach einer Weile von selbst.';
+  }
+
+  @override
+  String get calendarGuideOpenOftenTitle => 'ANTA ab und zu öffnen';
+
+  @override
+  String get calendarGuideOpenOftenBody =>
+      'ANTA bereitet die nächsten Erinnerungen jedes Mal vor, wenn du es öffnest. Öffne die App regelmäßig – eine tägliche Erinnerung braucht die App alle ein bis zwei Tage – und sie kommen weiter.';
+
+  @override
+  String get calendarGuideQuickAlarmTitle => 'Ein schneller Alarm';
+
+  @override
+  String calendarGuideQuickAlarmBody(String quickAlarm) {
+    return 'Du brauchst einen Alarm in zwanzig Minuten oder heute Abend? Halte die Taste + gedrückt und tippe auf „$quickAlarm“. Ein schneller Alarm entfernt sich selbst aus dem Kalender, sobald du ihn stoppst.';
+  }
+
+  @override
+  String get calendarGuideHubTitle => 'Alle Erinnerungen an einem Ort';
+
+  @override
+  String calendarGuideHubBody(String alerts) {
+    return 'Die drei Punkte oben rechts und dann „$alerts“ listen jede Mitteilung und jeden Alarm der nächsten dreißig Tage auf – jeweils mit einem Schalter zum Pausieren – und was zuletzt geklingelt hat.';
+  }
+
+  @override
+  String get calendarGuideSectionFinding => 'Suchen und finden';
+
+  @override
+  String get calendarGuideSearchTitle => 'Suche';
+
+  @override
+  String calendarGuideSearchBody(String upcoming) {
+    return 'Stelle den Bereich auf „$upcoming“ und nutze sein Suchfeld. Gib einen Teil des Namens ein – „Zahnarzt“ – oder eine Kategorie. Ein Monatsname oder ein Datum wie „12 Mai“ findet die Ereignisse dieses Tages.';
+  }
+
+  @override
+  String get calendarGuideOverviewTitle => 'Die Übersicht';
+
+  @override
+  String calendarGuideOverviewBody(String overview, String year, String list) {
+    return '„$overview“ im Titelmenü hat drei Ansichten. „$year“ zeigt die Monate als kleine Kacheln – tippe auf eine, um den Monat zu öffnen. „$list“ zeigt alles aus einem Zeitraum als eine Liste; tippe auf eine Zeile, um das Ereignis zu öffnen. Feiertage erscheinen dort nicht, und der Pfeil oben links bringt dich zurück.';
+  }
+
+  @override
+  String get calendarGuideFiltersTitle =>
+      'Filter verstecken, sie löschen nichts';
+
+  @override
+  String calendarGuideFiltersBody(String reset, String apply) {
+    return 'Die Trichter-Taste oben blendet Kategorien oder Arten von Ereignissen im Kalender aus – praktisch, aber leicht vergessen. Solange ein Filter aktiv ist, zeigt der Trichter eine Zahl. Scheinen Ereignisse zu fehlen, öffne den Trichter und tippe auf „$reset“ und dann auf „$apply“.';
+  }
+
+  @override
+  String get calendarGuideSectionSettings => 'Nach deinem Geschmack';
+
+  @override
+  String get calendarGuideSettingsTitle => 'Wo die Einstellungen sind';
+
+  @override
+  String calendarGuideSettingsBody(String settingsRow, String save) {
+    return 'Tippe oben rechts auf die drei Punkte und dann auf „$settingsRow“. Alles dort gilt sofort – es gibt keine Taste „$save“.';
+  }
+
+  @override
+  String get calendarGuideHolidaysTitle => 'Die Feiertage deines Landes';
+
+  @override
+  String calendarGuideHolidaysBody(String settingsRow, String holidaySet) {
+    return 'In „$settingsRow“ legt „$holidaySet“ fest, wessen Feiertage der Kalender zeigt. Voreingestellt ist eine allgemeine christliche Auswahl – wähle dein Land.';
+  }
+
+  @override
+  String get calendarGuideWeekStartTitle => 'Montag oder Sonntag zuerst';
+
+  @override
+  String calendarGuideWeekStartBody(
+    String settingsRow,
+    String appearance,
+    String weekStart,
+  ) {
+    return 'Öffne in „$settingsRow“ den Punkt „$appearance“ und suche „$weekStart“. Der Rest dieser Seite ist optionale Feinarbeit am Aussehen der Tage.';
+  }
+
+  @override
+  String get calendarGuideCategoriesTitle => 'Deine eigenen Kategorien';
+
+  @override
+  String calendarGuideCategoriesBody(String settingsRow, String categories) {
+    return 'In „$settingsRow“ listet „$categories“ alle auf. Die Taste + legt eine neue mit eigenem Symbol und eigener Farbe an; das Auge versteckt eine, die du nicht brauchst, damit sie nicht mehr angeboten wird. Eine versteckte Kategorie behält ihre Ereignisse.';
+  }
+
+  @override
+  String get calendarGuideLanguageTitle =>
+      'Sprache, dunkles Design und Schriftgröße';
+
+  @override
+  String calendarGuideLanguageBody(String language, String theme) {
+    return 'Im Hauptmenü (drei Striche, oben links): „$language“ wechselt die Sprache der App und „$theme“ wählt hell oder dunkel. Die Schriftgröße folgt der Schriftgrößen-Einstellung deines Telefons.';
+  }
+
+  @override
+  String get calendarGuideSectionGood => 'Gut zu wissen';
+
+  @override
+  String get calendarGuideOpeningTitle => 'Den Kalender öffnen';
+
+  @override
+  String calendarGuideOpeningBody(String calendar) {
+    return 'Tippe auf dem Startbildschirm der App oben links auf die Menütaste und dann auf „$calendar“. ANTA öffnet wieder dort, wo du aufgehört hast – meist also direkt im Kalender.';
+  }
+
+  @override
+  String get calendarGuideBackTitle => 'Zurück';
+
+  @override
+  String get calendarGuideBackBody =>
+      'Der Pfeil oben links oder die Zurück-Geste deines Telefons bringt dich zum vorigen Bildschirm. Blätter, die von unten hochkommen, schließen sich mit dem X oben oder durch Herunterwischen.';
+
+  @override
+  String get calendarGuideNotesTitle => 'Der Rest von ANTA';
+
+  @override
+  String calendarGuideNotesBody(String linkedNote) {
+    return 'ANTA ist auch ein Notizbuch: die Ordner und Notizen hinter dem Hauptmenü. Ein Ereignis kann über „$linkedNote“ auf eine Notiz verweisen – für eine Einkaufsliste oder eine Wegbeschreibung.';
+  }
 }

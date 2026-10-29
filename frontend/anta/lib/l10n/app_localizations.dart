@@ -10047,6 +10047,449 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'All in the past'**
   String get eventDatesAllPast;
+
+  /// Title of the calendar guide page and its row in the calendar's three-dot menu
+  ///
+  /// In en, this message translates to:
+  /// **'How the calendar works'**
+  String get calendarGuideTitle;
+
+  /// Hint of the search field on the calendar guide page
+  ///
+  /// In en, this message translates to:
+  /// **'Search the guide'**
+  String get calendarGuideSearchHint;
+
+  /// Intro paragraph at the top of the calendar guide; title is the guide's own menu label
+  ///
+  /// In en, this message translates to:
+  /// **'A short tour of the calendar. You can come back here any time: on the calendar, tap the three-dot button at the top right, then “{title}”.'**
+  String calendarGuideIntro(String title);
+
+  /// Calendar guide section heading about the calendar screen
+  ///
+  /// In en, this message translates to:
+  /// **'The calendar screen'**
+  String get calendarGuideSectionCalendar;
+
+  /// Calendar guide row title about the month grid
+  ///
+  /// In en, this message translates to:
+  /// **'One month at a time'**
+  String get calendarGuideMonthTitle;
+
+  /// Calendar guide paragraph about the month grid
+  ///
+  /// In en, this message translates to:
+  /// **'Today has a soft circle; the day you tapped has a solid one. Swipe left or right to see other months. The small today button next to the month name brings you back to today.'**
+  String get calendarGuideMonthBody;
+
+  /// Calendar guide row title about the day markers
+  ///
+  /// In en, this message translates to:
+  /// **'The coloured bars under a day'**
+  String get calendarGuideMarksTitle;
+
+  /// Calendar guide paragraph about the day markers
+  ///
+  /// In en, this message translates to:
+  /// **'A bar under a day means something is planned there, in the colour of the event\'s category. Public holidays and weekends have bars of their own. Tap the day to see what is on it.'**
+  String get calendarGuideMarksBody;
+
+  /// Calendar guide row title about the panel under the grid
+  ///
+  /// In en, this message translates to:
+  /// **'What is on that day'**
+  String get calendarGuidePanelTitle;
+
+  /// Calendar guide paragraph about the panel; the placeholders are the panel's mode labels
+  ///
+  /// In en, this message translates to:
+  /// **'The panel under the days shows the day you tapped. “{day}” lists its events — tap one to read its details. “{timeline}” draws them by the hour. “{upcoming}” lists what is coming over the next weeks.'**
+  String calendarGuidePanelBody(String day, String timeline, String upcoming);
+
+  /// Calendar guide row title about the grid formats
+  ///
+  /// In en, this message translates to:
+  /// **'Month, two weeks or one week'**
+  String get calendarGuideViewsTitle;
+
+  /// Calendar guide paragraph about the title's view menu; the placeholders are that menu's labels
+  ///
+  /// In en, this message translates to:
+  /// **'The title “{calendar}” at the top is a menu: tap it to show a whole month, two weeks or a single week, or to open “{overview}”. If the days ever shrink to one or two rows, you swiped up on them — pick “{month}” from that menu again.'**
+  String calendarGuideViewsBody(String calendar, String overview, String month);
+
+  /// Calendar guide section heading about events
+  ///
+  /// In en, this message translates to:
+  /// **'Events'**
+  String get calendarGuideSectionEvents;
+
+  /// Calendar guide row title about adding an event
+  ///
+  /// In en, this message translates to:
+  /// **'Add an event'**
+  String get calendarGuideAddTitle;
+
+  /// Calendar guide paragraph about adding an event; save is the editor's Save label
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the + button at the bottom right: it adds to the day that is selected. Type a name, then tap “{save}” at the top right. “{save}” stays grey until the event has a name.'**
+  String calendarGuideAddBody(String save);
+
+  /// Calendar guide row title about giving an event a time
+  ///
+  /// In en, this message translates to:
+  /// **'Give it a time'**
+  String get calendarGuideTimeTitle;
+
+  /// Calendar guide paragraph about times; the placeholders are the editor's row labels
+  ///
+  /// In en, this message translates to:
+  /// **'A new event is set for the whole day. For an appointment, turn off “{allDay}”, then tap “{starts}” and type the time on the keypad — it closes by itself once the time is complete. “{ends}” is optional.'**
+  String calendarGuideTimeBody(String allDay, String starts, String ends);
+
+  /// Calendar guide row title about an event's category
+  ///
+  /// In en, this message translates to:
+  /// **'Categories'**
+  String get calendarGuideCategoryTitle;
+
+  /// Calendar guide paragraph about categories; category is the editor's row label
+  ///
+  /// In en, this message translates to:
+  /// **'Every event has a category — the “{category}” row under the name. It gives the event its colour and icon on the calendar. Tap the row to choose another, or create your own at the bottom of the list.'**
+  String calendarGuideCategoryBody(String category);
+
+  /// Calendar guide row title about repeating events
+  ///
+  /// In en, this message translates to:
+  /// **'Something that repeats'**
+  String get calendarGuideRepeatTitle;
+
+  /// Calendar guide paragraph about repeating events; the placeholders are the editor's labels
+  ///
+  /// In en, this message translates to:
+  /// **'For a weekly class or a monthly bill, tap “{repeat}” and choose daily, weekly, monthly or yearly, then “{done}”. The event then appears on every matching day, and a change to it changes every day.'**
+  String calendarGuideRepeatBody(String repeat, String done);
+
+  /// Calendar guide row title about opening, editing and deleting an event
+  ///
+  /// In en, this message translates to:
+  /// **'Read, change or delete'**
+  String get calendarGuideOpenTitle;
+
+  /// Calendar guide paragraph about editing and deleting; the placeholders are the event sheets' labels
+  ///
+  /// In en, this message translates to:
+  /// **'Tap an event on its day to read it, and “{edit}” at the top right to change it. “{deleteEvent}” is at the very bottom of the editing screen; for a repeating event it removes every day. To drop just one day, use “{skip}” on the event\'s page instead.'**
+  String calendarGuideOpenBody(String edit, String deleteEvent, String skip);
+
+  /// Calendar guide row title about an event's description
+  ///
+  /// In en, this message translates to:
+  /// **'Notes on an event'**
+  String get calendarGuideDescriptionTitle;
+
+  /// Calendar guide paragraph about an event's description
+  ///
+  /// In en, this message translates to:
+  /// **'Under the name there is room for a description: an address, a phone number, what to bring. It shows when you open the event, and its first lines in the day\'s list.'**
+  String get calendarGuideDescriptionBody;
+
+  /// Calendar guide row title about saving; save is the editor's Save label
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing is saved until “{save}”'**
+  String calendarGuideUnsavedTitle(String save);
+
+  /// Calendar guide paragraph about unsaved changes
+  ///
+  /// In en, this message translates to:
+  /// **'If you close an event you were changing, the app asks whether to keep editing or discard the changes. An event that is saved stays on the phone — no internet needed.'**
+  String get calendarGuideUnsavedBody;
+
+  /// Calendar guide row title about presence tracking
+  ///
+  /// In en, this message translates to:
+  /// **'Keeping track of attendance'**
+  String get calendarGuideTrackTitle;
+
+  /// Calendar guide paragraph about presence tracking; the placeholders are the presence labels
+  ///
+  /// In en, this message translates to:
+  /// **'For a class or a training you want to keep count of, turn on “{trackPresence}” in the event — the switch appears once the event repeats. Each day can then be marked “{present}” or “{missed}” on the event\'s page, and missed days fade on the calendar.'**
+  String calendarGuideTrackBody(
+    String trackPresence,
+    String present,
+    String missed,
+  );
+
+  /// Calendar guide row title about event templates
+  ///
+  /// In en, this message translates to:
+  /// **'Templates'**
+  String get calendarGuideTemplatesTitle;
+
+  /// Calendar guide paragraph about templates; saveAsTemplate is the editor's row label
+  ///
+  /// In en, this message translates to:
+  /// **'An event you add often can be saved as a template with “{saveAsTemplate}” at the bottom of the editing screen. To use one, press and hold the + button (or a day) and pick it from the list.'**
+  String calendarGuideTemplatesBody(String saveAsTemplate);
+
+  /// Calendar guide section heading about alerts
+  ///
+  /// In en, this message translates to:
+  /// **'Reminders and alarms'**
+  String get calendarGuideSectionAlerts;
+
+  /// Calendar guide row title about adding an alert
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing rings unless you ask'**
+  String get calendarGuideAlertAddTitle;
+
+  /// Calendar guide paragraph about adding an alert; the placeholders are the editor's labels
+  ///
+  /// In en, this message translates to:
+  /// **'An event has no reminder until you add one. While adding or editing an event, scroll down to “{alerts}” and tap “{addAlert}”. Choose when it should go off, tap “{done}”, then “{save}”. A small bell or alarm icon then marks the event.'**
+  String calendarGuideAlertAddBody(
+    String alerts,
+    String addAlert,
+    String done,
+    String save,
+  );
+
+  /// Calendar guide row title about the two alert tiers
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder or alarm'**
+  String get calendarGuideAlertKindsTitle;
+
+  /// Calendar guide paragraph about the alert tiers; the placeholders are the alert sheet's and editor's labels
+  ///
+  /// In en, this message translates to:
+  /// **'“{reminder}”: a notification you can dismiss or snooze. “{alarm}”: it rings like an alarm clock until you stop it, even on a locked phone. To be reminded minutes before, the event needs a start time — turn off “{allDay}” first.'**
+  String calendarGuideAlertKindsBody(
+    String reminder,
+    String alarm,
+    String allDay,
+  );
+
+  /// Calendar guide row title about notification and alarm permissions
+  ///
+  /// In en, this message translates to:
+  /// **'Let the phone ring'**
+  String get calendarGuidePermissionsTitle;
+
+  /// Calendar guide paragraph about permissions; permissions is the drawer's Permissions label
+  ///
+  /// In en, this message translates to:
+  /// **'The first time, ANTA asks for permission to show notifications and to set alarms. Allow them, or nothing rings. If something stays silent later, open the main menu (three lines, top left), then “{permissions}”, and turn on what is missing.'**
+  String calendarGuidePermissionsBody(String permissions);
+
+  /// Calendar guide row title about a firing alert
+  ///
+  /// In en, this message translates to:
+  /// **'When it goes off'**
+  String get calendarGuideRingTitle;
+
+  /// Calendar guide paragraph about a firing alert; the placeholders are the notification's and alarm page's buttons
+  ///
+  /// In en, this message translates to:
+  /// **'A reminder appears as a notification with “{done}” and “{snooze}”. An alarm fills the screen with “{stop}” and “{snooze}”; snoozing brings it back a few minutes later. An alarm nobody answers falls silent by itself after a while.'**
+  String calendarGuideRingBody(String done, String snooze, String stop);
+
+  /// Calendar guide row title about opening the app regularly
+  ///
+  /// In en, this message translates to:
+  /// **'Open ANTA now and then'**
+  String get calendarGuideOpenOftenTitle;
+
+  /// Calendar guide paragraph about why the app must be opened regularly
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA lines up the next reminders each time you open it. Open the app regularly — a daily reminder needs the app opened every day or two — and they keep coming.'**
+  String get calendarGuideOpenOftenBody;
+
+  /// Calendar guide row title about the quick alarm
+  ///
+  /// In en, this message translates to:
+  /// **'A quick alarm'**
+  String get calendarGuideQuickAlarmTitle;
+
+  /// Calendar guide paragraph about the quick alarm; quickAlarm is the add button menu's label
+  ///
+  /// In en, this message translates to:
+  /// **'Need an alarm in twenty minutes, or at a time tonight? Press and hold the + button and tap “{quickAlarm}”. A quick alarm removes itself from the calendar once you stop it.'**
+  String calendarGuideQuickAlarmBody(String quickAlarm);
+
+  /// Calendar guide row title about the Alerts hub
+  ///
+  /// In en, this message translates to:
+  /// **'All your alerts in one place'**
+  String get calendarGuideHubTitle;
+
+  /// Calendar guide paragraph about the Alerts hub; alerts is the three-dot menu's label
+  ///
+  /// In en, this message translates to:
+  /// **'The three-dot button at the top right, then “{alerts}”, lists every reminder and alarm of the next thirty days — each with a switch to pause it — and what went off recently.'**
+  String calendarGuideHubBody(String alerts);
+
+  /// Calendar guide section heading about search, the overview and filters
+  ///
+  /// In en, this message translates to:
+  /// **'Finding things'**
+  String get calendarGuideSectionFinding;
+
+  /// Calendar guide row title about searching events
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get calendarGuideSearchTitle;
+
+  /// Calendar guide paragraph about searching; upcoming is the panel's Upcoming label
+  ///
+  /// In en, this message translates to:
+  /// **'Switch the panel to “{upcoming}” and use its search field. Type part of a name — “dentist” — or a category. A month name or a date such as “12 may” finds that day\'s events.'**
+  String calendarGuideSearchBody(String upcoming);
+
+  /// Calendar guide row title about the overview page
+  ///
+  /// In en, this message translates to:
+  /// **'The overview'**
+  String get calendarGuideOverviewTitle;
+
+  /// Calendar guide paragraph about the overview; the placeholders are its labels
+  ///
+  /// In en, this message translates to:
+  /// **'“{overview}” in the title menu has three views. “{year}” shows the months as small tiles — tap one to open that month. “{list}” shows everything in a period as one list; tap a row to open the event. Public holidays are not shown there, and the arrow at the top left brings you back.'**
+  String calendarGuideOverviewBody(String overview, String year, String list);
+
+  /// Calendar guide row title about the grid filters
+  ///
+  /// In en, this message translates to:
+  /// **'Filters hide, they never delete'**
+  String get calendarGuideFiltersTitle;
+
+  /// Calendar guide paragraph about the grid filters; the placeholders are the filter sheet's buttons
+  ///
+  /// In en, this message translates to:
+  /// **'The funnel button at the top hides categories or kinds of events from the calendar — handy, but easy to forget. While a filter is on, the funnel shows a number. If events seem to be missing, open the funnel and tap “{reset}”, then “{apply}”.'**
+  String calendarGuideFiltersBody(String reset, String apply);
+
+  /// Calendar guide section heading about settings
+  ///
+  /// In en, this message translates to:
+  /// **'Make it yours'**
+  String get calendarGuideSectionSettings;
+
+  /// Calendar guide row title about finding the calendar settings
+  ///
+  /// In en, this message translates to:
+  /// **'Where the settings are'**
+  String get calendarGuideSettingsTitle;
+
+  /// Calendar guide paragraph about the calendar settings; settingsRow is the three-dot menu's label, save the editor's Save label
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the three-dot button at the top right, then “{settingsRow}”. Everything there applies at once — there is no “{save}” button.'**
+  String calendarGuideSettingsBody(String settingsRow, String save);
+
+  /// Calendar guide row title about the holiday set
+  ///
+  /// In en, this message translates to:
+  /// **'Your country\'s holidays'**
+  String get calendarGuideHolidaysTitle;
+
+  /// Calendar guide paragraph about the holiday set; the placeholders are the settings labels
+  ///
+  /// In en, this message translates to:
+  /// **'In “{settingsRow}”, “{holidaySet}” chooses whose public holidays the calendar shows. It starts on a general Christian set — pick your country.'**
+  String calendarGuideHolidaysBody(String settingsRow, String holidaySet);
+
+  /// Calendar guide row title about the first day of the week
+  ///
+  /// In en, this message translates to:
+  /// **'Monday or Sunday first'**
+  String get calendarGuideWeekStartTitle;
+
+  /// Calendar guide paragraph about the week start; the placeholders are the settings labels
+  ///
+  /// In en, this message translates to:
+  /// **'In “{settingsRow}”, open “{appearance}” and find “{weekStart}”. The rest of that page is optional fine-tuning of how the days look.'**
+  String calendarGuideWeekStartBody(
+    String settingsRow,
+    String appearance,
+    String weekStart,
+  );
+
+  /// Calendar guide row title about managing categories
+  ///
+  /// In en, this message translates to:
+  /// **'Your own categories'**
+  String get calendarGuideCategoriesTitle;
+
+  /// Calendar guide paragraph about managing categories; the placeholders are the settings labels
+  ///
+  /// In en, this message translates to:
+  /// **'In “{settingsRow}”, “{categories}” lists them all. The + button creates one with its own icon and colour; the eye hides one you do not use, so it is no longer offered. Hiding a category does not remove its events.'**
+  String calendarGuideCategoriesBody(String settingsRow, String categories);
+
+  /// Calendar guide row title about language, theme and text size
+  ///
+  /// In en, this message translates to:
+  /// **'Language, dark mode and text size'**
+  String get calendarGuideLanguageTitle;
+
+  /// Calendar guide paragraph about language and theme; the placeholders are the drawer's labels
+  ///
+  /// In en, this message translates to:
+  /// **'In the main menu (three lines, top left): “{language}” switches the app\'s language and “{theme}” chooses light or dark. The text size follows your phone\'s font size setting.'**
+  String calendarGuideLanguageBody(String language, String theme);
+
+  /// Calendar guide section heading for general tips
+  ///
+  /// In en, this message translates to:
+  /// **'Good to know'**
+  String get calendarGuideSectionGood;
+
+  /// Calendar guide row title about reaching the calendar
+  ///
+  /// In en, this message translates to:
+  /// **'Opening the calendar'**
+  String get calendarGuideOpeningTitle;
+
+  /// Calendar guide paragraph about reaching the calendar; calendar is the drawer's Calendar label
+  ///
+  /// In en, this message translates to:
+  /// **'From the app\'s first screen, tap the menu button at the top left, then “{calendar}”. ANTA reopens where you left it, so most days it starts straight on the calendar.'**
+  String calendarGuideOpeningBody(String calendar);
+
+  /// Calendar guide row title about going back
+  ///
+  /// In en, this message translates to:
+  /// **'Going back'**
+  String get calendarGuideBackTitle;
+
+  /// Calendar guide paragraph about going back and closing sheets
+  ///
+  /// In en, this message translates to:
+  /// **'The arrow at the top left, or your phone\'s back gesture, returns to the previous screen. Sheets that slide up from the bottom close with the X at their top, or by swiping them down.'**
+  String get calendarGuideBackBody;
+
+  /// Calendar guide row title about the notes side of the app
+  ///
+  /// In en, this message translates to:
+  /// **'The rest of ANTA'**
+  String get calendarGuideNotesTitle;
+
+  /// Calendar guide paragraph about notes; linkedNote is the editor's row label
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA is also a notebook: the folders and notes behind the main menu. An event can point to a note through “{linkedNote}” — for a shopping list or directions.'**
+  String calendarGuideNotesBody(String linkedNote);
 }
 
 class _AppLocalizationsDelegate

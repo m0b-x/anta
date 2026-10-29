@@ -14,7 +14,7 @@ tap id:calendar-format-month
 wait id:calendar-add-event
 tap id:calendar-more
 wait id:calendar-settings-open
-expect id:calendar-alerts-open id:calendar-export
+expect id:calendar-alerts-open id:calendar-export id:calendar-guide-open
 shot 08_more
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone

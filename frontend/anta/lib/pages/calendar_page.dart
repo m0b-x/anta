@@ -1082,6 +1082,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                         if (current is! CalendarPageLoaded) return;
                         _export.start(context, current.allEvents);
                       },
+                onGuide: () => AppNavigator.toCalendarGuide(context),
                 onSettings: () => _openSettings(context),
               );
             },

@@ -11,8 +11,13 @@
 /// scratch; that is what makes a holiday-profile change or a skip reach the
 /// OS without anything having to invalidate anything.
 class AlertHorizon {
-  /// Occurrence days collected per enabled alert. Two is "survives a weekend
-  /// without opening the app" without spending the budget on one event.
+  /// Occurrence days collected per enabled alert.
+  ///
+  /// Nothing re-plans while the app stays closed — a pass runs at launch, on
+  /// resume and after a ring — so this is how long a repeating alert keeps
+  /// firing unattended: ten lets someone who opens the app every week or so
+  /// still get a daily reminder each day. [total] is what keeps one chatty
+  /// alert from starving the rest, since the plan is cut soonest first.
   final int perAlert;
 
   /// Days walked forward from today, inclusive of today.
@@ -31,7 +36,7 @@ class AlertHorizon {
 /// The shipped horizon. A value rather than three loose constants so a test
 /// can narrow one axis without redefining the other two.
 const AlertHorizon kAlertHorizon = AlertHorizon(
-  perAlert: 2,
+  perAlert: 10,
   days: 30,
   total: 48,
 );

@@ -19,6 +19,7 @@ import '../pages/calendar_page.dart';
 import '../pages/calendar_settings_page.dart';
 import '../pages/calendar_categories_page.dart';
 import '../pages/calendar_appearance_page.dart';
+import '../pages/calendar_guide_page.dart';
 import '../pages/calendar_overview_page.dart';
 import '../pages/event_templates_page.dart';
 import '../pages/vocabularies_page.dart';
@@ -586,6 +587,16 @@ abstract final class AppNavigator {
     );
   }
 
+  /// The guide reads nothing and writes nothing, so the calendar and the
+  /// overview push it without awaiting a reload on return.
+  static Future<void> toCalendarGuide(BuildContext context) {
+    return push(
+      context,
+      const CalendarGuidePage(),
+      destination: const NavDestination(NavDestinationKind.calendarGuide),
+    );
+  }
+
   static Future<void> toAlerts(BuildContext context) {
     return push(
       context,
@@ -1040,6 +1051,7 @@ abstract final class AppNavigator {
       NavDestinationKind.alerts => const AlertsPage(),
       NavDestinationKind.permissions => const PermissionsPage(),
       NavDestinationKind.calendarOverview => const CalendarOverviewPage(),
+      NavDestinationKind.calendarGuide => const CalendarGuidePage(),
     };
   }
 }

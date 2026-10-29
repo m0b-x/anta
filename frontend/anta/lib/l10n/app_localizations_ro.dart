@@ -6095,4 +6095,299 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventDatesAllPast => 'Toate în trecut';
+
+  @override
+  String get calendarGuideTitle => 'Cum funcționează calendarul';
+
+  @override
+  String get calendarGuideSearchHint => 'Caută în ghid';
+
+  @override
+  String calendarGuideIntro(String title) {
+    return 'Un scurt tur al calendarului. Poți reveni aici oricând: în calendar, atinge butonul cu trei puncte din dreapta sus, apoi „$title”.';
+  }
+
+  @override
+  String get calendarGuideSectionCalendar => 'Ecranul calendarului';
+
+  @override
+  String get calendarGuideMonthTitle => 'O lună pe ecran';
+
+  @override
+  String get calendarGuideMonthBody =>
+      'Ziua de azi are un cerc pal; ziua atinsă are unul plin. Glisează spre stânga sau spre dreapta ca să vezi alte luni. Butonul mic pentru ziua de azi, de lângă numele lunii, te aduce înapoi la azi.';
+
+  @override
+  String get calendarGuideMarksTitle => 'Barele colorate de sub o zi';
+
+  @override
+  String get calendarGuideMarksBody =>
+      'O bară sub o zi înseamnă că este ceva planificat acolo, în culoarea categoriei evenimentului. Sărbătorile legale și weekendurile au barele lor. Atinge ziua ca să vezi ce este în ea.';
+
+  @override
+  String get calendarGuidePanelTitle => 'Ce este în ziua aceea';
+
+  @override
+  String calendarGuidePanelBody(String day, String timeline, String upcoming) {
+    return 'Panoul de sub zile arată ziua atinsă. „$day” listează evenimentele ei – atinge unul ca să-i citești detaliile. „$timeline” le desenează pe ore. „$upcoming” listează ce urmează în săptămânile următoare.';
+  }
+
+  @override
+  String get calendarGuideViewsTitle => 'Lună, două săptămâni sau o săptămână';
+
+  @override
+  String calendarGuideViewsBody(
+    String calendar,
+    String overview,
+    String month,
+  ) {
+    return 'Titlul „$calendar” de sus este un meniu: atinge-l ca să vezi o lună întreagă, două săptămâni sau o singură săptămână, ori ca să deschizi „$overview”. Dacă zilele se restrâng brusc la unul sau două rânduri, ai glisat în sus peste ele – alege din nou „$month” din acel meniu.';
+  }
+
+  @override
+  String get calendarGuideSectionEvents => 'Evenimente';
+
+  @override
+  String get calendarGuideAddTitle => 'Adaugă un eveniment';
+
+  @override
+  String calendarGuideAddBody(String save) {
+    return 'Atinge butonul + din dreapta jos: adaugă în ziua selectată. Scrie un nume, apoi atinge „$save” din dreapta sus. „$save” rămâne gri până când evenimentul are un nume.';
+  }
+
+  @override
+  String get calendarGuideTimeTitle => 'Dă-i o oră';
+
+  @override
+  String calendarGuideTimeBody(String allDay, String starts, String ends) {
+    return 'Un eveniment nou este setat pentru toată ziua. Pentru o programare, oprește „$allDay”, apoi atinge „$starts” și scrie ora pe tastatură – se închide singură odată ce ora este completă. „$ends” este opțional.';
+  }
+
+  @override
+  String get calendarGuideCategoryTitle => 'Categorii';
+
+  @override
+  String calendarGuideCategoryBody(String category) {
+    return 'Fiecare eveniment are o categorie – rândul „$category” de sub nume. Ea dă evenimentului culoarea și pictograma din calendar. Atinge rândul ca să alegi alta sau ca să-ți creezi una proprie, la capătul listei.';
+  }
+
+  @override
+  String get calendarGuideRepeatTitle => 'Ceva care se repetă';
+
+  @override
+  String calendarGuideRepeatBody(String repeat, String done) {
+    return 'Pentru un curs săptămânal sau o factură lunară, atinge „$repeat” și alege zilnic, săptămânal, lunar sau anual, apoi „$done”. Evenimentul apare apoi în fiecare zi potrivită, iar o modificare îl schimbă în toate zilele.';
+  }
+
+  @override
+  String get calendarGuideOpenTitle => 'Citește, modifică sau șterge';
+
+  @override
+  String calendarGuideOpenBody(String edit, String deleteEvent, String skip) {
+    return 'Atinge un eveniment în ziua lui ca să-l citești și „$edit” din dreapta sus ca să-l modifici. „$deleteEvent” este chiar la capătul ecranului de editare; la un eveniment care se repetă, elimină toate zilele. Ca să renunți doar la o zi, folosește în schimb „$skip” din pagina evenimentului.';
+  }
+
+  @override
+  String get calendarGuideDescriptionTitle => 'Notițe la un eveniment';
+
+  @override
+  String get calendarGuideDescriptionBody =>
+      'Sub nume este loc pentru o descriere: o adresă, un număr de telefon, ce trebuie luat. Apare când deschizi evenimentul, iar primele ei rânduri apar în lista zilei.';
+
+  @override
+  String calendarGuideUnsavedTitle(String save) {
+    return 'Nimic nu se salvează până la „$save”';
+  }
+
+  @override
+  String get calendarGuideUnsavedBody =>
+      'Dacă închizi un eveniment pe care tocmai îl modificai, aplicația te întreabă dacă vrei să continui editarea sau să renunți la modificări. Un eveniment salvat rămâne pe telefon – fără internet.';
+
+  @override
+  String get calendarGuideTrackTitle => 'Urmărirea prezenței';
+
+  @override
+  String calendarGuideTrackBody(
+    String trackPresence,
+    String present,
+    String missed,
+  ) {
+    return 'Pentru un curs sau un antrenament pe care vrei să-l ții la socoteală, pornește „$trackPresence” în eveniment – comutatorul apare odată ce evenimentul se repetă. Fiecare zi poate fi apoi marcată „$present” sau „$missed” în pagina evenimentului, iar zilele ratate se estompează în calendar.';
+  }
+
+  @override
+  String get calendarGuideTemplatesTitle => 'Șabloane';
+
+  @override
+  String calendarGuideTemplatesBody(String saveAsTemplate) {
+    return 'Un eveniment pe care îl adaugi des poate fi salvat ca șablon cu „$saveAsTemplate” de la capătul ecranului de editare. Ca să-l folosești, ține apăsat butonul + (sau o zi) și alege-l din listă.';
+  }
+
+  @override
+  String get calendarGuideSectionAlerts => 'Notificări și alarme';
+
+  @override
+  String get calendarGuideAlertAddTitle => 'Nimic nu sună dacă nu ceri';
+
+  @override
+  String calendarGuideAlertAddBody(
+    String alerts,
+    String addAlert,
+    String done,
+    String save,
+  ) {
+    return 'Un eveniment nu are nicio alertă până nu adaugi una. În timp ce adaugi sau editezi un eveniment, derulează în jos până la „$alerts” și atinge „$addAlert”. Alege când să pornească, atinge „$done”, apoi „$save”. O pictogramă mică de clopoțel sau de alarmă marchează apoi evenimentul.';
+  }
+
+  @override
+  String get calendarGuideAlertKindsTitle => 'Notificare sau alarmă';
+
+  @override
+  String calendarGuideAlertKindsBody(
+    String reminder,
+    String alarm,
+    String allDay,
+  ) {
+    return '„$reminder”: o notificare pe care o poți închide sau amâna. „$alarm”: sună ca un ceas deșteptător până o oprești, chiar și cu telefonul blocat. Ca să primești alerta cu câteva minute înainte, evenimentul are nevoie de o oră de început – oprește mai întâi „$allDay”.';
+  }
+
+  @override
+  String get calendarGuidePermissionsTitle => 'Lasă telefonul să sune';
+
+  @override
+  String calendarGuidePermissionsBody(String permissions) {
+    return 'Prima dată, ANTA cere permisiunea de a afișa notificări și de a seta alarme. Acordă-le, altfel nimic nu sună. Dacă mai târziu ceva rămâne mut, deschide meniul principal (trei linii, stânga sus), apoi „$permissions”, și pornește ce lipsește.';
+  }
+
+  @override
+  String get calendarGuideRingTitle => 'Când sună';
+
+  @override
+  String calendarGuideRingBody(String done, String snooze, String stop) {
+    return 'O notificare apare în bara de notificări cu „$done” și „$snooze”. O alarmă umple ecranul cu „$stop” și „$snooze”; amânarea o aduce înapoi câteva minute mai târziu. O alarmă la care nu răspunde nimeni se oprește singură după un timp.';
+  }
+
+  @override
+  String get calendarGuideOpenOftenTitle => 'Deschide ANTA din când în când';
+
+  @override
+  String get calendarGuideOpenOftenBody =>
+      'ANTA pregătește următoarele alerte de fiecare dată când o deschizi. Deschide aplicația regulat – o alertă zilnică are nevoie ca aplicația să fie deschisă la o zi sau două – și ele continuă să vină.';
+
+  @override
+  String get calendarGuideQuickAlarmTitle => 'O alarmă rapidă';
+
+  @override
+  String calendarGuideQuickAlarmBody(String quickAlarm) {
+    return 'Ai nevoie de o alarmă peste douăzeci de minute sau la o oră din seara asta? Ține apăsat butonul + și atinge „$quickAlarm”. O alarmă rapidă se șterge singură din calendar după ce o oprești.';
+  }
+
+  @override
+  String get calendarGuideHubTitle => 'Toate alertele într-un singur loc';
+
+  @override
+  String calendarGuideHubBody(String alerts) {
+    return 'Butonul cu trei puncte din dreapta sus, apoi „$alerts”, listează fiecare notificare și fiecare alarmă din următoarele treizeci de zile – fiecare cu un comutator de pauză – și ce a sunat de curând.';
+  }
+
+  @override
+  String get calendarGuideSectionFinding => 'Cum găsești ceva';
+
+  @override
+  String get calendarGuideSearchTitle => 'Căutare';
+
+  @override
+  String calendarGuideSearchBody(String upcoming) {
+    return 'Trece panoul pe „$upcoming” și folosește câmpul lui de căutare. Scrie o parte din nume – „dentist” – sau o categorie. Un nume de lună sau o dată precum „12 mai” găsește evenimentele din ziua aceea.';
+  }
+
+  @override
+  String get calendarGuideOverviewTitle => 'Sumarul';
+
+  @override
+  String calendarGuideOverviewBody(String overview, String year, String list) {
+    return '„$overview” din meniul titlului are trei moduri. „$year” arată lunile ca plăcuțe mici – atinge una ca să deschizi luna. „$list” arată tot ce este într-o perioadă ca o singură listă; atinge un rând ca să deschizi evenimentul. Sărbătorile legale nu apar acolo, iar săgeata din stânga sus te aduce înapoi.';
+  }
+
+  @override
+  String get calendarGuideFiltersTitle => 'Filtrele ascund, nu șterg';
+
+  @override
+  String calendarGuideFiltersBody(String reset, String apply) {
+    return 'Butonul-pâlnie de sus ascunde din calendar categorii sau feluri de evenimente – util, dar ușor de uitat. Cât timp un filtru este activ, pâlnia arată un număr. Dacă par să lipsească evenimente, deschide pâlnia și atinge „$reset”, apoi „$apply”.';
+  }
+
+  @override
+  String get calendarGuideSectionSettings => 'Pe gustul tău';
+
+  @override
+  String get calendarGuideSettingsTitle => 'Unde sunt setările';
+
+  @override
+  String calendarGuideSettingsBody(String settingsRow, String save) {
+    return 'Atinge butonul cu trei puncte din dreapta sus, apoi „$settingsRow”. Tot ce este acolo se aplică imediat – nu există un buton „$save”.';
+  }
+
+  @override
+  String get calendarGuideHolidaysTitle => 'Sărbătorile țării tale';
+
+  @override
+  String calendarGuideHolidaysBody(String settingsRow, String holidaySet) {
+    return 'În „$settingsRow”, „$holidaySet” alege ale cui sărbători legale le arată calendarul. Pornește cu un set creștin general – alege-ți țara.';
+  }
+
+  @override
+  String get calendarGuideWeekStartTitle => 'Luni sau duminică prima';
+
+  @override
+  String calendarGuideWeekStartBody(
+    String settingsRow,
+    String appearance,
+    String weekStart,
+  ) {
+    return 'În „$settingsRow”, deschide „$appearance” și caută „$weekStart”. Restul paginii este reglaj fin opțional al felului în care arată zilele.';
+  }
+
+  @override
+  String get calendarGuideCategoriesTitle => 'Categoriile tale';
+
+  @override
+  String calendarGuideCategoriesBody(String settingsRow, String categories) {
+    return 'În „$settingsRow”, „$categories” le listează pe toate. Butonul + creează una cu pictograma și culoarea ei; ochiul ascunde una pe care nu o folosești, ca să nu mai fie oferită. Ascunderea unei categorii nu îi elimină evenimentele.';
+  }
+
+  @override
+  String get calendarGuideLanguageTitle =>
+      'Limbă, mod întunecat și mărimea textului';
+
+  @override
+  String calendarGuideLanguageBody(String language, String theme) {
+    return 'În meniul principal (trei linii, stânga sus): „$language” schimbă limba aplicației, iar „$theme” alege luminos sau întunecat. Mărimea textului urmează setarea de mărime a fontului din telefon.';
+  }
+
+  @override
+  String get calendarGuideSectionGood => 'Bine de știut';
+
+  @override
+  String get calendarGuideOpeningTitle => 'Deschiderea calendarului';
+
+  @override
+  String calendarGuideOpeningBody(String calendar) {
+    return 'Din primul ecran al aplicației, atinge butonul de meniu din stânga sus, apoi „$calendar”. ANTA se redeschide unde ai rămas, așa că de cele mai multe ori pornește direct în calendar.';
+  }
+
+  @override
+  String get calendarGuideBackTitle => 'Înapoi';
+
+  @override
+  String get calendarGuideBackBody =>
+      'Săgeata din stânga sus sau gestul de înapoi al telefonului te duce la ecranul anterior. Foile care urcă de jos se închid cu X-ul din partea lor de sus sau glisându-le în jos.';
+
+  @override
+  String get calendarGuideNotesTitle => 'Restul aplicației ANTA';
+
+  @override
+  String calendarGuideNotesBody(String linkedNote) {
+    return 'ANTA este și un carnet de notițe: dosarele și notițele din spatele meniului principal. Un eveniment poate trimite la o notiță prin „$linkedNote” – pentru o listă de cumpărături sau indicații de drum.';
+  }
 }

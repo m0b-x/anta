@@ -4,6 +4,7 @@ import 'dart:ui' show Locale;
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/l10n/app_localizations.dart';
 
 /// A reminder is called one thing in every language.
@@ -38,6 +39,18 @@ void main() {
     'permissionsAttentionTitle': (s) => s.permissionsAttentionTitle,
     'permissionsNoneNeededDesc': (s) => s.permissionsNoneNeededDesc,
     'permissionsPromptBody': (s) => s.permissionsPromptBody,
+    'calendarGuideAlertKindsTitle': (s) => s.calendarGuideAlertKindsTitle,
+    'calendarGuideAlertKindsBody': (s) => s.calendarGuideAlertKindsBody(
+      s.eventAlertModeNotify,
+      s.eventAlertModeRing,
+      s.eventAllDay,
+    ),
+    'calendarGuideRingBody': (s) => s.calendarGuideRingBody(
+      s.alertsDoneAction,
+      s.alarmSnoozeMinutes(SettingsKeys.defaultAlertSnoozeMinutes),
+      s.alarmStop,
+    ),
+    'calendarGuideHubBody': (s) => s.calendarGuideHubBody(s.alertsTitle),
   };
 
   /// Strings that name an alert of either tier.
@@ -60,6 +73,10 @@ void main() {
   const notTheTier = {
     'permissionExactAlarms': "Android's own name for the exact-alarm access",
     'alertsExactAlarmsOffBanner': 'quotes that name',
+    'calendarGuideSectionAlerts':
+        "the guide's heading over alerts of both tiers",
+    'calendarGuideAlertAddBody': 'an event has no alert of either tier',
+    'calendarGuideOpenOftenBody': 'alerts of either tier are lined up',
   };
 
   test('every language the app ships has a stem here', () {

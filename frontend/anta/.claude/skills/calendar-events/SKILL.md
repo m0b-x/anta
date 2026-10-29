@@ -34,6 +34,7 @@ Read only the `docs/calendar-events-feature.md` section you touch (§1–§13: v
 | Overview page, year paging, the card's look | 2026-09-26 |
 | The header: view menu, ⋮, switching pages | 2026-09-26 header addendum (+ `docs/calendar-header-roadmap.md`) |
 | Fasting schedule | §4.5 is the behaviour of record; `docs/fasting-schedule-roadmap.md` the design record |
+| The guide page (2026-10-29) | `docs/calendar-guide-page.md` §2 (D1–D12); its §3–§4 are the newcomer review and the proposals, nothing built |
 | Categories at scale | `docs/category-scaling-roadmap.md` |
 
 Reworks follow `ui-revamp`. **Before changing a surface, read its section in `references/subsystems.md`**.
@@ -197,6 +198,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - No scheduling pass calls `AppDatabase.getInstance()`. **Stop decides the removal at the press and may only narrow it**.
 - After a Keep, take remove-after from the bloc's copy (`afterKeep`).
 - `AppNavigator.toCalendar` is a normal push; options only on `CalendarSettingsPage`; no `AppLocalizations.byKey`.
+- The ⋮ of the calendar and the overview is one `CalendarOverflowMenu`: Alerts · Export · divider · the guide (`CalendarGuidePage`, `AppNavigator.toCalendarGuide`, a stamped `NavDestinationKind.calendarGuide`, no reload on return) · Calendar settings **last**. The guide quotes labels through ARB placeholders (`“{save}”` ← `l10n.save`), never retyped; a new row is a slug + icon + the three languages in one change (`docs/calendar-guide-page.md` D1–D12).
 - `CalendarViewMenu` is the one grid-format control; switch pages via `AppNavigator.switchTo…`, never a bare push.
 - Each page exports via its own `CalendarExportController`; `.ics` via `IcsSerializer`, no `ics` `ExportFormat`.
 - The hub's Digests group (on the UI language; the day rows stay Tier 4) lists `EventDigests.all` with a switch each (`ToggleEventDigest`), tap → `DigestEditorSheet` (`SaveEventDigest` / `DeleteEventDigest`), Add digest under `kDigestHorizon.maxDigests`; the fires of enabled digests sit among the day groups from `AlertScheduler.digestEntries()` (planned fresh, no switch of their own), deliveries under Recent (`AlertHistoryEntry.digest`). An inherited row's switch is **the event's `categoryAlerts` flag** (`UpdateCalendarEvent` with the flag alone, the event read from the bloc state at press time); `hubEntries()` imagines an opted-out event's inherited rows and skips paused category alerts, so the hub is never a one-way switch. Row keys carry the event id (twins share an alert id).
@@ -215,7 +217,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 
 ## File map
 
-- Pages: `calendar_page.dart, calendar_overview_page.dart, calendar_settings_page.dart, calendar_categories_page.dart, alerts_page.dart, alarm_page.dart`; `lib/bloc/calendar/calendar_bloc.dart`; `lib/controllers/`: `alert_ring_controller.dart, calendar_export_controller.dart, event_sheets_flow.dart, alert_permission_check.dart`.
+- Pages: `calendar_page.dart, calendar_overview_page.dart, calendar_settings_page.dart, calendar_categories_page.dart, calendar_guide_page.dart, alerts_page.dart, alarm_page.dart`; `lib/bloc/calendar/calendar_bloc.dart`; `lib/controllers/`: `alert_ring_controller.dart, calendar_export_controller.dart, event_sheets_flow.dart, alert_permission_check.dart`.
 - Services: `event_digest_service.dart, calendar_event_service.dart, category_service.dart, public_holiday_service.dart, event_occurrence_service.dart, event_presence_service.dart, event_skip_service.dart, event_template_service.dart, overview_view_service.dart, event_alert_service.dart, filter_preset_service.dart, day_summary_resolver.dart, alert_scheduler.dart, alert_gateway.dart, android_alert_gateway.dart, alert_keep_notice.dart, session_chip.dart`.
 - Models: `calendar_event.dart, recurrence_rule.dart, calendar_grid_filters.dart, calendar_appearance.dart, upcoming_agenda_filters.dart, calendar_panel_mode.dart, agenda_day_list.dart, overview_period.dart, overview_list_options.dart, overview_view.dart, alert_payload.dart, category_alert.dart, event_digest.dart`.
 - Utils: `event_agenda.dart, agenda_month_store.dart, agenda_day_list_index.dart, calendar_filter_summary.dart, category_search.dart, date_stamp.dart, ics_serializer.dart, day_timeline_layout.dart, alert_offset.dart, quick_alarm.dart, alert_notification_content.dart, alert_labels.dart, alert_excerpt.dart, sheet_guard.dart, digest_planner.dart, digest_notification_content.dart, digest_labels.dart`.

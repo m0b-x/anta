@@ -7362,3 +7362,32 @@ blocked alarm's permission notice replaces the Undo bar (C148). The data
 semantics above — soft deletes, the CRDT fields, the `eventId|dayEpochMs`
 keys, backup format 7 — are unchanged; the record's ledger, not this file,
 says which ids are deferred.
+
+## Addendum (2026-10-29): the calendar guide page
+
+The ⋮ of the calendar and the overview gained a row below the divider,
+before Calendar settings: "How the calendar works" opens
+`CalendarGuidePage` (`lib/pages/calendar_guide_page.dart`,
+`AppNavigator.toCalendarGuide`, `NavDestinationKind.calendarGuide`), a
+settings-kit page with a search field and six sections of read-only rows
+that explain the calendar to a first-time user in the app's own words —
+every label the text names is an ARB placeholder filled with the live
+string, never retyped, so a rename reaches the guide in every language.
+The design record is `docs/calendar-guide-page.md`: D1–D12 the decisions,
+§3 the five-area newcomer review (N1–N157, nothing of it built), §4 the
+proposals for the owner. The device pass is 27 flows (`26_guide`). No data
+semantics changed.
+
+## Addendum (2026-10-29, later): ten fires per alert
+
+`kAlertHorizon.perAlert` is 10 (2 since v40). The planner already cut the
+plan soonest-first across every alert (`alert_planner.dart`, the sort then
+`sublist(0, total)`), so `days` 30 and `total` 48 keep one chatty alert from
+starving the rest; two per alert had meant a daily reminder fell silent
+after its second fire unless the app was opened, because nothing re-plans
+while it is closed (`docs/calendar-guide-page.md` N125, P16; the owner's
+Q5). Visible: the Alerts hub lists up to ten rows for a repeating alert.
+Unchanged: the arm signature, the registry identity, the digest horizon;
+the `alert_scheduler_test` cases that tell a two-fire story pin
+`AlertHorizon(perAlert: 2, …)` explicitly, and the hub's listing test pins
+the shipped 10.

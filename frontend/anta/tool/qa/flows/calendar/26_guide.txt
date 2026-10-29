@@ -1,0 +1,15 @@
+# The calendar guide: its ⋮ row opens the page, a row of the Events section
+# and one of the alerts section are there by id, and back returns.
+tap id:calendar-more
+wait id:calendar-guide-open
+tap id:calendar-guide-open
+wait id:calendar-guide
+scroll-to id:calendar-guide-add-event --in id:calendar-guide --max 40
+expect id:calendar-guide-add-event
+scroll-to id:calendar-guide-add-alert --in id:calendar-guide --max 40
+expect id:calendar-guide-add-alert
+scroll-to id:calendar-guide-notes --in id:calendar-guide --max 40
+shot 26_guide
+key back
+wait id:calendar-add-event
+errors

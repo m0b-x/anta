@@ -1573,7 +1573,9 @@ void main() {
             startDate: DateTime.utc(2026, 9, 14),
           ),
         );
-        final scheduler = schedulerOf();
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 2, days: 30, total: 48),
+        );
         await scheduler.reconcileAll(AlertReconcileReason.launch);
         final rows = await registrations();
         expect(rows, hasLength(2));
@@ -2046,7 +2048,9 @@ void main() {
           startDate: DateTime.utc(2026, 9, 14),
         ),
       );
-      final scheduler = schedulerOf();
+      final scheduler = schedulerOf(
+        horizon: const AlertHorizon(perAlert: 2, days: 30, total: 48),
+      );
       await scheduler.reconcileAll(AlertReconcileReason.launch);
       final first = (await registrations()).reduce(
         (a, b) => a.fireAt < b.fireAt ? a : b,
@@ -2941,7 +2945,9 @@ void main() {
       'holds two occurrences, and Stop on the first arms the third',
       () async {
         await seedWeekly();
-        final scheduler = schedulerOf();
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 2, days: 30, total: 48),
+        );
         await scheduler.reconcileAll(AlertReconcileReason.launch);
         expect(await pendingDays(), [
           DateTime.utc(2026, 9, 16),
@@ -2967,7 +2973,9 @@ void main() {
       'skipping a day moves its registration on, and unskip brings it back',
       () async {
         await seedWeekly();
-        final scheduler = schedulerOf();
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 2, days: 30, total: 48),
+        );
         await scheduler.reconcileAll(AlertReconcileReason.launch);
         final friday = (await registrations()).firstWhere(
           (row) => dayOf(row) == DateTime.utc(2026, 9, 18),
@@ -3014,9 +3022,9 @@ void main() {
 
       final entries = await scheduler.hubEntries();
 
+      // The shipped horizon: a daily alarm holds ten days.
       expect(entries.map((e) => e.fireAt), [
-        DateTime(2026, 9, 15, 18),
-        DateTime(2026, 9, 16, 18),
+        for (var day = 15; day < 25; day++) DateTime(2026, 9, day, 18),
       ]);
       expect(entries.every((e) => !e.isSnoozed), isTrue);
       expect(entries.first.day, DateTime.utc(2026, 9, 15));

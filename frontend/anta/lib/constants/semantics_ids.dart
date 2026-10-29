@@ -108,7 +108,16 @@ abstract final class SemanticsIds {
   static const String calendarMore = 'calendar-more';
   static const String calendarAlertsOpen = 'calendar-alerts-open';
   static const String calendarExport = 'calendar-export';
+  static const String calendarGuideOpen = 'calendar-guide-open';
   static const String calendarSettingsOpen = 'calendar-settings-open';
+
+  /// The calendar guide's list: a flow waits on the page and scrolls inside
+  /// it without depending on the guide's wording or the locale.
+  static const String calendarGuide = 'calendar-guide';
+
+  /// One guide row, keyed by a slug frozen in the page, so a flow checks a
+  /// row is there whatever its text says.
+  static String calendarGuideRow(String slug) => 'calendar-guide-$slug';
 
   /// Calendar settings' rows that open a page or a sheet, and the two
   /// default-alert rows: a section header shares some of their words, and
