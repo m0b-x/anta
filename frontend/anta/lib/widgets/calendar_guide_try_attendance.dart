@@ -5,6 +5,7 @@ import '../constants/calendar_categories.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
@@ -16,11 +17,12 @@ import 'form_rows.dart';
 /// The attendance page's card: the practice calendar's Yoga — tracked, its
 /// four past weeks marked as the record's table 6 says — with today's row
 /// wearing the day panel's presence button, the past weeks as chips, and the
-/// editor's Count occurrences rows. The caption is the detail sheet's own
+/// editor's Count occurrences rows. Under the marks, the detail sheet's own
 /// count, worked out by the real arithmetic over the demo's marks.
 class GuideAttendanceDemo extends GuideCardDemo {
   GuideAttendanceDemo({DateTime Function() now = DateTime.now})
-    : _today = _todayUtc(now());
+    : _today = _todayUtc(now()),
+      super(CalendarGuideTopic.attendance);
 
   static const String slug = 'attendance';
 
@@ -48,10 +50,9 @@ class GuideAttendanceDemo extends GuideCardDemo {
   CalendarEvent _yoga(GuideDemoCalendar calendar) =>
       calendar.byId('${GuideDemoCalendar.idPrefix}yoga')!;
 
-  /// The detail sheet's two presence captions on one line: the caption is
-  /// the count she is watching, so it is never empty (D30).
-  @override
-  String idle(AppLocalizations l10n) {
+  /// The detail sheet's two presence captions on one line, under the marks
+  /// that make it: the count she is watching (D49).
+  String _statsLine(AppLocalizations l10n) {
     final stats = _statsFor(_calendarFor(l10n));
     if (stats == null) return '';
     return _summary(
@@ -64,8 +65,8 @@ class GuideAttendanceDemo extends GuideCardDemo {
   }
 
   /// The count over the window, worked out again only after a mark
-  /// changes: the caption is read on every build, and the count walks up to
-  /// a year of days.
+  /// changes: the line is read on every build, and the count walks up to a
+  /// year of days.
   PresenceStats? _statsFor(GuideDemoCalendar calendar) {
     if (!_statsFresh) {
       _stats = PresenceAdherence.compute(
@@ -93,11 +94,10 @@ class GuideAttendanceDemo extends GuideCardDemo {
       '${l10n.eventAdherenceSummary(attended, total, PresenceAdherence.windowDays)}'
       ' · ${l10n.eventAdherenceStreak(current, best)}';
 
-  /// Two-digit counts stand for the widest the numbers get.
-  @override
-  List<String> candidates(AppLocalizations l10n) => [
-    _summary(l10n, 88, 88, 88, 88),
-  ];
+  /// The stats line at its widest, for its slot: two-digit counts stand
+  /// for the widest the numbers get in a 30-day window.
+  static String _widestSummary(AppLocalizations l10n) =>
+      _summary(l10n, 88, 88, 88, 88);
 
   /// The editor's count example for a weekly event (`_countStyleExample` in
   /// `event_editor_sheet.dart`, cut to the weekly kind): its first three
@@ -137,7 +137,7 @@ class GuideAttendanceDemo extends GuideCardDemo {
   void _flip(GuideDemoCalendar calendar, CalendarEvent event, DateTime day) {
     calendar.setPresence(event.id, day, missed: !calendar.isMissed(event, day));
     _statsFresh = false;
-    changed();
+    did('flipped');
   }
 
   @override
@@ -198,6 +198,10 @@ class GuideAttendanceDemo extends GuideCardDemo {
                 ),
               ),
           ],
+          caption: FormCaptionSlot(
+            candidates: [FormCaption(text: _widestSummary(l10n))],
+            child: FormCaption(text: _statsLine(l10n)),
+          ),
         ),
         FormSwitchRow(
           glyph: Icons.numbers_rounded,
@@ -206,7 +210,11 @@ class GuideAttendanceDemo extends GuideCardDemo {
           identifier: control('count'),
           onChanged: (value) {
             _counting = value;
-            changed();
+            if (value) {
+              did('counting');
+            } else {
+              changed();
+            }
           },
         ),
         // Drawn while the switch is off too, disabled: the editor reveals

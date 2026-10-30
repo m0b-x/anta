@@ -7432,3 +7432,38 @@ flows: `26_guide` walks the hub, the practice page and a card. No data
 semantics changed; `PublicHolidayService.getInstance()` gained an
 in-flight guard and `MarkdownBarService` / `PublicHolidayService` a
 `forTesting`.
+
+## Addendum (2026-10-29, evening): the guide coaches — one line per card, a tour on the practice calendar, the prose cut
+
+The owner's read of the hands-on guide, the same evening: a "Try it"
+card reported what had just happened and never said what to do next
+("how is she supposed to know that she has to tap the event in the
+panel?"), and the pages were long paragraphs under one card. The record's
+§7.5 (`docs/calendar-guide-page.md`, D40–D50) answers both.
+
+- **The coach line.** Every card's lead and the caption under its stage
+  are replaced by one line above the stage, in a `FormCaptionSlot` sized
+  over every line it can show: the first undone step's instruction ("You
+  can open an event by tapping it in the list below."), or — after an
+  action that is no step and shows nothing on the stage — that action's
+  report alone until the next action; a skip button (`try-<topic>-skip-step`;
+  the kinds stage already owned `try-kinds-skip`) that only clears a
+  standing report; a closing line once every step is done. The machine
+  is `GuideCoach` (`lib/models/calendar_guide_coach.dart`), a done set
+  over `CalendarGuideTopic.steps` — a step done early is not asked again.
+  A result the stage can show is never narrated; the two it could not
+  (the attendance stats, the holiday count) became caption slots inside
+  their stages. A step change made while a sheet is up is applied when
+  the sheet closes, since `ModalBarrier` blocks the live region.
+- **The practice tour.** The band's second line coaches five steps (tap a
+  day with a bar, tap the event in the panel, Edit and Save, +, the
+  funnel) and ends on its own closing line; Start over resets the tour
+  with the demo; `practice-skip`. The dated reports are gone and the band
+  is 72 / 111 / 111 dp at de 1.0 / 1.3 / 2.0 on 360 (72 / 134 / 134).
+- **The prose.** "How it works" keeps only what no stage can show: 27
+  read rows of two sentences across the nine pages (48 before), one-line
+  leads, a one-line hub intro; 42 row keys and 28 caption keys retired,
+  the coach lines trimmed to about 70 English characters.
+
+The device pass stays 27 flows (`26_guide` expects the two skips and the
+Templates row). No data semantics changed; nothing a demo does writes.

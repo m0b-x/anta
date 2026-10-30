@@ -10,6 +10,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_grid_filters.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/calendar_week_start.dart';
@@ -28,7 +29,8 @@ import 'month_dot_matrix.dart';
 /// all narrow the same list.
 class GuideFindingDemo extends GuideCardDemo {
   GuideFindingDemo({DateTime Function() now = DateTime.now})
-    : _today = _todayUtc(now());
+    : _today = _todayUtc(now()),
+      super(CalendarGuideTopic.finding);
 
   static const String slug = 'finding';
 
@@ -65,20 +67,6 @@ class GuideFindingDemo extends GuideCardDemo {
 
   DateTime get _monthStart => DateTime.utc(_today.year, _today.month);
   DateTime get _monthEnd => DateTime.utc(_today.year, _today.month + 1, 0);
-
-  /// Every event matches before she types.
-  @override
-  String idle(AppLocalizations l10n) =>
-      l10n.calendarGuideDemoMatches(_calendarFor(l10n).events.length);
-
-  @override
-  List<String> candidates(AppLocalizations l10n) => [
-    for (var count = 0; count <= _calendarFor(l10n).events.length; count++)
-      l10n.calendarGuideDemoMatches(count),
-    // The most filters the caption can name.
-    for (var count = 0; count <= CalendarGridFilters.axisCount; count++)
-      l10n.calendarGuideDemoFiltered(count),
-  ];
 
   GuideDemoCalendar _calendarFor(AppLocalizations l10n) =>
       _calendar ??= GuideDemoCalendar(
@@ -125,8 +113,8 @@ class GuideFindingDemo extends GuideCardDemo {
   }
 
   /// The list and the month's days for the query and the filters now,
-  /// worked out once per change of either: a keystroke reads them in the
-  /// caption and again in the stage.
+  /// worked out once per change of either: the stage is drawn again on
+  /// every change of the card, and most change neither.
   ({List<CalendarEvent> events, int monthMask}) _shown(AppLocalizations l10n) {
     final key = (_search.text, _filters, l10n.localeName);
     if (key != _shownKey) {
@@ -159,9 +147,14 @@ class GuideFindingDemo extends GuideCardDemo {
     ];
   }
 
-  void _onQuery(AppLocalizations l10n) {
-    final count = _shown(l10n).events.length;
-    say((l10n) => l10n.calendarGuideDemoMatches(count));
+  void _onQuery() {
+    // An emptied field is no search: the list fills again, and the step
+    // stays done.
+    if (_search.text.trim().isEmpty) {
+      changed();
+    } else {
+      did('query');
+    }
   }
 
   Future<void> _openFilters(BuildContext context) async {
@@ -173,13 +166,20 @@ class GuideFindingDemo extends GuideCardDemo {
     );
     if (picked == null) return;
     _filters = picked;
-    final active = picked.activeCount;
-    say((l10n) => l10n.calendarGuideDemoFiltered(active));
+    if (picked.activeCount > 0) {
+      did('filtered');
+    } else {
+      changed();
+    }
   }
 
-  Widget _row(BuildContext context, CalendarEvent event) {
+  /// The live list's first row, which the keyboard reveal keeps in view.
+  final GlobalKey _firstMatchKey = GlobalKey();
+
+  Widget _row(BuildContext context, CalendarEvent event, {Key? key}) {
     final category = CalendarCategories.resolve(event.categoryId);
     return FormPickerRow(
+      key: key,
       leading: EventAvatar(
         icon: CalendarCategories.iconFor(event),
         color: EventSummaryProvider.colorFor(event, category),
@@ -194,11 +194,18 @@ class GuideFindingDemo extends GuideCardDemo {
     );
   }
 
-  Widget _rows(BuildContext context, List<CalendarEvent> events) {
+  Widget _rows(
+    BuildContext context,
+    List<CalendarEvent> events, {
+    Key? firstKey,
+  }) {
     if (events.isEmpty) return const SizedBox.shrink();
     return FormRowGroup(
       trailingGap: false,
-      children: [for (final event in events) _row(context, event)],
+      children: [
+        for (final (i, event) in events.indexed)
+          _row(context, event, key: i == 0 ? firstKey : null),
+      ],
     );
   }
 
@@ -232,6 +239,7 @@ class GuideFindingDemo extends GuideCardDemo {
         _CaptionAboveKeyboard(
           focusNode: _searchFocus,
           caption: captionSlotKey,
+          firstMatch: _firstMatchKey,
           child: FormRowGroup(
             children: [
               FormSearchRow(
@@ -243,7 +251,7 @@ class GuideFindingDemo extends GuideCardDemo {
                 hint: l10n.search,
                 clearTooltip: l10n.upcomingClearSearch,
                 identifier: control('search'),
-                onChanged: (_) => _onQuery(l10n),
+                onChanged: (_) => _onQuery(),
               ),
             ],
           ),
@@ -262,7 +270,7 @@ class GuideFindingDemo extends GuideCardDemo {
                 ),
               ),
             ),
-            _rows(context, matches),
+            _rows(context, matches, firstKey: _firstMatchKey),
           ],
         ),
         const SizedBox(height: RowMetrics.groupGap),
@@ -278,8 +286,8 @@ class GuideFindingDemo extends GuideCardDemo {
             ),
           ],
         ),
-        // The kinds card's month; what it shows, the caption and the list
-        // above say.
+        // The kinds card's month; what it shows, the coach line and the
+        // list above say.
         CalendarGuideStageMatrix(
           matrix: MonthDotMatrix(
             daysInMonth: _monthEnd.day,
@@ -310,8 +318,9 @@ class GuideFindingDemo extends GuideCardDemo {
 }
 
 /// Brings what the search field reports into view once the keyboard a focus
-/// on it raised has come to rest: the count and the matches are what she
-/// types to see, and the keyboard covers them.
+/// on it raised has come to rest: the matches under the field are what she
+/// types to see, with the coach line above it where the room allows, and
+/// the field's own scroll would leave the matches under the keyboard.
 ///
 /// Once per focus gain, never per keystroke — the field keeps its own caret
 /// in view while she types. The inset counts as at rest a frame after it
@@ -322,11 +331,13 @@ class _CaptionAboveKeyboard extends StatefulWidget {
   const _CaptionAboveKeyboard({
     required this.focusNode,
     required this.caption,
+    required this.firstMatch,
     required this.child,
   });
 
   final FocusNode focusNode;
   final GlobalKey caption;
+  final GlobalKey firstMatch;
   final Widget child;
 
   @override
@@ -408,13 +419,13 @@ class _CaptionAboveKeyboardState extends State<_CaptionAboveKeyboard>
     if (_inset > 0) _reveal();
   }
 
-  /// Scrolls the caption up to the keyboard's edge, as
-  /// `Scrollable.ensureVisible` at alignment 1.0 would — but never past
-  /// the field: the field keeps its caret in view on every keystroke, so a
-  /// caption brought up past it would be scrolled away again by the first
-  /// letter, the page jumping under her. On a phone the stage is taller
-  /// than the room the keyboard leaves, so the field stops at the top with
-  /// the matches under it, and the count shows wherever it fits.
+  /// Scrolls the coach line, which sits above the field, up to the top, as
+  /// `Scrollable.ensureVisible` at alignment 0.0 would, where the line, the
+  /// field and the first match all fit above the keyboard; otherwise the
+  /// field goes to the top, the matches under it, as before the coach line
+  /// (German at 2.0 on a small phone). Never past the field — it keeps its
+  /// caret in view on every keystroke, so a page scrolled past it would
+  /// jump back under her at the first letter — and never back down.
   void _reveal() {
     final caption = widget.caption.currentContext?.findRenderObject();
     // The node's context is the field's own: its box, and the air above
@@ -431,16 +442,24 @@ class _CaptionAboveKeyboardState extends State<_CaptionAboveKeyboard>
             ?.scrollPadding
             .top ??
         0;
-    final target = math.min(
-      viewport.getOffsetToReveal(caption, 1.0).offset,
-      viewport
-          .getOffsetToReveal(
-            field,
-            0.0,
-            rect: Rect.fromLTRB(0, -air, field.size.width, field.size.height),
-          )
-          .offset,
-    );
+    final lineAtTop = viewport.getOffsetToReveal(caption, 0.0).offset;
+    // With no match, the field is the last thing she needs to see.
+    final last = widget.firstMatch.currentContext?.findRenderObject() ?? field;
+    final fits = viewport.getOffsetToReveal(last, 1.0).offset <= lineAtTop;
+    final target = fits
+        ? lineAtTop
+        : viewport
+              .getOffsetToReveal(
+                field,
+                0.0,
+                rect: Rect.fromLTRB(
+                  0,
+                  -air,
+                  field.size.width,
+                  field.size.height,
+                ),
+              )
+              .offset;
     if (target <= position.pixels) return;
     position.jumpTo(math.min(target, position.maxScrollExtent));
   }

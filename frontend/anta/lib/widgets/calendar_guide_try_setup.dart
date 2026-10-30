@@ -7,19 +7,21 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_guide_content.dart';
 import '../services/app_navigator.dart';
 import 'calendar_appearance_preview.dart';
 import 'calendar_guide_try_card.dart';
 import 'form_rows.dart';
 
 /// The setup page's card: the holiday set as a menu over the real holiday
-/// builders, the next three holidays of the set picked, the first day of
-/// the week turning the appearance page's sample week, and the way to the
-/// real Calendar settings. Nothing is saved: the set and the first day she
-/// picks here stay here.
+/// builders, the set's count this year and its next three holidays, the
+/// first day of the week turning the appearance page's sample week, and the
+/// way to the real Calendar settings. Nothing is saved: the set and the
+/// first day she picks here stay here.
 class GuideSetupDemo extends GuideCardDemo {
   GuideSetupDemo({DateTime Function() now = DateTime.now})
-    : _today = _todayUtc(now());
+    : _today = _todayUtc(now()),
+      super(CalendarGuideTopic.setup);
 
   static const String slug = 'setup';
 
@@ -50,9 +52,8 @@ class GuideSetupDemo extends GuideCardDemo {
 
   String get _year => '${_today.year}';
 
-  /// The set's count this year: the caption before and after every pick.
-  @override
-  String idle(AppLocalizations l10n) =>
+  /// The picked set's count this year, under the row that picks it (D49).
+  String _holidaysLine(AppLocalizations l10n) =>
       l10n.calendarGuideDemoHolidays(_countOf(_profile), _year);
 
   /// [profile]'s holidays inside this year, worked out once per set. A
@@ -68,9 +69,9 @@ class GuideSetupDemo extends GuideCardDemo {
 
   final GuideLocaleFormat _dates = GuideLocaleFormat(DateFormat.yMMMMEEEEd);
 
-  /// Each plural form at its widest digits.
-  @override
-  List<String> candidates(AppLocalizations l10n) => [
+  /// The count's line in each plural form at its widest digits, for its
+  /// slot.
+  List<String> _widestHolidaysLines(AppLocalizations l10n) => [
     for (final count in const [1, 19, 88])
       l10n.calendarGuideDemoHolidays(count, _year),
   ];
@@ -281,7 +282,7 @@ class GuideSetupDemo extends GuideCardDemo {
             selected: {selected},
             onSelectionChanged: (selection) {
               _weekStart = selection.first;
-              changed();
+              did('week');
             },
           ),
         );
@@ -328,20 +329,32 @@ class GuideSetupDemo extends GuideCardDemo {
                       onSelected: (profile) {
                         _profile = profile;
                         _profilePicked = true;
-                        changed();
+                        did('holidays');
                       },
                     ),
                   ),
                   Padding(
                     padding: captionPadding,
-                    child: FormCaptionSlot(
-                      candidates: [
-                        for (final lines in _everySetsLines(l10n))
-                          FormCaption(text: lines),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FormCaptionSlot(
+                          candidates: [
+                            for (final text in _widestHolidaysLines(l10n))
+                              FormCaption(text: text),
+                          ],
+                          child: FormCaption(text: _holidaysLine(l10n)),
+                        ),
+                        FormCaptionSlot(
+                          candidates: [
+                            for (final lines in _everySetsLines(l10n))
+                              FormCaption(text: lines),
+                          ],
+                          child: FormCaption(
+                            text: _everySetsLines(l10n)[_profile.index],
+                          ),
+                        ),
                       ],
-                      child: FormCaption(
-                        text: _everySetsLines(l10n)[_profile.index],
-                      ),
                     ),
                   ),
                 ],

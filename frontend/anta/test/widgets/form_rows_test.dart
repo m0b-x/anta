@@ -199,6 +199,52 @@ void main() {
     });
   });
 
+  group('trailing button', () {
+    Color glyphColor(WidgetTester tester) => tester
+        .widget<RichText>(
+          find.descendant(
+            of: find.byType(Icon),
+            matching: find.byType(RichText),
+          ),
+        )
+        .text
+        .style!
+        .color!;
+
+    testWidgets('disabledColor paints the disabled glyph; without it the '
+        'theme\'s disabled grey stays', (tester) async {
+      const ink = Color(0xFF123456);
+      final dim = ink.withValues(alpha: FormMetrics.disabledOpacity);
+      // A fresh button per state: a rebuilt one animates its glyph's colour
+      // from the old state (the button's AnimatedTheme).
+      Widget button({VoidCallback? onPressed, Color? disabledColor}) => host(
+        FormTrailingButton(
+          key: UniqueKey(),
+          icon: Icons.skip_next_rounded,
+          tooltip: 'Skip',
+          color: ink,
+          disabledColor: disabledColor,
+          onPressed: onPressed,
+        ),
+      );
+
+      await tester.pumpWidget(button(disabledColor: dim));
+      expect(glyphColor(tester), isSameColorAs(dim));
+
+      await tester.pumpWidget(button(disabledColor: dim, onPressed: () {}));
+      expect(glyphColor(tester), isSameColorAs(ink));
+
+      await tester.pumpWidget(button());
+      final onSurface = Theme.of(
+        tester.element(find.byType(Icon)),
+      ).colorScheme.onSurface;
+      expect(
+        glyphColor(tester),
+        isSameColorAs(onSurface.withValues(alpha: 0.38)),
+      );
+    });
+  });
+
   group('identifiers', () {
     testWidgets('a picker row merges the id, the label and the tap', (
       tester,

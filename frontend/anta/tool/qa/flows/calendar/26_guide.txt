@@ -2,9 +2,9 @@
 # hub; the Practice calendar row pushes the practice page, where tomorrow is
 # picked, + opens the sandboxed editor, a title is typed and saved and its
 # row is in the panel, a seeded row opens its detail sheet, the funnel opens
-# the sandboxed filter sheet, and the ⋮'s guide row only captions; back to
-# the hub, the Events page's "Try it" card is there by id, and back returns
-# to the calendar.
+# the sandboxed filter sheet, and the ⋮'s guide row only says so in the
+# band; back to the hub, the Events page's "Try it" card is there by id, and
+# back returns to the calendar.
 # - Everything on the practice page is a demo: nothing it does reaches the
 #   seed, so the flows after it see the calendar as the seed left it.
 # - The demo's Yoga repeats weekly on today's weekday, so today has its row
@@ -18,7 +18,7 @@ wait id:calendar-guide
 scroll-to id:calendar-guide-page-practice --in id:calendar-guide --max 40
 tap id:calendar-guide-page-practice
 wait id:calendar-guide-practice
-expect id:calendar-guide-practice-banner id:practice-add-event id:practice-filter-open id:practice-more
+expect id:calendar-guide-practice-banner id:practice-add-event id:practice-filter-open id:practice-more id:practice-skip
 shot 26_guide_practice
 tap "{{longdate+1}}"
 tap id:practice-add-event
@@ -50,9 +50,9 @@ wait id:calendar-guide
 scroll-to id:calendar-guide-page-events --in id:calendar-guide --max 40
 tap id:calendar-guide-page-events
 wait id:calendar-guide-topic-events
-expect id:calendar-guide-try-events id:try-events-add
-scroll-to id:calendar-guide-add-event --in id:calendar-guide-topic-events --max 40
-expect id:calendar-guide-add-event
+expect id:calendar-guide-try-events id:try-events-add id:try-events-skip-step
+scroll-to id:calendar-guide-templates --in id:calendar-guide-topic-events --max 40
+expect id:calendar-guide-templates
 shot 26_guide_card
 key back
 wait id:calendar-guide

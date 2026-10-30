@@ -8,6 +8,7 @@ import '../constants/calendar_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../models/recurrence_rule.dart';
 import '../services/day_summary_resolver.dart';
@@ -32,7 +33,8 @@ import 'month_dot_matrix.dart';
 /// on this stage it cut its own labels.
 class GuideKindsDemo extends GuideCardDemo {
   GuideKindsDemo({DateTime Function() now = DateTime.now})
-    : _today = _todayUtc(now());
+    : _today = _todayUtc(now()),
+      super(CalendarGuideTopic.kinds);
 
   static const String slug = 'kinds';
 
@@ -60,14 +62,8 @@ class GuideKindsDemo extends GuideCardDemo {
   DateTime get _firstDay => DateTime.utc(_today.year - 1);
   DateTime get _lastDay => DateTime.utc(_today.year + 1, 12, 31);
 
-  final GuideLocaleFormat _dates = GuideLocaleFormat(DateFormat.yMMMMEEEEd);
-
   /// The Date row's value.
   final GuideLocaleFormat _shortDates = GuideLocaleFormat(DateFormat.yMMMEd);
-
-  @override
-  String idle(AppLocalizations l10n) =>
-      l10n.calendarGuideDemoOneDay(_dates.of(l10n).format(_today));
 
   /// The widest rule words each kind can produce: every weekday at the
   /// largest interval. The formatter writes no end date, so an Until adds
@@ -97,21 +93,6 @@ class GuideKindsDemo extends GuideCardDemo {
         );
       }
     }
-  }
-
-  @override
-  List<String> candidates(AppLocalizations l10n) {
-    final date = calendarGuideLongestDate(_dates.of(l10n));
-    final title = l10n.calendarGuideDemoEventDentist;
-    const counts = [0, 1, 2, 22, 31];
-    return [
-      l10n.calendarGuideDemoOneDay(date),
-      for (final words in _widestRuleWords(l10n))
-        for (final count in counts) l10n.calendarGuideDemoRepeats(words, count),
-      for (final count in const [2, 22, 99])
-        l10n.recurrenceSpecificDates(count),
-      l10n.calendarGuideDemoSkipped(date, title),
-    ];
   }
 
   /// What the rows that carry the rule's words and the picked day are
@@ -154,20 +135,8 @@ class GuideKindsDemo extends GuideCardDemo {
       event.occursOnUtcDay(day) &&
       (event.rule is OneTimeRecurrence || !_skips.contains(day));
 
-  int _daysThisMonth(CalendarEvent event) {
-    var count = 0;
-    for (
-      var day = _monthStart;
-      !day.isAfter(_monthEnd);
-      day = DateTime.utc(day.year, day.month, day.day + 1)
-    ) {
-      if (_occurs(event, day)) count++;
-    }
-    return count;
-  }
-
   /// [event]'s rule in words, written again only when the event or the
-  /// language changes: the stage and the caption read it on every build.
+  /// language changes: the stage reads it on every build.
   String _ruleWords(AppLocalizations l10n, CalendarEvent event) {
     if (!identical(event, _wordsEvent) || l10n.localeName != _wordsLocale) {
       _wordsEvent = event;
@@ -186,22 +155,17 @@ class GuideKindsDemo extends GuideCardDemo {
   String? _wordsLocale;
   String _words = '';
 
-  /// The caption for the event as it now stands: one day, its dates, or
-  /// its rule and how often it falls this month.
-  void _sayShape(CalendarEvent event) {
-    final start = event.startDateUtc;
-    final count = _daysThisMonth(event);
-    say(
-      (l10n) => switch (event.rule) {
-        OneTimeRecurrence() => l10n.calendarGuideDemoOneDay(
-          _dates.of(l10n).format(start),
-        ),
-        SpecificDatesRecurrence(:final dates) => l10n.recurrenceSpecificDates(
-          dates.length,
-        ),
-        _ => l10n.calendarGuideDemoRepeats(_ruleWords(l10n, event), count),
-      },
-    );
+  /// The step the event's new kind completes: one day, its dates, or a
+  /// rule. The month and the Repeat row show what it became.
+  void _didShape(CalendarEvent event) {
+    switch (event.rule) {
+      case OneTimeRecurrence():
+        did('once');
+      case SpecificDatesRecurrence():
+        did('addDate');
+      case _:
+        did('repeat');
+    }
   }
 
   /// The editor's decoder, `_initRecurrenceFrom` in `event_editor_sheet.dart`,
@@ -300,7 +264,7 @@ class GuideKindsDemo extends GuideCardDemo {
     _event = event;
     final picked = _picked;
     if (picked != null && !_occurs(event, picked)) _picked = null;
-    _sayShape(event);
+    _didShape(event);
   }
 
   /// The repeat sheet's last answer. The editor keeps its kind, interval,
@@ -393,14 +357,10 @@ class GuideKindsDemo extends GuideCardDemo {
   (CalendarEvent, int)? _masksKey;
   ({int marked, int missed}) _masks = (marked: 0, missed: 0);
 
-  void _skip(CalendarEvent event, DateTime day) {
+  void _skip(DateTime day) {
     _skips.add(day);
     _picked = null;
-    final title = calendarGuideQuote(event.title);
-    say(
-      (l10n) =>
-          l10n.calendarGuideDemoSkipped(_dates.of(l10n).format(day), title),
-    );
+    did('skipped');
   }
 
   @override
@@ -502,7 +462,7 @@ class GuideKindsDemo extends GuideCardDemo {
               glyph: Icons.event_busy_outlined,
               label: l10n.eventSkipOccurrence,
               identifier: control('skip'),
-              onTap: canSkip ? () => _skip(event, picked) : null,
+              onTap: canSkip ? () => _skip(picked) : null,
             ),
           ],
         ),

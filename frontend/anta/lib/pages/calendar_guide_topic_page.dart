@@ -147,16 +147,19 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
                   GuideMetrics.headingInset,
                   GuideMetrics.headingGap,
                 ),
-                child: Semantics(
-                  header: true,
-                  headingLevel: 1,
-                  child: Text(
-                    topic.title(l10n),
-                    style: TextStyle(
-                      fontSize: FormMetrics.titleFontSize,
-                      height: FormMetrics.titleLineHeight,
-                      fontWeight: FontWeight.w500,
-                      color: colorScheme.onSurface,
+                child: MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: GuideMetrics.headingMaxTextScale,
+                  child: Semantics(
+                    header: true,
+                    headingLevel: 1,
+                    child: Text(
+                      topic.title(l10n),
+                      style: TextStyle(
+                        fontSize: FormMetrics.titleFontSize,
+                        height: FormMetrics.titleLineHeight,
+                        fontWeight: FontWeight.w500,
+                        color: colorScheme.onSurface,
+                      ),
                     ),
                   ),
                 ),

@@ -114,7 +114,7 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
                         horizontal: GuideMetrics.headingInset,
                       ),
                       child: Text(
-                        l10n.calendarGuideIntro(l10n.calendarGuideTryIt),
+                        l10n.calendarGuideIntro,
                         style: calendarGuideParagraphStyle.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),

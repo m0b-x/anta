@@ -50,11 +50,8 @@ void main() {
       s.alarmSnoozeMinutes(SettingsKeys.defaultAlertSnoozeMinutes),
       s.alarmStop,
     ),
-    'calendarGuideHubBody': (s) => s.calendarGuideHubBody(s.alertsTitle),
     'calendarGuidePageAlertsCaption': (s) => s.calendarGuidePageAlertsCaption,
     'calendarGuideAlertsLead': (s) => s.calendarGuideAlertsLead,
-    'calendarGuideCatAlertsBody': (s) =>
-        s.calendarGuideCatAlertsBody(s.eventAlertAdd, s.eventCategoryAlerts),
   };
 
   /// Strings that name an alert of either tier.
@@ -69,12 +66,9 @@ void main() {
     'alertsEmpty': (s) => s.alertsEmpty,
     'alertsToggleLabel': (s) => s.alertsToggleLabel('Leg day'),
     'calendarGuidePageAlerts': (s) => s.calendarGuidePageAlerts,
-    'calendarGuideKindsOnlyOneBody': (s) => s.calendarGuideKindsOnlyOneBody(
-      s.eventAlertRemoveAfter,
-      s.alertsSkipAction,
-    ),
     'calendarGuideCatAlertsTitle': (s) => s.calendarGuideCatAlertsTitle,
-    'calendarGuideTryAlerts': (s) => s.calendarGuideTryAlerts,
+    'calendarGuideCatAlertsBody': (s) =>
+        s.calendarGuideCatAlertsBody(s.eventAlertAdd, s.eventCategoryAlerts),
   };
 
   /// English strings that say "reminder" without naming the tier, each with
@@ -84,10 +78,7 @@ void main() {
   const notTheTier = {
     'permissionExactAlarms': "Android's own name for the exact-alarm access",
     'alertsExactAlarmsOffBanner': 'quotes that name',
-    'calendarGuideAlertAddBody': 'an event has no alert of either tier',
     'calendarGuideOpenOftenBody': 'alerts of either tier are lined up',
-    'calendarGuidePermissionsBody':
-        'the battery saver holds back alerts of either tier',
   };
 
   test('every language the app ships has a stem here', () {

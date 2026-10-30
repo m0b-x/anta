@@ -994,6 +994,11 @@ class FormTrailingButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final Color? color;
 
+  /// The glyph while [onPressed] is null, for a button on a ground other
+  /// than the surface — the practice band's `primaryContainer` — where the
+  /// theme's disabled grey, an `onSurface` tint, reads as a foreign colour.
+  final Color? disabledColor;
+
   /// A `SemanticsIds` value for a button a device script has to hit by id —
   /// the Saved filter row's bookmark, a preset's ⋮ — whose tooltip changes
   /// with the locale and, for the bookmark, with the state.
@@ -1005,6 +1010,7 @@ class FormTrailingButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     this.color,
+    this.disabledColor,
     this.identifier,
   });
 
@@ -1016,6 +1022,7 @@ class FormTrailingButton extends StatelessWidget {
         tooltip: tooltip,
         iconSize: FormMetrics.trailingIconSize,
         color: color ?? Theme.of(context).colorScheme.outline,
+        disabledColor: disabledColor,
         icon: Icon(icon),
         onPressed: onPressed,
       ),

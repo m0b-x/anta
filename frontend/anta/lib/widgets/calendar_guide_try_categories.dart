@@ -9,6 +9,7 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import 'calendar_guide_try_card.dart';
 import 'category_editor_sheet.dart';
@@ -23,6 +24,8 @@ enum _RowAction { edit, delete }
 /// Create category through the real category form in its sandbox mode.
 /// Every change lands in this list; the catalogue is never touched.
 class GuideCategoriesDemo extends GuideCardDemo {
+  GuideCategoriesDemo() : super(CalendarGuideTopic.categories);
+
   static const String slug = 'categories';
 
   /// The most rows the list holds: past it Create category is disabled, so
@@ -33,20 +36,6 @@ class GuideCategoriesDemo extends GuideCardDemo {
   /// language. The seed also sizes the stage.
   List<CalendarCategory>? _seedRows;
   List<CalendarCategory>? _rows;
-
-  @override
-  String? idle(AppLocalizations l10n) => null;
-
-  @override
-  List<String> candidates(AppLocalizations l10n) {
-    final quote = calendarGuideLongestQuote;
-    return [
-      l10n.calendarGuideDemoCatCreated(quote),
-      l10n.calendarGuideDemoCatHidden(quote),
-      l10n.calendarGuideDemoCatDeleted(quote, l10n.eventCategoryOther),
-      l10n.calendarGuideDemoChanged(quote),
-    ];
-  }
 
   /// The first two visible built-ins, from the seed catalogue when the
   /// catalogue has not loaded (a relaunch onto the guide), and the book club
@@ -87,9 +76,6 @@ class GuideCategoriesDemo extends GuideCardDemo {
     ];
   }
 
-  static String _nameOf(CalendarCategory category, AppLocalizations l10n) =>
-      calendarGuideQuote(CalendarCategories.labelOf(category, l10n));
-
   void _replace(CalendarCategory category) {
     _rows = [for (final c in _rows!) c.id == category.id ? category : c];
   }
@@ -98,7 +84,7 @@ class GuideCategoriesDemo extends GuideCardDemo {
     final created = await CategoryEditorSheet.show(context, sandbox: true);
     if (created == null) return;
     _rows = [..._rows!, created];
-    say((l10n) => l10n.calendarGuideDemoCatCreated(_nameOf(created, l10n)));
+    did('created');
   }
 
   Future<void> _edit(BuildContext context, CalendarCategory category) async {
@@ -109,19 +95,19 @@ class GuideCategoriesDemo extends GuideCardDemo {
     );
     if (edited == null) return;
     _replace(edited);
-    say((l10n) => l10n.calendarGuideDemoChanged(_nameOf(edited, l10n)));
+    changed();
   }
 
   /// Hiding is archiving: the row stays, dimmed, and showing it again is a
-  /// change like any other — it has no caption of its own.
+  /// change like any other — it has no step of its own.
   void _toggleHidden(CalendarCategory category) {
     final next = category.copyWith(isHidden: !category.isHidden);
     _replace(next);
-    say(
-      (l10n) => next.isHidden
-          ? l10n.calendarGuideDemoCatHidden(_nameOf(next, l10n))
-          : l10n.calendarGuideDemoChanged(_nameOf(next, l10n)),
-    );
+    if (next.isHidden) {
+      did('hidden');
+    } else {
+      changed();
+    }
   }
 
   void _delete(CalendarCategory category) {
@@ -129,12 +115,7 @@ class GuideCategoriesDemo extends GuideCardDemo {
       for (final c in _rows!)
         if (c.id != category.id) c,
     ];
-    say(
-      (l10n) => l10n.calendarGuideDemoCatDeleted(
-        _nameOf(category, l10n),
-        l10n.eventCategoryOther,
-      ),
-    );
+    did('deleted');
   }
 
   /// The preset ⋮'s actions menu (`filter_preset_sheet.dart`): its items

@@ -9,6 +9,7 @@ import '../constants/occurrence_descriptions.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../models/recurrence_rule.dart';
 import '../services/day_summary_resolver.dart';
@@ -31,7 +32,8 @@ import 'form_rows.dart';
 /// offers the owner's own templates. Every answer lands in this demo.
 class GuideEventsDemo extends GuideCardDemo {
   GuideEventsDemo({DateTime Function() now = DateTime.now})
-    : _today = _todayUtc(now());
+    : _today = _todayUtc(now()),
+      super(CalendarGuideTopic.events);
 
   static const String slug = 'events';
 
@@ -70,21 +72,16 @@ class GuideEventsDemo extends GuideCardDemo {
     super.dispose();
   }
 
-  final GuideLocaleFormat _dates = GuideLocaleFormat(DateFormat.yMMMMEEEEd);
+  /// The Skipped report's date, short as the band's (D52): the long weekday
+  /// date made the report the slot's tallest line, and the stage started
+  /// below a 780 screen at 2.0 in German.
+  final GuideLocaleFormat _dates = GuideLocaleFormat(DateFormat.MMMEd);
 
   @override
-  String idle(AppLocalizations l10n) => l10n.calendarGuideDemoLongPressHint;
-
-  @override
-  List<String> candidates(AppLocalizations l10n) {
+  List<String> reports(AppLocalizations l10n) {
     final quote = calendarGuideLongestQuote;
     final date = calendarGuideLongestDate(_dates.of(l10n));
     return [
-      l10n.calendarGuideDemoLongPressHint,
-      l10n.calendarGuideDemoAdded(quote, date),
-      l10n.calendarGuideDemoChanged(quote),
-      l10n.calendarGuideDemoDeleted(quote),
-      l10n.calendarGuideDemoTemplate(quote),
       l10n.calendarGuideDemoSkipped(date, quote),
       l10n.calendarGuideWouldOpen(l10n.quickAlarmTitle),
     ];
@@ -193,12 +190,7 @@ class GuideEventsDemo extends GuideCardDemo {
     _add(event);
     final skipped = result.skippedDays;
     if (skipped != null && skipped.isNotEmpty) _skips[event.id] = {...skipped};
-    final title = calendarGuideQuote(event.title);
-    final start = event.startDateUtc;
-    say(
-      (l10n) =>
-          l10n.calendarGuideDemoAdded(title, _dates.of(l10n).format(start)),
-    );
+    did('added');
   }
 
   /// The add button's long press: the owner's own templates, read only, the
@@ -213,8 +205,7 @@ class GuideEventsDemo extends GuideCardDemo {
           startDate: day,
         );
         _add(event);
-        final title = calendarGuideQuote(event.title);
-        say((l10n) => l10n.calendarGuideDemoTemplate(title));
+        did('added');
       case EventTemplateBlank():
         await _addEvent(context, day);
       case EventTemplateQuickAlarm():
@@ -226,7 +217,35 @@ class GuideEventsDemo extends GuideCardDemo {
   /// teaches: the detail sheet, then the editor from its Edit, with Back
   /// returning to the detail; a skip, a description and the dates the
   /// detail sheet changes are kept too.
+  ///
+  /// The coach steps the trip makes reach the line only when it returns: a
+  /// sheet's barrier blocks the card's semantics, so a line changed under
+  /// it would never be announced.
   Future<void> _open(BuildContext context, CalendarEvent event) async {
+    final steps = ['opened'];
+    void settle() {
+      if (!context.mounted) return;
+      for (final step in steps) {
+        did(step);
+      }
+      steps.clear();
+    }
+
+    try {
+      await _trip(context, event, steps, settle);
+    } finally {
+      settle();
+    }
+  }
+
+  /// The trip's sheets; each coach step made is added to [steps], and
+  /// [settle] applies them before a report the trip ends on.
+  Future<void> _trip(
+    BuildContext context,
+    CalendarEvent event,
+    List<String> steps,
+    VoidCallback settle,
+  ) async {
     var current = event;
     final day = _dayOf(event);
     while (true) {
@@ -242,10 +261,12 @@ class GuideEventsDemo extends GuideCardDemo {
             : null,
       );
       if (action == null || !context.mounted) return;
-      final title = calendarGuideQuote(current.title);
       switch (action) {
         case EventDetailAction.skipOccurrence:
           (_skips[current.id] ??= {}).add(day);
+          final title = calendarGuideQuote(current.title);
+          // The report stands over the steps the trip made, not under them.
+          settle();
           say(
             (l10n) => l10n.calendarGuideDemoSkipped(
               _dates.of(l10n).format(day),
@@ -270,15 +291,16 @@ class GuideEventsDemo extends GuideCardDemo {
               continue;
             case EventEditorDeleted():
               _remove(current.id);
-              say((l10n) => l10n.calendarGuideDemoDeleted(title));
+              steps.add('deleted');
               return;
             case EventEditorSaved():
               current = result.event;
               _replace(current);
               final skipped = result.skippedDays;
               if (skipped != null) _skips[current.id] = {...skipped};
-              final saved = calendarGuideQuote(current.title);
-              say((l10n) => l10n.calendarGuideDemoChanged(saved));
+              steps.add('changed');
+              // The stage under the sheet redraws; the line waits.
+              notifyListeners();
               if (!_occursOn(current, day)) return;
           }
         // The practice page's handling (`_eventTrip`), on this demo's list.
@@ -286,8 +308,8 @@ class GuideEventsDemo extends GuideCardDemo {
           final edited = await _editDescription(context, current, day);
           if (edited == null || !context.mounted) continue;
           current = edited;
-          final saved = calendarGuideQuote(current.title);
-          say((l10n) => l10n.calendarGuideDemoChanged(saved));
+          steps.add('changed');
+          notifyListeners();
         case EventDetailAction.addDate:
         case EventDetailAction.showDates:
           final dates = current.explicitDates;
@@ -307,8 +329,8 @@ class GuideEventsDemo extends GuideCardDemo {
           if (picked == null || setEquals(picked, dates)) continue;
           current = current.withExplicitDates(picked);
           _replace(current);
-          final saved = calendarGuideQuote(current.title);
-          say((l10n) => l10n.calendarGuideDemoChanged(saved));
+          steps.add('changed');
+          notifyListeners();
           if (!_occursOn(current, day)) return;
         // A demo event carries no note: the sandboxed editor has no Linked
         // note row.

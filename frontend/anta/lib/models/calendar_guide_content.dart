@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
+import 'calendar_guide_coach.dart';
 
 /// One read row of the calendar guide.
 ///
@@ -25,6 +26,24 @@ const IconData calendarGuidePracticeIcon = Icons.touch_app_rounded;
 /// The practice calendar's slug, frozen like a page's: its hub row's id is
 /// built on it.
 const String calendarGuidePracticeSlug = 'practice';
+
+/// The practice calendar's tour (D42), in the order its band asks for each
+/// tap; the band ends on [calendarGuideTourDone]. Beside the slug, as a
+/// page's steps sit on its topic.
+final List<GuideCoachStep> calendarGuideTourSteps = List.unmodifiable([
+  GuideCoachStep('picked', (l10n) => l10n.calendarGuideTourPick),
+  GuideCoachStep('opened', (l10n) => l10n.calendarGuideTourOpen),
+  GuideCoachStep(
+    'changed',
+    (l10n) => l10n.calendarGuideTourEdit(l10n.edit, l10n.save),
+  ),
+  GuideCoachStep('added', (l10n) => l10n.calendarGuideTourAdd),
+  GuideCoachStep('filtered', (l10n) => l10n.calendarGuideTourFilter(l10n.apply)),
+]);
+
+/// The tour's closing line, for its coach's `closing`.
+String calendarGuideTourDone(AppLocalizations l10n) =>
+    l10n.calendarGuideTourDone;
 
 /// The guide's pages, in the hub's order.
 ///
@@ -92,47 +111,150 @@ enum CalendarGuideTopic {
     good => null,
   };
 
-  /// The lead-in of the page's "Try it" card, which is also the card's one
-  /// searchable line. Good to know has nothing to try.
-  String? tryLead(AppLocalizations l10n) => switch (this) {
-    screen => l10n.calendarGuideTryScreen,
-    events => l10n.calendarGuideTryEvents,
-    kinds => l10n.calendarGuideTryKinds,
-    alerts => l10n.calendarGuideTryAlerts,
-    attendance => l10n.calendarGuideTryAttendance(
-      l10n.eventPresencePresent,
-      l10n.eventPresenceMissed,
-    ),
-    categories => l10n.calendarGuideTryCategories,
-    finding => l10n.calendarGuideTryFinding,
-    setup => l10n.calendarGuideTrySetup,
-    good => null,
+  /// The coach steps of the page's "Try it" card, in the order she is asked
+  /// for them; empty for Good to know, which has nothing to try. Here rather
+  /// than in the demo so the hub's search and the card's coach read one
+  /// source. A getter, not a call per language: the demo's coach is built
+  /// before the page has a language and outlives a change of it, so each
+  /// line is written when it is drawn.
+  List<GuideCoachStep> get steps => switch (this) {
+    screen => [
+      GuideCoachStep(
+        'title',
+        (l10n) => l10n.calendarGuideCoachScreenTitle(l10n.calendar),
+      ),
+      GuideCoachStep('more', (l10n) => l10n.calendarGuideCoachScreenMore),
+      GuideCoachStep(
+        'panel',
+        (l10n) => l10n.calendarGuideCoachScreenPanel(
+          l10n.panelModeDay,
+          l10n.panelModeTimeline,
+          l10n.upcomingEvents,
+        ),
+      ),
+    ],
+    events => [
+      GuideCoachStep(
+        'added',
+        (l10n) => l10n.calendarGuideCoachEventsAdd(l10n.save),
+      ),
+      GuideCoachStep('opened', (l10n) => l10n.calendarGuideCoachEventsOpen),
+      GuideCoachStep(
+        'changed',
+        (l10n) => l10n.calendarGuideCoachEventsChange(l10n.edit, l10n.save),
+      ),
+      GuideCoachStep(
+        'deleted',
+        (l10n) =>
+            l10n.calendarGuideCoachEventsDelete(l10n.edit, l10n.deleteEvent),
+      ),
+    ],
+    kinds => [
+      GuideCoachStep(
+        'repeat',
+        (l10n) => l10n.calendarGuideCoachKindsRepeat(
+          l10n.eventRepeat,
+          l10n.recurrenceWeekly,
+          l10n.eventDescriptionDone,
+        ),
+      ),
+      GuideCoachStep(
+        'skipped',
+        (l10n) => l10n.calendarGuideCoachKindsSkip(
+          l10n.eventDateLabel,
+          l10n.eventSkipOccurrence,
+        ),
+      ),
+      GuideCoachStep(
+        'once',
+        (l10n) => l10n.calendarGuideCoachKindsOnce(
+          l10n.eventRepeat,
+          l10n.recurrenceDoesNotRepeat,
+        ),
+      ),
+      GuideCoachStep(
+        'addDate',
+        (l10n) => l10n.calendarGuideCoachKindsAddDate(l10n.eventAddDate),
+      ),
+    ],
+    alerts => [
+      GuideCoachStep(
+        'alert',
+        (l10n) => l10n.calendarGuideCoachAlertsAdd(
+          l10n.eventAlertAdd,
+          l10n.eventDescriptionDone,
+        ),
+      ),
+      GuideCoachStep(
+        'alarm',
+        (l10n) =>
+            l10n.calendarGuideCoachAlertsShow(l10n.calendarGuideShowAlarm),
+      ),
+    ],
+    attendance => [
+      GuideCoachStep(
+        'flipped',
+        (l10n) => l10n.calendarGuideCoachAttendanceMark,
+      ),
+      GuideCoachStep(
+        'counting',
+        (l10n) =>
+            l10n.calendarGuideCoachAttendanceCount(l10n.eventCountOccurrences),
+      ),
+    ],
+    categories => [
+      GuideCoachStep(
+        'created',
+        (l10n) => l10n.calendarGuideCoachCategoriesCreate(
+          l10n.createCategory,
+          l10n.save,
+        ),
+      ),
+      GuideCoachStep('hidden', (l10n) => l10n.calendarGuideCoachCategoriesHide),
+      GuideCoachStep(
+        'deleted',
+        (l10n) => l10n.calendarGuideCoachCategoriesDelete(
+          l10n.delete,
+          l10n.eventCategoryOther,
+        ),
+      ),
+    ],
+    finding => [
+      GuideCoachStep('query', (l10n) => l10n.calendarGuideCoachFindingSearch),
+      GuideCoachStep(
+        'filtered',
+        (l10n) => l10n.calendarGuideCoachFindingFilter(l10n.apply),
+      ),
+    ],
+    setup => [
+      GuideCoachStep(
+        'holidays',
+        (l10n) =>
+            l10n.calendarGuideCoachSetupHolidays(l10n.holidayProfileTitle),
+      ),
+      GuideCoachStep(
+        'week',
+        (l10n) => l10n.calendarGuideCoachSetupWeek(l10n.calendarWeekStartTitle),
+      ),
+    ],
+    good => const [],
   };
+
+  /// The card's searchable line: its first instruction, which the card
+  /// draws as the coach line until she acts (D48). Good to know has none.
+  String? tryLead(AppLocalizations l10n) {
+    final steps = this.steps;
+    return steps.isEmpty ? null : steps.first.line(l10n);
+  }
 
   /// The page's read rows, in page order.
   List<CalendarGuideRow> rows(AppLocalizations l10n) => switch (this) {
     screen => [
       CalendarGuideRow(
-        'month',
-        Icons.today_rounded,
-        l10n.calendarGuideMonthTitle,
-        l10n.calendarGuideMonthBody,
-      ),
-      CalendarGuideRow(
         'marks',
         Icons.color_lens_outlined,
         l10n.calendarGuideMarksTitle,
         l10n.calendarGuideMarksBody,
-      ),
-      CalendarGuideRow(
-        'panel',
-        Icons.view_day_outlined,
-        l10n.calendarGuidePanelTitle,
-        l10n.calendarGuidePanelBody(
-          l10n.panelModeDay,
-          l10n.panelModeTimeline,
-          l10n.upcomingEvents,
-        ),
       ),
       CalendarGuideRow(
         'views',
@@ -146,32 +268,6 @@ enum CalendarGuideTopic {
       ),
     ],
     events => [
-      CalendarGuideRow(
-        'add-event',
-        Icons.add_circle_outline_rounded,
-        l10n.calendarGuideAddTitle,
-        l10n.calendarGuideAddBody(l10n.save),
-      ),
-      CalendarGuideRow(
-        'time',
-        Icons.schedule_outlined,
-        l10n.calendarGuideTimeTitle,
-        l10n.calendarGuideTimeBody(
-          l10n.eventAllDay,
-          l10n.eventStarts,
-          l10n.eventEnds,
-        ),
-      ),
-      CalendarGuideRow(
-        'open',
-        Icons.edit_outlined,
-        l10n.calendarGuideOpenTitle,
-        l10n.calendarGuideOpenBody(
-          l10n.edit,
-          l10n.deleteEvent,
-          l10n.eventSkipOccurrence,
-        ),
-      ),
       CalendarGuideRow(
         'description',
         Icons.notes_rounded,
@@ -202,56 +298,6 @@ enum CalendarGuideTopic {
     ],
     kinds => [
       CalendarGuideRow(
-        'repeat',
-        Icons.repeat_rounded,
-        l10n.calendarGuideRepeatTitle,
-        l10n.calendarGuideRepeatBody(
-          l10n.eventRepeat,
-          l10n.eventDescriptionDone,
-        ),
-      ),
-      CalendarGuideRow(
-        'kinds-one',
-        Icons.looks_one_outlined,
-        l10n.calendarGuideKindsOneTitle,
-        l10n.calendarGuideKindsOneBody(
-          l10n.eventRepeat,
-          l10n.recurrenceDoesNotRepeat,
-        ),
-      ),
-      CalendarGuideRow(
-        'kinds-dates',
-        Icons.event_repeat_outlined,
-        l10n.calendarGuideKindsDatesTitle,
-        l10n.calendarGuideKindsDatesBody(
-          l10n.eventAddDate,
-          l10n.eventRepeat,
-          l10n.recurrenceSpecificDates(3),
-          l10n.eventDatesLabel,
-          l10n.eventSkipOccurrence,
-        ),
-      ),
-      CalendarGuideRow(
-        'kinds-only-one',
-        Icons.filter_1_outlined,
-        l10n.calendarGuideKindsOnlyOneTitle,
-        l10n.calendarGuideKindsOnlyOneBody(
-          l10n.eventAlertRemoveAfter,
-          l10n.alertsSkipAction,
-        ),
-      ),
-      CalendarGuideRow(
-        'kinds-only-repeat',
-        Icons.all_inclusive_rounded,
-        l10n.calendarGuideKindsOnlyRepeatTitle,
-        l10n.calendarGuideKindsOnlyRepeatBody(
-          l10n.eventTrackPresence,
-          l10n.eventCountOccurrences,
-          l10n.eventSkipOccurrence,
-          l10n.eventSkippedDays,
-        ),
-      ),
-      CalendarGuideRow(
         'kinds-one-change',
         Icons.sync_alt_rounded,
         l10n.calendarGuideKindsOneChangeTitle,
@@ -264,7 +310,6 @@ enum CalendarGuideTopic {
         l10n.calendarGuideKindsTrickyBody(
           l10n.recurrenceEnds,
           l10n.eventRepeat,
-          l10n.recurrenceBeforeStart,
         ),
       ),
       CalendarGuideRow(
@@ -274,27 +319,17 @@ enum CalendarGuideTopic {
         l10n.calendarGuideKindsBirthdayBody(l10n.eventCategoryBirthday),
       ),
       CalendarGuideRow(
-        'skipped',
-        Icons.event_busy_rounded,
-        l10n.calendarGuideSkippedTitle,
-        l10n.calendarGuideSkippedBody(
-          l10n.eventSkipOccurrence,
+        'kinds-only-repeat',
+        Icons.all_inclusive_rounded,
+        l10n.calendarGuideKindsOnlyRepeatTitle,
+        l10n.calendarGuideKindsOnlyRepeatBody(
+          l10n.eventTrackPresence,
+          l10n.eventCountOccurrences,
           l10n.eventSkippedDays,
         ),
       ),
     ],
     alerts => [
-      CalendarGuideRow(
-        'add-alert',
-        Icons.add_alert_outlined,
-        l10n.calendarGuideAlertAddTitle,
-        l10n.calendarGuideAlertAddBody(
-          l10n.eventAlerts,
-          l10n.eventAlertAdd,
-          l10n.eventDescriptionDone,
-          l10n.save,
-        ),
-      ),
       CalendarGuideRow(
         'alert-kinds',
         Icons.alarm_rounded,
@@ -330,30 +365,8 @@ enum CalendarGuideTopic {
         l10n.calendarGuideOpenOftenTitle,
         l10n.calendarGuideOpenOftenBody,
       ),
-      CalendarGuideRow(
-        'quick-alarm',
-        Icons.alarm_add_rounded,
-        l10n.calendarGuideQuickAlarmTitle,
-        l10n.calendarGuideQuickAlarmBody(l10n.quickAlarmRow),
-      ),
-      CalendarGuideRow(
-        'hub',
-        Icons.list_alt_rounded,
-        l10n.calendarGuideHubTitle,
-        l10n.calendarGuideHubBody(l10n.alertsTitle),
-      ),
     ],
     attendance => [
-      CalendarGuideRow(
-        'attendance',
-        Icons.how_to_reg_outlined,
-        l10n.calendarGuideTrackTitle,
-        l10n.calendarGuideTrackBody(
-          l10n.eventTrackPresence,
-          l10n.eventPresencePresent,
-          l10n.eventPresenceMissed,
-        ),
-      ),
       CalendarGuideRow(
         'assume',
         Icons.event_busy_outlined,
@@ -363,21 +376,6 @@ enum CalendarGuideTopic {
           l10n.eventPresencePresent,
           l10n.eventPresenceMissed,
           l10n.eventAssumeAbsent,
-        ),
-      ),
-      CalendarGuideRow(
-        'count',
-        Icons.tag_rounded,
-        l10n.calendarGuideCountTitle,
-        l10n.calendarGuideCountBody(
-          l10n.eventCountOccurrences,
-          l10n.eventCountStyleNumbered,
-          l10n.eventCountStyleElapsed,
-          l10n.eventNumberedDays(1),
-          l10n.eventNumberedDays(2),
-          l10n.eventNumberedWeeks(3),
-          l10n.eventElapsedYears(1),
-          l10n.eventElapsedYears(2),
         ),
       ),
       CalendarGuideRow(
@@ -400,7 +398,6 @@ enum CalendarGuideTopic {
         l10n.calendarGuidePerDayBody(
           l10n.eventPerOccurrenceDescriptions,
           l10n.eventDescriptionScopeThisDay,
-          l10n.eventDescriptionScopeAllDays,
         ),
       ),
     ],
@@ -412,33 +409,10 @@ enum CalendarGuideTopic {
         l10n.calendarGuideCategoryBody(l10n.eventCategory),
       ),
       CalendarGuideRow(
-        'cat-create',
-        Icons.add_circle_outline_rounded,
-        l10n.calendarGuideCatCreateTitle,
-        l10n.calendarGuideCatCreateBody(
-          l10n.calendarSettingsRow,
-          l10n.calendarCategories,
-          l10n.createCategory,
-          l10n.save,
-        ),
-      ),
-      CalendarGuideRow(
         'cat-change',
         Icons.edit_outlined,
         l10n.calendarGuideCatChangeTitle,
         l10n.calendarGuideCatChangeBody,
-      ),
-      CalendarGuideRow(
-        'cat-hide',
-        Icons.visibility_off_outlined,
-        l10n.calendarGuideCatHideTitle,
-        l10n.calendarGuideCatHideBody(l10n.hide, l10n.show),
-      ),
-      CalendarGuideRow(
-        'cat-delete',
-        Icons.delete_outline_rounded,
-        l10n.calendarGuideCatDeleteTitle,
-        l10n.calendarGuideCatDeleteBody(l10n.delete, l10n.eventCategoryOther),
       ),
       CalendarGuideRow(
         'cat-alerts',
@@ -451,12 +425,6 @@ enum CalendarGuideTopic {
       ),
     ],
     finding => [
-      CalendarGuideRow(
-        'search',
-        Icons.search_rounded,
-        l10n.calendarGuideSearchTitle,
-        l10n.calendarGuideSearchBody(l10n.upcomingEvents),
-      ),
       CalendarGuideRow(
         'filters',
         Icons.filter_alt_outlined,
@@ -480,25 +448,6 @@ enum CalendarGuideTopic {
         Icons.settings_outlined,
         l10n.calendarGuideSettingsTitle,
         l10n.calendarGuideSettingsBody(l10n.calendarSettingsRow, l10n.save),
-      ),
-      CalendarGuideRow(
-        'holidays',
-        Icons.public_rounded,
-        l10n.calendarGuideHolidaysTitle,
-        l10n.calendarGuideHolidaysBody(
-          l10n.calendarSettingsRow,
-          l10n.holidayProfileTitle,
-        ),
-      ),
-      CalendarGuideRow(
-        'week-start',
-        Icons.date_range_rounded,
-        l10n.calendarGuideWeekStartTitle,
-        l10n.calendarGuideWeekStartBody(
-          l10n.calendarSettingsRow,
-          l10n.calendarAppearanceSection,
-          l10n.calendarWeekStartTitle,
-        ),
       ),
       CalendarGuideRow(
         'language',

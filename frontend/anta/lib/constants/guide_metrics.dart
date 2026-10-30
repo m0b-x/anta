@@ -23,6 +23,12 @@ abstract final class GuideMetrics {
   /// gap the list keeps above its first card.
   static const double headingGap = 8;
 
+  /// Where a page's heading stops growing (D51): a 20 px heading at 2.0 is
+  /// 40 px and four lines in German — a fifth of a 780 screen before the
+  /// first instruction. At 1.5 it is 30 px; the lead and the rows below it
+  /// keep the full scale, since they are what she reads.
+  static const double headingMaxTextScale = 1.5;
+
   /// A hub row's padding, glyph and gaps, handed to its `ListTile` and read
   /// by the glyph rule's measurement, so the two cannot disagree. The values
   /// are Material 3's `ListTile` defaults: the row looks like Calendar
@@ -70,11 +76,13 @@ abstract final class GuideMetrics {
   /// starts where a read row's title starts in the card below it.
   static const double cardInset = 16;
 
-  /// Lead-in to stage, then stage to caption: the stage belongs to the
-  /// sentence that names it, the caption to the stage it reports on, so the
-  /// second gap is the tighter one.
-  static const double leadToStage = 12;
-  static const double stageToCaption = 8;
+  /// Coach line to stage: the stage belongs to the sentence that says where
+  /// to tap on it.
+  static const double coachToStage = 12;
+
+  /// Between the coach line and its skip button: the button's own 48 dp
+  /// target already carries air round its glyph, so the gap stays small.
+  static const double coachGap = 8;
 
   /// The stage: a patch of the page's ground inside the card — a step darker
   /// in dark, the same tone as the card in light, where the hairline alone

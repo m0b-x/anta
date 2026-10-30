@@ -6,6 +6,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../models/event_alert.dart';
 import '../pages/alarm_page.dart';
@@ -29,7 +30,8 @@ import 'quick_alarm_sheet.dart';
 class GuideAlertsDemo extends GuideCardDemo {
   GuideAlertsDemo({DateTime Function() now = DateTime.now})
     : _now = now,
-      _today = _todayUtc(now());
+      _today = _todayUtc(now()),
+      super(CalendarGuideTopic.alerts);
 
   /// Handed on to the quick alarm sheet, so its times read the same day.
   final DateTime Function() _now;
@@ -49,11 +51,6 @@ class GuideAlertsDemo extends GuideCardDemo {
   CalendarEvent? _event;
   List<EventAlert> _alerts = const [];
   int _nextId = 0;
-
-  /// The empty slot is the resting state (D30): until she adds an alert
-  /// there is nothing to report.
-  @override
-  String? idle(AppLocalizations l10n) => null;
 
   /// What an alert of the timed seed can say, each at its widest digits.
   static List<String> _describes(AppLocalizations l10n) => [
@@ -84,9 +81,8 @@ class GuideAlertsDemo extends GuideCardDemo {
   String? _standInLocale;
 
   @override
-  List<String> candidates(AppLocalizations l10n) {
+  List<String> reports(AppLocalizations l10n) {
     final quote = calendarGuideLongestQuote;
-    final describes = _describes(l10n);
     final times = [
       for (final use24Hour in const [false, true])
         EventTimeFormatter.formatMinuteFor(
@@ -100,9 +96,6 @@ class GuideAlertsDemo extends GuideCardDemo {
       AgendaListView.anchorLabel(l10n.localeName, DateTime.utc(2027, 9, 30)),
     ];
     return [
-      for (final alert in describes)
-        l10n.calendarGuideDemoAlertSet(quote, alert),
-      l10n.calendarGuideDemoChanged(quote),
       for (final time in times) ...[
         l10n.calendarGuideDemoHereOnly(l10n.quickAlarmSet(quote, time)),
         for (final day in days)
@@ -143,7 +136,7 @@ class GuideAlertsDemo extends GuideCardDemo {
     final alert = result.alert;
     _alerts = [..._alerts, alert];
     _event = event.copyWith(removeAfterAlert: result.removeAfterAlert);
-    _saidAlert(event, alert);
+    did('alert');
   }
 
   Future<void> _editAlert(
@@ -159,37 +152,27 @@ class GuideAlertsDemo extends GuideCardDemo {
       showRemoveAfter: true,
       removeAfterAlert: event.removeAfterAlert,
     );
-    final title = calendarGuideQuote(event.title);
     switch (result) {
       case null:
         return;
       case AlertEditorSaved(alert: final saved, :final removeAfterAlert):
         _alerts = [for (final a in _alerts) a.id == saved.id ? saved : a];
         _event = event.copyWith(removeAfterAlert: removeAfterAlert);
-        _saidAlert(event, saved);
+        did('alert');
       case AlertEditorRemoved():
         _alerts = [
           for (final a in _alerts)
             if (a.id != alert.id) a,
         ];
-        say((l10n) => l10n.calendarGuideDemoChanged(title));
+        changed();
     }
-  }
-
-  void _saidAlert(CalendarEvent event, EventAlert alert) {
-    final title = calendarGuideQuote(event.title);
-    // The event is timed, so its alerts' words carry no clock to format.
-    say(
-      (l10n) =>
-          l10n.calendarGuideDemoAlertSet(title, alert.describe(l10n, event)),
-    );
   }
 
   /// The ring screen as a ring of this event would draw it, its payload
   /// built as the scheduler builds one — the words written through
   /// [AlertLabels] in her language and on her phone's clock — with demo ids
   /// and no database, so nothing it closes can touch a real alert.
-  void _showAlarm(BuildContext context, CalendarEvent event) {
+  Future<void> _showAlarm(BuildContext context, CalendarEvent event) async {
     final l10n = AppLocalizations.of(context)!;
     final labels = AlertLabels(
       strings: l10n,
@@ -225,7 +208,7 @@ class GuideAlertsDemo extends GuideCardDemo {
       // turned removal on. The preview's Keep only closes the page.
       removeAfterAlert: event.removeAfterAlert,
     );
-    AppNavigator.push<void>(
+    await AppNavigator.push<void>(
       context,
       AlarmPage.preview(
         payload: payload.copyWith(
@@ -233,6 +216,9 @@ class GuideAlertsDemo extends GuideCardDemo {
         ),
       ),
     );
+    // After the page closes: the card's line is a live region, and a new
+    // line under the ring screen would be spoken over it.
+    did('alarm');
   }
 
   /// The real quick alarm sheet; its draft is reported in the words the

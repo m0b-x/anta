@@ -214,8 +214,6 @@ void main() {
   final today = DateTime.utc(now.year, now.month, now.day);
   DateTime day(int offset) =>
       DateTime.utc(today.year, today.month, today.day + offset);
-  // Built on first use: the locale data loads in setUpAll.
-  late final dates = DateFormat.MMMEd('en');
   final seedTitles = [
     en.calendarGuideDemoEventDentist,
     en.calendarGuideDemoEventYoga,
@@ -255,9 +253,10 @@ void main() {
   testWidgets('opens idle on today, with Start over disabled', (tester) async {
     final robot = await open(tester);
 
-    expect(robot.caption, en.calendarGuidePracticeIdle);
+    expect(robot.caption, en.calendarGuideTourPick);
     expect(find.text(en.calendarGuidePracticeBanner), findsOneWidget);
     expect(robot.canReset, isFalse);
+    expect(robot.canSkip, isTrue);
     expect(robot.filterBadge, isNull);
     expect(robot.format, CalendarFormat.month);
     // Yoga repeats on today's weekday.
@@ -269,27 +268,81 @@ void main() {
     await expectNothingSaved();
   });
 
-  testWidgets('picking a day names it and counts its events', (tester) async {
+  testWidgets('a day with events moves the tour on to its event; a day '
+      'without keeps asking for one', (tester) async {
     final robot = await open(tester);
-
-    await robot.pickDay(day(2));
-
-    expect(robot.dayPanelTitles, contains(en.calendarGuideDemoEventDentist));
-    // The count is the demo's own, from a twin seeded the way the page
-    // seeds it.
+    // The demo's days, from a twin seeded the way the page seeds it.
     final twin = GuideDemoCalendar(
       l10n: en,
       today: now,
       categories: (await CategoryService.getInstance()).categories,
     );
-    expect(
-      robot.caption,
-      en.calendarGuidePickedDay(
-        dates.format(day(2)),
-        twin.eventsFor(day(2)).length,
-      ),
-    );
+    final empty = [
+      for (var d = 1; d <= 28; d++) DateTime.utc(today.year, today.month, d),
+    ].firstWhere((d) => twin.eventsFor(d).isEmpty);
+
+    await robot.pickDay(empty);
+    expect(robot.caption, en.calendarGuideTourPick);
     expect(robot.canReset, isFalse);
+
+    await robot.pickDay(day(2));
+    expect(robot.dayPanelTitles, contains(en.calendarGuideDemoEventDentist));
+    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.canReset, isTrue, reason: 'a step of the tour is done');
+    await expectNothingSaved();
+  });
+
+  testWidgets('the tour walked in order: a row, Edit and Save, + and Save, '
+      'the funnel, then the closing line with the skip disabled', (
+    tester,
+  ) async {
+    final robot = await open(tester);
+    await robot.pickDay(day(2));
+
+    // The trip's steps reach the band when it returns: under a sheet the
+    // line would change unannounced.
+    await robot.openRow('guide-demo-dentist');
+    expect(robot.caption, en.calendarGuideTourOpen);
+    await robot.detailEdit();
+    await robot.typeTitle('Dentist again');
+    await robot.saveEditor();
+    expect(robot.detailOpen, isTrue);
+    expect(robot.caption, en.calendarGuideTourOpen);
+    await robot.detailClose();
+    expect(robot.caption, en.calendarGuideTourAdd);
+
+    await robot.add();
+    await robot.typeTitle('Swim');
+    await robot.saveEditor();
+    expect(robot.caption, en.calendarGuideTourFilter(en.apply));
+    expect(robot.canSkip, isTrue);
+
+    await robot.openFilters();
+    await robot.tapId(SemanticsIds.filterHolidays);
+    await robot.tapId(SemanticsIds.filterApply);
+    expect(robot.caption, en.calendarGuideTourDone);
+    expect(robot.canSkip, isFalse);
+    await expectNothingSaved();
+  });
+
+  testWidgets('the skip steps past a line and is disabled at the end; Start '
+      'over after a skip alone restarts the tour', (tester) async {
+    final robot = await open(tester);
+
+    await robot.skip();
+    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.canReset, isTrue, reason: 'the demo is clean, the tour not');
+
+    await robot.reset();
+    expect(robot.caption, en.calendarGuideTourPick);
+    expect(robot.canReset, isFalse);
+    expect(robot.canSkip, isTrue);
+
+    for (var i = 0; i < calendarGuideTourSteps.length; i++) {
+      await robot.skip();
+    }
+    expect(robot.caption, en.calendarGuideTourDone);
+    expect(robot.canSkip, isFalse);
     await expectNothingSaved();
   });
 
@@ -307,15 +360,11 @@ void main() {
       robot.barLabels.where((label) => label.contains('Swim')),
       hasLength(1),
     );
-    expect(
-      robot.caption,
-      en.calendarGuideDemoAddedShort('Swim', dates.format(day(3))),
-    );
     expect(robot.canReset, isTrue);
 
     await robot.reset();
 
-    expect(robot.caption, en.calendarGuidePracticeIdle);
+    expect(robot.caption, en.calendarGuideTourPick);
     expect(robot.canReset, isFalse);
     expect(robot.dayPanelTitles, isNot(contains('Swim')));
     expect(robot.barLabels.where((label) => label.contains('Swim')), isEmpty);
@@ -333,10 +382,10 @@ void main() {
     await robot.typeTitle('Dentist again');
     await robot.saveEditor();
 
-    expect(robot.caption, en.calendarGuideDemoChanged('Dentist again'));
     // The trip reopens the detail sheet on the day, as the calendar's does.
     expect(robot.detailOpen, isTrue);
     await robot.detailClose();
+    expect(robot.caption, en.calendarGuideTourAdd);
     expect(robot.dayPanelTitles, contains('Dentist again'));
     expect(
       robot.dayPanelTitles,
@@ -358,13 +407,9 @@ void main() {
       robot.dayPanelTitles,
       isNot(contains(en.calendarGuideDemoEventYoga)),
     );
-    expect(
-      robot.caption,
-      en.calendarGuideDemoSkipped(
-        dates.format(today),
-        en.calendarGuideDemoEventYoga,
-      ),
-    );
+    // No step: the day panel shows it, and the band still asks for the
+    // first step not done.
+    expect(robot.caption, en.calendarGuideTourPick);
     // Yoga's other days: a week either way, the missed one counted too.
     await robot.pickDay(day(today.day > 7 ? -7 : 7));
     expect(robot.dayPanelTitles, contains(en.calendarGuideDemoEventYoga));
@@ -382,10 +427,8 @@ void main() {
     await robot.deleteInEditor(en.delete);
 
     expect(robot.detailOpen, isFalse);
-    expect(
-      robot.caption,
-      en.calendarGuideDemoDeleted(en.calendarGuideDemoEventDentist),
-    );
+    // No step: the grid and the panel show it.
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
     expect(
       robot.dayPanelTitles,
       isNot(contains(en.calendarGuideDemoEventDentist)),
@@ -399,8 +442,8 @@ void main() {
     await expectNothingSaved();
   });
 
-  testWidgets('the funnel: a filter applied counts on the badge and in the '
-      'caption', (tester) async {
+  testWidgets('the funnel: a filter applied counts on the badge, and the '
+      'early step is done where it sits', (tester) async {
     final robot = await open(tester);
 
     await robot.openFilters();
@@ -408,37 +451,42 @@ void main() {
     await robot.tapId(SemanticsIds.filterApply);
 
     expect(robot.filterBadge, 1);
-    expect(robot.caption, en.calendarGuideDemoFiltered(1));
+    expect(robot.caption, en.calendarGuideTourPick);
     expect(robot.canReset, isTrue);
+    for (var i = 0; i < calendarGuideTourSteps.length - 1; i++) {
+      await robot.skip();
+    }
+    expect(robot.caption, en.calendarGuideTourDone, reason: 'filter is done');
     await expectNothingSaved();
   });
 
-  testWidgets("the view menu's formats reshape the grid and say so", (
-    tester,
-  ) async {
+  testWidgets("the view menu's formats reshape the grid, and its Overview "
+      'only says what it would open', (tester) async {
     final robot = await open(tester);
 
     await robot.pickFormat(SemanticsIds.calendarFormatWeek);
     expect(robot.format, CalendarFormat.week);
     expect(robot.cellCount, 7);
-    expect(robot.caption, en.calendarGuideDemoFormat(en.calendarFormatWeek));
+    expect(robot.caption, en.calendarGuideTourPick, reason: 'the grid shows it');
 
     await robot.pickFormat(SemanticsIds.calendarFormatTwoWeeks);
     expect(robot.format, CalendarFormat.twoWeeks);
     expect(robot.cellCount, 14);
-    expect(
-      robot.caption,
-      en.calendarGuideDemoFormat(en.calendarFormatTwoWeeks),
-    );
 
     await robot.tapId(SemanticsIds.calendarViewMenu);
     await robot.tapId(SemanticsIds.calendarOverviewOpen);
     expect(robot.caption, en.calendarGuideWouldOpen(en.calendarOverview));
     expect(find.byType(CalendarGuidePracticePage), findsOneWidget);
+
+    // The next step's action takes the report away.
+    await robot.pickDay(day(2));
+    expect(robot.caption, en.calendarGuideTourOpen);
     await expectNothingSaved();
   });
 
-  testWidgets("the ⋮'s four rows only say what they would do", (tester) async {
+  testWidgets("the ⋮'s four rows only say what they would do, each alone", (
+    tester,
+  ) async {
     final robot = await open(tester);
 
     await robot.pickMore(SemanticsIds.calendarAlertsOpen);
@@ -450,11 +498,15 @@ void main() {
     await robot.pickMore(SemanticsIds.calendarSettingsOpen);
     expect(robot.caption, en.calendarGuideWouldOpen(en.calendarSettingsRow));
     expect(find.byType(CalendarGuidePracticePage), findsOneWidget);
-    expect(robot.canReset, isFalse);
+    expect(robot.canReset, isFalse, reason: 'a report is no step');
+
+    await robot.pickDay(day(2));
+    expect(robot.caption, en.calendarGuideTourOpen);
     await expectNothingSaved();
   });
 
-  testWidgets("the panel's modes each say what they show", (tester) async {
+  testWidgets("the panel's modes show their own lists and leave the tour's "
+      'line alone', (tester) async {
     final robot = await open(tester);
     // Today's first event heads the Upcoming list: Yoga, unless today is
     // also a day of an all-day seed (rent on the 1st, the birthday).
@@ -463,102 +515,184 @@ void main() {
     expect(robot.canExpandPanel, isFalse);
 
     await robot.showPanel(CalendarPanelMode.timeline);
-    expect(
-      robot.caption,
-      en.calendarGuideDemoPanelTimeline(en.panelModeTimeline),
-    );
     await robot.showPanel(CalendarPanelMode.upcoming);
-    expect(robot.caption, en.calendarGuideDemoPanelUpcoming(en.upcomingEvents));
     expect(robot.firstUpcomingOf(seedTitles), todayFirst);
     // The expand button stays, disabled: the practice panel never covers
     // its grid.
     expect(find.byTooltip(en.panelExpand), findsOneWidget);
     expect(robot.canExpandPanel, isFalse);
     await robot.showPanel(CalendarPanelMode.day);
-    expect(robot.caption, en.calendarGuideDemoPanelDay(en.panelModeDay));
+    expect(robot.caption, en.calendarGuideTourPick);
     await expectNothingSaved();
   });
 
-  testWidgets('the band keeps its height whatever the caption says', (
+  testWidgets('a Timeline block opens the event: the band asks for the edit '
+      'once the sheet is closed', (tester) async {
+    final robot = await open(tester);
+    await robot.skip();
+    expect(robot.caption, en.calendarGuideTourOpen);
+
+    await robot.showPanel(CalendarPanelMode.timeline);
+    await robot.tapTimelineEvent(en.calendarGuideDemoEventYoga);
+    expect(robot.detailOpen, isTrue);
+    expect(robot.caption, en.calendarGuideTourOpen, reason: 'under the sheet');
+    await robot.detailClose();
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
+    await expectNothingSaved();
+  });
+
+  testWidgets("the template picker's Blank saved is the add step", (
     tester,
   ) async {
-    final robot = await open(tester, size: const Size(360, 780));
-    final idle = robot.bandSize;
+    final robot = await open(tester);
+    for (var i = 0; i < 3; i++) {
+      await robot.skip();
+    }
+    expect(robot.caption, en.calendarGuideTourAdd);
 
-    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
-    expect(robot.bandSize, idle);
-
-    await robot.add();
-    await robot.typeTitle('A title well past the cut of the caption');
+    await robot.longPressAdd();
+    await robot.tapId(SemanticsIds.templatePickBlank);
+    await robot.typeTitle('Swim');
     await robot.saveEditor();
-    // Cut at 24 characters, so the slot sized for the cut holds it.
-    expect(robot.caption, startsWith('Added “A title well past the cu…”'));
-    expect(robot.bandSize, idle);
+    expect(robot.caption, en.calendarGuideTourFilter(en.apply));
+    await expectNothingSaved();
+  });
+
+  testWidgets('a template picked is the add step', (tester) async {
+    await seedTemplate('Haircut');
+    final robot = await open(tester);
+    for (var i = 0; i < 3; i++) {
+      await robot.skip();
+    }
+
+    await robot.longPressAdd();
+    await robot.tapId(
+      SemanticsIds.templatePickRow(CalendarTemplates.all.single.id),
+    );
+    expect(robot.dayPanelTitles, contains('Haircut'));
+    expect(robot.caption, en.calendarGuideTourFilter(en.apply));
+    await expectNothingSaved();
+  });
+
+  testWidgets("with the edit current, the detail sheet's Skip, a format and "
+      'a panel mode leave the line where it is', (tester) async {
+    final robot = await open(tester);
+    await robot.skip();
+    await robot.skip();
+    final edit = en.calendarGuideTourEdit(en.edit, en.save);
+    expect(robot.caption, edit);
 
     await robot.openRow('guide-demo-yoga');
     await robot.detailSkip();
-    expect(robot.caption, startsWith('Skipped'));
-    expect(robot.bandSize, idle);
+    expect(robot.detailOpen, isFalse);
+    expect(robot.caption, edit);
+
+    await robot.pickFormat(SemanticsIds.calendarFormatWeek);
+    expect(robot.caption, edit);
+
+    await robot.showPanel(CalendarPanelMode.timeline);
+    expect(robot.caption, edit);
     await expectNothingSaved();
   });
 
-  testWidgets('de 2.0 on 360: the band keeps its height across idle, Added, '
-      'Skipped, would-open and adherence', (tester) async {
-    final de = AppLocalizationsDe();
+  testWidgets('a report stands until the next action of any kind: a format, '
+      'a panel mode, filters applied with none on', (tester) async {
+    final robot = await open(tester);
+    final alerts = en.calendarGuideWouldOpen(en.alertsTitle);
+
+    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+    expect(robot.caption, alerts);
+    await robot.pickFormat(SemanticsIds.calendarFormatWeek);
+    expect(robot.caption, en.calendarGuideTourPick);
+
+    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+    expect(robot.caption, alerts);
+    await robot.showPanel(CalendarPanelMode.timeline);
+    expect(robot.caption, en.calendarGuideTourPick);
+
+    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+    expect(robot.caption, alerts);
+    await robot.openFilters();
+    await robot.tapId(SemanticsIds.filterApply);
+    expect(robot.caption, en.calendarGuideTourPick);
+    await expectNothingSaved();
+  });
+
+  testWidgets('a skip under a standing report only clears it: the step it '
+      'covered is shown, not stepped past', (tester) async {
+    final robot = await open(tester);
+
+    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+    await robot.skip();
+    expect(robot.caption, en.calendarGuideTourPick);
+    expect(robot.canReset, isFalse, reason: 'no step is done');
+
+    await robot.skip();
+    expect(robot.caption, en.calendarGuideTourOpen);
+    await expectNothingSaved();
+  });
+
+  /// Walks the band through every line it can show — the idle step, the
+  /// ⋮'s reports, then each step skipped to the closing line — and checks
+  /// its height against the idle band's after each one.
+  Future<void> walkEveryLine(
+    PracticeCalendarRobot robot,
+    AppLocalizations l10n,
+  ) async {
+    final idle = robot.bandSize;
+    final seen = {robot.caption};
+    for (final row in [
+      SemanticsIds.calendarAlertsOpen,
+      SemanticsIds.calendarExport,
+      SemanticsIds.calendarGuideOpen,
+      SemanticsIds.calendarSettingsOpen,
+    ]) {
+      await robot.pickMore(row);
+      seen.add(robot.caption);
+      expect(robot.bandSize, idle, reason: robot.caption);
+    }
+    while (robot.canSkip) {
+      await robot.skip();
+      seen.add(robot.caption);
+      expect(robot.bandSize, idle, reason: robot.caption);
+    }
+    expect(seen, {
+      for (final step in calendarGuideTourSteps) step.line(l10n),
+      l10n.calendarGuideTourDone,
+      l10n.calendarGuideWouldOpen(l10n.alertsTitle),
+      l10n.calendarGuideWouldShare,
+      l10n.calendarGuideYouAreHere,
+      l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow),
+    });
+  }
+
+  testWidgets('the band keeps its height whatever line it says', (
+    tester,
+  ) async {
+    final robot = await open(tester, size: const Size(360, 780));
+    await walkEveryLine(robot, en);
+    await expectNothingSaved();
+  });
+
+  testWidgets('de 2.0 on 360: the band keeps its height across every step, '
+      'the reports and the closing line', (tester) async {
     final robot = await open(
       tester,
       locale: const Locale('de'),
       textScaler: const TextScaler.linear(2.0),
       size: const Size(360, 780),
     );
-    final idle = robot.bandSize;
-    expect(robot.caption, de.calendarGuidePracticeIdle);
-
-    await robot.pickMore(SemanticsIds.calendarSettingsOpen);
-    expect(robot.caption, de.calendarGuideWouldOpen(de.calendarSettingsRow));
-    expect(robot.bandSize, idle);
-
-    // At 2.0 on 360 a month's grid leaves the panel no room: a week does.
-    await robot.pickFormat(SemanticsIds.calendarFormatWeek);
-    expect(robot.bandSize, idle);
-
-    // The detail sheet's chip: the Day panel's own button sits under the
-    // add button there.
-    await robot.openRow('guide-demo-yoga');
-    await robot.tapId(SemanticsIds.eventDetailMissed);
-    expect(
-      robot.caption,
-      de.eventAdherenceSummary(3, 5, PresenceAdherence.windowDays),
-    );
-    expect(robot.bandSize, idle);
-    await robot.detailClose();
-
-    await robot.add();
-    await robot.typeTitle('Schwimmen im Hallenbad am Abend');
-    await robot.saveEditor();
-    expect(robot.caption, startsWith('„Schwimmen'));
-    expect(robot.bandSize, idle);
-
-    await robot.openRow('guide-demo-yoga');
-    await robot.detailSkip();
-    expect(
-      robot.caption,
-      de.calendarGuideDemoSkipped(
-        DateFormat.MMMEd('de').format(today),
-        de.calendarGuideDemoEventYoga,
-      ),
-    );
-    expect(robot.bandSize, idle);
+    await walkEveryLine(robot, AppLocalizationsDe());
     await expectNothingSaved();
   });
 
-  // The band's slot is as tall as its tallest candidate, its dates in the
-  // short form (D38); past 1.3 the clamp (D39) holds it, so 2.0 draws as
-  // 1.3. Pinned, so a candidate that grows the band fails here.
+  // The band's slot is as tall as its tallest line; past 1.3 the clamp
+  // (D39) holds it, so 2.0 draws as 1.3. Pinned, so a line that grows the
+  // band fails here: 72 / 134 / 134 before the tour, never to rise.
   for (final (scale, height) in const [
     (1.0, 72.0),
-    (1.3, 134.0),
-    (2.0, 134.0),
+    (1.3, 111.0),
+    (2.0, 111.0),
   ]) {
     testWidgets('de $scale on 360: the band is $height dp', (tester) async {
       final robot = await open(
@@ -572,8 +706,8 @@ void main() {
     });
   }
 
-  testWidgets('the band reads its first line once: only the caption is a '
-      'live region', (tester) async {
+  testWidgets('the band reads its first line once: only the tour line is a '
+      'live region, and the skip is a node of its own', (tester) async {
     final handle = tester.ensureSemantics();
     await open(tester);
     final band = tester.getSemantics(
@@ -581,16 +715,21 @@ void main() {
     );
     expect(band.getSemanticsData().flagsCollection.isLiveRegion, isFalse);
     expect(band.label, contains(en.calendarGuidePracticeBanner));
+    expect(band.label, isNot(contains(en.calendarGuideTourPick)));
     final children = <SemanticsNode>[];
     band.visitChildren((child) {
       children.add(child);
       return true;
     });
-    expect(children, hasLength(1));
-    final caption = children.single;
-    expect(caption.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
-    expect(caption.label, en.calendarGuidePracticeIdle);
-    expect(caption.label, isNot(contains(en.calendarGuidePracticeBanner)));
+    expect(children, hasLength(2));
+    final (line, skip) = (children.first, children.last);
+    expect(line.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
+    expect(line.label, en.calendarGuideTourPick);
+    expect(line.label, isNot(contains(en.calendarGuidePracticeBanner)));
+    expect(skip.getSemanticsData().identifier, SemanticsIds.practiceSkip);
+    expect(skip.getSemanticsData().tooltip, en.calendarGuideSkipStep);
+    expect(skip.getSemanticsData().flagsCollection.isLiveRegion, isFalse);
+    expect(skip.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
     handle.dispose();
     await expectNothingSaved();
   });
@@ -642,7 +781,6 @@ void main() {
     await robot.tapId(
       SemanticsIds.templatePickRow(CalendarTemplates.all.single.id),
     );
-    expect(robot.caption, en.calendarGuideDemoTemplate('Checklist'));
     final id = robot.rowIdOf('Checklist');
     expect(id, startsWith(GuideDemoCalendar.idPrefix));
 
@@ -727,8 +865,8 @@ void main() {
       await expectNothingSaved();
     });
 
-    testWidgets('a mark made in the sheet survives a reopen and the band says '
-        'how the event is going', (tester) async {
+    testWidgets('a mark made in the sheet survives a reopen, and the sheet '
+        'says how the event is going', (tester) async {
       final robot = await open(tester);
       final idle = robot.bandSize;
 
@@ -736,8 +874,13 @@ void main() {
       expect(robot.chipSelected(SemanticsIds.eventDetailPresent), isTrue);
       await robot.tapId(SemanticsIds.eventDetailMissed);
       expect(
-        robot.caption,
-        en.eventAdherenceSummary(3, 5, PresenceAdherence.windowDays),
+        find.descendant(
+          of: find.byType(EventDetailSheet),
+          matching: find.text(
+            en.eventAdherenceSummary(3, 5, PresenceAdherence.windowDays),
+          ),
+        ),
+        findsOneWidget,
       );
       expect(robot.bandSize, idle);
       await robot.detailClose();
@@ -826,10 +969,6 @@ void main() {
     await robot.toggleEditorSwitch(en.eventPerOccurrenceDescriptions);
     await robot.saveEditor();
     await robot.quickEditDescription('Mat by the window');
-    expect(
-      robot.caption,
-      en.calendarGuideDemoChanged(en.calendarGuideDemoEventYoga),
-    );
     await robot.detailClose();
 
     String? yogaText() => robot.dayPanelEntries
@@ -864,11 +1003,9 @@ void main() {
 
     await robot.openRow('guide-demo-dentist');
     await robot.quickEditDescription('Bring the card');
-    expect(
-      robot.caption,
-      en.calendarGuideDemoChanged(en.calendarGuideDemoEventDentist),
-    );
     await robot.detailClose();
+    // A description edit is the tour's change step.
+    expect(robot.caption, en.calendarGuideTourAdd);
     expect(
       robot.dayPanelEntries
           .singleWhere(
@@ -890,11 +1027,9 @@ void main() {
     await robot.detailAddDate();
     await robot.pickInDatePicker(other);
     await robot.tapId(SemanticsIds.datePickerSave);
-    expect(
-      robot.caption,
-      en.calendarGuideDemoChanged(en.calendarGuideDemoEventDentist),
-    );
     await robot.detailClose();
+    // A dates change is the tour's change step.
+    expect(robot.caption, en.calendarGuideTourAdd);
 
     await robot.pickDay(other);
     expect(robot.dayPanelTitles, contains(en.calendarGuideDemoEventDentist));
@@ -913,7 +1048,7 @@ void main() {
     await robot.tapId(SemanticsIds.filterListDone);
     await robot.tapId(SemanticsIds.filterApply);
 
-    expect(robot.caption, en.calendarGuideDemoFiltered(1));
+    expect(robot.filterBadge, 1);
     expect(robot.barLabels.where(seedTitles.contains).toList(), [
       en.calendarGuideDemoEventYoga,
     ]);
@@ -945,14 +1080,13 @@ void main() {
       await robot.openFilters();
       await robot.tapId(SemanticsIds.filterApply);
 
-      expect(robot.caption, en.calendarGuideDemoFiltered(0));
+      expect(robot.caption, en.calendarGuideTourPick, reason: 'no filter on');
       expect(robot.canReset, isFalse);
       await expectNothingSaved();
     });
 
-    testWidgets('an event added then deleted leaves it disabled', (
-      tester,
-    ) async {
+    testWidgets('an event added then deleted leaves the demo clean; the tour '
+        'alone keeps it enabled', (tester) async {
       final robot = await open(tester);
       await robot.pickDay(day(3));
 
@@ -968,7 +1102,20 @@ void main() {
       await robot.deleteInEditor(en.delete);
 
       expect(robot.dayPanelTitles, isNot(contains('Swim')));
-      expect(robot.canReset, isFalse);
+      // Adding and opening are tour steps, so the bar cannot tell a clean
+      // demo apart here: a twin seeded as the page seeds it can.
+      expect(robot.canReset, isTrue);
+      final twin = GuideDemoCalendar(
+        l10n: en,
+        today: now,
+        categories: (await CategoryService.getInstance()).categories,
+      );
+      final added = twin.add(
+        twin.byId('guide-demo-dentist')!.copyWith(id: twin.newId()),
+      );
+      expect(twin.isDirty, isTrue);
+      twin.remove(added.id);
+      expect(twin.isDirty, isFalse);
       await expectNothingSaved();
     });
 
@@ -980,8 +1127,12 @@ void main() {
       await robot.pressPresence('guide-demo-yoga', en.eventMarkPresent);
 
       expect(
-        robot.caption,
-        en.eventAdherenceSummary(4, 5, PresenceAdherence.windowDays),
+        robot.dayPanelEntries
+            .singleWhere(
+              (entry) => entry.title == en.calendarGuideDemoEventYoga,
+            )
+            .missed,
+        isFalse,
       );
       expect(robot.canReset, isFalse);
       await expectNothingSaved();

@@ -128,7 +128,7 @@ abstract final class SemanticsIds {
   static String calendarGuideTopic(String slug) => 'calendar-guide-topic-$slug';
 
   /// The practice calendar's body and its band: a flow waits on the page
-  /// and reads the live caption without depending on its wording.
+  /// and reads the coach line without depending on its wording.
   static const String calendarGuidePractice = 'calendar-guide-practice';
   static const String calendarGuidePracticeBanner =
       'calendar-guide-practice-banner';
@@ -140,13 +140,22 @@ abstract final class SemanticsIds {
   static const String practiceMore = 'practice-more';
   static const String practiceAddEvent = 'practice-add-event';
 
+  /// The band's skip past the tour's current step: a flow checks the band
+  /// is the coached one without reading its words.
+  static const String practiceSkip = 'practice-skip';
+
   /// A task page's "Try it" card, keyed by the page's slug: a container
   /// node, so the stage's controls stay nodes of their own.
   static String calendarGuideTry(String slug) => 'calendar-guide-try-$slug';
 
-  /// The card's live caption, read by a flow whatever it says.
+  /// The card's live coach line, read by a flow whatever it says. The id
+  /// is the caption's it replaced; ids are never renamed.
   static String calendarGuideTryCaption(String slug) =>
       'calendar-guide-try-$slug-caption';
+
+  /// The coach line's skip. Not `try-<slug>-skip`: the kinds stage's Skip
+  /// this day row has held `try-kinds-skip` since it shipped.
+  static String calendarGuideTrySkip(String slug) => 'try-$slug-skip-step';
 
   /// A control a card adds to its stage. The real widgets a stage draws
   /// keep their own ids — the screen card's title menu is

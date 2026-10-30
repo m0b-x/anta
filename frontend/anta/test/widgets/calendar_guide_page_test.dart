@@ -103,10 +103,7 @@ void main() {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
-    expect(
-      find.text(en.calendarGuideIntro(en.calendarGuideTryIt)),
-      findsOneWidget,
-    );
+    expect(find.text(en.calendarGuideIntro), findsOneWidget);
     expect(
       find.bySemanticsIdentifier(SemanticsIds.calendarGuide),
       findsOneWidget,
@@ -343,18 +340,15 @@ void main() {
 
     await tester.enterText(field, 'repeat');
     await tester.pumpAndSettle();
-    expect(_row('repeat'), findsOneWidget);
-    expect(_row('add-event'), findsNothing);
-    expect(
-      find.text(en.calendarGuideIntro(en.calendarGuideTryIt)),
-      findsNothing,
-    );
+    expect(_row('kinds-tricky'), findsOneWidget);
+    expect(_row('description'), findsNothing);
+    expect(find.text(en.calendarGuideIntro), findsNothing);
     expect(find.text(en.calendarGuideStartHere), findsNothing);
     expect(find.text(en.calendarGuideHowDoI), findsNothing);
     // The row lives on the kinds page: it sits in that page's section, under
     // the page's name and after the row that opens the page.
     final kinds = CalendarGuideTopic.kinds;
-    final card = _cardOf(_row('repeat'));
+    final card = _cardOf(_row('kinds-tricky'));
     // The page's name and glyph twice in the card — once on the row that
     // opens the page, once more on the section's header.
     Finder pageName(Finder scope) => find.descendant(
@@ -376,12 +370,12 @@ void main() {
     expect(find.descendant(of: card, matching: _page(kinds)), findsOneWidget);
     expect(
       tester.getTopLeft(_page(kinds)).dy,
-      lessThan(tester.getTopLeft(_row('repeat')).dy),
+      lessThan(tester.getTopLeft(_row('kinds-tricky')).dy),
     );
 
     await tester.enterText(field, '');
     await tester.pumpAndSettle();
-    expect(_row('repeat'), findsNothing);
+    expect(_row('kinds-tricky'), findsNothing);
     expect(find.text(en.calendarGuideStartHere), findsOneWidget);
     await _scrollTo(tester, _page(CalendarGuideTopic.kinds));
     expect(_page(CalendarGuideTopic.kinds), findsOneWidget);
@@ -396,13 +390,14 @@ void main() {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
-    // "delete" is in the events page's name, in its open row and not in its
-    // time row.
-    await tester.enterText(find.byType(TextField), 'delete');
+    // "add" is in the events page's name, in its templates row and not in
+    // its unsaved row.
+    await tester.enterText(find.byType(TextField), 'add');
     await tester.pumpAndSettle();
     expect(_page(CalendarGuideTopic.events), findsOneWidget);
-    expect(_row('open'), findsOneWidget);
-    expect(_row('time'), findsNothing);
+    await _scrollTo(tester, _row('templates'));
+    expect(_row('templates'), findsOneWidget);
+    expect(_row('unsaved'), findsNothing);
   });
 
   testWidgets('de at 2.0 on 360: the search results neither overflow nor '
@@ -433,17 +428,19 @@ void main() {
     }
   });
 
-  testWidgets('a word of a "Try it" lead-in finds its page\'s row', (
-    tester,
-  ) async {
+  testWidgets('a word of a "Try it" card\'s first instruction finds its '
+      'page\'s row', (tester) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
-    // Only the setup card's lead-in speaks of the sample week.
-    await tester.enterText(find.byType(TextField), 'sample week');
+    // Only the setup card's first instruction speaks of a country.
+    await tester.enterText(find.byType(TextField), 'country');
     await tester.pumpAndSettle();
     expect(_page(CalendarGuideTopic.setup), findsOneWidget);
-    expect(_page(CalendarGuideTopic.attendance), findsNothing);
+    for (final other in CalendarGuideTopic.values) {
+      if (other == CalendarGuideTopic.setup) continue;
+      expect(_page(other), findsNothing, reason: other.slug);
+    }
   });
 
   testWidgets("a search hit's page row opens that page", (tester) async {
@@ -507,15 +504,15 @@ void main() {
     });
   }
 
-  testWidgets('a quoted label is searchable: "Speichern" finds the de Add '
-      'row', (tester) async {
+  testWidgets('a quoted label is searchable: "Speichern" finds the de '
+      'unsaved row', (tester) async {
     await tester.pumpWidget(_host(locale: const Locale('de')));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'Speichern');
     await tester.pumpAndSettle();
-    expect(_row('add-event'), findsOneWidget);
-    expect(_row('month'), findsNothing);
+    expect(_row('unsaved'), findsOneWidget);
+    expect(_row('marks'), findsNothing);
   });
 
   group('no overflow and no clipped label at text scale 2.0', () {

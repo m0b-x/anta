@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +19,7 @@ import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_guide_coach.dart';
 import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../models/calendar_panel_mode.dart';
@@ -29,7 +32,6 @@ import '../services/settings_service.dart';
 import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
 import '../utils/markdown_color_syntax.dart';
-import '../utils/presence_stats.dart';
 import '../utils/sheet_guard.dart';
 import '../widgets/agenda_day_list_rows.dart';
 import '../widgets/agenda_list_view.dart';
@@ -57,8 +59,8 @@ import '../widgets/form_rows.dart';
 /// Every sheet it opens is the real one in its sandbox mode, and every
 /// answer lands in a [GuideDemoCalendar] this page's `State` owns — never in
 /// a bloc, a service or one of the calendar's static caches. A band under the
-/// bar says so once, and its second line says what the last action did, in
-/// the words of the real calendar.
+/// bar says so once, and its second line walks her through a five-step tour
+/// (D42), one tap at a time.
 class CalendarGuidePracticePage extends StatefulWidget {
   const CalendarGuidePracticePage({super.key});
 
@@ -81,9 +83,16 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   /// [_rebuildSoon].
   bool _rebuildScheduled = false;
 
-  /// The band's live line; null is the idle line. A notifier, so a caption
-  /// rebuilds the band and nothing else.
-  final ValueNotifier<String?> _caption = ValueNotifier<String?>(null);
+  /// The band's tour: its line is the next tap to make, or the report of an
+  /// action the page cannot show (D47).
+  final GuideCoach _coach = GuideCoach(
+    calendarGuideTourSteps,
+    closing: calendarGuideTourDone,
+  );
+
+  /// Bumped on every change to [_coach]: the band and Start over listen to
+  /// it, so a new line rebuilds them and nothing else.
+  final ValueNotifier<int> _coachRevision = ValueNotifier<int>(0);
 
   /// The add button stays labelled: the demo has no scroll-driven collapse,
   /// because nothing on this page animates.
@@ -91,14 +100,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
 
   final SheetGuard _sheets = SheetGuard();
 
-  /// Every caption the band can show at its longest, built once per locale.
+  /// Every line the band can show, built once per locale.
   List<String> _candidates = const [];
   Locale? _candidatesLocale;
-
-  /// The band's dates in the abbreviated weekday-date (D38): the long form
-  /// ran the German Skipped caption to three lines and the band pushed the
-  /// Day panel off a 360 phone at 2.0. The cards keep the long form.
-  DateFormat? _dateFormat;
 
   /// The grid's month title, `table_calendar`'s own format.
   final GuideLocaleFormat _monthTitle = GuideLocaleFormat(DateFormat.yMMMM);
@@ -153,18 +157,15 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     final locale = Localizations.localeOf(context);
     if (locale == _candidatesLocale) return;
     _candidatesLocale = locale;
-    _dateFormat = DateFormat.MMMEd(l10n.localeName);
-    _candidates = _captionCandidates(l10n);
+    _candidates = _coach.candidates(l10n, _reports(l10n));
   }
 
   @override
   void dispose() {
-    _caption.dispose();
+    _coachRevision.dispose();
     _fabExtended.dispose();
     super.dispose();
   }
-
-  String _date(DateTime day) => _dateFormat!.format(day);
 
   static String _formatLabel(AppLocalizations l10n, CalendarFormat format) {
     return switch (format) {
@@ -174,74 +175,44 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     };
   }
 
-  /// Every caption the page can say, each filled with its longest value: a
-  /// title stand-in at the cut, the longest date this locale writes, every
-  /// count form. The band's slot is as tall as the tallest of them, so a
-  /// caption changes its words and never the band's height.
-  List<String> _captionCandidates(AppLocalizations l10n) {
-    final title = calendarGuideLongestQuote;
-    var date = '';
-    for (var day = 0; day < 365; day++) {
-      final text = _date(DateTime.utc(2027, 1, 1 + day));
-      if (text.length > date.length) date = text;
-    }
-    const counts = [0, 1, 2, 22];
-    return [
-      l10n.calendarGuidePracticeIdle,
-      for (final count in counts) l10n.calendarGuidePickedDay(date, count),
-      l10n.calendarGuideDemoAddedShort(title, date),
-      l10n.calendarGuideDemoChanged(title),
-      l10n.calendarGuideDemoDeleted(title),
-      l10n.calendarGuideDemoSkipped(date, title),
-      l10n.calendarGuideDemoTemplate(title),
-      for (final count in counts) l10n.calendarGuideDemoFiltered(count),
-      for (final format in CalendarFormat.values)
-        l10n.calendarGuideDemoFormat(_formatLabel(l10n, format)),
-      l10n.calendarGuideDemoPanelDay(l10n.panelModeDay),
-      l10n.calendarGuideDemoPanelTimeline(l10n.panelModeTimeline),
-      l10n.calendarGuideDemoPanelUpcoming(l10n.upcomingEvents),
-      for (final what in [
-        l10n.calendarOverview,
-        l10n.alertsTitle,
-        l10n.calendarSettingsRow,
-        l10n.quickAlarmTitle,
-      ])
-        l10n.calendarGuideWouldOpen(what),
-      l10n.calendarGuideWouldShare,
-      l10n.calendarGuideYouAreHere,
-      // A window holds at most one occurrence a day.
-      l10n.eventAdherenceSummary(
-        PresenceAdherence.windowDays,
-        PresenceAdherence.windowDays,
-        PresenceAdherence.windowDays,
-      ),
-    ];
+  /// The reports of the actions that show nothing on the page (D47): the
+  /// rows that would leave for another page or share a file. Every other
+  /// action's result is on the grid, the panel or the bar.
+  static List<String> _reports(AppLocalizations l10n) => [
+    for (final what in [
+      l10n.calendarOverview,
+      l10n.alertsTitle,
+      l10n.calendarSettingsRow,
+      l10n.quickAlarmTitle,
+    ])
+      l10n.calendarGuideWouldOpen(what),
+    l10n.calendarGuideWouldShare,
+    l10n.calendarGuideYouAreHere,
+  ];
+
+  /// [action], a tour step's, just happened: the band moves on.
+  void _did(String action) {
+    _coach.did(action);
+    _coachRevision.value++;
   }
 
-  void _say(String text) => _caption.value = text;
+  /// An action that shows nothing on the page: its report is the band's
+  /// line until the next action.
+  void _say(GuideLine report) {
+    _coach.say(report);
+    _coachRevision.value++;
+  }
 
-  /// A presence mark, from the day panel's button or the detail sheet's
-  /// chips: written to the demo, then the band says how the event is going
-  /// over the demo's own marks, as the sheet's stats line does.
-  void _markPresence(
-    CalendarEvent event,
-    DateTime day, {
-    required bool missed,
-  }) {
-    demo.setPresence(event.id, day, missed: missed);
-    final stats = PresenceAdherence.compute(
-      demo.byId(event.id) ?? event,
-      today: demo.today,
-      isMissed: demo.isMissed,
-    );
-    if (stats == null) return;
-    _say(
-      AppLocalizations.of(context)!.eventAdherenceSummary(
-        stats.attended,
-        stats.total,
-        PresenceAdherence.windowDays,
-      ),
-    );
+  /// An action that is no tour step: a standing report belonged to the one
+  /// before it, so the band goes back to the instruction.
+  void _clearReport() {
+    _coach.clearReport();
+    _coachRevision.value++;
+  }
+
+  void _skip() {
+    _coach.skip();
+    _coachRevision.value++;
   }
 
   /// A rebuild at the end of the current frame. The detail sheet hands a
@@ -257,12 +228,6 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         if (mounted) setState(() {});
       })
       ..scheduleFrame();
-  }
-
-  /// A change to the demo's data: the page rebuilds, then the band says it.
-  void _changed(String caption) {
-    setState(() {});
-    _say(caption);
   }
 
   void _resolversFor(AppLocalizations l10n) {
@@ -309,8 +274,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         excludeHeaderSemantics: true,
         title: CalendarViewMenu(
           page: CalendarViewPage.calendar,
-          onPageSelected: (_) =>
-              _say(l10n.calendarGuideWouldOpen(l10n.calendarOverview)),
+          onPageSelected: (_) => _say(
+            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarOverview),
+          ),
           format: demo?.format ?? CalendarFormat.month,
           onFormatSelected: demo == null
               ? null
@@ -333,14 +299,21 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         ),
         actions: [
           // In the saved filters' slot, which the demo has no use for;
-          // disabled, never hidden, until there is something to undo.
-          AutomationId(
-            identifier: SemanticsIds.practiceReset,
-            child: IconButton(
-              tooltip: l10n.calendarGuideDemoReset,
-              iconSize: AppBarMetrics.glyphSize,
-              icon: const Icon(Icons.restart_alt_rounded),
-              onPressed: demo == null || !demo.isDirty ? null : _reset,
+          // disabled, never hidden, until there is something to undo — a
+          // change to the demo or a step of the tour.
+          ValueListenableBuilder<int>(
+            valueListenable: _coachRevision,
+            builder: (context, _, _) => AutomationId(
+              identifier: SemanticsIds.practiceReset,
+              child: IconButton(
+                tooltip: l10n.calendarGuideDemoReset,
+                iconSize: AppBarMetrics.glyphSize,
+                icon: const Icon(Icons.restart_alt_rounded),
+                onPressed:
+                    demo == null || !(demo.isDirty || _coach.advanced)
+                    ? null
+                    : _reset,
+              ),
             ),
           ),
           AutomationId(
@@ -367,19 +340,27 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           ),
           CalendarOverflowMenu(
             identifier: SemanticsIds.practiceMore,
-            onAlerts: () => _say(l10n.calendarGuideWouldOpen(l10n.alertsTitle)),
+            onAlerts: () => _say(
+              (l10n) => l10n.calendarGuideWouldOpen(l10n.alertsTitle),
+            ),
             onExport: demo == null || demo.events.isEmpty
                 ? null
-                : () => _say(l10n.calendarGuideWouldShare),
-            onGuide: () => _say(l10n.calendarGuideYouAreHere),
-            onSettings: () =>
-                _say(l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow)),
+                : () => _say((l10n) => l10n.calendarGuideWouldShare),
+            onGuide: () => _say((l10n) => l10n.calendarGuideYouAreHere),
+            onSettings: () => _say(
+              (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow),
+            ),
           ),
         ],
       ),
       body: Column(
         children: [
-          _PracticeBand(caption: _caption, candidates: _candidates),
+          _PracticeBand(
+            coach: _coach,
+            revision: _coachRevision,
+            candidates: _candidates,
+            onSkip: _skip,
+          ),
           Expanded(
             child: Semantics(
               container: true,
@@ -550,9 +531,13 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           demo.selectedDay = day;
           demo.focus(focused);
         });
-        _say(
-          l10n.calendarGuidePickedDay(_date(day), demo.eventsFor(day).length),
-        );
+        // A day without a bar leaves nothing to open: the band keeps
+        // asking for one with.
+        if (demo.eventsFor(day).isNotEmpty) {
+          _did('picked');
+        } else {
+          _clearReport();
+        }
       },
       onPageChanged: (focused) => setState(() => demo.focus(focused)),
     );
@@ -567,7 +552,10 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         children: [
           PanelModeBar(
             mode: demo.panelMode,
-            onChanged: (mode) => _setPanelMode(l10n, mode),
+            onChanged: (mode) {
+              setState(() => demo.panelMode = mode);
+              _clearReport();
+            },
             onTouched: () {},
             // The demo panel never covers the grid: the grid is what the
             // page is for.
@@ -596,8 +584,10 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           day: day,
           entries: _dayEntries(day),
           onEventTap: (event) => _openEvent(event, day),
-          onToggleMissed: (event, missed) =>
-              setState(() => _markPresence(event, day, missed: missed)),
+          onToggleMissed: (event, missed) {
+            setState(() => demo.setPresence(event.id, day, missed: missed));
+            _clearReport();
+          },
           colorPalette: _palette,
         );
       case CalendarPanelMode.timeline:
@@ -722,29 +712,15 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   }
 
   void _setFormat(CalendarFormat format) {
-    final l10n = AppLocalizations.of(context)!;
     setState(() => demo.format = format);
-    _say(l10n.calendarGuideDemoFormat(_formatLabel(l10n, format)));
+    _clearReport();
   }
 
-  void _setPanelMode(AppLocalizations l10n, CalendarPanelMode mode) {
-    setState(() => demo.panelMode = mode);
-    _say(switch (mode) {
-      CalendarPanelMode.day => l10n.calendarGuideDemoPanelDay(
-        l10n.panelModeDay,
-      ),
-      CalendarPanelMode.timeline => l10n.calendarGuideDemoPanelTimeline(
-        l10n.panelModeTimeline,
-      ),
-      CalendarPanelMode.upcoming => l10n.calendarGuideDemoPanelUpcoming(
-        l10n.upcomingEvents,
-      ),
-    });
-  }
-
+  /// Start over: the seed back, and the tour from its first step.
   void _reset() {
     setState(demo.reset);
-    _caption.value = null;
+    _coach.reset();
+    _coachRevision.value++;
   }
 
   Future<void> _openFilters() => _sheets.run<void>(() async {
@@ -754,9 +730,12 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       sandbox: true,
     );
     if (picked == null || !mounted) return;
-    final l10n = AppLocalizations.of(context)!;
-    demo.filters = picked;
-    _changed(l10n.calendarGuideDemoFiltered(picked.activeCount));
+    setState(() => demo.filters = picked);
+    if (picked.activeCount > 0) {
+      _did('filtered');
+    } else {
+      _clearReport();
+    }
   });
 
   /// The add button: the sandboxed editor, its event joining the demo.
@@ -768,16 +747,11 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       sandbox: true,
     );
     if (!mounted || result is! EventEditorSaved) return;
-    final l10n = AppLocalizations.of(context)!;
     final event = demo.add(result.event, alerts: result.alerts);
     final skipped = result.skippedDays;
     if (skipped != null) demo.setSkips(event.id, skipped);
-    _changed(
-      l10n.calendarGuideDemoAddedShort(
-        calendarGuideQuote(event.title),
-        _date(event.startDate),
-      ),
-    );
+    setState(() {});
+    _did('added');
   }
 
   /// The add button's long press: the owner's own templates, read only, the
@@ -785,18 +759,15 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   Future<void> _addFromTemplate(DateTime day) async {
     final choice = await EventTemplatePickerSheet.show(context);
     if (!mounted || choice == null) return;
-    final l10n = AppLocalizations.of(context)!;
     switch (choice) {
       case EventTemplatePicked(:final template):
         final event = template.buildEvent(id: demo.newId(), startDate: day);
-        demo.add(event);
-        _changed(
-          l10n.calendarGuideDemoTemplate(calendarGuideQuote(event.title)),
-        );
+        setState(() => demo.add(event));
+        _did('added');
       case EventTemplateBlank():
         await _addEvent(day);
       case EventTemplateQuickAlarm():
-        _say(l10n.calendarGuideWouldOpen(l10n.quickAlarmTitle));
+        _say((l10n) => l10n.calendarGuideWouldOpen(l10n.quickAlarmTitle));
     }
   }
 
@@ -805,7 +776,29 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
 
   /// The calendar's trip through an event's sheets — detail, editor,
   /// description, dates, skip — with every answer written to the demo.
+  ///
+  /// The tour steps the trip makes reach the band only when it returns: a
+  /// sheet's barrier blocks the page's semantics, so a line changed under
+  /// it would never be announced.
   Future<void> _eventTrip(CalendarEvent event, DateTime day) async {
+    final steps = ['opened'];
+    try {
+      await _eventSheets(event, day, steps);
+    } finally {
+      if (mounted) {
+        for (final step in steps) {
+          _did(step);
+        }
+      }
+    }
+  }
+
+  /// The trip's sheets; each tour step made is added to [steps].
+  Future<void> _eventSheets(
+    CalendarEvent event,
+    DateTime day,
+    List<String> steps,
+  ) async {
     var current = event;
     while (mounted) {
       final action = await EventDetailSheet.show(
@@ -832,34 +825,27 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           _rebuildSoon();
         },
         onPresenceChanged: (occurrenceDay, missed) {
-          _markPresence(current, occurrenceDay, missed: missed);
+          demo.setPresence(current.id, occurrenceDay, missed: missed);
           _rebuildSoon();
         },
       );
       if (mounted) setState(() {});
       if (action == null || !mounted) return;
-      final l10n = AppLocalizations.of(context)!;
       switch (action) {
         case EventDetailAction.openNote:
           // A demo event carries no note: the sandboxed editor has no
           // Linked note row.
           return;
         case EventDetailAction.skipOccurrence:
-          demo.skip(current.id, day);
-          _changed(
-            l10n.calendarGuideDemoSkipped(
-              _date(day),
-              calendarGuideQuote(current.title),
-            ),
-          );
+          setState(() => demo.skip(current.id, day));
+          _clearReport();
           return;
         case EventDetailAction.editDescription:
           final edited = await _editDescription(current, day);
           if (edited == null || !mounted) continue;
           current = edited;
-          _changed(
-            l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)),
-          );
+          setState(() {});
+          steps.add('changed');
         case EventDetailAction.addDate:
         case EventDetailAction.showDates:
           final dates = current.explicitDates;
@@ -878,10 +864,8 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           if (!mounted) return;
           if (picked == null || setEquals(picked, dates)) continue;
           current = current.withExplicitDates(picked);
-          demo.replace(current);
-          _changed(
-            l10n.calendarGuideDemoChanged(calendarGuideQuote(current.title)),
-          );
+          setState(() => demo.replace(current));
+          steps.add('changed');
           if (!demo.occursOn(current, day)) return;
         case EventDetailAction.edit:
           final result = await EventEditorSheet.show(
@@ -906,12 +890,8 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
             case EventEditorBack():
               continue;
             case EventEditorDeleted():
-              demo.remove(current.id);
-              _changed(
-                l10n.calendarGuideDemoDeleted(
-                  calendarGuideQuote(current.title),
-                ),
-              );
+              setState(() => demo.remove(current.id));
+              _clearReport();
               return;
             case EventEditorSaved():
               current = result.event;
@@ -926,11 +906,8 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
                   result.occurrenceDescription,
                 );
               }
-              _changed(
-                l10n.calendarGuideDemoChanged(
-                  calendarGuideQuote(current.title),
-                ),
-              );
+              setState(() {});
+              steps.add('changed');
               if (!demo.occursOn(current, day)) return;
           }
       }
@@ -981,13 +958,23 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
 }
 
 /// The band under the bar: "Nothing here is saved." that never changes, and
-/// under it the live line that says what the last action did. Its height is
-/// the tallest caption's, so a caption changes words, never the layout.
+/// under it the tour's line — the next tap, or what an action that shows
+/// nothing would have done — with the skip at the row's end. Its height is
+/// the tallest line's, so a line changes words, never the layout.
 class _PracticeBand extends StatelessWidget {
-  const _PracticeBand({required this.caption, required this.candidates});
+  const _PracticeBand({
+    required this.coach,
+    required this.revision,
+    required this.candidates,
+    required this.onSkip,
+  });
 
-  final ValueListenable<String?> caption;
+  final GuideCoach coach;
+
+  /// Bumped on every change to [coach].
+  final ValueListenable<int> revision;
   final List<String> candidates;
+  final VoidCallback onSkip;
 
   @override
   Widget build(BuildContext context) {
@@ -1011,61 +998,92 @@ class _PracticeBand extends StatelessWidget {
               horizontal: RowMetrics.groupInset,
               vertical: GuideMetrics.bannerVerticalPadding,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ExcludeSemantics(
-                  child: Icon(
-                    calendarGuidePracticeIcon,
-                    size: GuideMetrics.bannerGlyphSize,
-                    color: ink,
+            child: ValueListenableBuilder<int>(
+              valueListenable: revision,
+              builder: (context, _, _) => Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ExcludeSemantics(
+                    child: Icon(
+                      calendarGuidePracticeIcon,
+                      size: GuideMetrics.bannerGlyphSize,
+                      color: ink,
+                    ),
                   ),
-                ),
-                const SizedBox(width: GuideMetrics.bannerGap),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        l10n.calendarGuidePracticeBanner,
-                        style: TextStyle(
-                          fontSize: GuideMetrics.bannerTitleFontSize,
-                          fontWeight: GuideMetrics.bannerTitleFontWeight,
-                          height:
-                              GuideMetrics.bannerTitleLineHeight /
-                              GuideMetrics.bannerTitleFontSize,
-                          color: ink,
+                  const SizedBox(width: GuideMetrics.bannerGap),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          l10n.calendarGuidePracticeBanner,
+                          style: TextStyle(
+                            fontSize: GuideMetrics.bannerTitleFontSize,
+                            fontWeight: GuideMetrics.bannerTitleFontWeight,
+                            height:
+                                GuideMetrics.bannerTitleLineHeight /
+                                GuideMetrics.bannerTitleFontSize,
+                            color: ink,
+                          ),
                         ),
-                      ),
-                      ValueListenableBuilder<String?>(
-                        valueListenable: caption,
-                        builder: (context, text, _) => FormCaptionSlot(
+                        FormCaptionSlot(
                           candidates: [
                             for (final candidate in candidates)
                               Text(candidate, style: captionStyle),
                           ],
                           // A node of its own: merged into the band, the
-                          // live region was the band, and every caption
+                          // live region was the band, and every line
                           // re-read "Nothing here is saved." first.
                           child: Semantics(
                             container: true,
                             liveRegion: true,
-                            child: Text(
-                              text ?? l10n.calendarGuidePracticeIdle,
-                              style: captionStyle,
-                            ),
+                            child: Text(coach.line(l10n), style: captionStyle),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  // No coachGap, unlike a card's line: the target's own
+                  // inset keeps the glyph off the text, and the gap's 8 dp
+                  // wrapped the German line to a fifth row at 1.3 (137 dp,
+                  // past D39).
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      top: _skipInset(MediaQuery.textScalerOf(context)),
+                    ),
+                    child: FormTrailingButton(
+                      icon: Icons.skip_next_rounded,
+                      tooltip: l10n.calendarGuideSkipStep,
+                      identifier: SemanticsIds.practiceSkip,
+                      color: ink,
+                      disabledColor: ink.withValues(
+                        alpha: FormMetrics.disabledOpacity,
+                      ),
+                      // Disabled, never hidden, once the tour is done.
+                      onPressed: coach.finished ? null : onSkip,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// The band's skip sits this far down: its 48 dp target, and so its
+  /// glyph, centred on the first row of the tour's line under the title,
+  /// not across the two. It never adds height — the inset plus the target
+  /// stays under the title plus the line's two-row slot at every [scaler]
+  /// the band's clamp allows.
+  static double _skipInset(TextScaler scaler) {
+    final titleLine = scaler.scale(GuideMetrics.bannerTitleLineHeight);
+    final captionLine = scaler.scale(FormMetrics.captionLineHeight);
+    return math.max(
+      0,
+      titleLine - (FormMetrics.trailingButtonSize - captionLine) / 2,
     );
   }
 }

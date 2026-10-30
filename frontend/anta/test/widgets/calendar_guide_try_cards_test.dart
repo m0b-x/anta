@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -234,9 +235,17 @@ void main() {
       DateTime.utc(today.year, today.month, today.day + offset);
   // Built on first use: the locale data loads in setUpAll.
   late final dates = DateFormat.yMMMMEEEEd('en');
+  // The events card's Skipped report writes the band's short date (D52).
+  late final shortDates = DateFormat.MMMEd('en');
 
   void note(GuideTryCardRobot robot) =>
-      shownSlots[robot.caption] = robot.slotSize;
+      shownSlots[robot.line] = robot.slotSize;
+
+  /// [topic]'s instructions in English, in step order.
+  List<String> stepsOf(CalendarGuideTopic topic) => [
+    for (final step in topic.steps) step.line(en),
+  ];
+
   void expectOneSlotHeight() {
     expect(shownSlots.length, greaterThan(1));
     expect(shownSlots.values.toSet(), hasLength(1), reason: '$shownSlots');
@@ -252,17 +261,71 @@ void main() {
         tester.getTopLeft(find.text(en.calendarGuideTryIt)).dy,
         lessThan(tester.getTopLeft(find.text(en.calendarGuideHowItWorks)).dy),
       );
-      // The lead-in is the entry's searchable title, drawn as the body's
-      // first line.
+      // The first instruction is the entry's searchable title, drawn as the
+      // coach line until she acts — above the stage.
+      final first = stepsOf(CalendarGuideTopic.screen).first;
+      final list = tester.widget<SettingsSectionList>(
+        find.byType(SettingsSectionList),
+      );
+      expect(list.sections.first.entries.single.title, first);
+      expect(robot.line, first);
       expect(
-        find.descendant(
-          of: robot.card,
-          matching: find.text(en.calendarGuideTryScreen),
+        robot.slotRect.bottom,
+        lessThan(
+          tester
+              .getRect(
+                find
+                    .descendant(
+                      of: robot.card,
+                      matching: find.byType(RepaintBoundary),
+                    )
+                    .first,
+              )
+              .top,
         ),
-        findsOneWidget,
       );
       await expectNothingSaved();
     });
+
+    // D52: the skip's glyph sits on the line's first row, as the band's does,
+    // and not 14 dp below it.
+    for (final (locale, size, scale) in const [
+      (Locale('en'), Size(412, 915), 1.0),
+      (Locale('de'), Size(360, 780), 2.0),
+    ]) {
+      testWidgets('the skip\'s glyph is centred on the line\'s first row: '
+          '${locale.languageCode} $scale', (tester) async {
+        final robot = await open(
+          tester,
+          CalendarGuideTopic.events,
+          locale: locale,
+          size: size,
+          textScaler: TextScaler.linear(scale),
+        );
+        final glyph = tester.getCenter(
+          find.descendant(of: robot.skipButton, matching: find.byType(Icon)),
+        );
+        final line = find.descendant(
+          of: find.bySemanticsIdentifier(
+            SemanticsIds.calendarGuideTryCaption(
+              CalendarGuideTopic.events.slug,
+            ),
+          ),
+          matching: find.byType(RichText),
+        );
+        final firstRow = tester
+            .renderObject<RenderParagraph>(line)
+            .getBoxesForSelection(
+              const TextSelection(baseOffset: 0, extentOffset: 1),
+              boxHeightStyle: ui.BoxHeightStyle.max,
+            )
+            .first;
+        final rowCentre =
+            tester.getTopLeft(line).dy + (firstRow.top + firstRow.bottom) / 2;
+        expect(glyph.dy, moreOrLessEquals(rowCentre, epsilon: 1));
+        await expectNothingSaved();
+      });
+    }
 
     testWidgets('a page with nothing to try has no card', (tester) async {
       await open(tester, CalendarGuideTopic.good);
@@ -272,10 +335,10 @@ void main() {
     });
 
     testWidgets('the entry is a container node, never merged: the stage\'s '
-        'controls and the live caption are nodes of their own', (tester) async {
+        'controls, the skip and the live line are nodes of their own', (
+      tester,
+    ) async {
       final handle = tester.ensureSemantics();
-      // The screen card: its caption is never empty, and an empty one is
-      // left out of the tree with nothing to announce.
       final robot = await open(tester, CalendarGuideTopic.screen);
 
       final entry = tester.getSemantics(robot.card);
@@ -294,12 +357,17 @@ void main() {
         return false;
       }
 
+      final skip = tester.getSemantics(robot.skipButton);
+      expect(skip.id, isNot(entry.id));
       expect(under(add), isTrue);
       expect(under(caption), isTrue);
+      expect(under(skip), isTrue);
       expect(
         caption.getSemanticsData().label,
-        en.calendarGuideDemoFormat(en.calendarFormatMonth),
+        stepsOf(CalendarGuideTopic.screen).first,
       );
+      expect(skip.getSemanticsData().tooltip, en.calendarGuideSkipStep);
+      expect(skip.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
       expect(add.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
       expect(entry.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
       expect(caption.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
@@ -317,8 +385,8 @@ void main() {
       );
       await robot.tap('add');
       await robot.tapId(SemanticsIds.alertSheetSave);
-      final said = robot.caption;
-      expect(said, isNotEmpty);
+      final said = robot.line;
+      expect(said, isNot(stepsOf(CalendarGuideTopic.alerts).first));
 
       final list = find
           .descendant(
@@ -327,7 +395,7 @@ void main() {
           )
           .first;
       await tester.scrollUntilVisible(
-        find.bySemanticsIdentifier(SemanticsIds.calendarGuideRow('hub')),
+        find.bySemanticsIdentifier(SemanticsIds.calendarGuideRow('open-often')),
         600,
         scrollable: list,
         maxScrolls: 100,
@@ -343,57 +411,79 @@ void main() {
         maxScrolls: 100,
       );
       await tester.pumpAndSettle();
-      expect(robot.caption, said);
+      expect(robot.line, said);
       expect(robot.control('alert-0'), findsOneWidget);
       await expectNothingSaved();
     });
   });
 
+  group('the coach walks every card\'s steps', () {
+    for (final topic in CalendarGuideTopic.values) {
+      if (topic.steps.isEmpty) continue;
+      testWidgets('${topic.slug}: idle on the first step alone, skip to the '
+          'closing line, then disabled', (tester) async {
+        final robot = await open(tester, topic);
+        final steps = stepsOf(topic);
+        expect(topic.tryLead(en), steps.first);
+        expect(robot.line, steps.first);
+        note(robot);
+
+        for (final next in steps.skip(1)) {
+          expect(robot.canSkip, isTrue);
+          await robot.skip();
+          expect(robot.line, next);
+          note(robot);
+        }
+        await robot.skip();
+        expect(robot.line, en.calendarGuideCoachDone);
+        note(robot);
+        // Disabled, never hidden.
+        expect(robot.canSkip, isFalse);
+        expect(robot.skipButton, findsOneWidget);
+        expect(
+          robot.lineCandidates,
+          containsAll([...steps, en.calendarGuideCoachDone]),
+        );
+        expect(pushes.pushed, isEmpty);
+        expectOneSlotHeight();
+        await expectNothingSaved();
+      });
+    }
+  });
+
   group('screen', () {
-    testWidgets('the menus and the mode switch say what they would do, and '
-        'open nothing', (tester) async {
+    final steps = stepsOf(CalendarGuideTopic.screen);
+
+    testWidgets('the menus and the mode switch move the line on, and open '
+        'nothing', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
-      expect(robot.caption, en.calendarGuideDemoFormat(en.calendarFormatMonth));
+      expect(robot.line, steps[0]);
       note(robot);
 
       await robot.tapId(SemanticsIds.calendarViewMenu);
       await robot.tapId(SemanticsIds.calendarFormatTwoWeeks);
-      expect(
-        robot.caption,
-        en.calendarGuideDemoFormat(en.calendarFormatTwoWeeks),
-      );
+      expect(robot.line, steps[1]);
       note(robot);
 
       await robot.tapId(SemanticsIds.calendarViewMenu);
       await robot.tapId(SemanticsIds.calendarOverviewOpen);
-      expect(robot.caption, en.calendarGuideWouldOpen(en.calendarOverview));
-      note(robot);
+      expect(robot.line, steps[1]);
 
-      for (final (row, said) in [
-        (
-          SemanticsIds.calendarAlertsOpen,
-          en.calendarGuideWouldOpen(en.alertsTitle),
-        ),
-        (SemanticsIds.calendarExport, en.calendarGuideWouldShare),
-        (SemanticsIds.calendarGuideOpen, en.calendarGuideYouAreHere),
-        (
-          SemanticsIds.calendarSettingsOpen,
-          en.calendarGuideWouldOpen(en.calendarSettingsRow),
-        ),
+      for (final row in [
+        SemanticsIds.calendarAlertsOpen,
+        SemanticsIds.calendarExport,
+        SemanticsIds.calendarGuideOpen,
+        SemanticsIds.calendarSettingsOpen,
       ]) {
         await robot.tap('more');
         await robot.tapId(row);
-        expect(robot.caption, said);
+        expect(robot.line, steps[2]);
         note(robot);
       }
 
-      for (final (mode, said) in [
-        ('timeline', en.calendarGuideDemoPanelTimeline(en.panelModeTimeline)),
-        ('upcoming', en.calendarGuideDemoPanelUpcoming(en.upcomingEvents)),
-        ('day', en.calendarGuideDemoPanelDay(en.panelModeDay)),
-      ]) {
+      for (final mode in ['timeline', 'upcoming', 'day']) {
         await robot.tapId(SemanticsIds.panelMode(mode));
-        expect(robot.caption, said);
+        expect(robot.line, en.calendarGuideCoachDone);
         note(robot);
       }
 
@@ -406,15 +496,32 @@ void main() {
       expectOneSlotHeight();
       await expectNothingSaved();
     });
+
+    testWidgets('a step done early is not asked again', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
+
+      await robot.tapId(SemanticsIds.panelMode('timeline'));
+      expect(robot.line, steps[0]);
+
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarFormatWeek);
+      expect(robot.line, steps[1]);
+
+      await robot.skip();
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(robot.canSkip, isFalse);
+      await expectNothingSaved();
+    });
   });
 
   group('events', () {
     String rowId(String key) => 'row-$key';
+    final steps = stepsOf(CalendarGuideTopic.events);
 
     testWidgets('idle, with the three demo rows', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.events);
 
-      expect(robot.caption, en.calendarGuideDemoLongPressHint);
+      expect(robot.line, steps[0]);
       for (final key in ['dentist', 'yoga', 'rent']) {
         expect(robot.control(rowId(key)), findsOneWidget, reason: key);
       }
@@ -433,22 +540,22 @@ void main() {
       expect(find.byType(EventEditorSheet), findsOneWidget);
       await sheets.typeTitle('Swim');
       await sheets.saveEditor();
-      expect(
-        robot.caption,
-        en.calendarGuideDemoAdded('Swim', dates.format(today)),
-      );
+      // The row shows what the add did; the line says what is next.
+      expect(robot.line, steps[1]);
       expect(robot.shows('Swim'), isTrue);
       note(robot);
 
       await robot.tap(rowId('dentist'));
       expect(find.byType(EventDetailSheet), findsOneWidget);
+      // Opening is the step, marked when the trip returns.
+      expect(robot.line, steps[1]);
       await sheets.detailEdit();
       await sheets.typeTitle('Dentist at noon');
       await sheets.saveEditor();
       // The editor's Save returns to the detail sheet, as on the calendar.
       expect(sheets.detailOpen, isTrue);
       await sheets.detailClose();
-      expect(robot.caption, en.calendarGuideDemoChanged('Dentist at noon'));
+      expect(robot.line, steps[3]);
       expect(robot.shows('Dentist at noon'), isTrue);
       note(robot);
 
@@ -456,10 +563,8 @@ void main() {
       await sheets.detailEdit();
       await sheets.deleteInEditor(en.delete);
       expect(robot.control(rowId('yoga')), findsNothing);
-      expect(
-        robot.caption,
-        en.calendarGuideDemoDeleted(en.calendarGuideDemoEventYoga),
-      );
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(robot.canSkip, isFalse);
       note(robot);
 
       // Three more of hers: the oldest makes room, the stage holds its size.
@@ -480,7 +585,6 @@ void main() {
         'the demo, here only', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.events);
       final sheets = PracticeCalendarRobot(tester);
-      final dentist = en.calendarGuideDemoEventDentist;
       // Days in the picker's opening month: today's own.
       final extra = today.day < 20 ? day(3) : day(-3);
       final more = today.day < 20 ? day(5) : day(-5);
@@ -494,7 +598,10 @@ void main() {
       expect(picker().initialView, CalendarDatePickerView.month);
       await sheets.pickInDatePicker(extra);
       await robot.tapId(SemanticsIds.datePickerSave);
-      expect(robot.caption, en.calendarGuideDemoChanged(dentist));
+      // Changed before anything was added: the change is done, and the line
+      // still asks for the add.
+      final changed = steps[0];
+      expect(robot.line, changed);
       note(robot);
 
       // Back on the detail sheet, whose Dates row opens the set as a list.
@@ -505,7 +612,7 @@ void main() {
       await robot.tapId(SemanticsIds.datePickerView('month'));
       await sheets.pickInDatePicker(more);
       await robot.tapId(SemanticsIds.datePickerSave);
-      expect(robot.caption, en.calendarGuideDemoChanged(dentist));
+      expect(robot.line, changed);
       await robot.tapId(SemanticsIds.eventDetailDates);
       expect(picker().initialSelection, {today, extra, more});
       // Cancel returns to the detail sheet, the set as it was.
@@ -514,7 +621,7 @@ void main() {
 
       // The description cell's quick edit.
       await sheets.quickEditDescription('Bring the card');
-      expect(robot.caption, en.calendarGuideDemoChanged(dentist));
+      expect(robot.line, changed);
       note(robot);
       expect(
         find.descendant(
@@ -524,42 +631,83 @@ void main() {
         findsWidgets,
       );
       await sheets.detailClose();
+      // The add, then the open the change already did: straight to delete.
+      await robot.tap('add');
+      await sheets.typeTitle('Swim');
+      await sheets.saveEditor();
+      expect(robot.line, steps[3]);
+      note(robot);
       expectOneSlotHeight();
       await expectNothingSaved();
     });
 
-    testWidgets('a long title is cut in the caption', (tester) async {
+    testWidgets('a long title is cut in the line', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.events);
       final sheets = PracticeCalendarRobot(tester);
       final long = 'A' * 40;
 
-      await robot.tap('add');
+      // Yoga repeats on today's weekday, so its row stands for today.
+      await robot.tap(rowId('yoga'));
+      await sheets.detailEdit();
       await sheets.typeTitle(long);
       await sheets.saveEditor();
+      expect(sheets.detailOpen, isTrue);
+      await sheets.detailSkip();
 
       expect(
-        robot.caption,
-        en.calendarGuideDemoAdded('${'A' * 24}…', dates.format(today)),
+        robot.line,
+        en.calendarGuideDemoSkipped(shortDates.format(today), '${'A' * 24}…'),
       );
       await expectNothingSaved();
     });
 
-    testWidgets('a skip from the detail sheet is kept here only', (
-      tester,
-    ) async {
+    testWidgets('a skip from the detail sheet is kept here only; its report '
+        'is the line until the next action', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.events);
       final sheets = PracticeCalendarRobot(tester);
 
-      // Yoga repeats on today's weekday, so its row stands for today.
       await robot.tap(rowId('yoga'));
       await sheets.detailSkip();
+      // A skip is no step of this card and its day is not on the stage:
+      // its report alone.
       expect(
-        robot.caption,
+        robot.line,
         en.calendarGuideDemoSkipped(
-          dates.format(today),
+          shortDates.format(today),
           en.calendarGuideDemoEventYoga,
         ),
       );
+
+      // The next action restores an instruction once its trip returns:
+      // opening is step 2, so the line asks for the first step not done.
+      await robot.tap(rowId('dentist'));
+      await sheets.detailClose();
+      expect(robot.line, steps[0]);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the line moves on only once the detail sheet is closed: '
+        'a step under a sheet would never be announced', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.events);
+      final sheets = PracticeCalendarRobot(tester);
+
+      await robot.tap('add');
+      await sheets.typeTitle('Swim');
+      await sheets.saveEditor();
+      expect(robot.line, steps[1]);
+
+      await robot.tap(rowId('dentist'));
+      expect(sheets.detailOpen, isTrue);
+      expect(robot.line, steps[1], reason: 'opened, not yet applied');
+      await sheets.detailEdit();
+      await sheets.typeTitle('Dentist at noon');
+      await sheets.saveEditor();
+      expect(sheets.detailOpen, isTrue);
+      expect(robot.line, steps[1], reason: 'changed, not yet applied');
+      expect(robot.shows('Dentist at noon'), isTrue, reason: 'the stage is');
+
+      await sheets.detailClose();
+      expect(robot.line, steps[3]);
       await expectNothingSaved();
     });
 
@@ -576,13 +724,13 @@ void main() {
 
       await robot.longPress('add');
       await robot.tapId(SemanticsIds.templatePickRow(template.id));
-      expect(robot.caption, en.calendarGuideDemoTemplate('Haircut'));
+      expect(robot.line, steps[1]);
       expect(robot.shows('Haircut'), isTrue);
       note(robot);
 
       await robot.longPress('add');
       await robot.tapId(SemanticsIds.quickAlarmRow);
-      expect(robot.caption, en.calendarGuideWouldOpen(en.quickAlarmTitle));
+      expect(robot.line, en.calendarGuideWouldOpen(en.quickAlarmTitle));
       note(robot);
 
       await robot.longPress('add');
@@ -590,10 +738,8 @@ void main() {
       expect(find.byType(EventEditorSheet), findsOneWidget);
       await sheets.typeTitle('Blank one');
       await sheets.saveEditor();
-      expect(
-        robot.caption,
-        en.calendarGuideDemoAdded('Blank one', dates.format(today)),
-      );
+      expect(robot.line, steps[1]);
+      expect(robot.shows('Blank one'), isTrue);
       note(robot);
       expectOneSlotHeight();
       await expectNothingSaved();
@@ -601,11 +747,14 @@ void main() {
   });
 
   group('alerts', () {
-    testWidgets('the slot rests empty and reserved', (tester) async {
+    final steps = stepsOf(CalendarGuideTopic.alerts);
+
+    testWidgets('idle on the first step: where to add an alert', (
+      tester,
+    ) async {
       final robot = await open(tester, CalendarGuideTopic.alerts);
 
-      expect(robot.caption, isEmpty);
-      expect(robot.slotSize.height, greaterThan(0));
+      expect(robot.line, steps[0]);
       expect(robot.control('alert-0'), findsNothing);
       await expectNothingSaved();
     });
@@ -621,12 +770,10 @@ void main() {
       await robot.tapId(SemanticsIds.alertSheetSave);
       expect(robot.control('alert-0'), findsOneWidget);
       expect(
-        robot.caption,
-        en.calendarGuideDemoAlertSet(
-          en.calendarGuideDemoEventDentist,
-          en.eventAlertMinutesBefore(kDraftAlertOffsetMinutes),
-        ),
+        robot.shows(en.eventAlertMinutesBefore(kDraftAlertOffsetMinutes)),
+        isTrue,
       );
+      expect(robot.line, steps[1]);
       note(robot);
 
       await robot.tap('alert-0');
@@ -638,10 +785,7 @@ void main() {
       await robot.tap('alert-0');
       await robot.tapId(SemanticsIds.alertRemove);
       expect(robot.control('alert-0'), findsNothing);
-      expect(
-        robot.caption,
-        en.calendarGuideDemoChanged(en.calendarGuideDemoEventDentist),
-      );
+      expect(robot.line, steps[1]);
       note(robot);
       expect(pushes.pushed, isEmpty);
       expectOneSlotHeight();
@@ -668,6 +812,12 @@ void main() {
       await robot.tapId(SemanticsIds.alarmStop);
       expect(find.byType(AlarmPage), findsNothing);
       expect(find.byType(CalendarGuideTopicPage), findsOneWidget);
+      // Seen before any alert was added: that step is done, the add is
+      // still asked for.
+      expect(robot.line, steps[0]);
+      await robot.tap('add');
+      await robot.tapId(SemanticsIds.alertSheetSave);
+      expect(robot.line, en.calendarGuideCoachDone);
       await expectNothingSaved();
     });
 
@@ -678,10 +828,20 @@ void main() {
       await robot.tapId(SemanticsIds.alertTypeAlarm);
       await robot.tapId(SemanticsIds.alertRemoveAfter);
       await robot.tapId(SemanticsIds.alertSheetSave);
+      expect(robot.line, steps[1]);
 
       await robot.tap('show-alarm');
       final alarm = find.byType(AlarmPage);
       expect(alarm, findsOneWidget);
+      // The line, a live region, holds still under the ring screen: the
+      // step is marked once the page has closed.
+      String lineUnder() => tester
+          .widget<CalendarGuideTryCard>(
+            find.byType(CalendarGuideTryCard, skipOffstage: false),
+          )
+          .demo
+          .line(en);
+      expect(lineUnder(), steps[1]);
       expect(tester.widget<AlarmPage>(alarm).payload.removeAfterAlert, isTrue);
       expect(
         find.bySemanticsIdentifier(SemanticsIds.alarmKeepEvent),
@@ -726,6 +886,7 @@ void main() {
       // The preview's Keep only closes the page.
       await robot.tapId(SemanticsIds.alarmKeepEvent);
       expect(find.byType(AlarmPage), findsNothing);
+      expect(robot.line, en.calendarGuideCoachDone);
       await expectNothingSaved();
     });
 
@@ -737,11 +898,36 @@ void main() {
       expect(find.byType(QuickAlarmSheet), findsOneWidget);
       await robot.tapId(SemanticsIds.quickAlarmSave);
       expect(find.byType(QuickAlarmSheet), findsNothing);
-      // The sheet's default name; the time and the day are the clock's.
-      expect(robot.caption, startsWith('Alarm set for '));
-      expect(robot.caption, endsWith(en.calendarGuideDemoHereOnly('')));
+      // The sheet's default name; the time and the day are the clock's. The
+      // quick alarm is no step, and arms nothing to show: its report alone.
+      expect(robot.line, startsWith('Alarm set for '));
+      expect(robot.line, endsWith(en.calendarGuideDemoHereOnly('')));
+      note(robot);
+
+      // The next action restores the instruction.
+      await robot.tap('add');
+      await robot.tapId(SemanticsIds.alertSheetSave);
+      expect(robot.line, steps[1]);
       note(robot);
       expectOneSlotHeight();
+      await expectNothingSaved();
+    });
+
+    testWidgets('a report goes with the next action that is no step: an '
+        'alert removed', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.alerts);
+      await robot.tap('add');
+      await robot.tapId(SemanticsIds.alertSheetSave);
+      expect(robot.line, steps[1]);
+
+      await robot.tap('quick');
+      await robot.tapId(SemanticsIds.quickAlarmSave);
+      expect(robot.line, endsWith(en.calendarGuideDemoHereOnly('')));
+
+      await robot.tap('alert-0');
+      await robot.tapId(SemanticsIds.alertRemove);
+      expect(robot.control('alert-0'), findsNothing);
+      expect(robot.line, steps[1]);
       await expectNothingSaved();
     });
 
@@ -756,9 +942,11 @@ void main() {
   });
 
   group('kinds', () {
+    final steps = stepsOf(CalendarGuideTopic.kinds);
+
     testWidgets('idle on one day; repeat, pick a day, skip it', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.kinds);
-      expect(robot.caption, en.calendarGuideDemoOneDay(dates.format(today)));
+      expect(robot.line, steps[0]);
       note(robot);
       // One day: nothing to skip; its dates can grow.
       expect(robot.enabled('skip'), isFalse);
@@ -768,12 +956,7 @@ void main() {
       expect(find.byType(EventRepeatSheet), findsOneWidget);
       await robot.tapId(SemanticsIds.repeatKind('daily'));
       await robot.tapId(SemanticsIds.repeatDone);
-      final daysThisMonth =
-          DateUtils.getDaysInMonth(today.year, today.month) - today.day + 1;
-      expect(
-        robot.caption,
-        en.calendarGuideDemoRepeats(en.recurrenceDaily, daysThisMonth),
-      );
+      expect(robot.line, steps[1]);
       note(robot);
       // A repeating event has no dates of its own; a day is not picked yet.
       expect(robot.enabled('add-date'), isFalse);
@@ -787,13 +970,7 @@ void main() {
       expect(robot.enabled('skip'), isTrue);
 
       await robot.tap('skip');
-      expect(
-        robot.caption,
-        en.calendarGuideDemoSkipped(
-          dates.format(today),
-          en.calendarGuideDemoEventDentist,
-        ),
-      );
+      expect(robot.line, steps[2]);
       expect(robot.enabled('skip'), isFalse);
       note(robot);
       expectOneSlotHeight();
@@ -830,7 +1007,8 @@ void main() {
       await robot.tap('repeat');
       await doesNotRepeat();
       await robot.tapId(SemanticsIds.repeatDone);
-      expect(robot.caption, en.calendarGuideDemoOneDay(dates.format(today)));
+      // Back to one day before any skip: the skip is still asked for.
+      expect(robot.line, steps[1]);
       note(robot);
 
       // Repeat again opens on the rule she had, switched off.
@@ -855,13 +1033,16 @@ void main() {
       await robot.tap('add-date');
       await sheets.pickInDatePicker(extra);
       await robot.tapId(SemanticsIds.datePickerSave);
-      expect(robot.caption, en.recurrenceSpecificDates(2));
+      final pinned = en.recurrenceSpecificDates(2);
+      expect(robot.line, steps[1]);
+      expect(robot.shows(pinned), isTrue);
       await robot.tap('repeat');
       expect(opened().kind, RepeatKind.weekly);
       await robot.tapId(SemanticsIds.repeatKind('daily'));
       await doesNotRepeat();
       await robot.tapId(SemanticsIds.repeatDone);
-      expect(robot.caption, en.recurrenceSpecificDates(2));
+      expect(robot.line, steps[1]);
+      expect(robot.shows(pinned), isTrue);
       expect(robot.enabled('add-date'), isTrue);
       note(robot);
       expectOneSlotHeight();
@@ -871,7 +1052,6 @@ void main() {
     testWidgets('Add date pins the event to the dates picked', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.kinds);
       final sheets = PracticeCalendarRobot(tester);
-      note(robot);
 
       // A day in the picker's opening month: today's own month.
       final extra = today.day < 20 ? day(3) : day(-3);
@@ -879,11 +1059,11 @@ void main() {
       expect(find.byType(CalendarDatePickerSheet), findsOneWidget);
       await sheets.pickInDatePicker(extra);
       await robot.tapId(SemanticsIds.datePickerSave);
-      expect(robot.caption, en.recurrenceSpecificDates(2));
-      note(robot);
+      // The last step done first: the line still asks for the first.
+      expect(robot.line, steps[0]);
+      expect(robot.shows(en.recurrenceSpecificDates(2)), isTrue);
       // Two days now: one of them can be skipped once picked.
       expect(robot.enabled('add-date'), isTrue);
-      expectOneSlotHeight();
       await expectNothingSaved();
     });
   });
@@ -892,19 +1072,26 @@ void main() {
     String counts(int attended, int total, int current, int best) =>
         '${en.eventAdherenceSummary(attended, total, 30)}'
         ' · ${en.eventAdherenceStreak(current, best)}';
+    final steps = stepsOf(CalendarGuideTopic.attendance);
 
-    testWidgets('idle on the seed\'s count; today\'s button and a past day '
-        'change the summary and the streak', (tester) async {
+    testWidgets('idle on the first step; today\'s button and a past day '
+        'change the summary and the streak under the marks, never the '
+        'row\'s height', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.attendance);
-      // Today and the four weeks before it; the week before last missed.
-      expect(robot.caption, counts(4, 5, 1, 3));
+      expect(robot.line, steps[0]);
+      // Live from the first build: the seed's own count.
+      expect(robot.stageCaptions.first, counts(4, 5, 1, 3));
+      final marks = robot.stageCaptionSlotSize(0);
+      final stage = robot.stageSize;
       note(robot);
+      // Today and the four weeks before it; the week before last missed.
       for (var i = 0; i < 4; i++) {
         expect(robot.chip('day-$i').selected, i != 3, reason: 'day-$i');
       }
 
       await robot.tap('today');
-      expect(robot.caption, counts(3, 5, 0, 3));
+      expect(robot.line, steps[1]);
+      expect(robot.stageCaptions.first, counts(3, 5, 0, 3));
       note(robot);
       expect(
         find.descendant(
@@ -916,11 +1103,17 @@ void main() {
 
       await robot.tap('day-3');
       expect(robot.chip('day-3').selected, isTrue);
-      expect(robot.caption, counts(4, 5, 0, 4));
-      note(robot);
+      expect(robot.line, steps[1]);
+      expect(robot.stageCaptions.first, counts(4, 5, 0, 4));
 
       await robot.tap('today');
-      expect(robot.caption, counts(5, 5, 5, 5));
+      expect(robot.stageCaptions.first, counts(5, 5, 5, 5));
+      expect(robot.stageCaptionSlotSize(0), marks);
+      expect(robot.stageSize, stage);
+
+      await robot.tap('count');
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(robot.stageCaptions.first, counts(5, 5, 5, 5));
       note(robot);
       expectOneSlotHeight();
       await expectNothingSaved();
@@ -960,11 +1153,13 @@ void main() {
 
       await robot.tap('count');
       expect(robot.chip('count-elapsed').onTap, isNotNull);
-      expect(robot.stageCaption, numbered);
+      expect(robot.stageCaptions.last, numbered);
+      // The second step first: the line still asks for a mark.
+      expect(robot.line, steps[0]);
 
       await robot.tap('count-elapsed');
       expect(robot.chip('count-elapsed').selected, isTrue);
-      expect(robot.stageCaption, elapsed);
+      expect(robot.stageCaptions.last, elapsed);
       expect(robot.stageSize, stage);
       expect(pushes.pushed, isEmpty);
       await expectNothingSaved();
@@ -972,12 +1167,13 @@ void main() {
   });
 
   group('categories', () {
-    testWidgets('idle: three rows, an empty reserved slot, Delete disabled '
-        'on a built-in', (tester) async {
+    final steps = stepsOf(CalendarGuideTopic.categories);
+
+    testWidgets('idle: three rows, the first step, Delete disabled on a '
+        'built-in', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.categories);
 
-      expect(robot.caption, isEmpty);
-      expect(robot.slotSize.height, greaterThan(0));
+      expect(robot.line, steps[0]);
       for (var i = 0; i < 3; i++) {
         expect(robot.control('row-$i'), findsOneWidget, reason: 'row-$i');
       }
@@ -998,7 +1194,7 @@ void main() {
       await tester.tapAt(const Offset(4, 4));
       await tester.pumpAndSettle();
       expect(robot.control('row-0'), findsOneWidget);
-      expect(robot.caption, isEmpty);
+      expect(robot.line, steps[0]);
       await expectNothingSaved();
     });
 
@@ -1014,41 +1210,37 @@ void main() {
       expect(find.byType(CategoryEditorSheet), findsOneWidget);
       await sheet.typeName('Chess');
       await sheet.save();
-      expect(robot.caption, en.calendarGuideDemoCatCreated('Chess'));
+      expect(robot.line, steps[1]);
       expect(robot.control('row-3'), findsOneWidget);
+      expect(robot.shows('Chess'), isTrue);
       note(robot);
 
       await robot.tap('row-2');
       await sheet.typeName('Reading');
       await sheet.save();
-      expect(robot.caption, en.calendarGuideDemoChanged('Reading'));
+      expect(robot.line, steps[1]);
       expect(robot.shows('Reading'), isTrue);
       note(robot);
 
       await robot.tap('eye-0');
-      expect(robot.caption, en.calendarGuideDemoCatHidden(gym));
+      expect(robot.line, steps[2]);
+      expect(steps[2], contains(en.eventCategoryOther));
       note(robot);
       await robot.tap('eye-0');
-      expect(robot.caption, en.calendarGuideDemoChanged(gym));
-      note(robot);
+      expect(robot.line, steps[2]);
+      expect(robot.shows(gym), isTrue);
 
       await robot.tap('more-1');
       await robot.tap('edit');
       expect(find.byType(CategoryEditorSheet), findsOneWidget);
       await sheet.save();
-      expect(
-        robot.caption,
-        en.calendarGuideDemoChanged(en.eventCategoryCardio),
-      );
+      expect(robot.line, steps[2]);
 
       await robot.tap('more-2');
       await robot.tap('delete');
       expect(robot.control('row-3'), findsNothing);
       expect(robot.shows('Reading'), isFalse);
-      expect(
-        robot.caption,
-        en.calendarGuideDemoCatDeleted('Reading', en.eventCategoryOther),
-      );
+      expect(robot.line, en.calendarGuideCoachDone);
       note(robot);
       expect(robot.stageSize, stage);
       expect(pushes.pushed, isEmpty);
@@ -1077,6 +1269,7 @@ void main() {
 
   group('finding', () {
     const all = ['dentist', 'yoga', 'rent', 'birthday', 'book-club', 'flight'];
+    final steps = stepsOf(CalendarGuideTopic.finding);
 
     Future<void> search(
       WidgetTester tester,
@@ -1107,31 +1300,33 @@ void main() {
         'which never changes height', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.finding);
       final stage = robot.stageSize;
-      expect(robot.caption, en.calendarGuideDemoMatches(6));
+      expect(robot.line, steps[0]);
       expectListed(robot, all.toSet());
       note(robot);
 
       await search(tester, robot, 'yoga');
-      expect(robot.caption, en.calendarGuideDemoMatches(1));
+      expect(robot.line, steps[1]);
       expectListed(robot, {'yoga'});
       note(robot);
 
       // The seed takes the visible built-ins in order: Rent wears the third.
       await search(tester, robot, en.eventCategoryRest);
-      expect(robot.caption, en.calendarGuideDemoMatches(1));
+      expect(robot.line, steps[1]);
       expectListed(robot, {'rent'});
-      note(robot);
 
       final flight = day(9);
       await search(tester, robot, DateFormat('d MMMM', 'en').format(flight));
       expect(robot.control('match-flight'), findsOneWidget);
       expect(robot.control('match-dentist'), findsNothing);
-      note(robot);
 
       await search(tester, robot, 'nothing like it');
-      expect(robot.caption, en.calendarGuideDemoMatches(0));
+      expect(robot.line, steps[1]);
       expectListed(robot, const {});
-      note(robot);
+
+      // An emptied field is no search: the list fills, the step stays done.
+      await search(tester, robot, '');
+      expect(robot.line, steps[1]);
+      expectListed(robot, all.toSet());
       expect(robot.stageSize, stage);
       expectOneSlotHeight();
       await expectNothingSaved();
@@ -1148,7 +1343,8 @@ void main() {
       await robot.tapId(SemanticsIds.filterRepeatOneTime);
       await robot.tapId(SemanticsIds.filterApply);
       expect(find.byType(CalendarFilterSheet), findsNothing);
-      expect(robot.caption, en.calendarGuideDemoFiltered(1));
+      // Filtered before any search: the search is still asked for.
+      expect(robot.line, steps[0]);
       expectListed(robot, {'dentist', 'flight'});
       note(robot);
 
@@ -1156,7 +1352,7 @@ void main() {
       await robot.tapId(SemanticsIds.filterTime);
       await robot.tapId(SemanticsIds.filterTimeAllDay);
       await robot.tapId(SemanticsIds.filterApply);
-      expect(robot.caption, en.calendarGuideDemoFiltered(2));
+      expect(robot.line, steps[0]);
       expectListed(robot, {'flight'});
       expect(
         find.descendant(
@@ -1169,7 +1365,7 @@ void main() {
 
       // A query on top of the filters.
       await search(tester, robot, 'dentist');
-      expect(robot.caption, en.calendarGuideDemoMatches(0));
+      expect(robot.line, en.calendarGuideCoachDone);
       expectListed(robot, const {});
       note(robot);
       expectOneSlotHeight();
@@ -1184,7 +1380,7 @@ void main() {
       await robot.tapId(SemanticsIds.filterListRow('missed'));
       await robot.tapId(SemanticsIds.filterListDone);
       await robot.tapId(SemanticsIds.filterApply);
-      expect(robot.caption, en.calendarGuideDemoFiltered(1));
+      expect(robot.line, steps[0]);
       // The practice Yoga's week before last is marked missed in the demo;
       // the calendar's own presence cache holds no mark of a demo id.
       expectListed(robot, {'yoga'});
@@ -1226,13 +1422,12 @@ void main() {
       await expectNothingSaved();
     });
 
-    // On a phone the stage is taller than the room the keyboard leaves: the
-    // field rises to the top with the matches under it. Where the room
-    // holds the stage, the count shows above the keyboard. Either way the
-    // field stays put while she types.
+    // The keyboard up: the coach line rises to the top, the field under it
+    // and the matches under that, all above the keyboard. The field stays
+    // put while she types.
     for (final height in const [915.0, 1200.0]) {
-      testWidgets('the keyboard up brings the matches, and where they fit '
-          'the count, above it; typing moves nothing (412×$height)', (
+      testWidgets('the keyboard up brings the line, the field and the '
+          'matches above it; typing moves nothing (412×$height)', (
         tester,
       ) async {
         final robot = await open(
@@ -1246,56 +1441,92 @@ void main() {
           of: robot.control('search'),
           matching: find.byType(EditableText),
         );
-        final fits = height > 915;
         await tester.showKeyboard(field);
         await tester.pumpAndSettle();
-        // The page as it opens: the count below the keyboard-to-be.
-        expect(robot.slotRect.bottom, greaterThan(keyboardTop));
 
         tester.view.viewInsets = const FakeViewPadding(bottom: inset);
         await tester.pumpAndSettle();
         final fieldRect = tester.getRect(field);
-        expect(fieldRect.top, greaterThanOrEqualTo(0));
+        final slotRect = robot.slotRect;
+        expect(slotRect.top, greaterThanOrEqualTo(0));
+        expect(slotRect.bottom, lessThanOrEqualTo(fieldRect.top));
         expect(fieldRect.bottom, lessThanOrEqualTo(keyboardTop));
         expect(
           tester.getRect(robot.control('match-dentist')).bottom,
           lessThanOrEqualTo(keyboardTop),
         );
-        expect(
-          robot.slotRect.bottom <= keyboardTop,
-          fits,
-          reason: '${robot.slotRect}',
-        );
 
         await tester.enterText(field, 'yoga');
         await tester.pumpAndSettle();
-        expect(robot.caption, en.calendarGuideDemoMatches(1));
+        expect(robot.line, stepsOf(CalendarGuideTopic.finding)[1]);
         expect(tester.getRect(field), fieldRect);
-        expect(robot.slotRect.bottom <= keyboardTop, fits);
+        expect(robot.slotRect, slotRect);
         expect(tester.takeException(), isNull);
         await expectNothingSaved();
       });
     }
+
+    // Where the line, the field and a match do not all fit, the field goes
+    // to the top and the first match stays above the keyboard.
+    testWidgets('the keyboard up on a small phone in German at 2.0 keeps the '
+        'field and the first match above it (360×780)', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.finding,
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScaler: const TextScaler.linear(2.0),
+      );
+      const inset = 320.0;
+      const keyboardTop = 780 - inset;
+      final field = find.descendant(
+        of: robot.control('search'),
+        matching: find.byType(EditableText),
+      );
+      await tester.showKeyboard(field);
+      await tester.pumpAndSettle();
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: inset);
+      await tester.pumpAndSettle();
+      final fieldRect = tester.getRect(field);
+      expect(fieldRect.top, greaterThanOrEqualTo(0));
+      expect(fieldRect.bottom, lessThanOrEqualTo(keyboardTop));
+      expect(
+        tester.getRect(robot.control('match-dentist')).bottom,
+        lessThanOrEqualTo(keyboardTop),
+      );
+
+      await tester.enterText(field, 'Zahnarzt');
+      await tester.pumpAndSettle();
+      expect(tester.getRect(field), fieldRect);
+      expect(tester.takeException(), isNull);
+      await expectNothingSaved();
+    });
   });
 
   group('setup', () {
     final year = today.year;
+    final steps = stepsOf(CalendarGuideTopic.setup);
     int countIn(HolidayProfile profile, int year) => HolidaySeeds.forYear(
       profile,
       year,
     ).keys.where((day) => day.year == year).length;
 
-    testWidgets('every holiday set says its own count, the next days in a '
-        'slot that never changes height', (tester) async {
+    testWidgets('every holiday set says its own count under the row, the '
+        'next days in a slot that never changes height', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.setup);
       final stage = robot.stageSize;
+      expect(robot.line, steps[0]);
+      // Live from the first build: the seed's set.
       expect(
-        robot.caption,
+        robot.stageCaptions.first,
         en.calendarGuideDemoHolidays(
           countIn(HolidayProfile.generic, year),
           '$year',
         ),
       );
+      final count = robot.stageCaptionSlotSize(0);
+      note(robot);
       final next = <String>{};
       for (final profile in HolidayProfile.values) {
         await robot.tap('holidays');
@@ -1305,13 +1536,15 @@ void main() {
             'holidays-${profile.name}',
           ),
         );
+        expect(robot.line, steps[1], reason: profile.name);
         expect(
-          robot.caption,
+          robot.stageCaptions.first,
           en.calendarGuideDemoHolidays(countIn(profile, year), '$year'),
           reason: profile.name,
         );
+        expect(robot.stageCaptionSlotSize(0), count, reason: profile.name);
         note(robot);
-        final lines = robot.stageCaption;
+        final lines = robot.stageCaptions.last;
         expect(
           lines.isEmpty ? 0 : lines.split('\n').length,
           profile == HolidayProfile.none ? 0 : 3,
@@ -1346,13 +1579,13 @@ void main() {
         SemanticsIds.calendarGuideTryControl('setup', 'holidays-${us.name}'),
       );
 
-      final lines = robot.stageCaption.split('\n');
+      final lines = robot.stageCaptions.last.split('\n');
       expect(lines, hasLength(3));
       final shownDates = [for (final line in lines) line.split(' · ').first];
       expect(shownDates.toSet(), hasLength(3), reason: '$lines');
       expect(shownDates.first, dates.format(newYearObserved));
       expect(
-        robot.caption,
+        robot.stageCaptions.first,
         en.calendarGuideDemoHolidays(countIn(us, 2027), '2027'),
       );
       await expectNothingSaved();
@@ -1373,7 +1606,11 @@ void main() {
         SemanticsIds.calendarGuideTryControl('setup', 'holidays-${us.name}'),
       );
 
-      expect(robot.caption, en.calendarGuideDemoHolidays(own, '2028'));
+      expect(
+        robot.stageCaptions.first,
+        en.calendarGuideDemoHolidays(own, '2028'),
+      );
+      expect(robot.line, steps[1]);
       await expectNothingSaved();
     });
 
@@ -1390,13 +1627,8 @@ void main() {
       final robot = await open(tester, CalendarGuideTopic.setup);
 
       expect(robot.shows(en.holidayProfileRomania), isTrue);
-      expect(
-        robot.caption,
-        en.calendarGuideDemoHolidays(
-          countIn(HolidayProfile.romania, year),
-          '$year',
-        ),
-      );
+      // Her own set is no pick: the line still asks for one.
+      expect(robot.line, steps[0]);
       await expectNothingSaved();
     });
 
@@ -1434,6 +1666,9 @@ void main() {
           findsWidgets,
         );
       }
+      // The second step done first, with nothing to report: the line asks
+      // for the first alone.
+      expect(robot.line, steps[0]);
       expect(pushes.pushed, isEmpty);
       await expectNothingSaved();
     });
@@ -1513,6 +1748,113 @@ void main() {
       expect(tester.takeException(), isNull);
       await expectNothingSaved();
     });
+
+    testWidgets('attendance: the count under the marks, every mark and the '
+        'count switch', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.attendance,
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScaler: const TextScaler.linear(2.0),
+      );
+      final stage = robot.stageSize;
+      final shown = {robot.stageCaptions.first};
+      for (final control in [
+        'today',
+        'day-3',
+        'day-0',
+        'today',
+        'count',
+        'count-elapsed',
+        'count',
+      ]) {
+        await robot.tap(control);
+        shown.add(robot.stageCaptions.first);
+        expect(robot.stageSize, stage, reason: control);
+      }
+      expect(shown.length, greaterThan(2));
+      expect(tester.takeException(), isNull);
+      await expectNothingSaved();
+    });
+
+    testWidgets('setup: every holiday set\'s count and every first day', (
+      tester,
+    ) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.setup,
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScaler: const TextScaler.linear(2.0),
+      );
+      final stage = robot.stageSize;
+      final counts = {robot.stageCaptions.first};
+      for (final profile in HolidayProfile.values) {
+        await robot.tap('holidays');
+        await robot.tapId(
+          SemanticsIds.calendarGuideTryControl(
+            'setup',
+            'holidays-${profile.name}',
+          ),
+        );
+        counts.add(robot.stageCaptions.first);
+        expect(robot.stageSize, stage, reason: profile.name);
+      }
+      for (final start in CalendarWeekStart.values) {
+        await robot.tap('week-${start.name}');
+        expect(robot.stageSize, stage, reason: start.name);
+      }
+      expect(counts.length, greaterThan(2));
+      expect(tester.takeException(), isNull);
+      await expectNothingSaved();
+    });
+
+    // The coach line's slot, through every step, the card's report where it
+    // has one, and the closing line: one height, so a line that grows never
+    // pushes the stage down under her finger.
+    for (final topic in CalendarGuideTopic.values) {
+      if (topic.steps.isEmpty) continue;
+      testWidgets('${topic.slug}: the coach line\'s slot, through the steps '
+          'and a report', (tester) async {
+        final robot = await open(
+          tester,
+          topic,
+          locale: const Locale('de'),
+          size: const Size(360, 780),
+          textScaler: const TextScaler.linear(2.0),
+        );
+        // Where the stage starts under the line's top.
+        double offset() =>
+            tester
+                .getRect(
+                  find
+                      .descendant(
+                        of: robot.card,
+                        matching: find.byType(RepaintBoundary),
+                      )
+                      .first,
+                )
+                .top -
+            robot.slotRect.top;
+        // Within float noise: the line's inset (D52) is fractional, and the
+        // two tops are read after the page has scrolled.
+        final gap = moreOrLessEquals(offset(), epsilon: 1e-6);
+        note(robot);
+
+        await _changeOnce(tester, robot, topic);
+        note(robot);
+        expect(offset(), gap, reason: 'after a report');
+        while (robot.canSkip) {
+          await robot.skip();
+          note(robot);
+          expect(offset(), gap, reason: robot.line);
+        }
+        expect(tester.takeException(), isNull);
+        expectOneSlotHeight();
+        await expectNothingSaved();
+      });
+    }
   });
 
   group('the stage\'s controls are nodes of their own under the entry', () {
@@ -1534,10 +1876,7 @@ void main() {
       testWidgets(topic.slug, (tester) async {
         final handle = tester.ensureSemantics();
         final robot = await open(tester, topic);
-        // An empty caption is left out of the tree: give the categories
-        // and the alerts cards one to say first — the alerts card's an
-        // alert row too.
-        if (topic == CalendarGuideTopic.categories) await robot.tap('eye-1');
+        // The alerts card's alert row is there once she has added one.
         if (topic == CalendarGuideTopic.alerts) {
           await robot.tap('add');
           await robot.tapId(SemanticsIds.alertSheetSave);
@@ -1555,6 +1894,7 @@ void main() {
         for (final name in [
           for (final control in controls)
             SemanticsIds.calendarGuideTryControl(topic.slug, control),
+          SemanticsIds.calendarGuideTrySkip(topic.slug),
           SemanticsIds.calendarGuideTryCaption(topic.slug),
         ]) {
           final node = tester.getSemantics(find.bySemanticsIdentifier(name));
@@ -1735,8 +2075,9 @@ List<String> _brokenWords(RenderParagraph paragraph) {
   ];
 }
 
-/// The first thing she would do on [topic]'s card: a mode, an added event,
-/// a rule, an alert, a mark, a category, a query, a holiday set.
+/// The first thing she would do on [topic]'s card: a view, the quick alarm
+/// (the events and alerts cards' report), a rule, a mark, a category, a
+/// query, a holiday set.
 Future<void> _changeOnce(
   WidgetTester tester,
   GuideTryCardRobot robot,
@@ -1744,19 +2085,19 @@ Future<void> _changeOnce(
 ) async {
   switch (topic) {
     case CalendarGuideTopic.screen:
-      await robot.tapId(SemanticsIds.panelMode('timeline'));
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarFormatWeek);
+    // The two cards with a report: the report alone is the line.
     case CalendarGuideTopic.events:
-      final sheets = PracticeCalendarRobot(tester);
-      await robot.tap('add');
-      await sheets.typeTitle('Swim');
-      await sheets.saveEditor();
+      await robot.longPress('add');
+      await robot.tapId(SemanticsIds.quickAlarmRow);
+    case CalendarGuideTopic.alerts:
+      await robot.tap('quick');
+      await robot.tapId(SemanticsIds.quickAlarmSave);
     case CalendarGuideTopic.kinds:
       await robot.tap('repeat');
       await robot.tapId(SemanticsIds.repeatKind('weekly'));
       await robot.tapId(SemanticsIds.repeatDone);
-    case CalendarGuideTopic.alerts:
-      await robot.tap('add');
-      await robot.tapId(SemanticsIds.alertSheetSave);
     case CalendarGuideTopic.attendance:
       await robot.tap('today');
     case CalendarGuideTopic.categories:
@@ -1784,7 +2125,9 @@ Future<void> _changeOnce(
     default:
       fail('$topic has no card');
   }
-  expect(robot.caption, isNotEmpty, reason: topic.slug);
+  // The line moved off the first instruction it rested on — the first line
+  // its slot is sized for: to the next one, or to the card's report.
+  expect(robot.line, isNot(robot.lineCandidates.first), reason: topic.slug);
 }
 
 /// Taps [target] in the open sheet, scrolled into view first.

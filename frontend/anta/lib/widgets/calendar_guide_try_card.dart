@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -6,6 +8,7 @@ import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_guide_coach.dart';
 import '../models/calendar_guide_content.dart';
 import 'calendar_guide_rows.dart';
 import 'form_rows.dart';
@@ -13,8 +16,8 @@ import 'month_dot_matrix.dart';
 import 'settings_section_list.dart';
 
 /// What one "Try it" card shows and remembers: its stage, built from the real
-/// widgets of the page's task, and the caption that says what the last
-/// action did.
+/// widgets of the page's task, and the coach line that says where to tap
+/// next (D40, D49).
 ///
 /// Owned by the page's `State`, never by the card: the kit's list disposes a
 /// card scrolled out of view, and a demo that lived in it would forget what
@@ -22,6 +25,16 @@ import 'settings_section_list.dart';
 /// saved — every sheet a stage opens runs in its sandbox mode and its answer
 /// lands in the demo.
 abstract class GuideCardDemo extends ChangeNotifier {
+  GuideCardDemo(CalendarGuideTopic topic) : _coach = GuideCoach(topic.steps);
+
+  final GuideCoach _coach;
+
+  List<GuideCoachStep> get steps => _coach.steps;
+
+  /// Every step is done: the line reads the closing line and the skip
+  /// button is disabled.
+  bool get finished => _coach.finished;
+
   /// The owner's calendar look, for the pickers and the add button a stage
   /// draws. The defaults until the page has read it, and only read for a
   /// demo that asks ([needsAppearance]).
@@ -34,42 +47,57 @@ abstract class GuideCardDemo extends ChangeNotifier {
 
   bool get needsAppearance => false;
 
-  /// The last action's caption, written in whatever language the page is
-  /// in when it is drawn; null while nothing has happened.
-  String Function(AppLocalizations l10n)? _said;
+  /// The coach line now: one clause (D49) — the next instruction, or the
+  /// report of an action the stage cannot show.
+  String line(AppLocalizations l10n) => _coach.line(l10n);
 
-  /// The caption now. Null is the reserved, empty slot of a card with no
-  /// resting caption (D30).
-  String? caption(AppLocalizations l10n) => _said?.call(l10n) ?? idle(l10n);
+  /// Every report the card can make through [say], each at its longest.
+  List<String> reports(AppLocalizations l10n) => const [];
 
-  /// The caption before the first action.
-  String? idle(AppLocalizations l10n);
+  /// Every line the card can show. The slot is as tall as the tallest, so a
+  /// line changes words and never the card's height. Called once per locale.
+  List<String> candidates(AppLocalizations l10n) =>
+      _coach.candidates(l10n, reports(l10n));
 
-  /// Every caption the card can show, each at its longest. The slot is as
-  /// tall as the tallest, so a caption changes words and never the card's
-  /// height. Called once per locale.
-  List<String> candidates(AppLocalizations l10n);
-
-  Widget buildStage(BuildContext context);
-
-  /// Records what just happened and redraws the card.
-  @protected
-  void say(String Function(AppLocalizations l10n) caption) {
-    _said = caption;
+  /// Steps past the current instruction without her doing it.
+  void skip() {
+    _coach.skip();
     notifyListeners();
   }
 
-  /// Redraws the card after a change the caption does not name.
-  @protected
-  void changed() => notifyListeners();
+  Widget buildStage(BuildContext context);
 
-  /// The card's caption slot, for a stage that has to bring the caption
-  /// into view — the finding card, whose keyboard would cover the count.
+  /// [action] — a coach step's — just happened; the stage shows what it
+  /// did, so the line moves on to what is next.
+  @protected
+  void did(String action) {
+    _coach.did(action);
+    notifyListeners();
+  }
+
+  /// Records what an action that is no step and shows nothing on the stage
+  /// did, and redraws the card.
+  @protected
+  void say(GuideLine report) {
+    _coach.say(report);
+    notifyListeners();
+  }
+
+  /// Redraws the card after a change the line does not name. A standing
+  /// report belonged to the action before this one, so it goes.
+  @protected
+  void changed() {
+    _coach.clearReport();
+    notifyListeners();
+  }
+
+  /// The card's coach slot, for a stage that has to bring the line into
+  /// view — the finding card, whose keyboard would cover its matches.
   final GlobalKey captionSlotKey = GlobalKey();
 }
 
-/// A title as a caption quotes it: cut at
-/// [GuideMetrics.captionTitleMaxChars] so a caption slot can be sized for
+/// A title as the coach line quotes it: cut at
+/// [GuideMetrics.captionTitleMaxChars] so the line's slot can be sized for
 /// any title she types.
 String calendarGuideQuote(String title) {
   final characters = title.characters;
@@ -84,8 +112,8 @@ String calendarGuideQuote(String title) {
 final String calendarGuideLongestQuote =
     '${'n' * GuideMetrics.captionTitleMaxChars}…';
 
-/// The long weekday date the guide's captions write, at its widest in
-/// [dates]' language over a whole year, for a caption slot's candidates.
+/// A date the guide's captions write, at its widest in [dates]' language
+/// over a whole year, for a caption slot's candidates.
 String calendarGuideLongestDate(DateFormat dates) {
   var longest = '';
   for (var day = 0; day < 365; day++) {
@@ -113,8 +141,9 @@ class GuideLocaleFormat {
   }
 }
 
-/// The page's "Try it" card: the lead-in as its one entry — so the kit's
-/// search finds it — over the card's body.
+/// The page's "Try it" card: its first instruction as its one entry's
+/// title — so the kit's search finds it (D48) — over the card's body, which
+/// draws the live coach line in the title's place.
 SettingsSectionData calendarGuideTrySection({
   required AppLocalizations l10n,
   required CalendarGuideTopic topic,
@@ -130,9 +159,8 @@ SettingsSectionData calendarGuideTrySection({
         title: lead,
         titleStyle: calendarGuideParagraphStyle,
         identifier: SemanticsIds.calendarGuideTry(topic.slug),
-        builder: (context, title, _) => CalendarGuideTryCard(
+        builder: (context, _, _) => CalendarGuideTryCard(
           slug: topic.slug,
-          lead: title,
           demo: demo,
           candidates: candidates,
         ),
@@ -141,23 +169,24 @@ SettingsSectionData calendarGuideTrySection({
   );
 }
 
-/// The body of a "Try it" card: the lead-in, the stage, the live caption.
+/// The body of a "Try it" card: the coach line with its skip button, then
+/// the stage.
 ///
 /// No ink, no chevron, no tap of its own — the card is a place to try
-/// things, and only the stage's real controls answer a finger. Stateless
-/// over [demo], which outlives it.
+/// things, and only the stage's real controls and the skip answer a finger.
+/// Stateless over [demo], which outlives it.
 class CalendarGuideTryCard extends StatelessWidget {
   const CalendarGuideTryCard({
     super.key,
     required this.slug,
-    required this.lead,
     required this.demo,
     required this.candidates,
   });
 
   final String slug;
-  final Widget lead;
   final GuideCardDemo demo;
+
+  /// Every line the coach can show, built once per locale by the page.
   final List<String> candidates;
 
   @override
@@ -175,13 +204,60 @@ class CalendarGuideTryCard extends StatelessWidget {
       listenable: demo,
       builder: (context, _) {
         final l10n = AppLocalizations.of(context)!;
+        final style = calendarGuideParagraphStyle.copyWith(
+          color: colorScheme.onSurface,
+        );
         return Padding(
           padding: const EdgeInsets.only(bottom: GuideMetrics.cardInset),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(padding: inset, child: lead),
-              const SizedBox(height: GuideMetrics.leadToStage),
+              Padding(
+                padding: inset,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsetsDirectional.only(
+                          top: _lineInset(MediaQuery.textScalerOf(context)),
+                        ),
+                        child: FormCaptionSlot(
+                          key: demo.captionSlotKey,
+                          // Level with the skip; a short line leaves its
+                          // blank below, never above.
+                          alignment: AlignmentDirectional.topStart,
+                          candidates: [
+                            for (final text in candidates)
+                              Text(text, style: style),
+                          ],
+                          child: Semantics(
+                            container: true,
+                            liveRegion: true,
+                            identifier: SemanticsIds.calendarGuideTryCaption(
+                              slug,
+                            ),
+                            child: Text(demo.line(l10n), style: style),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: GuideMetrics.coachGap),
+                    FormTrailingButton(
+                      icon: Icons.skip_next_rounded,
+                      tooltip: l10n.calendarGuideSkipStep,
+                      identifier: SemanticsIds.calendarGuideTrySkip(slug),
+                      color: colorScheme.onSurfaceVariant,
+                      disabledColor: colorScheme.onSurfaceVariant.withValues(
+                        alpha: FormMetrics.disabledOpacity,
+                      ),
+                      // Disabled, never hidden, once every step is done.
+                      onPressed: demo.finished ? null : demo.skip,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: GuideMetrics.coachToStage),
               Padding(
                 padding: fullBleed ? EdgeInsets.zero : inset,
                 child: RepaintBoundary(
@@ -206,34 +282,31 @@ class CalendarGuideTryCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: GuideMetrics.stageToCaption),
-              Padding(
-                padding: inset,
-                child: FormCaptionSlot(
-                  key: demo.captionSlotKey,
-                  candidates: [
-                    for (final text in candidates) FormCaption(text: text),
-                  ],
-                  child: Semantics(
-                    container: true,
-                    liveRegion: true,
-                    identifier: SemanticsIds.calendarGuideTryCaption(slug),
-                    child: FormCaption(text: demo.caption(l10n) ?? ''),
-                  ),
-                ),
-              ),
             ],
           ),
         );
       },
     );
   }
+
+  /// The line sits this far down: its first row, and so the instruction,
+  /// centred on the skip's 48 dp target and its glyph, as the band's skip
+  /// sits on its line. It is the same for every line at a [scaler], so
+  /// nothing moves when the line changes; the row stays the taller of the
+  /// target and the inset slot.
+  static double _lineInset(TextScaler scaler) {
+    final firstRow = scaler.scale(
+      GuideMetrics.paragraphFontSize * GuideMetrics.paragraphLineHeight,
+    );
+    return math.max(0, (FormMetrics.trailingButtonSize - firstRow) / 2);
+  }
 }
 
 /// A stage's month of dots, drawn as the year tiles draw it at the largest
 /// whole multiple of their size the stage's width holds, between
 /// [GuideMetrics.stageMatrixMinScale] and [GuideMetrics.stageMatrixMaxScale].
-/// What it shows, the caption says, so it is left out of the semantics tree.
+/// What it shows, the stage's own rows say, so it is left out of the
+/// semantics tree.
 class CalendarGuideStageMatrix extends StatelessWidget {
   const CalendarGuideStageMatrix({super.key, required this.matrix});
 

@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -15,6 +16,7 @@ import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import 'support/guide_try_card_robot.dart';
 
 Widget _host(
   CalendarGuideTopic topic, {
@@ -92,56 +94,32 @@ void _expectNoClippedText(WidgetTester tester) {
   }
 }
 
-/// §8.2 table 4 of docs/calendar-guide-page.md, with the priority row after
-/// description (D36): the frozen row ids, page by page, in page order.
+/// §7.5's keep list of docs/calendar-guide-page.md (D41): the frozen row ids
+/// that survive the coach rework, page by page, in page order.
 const Map<CalendarGuideTopic, List<String>> _slugs = {
-  CalendarGuideTopic.screen: ['month', 'marks', 'panel', 'views'],
+  CalendarGuideTopic.screen: ['marks', 'views'],
   CalendarGuideTopic.events: [
-    'add-event',
-    'time',
-    'open',
     'description',
     'priority',
     'unsaved',
     'templates',
   ],
   CalendarGuideTopic.kinds: [
-    'repeat',
-    'kinds-one',
-    'kinds-dates',
-    'kinds-only-one',
-    'kinds-only-repeat',
     'kinds-one-change',
     'kinds-tricky',
     'kinds-birthday',
-    'skipped',
+    'kinds-only-repeat',
   ],
   CalendarGuideTopic.alerts: [
-    'add-alert',
     'alert-kinds',
     'permissions',
     'ring',
     'open-often',
-    'quick-alarm',
-    'hub',
   ],
-  CalendarGuideTopic.attendance: [
-    'attendance',
-    'assume',
-    'count',
-    'rail',
-    'per-day',
-  ],
-  CalendarGuideTopic.categories: [
-    'category',
-    'cat-create',
-    'cat-change',
-    'cat-hide',
-    'cat-delete',
-    'cat-alerts',
-  ],
-  CalendarGuideTopic.finding: ['search', 'filters', 'overview'],
-  CalendarGuideTopic.setup: ['settings', 'holidays', 'week-start', 'language'],
+  CalendarGuideTopic.attendance: ['assume', 'rail', 'per-day'],
+  CalendarGuideTopic.categories: ['category', 'cat-change', 'cat-alerts'],
+  CalendarGuideTopic.finding: ['filters', 'overview'],
+  CalendarGuideTopic.setup: ['settings', 'language'],
   CalendarGuideTopic.good: ['opening', 'back', 'notes'],
 };
 
@@ -167,7 +145,7 @@ void main() {
     await db.close();
   });
 
-  test('the catalogue holds table 4, in order, each slug once', () {
+  test('the catalogue holds the keep list, in order, each slug once', () {
     for (final topic in CalendarGuideTopic.values) {
       expect(
         topic.rows(en).map((row) => row.slug).toList(),
@@ -238,9 +216,9 @@ void main() {
     await tester.pumpWidget(_host(CalendarGuideTopic.events));
     await tester.pumpAndSettle();
 
-    final body = en.calendarGuideAddBody(en.save);
+    final body = en.calendarGuideTemplatesBody(en.saveAsTemplate);
     await _scrollTo(tester, find.text(body));
-    final row = _row('add-event');
+    final row = _row('templates');
     expect(row, findsOneWidget);
     expect(
       find.descendant(of: row, matching: find.byType(ListTile)),
@@ -251,11 +229,13 @@ void main() {
       findsNothing,
     );
 
-    final titleNode = tester.getSemantics(find.text(en.calendarGuideAddTitle));
+    final titleNode = tester.getSemantics(
+      find.text(en.calendarGuideTemplatesTitle),
+    );
     final bodyNode = tester.getSemantics(find.text(body));
     expect(identical(titleNode, bodyNode), isTrue);
     final data = titleNode.getSemanticsData();
-    expect(data.label, contains(en.calendarGuideAddTitle));
+    expect(data.label, contains(en.calendarGuideTemplatesTitle));
     expect(data.label, contains(body));
     expect(data.hasAction(SemanticsAction.tap), isFalse);
     expect(data.flagsCollection.isButton, isFalse);
@@ -272,9 +252,9 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _scrollTo(tester, _row('add-event'));
+        await _scrollTo(tester, _row('unsaved'));
         expect(
-          _textsUnder(tester, _row('add-event')),
+          _textsUnder(tester, _row('unsaved')),
           contains(contains('$open${l10n.save}$close')),
         );
       });
@@ -285,10 +265,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _scrollTo(tester, _row('add-alert'));
+        await _scrollTo(tester, _row('alert-kinds'));
         expect(
-          _textsUnder(tester, _row('add-alert')),
-          contains(contains('$open${l10n.eventAlertAdd}$close')),
+          _textsUnder(tester, _row('alert-kinds')),
+          contains(contains('$open${l10n.eventAlertModeRing}$close')),
         );
       });
 
@@ -306,6 +286,45 @@ void main() {
       });
     }
   });
+
+  // D51 and D52: in German at 2.0 on the small phone the stage the first
+  // instruction points at starts on the first screen — the heading stops
+  // growing at 1.5, and the events card's report no longer sizes its line.
+  for (final topic in const [
+    CalendarGuideTopic.events,
+    CalendarGuideTopic.categories,
+  ]) {
+    testWidgets('${topic.slug}: de 2.0 on 360 × 780 opens with the stage on '
+        'screen, under a heading clamped at 1.5', (tester) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _host(
+          topic,
+          locale: const Locale('de'),
+          textScaler: const TextScaler.linear(2.0),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final stage = GuideTryCardRobot(tester, topic.slug).stageRect;
+      expect(stage.top, lessThan(780));
+
+      final heading = tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: find.text(topic.title(AppLocalizationsDe())),
+          matching: find.byType(RichText),
+        ),
+      );
+      expect(
+        heading.textScaler.scale(FormMetrics.titleFontSize),
+        lessThanOrEqualTo(1.5 * FormMetrics.titleFontSize),
+      );
+    });
+  }
 
   group(
     'the kinds page: no overflow and no clipped label at text scale 2.0',

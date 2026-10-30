@@ -41,7 +41,7 @@ class PracticeCalendarRobot {
     await tester.pumpAndSettle();
   }
 
-  /// The band's live line as it reads now.
+  /// The band's tour line as it reads now.
   String get caption {
     final slot = tester.widget<FormCaptionSlot>(
       find.descendant(of: _band, matching: find.byType(FormCaptionSlot)),
@@ -50,6 +50,20 @@ class PracticeCalendarRobot {
   }
 
   Size get bandSize => tester.getSize(_band);
+
+  bool get canSkip =>
+      tester
+          .widget<IconButton>(
+            find.descendant(
+              of: _byId(SemanticsIds.practiceSkip),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed !=
+      null;
+
+  /// The band's skip past the tour's current step.
+  Future<void> skip() => _tap(_byId(SemanticsIds.practiceSkip));
 
   // The grid.
 

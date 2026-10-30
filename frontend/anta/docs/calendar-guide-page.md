@@ -32,8 +32,10 @@ retired with the fix.
   (D21–D37 the designer's defaults, under §7.2's spec) and the structure
   (the status line lives there) · §7.2 slice specs ·
   §7.3 how to run this (the next session's prompt) · §7.4 the proposal
-  the letters answered
-- §8 The strings: the rework's content spec, en / de / ro
+  the letters answered · §7.5 the coach rework (D40–D48: the coach line,
+  the practice tour, the prose cut; its own status line)
+- §8 The strings: the rework's content spec, en / de / ro · §8.3 the coach
+  rework's strings
 - §6 Deferred
 
 ## 0. How to run this
@@ -626,7 +628,7 @@ changed. Gate: analyze clean, suite +10800 ~10 −1 (the Windows-only case),
 accordingly in the next content change ("about ten of each; open the app
 every week or so").
 
-### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slices 1–2 COMMITTED by the owner as `21a90993` (which also swept in slice 3a's files mid-run); slice 3a (the card frame; the screen, events, kinds and alerts cards) built 2026-10-29 (gate green, suite +10937 ~10 −1); slice 3b (attendance, categories, finding, setup) built 2026-10-29 (gate green, suite +10985 ~10 −1); slice 3 reviewed and fixed 2026-10-29 (19 items, none a write; eleven closed) and COMMITTED by the owner as `841f695a`; slice 4 done 2026-10-29 — the `design-reviewer` (18 findings, the seven severity-2 ones closed, D38 / D39 taken), `qa pass alerts` 5 / 5, `qa pass calendar` 27 / 27 after the flow fix, the skills and the feature doc updated; gate green, suite +11032 ~10 −1 — **IMPLEMENTED 2026-10-29, slice 4 uncommitted** (the design fixes, D38 / D39, the flow, this record)
+### 7.1 The rework — status: IN PROGRESS — slice 0 built and reviewed 2026-10-29 (eight seams; the review found nothing on persisted data, 16 items, nine closed in a fix pass — the review note under §7.2's slice 0); the designer's spec and D21–D37 taken 2026-10-29; slice 1 built and reviewed 2026-10-29 (1a every §8 string, 1b the hub, the nine topic pages, the search; 15 review items, ten closed; gate green, suite +10848 ~10 −1); slice 2 (the practice calendar page) built and reviewed 2026-10-29 (24 items, none a write; 14 closed — read seams on the shared widgets; gate green, suite +10888 ~10 −1); slices 1–2 COMMITTED by the owner as `21a90993` (which also swept in slice 3a's files mid-run); slice 3a (the card frame; the screen, events, kinds and alerts cards) built 2026-10-29 (gate green, suite +10937 ~10 −1); slice 3b (attendance, categories, finding, setup) built 2026-10-29 (gate green, suite +10985 ~10 −1); slice 3 reviewed and fixed 2026-10-29 (19 items, none a write; eleven closed) and COMMITTED by the owner as `841f695a`; slice 4 done 2026-10-29 — the `design-reviewer` (18 findings, the seven severity-2 ones closed, D38 / D39 taken), `qa pass alerts` 5 / 5, `qa pass calendar` 27 / 27 after the flow fix, the skills and the feature doc updated; gate green, suite +11032 ~10 −1 — **IMPLEMENTED 2026-10-29, slice 4 uncommitted** (the design fixes, D38 / D39, the flow, this record); **the coach rework of §7.5 (D40–D52) IMPLEMENTED 2026-10-30, uncommitted — its status line is §7.5's**
 
 **The owner's letters (2026-10-29, in three replies):** "did we take
 performance into account? can we make multiple pages?" → D13 was
@@ -1493,8 +1495,529 @@ three rows and "+N"); a demo reset on every open; de at 2.0 with no
 clipped caption; TalkBack announces each stage's caption change (a live
 region); `qa pass calendar` green with the extended `26_guide`.
 
+### 7.5 The coach rework (2026-10-29, after the owner saw slice 4) — status: **IMPLEMENTED 2026-10-30, uncommitted** — C1 (D49), C2 and C3 (D50) built, reviewed and fixed; the design review and its fix pass (D51, D52); gate green (suite +11079 ~10 −1); `qa pass calendar` 27 / 27 (`26_guide` green again on the rebuilt APK), `qa errors` clean; the skills, the feature doc and this record updated
+
+**Why.** The owner's critique of the shipped guide, 2026-10-29: (1) "When
+you say try it in the calendar, how is the user supposed to know that she
+has to click on the event in the bottom sheet to do something?" — every
+live line in the guide reported what had just happened and never what to
+do next: the events card rested on the long-press hint, the alerts and
+categories cards on an empty slot (D30), the practice band answered a day
+pick with a count, and a card's lead listed four actions in one sentence
+without saying where any of them was; (2) "some documentation parts are
+very long without showing something interactive … the idea is to not have
+too much text" — after the one card a page ran 3–9 paragraphs of ~200
+characters (kinds 9 rows / ~1,900 characters, alerts 7 / ~1,570, events
+7 / ~1,400, attendance 5 / ~1,320, categories 6 / ~1,100), most of them
+describing what the card above already lets her do, and the hub's intro
+fills the first screen at de 2.0. The owner's register note: "sometimes
+just saying: you can edit an event by tapping it in the bottom sheet
+works." Of the four lettered pairs put to him the owner took the
+recommended option of each ("seems like a good idea").
+
+**Decisions.**
+
+- **D40 (owner, A)** One coach line per card, above the stage, replacing
+  both the card's lead and the caption under the stage. It names the next
+  tap; the demo advances it when it sees the action; a skip control steps
+  past a line; after the last step it reads a closing line. The slot keeps
+  one fixed height over every line the card can show (alternative B: keep
+  lead and caption and reword them).
+- **D41 (owner, A)** "How it works" keeps only what no stage can show, at
+  most four rows per page, two sentences per row; the rows the card walks
+  are deleted (B: cut each body to its first sentence; C: a collapsed
+  "More" row).
+- **D42 (owner, A)** The practice band coaches a five-step tour, one line
+  at a time; Start over restarts it (B: only the idle line changes).
+- **D43 (owner, A)** The hub's intro is one line (B: keep it).
+- **D44 (the owner's register)** A coach line is one or two short
+  sentences that say *where* — "you can open an event by tapping it in
+  the list below" — in "you can…" or imperative form; never a list of
+  several actions; it quotes the app's labels through placeholders as
+  every guide string does.
+- **D45 (lead)** A page's lead stays (D25) but is one sentence of at most
+  75 English characters.
+- **D46 (lead)** The card's line after an action is "{report} {next}": the
+  report clause of what just happened — the demo's existing captions, cut
+  to one sentence — then the first instruction not yet done. The step
+  machine is a *done set*, not a cursor: an action marks its own step done
+  wherever it sits in the order, so a step she does early is not asked
+  again, and the line always shows the first undone step. An action that
+  is no step (a menu item that would open a page) changes only the report.
+  A report belongs to the action that just happened: the next action
+  replaces it or clears it.
+- **D47 (lead)** The band shows one clause at a time, never a composed
+  line: the tour's current instruction, or — only for an action with no
+  visible result on the stage (the ⋮'s Alerts, Settings and Guide rows,
+  the title menu's Overview, Export) — that action's report alone until
+  the next action. The band's other reports (the picked day's count,
+  Added, Changed, Deleted, Skipped, Template, the filters' count, the
+  format, the panel modes, the presence marks) are retired: the stage
+  shows them. Reason: the band is the one surface where a tall slot
+  pushes the real panel off a 780 screen (D38 / D39), and a composed
+  German line would have been three lines at 1.0.
+- **D48 (lead)** The card's searchable line (the kit entry's title) is its
+  first instruction, static per locale; the builder draws the live line
+  in its place. The closing line and the skip tooltip are shared by every
+  card and the band.
+
+**The coach line — spec.**
+
+- Inside the card, where the lead was: a `Row` of the slot (expanded) and
+  the skip button, `crossAxisAlignment: start`; then `GuideMetrics.coachToStage`
+  (the former `leadToStage`, 12) and the stage; no caption below;
+  `stageToCaption` is retired. The slot is a `FormCaptionSlot(alignment:
+  AlignmentDirectional.centerStart)` over `Text` in
+  `calendarGuideParagraphStyle` in `onSurface` (the card's body text, not
+  the caption role); its candidates are every instruction, the closing
+  line, and every report composed with every instruction and with the
+  closing line (`calendarGuideCoachAfter`), each report at its longest as
+  the demo's `candidates` already list them. The live `Text` is a
+  `Semantics(container: true, liveRegion: true)` node and keeps the id
+  `calendarGuideTryCaption(slug)` (ids are never renamed).
+- The skip: a `FormTrailingButton` (48 dp), glyph `skip_next_rounded`,
+  tooltip `calendarGuideSkipStep`, id `calendarGuideTryControl(slug, 'skip')`,
+  a `GuideMetrics.coachGap` (8) from the text; it marks the current step
+  done and clears the report; **disabled, never hidden, once every step is
+  done**.
+- The machine lives once, `GuideCoach` in `lib/models/calendar_guide_coach.dart`:
+  `GuideCoachStep(action, line)`; `steps` in order; `did(action,
+  [report])`, `say(report)`, `skip()`, `reset()`; `current` (the first
+  undone step or null), `finished`, `next(l10n)` (the current instruction
+  or `calendarGuideCoachDone`), `report(l10n)`; `candidates(l10n, reports,
+  {composed})`. `GuideCardDemo` owns one and exposes `steps`, `reports(l10n)`
+  (its former `candidates`) and `line(l10n)` = `report == null ? next :
+  after(report, next)`; the page's `didChangeDependencies` builds the
+  candidates once per locale as today. The practice page owns one too
+  (D47: `line` = `report ?? next`).
+
+**Steps per card** (the strings in §8.3; the action names are the
+machine's, the trigger is where the demo calls `did`).
+
+| card | step | action | trigger |
+|---|---|---|---|
+| screen | 1 `calendarGuideCoachScreenTitle` | `title` | `_setFormat`, and `onPageSelected` (reports WouldOpen Overview) |
+| | 2 `…ScreenMore` | `more` | any ⋮ row (reports WouldOpen / WouldShare / YouAreHere) |
+| | 3 `…ScreenPanel` | `panel` | `_setMode` (reports the mode's caption) |
+| events | 1 `…EventsAdd` | `added` | `_addEvent` saved (reports `calendarGuideDemoAddedShort`), a template picked (reports `…DemoTemplate`) |
+| | 2 `…EventsOpen` | `opened` | the start of `_open` (no report) |
+| | 3 `…EventsChange` | `changed` | `EventEditorSaved`, a description edit, a dates change (reports `…DemoChanged`) |
+| | 4 `…EventsDelete` | `deleted` | `EventEditorDeleted` (reports `…DemoDeleted`); the detail sheet's Skip and the quick-alarm pick are `say` only |
+| kinds | 1 `…KindsRepeat` | `repeat` | `_update` with a repeating rule (reports `…DemoRepeats`) |
+| | 2 `…KindsSkip` | `skipped` | `_skip` (reports `…DemoSkipped`) |
+| | 3 `…KindsOnce` | `once` | `_update` with `OneTimeRecurrence` (reports `…DemoOneDay`) |
+| | 4 `…KindsAddDate` | `addDate` | `_update` with `SpecificDatesRecurrence` (reports `recurrenceSpecificDates`); `_pickDay` stays `changed()` |
+| alerts | 1 `…AlertsAdd` | `alert` | `_saidAlert` after an add or an edit (reports `…DemoAlertSet`); a removal is `say(DemoChanged)` |
+| | 2 `…AlertsShow` | `alarm` | `_showAlarm` when the page is pushed (no report); the quick alarm is `say(DemoHereOnly)`, Permissions nothing |
+| attendance | 1 `…AttendanceMark` | `flipped` | `_flip` (reports the stats line the idle caption shows today) |
+| | 2 `…AttendanceCount` | `counting` | the count switch turned on (reports the stats line); a style pick `changed()` |
+| categories | 1 `…CategoriesCreate` | `created` | `_create` (reports `…DemoCatCreated`) |
+| | 2 `…CategoriesHide` | `hidden` | `_toggleHidden` to hidden (reports `…DemoCatHidden`); back to shown and `_edit` are `say(DemoChanged)` |
+| | 3 `…CategoriesDelete` | `deleted` | `_delete` (reports `…DemoCatDeleted`) |
+| finding | 1 `…FindingSearch` | `query` | `_onQuery` with a non-empty query (reports `…DemoMatches`); an emptied field is `say` |
+| | 2 `…FindingFilter` | `filtered` | `_openFilters` with `activeCount > 0` (reports `…DemoFiltered`); a cleared filter is `say` |
+| setup | 1 `…SetupHolidays` | `holidays` | a holiday set picked (reports `…DemoHolidays`) |
+| | 2 `…SetupWeek` | `week` | a week start picked (no report); the settings row nothing |
+
+**The practice tour** (D42, D47; the band's line is the instruction, or
+one of the five no-effect reports alone):
+
+| step | action | trigger |
+|---|---|---|
+| 1 `calendarGuideTourPick` | `picked` | `onDaySelected` with at least one event on the day |
+| 2 `…TourOpen` | `opened` | `_openEvent` (a panel row or a timeline block) |
+| 3 `…TourEdit` | `changed` | `EventEditorSaved` from the detail sheet's Edit, a description edit, a dates change |
+| 4 `…TourAdd` | `added` | the editor saved from +, a template picked |
+| 5 `…TourFilter` | `filtered` | filters applied with `activeCount > 0` |
+| — `…TourDone` | | every step done |
+
+The band's skip is a `FormTrailingButton` at the row's end in
+`onPrimaryContainer`, id `SemanticsIds.practiceSkip` (`practice-skip`),
+tooltip `calendarGuideSkipStep`, disabled when the tour is done; the band
+stays under its 1.3 clamp (D39). Start over resets the tour with the demo
+and is enabled when the demo is dirty **or** a step is done. The idle
+line is step 1; `calendarGuidePracticeIdle` and `calendarGuidePickedDay`
+are retired.
+
+**The prose — the keep list** (D41; the new bodies in §8.3; every other
+row of the page is deleted from the catalogue, its keys retired):
+
+| page | kept, in order | deleted |
+|---|---|---|
+| screen | `marks`, `views` | `month`, `panel` |
+| events | `description`, `priority`, `unsaved`, `templates` | `add-event`, `time`, `open` |
+| kinds | `kinds-one-change`, `kinds-tricky`, `kinds-birthday`, `kinds-only-repeat` (now also carries the untick fact of `skipped`) | `repeat`, `kinds-one`, `kinds-dates`, `kinds-only-one`, `skipped` |
+| alerts | `alert-kinds`, `permissions`, `ring`, `open-often` | `add-alert`, `quick-alarm`, `hub` |
+| attendance | `assume`, `rail`, `per-day` | `attendance`, `count` |
+| categories | `category`, `cat-change`, `cat-alerts` | `cat-create`, `cat-hide`, `cat-delete` |
+| finding | `filters`, `overview` | `search` |
+| setup | `settings`, `language` | `holidays`, `week-start` |
+| good | `opening`, `back`, `notes` (bodies cut) | — |
+
+The `26_guide` flow's `calendar-guide-add-event` step moves to
+`calendar-guide-templates`; the hub suite's "Speichern finds the de Add
+row" moves to the `unsaved` row, which still quotes `save`.
+
+**Must not change.** The eight sandbox seams and the read seams of §7.2;
+the no-write rule and every suite's run over `sandbox_write_log.dart`;
+each stage's controls and their ids; the id `calendar-guide-try-<slug>-caption`
+(now the coach line's node); the hub's two cards and the practice row
+first; the practice page's bar, grid, panel and the five no-effect
+reports (the flow expects "That is this guide — you are already in it.");
+`GuideMetrics` numbers other than `leadToStage` → `coachToStage`,
+`stageToCaption` (retired) and `coachGap` (new); D38 / D39; every
+persisted field (the guide persists nothing).
+
+**Slices** (one `implementer` and one `reviewer` each, the gate after
+each, sequential — the three slices share the ARBs and the flow, and
+`flutter test` runs one at a time):
+
+- **C1 — the coach line and the cards**: `GuideCoach`; the card frame
+  (`calendar_guide_try_card.dart`: the row, the skip, no caption; the
+  section's entry title = the first instruction); the eight demos' steps
+  and `did` / `say` sites per the table; `GuideMetrics`; **every string of
+  §8.3 except the bodies and the leads** (the coach lines, the tour lines,
+  the frame strings, the shortened reports) in en / de / ro — added, not
+  yet retiring anything the practice page still reads; `calendar_guide_try_cards_test.dart`
+  moves from captions to lines and gains: idle = step 1 alone; the
+  step's action composes report + next; an out-of-order action marks its
+  step done; skip advances and is disabled at the end; the closing line;
+  the slot's height constant across every line at de 2.0 (extend the
+  stage-height group); the entry title is the first instruction.
+- **C2 — the practice tour**: the page's `GuideCoach`, the band's skip,
+  Start over's new enablement, the five `say`s, the retired band reports
+  and their keys (`calendarGuidePracticeIdle`, `calendarGuidePickedDay`,
+  `calendarGuideDemoAdded`, `calendarGuideDemoLongPressHint`);
+  `practice-skip`; `calendar_guide_practice_page_test.dart` (idle = step 1;
+  a day with events → step 2; a row → step 3; the five reports alone;
+  skip; Start over after a skip; the band's heights re-measured); the
+  flow gains `expect id:practice-skip` and `expect id:try-events-skip-step`.
+- **C3 — the prose**: the catalogue's keep list; the bodies, the leads and
+  the intro of §8.3 (en from the record; de / ro cut from the existing
+  translations, re-translated only where the English changed, the ARB's
+  vocabulary kept); the instruction trims of §8.3.2a (D50); the retired
+  row keys; `calendarGuideIntro` loses its placeholder; `calendar_guide_page_test.dart` and
+  `calendar_guide_topic_page_test.dart` (the catalogue test's table, the
+  search cases, the Speichern case); the flow's row id.
+- **The close**: one `design-reviewer` on the events card and the band
+  (the slot's height at 1.0 / 1.3 / 2.0 in de, the skip's target and
+  contrast, the band's height against D38 / D39), `qa pass calendar`,
+  the skills' rule lines, the feature doc's addendum, this status line.
+
+**Done means.** The gate; no demo writes; on every card the first thing
+she reads says where to tap; no page carries more than four read rows;
+the band is no taller than today at de 1.0 / 1.3 / 2.0; `26_guide` green.
+
+**C1 as built (2026-10-29 evening; gate green, suite +11058 ~10 −1):**
+`GuideCoach` in `lib/models/calendar_guide_coach.dart` (a done set;
+`candidates(l10n, reports, {composed})` de-duplicated), the steps on
+`CalendarGuideTopic.steps` (a getter of `GuideCoachStep`s whose lines take
+the localizations, so a coach built before the page has a language
+survives a language change; `tryLead` returns the first line), the frame
+(the row, `coachToStage`, no caption), the eight demos' triggers exactly
+as the table, every §8.3.1–8.3.4 string, `test/models/calendar_guide_coach_test.dart`
+(9), the cards suite moved to the line and extended (idle = step 1 and
+the entry title; skip through to the closing line, then disabled;
+composed "report next" per card with out-of-order steps; the slot's
+height through every line at de 2.0 on 360). The implementer's defaults,
+taken: **(a)** the skip's id is `try-<slug>-skip-step` — `try-kinds-skip`
+has been the kinds stage's "Skip this day" row since slice 3 and ids are
+never renamed, so C2's flow line is `expect id:try-events-skip-step`;
+**(b)** the de / ro entries carry no metadata blocks, as no guide key in
+those two files does (gen-l10n reads the English metadata); **(c)** the
+count switch turned off keeps the last report (`changed()`); **(d)** a
+query counts as non-empty after trimming; **(e)** the finding card's
+keyboard reveal now scrolls the line to the top with the field and the
+first match under it (the line sits above the field; aligned to the
+bottom, the matches stayed under the keyboard), its 412 × 915 / 412 × 1200
+cases rewritten; **(f)** on a two-date event "does not repeat" keeps the
+dates and reports as `addDate`. Known cost: the kinds card's slot lays
+out about 380 hidden candidates (75 reports × 5 lines) once per locale.
+Left for C2: `test/l10n/reminder_word_test.dart:77` lists
+`calendarGuideTryAlerts` and goes with the key; two comments still say
+"caption" (`SemanticsIds.calendarGuideTryCaption`, `calendarGuideQuote`).
+
+**C1 reviewed (2026-10-29 evening; 11 findings, none a write).** The
+machine, the triggers, the candidates' coverage (long titles never grow
+the slot), the ids, the strings and the must-not-change list held. What
+did not: **(1)** at de 2.0 on 360 the composed slot is 390–546 px tall
+(kinds 546, categories 546, events 507; 80–140 at de 1.0) and every
+stage sits below the first screen — the report × instruction
+composition D46 asked for, on a column the skip narrows by 56 px;
+**(2)** `centerStart` floats a short line up to 136 px below the skip;
+**(3)** on 360 × 780 at de 2.0 the finding card's keyboard reveal leaves
+the first match under the keyboard (the slot cannot fit, the early
+return keeps the field's bottom-aligned scroll) and the keyboard tests
+cover only 412 × 915 / 1200 in en 1.0; **(4)** `did` accepts a name that
+is no step; **(5)** `did('alarm')` fires before the push, so the live
+region can speak over the ring screen; **(6)** the C2 bullet above still
+said `try-events-skip`. Accepted as found: kinds step 2 cannot be done
+while the event is one-time (she skipped step 1 — the skip is the way
+past it); the kinds slot's ~380 hidden candidates are rebuilt but never
+re-laid out (`RenderParagraph` keeps an identical text's layout).
+
+**D49 (lead, supersedes the composition of D46 and unifies the cards with
+D47):** on a card as on the band, **the line is one clause**: the first
+undone step's instruction, or, after an action that is no step and shows
+nothing on the stage (`say`), that action's report alone until the next
+action; `did` carries no report. Reason: the owner asked for less text,
+and the composed line is what pushed the stage off the first screen at
+2.0. The two results a stage could not show move into the stage, under
+the control that makes them, in a `FormCaptionSlot` of their own: the
+attendance card's stats line (the detail sheet's presence captions) as
+the chip row's caption, the setup card's `calendarGuideDemoHolidays`
+count under the holiday-set row. The `say` reports that remain on the
+cards: the events card's detail-sheet Skip (`calendarGuideDemoSkipped`)
+and its quick-alarm pick (`calendarGuideWouldOpen`), the alerts card's
+quick alarm (`calendarGuideDemoHereOnly`); every other former report is
+a visible change on the stage and becomes `changed()`. The slot's
+candidates are the instructions, the closing line and those reports
+(`composed: false`); `calendarGuideCoachAfter` is retired in the fix
+pass. The slot aligns `topStart`, so the line sits under the skip and a
+short line leaves its blank below. The categories card's third step
+names where the events go (the §8.3.2 line gains ": its events move to
+“{other}”", `{other}` ← `eventCategoryOther`, in the three languages).
+With a one-clause slot the finding card's reveal keeps the line at the
+top where it fits and otherwise falls back to the field at the top; a
+360 × 780 de 2.0 keyboard case joins the suite. Keys the cards stop
+reading (C2 retires what the band no longer reads either):
+`calendarGuideDemoAddedShort`, `…DemoChanged`, `…DemoDeleted`,
+`…DemoTemplate`, `…DemoFormat`, `…DemoPanelDay` / `Timeline` / `Upcoming`,
+`…DemoFiltered`, `…DemoMatches`, `…DemoRepeats`, `…DemoOneDay`,
+`…DemoAlertSet`, `…DemoCatCreated`, `…DemoCatHidden`, `…DemoCatDeleted`,
+`…DemoLongPressHint`, `…CoachAfter`.
+
+**C1 fix pass as built (2026-10-29 evening; gate green, suite +11060 ~10
+−1):** D49 in full — `GuideCoach.did(action)` takes no report and asserts
+the action is a step, `line` = `report ?? next`, `candidates(l10n,
+reports)` plain; the `say` reports left on the cards are the events
+card's Skipped and WouldOpen(quick alarm) and the alerts card's HereOnly,
+every other demo's `reports` is empty; the attendance stats are the chip
+row's caption slot (sized on the 88 / 88 / 88 / 88 summary), the holiday
+count a caption slot under the setup card's holiday-set row, both live
+from the first build; the slot aligns `topStart`; the finding card's
+reveal keeps the line at the top when the first match (or the field,
+with no match) fits under it and otherwise puts the field at the top, a
+360 × 780 de 2.0 keyboard case added; `did('alarm')` after the pushed
+page returns; `SemanticsIds.calendarGuideTrySkip(slug)`; the categories
+step 3 names "{other}". The slot at de 2.0 on 360 (232 wide): screen 195,
+events 273, kinds 351, alerts 273, attendance 273, categories 312,
+finding 312, setup 234 (390–546 before). Accepted: the screen card's ⋮
+rows and the title menu's Overview advance their step and say nothing
+(D49: no report on a `did`) — the opened menu is the demonstration;
+`CalendarGuideStageMatrix`'s doc still says "the caption says". For C3:
+the kinds slot is set by its own instructions' length — every
+instruction is cut to about 70 English characters there, the trailing
+"watch…" sentences going where the stage shows the result.
+
+**C2 as built (2026-10-29 evening; gate green, suite +11064 ~10 −1):**
+`GuideCoach(steps, {closing})` (the band's closing line is
+`calendarGuideTourDone`, the cards' default `calendarGuideCoachDone`) and
+`advanced`; `calendarGuideTourSteps` beside the practice slug in the
+catalogue; the page owns the coach and a `ValueNotifier<int>` revision
+(the `_caption` notifier is gone), `_reports` the six `say`s (Overview,
+Alerts, Export, Guide, Settings, the template picker's quick alarm);
+`picked` counts the grid's events (a holiday-only day does not count),
+`opened` fires inside `_sheets.run` (a tap the guard drops does not
+count); Skip, Delete, the format, the panel modes and the presence marks
+only `setState`; the skip in the band is a `FormTrailingButton` with no
+gap of its own (an 8 dp gap made the band 137 at de 1.3, above the 134
+ceiling; the button's inset keeps the glyph off the text); Start over
+enabled on `isDirty || advanced` and resetting both; `practice-skip`;
+the 28 keys of §8.3.5's C2 list and D49's list retired from the three
+ARBs (`calendarGuideCoachAfter` was never committed; no other reader
+found in `lib/ test/ tool/`); the band at de on 360 is 72 / 111 / 111
+(72 / 134 / 134 before). The suite's "added then deleted leaves Start
+over disabled" became "enabled" (adding is a tour step) with the seed
+comparison checked on a twin demo. Two comments left for C3: `SemanticsIds.calendarGuidePracticeBanner`
+("the live caption"), the `26_guide` header ("only captions").
+
+**C2 reviewed (2026-10-29 evening; 11 findings, none a write, the band
+not taller).** Fixed in the C2 fix pass, on the band and the cards alike
+since the machine is shared: **(1)** a `say` report outlived every
+non-step action (a format pick, a panel mode, a presence press, a Skip,
+a Delete, a cleared filter, an empty day) — now `GuideCoach.clearReport()`
+runs from every non-step handler and from `GuideCardDemo.changed()`, so
+the line holds "until the next action" as D47 / D49 say; **(2)** a skip
+under a standing report marked an unseen step done — a skip now only
+clears the report when one stands; **(3)** step changes fired while a
+sheet was up (`opened` at the trip's start, `changed` under the editor),
+where `ModalBarrier`'s `BlockSemantics` hides the live region — the trip
+records its step actions and applies them when it returns, on the page
+and on the events card (the C1 alarm finding's family); **(4)** the
+band's skip glyph sat across the title and the line — the button now
+takes a top inset that centres its glyph on the line's first row
+(`titleLine − (button − captionLine) / 2`, never below 0, from the
+scaled line heights), which adds no height; **(5)** the disabled skip
+greyed in `onSurface` on `primaryContainer` — `FormTrailingButton` gains
+`disabledColor` (its suite a case) and the band passes its ink at 38 %;
+**(6)** `calendarGuideTourSteps` is `List.unmodifiable`; **(7)** one
+`ValueListenableBuilder` round the band's row; **(8)** the suite asserts
+the step after a timeline block, Blank saved and a template picked, that
+Skip, the format and the panel do not move a later step, and a report
+followed by a non-step action. Accepted: a day whose only bar is a
+holiday's does not count as "a day with a bar" (its panel row is no
+event to open; the seed puts events on most days of the week); the de
+1.3 band's widest line sat 0.34 dp inside its column (D50's shorter
+`calendarGuideTourEdit` removes it).
+
+**C2 fix pass as built (2026-10-29 evening; gate green, suite +11075 ~10
+−1):** all eight as the note says. Two details of its own: on the events
+card the detail sheet's Skip settles the trip's deferred steps *before*
+its `say`, so the Skipped report stands rather than being cleared by the
+deferred `opened`; where `did('changed')` used to redraw the stage under
+a sheet the card now notifies directly, so the stage updates under the
+sheet and only the line waits for it to close. `FormTrailingButton.disabledColor`
+is the one primitive change (its suite has the case); the band's skip
+inset is about 5 dp at 1.0 and 13.7 at 1.3, the glyph is
+`FormMetrics.trailingIconSize` (20). Device-only, unverified: whether
+the leaving sheet's barrier still blocks the announcement at the moment
+the trip's future returns. Noticed, left: a month swipe on the practice
+grid does not clear a standing report.
+
+**C3 as built (2026-10-29 evening; gate green, suite +11075 ~10 −1):**
+the catalogue holds the keep list — 27 rows (screen 2, events 4, kinds
+4, alerts 4, attendance 3, categories 3, finding 2, setup 2, good 3; 48
+before); 42 keys retired (the Title and Body of Month, Panel, Add, Time,
+Open, Repeat, KindsOne, KindsDates, KindsOnlyOne, Skipped, AlertAdd,
+QuickAlarm, Hub, Track, Count, CatCreate, CatHide, CatDelete, Search,
+Holidays, WeekStart); `calendarGuideKindsTrickyBody(ends, repeat)` and
+`calendarGuideKindsOnlyRepeatBody(trackPresence, countOccurrences,
+skippedDays)` lost the placeholders the new text no longer uses, as
+`calendarGuidePerDayBody(perDay, thisDay)` did; the 8.3.6 leads and the
+intro (its `@` entry keeps a one-line description, only the placeholders
+block went), the 8.3.7 bodies and the 8.3.2a trims in the three ARBs —
+de / ro cut where a sentence survived, re-translated where the English
+changed (the implementer's list is in its report; the de tier words
+hold: Mitteilung the reminder tier, Erinnerung an alert of either kind;
+ro notificare / alertă); the flow's row step on `calendar-guide-templates`
+and its header reworded; `reminder_word_test.dart` lost the three
+retired bodies it listed, `calendarGuidePermissionsBody` left its
+not-the-tier list (the new English says nothing of a reminder) and
+`calendarGuideCatAlertsBody` moved to the umbrella list; the topic
+suite's catalogue case is the keep list, its quote group reads `unsaved`
+and `alert-kinds`; the hub suite's page-name query is "add" ("changing"
+holds no "change"). Not re-measured: the kinds slot after D50 (the
+design review measures it).
+
+**C3 reviewed (2026-10-30, 00:xx; 10 findings, none a write).** The
+catalogue, the 42 retirements, all 137 guide keys' placeholders, the
+generated files, the de / ro against the new English and the tests
+held. Fixed by the lead in the tree: **(1)** the intro was two 20 px
+lines at 1.0 on 360 in all three languages (the column is 296 px; the
+record's text was 351–365) — now "Tap a page. Nothing you try there is
+real." / „Tippe auf eine Seite. Nichts dort ist echt.“ / „Atinge o
+pagină. Nimic de acolo nu e real.”; **(2)** `calendarGuideAlertKindsBody`
+said an alarm needs a start time — the alert sheet mints an all-day
+alarm at a time of day (`alert_editor_sheet.dart:169-175`), only
+"minutes before" needs one; the three texts corrected (§8.3.7); **(3)**
+de `calendarGuideAlertsLead` "wo du einen willst" → "wo du sie
+brauchst"; **(4)** de `calendarGuideKindsBirthdayBody` "den echten
+Geburtstag" → "das echte Geburtsdatum"; **(5)** de
+`calendarGuideDescriptionBody` "Das erscheint" → "Das alles siehst du";
+**(6)** the de `calendarGuideCoachCategoriesCreate` set the categories
+slot at de 2.0 (273) — shortened to "Name, Symbol, Farbe"; **(7)** the
+hub suite's "country" case asserts every other page absent, not only
+attendance; **(8)** §8.3.8 amended for the two arities. Left: the "add"
+query also matches `description` ("address") and rows on other pages —
+its assertions still prove the case; the working-tree LF endings in the
+files the agents rewrote normalize on commit (autocrlf). The slots at de
+2.0 on 360 after D50: screen 195, events 273 (its Skipped report), kinds
+234 (351 before), alerts 234, attendance 195, categories 273 → lower
+after (6), finding 195, setup 195; the closing line (de, 195) is now the
+floor on four cards.
+
+**Design review of the close (2026-10-30; the events and categories
+cards and the band over light / dark × en / de × 1.0 / 1.3 / 2.0 × 360 ×
+780 / 412 × 915, real fonts).** The band holds every pinned number: 72 /
+111 / 111 at de on 360 (72 / 88 / 88 on 412), the 2.0 band identical to
+the 1.3 one, the skip glyph centred on the line's first row to 0.00 dp,
+13.3:1 / 7.2:1 enabled and 2.4:1 disabled (allowed), no word broken in
+any language, one live region, the title read once, the three guideline
+matchers green on the cards in both themes. Found: **(1, sev 2)** at de
+2.0 on 360 × 780 the events card's stage starts at 819 dp — the heading
+is four lines (64→272), the lead four, the slot 273 (sized by the card's
+Skipped report, a long weekday-date), so "Tap +" is read before its +
+is on screen (en 2.0: 715; categories de 2.0: 637; 412 × 915 de 2.0:
+689; at 1.3 always on screen); **(2, sev 2)** under a short line the
+slot leaves 40 dp blank at en 1.0 and up to 156 at en 2.0, the same
+cause; **(3, sev 2, not this rework's)** on the practice page at de 2.0
+on 360 in the month format the + covers 36 × 42 dp of the Day panel's
+presence button (L272 T722 R320 B770 under the FAB at L284 T708 R344
+B764 — the button is on screen now, 793 before, and under the +; at 1.3
+a 5 dp overlap; none at 1.0); **(4, sev 2, slice 3's)** on the events
+stage with a fourth row the + covers the last row's chevron until the
+list is scrolled; **(5, sev 1)** the card's skip glyph sits 14 dp below
+the line's first row at 1.0 (the band's is exact); **(6, sev 1)** the
+card's skip in `outline` reads 3.96:1 / 2.31:1 light enabled / disabled
+on the kit card's `surfaceContainer` — enabled and finished look alike;
+**(7, sev 1)** the skip takes 56 dp of the text column (accepted); **(8)**
+the kit card paints `surfaceContainer`, not `rowGroup` (equal in dark);
+**(9, sev 1, not this rework's)** `androidTapTargetGuideline` fails on
+the practice page on the panel's mode segment (98.7 × 32), real calendar
+chrome; **(10)** the pressed ink does not render under `flutter test`
+(device bucket).
+
+**D51 (lead)** The topic page's heading is clamped at `GuideMetrics.headingMaxTextScale`
+1.5 (`MediaQuery.withClampedTextScaling` round the heading alone, never
+the lead or the rows): a 20 px heading at 2.0 is 40 px and four lines in
+German, a fifth of the screen before the first instruction; at 1.5 it is
+30 px. The lead and every read row keep the full scale. **D52 (lead)**
+The events card's Skipped report writes its date as the band did under
+D38 (`DateFormat.MMMEd`), so the slot is sized by the instructions
+again; the card's skip takes `onSurfaceVariant` (`disabledColor` the
+same at 38 %) and the line's slot a top inset of `(trailingButtonSize −
+the line's first row) / 2`, never below 0, so the glyph is centred on
+the first row as the band's is — the inset is constant per scale, so
+nothing moves. Done means for the close: the events and categories
+stages' tops under 780 at de 2.0 on 360 × 780, asserted in the topic
+page suite. Deferred to §6: (3), (4), (9).
+
+**Design fix pass as built (2026-10-30; gate green, suite +11079 ~10
+−1):** D51 and D52 as written — `GuideMetrics.headingMaxTextScale` 1.5
+round the heading alone; the events card's one `GuideLocaleFormat` is
+`DateFormat.MMMEd` (no second format kept); the skip in `onSurfaceVariant`
+with `disabledColor` at 38 %; the slot's top inset from a private
+`_lineInset(TextScaler)`. Measured: the stage's top at de 2.0 on 360 ×
+780 is 693 on the events page (819 before) and 576 on categories (637);
+the events slot 234 (273); the glyph's centre against the first row's
+−0.4 dp at en 1.0 and +0.2 at de 2.0 (+13.8 / +4.6 before). The topic
+suite asserts both stage tops under 780 and the heading's scale, the
+cards suite the glyph within 1 dp; the slot cases compare the
+stage-to-line offset with `moreOrLessEquals` (a fractional inset put
+float noise in an exact compare).
+
+**Device pass (2026-10-30, 00:33–00:45, `qa pass calendar -d
+emulator-5556`): 27 / 27 green in 522 s**, `26_guide` 20 s; the pass
+warned that `app_localizations.dart` was touched 14 s after the APK was
+built — `flutter test` regenerates it byte-identically (a `gen-l10n`
+afterwards changed no diff), and the `qa-runner` rebuilt and re-ran
+`26_guide` green (17 s) regardless; `qa errors` clean before and after
+the hand checks. Hand checks at de 2.0 dark on the emulator: the events
+page shows its first instruction, the skip and the + with three seed
+rows on the first frame; the practice page's band shows its skip and
+its first line, and the Yoga row's presence button is on the first
+frame (today is Yoga's weekday); a 4 s press on either skip shows the
+tooltip and no ink ring at 2.2 s (a brief ink at press time is not
+excluded — §6 (d) stays). The device left on en / 1.0 / light, the QA
+database fresh and empty, nothing armed.
+
 ## 6. Deferred
 
+- **From the coach rework's design review (2026-10-30), not the coach's
+  own:** (a) the calendar's Day panel with one row under the + at de 2.0
+  on 360 in the month format — on the practice page the presence button
+  (L272 T722 R320 B770) sits under the FAB (L284 T708 R344 B764), a 36 ×
+  42 dp overlap that a panel flick clears; the real calendar page lays
+  the same panel under the same FAB, so the fix is the panel's (bottom
+  clearance that holds even when its content does not scroll), in
+  `calendar_bottom_panel.dart`, calendar-wide; (b) the events card's
+  stage (`calendar_guide_try_events.dart`) with a fourth row: the last
+  row's end sits under the stage's + until the list is scrolled — reserve
+  the +'s row below the list or scroll to the added row; (c) `PanelModeBar`'s
+  segments are 98.7 × 32 dp on 360 and fail `androidTapTargetGuideline`
+  — real calendar chrome, an app-wide decision with the kit's segmented
+  rows; (d) the pressed ink of either skip is unverified off a device.
 - **The settings kit, not this page** (the `design-reviewer`'s findings of
   2026-10-29, measured on this page but shared by every kit page; they are
   the open app-wide kit decision of `docs/ui-language-adoption-roadmap.md`
@@ -1747,3 +2270,192 @@ The six demo events (`guide-demo-<slug>` ids; the demo picks categories from the
 | calendarGuideDemoEventBookClub | Book club | Lesekreis | Clubul de lectură | every 2 weeks on Thursday, 19:00 |
 | calendarGuideDemoEventFlight | Flight | Flug | Zbor | one-time, today + 9, all day, with a description |
 | calendarGuideDemoEventFlightNote | Gate opens two hours before. | Das Gate öffnet zwei Stunden vorher. | Poarta se deschide cu două ore înainte. | the Flight's description |
+
+### 8.3 The coach rework's strings (§7.5; C1 lands 8.3.1–8.3.4, C2 the retirements of 8.3.5, C3 8.3.6–8.3.8)
+
+Every quoted label is a placeholder fed from the app's own key (the
+guide's rule since D5): `{calendar}` ← `calendar`, `{day}` ← `panelModeDay`,
+`{timeline}` ← `panelModeTimeline`, `{upcoming}` ← `upcomingEvents`,
+`{save}` ← `save`, `{edit}` ← `edit`, `{deleteEvent}` ← `deleteEvent`,
+`{repeat}` ← `eventRepeat`, `{weekly}` ← `recurrenceWeekly`, `{done}` ←
+`eventDescriptionDone`, `{date}` ← `eventDateLabel`, `{skip}` ←
+`eventSkipOccurrence`, `{doesNotRepeat}` ← `recurrenceDoesNotRepeat`,
+`{addDate}` ← `eventAddDate`, `{addAlert}` ← `eventAlertAdd`, `{showAlarm}`
+← `calendarGuideShowAlarm`, `{countOccurrences}` ← `eventCountOccurrences`,
+`{createCategory}` ← `createCategory`, `{delete}` ← `delete`, `{apply}` ←
+`apply`, `{holidaySet}` ← `holidayProfileTitle`, `{weekStart}` ←
+`calendarWeekStartTitle`.
+
+#### 8.3.1 The frame
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideCoachAfter | {report} {next} | {report} {next} | {report} {next} |
+| calendarGuideCoachDone | Done. Nothing here was real. Try anything, or go on. | Fertig. Nichts hier war echt. Probiere, was du willst, oder geh weiter. | Gata. Nimic de aici nu a fost real. Încearcă orice sau mergi mai departe. |
+| calendarGuideSkipStep (tooltip) | Skip this step | Diesen Schritt überspringen | Sari peste acest pas |
+
+#### 8.3.2 The cards' coach lines
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideCoachScreenTitle | Tap “{calendar}” at the top: that title is a menu of views. | Tippe oben auf „{calendar}“: dieser Titel ist ein Menü mit Ansichten. | Atinge „{calendar}” sus: titlul este un meniu cu moduri de afișare. |
+| calendarGuideCoachScreenMore | Now tap the three dots at the top right: the calendar's menu. | Tippe jetzt oben rechts auf die drei Punkte: das Menü des Kalenders. | Acum atinge cele trei puncte din dreapta sus: meniul calendarului. |
+| calendarGuideCoachScreenPanel | Switch the panel at the bottom between “{day}”, “{timeline}” and “{upcoming}”. | Wechsle den Bereich unten zwischen „{day}“, „{timeline}“ und „{upcoming}“. | Schimbă panoul de jos între „{day}”, „{timeline}” și „{upcoming}”. |
+| calendarGuideCoachEventsAdd | Tap + to add an event. Give it a name, then tap “{save}”. | Tippe auf +, um ein Ereignis hinzuzufügen. Gib ihm einen Namen und tippe auf „{save}“. | Atinge + ca să adaugi un eveniment. Dă-i un nume, apoi atinge „{save}”. |
+| calendarGuideCoachEventsOpen | You can open an event by tapping it in the list below. Open the one you added. | Ein Ereignis öffnest du, indem du es in der Liste unten antippst. Öffne das, das du hinzugefügt hast. | Poți deschide un eveniment atingându-l în lista de mai jos. Deschide-l pe cel adăugat de tine. |
+| calendarGuideCoachEventsChange | Open it again and tap “{edit}” at the top right. Change the name, then “{save}”. | Öffne es noch einmal und tippe oben rechts auf „{edit}“. Ändere den Namen, dann „{save}“. | Deschide-l din nou și atinge „{edit}” din dreapta sus. Schimbă numele, apoi „{save}”. |
+| calendarGuideCoachEventsDelete | To delete it: open it, tap “{edit}”, then “{deleteEvent}” at the very bottom. | Zum Löschen: öffne es, tippe auf „{edit}“ und ganz unten auf „{deleteEvent}“. | Ca să-l ștergi: deschide-l, atinge „{edit}”, apoi „{deleteEvent}” de tot jos. |
+| calendarGuideCoachKindsRepeat | Tap “{repeat}” and choose “{weekly}”, then “{done}”. Watch the month below fill up. | Tippe auf „{repeat}“, wähle „{weekly}“, dann „{done}“. Sieh zu, wie sich der Monat unten füllt. | Atinge „{repeat}”, alege „{weekly}”, apoi „{done}”. Privește cum se umple luna de jos. |
+| calendarGuideCoachKindsSkip | Tap “{date}” and pick a day with a dot, then “{skip}”. That day goes; the others stay. | Tippe auf „{date}“, wähle einen Tag mit Punkt, dann „{skip}“. Dieser Tag fällt weg, die anderen bleiben. | Atinge „{date}”, alege o zi cu punct, apoi „{skip}”. Ziua aceea dispare; celelalte rămân. |
+| calendarGuideCoachKindsOnce | Tap “{repeat}” again and choose “{doesNotRepeat}”: one day again. | Tippe noch einmal auf „{repeat}“ und wähle „{doesNotRepeat}“: wieder nur ein Tag. | Atinge din nou „{repeat}” și alege „{doesNotRepeat}”: din nou o singură zi. |
+| calendarGuideCoachKindsAddDate | “{addDate}” gives a one-time event a second day. Try it. | „{addDate}“ gibt einem einmaligen Ereignis einen zweiten Tag. Probier es aus. | „{addDate}” dă unui eveniment unic o a doua zi. Încearcă. |
+| calendarGuideCoachAlertsAdd | Tap “{addAlert}”, choose when it should go off, then “{done}”. | Tippe auf „{addAlert}“, wähle, wann sie losgehen soll, dann „{done}“. | Atinge „{addAlert}”, alege când să sune, apoi „{done}”. |
+| calendarGuideCoachAlertsShow | Now tap “{showAlarm}” to see what an alarm looks like when it rings. | Tippe jetzt auf „{showAlarm}“, um zu sehen, wie ein Alarm aussieht, wenn er klingelt. | Acum atinge „{showAlarm}” ca să vezi cum arată o alarmă când sună. |
+| calendarGuideCoachAttendanceMark | Tap a day below to mark it missed; tap it again for present. The count follows. | Tippe unten auf einen Tag, um ihn als verpasst zu markieren; noch einmal für anwesend. Die Zählung folgt. | Atinge o zi de mai jos ca s-o marchezi ratată; atinge-o din nou pentru prezent. Numărătoarea urmează. |
+| calendarGuideCoachAttendanceCount | Turn on “{countOccurrences}” to number the days, then pick how they count. | Schalte „{countOccurrences}“ ein, um die Tage zu nummerieren, und wähle dann, wie gezählt wird. | Pornește „{countOccurrences}” ca să numerotezi zilele, apoi alege cum se numără. |
+| calendarGuideCoachCategoriesCreate | Tap “{createCategory}”: a name, an icon, a colour, then “{save}”. | Tippe auf „{createCategory}“: Name, Symbol, Farbe, dann „{save}“. (shortened after the C3 review — it set the categories slot at de 2.0) | Atinge „{createCategory}”: un nume, o pictogramă, o culoare, apoi „{save}”. |
+| calendarGuideCoachCategoriesHide | Tap the eye on a category to hide it from the pickers. Tap it again to show it. | Tippe auf das Auge einer Kategorie, um sie aus der Auswahl zu nehmen. Noch einmal, und sie ist wieder da. | Atinge ochiul unei categorii ca s-o ascunzi din liste. Atinge-l din nou ca s-o arăți. |
+| calendarGuideCoachCategoriesDelete (D49: `{other}` ← `eventCategoryOther`) | Tap the three dots on your own category, then “{delete}”: its events move to “{other}”. | Tippe auf die drei Punkte deiner eigenen Kategorie, dann auf „{delete}“: ihre Ereignisse wandern zu „{other}“. | Atinge cele trei puncte ale categoriei tale, apoi „{delete}”: evenimentele ei trec la „{other}”. |
+| calendarGuideCoachFindingSearch | Type a word, a category or a date in the field: the list keeps only the matches. | Gib ein Wort, eine Kategorie oder ein Datum ins Feld ein: die Liste behält nur die Treffer. | Scrie un cuvânt, o categorie sau o dată în câmp: lista păstrează doar potrivirile. |
+| calendarGuideCoachFindingFilter | Tap the funnel, hide a category, then “{apply}”. The funnel shows a number while a filter is on. | Tippe auf den Trichter, verstecke eine Kategorie, dann „{apply}“. Solange ein Filter aktiv ist, zeigt der Trichter eine Zahl. | Atinge pâlnia, ascunde o categorie, apoi „{apply}”. Cât timp un filtru este activ, pâlnia arată un număr. |
+| calendarGuideCoachSetupHolidays | Tap “{holidaySet}” and pick your country: the count of holidays changes. | Tippe auf „{holidaySet}“ und wähle dein Land: die Zahl der Feiertage ändert sich. | Atinge „{holidaySet}” și alege-ți țara: numărul sărbătorilor se schimbă. |
+| calendarGuideCoachSetupWeek | Choose “{weekStart}” below: the sample week turns to match. | Wähle unten „{weekStart}“: die Beispielwoche dreht sich mit. | Alege „{weekStart}” mai jos: săptămâna-exemplu se potrivește. |
+
+#### 8.3.2a The instructions trimmed (D50, landed by C3)
+
+**D50 (lead, 2026-10-29 evening):** after the C1 fix pass the kinds card's
+slot was still 351 px at de 2.0 on 360, set by its own instructions'
+length; every instruction is cut to about 70 English characters, the
+trailing sentence that only narrates what the stage shows ("Watch the
+month below fill up.", "The count follows.", "the sample week turns to
+match") going. The owner's register holds: one or two short sentences
+that say where. These rows **replace** the same keys in 8.3.2 and 8.3.3;
+keys not listed here keep their 8.3.2 / 8.3.3 text.
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideCoachScreenPanel | Switch the panel at the bottom: “{day}”, “{timeline}”, “{upcoming}”. | Wechsle den Bereich unten: „{day}“, „{timeline}“, „{upcoming}“. | Schimbă panoul de jos: „{day}”, „{timeline}”, „{upcoming}”. |
+| calendarGuideCoachEventsOpen | You can open an event by tapping it in the list below. | Ein Ereignis öffnest du, indem du es in der Liste unten antippst. | Poți deschide un eveniment atingându-l în lista de mai jos. |
+| calendarGuideCoachEventsChange | Open it, tap “{edit}” at the top right, change the name, then “{save}”. | Öffne es, tippe oben rechts auf „{edit}“, ändere den Namen, dann „{save}“. | Deschide-l, atinge „{edit}” din dreapta sus, schimbă numele, apoi „{save}”. |
+| calendarGuideCoachEventsDelete | To delete it: open it, “{edit}”, then “{deleteEvent}” at the bottom. | Zum Löschen: öffne es, „{edit}“, dann unten „{deleteEvent}“. | Ca să-l ștergi: deschide-l, „{edit}”, apoi „{deleteEvent}” jos. |
+| calendarGuideCoachKindsRepeat | Tap “{repeat}”, choose “{weekly}”, then “{done}”. | Tippe auf „{repeat}“, wähle „{weekly}“, dann „{done}“. | Atinge „{repeat}”, alege „{weekly}”, apoi „{done}”. |
+| calendarGuideCoachKindsSkip | Tap “{date}”, pick a day with a dot, then “{skip}”. | Tippe auf „{date}“, wähle einen Tag mit Punkt, dann „{skip}“. | Atinge „{date}”, alege o zi cu punct, apoi „{skip}”. |
+| calendarGuideCoachKindsOnce | Tap “{repeat}” again and choose “{doesNotRepeat}”. | Tippe noch einmal auf „{repeat}“ und wähle „{doesNotRepeat}“. | Atinge din nou „{repeat}” și alege „{doesNotRepeat}”. |
+| calendarGuideCoachAlertsShow | Now tap “{showAlarm}” to see how an alarm looks. | Tippe jetzt auf „{showAlarm}“, um zu sehen, wie ein Alarm aussieht. | Acum atinge „{showAlarm}” ca să vezi cum arată o alarmă. |
+| calendarGuideCoachAttendanceMark | Tap a day below to mark it missed; tap it again for present. | Tippe auf einen Tag unten: er gilt als verpasst. Noch einmal: anwesend. | Atinge o zi de mai jos: devine ratată. Atinge-o din nou: prezent. |
+| calendarGuideCoachAttendanceCount | Turn on “{countOccurrences}”, then pick how to count. | Schalte „{countOccurrences}“ ein und wähle, wie gezählt wird. | Pornește „{countOccurrences}”, apoi alege cum se numără. |
+| calendarGuideCoachCategoriesHide | Tap the eye on a category to hide it; tap it again to show it. | Tippe auf das Auge einer Kategorie, um sie zu verstecken; noch einmal zeigt sie wieder. | Atinge ochiul unei categorii ca s-o ascunzi; atinge-l din nou ca s-o arăți. |
+| calendarGuideCoachCategoriesDelete | Tap the three dots on your category, then “{delete}”: its events go to “{other}”. | Tippe auf die drei Punkte deiner Kategorie, dann „{delete}“: ihre Ereignisse gehen zu „{other}“. | Atinge cele trei puncte ale categoriei tale, apoi „{delete}”: evenimentele ei trec la „{other}”. |
+| calendarGuideCoachFindingSearch | Type a word, a category or a date: the list keeps only the matches. | Gib ein Wort, eine Kategorie oder ein Datum ein: die Liste behält nur die Treffer. | Scrie un cuvânt, o categorie sau o dată: lista păstrează doar potrivirile. |
+| calendarGuideCoachFindingFilter | Tap the funnel, hide a category, then “{apply}”. | Tippe auf den Trichter, verstecke eine Kategorie, dann „{apply}“. | Atinge pâlnia, ascunde o categorie, apoi „{apply}”. |
+| calendarGuideCoachSetupHolidays | Tap “{holidaySet}” and pick your country. | Tippe auf „{holidaySet}“ und wähle dein Land. | Atinge „{holidaySet}” și alege-ți țara. |
+| calendarGuideCoachSetupWeek | Pick a day under “{weekStart}”. | Wähle einen Tag unter „{weekStart}“. | Alege o zi sub „{weekStart}”. |
+| calendarGuideTourEdit | You can change it with “{edit}” at the top right, then “{save}”. | Mit „{edit}“ oben rechts kannst du es ändern, dann „{save}“. | Îl poți modifica cu „{edit}” din dreapta sus, apoi „{save}”. |
+
+The hub suite's search case that typed "count of holidays" (a phrase of
+the old setup line) types "country" after this.
+
+#### 8.3.3 The practice tour
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideTourPick | Tap a day with a bar under it. | Tippe auf einen Tag mit einem Balken darunter. | Atinge o zi cu o bară sub ea. |
+| calendarGuideTourOpen | Now tap the event in the panel below to open it. | Tippe jetzt im Bereich unten auf das Ereignis, um es zu öffnen. | Acum atinge evenimentul din panoul de jos ca să-l deschizi. |
+| calendarGuideTourEdit | You can change it with “{edit}” at the top right. Try it, then “{save}”. | Mit „{edit}“ oben rechts kannst du es ändern. Probier es, dann „{save}“. | Îl poți modifica cu „{edit}” din dreapta sus. Încearcă, apoi „{save}”. |
+| calendarGuideTourAdd | Tap + to add an event on the picked day. | Tippe auf +, um am gewählten Tag ein Ereignis hinzuzufügen. | Atinge + ca să adaugi un eveniment în ziua aleasă. |
+| calendarGuideTourFilter | The funnel at the top hides categories. Try it, then “{apply}”. | Der Trichter oben versteckt Kategorien. Probier es, dann „{apply}“. | Pâlnia de sus ascunde categorii. Încearcă, apoi „{apply}”. |
+| calendarGuideTourDone | That is the whole calendar. Nothing you did here was saved. | Das ist der ganze Kalender. Nichts, was du hier getan hast, wurde gespeichert. | Acesta este tot calendarul. Nimic din ce ai făcut aici nu s-a salvat. |
+
+#### 8.3.4 Reports cut to one sentence (changed in place)
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideDemoAlertSet | “{title}” now has: {alert}. | „{title}“ hat jetzt: {alert}. | „{title}” are acum: {alert}. |
+| calendarGuideDemoCatCreated | Created “{name}”. | „{name}“ angelegt. | „{name}” creată. |
+
+The cards' Added report is `calendarGuideDemoAddedShort` (the band's
+until C2).
+
+#### 8.3.5 Retired keys
+
+C2: `calendarGuidePracticeIdle`, `calendarGuidePickedDay`,
+`calendarGuideDemoAdded`, `calendarGuideDemoLongPressHint`,
+`calendarGuideTryScreen` … `calendarGuideTrySetup` (the eight leads; C1
+stops reading them, C2 removes them). C3: the deleted rows' title and body
+keys per §7.5's keep list (`calendarGuideMonth*`, `calendarGuidePanel*`,
+`calendarGuideAdd*`, `calendarGuideTime*`, `calendarGuideOpen*` — not
+`calendarGuideOpening*` / `calendarGuideOpenOften*` / `calendarGuideOpenPermissions` /
+`calendarGuideOpenSettings` —, `calendarGuideRepeat*`, `calendarGuideKindsOne*`
+— not `calendarGuideKindsOneChange*` —, `calendarGuideKindsDates*`,
+`calendarGuideKindsOnlyOne*`, `calendarGuideSkipped*`, `calendarGuideAlertAdd*`,
+`calendarGuideQuickAlarm*`, `calendarGuideHub*`, `calendarGuideTrack*`,
+`calendarGuideCount*`, `calendarGuideCatCreate*`, `calendarGuideCatHide*`,
+`calendarGuideCatDelete*`, `calendarGuideSearchTitle` / `calendarGuideSearchBody`
+— not `calendarGuideSearchHint` —, `calendarGuideHolidays*`,
+`calendarGuideWeekStart*`).
+
+#### 8.3.6 The hub's intro and the page leads (C3; the English is the
+spec, de / ro cut from the existing translations where a sentence
+survives, re-translated only where it changed)
+
+| key | en |
+|---|---|
+| calendarGuideIntro (no placeholder any more; the C3 review measured the first text at two lines on 360 — D43 means one visual line, so it is shorter) | Tap a page. Nothing you try there is real. |
+| calendarGuideScreenLead | What you see when the calendar opens, and what each part is for. |
+| calendarGuideEventsLead | An event is anything with a day: an appointment, a bill, a class. |
+| calendarGuideKindsLead | Most events happen once; some come back every week or month. |
+| calendarGuideAlertsLead | Nothing rings by itself: you add a reminder or an alarm where you want one. |
+| calendarGuideAttendanceLead | For a class or a habit, the calendar can count the days you made it. |
+| calendarGuideCategoriesLead | A category gives an event its colour and icon. |
+| calendarGuideFindingLead | Search by name, hide what you do not need, or look at a whole year. |
+| calendarGuideSetupLead | Whose holidays, which day starts the week, the language and the look. |
+
+de / ro for the intro: „Tippe auf eine Seite. Nichts dort ist echt.“ ·
+„Atinge o pagină. Nimic de acolo nu e real.” (each one line at 1.0 on
+360).
+
+#### 8.3.7 The kept rows' bodies (C3; titles unchanged; placeholders as today's keys)
+
+| key | en |
+|---|---|
+| calendarGuideMarksBody | A bar under a day means something is planned there, in its category's colour. Holidays and weekends have bars of their own. |
+| calendarGuideViewsBody | The title “{calendar}” is a menu: a whole month, two weeks, one week, or “{overview}”. If the days shrink to one or two rows, pick “{month}” there again. |
+| calendarGuideDescriptionBody | Under the name there is room for an address, a phone number, what to bring. It shows when you open the event. |
+| calendarGuidePriorityBody | “{priority}” orders a busy day and decides which events get a bar when there are more than three. “{iconColor}” gives one event its own icon or colour. |
+| calendarGuideUnsavedBody | If you close an event you were changing, the app asks whether to keep editing or discard. A saved event stays on the phone — no internet needed. |
+| calendarGuideTemplatesBody | An event you add often can be saved with “{saveAsTemplate}” at the bottom of the editor. Press and hold + to use it. |
+| calendarGuideKindsOneChangeBody | Editing a repeating event changes all of its days: a new time moves every session. To change one day, skip it and add a one-time event there. |
+| calendarGuideKindsTrickyBody | A monthly event on the 31st skips the months without one; a yearly one on 29 February shows only in leap years. “{ends}” inside “{repeat}” stops a rule after a date. |
+| calendarGuideKindsBirthdayBody | The “{birthday}” category makes a new event yearly and counts from 0: set the real birth date and the event reads the person's age. |
+| calendarGuideKindsOnlyRepeatBody | “{trackPresence}”, “{countOccurrences}” and a note per day appear once an event has more than one day. “{skippedDays}” in the editor lists the days you skipped; untick one to bring it back. |
+| calendarGuideAlertKindsBody (corrected after the C3 review: an alarm on an all-day event rings at its time of day — only "minutes before" needs a start time) | “{reminder}”: a notification you can dismiss or snooze. “{alarm}”: it rings until you stop it, even on a locked phone; to go off minutes before, the event needs a start time — turn off “{allDay}”. |
+| calendarGuidePermissionsBody | The first time, ANTA asks to show notifications and set alarms: allow both, or nothing rings. On a Samsung phone also turn on “{battery}”; if something stays silent later, “{permissions}” in the main menu shows what is missing. |
+| calendarGuideRingBody | A reminder is a notification with “{done}” and “{snooze}”. An alarm fills the screen with “{stop}” and “{snooze}”, and falls silent by itself if nobody answers. |
+| calendarGuideOpenOftenBody | unchanged |
+| calendarGuideAssumeBody | With “{trackPresence}” on, every day counts as “{present}” until you mark it “{missed}”. “{assumeAbsent}” turns that around for things you rarely manage. |
+| calendarGuideRailBody | “{dayRail}” is a thin strip at the left edge of a day with one mark per tracked event. Turn it on in “{settingsRow}”, under “{appearance}”; each event can then choose “{railAuto}”, “{railAlways}” or “{railNever}”. |
+| calendarGuidePerDayBody | A repeating event shares one description across its days. Turn on “{perDay}” and, above the description, “{thisDay}” writes for that day alone. |
+| calendarGuideCategoryBody | Every event has a category — the “{category}” row under its name — which gives it its colour and icon. Create your own at the bottom of that list. |
+| calendarGuideCatChangeBody | Tap a category in the list to change its icon or colour. The built-in ones keep their names; your own can be renamed. |
+| calendarGuideCatAlertsBody | Inside a category, “{addAlert}” sets an alert every event in it gets automatically. An event can switch it off for itself with “{categoryAlerts}”. |
+| calendarGuideFiltersBody | A filter hides, it never deletes. If events seem to be missing, open the funnel and tap “{reset}”, then “{apply}”. |
+| calendarGuideOverviewBody | “{overview}” in the title menu shows the months as tiles (“{year}”) or everything in a period as one list (“{list}”). The arrow at the top left brings you back. |
+| calendarGuideSettingsBody | unchanged |
+| calendarGuideLanguageBody | In the main menu (three lines, top left): “{language}” switches the language and “{theme}” chooses light or dark. The text size follows your phone's font size. |
+| calendarGuideOpeningBody | From the app's first screen, tap the menu button at the top left, then “{calendar}”. To come back here: the three dots on the calendar, then “{title}”. |
+| calendarGuideBackBody | The arrow at the top left, or your phone's back gesture, returns to the previous screen. A sheet that slid up closes with its X, or by swiping it down. |
+| calendarGuideNotesBody | ANTA is also a notebook: the folders and notes behind the main menu. An event can point to a note through “{linkedNote}”. |
+
+A body whose placeholder list shrinks (`calendarGuideCategoryBody` loses
+nothing; `calendarGuidePerDayBody` loses `{allDays}`;
+`calendarGuideRingBody` keeps all three; `calendarGuideViewsBody` keeps
+all three) changes its metadata block in all three ARBs together.
+
+#### 8.3.8 The catalogue's call sites that change with the bodies
+
+`calendarGuidePerDayBody(perDay, thisDay)`, `calendarGuideKindsTrickyBody(ends,
+repeat)` (no `alsoBefore`), `calendarGuideKindsOnlyRepeatBody(trackPresence,
+countOccurrences, skippedDays)` (no `skip`); every other kept row keeps
+its arguments. The deleted rows leave `CalendarGuideTopic.rows` and the
+`calendarGuideRow` ids they carried are no longer in the tree (a flow or
+a test that named one moves per §7.5).

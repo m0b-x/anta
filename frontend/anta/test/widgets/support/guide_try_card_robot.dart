@@ -21,35 +21,67 @@ class GuideTryCardRobot {
   Finder control(String name) =>
       _byId(SemanticsIds.calendarGuideTryControl(slug, name));
 
-  /// The card's own slot: the last, after any slot a stage holds.
+  /// The card's coach slot: the first, above any slot a stage holds.
   Finder get _slot =>
-      find.descendant(of: card, matching: find.byType(FormCaptionSlot)).last;
+      find.descendant(of: card, matching: find.byType(FormCaptionSlot)).first;
 
-  /// The live caption as it reads now; empty in the reserved slot.
-  String get caption {
+  /// The coach line as it reads now.
+  String get line {
     final slot = tester.widget<FormCaptionSlot>(_slot);
-    return ((slot.child as Semantics).child! as FormCaption).text;
+    return ((slot.child as Semantics).child! as Text).data!;
   }
 
-  /// What the stage's own caption slot shows — the card's first slot that
-  /// holds a caption — rather than the unseen candidates laid out under it.
-  String get stageCaption {
-    final slot = tester
-        .widgetList<FormCaptionSlot>(
-          find.descendant(of: card, matching: find.byType(FormCaptionSlot)),
-        )
-        .firstWhere((slot) => slot.child is FormCaption);
-    return (slot.child as FormCaption).text;
-  }
+  /// Every line the coach slot is sized for.
+  List<String> get lineCandidates => [
+    for (final candidate in tester.widget<FormCaptionSlot>(_slot).candidates)
+      (candidate as Text).data!,
+  ];
+
+  /// The coach's skip; the kinds stage's own `skip` is its Skip this day.
+  Finder get skipButton => _byId(SemanticsIds.calendarGuideTrySkip(slug));
+
+  /// Whether the skip button answers a tap: disabled, never hidden, once
+  /// every step is done.
+  bool get canSkip =>
+      tester
+          .widget<IconButton>(
+            find.descendant(of: skipButton, matching: find.byType(IconButton)),
+          )
+          .onPressed !=
+      null;
+
+  Future<void> skip() => _tap(skipButton);
+
+  /// What the stage's own caption slots show, top to bottom — every slot of
+  /// the card that holds a caption, past the coach line's — rather than the
+  /// unseen candidates laid out under them.
+  List<String> get stageCaptions => [
+    for (final slot in tester.widgetList<FormCaptionSlot>(
+      find.descendant(of: card, matching: find.byType(FormCaptionSlot)),
+    ))
+      if (slot.child case final FormCaption caption) caption.text,
+  ];
+
+  /// The size of the stage's [index]th caption slot, for a count that must
+  /// change its words under its row and never the row's height.
+  Size stageCaptionSlotSize(int index) => find
+      .descendant(of: card, matching: find.byType(FormCaptionSlot))
+      .evaluate()
+      .where((slot) => (slot.widget as FormCaptionSlot).child is FormCaption)
+      .elementAt(index)
+      .size!;
 
   Size get slotSize => tester.getSize(_slot);
 
   Rect get slotRect => tester.getRect(_slot);
 
   /// The stage: the card body's one `RepaintBoundary`.
-  Size get stageSize => tester.getSize(
-    find.descendant(of: card, matching: find.byType(RepaintBoundary)).first,
-  );
+  Finder get _stage =>
+      find.descendant(of: card, matching: find.byType(RepaintBoundary)).first;
+
+  Size get stageSize => tester.getSize(_stage);
+
+  Rect get stageRect => tester.getRect(_stage);
 
   Future<void> _tap(Finder target) async {
     await tester.ensureVisible(target);
