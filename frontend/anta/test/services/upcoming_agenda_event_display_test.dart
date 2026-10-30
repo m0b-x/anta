@@ -10,8 +10,10 @@ import '../database/support/db_test_support.dart';
 
 /// The event presentation replaced the `collapse_recurring` boolean, and the
 /// point of the read-time fallback is that nobody's agenda changes on update:
-/// an install that had collapsing **on** must come back on "per event", and one
-/// that never touched it must come back on the uncondensed listing.
+/// an install that had collapsing **on** must come back on "per event", one
+/// that had it **off** on the uncondensed listing, and only an install that
+/// never touched either key gets the current default — the category summary
+/// since 2026-10-30.
 void main() {
   late AppDatabase db;
   late SettingsService settings;
@@ -30,8 +32,15 @@ void main() {
   Future<AgendaEventDisplay> load() async =>
       (await settings.getUpcomingAgendaFilters()).eventDisplay;
 
-  test('a fresh install lists every occurrence', () async {
-    expect(await load(), AgendaEventDisplay.everyOccurrence);
+  test('a fresh install summarises per category', () async {
+    expect(await load(), AgendaEventDisplay.summary);
+    expect(
+      AgendaEventDisplay.fromName(
+        SettingsKeys.defaultCalendarUpcomingEventDisplay,
+      ),
+      AgendaEventDisplay.summary,
+      reason: 'the constant must spell a real presentation',
+    );
   });
 
   test('a stored collapse=true loads as per event', () async {

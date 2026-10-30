@@ -433,7 +433,10 @@ class SettingsKeys {
   static const bool defaultAutoSaveEnabled = true;
   static const int defaultAutoSaveInterval = 5;
   static const bool defaultShowNotePreview = true;
-  static const bool defaultShowStatsBar = true;
+
+  /// Off (2026-10-30): character and line counts are noise under a first
+  /// note; the editor's capture bar is what a new install should see.
+  static const bool defaultShowStatsBar = false;
   static const bool defaultHapticFeedback = true;
   static const int defaultDefaultNotesSortOrder = 0;
 
@@ -475,9 +478,12 @@ class SettingsKeys {
   static const double defaultToolbarShortcutRatio = 0.7;
   static const bool defaultToolbarSplitEnabled = true;
 
-  /// On, so nobody's bar changes on update: the pinned pair is what every
-  /// install had before the setting existed.
-  static const bool defaultToolbarUndoRedoPinned = true;
+  /// Off (2026-10-30): the pair's 96 dp go back to the shortcut strip, and
+  /// undo and redo lead the utility order anyway, so unpinned they are still
+  /// the first two utility buttons. The default shipped on from 2026-10-22 so
+  /// no bar changed on that update; an install that set the switch keeps
+  /// its value either way.
+  static const bool defaultToolbarUndoRedoPinned = false;
 
   // Default values for preview performance
   static const int defaultPreviewLinesPerChunk = 10;
@@ -515,7 +521,11 @@ class SettingsKeys {
   static const String defaultCalendarWeekStart = 'monday';
   static const bool defaultCalendarHighlightWeekends = false;
   static const bool defaultCalendarShowWeekNumbers = false;
-  static const bool defaultCalendarShowFilterChips = false;
+
+  /// On (2026-10-30): the row is drawn only while a grid filter is active,
+  /// so it costs nothing until then, and it is the one visible sign that a
+  /// month is missing events because of a filter rather than a deletion.
+  static const bool defaultCalendarShowFilterChips = true;
   static const bool defaultCalendarShowRecurrenceLabels = true;
 
   /// Missed occurrences stay visible by default: a mark the user just made
@@ -560,9 +570,12 @@ class SettingsKeys {
   /// tradition is configured).
   static const bool defaultCalendarUpcomingShowFasting = false;
 
-  /// Default event presentation: one row per occurring day. Condensing the
-  /// events layer is entirely opt-in.
-  static const String defaultCalendarUpcomingEventDisplay = 'everyOccurrence';
+  /// Default event presentation: one card per category (2026-10-30). A
+  /// first-time user reads "Gym 12×, Birthdays 2" faster than a wall of
+  /// occurrence rows; the row listings stay one tap away in the filters.
+  /// Shipped as `everyOccurrence` before that; an install that chose a
+  /// presentation keeps it.
+  static const String defaultCalendarUpcomingEventDisplay = 'summary';
 
   /// Default fasting presentation: one row per period. A single Lent would
   /// otherwise contribute forty consecutive rows.

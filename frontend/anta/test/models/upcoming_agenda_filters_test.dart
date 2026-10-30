@@ -163,10 +163,10 @@ void main() {
   });
 
   group('UpcomingAgendaFilters.eventDisplay', () {
-    test('defaults to everyOccurrence — condensing is opt-in', () {
+    test('defaults to the category summary (2026-10-30)', () {
       expect(
         const UpcomingAgendaFilters().eventDisplay,
-        AgendaEventDisplay.everyOccurrence,
+        AgendaEventDisplay.summary,
       );
     });
 
@@ -184,7 +184,7 @@ void main() {
 
     test('is part of equality, so a mode change reaches the panel', () {
       expect(
-        const UpcomingAgendaFilters(eventDisplay: AgendaEventDisplay.summary),
+        const UpcomingAgendaFilters(eventDisplay: AgendaEventDisplay.perEvent),
         isNot(const UpcomingAgendaFilters()),
       );
     });

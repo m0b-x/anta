@@ -78,7 +78,7 @@ void main() {
 
     expect(bundle, EditorSettings.defaults);
     expect(bundle.toolbarUtilityConfig, UtilityButtonConfig.defaults());
-    expect(bundle.toolbarUndoRedoPinned, isTrue);
+    expect(bundle.toolbarUndoRedoPinned, isFalse);
     expect(bundle.editorFontSize, FontConstants.defaultFontSize);
     expect(bundle.previewFontSize, FontConstants.defaultFontSize);
     expect(bundle.canPreview, isFalse);
@@ -108,7 +108,7 @@ void main() {
     await settings.setPreviewLinesPerChunk(25);
     await settings.setToolbarShortcutRatio(0.45);
     await settings.setToolbarSplitEnabled(false);
-    await settings.setToolbarUndoRedoPinned(false);
+    await settings.setToolbarUndoRedoPinned(true);
     await settings.setToolbarUtilityConfig(utilities);
     await settings.setVocabularySuggestionsEnabled(false);
     await settings.setVocabularyTriggerChar(';');
@@ -132,7 +132,7 @@ void main() {
     expect(bundle.previewLinesPerChunk, 25);
     expect(bundle.toolbarShortcutRatio, 0.45);
     expect(bundle.toolbarSplitEnabled, isFalse);
-    expect(bundle.toolbarUndoRedoPinned, isFalse);
+    expect(bundle.toolbarUndoRedoPinned, isTrue);
     expect(bundle.toolbarUtilityConfig, utilities);
     expect(bundle.vocabularySuggestionsEnabled, isFalse);
     expect(bundle.vocabularyTriggerChar, ';');
@@ -159,7 +159,7 @@ void main() {
         previewLinesPerChunk: 25,
         toolbarShortcutRatio: 0.45,
         toolbarSplitEnabled: false,
-        toolbarUndoRedoPinned: false,
+        toolbarUndoRedoPinned: true,
         toolbarUtilityConfig: utilities,
         vocabularySuggestionsEnabled: false,
         vocabularyTriggerChar: ';',

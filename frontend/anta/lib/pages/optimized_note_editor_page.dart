@@ -2770,7 +2770,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         onOutdent: () => _shiftListIndent(outdent: true),
         currentHeadingLevel: _caretHeadingLevel,
         hapticsEnabled: settings.hapticFeedback,
-        onSwitchBar: _showBarSwitcher,
+        // The switcher is offered once there is something to switch to; a
+        // fresh install has one bar, and a button that opens a one-row sheet
+        // is a dead end on the strip.
+        onSwitchBar: (_bar?.profiles.length ?? 0) > 1 ? _showBarSwitcher : null,
         onDecreaseFontSize: _decreaseFontSize,
         onIncreaseFontSize: _increaseFontSize,
         onSettings: _openMarkdownSettings,

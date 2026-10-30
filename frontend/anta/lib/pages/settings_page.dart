@@ -56,7 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
   int _autoSaveInterval = 5;
   bool _showNotePreview = true;
   LabelStyle _labelStyle = LabelStyle.dot;
-  bool _showStatsBar = true;
+  bool _showStatsBar = SettingsKeys.defaultShowStatsBar;
   bool _hapticFeedback = true;
   RestoreLocationMode _restoreLocationMode = RestoreLocationMode.everything;
   // Editor settings

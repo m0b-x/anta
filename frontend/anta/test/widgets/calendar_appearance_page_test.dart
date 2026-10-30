@@ -293,7 +293,7 @@ void main() {
       // Both are non-default, so a reset that runs is visible and a reset that
       // over-reaches is too.
       await settings.setCalendarTodayStyle(CalendarTodayStyle.filled);
-      await settings.setCalendarShowFilterChips(true);
+      await settings.setCalendarShowFilterChips(false);
 
       await pumpAppearancePage(tester);
 
@@ -314,9 +314,9 @@ void main() {
       // a silent change.
       expect(
         await db.userSettingsDao.getValue(SettingsKeys.calendarShowFilterChips),
-        'true',
+        'false',
       );
-      expect((await settings.getCalendarAppearance()).showFilterChips, isTrue);
+      expect((await settings.getCalendarAppearance()).showFilterChips, isFalse);
     });
   });
 

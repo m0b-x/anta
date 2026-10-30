@@ -300,7 +300,11 @@ void main() {
   });
 
   group('did you mean', () {
-    const shown = UpcomingAgendaFilters(rangeDays: 30, showFasting: true);
+    const shown = UpcomingAgendaFilters(
+      rangeDays: 30,
+      showFasting: true,
+      eventDisplay: AgendaEventDisplay.everyOccurrence,
+    );
 
     testWidgets('a misspelling offers the spelling that works', (tester) async {
       UpcomingAgendaFilters? captured;

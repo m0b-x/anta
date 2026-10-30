@@ -26,11 +26,14 @@ enum AgendaEventType {
 /// the same reason: three mutually exclusive presentations of one thing, where
 /// a second boolean would have encoded "collapse *and* summarize".
 ///
-/// [everyOccurrence] lists one row per occurring day (the shipped behaviour,
-/// and the default — this whole axis is opt-in), [perEvent] shows a repeating
-/// event once with its "N× in window" tally, and [summary] replaces the rows
-/// with a single card per **category**. Persisted by name; [fromName] falls
-/// back to [everyOccurrence] for a value written by a newer build.
+/// [everyOccurrence] lists one row per occurring day, [perEvent] shows a
+/// repeating event once with its "N× in window" tally, and [summary] replaces
+/// the rows with a single card per **category** — the default since
+/// 2026-10-30 (`SettingsKeys.defaultCalendarUpcomingEventDisplay`), because a
+/// first-time user reads a handful of category cards faster than a wall of
+/// rows. Persisted by name; [fromName] still falls back to [everyOccurrence]
+/// for a value written by a newer build — an unreadable value should show
+/// everything rather than condense it.
 enum AgendaEventDisplay {
   everyOccurrence,
   perEvent,
@@ -185,7 +188,7 @@ class UpcomingAgendaFilters extends Equatable {
     this.query = '',
     this.showHolidays = false,
     this.showFasting = false,
-    this.eventDisplay = AgendaEventDisplay.everyOccurrence,
+    this.eventDisplay = AgendaEventDisplay.summary,
     this.fastingDisplay = AgendaFastingDisplay.periods,
     this.holidayDisplay = AgendaHolidayDisplay.everyDay,
     this.followSelectedDay = false,

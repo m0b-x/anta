@@ -12,12 +12,16 @@ abstract final class MarkdownBarMetrics {
   /// (the review's D1); the suggestion row shares the height.
   static const double buttonSize = 48;
 
-  /// An icon button's glyph. It does not follow the system text size, by
+  /// An icon button's glyph: Material's 24 dp inside the 48 dp target
+  /// (2026-10-30; it was 20, which left a checkbox with 15 dp of ink and the
+  /// bar reading small). It does not follow the system text size, by
   /// design: a scaled glyph would outgrow the row the suggestion bar shares.
-  static const double glyphSize = 20;
+  static const double glyphSize = 24;
 
-  /// B, I and H, the shortcuts drawn as letters.
-  static const double letterGlyphSize = 16;
+  /// B, I and H, the shortcuts drawn as letters. 20 so a bold B's 14 dp cap
+  /// matches the ink of `format_bold` at [glyphSize]; at 18 the letters read
+  /// smaller than the icons beside them.
+  static const double letterGlyphSize = 20;
 
   /// The space between the bar's scrolled content and the screen's edges.
   static const double sidePadding = 12;
@@ -54,6 +58,11 @@ abstract final class MarkdownBarMetrics {
 
   /// The gap between a scoped session's Lists glyph and its list names.
   static const double suggestionScopeGlyphGap = 6;
+
+  /// The scope label's Lists glyph. A prefix to 14 sp text, not a button, so
+  /// it stays at 20 when [glyphSize] grew to 24 — at 24 it looms over the
+  /// names it introduces.
+  static const double suggestionScopeGlyphSize = 20;
 
   /// The most of the strip the list names take before they ellipsize, so a
   /// long scope never pushes every pill out of sight.

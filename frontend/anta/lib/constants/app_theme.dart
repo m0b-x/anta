@@ -136,10 +136,10 @@ abstract final class AppTheme {
   /// (.ics)" does not fit 236.
   static const double menuMaxWidth = 280.0;
 
-  /// Vertical breathing room around the editor toolbar's 40 dp button row,
-  /// which puts the bar at the mock's 46 dp. Read by the markdown bar and
-  /// by the vocabulary bar that swaps in for it — the two must stay the
-  /// same height or the swap shifts the editor mid-word.
+  /// Vertical breathing room around the editor toolbar's 48 dp button row,
+  /// which with the top hairline puts the bar at 55 dp. Read by the markdown
+  /// bar and by the vocabulary bar that swaps in for it — the two must stay
+  /// the same height or the swap shifts the editor mid-word.
   static const double editorBarVerticalPadding = 3.0;
 
   /// The editor toolbar's ground: `surface` under a hairline, never a

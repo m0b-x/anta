@@ -220,6 +220,8 @@ void main() {
     await settings.setShowLineNumbers(false);
     await settings.setLiveMarkdownRendering(true);
     await settings.setHapticFeedback(true);
+    // Off by default since 2026-10-30; the stats-strip cases turn it on.
+    await settings.setShowStatsBar(SettingsKeys.defaultShowStatsBar);
     // Font sizes are per-database rows, and one case below writes the
     // editor's; clear both so the next test starts at the default.
     await db.userSettingsDao.deleteValue(SettingsKeys.editorFontSize);
@@ -3580,6 +3582,8 @@ void main() {
       addTearDown(tester.view.reset);
       addTearDown(tester.view.resetViewInsets);
       expect(SettingsKeys.defaultAutoBreakLongLines, isTrue);
+      // A settings write lands on drift's isolate, so it needs real time.
+      await tester.runAsync(() => settings.setShowStatsBar(true));
       final controller = await loadText(
         tester,
         '',
@@ -3695,6 +3699,7 @@ void main() {
       // loading body is blank, so it never reaches this page's screen.
       const text = '👍👍 ok';
       expect(text.length, 7);
+      await tester.runAsync(() => settings.setShowStatsBar(true));
       await loadText(tester, text);
 
       expect(statsText(tester), en.noteStats(5, 1));
@@ -3704,6 +3709,7 @@ void main() {
     testWidgets('the stored length never outlives the load', (tester) async {
       const text = '👍👍 ok';
       final note = metadataFor(text);
+      await tester.runAsync(() => settings.setShowStatsBar(true));
       await pumpPageFor(tester, note);
       await tester.pump();
       expect(

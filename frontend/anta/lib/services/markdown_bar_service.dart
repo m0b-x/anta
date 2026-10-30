@@ -174,6 +174,37 @@ class MarkdownBarService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Shows or hides the built-in money shortcuts
+  /// ([DefaultMarkdownShortcuts.moneyIds]) in every profile, following the
+  /// ledger switch: a `$+` button has nothing to do while `$` lines render
+  /// as plain text, and the ten of them would otherwise be the longest run
+  /// on a new install's strip. A profile that already matches is left alone
+  /// so its `updatedAt` stays honest; user-made shortcuts are never touched.
+  Future<void> setMoneyShortcutsVisible(bool visible) async {
+    bool outOfStep(CustomMarkdownShortcut shortcut) =>
+        DefaultMarkdownShortcuts.moneyIds.contains(shortcut.id) &&
+        shortcut.isVisible != visible;
+
+    var changed = false;
+    for (var i = 0; i < _profiles.length; i++) {
+      final profile = _profiles[i];
+      if (!profile.shortcuts.any(outOfStep)) continue;
+      _profiles[i] = profile.copyWith(
+        shortcuts: [
+          for (final shortcut in profile.shortcuts)
+            outOfStep(shortcut)
+                ? shortcut.copyWith(isVisible: visible)
+                : shortcut,
+        ],
+        updatedAt: DateTime.now(),
+      );
+      changed = true;
+    }
+    if (!changed) return;
+    await _persist();
+    notifyListeners();
+  }
+
   /// Returns the shortcuts for a specific profile.
   List<CustomMarkdownShortcut> getShortcuts(String profileId) {
     final profile = _profiles.firstWhere(

@@ -102,3 +102,14 @@ final class SwitchEditingProfile extends MarkdownBarEvent {
   @override
   List<Object?> get props => [profileId];
 }
+
+/// The money-ledger switch was flipped: show or hide the built-in money
+/// shortcuts in every profile (`MarkdownBarService.setMoneyShortcutsVisible`).
+final class SetMoneyShortcutsVisible extends MarkdownBarEvent {
+  final bool visible;
+
+  const SetMoneyShortcutsVisible({required this.visible});
+
+  @override
+  List<Object?> get props => [visible];
+}

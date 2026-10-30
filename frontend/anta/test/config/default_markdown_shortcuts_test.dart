@@ -74,4 +74,24 @@ void main() {
     expect(ids(decoded), ids(stored));
     expect(decoded, stored);
   });
+
+  test('the money ids are exactly the ten `default_money*` shortcuts', () {
+    expect(
+      DefaultMarkdownShortcuts.moneyIds,
+      ids(defaults.where((s) => s.id.startsWith('default_money'))).toSet(),
+    );
+    expect(DefaultMarkdownShortcuts.moneyIds, hasLength(10));
+  });
+
+  test('the money shortcuts ship hidden; everything else but the point '
+      'list shows', () {
+    // The ledger is off by default, so a `$+` button would insert a line the
+    // note renders as plain text — the switch reveals them instead.
+    for (final shortcut in defaults) {
+      final expected =
+          !DefaultMarkdownShortcuts.moneyIds.contains(shortcut.id) &&
+          shortcut.id != 'default_point_list';
+      expect(shortcut.isVisible, expected, reason: shortcut.id);
+    }
+  });
 }

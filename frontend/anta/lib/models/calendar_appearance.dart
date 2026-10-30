@@ -232,8 +232,10 @@ class CalendarAppearance extends Equatable {
   final bool showWeekNumbers;
 
   /// Show the removable filter chips row above the grid while a grid filter
-  /// is active. Off by default: the filter button already carries an active
-  /// badge, and the row costs the bottom panel height on every filtered view.
+  /// is active. On by default since 2026-10-30: the row costs nothing until a
+  /// filter is set, and then it is the one visible sign that a month is
+  /// missing events because of a filter; the filter button's badge alone was
+  /// too quiet for a first-time user.
   final bool showFilterChips;
 
   /// Maximum bar/dot markers per day cell before the "+N" overflow chip.
@@ -297,7 +299,7 @@ class CalendarAppearance extends Equatable {
     this.accentColorValue,
     this.highlightWeekends = false,
     this.showWeekNumbers = false,
-    this.showFilterChips = false,
+    this.showFilterChips = true,
     this.maxDayBars = 3,
     this.showRecurrenceLabels = true,
     this.missedDisplay = CalendarMissedDisplay.faded,

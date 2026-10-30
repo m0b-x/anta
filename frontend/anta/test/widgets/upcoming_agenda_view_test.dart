@@ -122,7 +122,11 @@ void main() {
   testWidgets('anchor change with no custom range moves the window', (
     tester,
   ) async {
-    const filters = UpcomingAgendaFilters(rangeDays: 30);
+    // Rows, not category cards: the day-group header below is scan output.
+    const filters = UpcomingAgendaFilters(
+      rangeDays: 30,
+      eventDisplay: AgendaEventDisplay.everyOccurrence,
+    );
     final first = farDay(0);
     final second = farDay(31);
 
@@ -241,7 +245,10 @@ void main() {
     await pumpView(
       tester,
       anchorDay: DateTime.utc(2026, 8, 10),
-      filters: const UpcomingAgendaFilters(rangeDays: 30),
+      filters: const UpcomingAgendaFilters(
+        rangeDays: 30,
+        eventDisplay: AgendaEventDisplay.everyOccurrence,
+      ),
     );
     expect(find.text('Leg day'), findsWidgets);
 
@@ -250,6 +257,7 @@ void main() {
       anchorDay: DateTime.utc(2026, 8, 10),
       filters: const UpcomingAgendaFilters(
         rangeDays: 30,
+        eventDisplay: AgendaEventDisplay.everyOccurrence,
         eventType: AgendaEventType.none,
       ),
     );
@@ -417,7 +425,13 @@ void main() {
     // Assumption (Aug 15) and All Saints (Nov 1) both resolve through the
     // uninitialized fixed-date fallback, so a 90-day window from Aug 10 holds
     // exactly two holidays with no profile configured.
-    const shown = UpcomingAgendaFilters(rangeDays: 90, showHolidays: true);
+    // Event rows rather than cards, so the only card in the list is the
+    // holiday one these tests tap.
+    const shown = UpcomingAgendaFilters(
+      rangeDays: 90,
+      showHolidays: true,
+      eventDisplay: AgendaEventDisplay.everyOccurrence,
+    );
     final anchor = DateTime.utc(2026, 8, 10);
 
     testWidgets('every-day mode lists the holiday on its own day', (
@@ -605,11 +619,26 @@ void main() {
     });
     tearDown(() => CalendarCategories.updateCache(const []));
 
-    testWidgets('the default lists every occurrence', (tester) async {
+    testWidgets('the default condenses to one card per category '
+        '(2026-10-30)', (tester) async {
       await pumpView(tester, anchorDay: anchor, filters: window);
 
+      expect(find.text('Gym'), findsOneWidget);
+      expect(find.text('Leg day'), findsNothing);
+    });
+
+    testWidgets('every-occurrence mode lists the rows and no card', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(
+          eventDisplay: AgendaEventDisplay.everyOccurrence,
+        ),
+      );
+
       expect(find.text('Leg day'), findsWidgets);
-      // No card: condensing the events layer is opt-in.
       expect(find.text('Gym'), findsNothing);
     });
 
@@ -777,7 +806,10 @@ void main() {
   });
 
   group('facade changes', () {
-    const window = UpcomingAgendaFilters(rangeDays: 30);
+    const window = UpcomingAgendaFilters(
+      rangeDays: 30,
+      eventDisplay: AgendaEventDisplay.everyOccurrence,
+    );
     final anchor = DateTime.utc(2026, 8, 10);
 
     void publishGym(int colorValue) {
@@ -844,7 +876,10 @@ void main() {
   });
 
   group('search', () {
-    const window = UpcomingAgendaFilters(rangeDays: 30);
+    const window = UpcomingAgendaFilters(
+      rangeDays: 30,
+      eventDisplay: AgendaEventDisplay.everyOccurrence,
+    );
     final anchor = DateTime.utc(2026, 8, 10);
 
     // The category label only exists once the facade is filled — matching a
@@ -1246,6 +1281,7 @@ void main() {
           rangeDays: 90,
           showHolidays: true,
           holidayDisplay: AgendaHolidayDisplay.summary,
+          eventDisplay: AgendaEventDisplay.everyOccurrence,
         ),
       );
 
@@ -1284,6 +1320,7 @@ void main() {
           rangeDays: 30,
           showFasting: true,
           fastingDisplay: AgendaFastingDisplay.summary,
+          eventDisplay: AgendaEventDisplay.everyOccurrence,
         ),
       );
 

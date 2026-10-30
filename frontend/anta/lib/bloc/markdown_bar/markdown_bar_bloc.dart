@@ -24,6 +24,7 @@ class MarkdownBarBloc extends Bloc<MarkdownBarEvent, MarkdownBarState> {
     on<SetNoteBarAssignment>(_onSetNoteBarAssignment);
     on<ResolveBarForNote>(_onResolveBarForNote);
     on<SwitchEditingProfile>(_onSwitchEditingProfile);
+    on<SetMoneyShortcutsVisible>(_onSetMoneyShortcutsVisible);
   }
 
   Future<void> _onLoad(
@@ -253,5 +254,34 @@ class MarkdownBarBloc extends Bloc<MarkdownBarEvent, MarkdownBarState> {
         currentShortcuts: _barService.getShortcuts(event.profileId),
       ),
     );
+  }
+
+  Future<void> _onSetMoneyShortcutsVisible(
+    SetMoneyShortcutsVisible event,
+    Emitter<MarkdownBarState> emit,
+  ) async {
+    final current = state;
+    if (current is! MarkdownBarLoaded) return;
+    try {
+      await _barService.setMoneyShortcutsVisible(event.visible);
+      // Every profile may have changed, so the shown list is re-read for
+      // whichever profile the state is presenting.
+      emit(
+        current.copyWith(
+          profiles: _barService.profiles,
+          currentShortcuts: _barService.getShortcuts(
+            current.editingProfileId ?? current.activeProfileId,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[MarkdownBarBloc] Money shortcuts visibility error: $e');
+      emit(
+        MarkdownBarError(
+          e.toString(),
+          errorType: MarkdownBarErrorType.saveFailed,
+        ),
+      );
+    }
   }
 }

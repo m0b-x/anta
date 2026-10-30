@@ -16,11 +16,31 @@ class DefaultMarkdownShortcuts {
     'default_quote',
   };
 
+  /// The built-in money-ledger shortcuts, the `$` op inserts. They ship
+  /// hidden (2026-10-30): the ledger itself is off by default, and a `$+`
+  /// line in a note that renders it as plain text is a confusing first
+  /// experience. `MarkdownBarService.setMoneyShortcutsVisible` shows and
+  /// hides them with the ledger switch, so the buttons appear exactly when
+  /// the syntax starts to mean something.
+  static const Set<String> moneyIds = {
+    'default_money',
+    'default_money_subtract',
+    'default_money_multiply',
+    'default_money_divide',
+    'default_money_set',
+    'default_money_total',
+    'default_money_delta',
+    'default_money_target',
+    'default_money_diff',
+    'default_money_span',
+  };
+
   /// The shipped bar for a new profile. A phone-width bar shows only the
   /// first handful beside the utility buttons, so the list markers and the
   /// two emphases lead; only one bullet button shows by default
   /// (`default_point_list` stays in the list, hidden, for anyone who
-  /// prefers the `•` glyph). Stored profiles keep their own order.
+  /// prefers the `•` glyph), and the money shortcuts stay hidden until the
+  /// ledger is on ([moneyIds]). Stored profiles keep their own order.
   static List<CustomMarkdownShortcut> get shortcuts => [
     CustomMarkdownShortcut(
       id: 'default_checkbox',
@@ -240,6 +260,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$+ ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_subtract',
@@ -249,6 +270,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$- ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_multiply',
@@ -258,6 +280,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$* ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_divide',
@@ -267,6 +290,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$/ ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_set',
@@ -276,6 +300,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$= ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_total',
@@ -285,6 +310,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$\$',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_delta',
@@ -294,6 +320,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$? ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_target',
@@ -303,6 +330,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$! ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_diff',
@@ -312,6 +340,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$^ ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
     CustomMarkdownShortcut(
       id: 'default_money_span',
@@ -321,6 +350,7 @@ class DefaultMarkdownShortcuts {
       beforeText: '\$~ ',
       afterText: '',
       isDefault: true,
+      isVisible: false,
     ),
   ];
 }

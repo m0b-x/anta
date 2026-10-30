@@ -1367,6 +1367,33 @@ void main() {
     });
   });
 
+  testWidgets('glyphs are 24 dp icons and 20 dp letters inside the same '
+      '48 dp targets (2026-10-30)', (tester) async {
+    await tester.pumpWidget(
+      _bar(
+        shortcuts: [_bold],
+        utilityConfigs: const [
+          UtilityButtonConfig(id: UtilityButtonId.undo),
+          UtilityButtonConfig(id: UtilityButtonId.settings),
+        ],
+      ),
+    );
+
+    // The ink grew; the row did not — the suggestion bar that swaps in for
+    // this one is still 55 dp, so the editor never shifts.
+    expect(MarkdownBarMetrics.glyphSize, 24);
+    expect(MarkdownBarMetrics.letterGlyphSize, 20);
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.undo)).size,
+      MarkdownBarMetrics.glyphSize,
+    );
+    expect(
+      tester.widget<Text>(find.text('B')).style!.fontSize,
+      MarkdownBarMetrics.letterGlyphSize,
+    );
+    expect(tester.getSize(find.byType(MarkdownBar)).height, 55);
+  });
+
   testWidgets('entering reorder mode unfocuses the editor (U1.3)', (
     tester,
   ) async {

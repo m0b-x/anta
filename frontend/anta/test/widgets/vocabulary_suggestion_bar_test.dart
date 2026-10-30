@@ -250,6 +250,16 @@ void main() {
     await tester.pump();
     expect(glyph, findsOneWidget);
     expect(find.text('Exercises'), findsOneWidget);
+    // The label's glyph is a prefix to 14 sp text, so it kept 20 dp when the
+    // bar's buttons went to 24; the dismiss ✕ is a bar button and follows.
+    expect(
+      tester.widget<Icon>(glyph).size,
+      MarkdownBarMetrics.suggestionScopeGlyphSize,
+    );
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.close)).size,
+      MarkdownBarMetrics.glyphSize,
+    );
 
     // Each pill's second line names its list; no label repeats it.
     suggestions.value = session;

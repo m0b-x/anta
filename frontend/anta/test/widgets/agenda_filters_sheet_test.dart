@@ -241,14 +241,18 @@ void main() {
         expect(id(item), findsOneWidget);
         expect(dataOf(tester, item).role, SemanticsRole.menuItemRadio);
       }
-      expect(isChecked(tester, SemanticsIds.agendaFilterEventRowsEvery), isTrue);
+      // The summary is the default presentation since 2026-10-30.
+      expect(
+        isChecked(tester, SemanticsIds.agendaFilterEventRowsEvery),
+        isFalse,
+      );
       expect(
         isChecked(tester, SemanticsIds.agendaFilterEventRowsPerEvent),
         isFalse,
       );
       expect(
         isChecked(tester, SemanticsIds.agendaFilterEventRowsSummary),
-        isFalse,
+        isTrue,
       );
       expect(tester.takeException(), isNull);
     });
@@ -269,18 +273,20 @@ void main() {
       expect(applied.value!.fastingDisplay, AgendaFastingDisplay.periods);
     });
 
-    testWidgets('Reset returns the event presentation to every occurrence', (
+    testWidgets('Reset returns the event presentation to the category summary', (
       tester,
     ) async {
       final applied = await openSheet(
         tester,
-        const UpcomingAgendaFilters(eventDisplay: AgendaEventDisplay.summary),
+        const UpcomingAgendaFilters(
+          eventDisplay: AgendaEventDisplay.everyOccurrence,
+        ),
       );
 
       await tap(tester, id(SemanticsIds.agendaFilterReset));
       await apply(tester);
 
-      expect(applied.value!.eventDisplay, AgendaEventDisplay.everyOccurrence);
+      expect(applied.value!.eventDisplay, AgendaEventDisplay.summary);
     });
   });
 

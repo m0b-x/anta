@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
+import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../widgets/app_dialogs.dart';
 import '../services/backup_service.dart';
 import '../services/database_manager.dart';
+import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 
@@ -84,8 +86,21 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Future<void> _startFresh() async {
+    final languageCode = Localizations.localeOf(context).languageCode;
     final settings = await SettingsService.getInstance();
     await settings.setOnboardingCompleted(true);
+    // A new workspace starts on the holiday set of the language it opened
+    // in; a failure here must never keep the user on the welcome screen.
+    try {
+      final holidays = await PublicHolidayService.getInstance();
+      await holidays.setProfile(
+        PublicHolidays.profileForLanguage(languageCode),
+        reconcile: false,
+      );
+    } catch (e) {
+      debugPrint('[Onboarding] holiday profile not set: $e');
+    }
+    if (!mounted) return;
     widget.onComplete();
   }
 

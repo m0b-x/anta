@@ -161,7 +161,7 @@ class _ScopeLabel extends StatelessWidget {
         ExcludeSemantics(
           child: Icon(
             Icons.format_list_bulleted_rounded,
-            size: MarkdownBarMetrics.glyphSize,
+            size: MarkdownBarMetrics.suggestionScopeGlyphSize,
             color: color,
           ),
         ),

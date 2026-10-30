@@ -367,6 +367,19 @@ abstract final class PublicHolidays {
     return HolidayProfile.generic;
   }
 
+  /// The holiday set a fresh install starts with, from the language the app
+  /// resolved to: Romanian and German are the two app languages that name a
+  /// country, so they get its national set; English could be anywhere and
+  /// keeps the [HolidayProfile.generic] fallback. Only the onboarding's
+  /// "Start fresh" asks — an upgraded install keeps whatever it had.
+  static HolidayProfile profileForLanguage(String languageCode) {
+    return switch (languageCode) {
+      'ro' => HolidayProfile.romania,
+      'de' => HolidayProfile.germany,
+      _ => HolidayProfile.generic,
+    };
+  }
+
   /// Convenience: resolves the localized display label for any
   /// [PublicHolidayInfo], including user-added custom entries.
   static String labelOf(PublicHolidayInfo info, AppLocalizations l10n) {

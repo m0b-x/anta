@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/config/default_markdown_shortcuts.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
@@ -140,7 +141,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('the pin switch unpins undo and redo in the preview and '
+  testWidgets('the pin switch pins undo and redo in the preview and '
       'persists', (tester) async {
     await pumpPage(tester);
     final de = lookupAppLocalizations(const Locale('de'));
@@ -153,20 +154,25 @@ void main() {
     bool previewPins() =>
         tester.widget<MarkdownBar>(find.byType(MarkdownBar)).pinUndoRedo;
 
-    expect(tester.widget<Switch>(toggle).value, isTrue);
-    expect(previewPins(), isTrue);
+    // Unpinned by default since 2026-10-30; the switch is the way back.
+    expect(tester.widget<Switch>(toggle).value, isFalse);
+    expect(previewPins(), isFalse);
 
     await tester.ensureVisible(toggle);
     await tester.pump();
     await tester.tap(toggle);
     await settle(tester);
 
-    expect(tester.widget<Switch>(toggle).value, isFalse);
-    expect(previewPins(), isFalse);
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(previewPins(), isTrue);
     final settings = await SettingsService.getInstance();
-    expect(await tester.runAsync(settings.getToolbarUndoRedoPinned), isFalse);
+    expect(await tester.runAsync(settings.getToolbarUndoRedoPinned), isTrue);
 
-    await tester.runAsync(() => settings.setToolbarUndoRedoPinned(true));
+    await tester.runAsync(
+      () => settings.setToolbarUndoRedoPinned(
+        SettingsKeys.defaultToolbarUndoRedoPinned,
+      ),
+    );
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

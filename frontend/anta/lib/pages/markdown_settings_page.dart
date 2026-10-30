@@ -414,6 +414,12 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   Future<void> _saveMoneyEnabled(bool value) async {
     final settings = await _getSettingsService();
     await settings.setMoneyLedgerEnabled(value);
+    // The money buttons follow the switch: the bloc's loaded state comes
+    // back through the listener above and refreshes the shortcut list.
+    if (!mounted) return;
+    context.read<MarkdownBarBloc>().add(
+      SetMoneyShortcutsVisible(visible: value),
+    );
   }
 
   void _toggleUtilityVisibility(int index) {
