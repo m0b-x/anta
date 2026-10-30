@@ -101,6 +101,13 @@ class _FakeNoteStorage extends NoteStorageService {
   void preloadContent(List<String> noteIds) => preloads.add(noteIds);
 
   @override
+  Future<LazyNote?> loadNoteWithContent(String noteId) async {
+    final index = all.indexWhere((note) => note.id == noteId);
+    if (index < 0) return null;
+    return LazyNote(metadata: all[index], content: '', isContentLoaded: true);
+  }
+
+  @override
   void dispose() {}
 }
 
@@ -498,6 +505,29 @@ void main() {
 
       expect(emitted, isEmpty);
       expect(bloc.state, same(before));
+      await sub.cancel();
+      await bloc.close();
+    });
+  });
+
+  group("loading a note's content", () {
+    test('the same unchanged note asked for twice is answered twice', () async {
+      // Nothing moves the bloc between the two asks — the calendar reopening
+      // a linked note — so without a stamp the second answer equals the
+      // first and `emit` drops it, while the editor that asked shows nothing
+      // until it lands.
+      final bloc = buildBloc();
+      final emitted = <OptimizedNoteState>[];
+      final sub = bloc.stream.listen(emitted.add);
+
+      bloc.add(const LoadNoteContent('n001'));
+      await pumpEventQueue();
+      bloc.add(const LoadNoteContent('n001'));
+      await pumpEventQueue();
+
+      final answers = emitted.whereType<OptimizedNoteContentLoaded>().toList();
+      expect(answers, hasLength(2));
+      expect(answers.map((s) => s.note.id), everyElement('n001'));
       await sub.cancel();
       await bloc.close();
     });

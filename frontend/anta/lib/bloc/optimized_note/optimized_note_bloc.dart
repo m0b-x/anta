@@ -35,6 +35,10 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   PaginatedNotes? _lastPaginatedNotes;
   StreamSubscription<NoteChange>? _changesSubscription;
 
+  /// Answers to [LoadNoteContent] so far — see
+  /// [OptimizedNoteContentLoaded.loadSequence].
+  int _contentLoads = 0;
+
   /// The folders a refresh has been asked for but not yet dispatched for.
   ///
   /// A bulk label or delete raises one [NoteChange] per note, and a refresh
@@ -243,6 +247,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
           note: lazyNote,
           previousPaginatedNotes: _lastPaginatedNotes,
           folderId: _currentFolderId,
+          loadSequence: ++_contentLoads,
         ),
       );
     } catch (e, stackTrace) {

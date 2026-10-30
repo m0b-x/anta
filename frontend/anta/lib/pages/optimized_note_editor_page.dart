@@ -983,7 +983,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// Asks the shared bloc for this note's text. The only dispatch site of
   /// [LoadNoteContent] in the app, and the only place [_awaitingContentLoad]
-  /// is raised — which is what makes the answer *this* page's (C1).
+  /// is raised — which is what makes the answer *this* page's (C1). The
+  /// answer always arrives, even when the bloc last answered with this very
+  /// text: see [OptimizedNoteContentLoaded.loadSequence].
   Future<void> _loadNoteContent() async {
     _awaitingContentLoad = true;
     context.read<OptimizedNoteBloc>().add(LoadNoteContent(widget.noteId!));

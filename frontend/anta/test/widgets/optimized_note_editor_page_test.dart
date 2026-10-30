@@ -5098,6 +5098,49 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group('reopening the same note (a linked note from the calendar)', () {
+    /// A real row: both opens read it back through the service, and the
+    /// case is about the bloc's second answer for an unchanged row.
+    late Folder folder;
+    late NoteMetadata note;
+
+    setUp(() async {
+      folder = await db.folderDao.createFolder(name: 'Reopened');
+      note = await storageService.createNote(
+        folderId: folder.id,
+        title: 'Gym log',
+        content: 'squat 5x5',
+      );
+      noteBloc.answerLoads = true;
+    });
+
+    tearDown(() async {
+      noteBloc.answerLoads = false;
+      await db.noteDao.hardDeleteNote(note.id);
+      await db.folderDao.hardDeleteFolder(folder.id);
+    });
+
+    testWidgets('the second open of an unedited note shows its text', (
+      tester,
+    ) async {
+      // From the calendar nothing moves the shared bloc between two opens
+      // of one note, so the second answer equals the first and `emit` used
+      // to drop it — the page that waits on it stayed blank for good
+      // (2026-10-30).
+      await pumpPageFor(tester, note);
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      expect(editorOf(tester).controller.text, 'squat 5x5');
+      await teardownPage(tester);
+
+      await pumpPageFor(tester, note);
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      expect(editorOf(tester).controller.text, 'squat 5x5');
+      await teardownPage(tester);
+    });
+  });
 }
 
 /// The real export service with only its last step stubbed: it still
@@ -5216,12 +5259,17 @@ class _TestNoteBloc extends OptimizedNoteBloc {
   /// the page's write stays in flight until the test releases it.
   Completer<void>? updateGate;
 
+  /// When set, the page's content load reaches the real handler, which
+  /// reads the row and answers through the real state — for a case about
+  /// the answer itself rather than the moment it lands.
+  bool answerLoads = false;
+
   void clearDispatched() => dispatched.clear();
 
   @override
   void add(OptimizedNoteEvent event) {
     dispatched.add(event);
-    if (event is LoadNoteContent) return;
+    if (event is LoadNoteContent && !answerLoads) return;
     final gate = updateGate;
     if (gate != null && event is UpdateOptimizedNote) {
       gate.future.then((_) => super.add(event));
@@ -5233,6 +5281,7 @@ class _TestNoteBloc extends OptimizedNoteBloc {
   void reset() {
     dispatched.clear();
     updateGate = null;
+    answerLoads = false;
     emit(OptimizedNoteInitial());
   }
 

@@ -67,14 +67,31 @@ final class OptimizedNoteContentLoaded extends OptimizedNoteState {
   final PaginatedNotes? previousPaginatedNotes;
   final String? folderId;
 
+  /// Which `LoadNoteContent` this answers, counted up by the bloc.
+  ///
+  /// In [props] on purpose. `Bloc.emit` drops a state equal to the current
+  /// one, and nothing else here changes when the same unedited note is
+  /// asked for twice with nothing in between — a linked note reopened from
+  /// the calendar, where no folder list moves this bloc. The editor's mount
+  /// gate waits for the answer to its own dispatch, so the dropped second
+  /// answer left the page blank for good (2026-10-30). Each answer is its
+  /// own state.
+  final int loadSequence;
+
   const OptimizedNoteContentLoaded({
     required this.note,
     this.previousPaginatedNotes,
     this.folderId,
+    this.loadSequence = 0,
   });
 
   @override
-  List<Object?> get props => [note, previousPaginatedNotes, folderId];
+  List<Object?> get props => [
+    note,
+    previousPaginatedNotes,
+    folderId,
+    loadSequence,
+  ];
 }
 
 /// Emitted when a brand-new note has been persisted for the first time.
