@@ -48,6 +48,26 @@ written on Fable 5.1 and that session ends here):
 > files and a ready-to-run commit (paths and message). Record each slice's
 > as-built notes in §7.1 and anything cut in §9.
 
+**Running both reworks in one session (the owner's ask, 2026-10-30).** The
+categories record and this one run interleaved, one slice at a time, one
+`implementer` and one `reviewer` per slice, never two writers in the tree
+at once. The merged order, each step gated before the next: (1) both
+safety nets — this record's S0 and the categories record's S0, test and
+flow files only; (2) categories S1 **without its drawer and ⋮ entries**,
+which fold into step 4 (the non-visual fixes: the orphan resolve, the
+default category, the picker title, the name clamp, the glyph); (3) this
+record's S1, the kit; (4) this record's S2, the hub, the drawer and the
+contract, with the Categories drawer row and the calendar ⋮ item from the
+categories record's A1 built here, since this slice owns the drawer; (5)
+categories S2, the page, after its `designer` spec; (6) categories S3, the
+delete sheet, Sort confirm and the editor guard; (7) this record's S3,
+alert settings, whose Categories row opens the reworked page; (8) S4,
+fasting; (9) S5, Calendar settings and App settings; (10) S6, the rest of
+the pages; (11) categories S4 and this record's S7 together — the guide's
+lessons, the three how-to doors, the device pass over everything, the docs.
+Both records' status lines are kept at every boundary; a session that stops
+mid-way stops at a boundary and says which step is next.
+
 The owner's standard for this rework is "bug-free, low-risk". The record
 turns that into five rules the implementing session keeps: **relocate,
 don't rewrite** (a page that moves keeps its row builders); **the kit's API

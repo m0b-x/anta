@@ -43,6 +43,15 @@ written on Fable 5.1 and that session ends here):
 > the number of uncommitted files and a ready-to-run commit (paths and
 > message). Record each slice's as-built notes in §7.1 and anything cut in §9.
 
+**Running with the settings rework (the owner's ask, 2026-10-30).** This
+record and `docs/settings-rework-roadmap.md` run in one session,
+interleaved, one slice at a time; the merged order is in that record's §1.
+Two consequences for this record: S1 drops its drawer row and ⋮ item,
+which the settings record's S2 builds together with the new drawer (A1
+stands; the owner of the drawer file is that slice); and S4, the guide
+lesson, runs together with the settings record's S7. Everything else here
+is unchanged.
+
 ## 2. Why
 
 ### 2.1 The owner's observation
