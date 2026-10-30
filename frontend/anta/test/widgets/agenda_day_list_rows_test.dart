@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -411,6 +412,41 @@ void main() {
       await pumpBuilder(tester, (r) => plain(r, onEntryEdit: edited.add), rows);
       await tester.tap(find.byIcon(Icons.edit_outlined));
       expect(edited.single.eventId, 'Stretch');
+    });
+
+    testWidgets('without onEntryTap an entry row is inert: a tap does nothing '
+        'and the row offers none to semantics', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpBuilder(
+        tester,
+        (r) => AgendaDayListRowBuilder(rows: r, today: today),
+        build([mar9]),
+      );
+
+      await tester.tap(find.text('Stretch'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester
+            .widget<InkWell>(
+              find
+                  .ancestor(
+                    of: find.text('Stretch'),
+                    matching: find.byType(InkWell),
+                  )
+                  .first,
+            )
+            .onTap,
+        isNull,
+      );
+      expect(
+        tester
+            .getSemantics(find.text('Stretch'))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isFalse,
+      );
+      handle.dispose();
     });
 
     testWidgets('an entry row carries the identifier the caller names', (

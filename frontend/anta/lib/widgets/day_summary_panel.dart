@@ -212,8 +212,10 @@ class DaySummaryPanel extends StatelessWidget {
                     onToggleMissed != null;
                 // Presence replaces the decorative chevron rather than adding a
                 // third widget: the note button already claims one slot, and a
-                // third would not fit a phone-width trailing strip.
-                final tail = canToggleMissed
+                // third would not fit a phone-width trailing strip. A row
+                // with no tap draws no chevron: the guide's inert panel
+                // card, whose rows open nothing.
+                final Widget? tail = canToggleMissed
                     ? IconButton(
                         tooltip: entry.missed
                             ? l10n.eventMarkPresent
@@ -225,6 +227,8 @@ class DaySummaryPanel extends StatelessWidget {
                         ),
                         onPressed: () => onToggleMissed!(event, !entry.missed),
                       )
+                    : onEventTap == null
+                    ? null
                     : const Icon(Icons.chevron_right_rounded);
                 final card = Card(
                   // Entry-keyed so a row — and the opacity layer a missed
@@ -307,7 +311,7 @@ class DaySummaryPanel extends StatelessWidget {
                                               onPressed: () =>
                                                   onOpenNote!(event),
                                             ),
-                                            tail,
+                                            ?tail,
                                           ],
                                         )
                                       : tail)

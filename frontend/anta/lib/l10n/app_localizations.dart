@@ -10090,11 +10090,11 @@ abstract class AppLocalizations {
   /// **'Month, two weeks or one week'**
   String get calendarGuideViewsTitle;
 
-  /// Calendar guide paragraph about the title's view menu; the placeholders are that menu's labels
+  /// Calendar guide paragraph about a grid shrunk by the title's view menu; month is that menu's Month label
   ///
   /// In en, this message translates to:
-  /// **'The title “{calendar}” is a menu: a whole month, two weeks, one week, or “{overview}”. If the days shrink to one or two rows, pick “{month}” there again.'**
-  String calendarGuideViewsBody(String calendar, String overview, String month);
+  /// **'If the days shrink to one or two rows, the title menu was switched: pick “{month}” there again.'**
+  String calendarGuideViewsBody(String month);
 
   /// Calendar guide row title about an event's category
   ///
@@ -10358,17 +10358,29 @@ abstract class AppLocalizations {
   /// **'How do I…'**
   String get calendarGuideHowDoI;
 
-  /// Calendar guide hub row and page title of the practice calendar
+  /// Calendar guide hub row and page title of the practice calendar's events lesson
   ///
   /// In en, this message translates to:
-  /// **'Practice calendar'**
+  /// **'Practice calendar events'**
   String get calendarGuidePagePractice;
 
-  /// Calendar guide hub caption of the practice calendar row
+  /// Calendar guide hub caption of the practice calendar's events lesson row
   ///
   /// In en, this message translates to:
-  /// **'A calendar that saves nothing. Try everything here.'**
+  /// **'A calendar that saves nothing. Add, change and delete freely.'**
   String get calendarGuidePagePracticeCaption;
+
+  /// Calendar guide hub row and page title of the practice calendar's filtering lesson
+  ///
+  /// In en, this message translates to:
+  /// **'Practice calendar filtering'**
+  String get calendarGuidePagePracticeFiltering;
+
+  /// Calendar guide hub caption of the practice calendar's filtering lesson row
+  ///
+  /// In en, this message translates to:
+  /// **'The same calendar, fuller. Hide things with the funnel and bring them back.'**
+  String get calendarGuidePagePracticeFilteringCaption;
 
   /// Calendar guide hub caption of the calendar screen page
   ///
@@ -10706,6 +10718,36 @@ abstract class AppLocalizations {
     String upcoming,
   );
 
+  /// Calendar guide: the title of the screen page's card that shows the calendar's bar over its month grid
+  ///
+  /// In en, this message translates to:
+  /// **'The month grid'**
+  String get calendarGuideCardGrid;
+
+  /// Calendar guide: the title of the screen page's card that shows the panel under the grid
+  ///
+  /// In en, this message translates to:
+  /// **'The panel under it'**
+  String get calendarGuideCardPanel;
+
+  /// Calendar guide: the title of the screen page's card that shows the overview's three modes
+  ///
+  /// In en, this message translates to:
+  /// **'The overview'**
+  String get calendarGuideCardOverview;
+
+  /// Calendar guide coach instruction; year, month and list are the overview's mode chips' labels
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{year}”, “{month}” or “{list}”: three ways to see the same events.'**
+  String calendarGuideCoachOverviewMode(String year, String month, String list);
+
+  /// Calendar guide coach instruction about the overview's period arrows and its Today button
+  ///
+  /// In en, this message translates to:
+  /// **'The arrows step back and forward; the button between them returns to today.'**
+  String get calendarGuideCoachOverviewPeriod;
+
   /// Calendar guide coach instruction; save is the editor's Save label
   ///
   /// In en, this message translates to:
@@ -10901,6 +10943,169 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Gate opens two hours before.'**
   String get calendarGuideDemoEventFlightNote;
+
+  /// Practice calendar filtering tour instruction
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the funnel at the top right: it hides things you do not need.'**
+  String get calendarGuideTourFilterOpen;
+
+  /// Practice calendar filtering tour instruction; categories is the filter sheet's Categories row label, apply its Apply label
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{categories}”, untick one, then “{apply}”.'**
+  String calendarGuideTourFilterCategory(String categories, String apply);
+
+  /// Practice calendar filtering tour instruction; onlyShow is the filter sheet's Only show row label, apply its Apply label
+  ///
+  /// In en, this message translates to:
+  /// **'Open the funnel again: try “{onlyShow}”, then “{apply}”.'**
+  String calendarGuideTourFilterTrait(String onlyShow, String apply);
+
+  /// Practice calendar filtering tour instruction; reset is the filter sheet's Reset filters label, apply its Apply label
+  ///
+  /// In en, this message translates to:
+  /// **'In the funnel, tap “{reset}”, then “{apply}”.'**
+  String calendarGuideTourFilterReset(String reset, String apply);
+
+  /// Practice calendar filtering tour line once every step is done
+  ///
+  /// In en, this message translates to:
+  /// **'Everything is back. A filter only hides, it never deletes.'**
+  String get calendarGuideTourFilterDone;
+
+  /// Name of a demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Pilates'**
+  String get calendarGuideDemoEventPilates;
+
+  /// Name of a demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Piano lesson'**
+  String get calendarGuideDemoEventPiano;
+
+  /// Name of a demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Car insurance'**
+  String get calendarGuideDemoEventInsurance;
+
+  /// Name of a demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Tax return'**
+  String get calendarGuideDemoEventTax;
+
+  /// Description of the Tax return demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Papers are in the blue folder.'**
+  String get calendarGuideDemoEventTaxNote;
+
+  /// Name of a demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Team lunch'**
+  String get calendarGuideDemoEventLunch;
+
+  /// Name of a demo event in the calendar guide
+  ///
+  /// In en, this message translates to:
+  /// **'Water the plants'**
+  String get calendarGuideDemoEventPlants;
+
+  /// Calendar guide hub row and page title: the fasting page
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting days'**
+  String get calendarGuidePageFasting;
+
+  /// Calendar guide hub row caption under the fasting page's title
+  ///
+  /// In en, this message translates to:
+  /// **'Orthodox, Catholic, Muslim or Jewish fasts on the grid and in the day panel'**
+  String get calendarGuidePageFastingCaption;
+
+  /// Calendar guide: the line under the fasting page's heading
+  ///
+  /// In en, this message translates to:
+  /// **'The calendar can mark the fast days of your tradition, with each day\'s rule.'**
+  String get calendarGuideFastingLead;
+
+  /// Calendar guide coach instruction on the fasting card: pick a tradition's chip under the grid
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a tradition under the grid: its fast days get a tint.'**
+  String get calendarGuideCoachFastingTradition;
+
+  /// Calendar guide coach instruction on the fasting card; appearance is the fasting appearance row's label
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{appearance}” to show them as a tint, a bar or a bold day number.'**
+  String calendarGuideCoachFastingStyle(String appearance);
+
+  /// Calendar guide coach instruction on the fasting card; myPractice is the fasting schedule row's label
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{myPractice}” to keep only the weekdays you fast on.'**
+  String calendarGuideCoachFastingPractice(String myPractice);
+
+  /// Calendar guide read row title on the fasting page
+  ///
+  /// In en, this message translates to:
+  /// **'Where it is switched on'**
+  String get calendarGuideFastingWhereTitle;
+
+  /// Calendar guide read row body; calendarSettings is the Calendar settings row's label, fastingSection the fasting section's title
+  ///
+  /// In en, this message translates to:
+  /// **'“{calendarSettings}” → “{fastingSection}”, one switch per tradition. Several can be on at once, each with its own look.'**
+  String calendarGuideFastingWhereBody(
+    String calendarSettings,
+    String fastingSection,
+  );
+
+  /// Calendar guide read row title on the fasting page: the day panel's fasting row
+  ///
+  /// In en, this message translates to:
+  /// **'What the row says'**
+  String get calendarGuideFastingRulesTitle;
+
+  /// Calendar guide read row body on the fasting page
+  ///
+  /// In en, this message translates to:
+  /// **'The row names the fast and the day\'s rule: strict, wine and oil, fish, dairy, or dawn to sunset. The dates follow the common printed calendars; Muslim dates can differ by a day from the moon sighting.'**
+  String get calendarGuideFastingRulesBody;
+
+  /// Calendar guide read row title on the fasting page
+  ///
+  /// In en, this message translates to:
+  /// **'Your own practice'**
+  String get calendarGuideFastingPracticeTitle;
+
+  /// Calendar guide read row body; myPractice is the fasting schedule row's label, applyTo the weekday scope's title, allFasts its All fasts choice
+  ///
+  /// In en, this message translates to:
+  /// **'“{myPractice}” keeps only the weekdays you fast on, turns whole months off, and skips or adds single days. The long fasts still mark every one of their days unless “{applyTo}” is set to “{allFasts}”.'**
+  String calendarGuideFastingPracticeBody(
+    String myPractice,
+    String applyTo,
+    String allFasts,
+  );
+
+  /// Calendar guide read row title on the fasting page
+  ///
+  /// In en, this message translates to:
+  /// **'Hiding them for a while'**
+  String get calendarGuideFastingHideTitle;
+
+  /// Calendar guide read row body; fasting is the filter sheet's fasting layer label, apply its Apply label
+  ///
+  /// In en, this message translates to:
+  /// **'In the funnel, turn off “{fasting}” and tap “{apply}”: the fast days leave the grid and the panel until you turn it on again.'**
+  String calendarGuideFastingHideBody(String fasting, String apply);
 }
 
 class _AppLocalizationsDelegate

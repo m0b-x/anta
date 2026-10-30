@@ -34,8 +34,13 @@ retired with the fix.
   §7.3 how to run this (the next session's prompt) · §7.4 the proposal
   the letters answered · §7.5 the coach rework (D40–D48: the coach line,
   the practice tour, the prose cut; its own status line)
+  · §7.6 the owner's second review of 2026-10-30 (D53–D65: two practice
+  lessons, the screen page's real views, the fasting page; slices F1–F4;
+  its own status line)
 - §8 The strings: the rework's content spec, en / de / ro · §8.3 the coach
   rework's strings
+  · §8.4 the second review's strings (the lessons, the screen cards, the
+  fasting page)
 - §6 Deferred
 
 ## 0. How to run this
@@ -1325,7 +1330,8 @@ pushing the Day panel's presence button below a 780 screen at de 2.0 on
 button off screen: the band's text-scale clamp drops from 1.5 to 1.3
 (the band is chrome; the one line that matters stays legible at 1.3).
 Both landed (2026-10-29): the band is 72 / 134 / 134 dp (de 1.0 / 1.3 /
-2.0; D38 alone 72 / 134 / 154) and the presence button's bottom moved
+2.0; D38 alone 72 / 134 / 154; 72 / 111 / 111 since the coach rework's
+one-clause lines, §7.5, which is the value the suite pins) and the presence button's bottom moved
 836 → 813 → 793 — still 13 dp below a 780 screen at de 2.0 on 360 in the
 month format. **Accepted as is:** the Day panel scrolls, so the row is
 reached with one flick, the two-week and week formats show it outright,
@@ -2002,8 +2008,430 @@ tooltip and no ink ring at 2.2 s (a brief ink at press time is not
 excluded — §6 (d) stays). The device left on en / 1.0 / light, the QA
 database fresh and empty, nothing armed.
 
+### 7.6 The owner's second review (2026-10-30) — two practice lessons, the screen page's real views, a fasting page — status: **IMPLEMENTED 2026-10-30 — F1–F4 built, reviewed and fixed (uncommitted; suite +11264 ~10 −1, `qa pass calendar -d emulator-5556` 28 / 28, `qa errors` empty)**
+
+**The owner's letter (2026-10-30), after the coach rework:** the practice
+calendar "is okay" but is to be called *Practice calendar events*; "we
+need the exact same screen with data to teach the user filtering"
+(*Practice calendar filtering*); "the Calendar screen is near useless in
+current form, let's at least put some mocks of current widgets to show the
+user the overview, monthly, all modes, no need to be able to edit data
+there"; Good to know and the seven task pages stay as they are; "we also
+need here a guide on how to use fasting system"; and "please make sure
+that we do not add needless tech debt, if we update our widgets that we
+normally use in the app the update should be automatic".
+
+**Decisions.** The lead's are reversible defaults, lettered for the
+owner; the owner's are his words.
+
+- **D53 (owner)** The practice calendar is "Practice calendar events"; a
+  second hub row, "Practice calendar filtering", opens the same screen
+  over a fuller seed with a tour about the funnel.
+- **D54 (lead)** One page class: `CalendarGuidePracticePage(lesson:)`
+  over `enum GuidePracticeLesson { events, filtering }`; the lesson picks
+  the route's label and title, the seed, the tour's steps and closing
+  line, and the container id. Never a second page class, never a copied
+  build. The frozen slug `practice` and every `practice-*` control id
+  stay (the two lessons are never on screen together); the filtering
+  lesson's hub row is `calendar-guide-page-practice-filtering` and its
+  container `calendar-guide-practice-filtering`. In "Start here" the two
+  practice rows come first, events then filtering; the search lists one
+  section per lesson, each holding its own row, keyed on the lesson's
+  first tour line as a page's row is on its card's.
+- **D55 (lead)** The filtering seed is the events seed plus six, one per
+  axis the funnel offers that a demo can hold (the money axis reads the
+  note ledger and is left out): a tracked weekly event with a missed
+  week and priority P2; a weekly event that ended two weeks ago (Not
+  ended); a yearly counted all-day event (Counted); a one-time all-day
+  event at P1 with a description (Priority, With description); a one-time
+  timed event in a further category; and an every-third-day all-day
+  event at P5, so a month reads as busy. Categories continue the cycle
+  the events seed starts (§8.2 table 6's rule), so the funnel's category
+  list has at least four to untick. The titles are §8.4. *Amended after
+  the F1 review:* the tracked event is "Pilates", not "Gym" — on a fresh
+  install the cycle dresses it in Mobility, and a newcomer who unticks
+  the Gym category would have watched the Gym event stay.
+- **D56 (lead)** The filtering tour is four steps and a closing line
+  (§8.4), each marked from what the funnel *returns* — the sheet reports
+  only on Apply: `funnel` (the sheet closed, applied or dismissed — not
+  `opened`, which is the events tour's word for an event's sheet, and the
+  page reports every action to whichever tour runs), `category` (applied
+  with a category hidden), `trait` (applied with any axis but categories
+  active: priority, repeat, timing, Only show, a layer), `reset` (applied
+  with nothing active after something was, **and only once `category`
+  and `trait` are done** — the F1 reviewer showed the closing line
+  reading "everything is back" over a live filter otherwise). A done set
+  as every coach is (D46): an Apply that hides a category and sets a
+  trait marks both. The lines stay inside the band's pinned height
+  (D38 / D39), which cut the first draft's lines by half; the badge is
+  left to speak for itself. Start over restores the lesson's own seed.
+- **D57 (owner)** The calendar screen page shows the real views over demo
+  data — the month grid in its formats, the panel in its three modes, the
+  overview in its three modes — and nothing on it edits: no add button,
+  no sheet, no presence button. The switches that change a view (the
+  title menu, the mode bar, the overview's chips, its arrows and Today, a
+  day tap) stay live: they are the lesson.
+- **D58 (lead)** Three cards on the screen page, not one tall stage: the
+  `screen` card (slug kept; the bar over the month grid, the title menu
+  reshaping it; steps `title`, `more`), the `panel` card (the mode bar
+  over the picked day's panel body; step `panel`, the existing line), the
+  `overview` card (the period nav, the chip row and the mode's body; steps
+  `mode`, `period`). The catalogue gains `CalendarGuideTopic.cards`, a
+  list of `GuideCardSpec(slug, steps, title)`; every other page has one
+  card titled "Try it"; the screen page's three carry their own section
+  titles (§8.4). `tryLead` becomes the first card's first line and the
+  hub row's keywords take every card's. The alternative, B, one card with
+  a mode machine, would stand 900 px tall and reach the overview only
+  through the title menu. The three cards select one day between them
+  (the demo's), so the panel shows the day the grid picked.
+- **D59 (lead, the owner's tech-debt rule)** The guide keeps one copy of
+  each wiring. `GuideCalendarGrid` (`lib/widgets/calendar_guide_grid.dart`)
+  is the practice page's `_grid` lifted out, with the cell's tint, number
+  colour and bars taken from resolvers the caller passes; the two lessons,
+  the screen card and the fasting card draw it. `GuideDemoPanel`
+  (`lib/widgets/calendar_guide_demo_panel.dart`) is `_panelBody`,
+  `_dayEntries` and `_upcoming` lifted out, with the taps optional; the
+  practice page and the panel card draw it. The overview's chip row
+  becomes `OverviewModeChips` (`lib/widgets/overview_mode_chips.dart`),
+  the overview page and the overview card draw it (`onSearch` nullable
+  → the button disabled, never hidden; the ids a callback). The year
+  tiles come from a real `AgendaMonthStore` over the demo's scans and the
+  one tile builder the overview uses (`agenda_year_scroll.dart:750`,
+  `agenda_year_grid.dart:50`), never a second tile formula. What stays
+  duplicated is `_CalendarTable`'s `TableCalendar` wiring
+  (`calendar_page.dart:1679`, bloc-bound, with the output caches and the
+  rail) against `GuideCalendarGrid`: lifting the calendar page's grid out
+  of its bloc is the hot path's own refactor and the owner's call —
+  recorded in §6.
+- **D60 (owner)** A fasting page. **(lead)** `CalendarGuideTopic.fasting`,
+  slug `fasting`, the settings section's glyph
+  (`Icons.restaurant_menu_rounded`), last of "How do I…" after Set up the
+  calendar, titled "Fasting days" (§8.4).
+- **D61 (lead)** The fasting card's stage, top to bottom: four
+  `FormSwitchRow`s, one per tradition, glyph and colour as the settings
+  page draws them (`calendar_settings_page.dart:654-670`); an
+  "Appearance" row that opens the real `FastingStyleSheet` for the first
+  tradition that is on, its value the tradition's name; a "My practice"
+  row that opens the real `FastingScheduleSheet`; a "Multi-day fasts"
+  switch. The three are disabled, never hidden, while no tradition is on
+  (the switch only while Orthodox is). Under them `GuideCalendarGrid` in
+  the month format, pageable, with no events, washed and barred by the
+  real fasting providers; under that a fixed-height day panel
+  (`DaySummaryPanel`) for the picked day with the real
+  `FastingSummaryProvider` and the weekend row, scrolling inside its slot.
+  The stage opens on today's month with every tradition off. The two
+  sheets write through their `onChanged` only, into the demo; the
+  style sheet's swatch picker runs in its sandbox.
+- **D62 (lead)** The fasting seams, the `isMissed` pattern (a default that
+  is today's static read): `FastingCalendar.computeYear(year, traditions:,
+  orthodoxGreatFasts:, schedule:)`, pure, which the static `_buildYear`
+  calls with the configured values (the Orthodox builder takes the flag
+  as an argument instead of reading `_orthodoxGreatFasts`);
+  `FastingCalendar.resolveCellStyle(infos, appearance)`, pure, which the
+  static `cellStyleForUtcDay` calls; `FastingSummaryProvider`,
+  `FastingDayBarProvider` and `FastingCellTintProvider` take an optional
+  `FastingLookup` (`on(day)` and `appearance`) whose absence is the static
+  read; the static `styleOf`, `colorOf` and `iconFor` and the providers
+  share one set of pure helpers. The demo never calls `configure`; the
+  suite pins `FastingCalendar.revision` across every action of the card
+  and runs under the sandbox write log.
+- **D63 (lead)** Steps per card, the lines in §8.4: fasting `tradition`,
+  `style`, `practice`; screen `title`, `more`; panel `panel`; overview
+  `mode`, `period`.
+- **D64 (lead)** The screen page's `views` row keeps only its trap (a
+  grid shrunk to one or two rows); `marks` stays. The fasting page's rows
+  are four: where it is switched on, what the row says, your own
+  practice, hiding them for a while.
+- **D65 (lead)** Flows: `26_guide` expects the screen page's three cards
+  by id; a new `27_guide_lessons` walks the filtering lesson (the hub's
+  row, the funnel, a category unticked, Apply, the badge, Start over) and
+  the fasting page (the card by id, a tradition switch, back). The
+  calendar pass becomes 28 flows.
+
+**The design review (2026-10-30, F4; 18 findings over 95 renders in
+both themes, de 1.0 / 1.3 / 2.0 on 360 and en 1.0 / 2.0 on 412, the
+three guideline matchers, the four suites green)** found nothing
+blocking and one severity-3: on 360 × 780 the fasting card's switches
+(y 364–559 at de 1.0) and the grid they change (its first row below 780)
+were never on screen together. Its decisions:
+
+- **D66 (lead)** The coach line clamps its text scale at 1.3
+  (`GuideMetrics.coachMaxTextScale`), the band's D39 by analogy: the slot
+  had measured 273 dp at de 2.0 on the fasting card (seven lines in a
+  232 dp column) and 234 on the overview card, so the line and its stage
+  never shared the screen.
+- **D67 (lead, amends D61)** The fasting stage puts the grid first, then
+  the four traditions as one `FormChipRow` of selectable chips (the ids
+  kept), then Appearance, My practice and Multi-day fasts, then the
+  panel; the tradition line says "under the grid" (§8.4.4). The
+  switches' glyph-and-colour rule goes with the switches.
+- **D68 (lead)** The overview card opens in Month mode on the shared
+  day's month (it opened on Year with this month's tile below the slot's
+  fold — nine empty tiles); Year mode scrolls on entry so the current
+  month's row is visible; List mode lists the shown month, the nav
+  stepping months in Month and List and years in Year, so a slot's
+  content is short and a flick inside it reaches its end (a year of rows
+  in a 360 dp slot held the page mid-screen).
+- **D69 (lead)** `DaySummaryPanel` draws no chevron on a row with no tap
+  (the panel card's rows read as tappable and did nothing); the panel
+  card's slot follows the clamped text scale (300 × min(scale, 1.3)),
+  since at de 2.0 its fixed 324 dp stage could not show one Day row.
+- The four suites gain the Android tap-target and the text-contrast
+  guidelines (as built `GuideTapTargetGuideline` / `GuideTextContrastGuideline`
+  in `test/widgets/support/guide_guidelines.dart`) with two named
+  exceptions (the day cells at 45.7 dp on 360, `PanelModeBar`'s 32 dp
+  segments). The severity-1 items
+  left as the app's own are in §6; the device-only bucket (the slot
+  hand-off under a thumb, the mini month's swipe, the sheets over the
+  card at 2.0, TalkBack on the chips and the band, the "→" glyph in de
+  and ro, dark wash in sunlight) is the owner's phone check.
+
+**Must not change.** Everything §7.2's and §7.5's lists hold: the
+sandbox seams and the no-write rule, the frozen ids, the coach machine's
+done-set semantics, the practice page's band geometry (D38 / D39), the
+fasting engine's static behaviour and caches (`configure`,
+`resetConfiguration`, the FIFO), the overview page's behaviour and ids,
+`CalendarDayCell` and `CalendarDayBars`, the ARB keys every flow reads.
+
+**Slices** (one `implementer` and one `reviewer` each, the gate after
+each, the owner commits):
+
+- **F1 — the two lessons and the shared wiring.** D53–D56, D59's
+  `GuideCalendarGrid` and `GuideDemoPanel` (lifted as they are, the
+  practice page drawing them with nothing visible changed), the hub's
+  rows and search, the rename, §8.4's practice strings, the suites
+  (`calendar_guide_practice_page_test.dart` over both lessons through
+  `PracticeCalendarRobot`; the filtering lesson's cases: the seed's
+  variety per axis, the tour in order, a step done early, reset to the
+  closing line, Start over, the route name; the hub suite's two rows and
+  search), `27_guide_lessons`'s first half.
+  *As built 2026-10-30 (one `implementer`, one `reviewer`, one fix pass):*
+  `GuidePracticeLesson { events('practice'), filtering('practice-filtering') }`
+  in the catalogue with `title`, `caption`, `steps`, `closing`; the page's
+  `_mark` reports every action to whichever tour runs and `GuideCoach`
+  gained `hasStep` / `hasDone`; `GuideLocaleFormat` moved to
+  `lib/utils/guide_locale_format.dart` so the grid and the try card do not
+  import each other; `DayTimelineView.onEventTap` and
+  `AgendaDayListRowBuilder.onEntryTap` became nullable (null = an inert
+  block or row, an all-day block a plain `Chip`), the seam the panel card
+  of F2 draws through; a dismissed filter sheet clears a standing report
+  in both lessons (D49). The review (10 items, nothing writes, the lift
+  diffed mechanically against `5b4275da`) closed nine: the band's pinned
+  height (the lines cut, §8.4.2), the false closing line (D56's "reset
+  last" rule), Gym → Pilates (D55), the panel's overclaiming doc, the
+  dismissal asymmetry, two stale comments, four test gaps, the import
+  cycle; the insurance's 29 February start was left. Gate: analyze clean,
+  `untranslated.txt` `{}`, suite +11100 ~10 −1 (the Windows-only case).
+  `27_guide_lessons` is unrun until F4. The Dart files the slice edited
+  are LF in the working copy (`core.autocrlf` normalises them on commit).
+- **F2 — the screen page.** D57–D59's rest, D63's screen, panel and
+  overview cards, D64's `views` row, §8.4's screen strings, the try-cards
+  suite (the three cards, the one picked day, every view switch, no
+  sheet opens from any tap, the stages' heights at 2.0), the overview
+  page's suite over `OverviewModeChips`, `26_guide`'s ids.
+  *As built 2026-10-30 (one `implementer`, one `reviewer`, one fix pass):*
+  `GuideCardSpec(slug, steps, title)` and `CalendarGuideTopic.cards`;
+  `GuideCardDemo` over a spec; the screen page's three demos over one
+  `GuideScreenWorld` (the shared `GuideDemoCalendar`, the look, the
+  palette, the resolvers; built before the first frame over the cached
+  categories and re-seeded over `CategoryService`'s with the picks kept);
+  `GuideOverviewDemo` over a real `AgendaMonthStore` resolved only on
+  navigation and on a world change, Year mode one year at a time on
+  `AgendaYearGrid` (the day list's own grid — the overview page scrolls
+  years continuously through `AgendaYearScroll`, which no card can hold);
+  `OverviewModeChips` lifted out of the overview page with the ids as a
+  callback. The review (11 items, the gate green, five probes run in a
+  copy of the tree) found two confirmed interaction bugs — the fixed
+  slots (340 / 480 px) took two thirds of a 732 px viewport and never
+  handed a drag back to the page; the mini month keyed on its month was
+  thrown away at the half-way point of a swipe — a confirmed staleness (a
+  language change left the seed in the old language), the grid card's bar
+  hand-built with the saved-filters button and the funnel dropped, and the
+  "Mon" / "Wed" pins at en 2.0 as the card's narrowing, not the widget's.
+  The fix pass: `GuideStageSlot` (a fixed box whose inner scrollables hand
+  a finger's overscroll to the page, slots 300 / 360), the grid keyed on a
+  navigation counter, the world re-seeded on a locale change,
+  `GuideCalendarBar` lifted from the practice page and drawn by the card
+  with its two filter slots disabled, the Month mode's whole-month toggle
+  and the page's pickable-day rule, the three stages full-bleed at every
+  scale, one notification per tap, the titles cached, the panel's bottom
+  clearance a parameter.
+- **F3 — the fasting page.** D60–D64, §8.4's fasting strings, the seams
+  with their tests (`computeYear` against the static build for a year,
+  `resolveCellStyle`, a provider with a lookup), the card's suite (the
+  switches, the two sheets through their own robots, the grid washed and
+  barred, the panel row, `revision` pinned, no write), the topic page's
+  rows, `27_guide_lessons`'s second half.
+  *As built 2026-10-30 (one `implementer`; its review and fix pass follow):*
+  `FastingLookup` in `fasting_calendar.dart` — an abstract class with
+  `on(day)`, `appearance` and the three helpers `styleOf` / `colorOf` /
+  `iconFor` written once; `FastingLookup.facade` reads the static engine
+  live and the static getters go through it (a const object holding the
+  appearance would have frozen it); `computeYear` pure, `_buildYear`
+  calling it with the configured values, `_buildOrthodox` and
+  `_applyForcedDays` taking their inputs as arguments;
+  `resolveCellStyle` lifted out of `cellStyleForUtcDay`; the three
+  providers take `lookup:` by name (null = the facade);
+  `FastingStyleSheet.show(sandbox:)` reaching the icon picker and the
+  swatch strip; `FormSwitchRow.glyphColor` (retired in F4 with D67's
+  chips); `GuideDemoCalendar.empty`;
+  `GuideCalendarGrid(tintResolver:, numberColorFor:)` wired as
+  `_buildDayCell` wires them; `GuideFastingDemo` building a year only on a
+  change and on paging, the window's and the picked day's years kept;
+  `fastingPanelHeight` 220; the Appearance row opens the first tradition
+  that is on, its height held over every name. The suite's fixed dates:
+  2027-03-17 (Great Lent 2027 starts 15 March; the 10th is Cheesefare
+  week) and 13 / 15 October 2027. Gate: analyze clean, `untranslated.txt`
+  `{}`, suite +11178 ~10 −1. The review (10 items, nothing blocking; the
+  engine lift diffed against `5b4275da`, the sandbox gates traced, the
+  strings checked by script) found the coach line pointing at a disabled
+  Appearance row once every tradition was off again, the two parity
+  tests proving only the pass-through, the overflow exemption too broad,
+  and the resolvers assembled by hand instead of through the three
+  `defaults` factories; the fix pass: the `tradition` line while nothing
+  is on, `lookup:` on the three factories, behaviour cases on the pure
+  `computeYear`, the write-log cases through every sub-sheet, a skipped
+  and a forced date reaching the wash, a disposal guard on
+  `GuideCardDemo`, the flow asserting the switch's effect, a full-panel
+  height case and a `computeYear` call count. *Fix pass as built:* the
+  factories' parameter is `fastingLookup:` (beside `isMissed` and
+  `showFasting` a bare `lookup` read wrong); the card's year window is
+  the grid's real reach (a week before the month to the 14th of the next,
+  plus the picked day's year), and `FastingCalendar.debugComputeYearCalls`
+  counts builds behind an `assert` — the first tradition on builds the
+  year once, a tap, a frame and a look change build none, paging into
+  December builds the next year once; the "fullest day" case (the
+  2027–2028 day most traditions mark, at least three) holds the stage's
+  height at de 2.0; a Skip from idle on this card marks a step without
+  moving the line while no tradition is on (the `tradition` line stands
+  until one is), so two Skips look dead — accepted, the third reads the
+  closing line. Gate: suite +11193 ~10 −1.
+- **F4 — close.** The `design-reviewer` over the filtering lesson, the
+  screen page and the fasting page; `qa pass calendar -d emulator-5556`
+  28 / 28 and `qa errors`; the skills (`calendar-events` SKILL.md's guide
+  paragraph and `references/subsystems.md`'s guide section), the feature
+  doc's guide pointer, this status line.
+  *As built 2026-10-30 (the design review's fix pass, one `implementer`):*
+  D66 — the coach row (the line's `FormCaptionSlot` and the skip) under
+  `MediaQuery.withClampedTextScaling(maxScaleFactor:
+  GuideMetrics.coachMaxTextScale)`, a `Builder` so the line's top inset
+  and the candidates are measured under the same clamp; a case per card
+  that the coach slot at 2.0 equals its slot at 1.3. D67 — the grid, then
+  one `FormChipRow(indented: false)` of the four traditions in
+  declaration order (`try-fasting-tradition-<name>` kept, each a toggle
+  labelled by `traditionNameOf`) as the first row of the group, then
+  Appearance, My practice, Multi-day fasts, then the panel;
+  `FormSwitchRow.glyphColor` and its test retired (the switches were its
+  only caller; `form_rows.dart` is back to `5b4275da`); a geometry case
+  on 360 × 780 at en 1.0. D68 — `GuideOverviewDemo` opens in Month on the
+  shared day's month; Month and List step a month, Year a year; List
+  lists the shown month under the overview's own custom-span title
+  (`OverviewCustomPeriod.menuValue`), the Today tooltip naming the span;
+  Year opens with the shown month's row at the slot's top through a
+  private `_YearScrollHost` owning a `ScrollController(initialScrollOffset:)`
+  — the row's extent from `YearMonthTile.gridDelegate`, capped at the
+  grid's reach so no ballistic correction follows; the focus month is
+  the one Month or List last showed if it is in the shown year, else
+  this month in this year, else January; keyed on the navigation counter
+  and the column count, so every entry and step reopens on that row;
+  `AgendaYearGrid` takes an optional `controller` (null keeps the page's
+  behaviour). *Deviation:* List's one month header carries no count
+  (`monthCounts` dropped) — at de 2.0 on 360 it overflowed by 17 px and
+  the nav shows the same number. D69 — `DaySummaryPanel` draws no chevron
+  when `onEventTap` is null (the real callers pass one); the panel slot
+  is `panelStageHeight` scaled by the text scale clamped at
+  `panelStageMaxTextScale` (390 dp at 1.3 and 2.0), with a case that it
+  holds one whole Day row at de 2.0. The guidelines
+  (`test/widgets/support/guide_guidelines.dart`): `GuideTapTargetGuideline`
+  subclasses `MinimumTapTargetGuideline` and lets off, by name, a node
+  wholly inside a `PanelModeBar` segment and a node narrower than 48 dp
+  but at least 48 tall inside a try card's `TableCalendar` (45.7 on the
+  grid card; the mini month's 44.6 is the same cause); two cases prove
+  each exception is needed (the stock guideline fails on the grid card
+  at 360 and on the panel card at 412); `GuideTextContrastGuideline` also
+  skips a node whose *merged* data says disabled — a disabled chip,
+  switch or picker inside an `AutomationId` (a `MergeSemantics`) carries
+  the flag only there, so the stock check judged the fasting card's
+  three idle rows at 2.99:1 light / 2.38:1 dark (the app-wide side is in
+  §6). Every card and both lessons run both guidelines × 360 and 412 ×
+  light and dark, idle and closing, the section `Card` scrolled to the
+  list's top (and to its bottom when taller than the screen — aligning
+  the stage instead sampled the bar's colours under the overview
+  caption); with the chips the review's 4.01:1 node is gone. The pins
+  moved: the overview card's idle breaks "Mon" / "Wed" like the grid
+  card; the panel's "Wöchentlich" pin is gone (without the chevron the
+  caption fits). The Year-opens-on-the-row case compares the tile after
+  a step away and back with `rectMoreOrLessEquals(epsilon: 0.01)` — an
+  exact `Rect` compare failed on float noise. Gate: analyze clean,
+  `untranslated.txt` `{}`, suite +11264 ~10 −1 (the lead's run; the
+  implementer's own whole-suite run printed its result and then never
+  exited, a two-hour wait, and an editor-page save test it had never
+  touched timed out at ten minutes in that run and passed in the
+  lead's). The device pass: `qa pass calendar -d emulator-5556` 28 / 28
+  green in 482 s (`27_guide_lessons` 18.2 s and `26_guide`'s screen page
+  20.0 s on their first device run, no rerun needed), `qa errors` empty,
+  the device left quiet; the skill bullet, `references/subsystems.md`'s
+  guide pointer and the feature doc's addendum updated in the same
+  change.
+
+How to run it: the lead session is this one (Fable 5.1); each slice is
+one `implementer` (Opus 5.5, high) briefed from this section and §8.4
+with the files named, then one `reviewer`, then the same implementer's
+fix pass; F4's device pass is the `qa-runner`.
+
+
 ## 6. Deferred
 
+- **From the second review (2026-10-30, D59):** the guide's grid wiring
+  (`GuideCalendarGrid`) is one copy and `_CalendarTable`'s
+  (`calendar_page.dart:1679`, bloc-bound, with the three output caches and
+  the rail) is the other; lifting the calendar page's `TableCalendar` out
+  of its bloc into one `CalendarGrid` both draw is the hot path's own
+  refactor (the memo contract of `_syncResolverOutputCache`, the keyboard
+  probe, the long-press quick add) and the owner's call. The same holds
+  for the bar: `GuideCalendarBar` is the practice page's and the grid
+  card's; the calendar page's `AppBar` stays its own.
+- **From F2's review (2026-10-30), accepted as the card's cost:** a
+  screen card's stage is 40 dp narrower than the screen (the kit's group
+  inset and the card's), so at en 2.0 the weekday row breaks "Mon" and
+  "Wed" (49.5 dp needed, 45.7 given) where the real grid at 360 holds
+  them; the overview card's Year mode is `AgendaYearGrid`, one year at a
+  time, not the page's `AgendaYearScroll`; the look arriving after the
+  first frame can change the grid card's row height once (the practice
+  page waits for it behind a spinner instead); the overview card's rows
+  wrap where the page clamps them to one line for its exact extents.
+- **From F4's design review (2026-10-30), left as the app's own or the
+  card's cost:** the card grids' day cells are 45.7 × 62 dp on 360 (the
+  real grid's 51.4, the overview's mini month 50.3, a 412 phone 53), the
+  Android 48 dp rule's one failure on these pages besides `PanelModeBar`'s
+  32 dp segments (§6 c); the overview card's idle breaks "Mon" / "Wed"
+  as the grid card does (the panel's "Wöchentlich" fit once the chevron
+  went, D69); with every tradition on the fasting grid is one
+  violet, because every tradition defaults to `CalendarColors.fasting` and
+  Orthodox and Catholic share a glyph (the app's defaults, shown
+  faithfully); the fasting wash is faint in dark (the app's tint alpha);
+  the fasting grid shows the weekend bars before any tradition is on (the
+  factories' weekend layer, the real grid's look); the overview's chip row
+  wraps "Liste" at de 2.0 on 360 and the period nav reserves its longest
+  month title (the real page's); the filter badge covers half the funnel
+  at 2.0 (`calendar_page.dart:1042`, app-wide); the Timeline's 14 px
+  overflow at 2.0 (pinned); the stage's hairline edge at 1.48:1 in light
+  (D29, not a control). App-wide, from the fix pass: a disabled row built
+  from the form primitives (`FormPickerRow`, `FormSwitchRow`, a `FormChip`
+  behind `AutomationId`) carries its disabled flag only on the merged
+  child, so Flutter's stock `textContrastGuideline` judges its dimmed
+  text everywhere; the guide's `GuideTextContrastGuideline` skips a
+  merged-disabled node, and the primitives could set the flag on the
+  outer node instead — the `ui-language` kit's call.
+- **From F3's review (2026-10-30), not this slice's:** `ColorSwatchPicker`
+  constructs `CalendarPaletteService` in `initState` even in sandbox
+  (`color_swatch_picker.dart:136`), and that service's first construction
+  folds legacy `recent_event_colors` into the custom colours
+  (`calendar_palette_service.dart:101-110`) — a one-time migration write
+  the sandboxed style sheet and Look sheet could trigger on an install
+  whose palette was never read; the sandboxed strip reads the facade for
+  its swatches, so the gate would be "publish without folding", the
+  service's call.
 - **From the coach rework's design review (2026-10-30), not the coach's
   own:** (a) the calendar's Day panel with one row under the + at de 2.0
   on 360 in the month format — on the practice page the presence button
@@ -2459,3 +2887,87 @@ countOccurrences, skippedDays)` (no `skip`); every other kept row keeps
 its arguments. The deleted rows leave `CalendarGuideTopic.rows` and the
 `calendarGuideRow` ids they carried are no longer in the tree (a flow or
 a test that named one moves per §7.5).
+
+### 8.4 The second review's strings (§7.6; F1 lands 8.4.1–8.4.2, F2 8.4.3, F3 8.4.4)
+
+Every label in quotes is a placeholder fed from the app's own key, as
+every guide string is; the key named in parentheses after a placeholder
+is the one it takes.
+
+#### 8.4.1 The hub's practice rows (F1)
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuidePagePractice (changed) | Practice calendar events | Übungskalender: Ereignisse | Calendar de exercițiu: evenimente |
+| calendarGuidePagePracticeCaption (changed) | A calendar that saves nothing. Add, change and delete freely. | Ein Kalender, der nichts speichert. Füge hinzu, ändere und lösche nach Belieben. | Un calendar care nu salvează nimic. Adaugă, modifică și șterge în voie. |
+| calendarGuidePagePracticeFiltering | Practice calendar filtering | Übungskalender: Filter | Calendar de exercițiu: filtre |
+| calendarGuidePagePracticeFilteringCaption | The same calendar, fuller. Hide things with the funnel and bring them back. | Derselbe Kalender, voller. Verstecke Dinge mit dem Trichter und hol sie zurück. | Același calendar, mai plin. Ascunde lucruri cu pâlnia și adu-le înapoi. |
+
+#### 8.4.2 The filtering lesson (F1)
+
+The tour, in order; the band shows one line at a time (D47):
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideTourFilterOpen | Tap the funnel at the top right: it hides things you do not need. | Tippe auf den Trichter oben rechts: Er versteckt, was du nicht brauchst. | Atinge pâlnia din dreapta sus: ea ascunde ce nu-ți trebuie. |
+| calendarGuideTourFilterCategory {categories} (calendarCategories) {apply} | Tap “{categories}”, untick one, then “{apply}”. | Tippe auf „{categories}“, wähle eine ab, dann „{apply}“. | Atinge „{categories}”, debifează una, apoi „{apply}”. |
+| calendarGuideTourFilterTrait {onlyShow} (calendarFilterOnlyShow) {apply} | Open the funnel again: try “{onlyShow}”, then “{apply}”. | Öffne den Trichter erneut: Probier „{onlyShow}“, dann „{apply}“. | Deschide pâlnia din nou: încearcă „{onlyShow}”, apoi „{apply}”. |
+| calendarGuideTourFilterReset {reset} (calendarFilterReset) {apply} | In the funnel, tap “{reset}”, then “{apply}”. | Tippe im Trichter auf „{reset}“, dann „{apply}“. | În pâlnie, atinge „{reset}”, apoi „{apply}”. |
+| calendarGuideTourFilterDone | Everything is back. A filter only hides, it never deletes. | Alles ist wieder da. Ein Filter versteckt nur, er löscht nie. | Totul e la loc. Un filtru doar ascunde, nu șterge niciodată. |
+
+(The first draft's lines — "…: its events leave the grid", "…or
+“{priority}”…", "The number on the funnel counts your filters…" — ran to
+129 German characters and would have made the band three rows at 1.0;
+the F1 review's finding 1, cut 2026-10-30.)
+
+The six events the filtering seed adds to §8.2 table 6's (ids
+`guide-demo-<slug>`; categories continue the cycle; every date relative
+to today):
+
+| key | en | de | ro | shape |
+|---|---|---|---|---|
+| calendarGuideDemoEventPilates (was Gym until the F1 review — D55) | Pilates | Pilates | Pilates | weekly on two weekdays other than today's, 07:00–08:00, presence tracked, P2, last week's two marked present and the most recent one missed |
+| calendarGuideDemoEventPiano | Piano lesson | Klavierstunde | Lecția de pian | weekly on one weekday, 16:00–16:45, started ten weeks ago and ended two weeks ago (Not ended hides it) |
+| calendarGuideDemoEventInsurance | Car insurance | Kfz-Versicherung | Asigurarea mașinii | yearly, all day, start three years ago on today + 15's month and day, counting from 0 (Counted) |
+| calendarGuideDemoEventTax | Tax return | Steuererklärung | Declarația de venit | one-time, today + 20, all day, P1, with the description below |
+| calendarGuideDemoEventTaxNote | Papers are in the blue folder. | Die Unterlagen sind im blauen Ordner. | Hârtiile sunt în dosarul albastru. | the Tax return's description |
+| calendarGuideDemoEventLunch | Team lunch | Mittagessen mit dem Team | Prânz cu echipa | one-time, today + 4, 12:30–13:30 |
+| calendarGuideDemoEventPlants | Water the plants | Blumen gießen | Udă florile | every third day from today − 30, all day, P5 |
+
+#### 8.4.3 The screen page's cards (F2)
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideCardGrid | The month grid | Das Monatsraster | Grila lunii |
+| calendarGuideCardPanel | The panel under it | Der Bereich darunter | Panoul de sub ea |
+| calendarGuideCardOverview | The overview | Die Übersicht | Sumarul |
+| calendarGuideCoachOverviewMode {year} (dayListModeYear) {month} (dayListModeMonth) {list} (dayListModeList) | Tap “{year}”, “{month}” or “{list}”: three ways to see the same events. | Tippe auf „{year}“, „{month}“ oder „{list}“: drei Arten, dieselben Ereignisse zu sehen. | Atinge „{year}”, „{month}” sau „{list}”: trei feluri de a vedea aceleași evenimente. |
+| calendarGuideCoachOverviewPeriod | The arrows step back and forward; the button between them returns to today. | Die Pfeile blättern vor und zurück; die Taste dazwischen führt zu heute zurück. | Săgețile dau înainte și înapoi; butonul dintre ele te aduce la azi. |
+| calendarGuideViewsBody (changed; {month} (calendarFormatMonth) only — `calendar` and `overview` placeholders retired) | If the days shrink to one or two rows, the title menu was switched: pick “{month}” there again. | Wenn die Tage auf ein oder zwei Reihen schrumpfen, wurde im Titelmenü umgeschaltet: Wähle dort wieder „{month}“. | Dacă zilele se restrâng la unul sau două rânduri, s-a schimbat vederea din meniul titlului: alege din nou „{month}” acolo. |
+
+The screen card keeps `calendarGuideCoachScreenTitle` and
+`calendarGuideCoachScreenMore`; the panel card takes
+`calendarGuideCoachScreenPanel` as it is.
+
+#### 8.4.4 The fasting page (F3)
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuidePageFasting | Fasting days | Fastentage | Zilele de post |
+| calendarGuidePageFastingCaption | Orthodox, Catholic, Muslim or Jewish fasts on the grid and in the day panel | Orthodoxe, katholische, muslimische oder jüdische Fastentage im Raster und im Tagesbereich | Posturile ortodoxe, catolice, musulmane sau evreiești în grilă și în panoul zilei |
+| calendarGuideFastingLead | The calendar can mark the fast days of your tradition, with each day's rule. | Der Kalender kann die Fastentage deiner Tradition markieren, mit der Regel jedes Tages. | Calendarul poate marca zilele de post ale tradiției tale, cu rânduiala fiecărei zile. |
+| calendarGuideCoachFastingTradition (reworded with D67, 2026-10-30; the first draft said "Turn on a tradition below: its fast days get a tint on the grid and a row in the panel.") | Pick a tradition under the grid: its fast days get a tint. | Wähle unter dem Raster eine Tradition: Ihre Fastentage werden getönt. | Alege o tradiție sub grilă: zilele ei de post se colorează. |
+| calendarGuideCoachFastingStyle {appearance} (fastingAppearanceTitle) | Tap “{appearance}” to show them as a tint, a bar or a bold day number. | Tippe auf „{appearance}“, um sie als Tönung, Balken oder fette Tageszahl zu zeigen. | Atinge „{appearance}” ca să le arăți ca nuanță, bară sau număr îngroșat. |
+| calendarGuideCoachFastingPractice {myPractice} (fastingScheduleTitle) | Tap “{myPractice}” to keep only the weekdays you fast on. | Tippe auf „{myPractice}“, um nur die Wochentage zu behalten, an denen du fastest. | Atinge „{myPractice}” ca să păstrezi doar zilele săptămânii în care postești. |
+| calendarGuideFastingWhereTitle | Where it is switched on | Wo es eingeschaltet wird | Unde se pornește |
+| calendarGuideFastingWhereBody {calendarSettings} (calendarSettingsRow) {fastingSection} (fastingSectionTitle) | “{calendarSettings}” → “{fastingSection}”, one switch per tradition. Several can be on at once, each with its own look. | „{calendarSettings}“ → „{fastingSection}“, ein Schalter je Tradition. Mehrere können zugleich an sein, jede mit eigener Darstellung. | „{calendarSettings}” → „{fastingSection}”, un comutator pentru fiecare tradiție. Mai multe pot fi pornite deodată, fiecare cu aspectul ei. |
+| calendarGuideFastingRulesTitle | What the row says | Was die Zeile sagt | Ce spune rândul |
+| calendarGuideFastingRulesBody | The row names the fast and the day's rule: strict, wine and oil, fish, dairy, or dawn to sunset. The dates follow the common printed calendars; Muslim dates can differ by a day from the moon sighting. | Die Zeile nennt das Fasten und die Regel des Tages: streng, Wein und Öl, Fisch, Milchprodukte oder von der Morgendämmerung bis zum Sonnenuntergang. Die Daten folgen den üblichen gedruckten Kalendern; muslimische Daten können um einen Tag von der Mondsichtung abweichen. | Rândul numește postul și rânduiala zilei: post aspru, dezlegare la vin și ulei, la pește, la lactate, sau de la răsărit până la apus. Datele urmează calendarele tipărite obișnuite; datele musulmane pot diferi cu o zi față de observarea lunii. |
+| calendarGuideFastingPracticeTitle | Your own practice | Deine eigene Praxis | Rânduiala ta |
+| calendarGuideFastingPracticeBody {myPractice} (fastingScheduleTitle) {applyTo} (fastingWeekdayScopeTitle) {allFasts} (fastingWeekdayScopeAll) | “{myPractice}” keeps only the weekdays you fast on, turns whole months off, and skips or adds single days. The long fasts still mark every one of their days unless “{applyTo}” is set to “{allFasts}”. | „{myPractice}“ behält nur die Wochentage, an denen du fastest, schaltet ganze Monate aus und überspringt oder ergänzt einzelne Tage. Die langen Fastenzeiten markieren weiter jeden ihrer Tage, außer „{applyTo}“ steht auf „{allFasts}“. | „{myPractice}” păstrează doar zilele săptămânii în care postești, oprește luni întregi și sare sau adaugă zile singure. Posturile lungi marchează în continuare fiecare zi a lor, dacă „{applyTo}” nu este pus pe „{allFasts}”. |
+| calendarGuideFastingHideTitle | Hiding them for a while | Eine Weile ausblenden | Ascunderea lor pentru o vreme |
+| calendarGuideFastingHideBody {fasting} (upcomingShowFasting) {apply} | In the funnel, turn off “{fasting}” and tap “{apply}”: the fast days leave the grid and the panel until you turn it on again. | Schalte im Trichter „{fasting}“ aus und tippe auf „{apply}“: Die Fastentage verschwinden aus Raster und Bereich, bis du es wieder einschaltest. | În pâlnie, oprește „{fasting}” și atinge „{apply}”: zilele de post dispar din grilă și din panou până le pornești din nou. |
+
+The card's own controls take the app's labels as they are: the four
+tradition names (`fastingTradition*`), `fastingAppearanceTitle`,
+`fastingScheduleTitle`, `fastingOrthodoxGreatFasts`.

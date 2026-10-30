@@ -9,6 +9,7 @@ import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
+import '../utils/guide_locale_format.dart';
 import '../utils/presence_stats.dart';
 import 'calendar_guide_try_card.dart';
 import 'event_avatar.dart';
@@ -22,7 +23,7 @@ import 'form_rows.dart';
 class GuideAttendanceDemo extends GuideCardDemo {
   GuideAttendanceDemo({DateTime Function() now = DateTime.now})
     : _today = _todayUtc(now()),
-      super(CalendarGuideTopic.attendance);
+      super(CalendarGuideTopic.attendance.cards.single);
 
   static const String slug = 'attendance';
 

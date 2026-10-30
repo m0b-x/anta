@@ -18,32 +18,110 @@ class CalendarGuideRow {
   const CalendarGuideRow(this.slug, this.icon, this.title, this.body);
 }
 
+/// One "Try it" card of a guide page (D58): its coach's steps and the title
+/// of the section it sits in.
+///
+/// [slug] is frozen like a page's: the card's ids are built on it
+/// (`SemanticsIds.calendarGuideTry` and its kin). A page with one card uses
+/// the page's own slug, so a card's ids outlived the page growing more.
+@immutable
+class GuideCardSpec {
+  const GuideCardSpec(this.slug, this.steps, this.title);
+
+  final String slug;
+  final List<GuideCoachStep> steps;
+  final GuideLine title;
+
+  /// The screen page's three (D58). The grid card kept the page's slug, so
+  /// the ids it shipped with still find it.
+  static const String screenGrid = 'screen';
+  static const String screenPanel = 'panel';
+  static const String screenOverview = 'overview';
+}
+
 /// The practice calendar's glyph, and the one mark of "tap here, nothing is
 /// saved" wherever the guide says it (D35): the hub row and the practice
 /// page's band.
 const IconData calendarGuidePracticeIcon = Icons.touch_app_rounded;
 
-/// The practice calendar's slug, frozen like a page's: its hub row's id is
-/// built on it.
-const String calendarGuidePracticeSlug = 'practice';
+/// The practice calendar's lessons (D53, D54): one page over two seeds and
+/// two tours, so the screen they teach on is built once.
+enum GuidePracticeLesson {
+  events('practice'),
+  filtering('practice-filtering');
 
-/// The practice calendar's tour (D42), in the order its band asks for each
-/// tap; the band ends on [calendarGuideTourDone]. Beside the slug, as a
-/// page's steps sit on its topic.
-final List<GuideCoachStep> calendarGuideTourSteps = List.unmodifiable([
-  GuideCoachStep('picked', (l10n) => l10n.calendarGuideTourPick),
-  GuideCoachStep('opened', (l10n) => l10n.calendarGuideTourOpen),
-  GuideCoachStep(
-    'changed',
-    (l10n) => l10n.calendarGuideTourEdit(l10n.edit, l10n.save),
-  ),
-  GuideCoachStep('added', (l10n) => l10n.calendarGuideTourAdd),
-  GuideCoachStep('filtered', (l10n) => l10n.calendarGuideTourFilter(l10n.apply)),
-]);
+  /// Frozen like a page's: the hub row's id is built on it. The events
+  /// lesson keeps the practice calendar's slug from before there were two.
+  final String slug;
 
-/// The tour's closing line, for its coach's `closing`.
-String calendarGuideTourDone(AppLocalizations l10n) =>
-    l10n.calendarGuideTourDone;
+  const GuidePracticeLesson(this.slug);
+
+  /// Both lessons wear the practice glyph: each is the same calendar.
+  IconData get icon => calendarGuidePracticeIcon;
+
+  String title(AppLocalizations l10n) => switch (this) {
+    events => l10n.calendarGuidePagePractice,
+    filtering => l10n.calendarGuidePagePracticeFiltering,
+  };
+
+  String caption(AppLocalizations l10n) => switch (this) {
+    events => l10n.calendarGuidePagePracticeCaption,
+    filtering => l10n.calendarGuidePagePracticeFilteringCaption,
+  };
+
+  /// The band's tour (D42, D56), in the order it asks for each tap. A getter
+  /// for [CalendarGuideTopic.cards]' reason: the coach is built before the
+  /// page has a language.
+  ///
+  /// The filtering tour's first action is `funnel`, not `opened`: the page
+  /// reports every action to whichever tour is running, and `opened` is
+  /// already the events tour's word for an event's sheet.
+  List<GuideCoachStep> get steps => switch (this) {
+    events => [
+      GuideCoachStep('picked', (l10n) => l10n.calendarGuideTourPick),
+      GuideCoachStep('opened', (l10n) => l10n.calendarGuideTourOpen),
+      GuideCoachStep(
+        'changed',
+        (l10n) => l10n.calendarGuideTourEdit(l10n.edit, l10n.save),
+      ),
+      GuideCoachStep('added', (l10n) => l10n.calendarGuideTourAdd),
+      GuideCoachStep(
+        'filtered',
+        (l10n) => l10n.calendarGuideTourFilter(l10n.apply),
+      ),
+    ],
+    filtering => [
+      GuideCoachStep('funnel', (l10n) => l10n.calendarGuideTourFilterOpen),
+      GuideCoachStep(
+        'category',
+        (l10n) => l10n.calendarGuideTourFilterCategory(
+          l10n.calendarCategories,
+          l10n.apply,
+        ),
+      ),
+      GuideCoachStep(
+        'trait',
+        (l10n) => l10n.calendarGuideTourFilterTrait(
+          l10n.calendarFilterOnlyShow,
+          l10n.apply,
+        ),
+      ),
+      GuideCoachStep(
+        'reset',
+        (l10n) => l10n.calendarGuideTourFilterReset(
+          l10n.calendarFilterReset,
+          l10n.apply,
+        ),
+      ),
+    ],
+  };
+
+  /// The tour's closing line, for its coach's `closing`.
+  String closing(AppLocalizations l10n) => switch (this) {
+    events => l10n.calendarGuideTourDone,
+    filtering => l10n.calendarGuideTourFilterDone,
+  };
+}
 
 /// The guide's pages, in the hub's order.
 ///
@@ -61,6 +139,7 @@ enum CalendarGuideTopic {
   categories('categories', Icons.category_rounded),
   finding('finding', Icons.search_rounded),
   setup('setup', Icons.tune_rounded),
+  fasting('fasting', Icons.restaurant_menu_rounded),
   good('good', Icons.info_outline_rounded);
 
   /// Frozen like a row's: the hub row's and the page's ids are built on it.
@@ -78,6 +157,7 @@ enum CalendarGuideTopic {
     categories => l10n.calendarGuidePageCategories,
     finding => l10n.calendarGuidePageFinding,
     setup => l10n.calendarGuidePageSetup,
+    fasting => l10n.calendarGuidePageFasting,
     good => l10n.calendarGuideSectionGood,
   };
 
@@ -94,6 +174,7 @@ enum CalendarGuideTopic {
     categories => l10n.calendarGuidePageCategoriesCaption,
     finding => l10n.calendarGuidePageFindingCaption(l10n.calendarOverview),
     setup => l10n.calendarGuidePageSetupCaption,
+    fasting => l10n.calendarGuidePageFastingCaption,
     good => l10n.calendarGuidePageGoodCaption,
   };
 
@@ -108,31 +189,64 @@ enum CalendarGuideTopic {
     categories => l10n.calendarGuideCategoriesLead,
     finding => l10n.calendarGuideFindingLead,
     setup => l10n.calendarGuideSetupLead,
+    fasting => l10n.calendarGuideFastingLead,
     good => null,
   };
 
-  /// The coach steps of the page's "Try it" card, in the order she is asked
-  /// for them; empty for Good to know, which has nothing to try. Here rather
-  /// than in the demo so the hub's search and the card's coach read one
-  /// source. A getter, not a call per language: the demo's coach is built
-  /// before the page has a language and outlives a change of it, so each
-  /// line is written when it is drawn.
-  List<GuideCoachStep> get steps => switch (this) {
+  /// The page's "Try it" cards, top to bottom; none for Good to know, which
+  /// has nothing to try. Here rather than in the demos so the hub's search
+  /// and the cards' coaches read one source. A getter, not a call per
+  /// language: a demo's coach is built before the page has a language and
+  /// outlives a change of it, so each line is written when it is drawn.
+  ///
+  /// The screen page has three (D58): the grid, the panel and the overview
+  /// each under their own title, over one demo calendar. A single stage
+  /// holding all three would stand some 900 px tall and reach the overview
+  /// only through the title menu.
+  List<GuideCardSpec> get cards => switch (this) {
     screen => [
-      GuideCoachStep(
-        'title',
-        (l10n) => l10n.calendarGuideCoachScreenTitle(l10n.calendar),
-      ),
-      GuideCoachStep('more', (l10n) => l10n.calendarGuideCoachScreenMore),
-      GuideCoachStep(
-        'panel',
-        (l10n) => l10n.calendarGuideCoachScreenPanel(
-          l10n.panelModeDay,
-          l10n.panelModeTimeline,
-          l10n.upcomingEvents,
+      GuideCardSpec(GuideCardSpec.screenGrid, [
+        GuideCoachStep(
+          'title',
+          (l10n) => l10n.calendarGuideCoachScreenTitle(l10n.calendar),
         ),
-      ),
+        GuideCoachStep('more', (l10n) => l10n.calendarGuideCoachScreenMore),
+      ], (l10n) => l10n.calendarGuideCardGrid),
+      GuideCardSpec(GuideCardSpec.screenPanel, [
+        GuideCoachStep(
+          'panel',
+          (l10n) => l10n.calendarGuideCoachScreenPanel(
+            l10n.panelModeDay,
+            l10n.panelModeTimeline,
+            l10n.upcomingEvents,
+          ),
+        ),
+      ], (l10n) => l10n.calendarGuideCardPanel),
+      GuideCardSpec(GuideCardSpec.screenOverview, [
+        GuideCoachStep(
+          'mode',
+          (l10n) => l10n.calendarGuideCoachOverviewMode(
+            l10n.dayListModeYear,
+            l10n.dayListModeMonth,
+            l10n.dayListModeList,
+          ),
+        ),
+        GuideCoachStep(
+          'period',
+          (l10n) => l10n.calendarGuideCoachOverviewPeriod,
+        ),
+      ], (l10n) => l10n.calendarGuideCardOverview),
     ],
+    good => const [],
+    _ => [
+      GuideCardSpec(slug, _soleCardSteps, (l10n) => l10n.calendarGuideTryIt),
+    ],
+  };
+
+  /// The single card's steps of a page that has one, in the order she is
+  /// asked for them.
+  List<GuideCoachStep> get _soleCardSteps => switch (this) {
+    screen || good => const [],
     events => [
       GuideCoachStep(
         'added',
@@ -237,15 +351,28 @@ enum CalendarGuideTopic {
         (l10n) => l10n.calendarGuideCoachSetupWeek(l10n.calendarWeekStartTitle),
       ),
     ],
-    good => const [],
+    fasting => [
+      GuideCoachStep(
+        'tradition',
+        (l10n) => l10n.calendarGuideCoachFastingTradition,
+      ),
+      GuideCoachStep(
+        'style',
+        (l10n) =>
+            l10n.calendarGuideCoachFastingStyle(l10n.fastingAppearanceTitle),
+      ),
+      GuideCoachStep(
+        'practice',
+        (l10n) =>
+            l10n.calendarGuideCoachFastingPractice(l10n.fastingScheduleTitle),
+      ),
+    ],
   };
 
-  /// The card's searchable line: its first instruction, which the card
-  /// draws as the coach line until she acts (D48). Good to know has none.
-  String? tryLead(AppLocalizations l10n) {
-    final steps = this.steps;
-    return steps.isEmpty ? null : steps.first.line(l10n);
-  }
+  /// The card [slug] names — a page's demos are built per card by slug,
+  /// never by place, so a card moved in [cards] keeps its demo.
+  GuideCardSpec card(String slug) =>
+      cards.firstWhere((card) => card.slug == slug);
 
   /// The page's read rows, in page order.
   List<CalendarGuideRow> rows(AppLocalizations l10n) => switch (this) {
@@ -260,11 +387,7 @@ enum CalendarGuideTopic {
         'views',
         Icons.view_week_outlined,
         l10n.calendarGuideViewsTitle,
-        l10n.calendarGuideViewsBody(
-          l10n.calendar,
-          l10n.calendarOverview,
-          l10n.calendarFormatMonth,
-        ),
+        l10n.calendarGuideViewsBody(l10n.calendarFormatMonth),
       ),
     ],
     events => [
@@ -457,6 +580,39 @@ enum CalendarGuideTopic {
           l10n.languageSettings,
           l10n.themeSettings,
         ),
+      ),
+    ],
+    fasting => [
+      CalendarGuideRow(
+        'fasting-where',
+        Icons.settings_outlined,
+        l10n.calendarGuideFastingWhereTitle,
+        l10n.calendarGuideFastingWhereBody(
+          l10n.calendarSettingsRow,
+          l10n.fastingSectionTitle,
+        ),
+      ),
+      CalendarGuideRow(
+        'fasting-rules',
+        Icons.rule_rounded,
+        l10n.calendarGuideFastingRulesTitle,
+        l10n.calendarGuideFastingRulesBody,
+      ),
+      CalendarGuideRow(
+        'fasting-practice',
+        Icons.event_repeat_rounded,
+        l10n.calendarGuideFastingPracticeTitle,
+        l10n.calendarGuideFastingPracticeBody(
+          l10n.fastingScheduleTitle,
+          l10n.fastingWeekdayScopeTitle,
+          l10n.fastingWeekdayScopeAll,
+        ),
+      ),
+      CalendarGuideRow(
+        'fasting-hide',
+        Icons.filter_alt_outlined,
+        l10n.calendarGuideFastingHideTitle,
+        l10n.calendarGuideFastingHideBody(l10n.upcomingShowFasting, l10n.apply),
       ),
     ],
     good => [

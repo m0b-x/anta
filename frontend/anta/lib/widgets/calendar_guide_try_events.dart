@@ -16,8 +16,10 @@ import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/event_agenda.dart';
+import '../utils/guide_locale_format.dart';
 import 'calendar_add_fab.dart';
 import 'calendar_date_picker_sheet.dart';
+import 'calendar_guide_stage_slot.dart';
 import 'calendar_guide_try_card.dart';
 import 'event_avatar.dart';
 import 'event_description_sheet.dart';
@@ -33,7 +35,7 @@ import 'form_rows.dart';
 class GuideEventsDemo extends GuideCardDemo {
   GuideEventsDemo({DateTime Function() now = DateTime.now})
     : _today = _todayUtc(now()),
-      super(CalendarGuideTopic.events);
+      super(CalendarGuideTopic.events.cards.single);
 
   static const String slug = 'events';
 
@@ -438,9 +440,11 @@ class GuideEventsDemo extends GuideCardDemo {
           ),
         ),
         Positioned.fill(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: AppSpacing.fabClearance),
-            child: _rows(context, events),
+          child: GuideStageSlot(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: AppSpacing.fabClearance),
+              child: _rows(context, events),
+            ),
           ),
         ),
         PositionedDirectional(

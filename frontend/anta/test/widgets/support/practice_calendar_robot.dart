@@ -238,6 +238,21 @@ class PracticeCalendarRobot {
 
   Future<void> openFilters() => _tap(_byId(SemanticsIds.practiceFilterOpen));
 
+  /// In the open filter sheet: the Categories picker, [id]'s row toggled,
+  /// Done.
+  Future<void> toggleFilterCategory(String id) async {
+    await _tap(_byId(SemanticsIds.filterCategories));
+    await _tap(_byId(SemanticsIds.categoryPickRow(id)));
+    await _tap(_byId(SemanticsIds.categoryPickDone));
+  }
+
+  /// In the open filter sheet: Only show, the trait [traitId] toggled, Done.
+  Future<void> toggleOnlyShow(String traitId) async {
+    await _tap(_byId(SemanticsIds.filterOnlyShow));
+    await _tap(_byId(SemanticsIds.filterListRow(traitId)));
+    await _tap(_byId(SemanticsIds.filterListDone));
+  }
+
   Future<void> tapId(String id) => _tap(_byId(id));
 
   Future<void> pickFormat(String formatId) async {

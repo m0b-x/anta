@@ -35,11 +35,17 @@ class FastingStyleSheet extends StatefulWidget {
   final FastingTraditionStyle initialStyle;
   final ValueChanged<FastingTraditionStyle> onChanged;
 
+  /// The calendar guide's fasting card: the icon picker records no recent
+  /// icon and the swatch strip leaves the palette read-only. Every change
+  /// still goes to [onChanged] alone, which the card keeps in memory.
+  final bool sandbox;
+
   const FastingStyleSheet({
     super.key,
     required this.tradition,
     required this.initialStyle,
     required this.onChanged,
+    this.sandbox = false,
   });
 
   static Future<void> show(
@@ -47,6 +53,7 @@ class FastingStyleSheet extends StatefulWidget {
     required FastingTradition tradition,
     required FastingTraditionStyle initialStyle,
     required ValueChanged<FastingTraditionStyle> onChanged,
+    bool sandbox = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<void>(
@@ -69,6 +76,7 @@ class FastingStyleSheet extends StatefulWidget {
           tradition: tradition,
           initialStyle: initialStyle,
           onChanged: onChanged,
+          sandbox: sandbox,
         ),
       ),
     );
@@ -121,6 +129,7 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
       context,
       tint: _color,
       initialKey: _style.iconKey,
+      sandbox: widget.sandbox,
     );
     if (picked == null || !mounted) return;
     _apply(_style.copyWith(iconKey: picked));
@@ -318,6 +327,7 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
         ),
         spacing: FormMetrics.swatchSpacing,
         collapsible: false,
+        sandbox: widget.sandbox,
         defaultOption: ColorSwatchDefault(
           color: CalendarColors.fasting,
           tooltip: l10n.fastingColorDefault,

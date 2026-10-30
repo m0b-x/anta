@@ -5,6 +5,7 @@ import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_guide_content.dart';
+import '../services/category_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/settings_search.dart';
@@ -16,7 +17,9 @@ import '../widgets/calendar_guide_try_finding.dart';
 import '../widgets/calendar_guide_try_setup.dart';
 import '../widgets/calendar_guide_try_card.dart';
 import '../widgets/calendar_guide_try_events.dart';
+import '../widgets/calendar_guide_try_fasting.dart';
 import '../widgets/calendar_guide_try_kinds.dart';
+import '../widgets/calendar_guide_try_overview.dart';
 import '../widgets/calendar_guide_try_screen.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
@@ -47,33 +50,80 @@ class CalendarGuideTopicPage extends StatefulWidget {
   State<CalendarGuideTopicPage> createState() => _CalendarGuideTopicPageState();
 }
 
-/// The demo of [topic]'s card, or null for a page without one.
-GuideCardDemo? _demoFor(CalendarGuideTopic topic, DateTime Function() now) =>
-    switch (topic) {
-      CalendarGuideTopic.screen => GuideScreenDemo(),
-      CalendarGuideTopic.events => GuideEventsDemo(now: now),
-      CalendarGuideTopic.kinds => GuideKindsDemo(now: now),
-      CalendarGuideTopic.alerts => GuideAlertsDemo(now: now),
-      CalendarGuideTopic.attendance => GuideAttendanceDemo(now: now),
-      CalendarGuideTopic.categories => GuideCategoriesDemo(),
-      CalendarGuideTopic.finding => GuideFindingDemo(now: now),
-      CalendarGuideTopic.setup => GuideSetupDemo(now: now),
-      _ => null,
-    };
+/// The demos of [topic]'s cards by card slug; none for a page without one.
+/// The screen page's three share [world].
+Map<String, GuideCardDemo> _demosFor(
+  CalendarGuideTopic topic,
+  DateTime Function() now,
+  GuideScreenWorld? world,
+) => switch (topic) {
+  CalendarGuideTopic.screen => {
+    GuideCardSpec.screenGrid: GuideScreenDemo(world!),
+    GuideCardSpec.screenPanel: GuidePanelDemo(world),
+    GuideCardSpec.screenOverview: GuideOverviewDemo(world),
+  },
+  CalendarGuideTopic.events => {topic.slug: GuideEventsDemo(now: now)},
+  CalendarGuideTopic.kinds => {topic.slug: GuideKindsDemo(now: now)},
+  CalendarGuideTopic.alerts => {topic.slug: GuideAlertsDemo(now: now)},
+  CalendarGuideTopic.attendance => {topic.slug: GuideAttendanceDemo(now: now)},
+  CalendarGuideTopic.categories => {topic.slug: GuideCategoriesDemo()},
+  CalendarGuideTopic.finding => {topic.slug: GuideFindingDemo(now: now)},
+  CalendarGuideTopic.setup => {topic.slug: GuideSetupDemo(now: now)},
+  CalendarGuideTopic.fasting => {topic.slug: GuideFastingDemo(now: now)},
+  CalendarGuideTopic.good => const {},
+};
 
 class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
-  /// The card's demo, here rather than in the card: the list disposes a card
-  /// scrolled out of view, and what she did on it must survive that.
-  late final GuideCardDemo? _demo = _demoFor(widget.topic, widget.now);
+  /// The screen page's demo calendar, which its three cards share.
+  late final GuideScreenWorld? _world =
+      widget.topic == CalendarGuideTopic.screen
+      ? GuideScreenWorld(now: widget.now)
+      : null;
 
-  /// The caption slot's candidates, built once per locale.
-  List<String> _candidates = const [];
+  /// The cards' demos, here rather than in the cards: the list disposes a
+  /// card scrolled out of view, and what she did on it must survive that.
+  late final Map<String, GuideCardDemo> _demos = _demosFor(
+    widget.topic,
+    widget.now,
+    _world,
+  );
+
+  /// Each card's caption slot candidates by card slug, built once per
+  /// locale.
+  Map<String, List<String>> _candidates = const {};
   Locale? _candidatesLocale;
 
   @override
   void initState() {
     super.initState();
-    if (_demo?.needsAppearance ?? false) _loadAppearance();
+    for (final demo in _demos.values) {
+      if (demo.needsAppearance) _loadAppearance(demo);
+    }
+    if (_world case final world?) _loadWorld(world);
+  }
+
+  /// The screen page's look, palette and categories, read once, as the
+  /// practice page reads them; the demo stands on the defaults and the
+  /// cached categories until then. Her look arriving can change the grid's
+  /// row height once, within the first frames, before she can have touched
+  /// anything; her categories only recolour. Each read on its own: one that
+  /// throws leaves the others.
+  Future<void> _loadWorld(GuideScreenWorld world) async {
+    try {
+      final settings = await SettingsService.getInstance();
+      final loaded = await settings.getCalendarPageSettings();
+      if (!mounted) return;
+      world.adopt(appearance: loaded.appearance, palette: loaded.palette);
+    } catch (e, st) {
+      debugPrint('[CalendarGuideTopicPage] Settings load failed: $e\n$st');
+    }
+    try {
+      final categories = (await CategoryService.getInstance()).categories;
+      if (!mounted) return;
+      world.adopt(categories: categories);
+    } catch (e, st) {
+      debugPrint('[CalendarGuideTopicPage] Categories load failed: $e\n$st');
+    }
   }
 
   /// The owner's calendar look for the stage's pickers and add button, read
@@ -82,13 +132,12 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
   /// own: a holiday read that throws still leaves her look on the stage, and
   /// the menu shows Generic until the service answers (its row is sized for
   /// every set, so the answer moves nothing).
-  Future<void> _loadAppearance() async {
-    final demo = _demo;
+  Future<void> _loadAppearance(GuideCardDemo demo) async {
     try {
       final settings = await SettingsService.getInstance();
       final loaded = await settings.getCalendarPageSettings();
       if (!mounted) return;
-      demo?.appearance = loaded.appearance;
+      demo.appearance = loaded.appearance;
     } catch (e, st) {
       debugPrint('[CalendarGuideTopicPage] Settings load failed: $e\n$st');
     }
@@ -105,16 +154,24 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final demo = _demo;
+    final l10n = AppLocalizations.of(context)!;
+    // Before the first frame: the stages draw the demo calendar.
+    _world?.ensureCalendar(l10n);
     final locale = Localizations.localeOf(context);
-    if (demo == null || locale == _candidatesLocale) return;
+    if (locale == _candidatesLocale) return;
     _candidatesLocale = locale;
-    _candidates = demo.candidates(AppLocalizations.of(context)!);
+    _candidates = {
+      for (final MapEntry(key: slug, value: demo) in _demos.entries)
+        slug: demo.candidates(l10n),
+    };
   }
 
   @override
   void dispose() {
-    _demo?.dispose();
+    for (final demo in _demos.values) {
+      demo.dispose();
+    }
+    _world?.dispose();
     super.dispose();
   }
 
@@ -124,8 +181,7 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final lead = topic.lead(l10n);
-    final demo = _demo;
-    final tryLead = topic.tryLead(l10n);
+    final cards = topic.cards;
 
     return Scaffold(
       appBar: SettingsAppBar(
@@ -178,13 +234,12 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
                 ),
             ],
             sections: [
-              if (demo != null && tryLead != null)
+              for (final card in cards)
                 calendarGuideTrySection(
                   l10n: l10n,
-                  topic: topic,
-                  lead: tryLead,
-                  demo: demo,
-                  candidates: _candidates,
+                  card: card,
+                  demo: _demos[card.slug]!,
+                  candidates: _candidates[card.slug]!,
                 ),
               SettingsSectionData(
                 icon: topic.icon,

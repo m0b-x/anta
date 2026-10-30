@@ -46,11 +46,13 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/presence_stats.dart';
+import 'package:anta/widgets/calendar_guide_grid.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import 'support/guide_guidelines.dart';
 import 'support/layout_errors.dart';
 import 'support/practice_calendar_robot.dart';
 import 'support/sandbox_write_log.dart';
@@ -183,7 +185,8 @@ void main() {
     Brightness brightness = Brightness.light,
     TextScaler textScaler = TextScaler.noScaling,
     Size size = const Size(412, 915),
-    Widget home = const CalendarGuidePracticePage(),
+    GuidePracticeLesson lesson = GuidePracticeLesson.events,
+    Widget? home,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1;
@@ -202,7 +205,7 @@ void main() {
             data: MediaQuery.of(context).copyWith(textScaler: textScaler),
             child: child!,
           ),
-          home: home,
+          home: home ?? CalendarGuidePracticePage(lesson: lesson),
         ),
       ),
     );
@@ -222,33 +225,33 @@ void main() {
     en.calendarGuideDemoEventBookClub,
     en.calendarGuideDemoEventFlight,
   ];
+  final eventsTour = GuidePracticeLesson.events.steps;
 
-  testWidgets("the hub's Practice row pushes the page, and back returns", (
-    tester,
-  ) async {
-    await open(tester, home: const CalendarGuidePage());
+  for (final lesson in GuidePracticeLesson.values) {
+    testWidgets("the hub's ${lesson.name} row pushes that lesson, and back "
+        'returns', (tester) async {
+      await open(tester, home: const CalendarGuidePage());
 
-    await tester.tap(
-      find.bySemanticsIdentifier(
-        SemanticsIds.calendarGuidePage(calendarGuidePracticeSlug),
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.calendarGuidePage(lesson.slug)),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byType(CalendarGuidePracticePage), findsOneWidget);
-    // A plain push: no name and no arguments for a restore to replay.
-    final route = ModalRoute.of(
-      tester.element(find.byType(CalendarGuidePracticePage)),
-    )!;
-    expect(route.settings.name, isNull);
-    expect(route.settings.arguments, isNull);
+      final page = find.byType(CalendarGuidePracticePage);
+      expect(page, findsOneWidget);
+      expect(tester.widget<CalendarGuidePracticePage>(page).lesson, lesson);
+      // A plain push: no name and no arguments for a restore to replay.
+      final route = ModalRoute.of(tester.element(page))!;
+      expect(route.settings.name, isNull);
+      expect(route.settings.arguments, isNull);
 
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    expect(find.byType(CalendarGuidePracticePage), findsNothing);
-    expect(find.byType(CalendarGuidePage), findsOneWidget);
-    await expectNothingSaved();
-  });
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(CalendarGuidePracticePage), findsNothing);
+      expect(find.byType(CalendarGuidePage), findsOneWidget);
+      await expectNothingSaved();
+    });
+  }
 
   testWidgets('opens idle on today, with Start over disabled', (tester) async {
     final robot = await open(tester);
@@ -338,7 +341,7 @@ void main() {
     expect(robot.canReset, isFalse);
     expect(robot.canSkip, isTrue);
 
-    for (var i = 0; i < calendarGuideTourSteps.length; i++) {
+    for (var i = 0; i < eventsTour.length; i++) {
       await robot.skip();
     }
     expect(robot.caption, en.calendarGuideTourDone);
@@ -453,7 +456,7 @@ void main() {
     expect(robot.filterBadge, 1);
     expect(robot.caption, en.calendarGuideTourPick);
     expect(robot.canReset, isTrue);
-    for (var i = 0; i < calendarGuideTourSteps.length - 1; i++) {
+    for (var i = 0; i < eventsTour.length - 1; i++) {
       await robot.skip();
     }
     expect(robot.caption, en.calendarGuideTourDone, reason: 'filter is done');
@@ -596,7 +599,9 @@ void main() {
   });
 
   testWidgets('a report stands until the next action of any kind: a format, '
-      'a panel mode, filters applied with none on', (tester) async {
+      'a panel mode, filters applied with none on, the funnel closed', (
+    tester,
+  ) async {
     final robot = await open(tester);
     final alerts = en.calendarGuideWouldOpen(en.alertsTitle);
 
@@ -615,6 +620,14 @@ void main() {
     await robot.openFilters();
     await robot.tapId(SemanticsIds.filterApply);
     expect(robot.caption, en.calendarGuideTourPick);
+
+    // The funnel closed unapplied is an action too (D49).
+    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+    expect(robot.caption, alerts);
+    await robot.openFilters();
+    await robot.tapId(SemanticsIds.filterClose);
+    expect(robot.caption, en.calendarGuideTourPick);
+    expect(robot.canReset, isFalse, reason: 'the funnel is no events step');
     await expectNothingSaved();
   });
 
@@ -637,8 +650,9 @@ void main() {
   /// its height against the idle band's after each one.
   Future<void> walkEveryLine(
     PracticeCalendarRobot robot,
-    AppLocalizations l10n,
-  ) async {
+    AppLocalizations l10n, {
+    GuidePracticeLesson lesson = GuidePracticeLesson.events,
+  }) async {
     final idle = robot.bandSize;
     final seen = {robot.caption};
     for (final row in [
@@ -657,8 +671,8 @@ void main() {
       expect(robot.bandSize, idle, reason: robot.caption);
     }
     expect(seen, {
-      for (final step in calendarGuideTourSteps) step.line(l10n),
-      l10n.calendarGuideTourDone,
+      for (final step in lesson.steps) step.line(l10n),
+      lesson.closing(l10n),
       l10n.calendarGuideWouldOpen(l10n.alertsTitle),
       l10n.calendarGuideWouldShare,
       l10n.calendarGuideYouAreHere,
@@ -1165,7 +1179,7 @@ void main() {
     await expectNothingSaved();
   });
 
-  testWidgets('the route is named "Practice calendar", never by the '
+  testWidgets('the route is named "Practice calendar events", never by the '
       "calendar's title", (tester) async {
     final handle = tester.ensureSemantics();
     await open(tester);
@@ -1184,6 +1198,390 @@ void main() {
     handle.dispose();
     await expectNothingSaved();
   });
+
+  group('the filtering lesson', () {
+    const filtering = GuidePracticeLesson.filtering;
+    final openLine = en.calendarGuideTourFilterOpen;
+    final categoryLine = en.calendarGuideTourFilterCategory(
+      en.calendarCategories,
+      en.apply,
+    );
+    final traitLine = en.calendarGuideTourFilterTrait(
+      en.calendarFilterOnlyShow,
+      en.apply,
+    );
+    final resetLine = en.calendarGuideTourFilterReset(
+      en.calendarFilterReset,
+      en.apply,
+    );
+
+    Future<GuideDemoCalendar> twin() async => GuideDemoCalendar(
+      l10n: en,
+      today: now,
+      categories: (await CategoryService.getInstance()).categories,
+      lesson: filtering,
+    );
+
+    /// The first visible category: the Dentist wears it, and the funnel's
+    /// picker lists it first.
+    Future<String> firstCategory() async =>
+        (await CategoryService.getInstance()).categories
+            .firstWhere((category) => !category.isHidden)
+            .id;
+
+    testWidgets('the seed holds the six events plus one per axis, over at '
+        'least four categories', (tester) async {
+      final demo = await twin();
+      CalendarEvent byId(String slug) =>
+          demo.byId('${GuideDemoCalendar.idPrefix}$slug')!;
+
+      expect(demo.events, hasLength(12));
+      expect(
+        demo.events.map((event) => event.title).toList(),
+        containsAllInOrder(seedTitles),
+      );
+      expect(
+        {for (final event in demo.events) event.categoryId}.length,
+        greaterThanOrEqualTo(4),
+      );
+      final pilates = byId('pilates');
+      expect(pilates.title, en.calendarGuideDemoEventPilates);
+      expect(pilates.tracksPresence, isTrue);
+      expect(pilates.priority, 2);
+      expect(demo.isMissed(pilates, day(-3)), isTrue);
+      expect(demo.isMissed(pilates, day(-6)), isFalse);
+      expect(byId('piano').endDate!.isBefore(today), isTrue);
+      expect(demo.occursOn(byId('piano'), day(-12)), isFalse);
+      expect(byId('insurance').countOccurrences, isTrue);
+      final tax = byId('tax');
+      expect(tax.priority, 1);
+      expect(tax.description, en.calendarGuideDemoEventTaxNote);
+      expect(tax.allDay, isTrue);
+      expect(byId('lunch').allDay, isFalse);
+      final plants = byId('plants');
+      expect(plants.priority, 5);
+      expect(demo.occursOn(plants, today), isTrue);
+      expect(demo.occursOn(plants, day(1)), isFalse);
+      expect(demo.occursOn(plants, day(3)), isTrue);
+      expect(demo.isDirty, isFalse);
+
+      final robot = await open(tester, lesson: filtering);
+      expect(robot.caption, openLine);
+      expect(
+        robot.dayPanelTitles,
+        containsAll([
+          en.calendarGuideDemoEventYoga,
+          en.calendarGuideDemoEventPlants,
+        ]),
+      );
+      await expectNothingSaved();
+    });
+
+    testWidgets('the tour in order through the real sheet: a category, a '
+        'trait, Reset, then the closing line', (tester) async {
+      final robot = await open(tester, lesson: filtering);
+      final hidden = await firstCategory();
+      final demo = await twin();
+      final hiddenTitles = {
+        for (final event in demo.events)
+          if (event.categoryId == hidden) event.title,
+      };
+      expect(robot.caption, openLine);
+
+      await robot.openFilters();
+      await robot.toggleFilterCategory(hidden);
+      expect(robot.caption, openLine, reason: 'under the sheet');
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.caption, traitLine);
+      expect(robot.filterBadge, 1);
+      expect(robot.barLabels.where(hiddenTitles.contains), isEmpty);
+
+      await robot.openFilters();
+      await robot.toggleOnlyShow('tracked');
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.caption, resetLine);
+      expect(robot.filterBadge, 2);
+
+      await robot.openFilters();
+      await robot.tapId(SemanticsIds.filterReset);
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.caption, en.calendarGuideTourFilterDone);
+      expect(robot.filterBadge, isNull);
+      expect(robot.canSkip, isFalse);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the closing line waits for both kinds: filters taken off '
+        'before a trait was set do not end the tour', (tester) async {
+      final robot = await open(tester, lesson: filtering);
+
+      await robot.openFilters();
+      await robot.toggleFilterCategory(await firstCategory());
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.caption, traitLine);
+
+      await robot.openFilters();
+      await robot.tapId(SemanticsIds.filterReset);
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.filterBadge, isNull);
+      expect(robot.caption, traitLine);
+
+      await robot.openFilters();
+      await robot.toggleOnlyShow('tracked');
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.caption, resetLine, reason: 'not the closing line');
+
+      await robot.openFilters();
+      await robot.tapId(SemanticsIds.filterReset);
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(robot.caption, en.calendarGuideTourFilterDone);
+      await expectNothingSaved();
+    });
+
+    /// The live demo, read off the grid the page hands it to.
+    GuideDemoCalendar liveDemo(WidgetTester tester) =>
+        tester.widget<GuideCalendarGrid>(find.byType(GuideCalendarGrid)).demo;
+
+    /// Every day the demo's per-day map can hold, around today's month.
+    final window = [for (var offset = -70; offset <= 70; offset++) day(offset)];
+
+    testWidgets('through the funnel: Missed only keeps Yoga and Pilates and '
+        'nothing else; a hidden category takes exactly its own events', (
+      tester,
+    ) async {
+      final robot = await open(tester, lesson: filtering);
+      final demo = liveDemo(tester);
+      final unfiltered = {
+        for (final d in window) d: [for (final e in demo.eventsFor(d)) e.id],
+      };
+
+      await robot.openFilters();
+      await robot.toggleOnlyShow('missed');
+      await robot.tapId(SemanticsIds.filterApply);
+      expect(
+        {
+          for (final d in window)
+            for (final event in demo.eventsFor(d)) event.title,
+        },
+        {en.calendarGuideDemoEventYoga, en.calendarGuideDemoEventPilates},
+      );
+      expect(
+        demo.eventsFor(day(-3)).map((event) => event.title),
+        contains(en.calendarGuideDemoEventPilates),
+      );
+
+      await robot.openFilters();
+      await robot.tapId(SemanticsIds.filterReset);
+      await robot.tapId(SemanticsIds.filterApply);
+      final hidden = await firstCategory();
+      final hiddenIds = {
+        for (final event in demo.events)
+          if (event.categoryId == hidden) event.id,
+      };
+      expect(hiddenIds, isNotEmpty);
+      await robot.openFilters();
+      await robot.toggleFilterCategory(hidden);
+      await robot.tapId(SemanticsIds.filterApply);
+      for (final d in window) {
+        expect(
+          [for (final event in demo.eventsFor(d)) event.id],
+          [
+            for (final id in unfiltered[d]!)
+              if (!hiddenIds.contains(id)) id,
+          ],
+          reason: '$d',
+        );
+      }
+      expect(
+        unfiltered.values.expand((ids) => ids).where(hiddenIds.contains),
+        isNotEmpty,
+        reason: 'the window held some of its events',
+      );
+      await expectNothingSaved();
+    });
+
+    testWidgets('the band keeps its height over every filtering line', (
+      tester,
+    ) async {
+      final robot = await open(
+        tester,
+        lesson: filtering,
+        size: const Size(360, 780),
+      );
+      await walkEveryLine(robot, en, lesson: filtering);
+      await expectNothingSaved();
+    });
+
+    testWidgets('de 2.0 on 360: the band keeps its height over every '
+        'filtering line', (tester) async {
+      final robot = await open(
+        tester,
+        lesson: filtering,
+        locale: const Locale('de'),
+        textScaler: const TextScaler.linear(2.0),
+        size: const Size(360, 780),
+      );
+      await walkEveryLine(robot, AppLocalizationsDe(), lesson: filtering);
+      await expectNothingSaved();
+    });
+
+    // The events lesson's pin (D38 / D39) holds for this lesson's lines.
+    for (final (scale, height) in const [
+      (1.0, 72.0),
+      (1.3, 111.0),
+      (2.0, 111.0),
+    ]) {
+      testWidgets('de $scale on 360: the band is $height dp', (tester) async {
+        final robot = await open(
+          tester,
+          lesson: filtering,
+          locale: const Locale('de'),
+          textScaler: TextScaler.linear(scale),
+          size: const Size(360, 780),
+        );
+        expect(robot.bandSize.height, height);
+        await expectNothingSaved();
+      });
+    }
+
+    testWidgets('the funnel closed unapplied is the first step', (
+      tester,
+    ) async {
+      final robot = await open(tester, lesson: filtering);
+
+      await robot.openFilters();
+      await robot.tapId(SemanticsIds.filterClose);
+      expect(robot.caption, categoryLine);
+      expect(robot.filterBadge, isNull);
+      await expectNothingSaved();
+    });
+
+    testWidgets('a step done early is not asked again: one Apply that hides a '
+        'category and sets a trait marks both', (tester) async {
+      final robot = await open(tester, lesson: filtering);
+
+      await robot.openFilters();
+      await robot.toggleFilterCategory(await firstCategory());
+      await robot.toggleOnlyShow('tracked');
+      await robot.tapId(SemanticsIds.filterApply);
+
+      expect(robot.caption, resetLine);
+      expect(robot.filterBadge, 2);
+      await expectNothingSaved();
+    });
+
+    testWidgets('a layer turned off is a trait', (tester) async {
+      final robot = await open(tester, lesson: filtering);
+
+      await robot.openFilters();
+      await robot.tapId(SemanticsIds.filterHolidays);
+      await robot.tapId(SemanticsIds.filterApply);
+
+      expect(robot.filterBadge, 1);
+      // The category step is still ahead: the band asks for it first.
+      expect(robot.caption, categoryLine);
+      await robot.skip();
+      expect(robot.caption, resetLine, reason: 'the trait is done');
+      await expectNothingSaved();
+    });
+
+    testWidgets("Start over restores the lesson's twelve events and the "
+        'first line', (tester) async {
+      final robot = await open(tester, lesson: filtering);
+      final seeded = robot.barLabels;
+
+      await robot.openFilters();
+      await robot.toggleFilterCategory(await firstCategory());
+      await robot.tapId(SemanticsIds.filterApply);
+      await robot.add();
+      await robot.typeTitle('Swim');
+      await robot.saveEditor();
+      expect(robot.barLabels, isNot(seeded));
+      expect(robot.canReset, isTrue);
+
+      await robot.reset();
+      expect(robot.caption, openLine);
+      expect(robot.filterBadge, isNull);
+      expect(robot.canReset, isFalse);
+      expect(robot.barLabels, seeded);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the route is named "Practice calendar filtering" over its '
+        'own container', (tester) async {
+      final handle = tester.ensureSemantics();
+      await open(tester, lesson: filtering);
+
+      final named = [
+        for (final node
+            in find.semantics
+                .byPredicate(
+                  (node) => node.getSemanticsData().flagsCollection.namesRoute,
+                )
+                .evaluate())
+          node.getSemanticsData().label,
+      ];
+      expect(named, contains(en.calendarGuidePagePracticeFiltering));
+      expect(named, isNot(contains(en.calendarGuidePagePractice)));
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.calendarGuidePracticeFiltering),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.calendarGuidePractice),
+        findsNothing,
+      );
+      handle.dispose();
+      await expectNothingSaved();
+    });
+
+    testWidgets('de 2.0 on 360: no overflow', (tester) async {
+      final errors = await layoutErrorsDuring(() async {
+        final robot = await open(
+          tester,
+          lesson: filtering,
+          locale: const Locale('de'),
+          textScaler: const TextScaler.linear(2.0),
+          size: const Size(360, 780),
+        );
+        await robot.showPanel(CalendarPanelMode.upcoming);
+      });
+      expect([
+        for (final error in errors) error.toDiagnosticsNode().toStringDeep(),
+      ], isEmpty);
+      await expectNothingSaved();
+    });
+  });
+
+  // Android's 48 dp targets — `PanelModeBar`'s 32 dp segments, the real
+  // calendar's chrome, taken out by name — and WCAG's text contrast, on both
+  // lessons, both phones, both themes.
+  for (final lesson in GuidePracticeLesson.values) {
+    for (final size in const [Size(360, 780), Size(412, 915)]) {
+      for (final brightness in Brightness.values) {
+        testWidgets('${lesson.name} ${size.width.toInt()} ${brightness.name}: '
+            'the tap-target and text-contrast guidelines', (tester) async {
+          final handle = tester.ensureSemantics();
+          await open(
+            tester,
+            lesson: lesson,
+            brightness: brightness,
+            size: size,
+          );
+          await expectLater(
+            tester,
+            meetsGuideline(GuideTapTargetGuideline.of(tester)),
+          );
+          await expectLater(
+            tester,
+            meetsGuideline(const GuideTextContrastGuideline()),
+          );
+          handle.dispose();
+          await expectNothingSaved();
+        });
+      }
+    }
+  }
 
   for (final locale in const [Locale('de'), Locale('ro')]) {
     for (final size in const [Size(360, 780), Size(412, 915)]) {

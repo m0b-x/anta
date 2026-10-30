@@ -30,7 +30,7 @@ import 'month_dot_matrix.dart';
 class GuideFindingDemo extends GuideCardDemo {
   GuideFindingDemo({DateTime Function() now = DateTime.now})
     : _today = _todayUtc(now()),
-      super(CalendarGuideTopic.finding);
+      super(CalendarGuideTopic.finding.cards.single);
 
   static const String slug = 'finding';
 

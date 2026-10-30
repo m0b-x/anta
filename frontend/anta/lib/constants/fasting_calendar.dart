@@ -77,6 +77,55 @@ class FastingInfo {
   const FastingInfo(this.tradition, this.period, this.regime);
 }
 
+/// Where the fasting providers read a day's fasts and the look they wear.
+///
+/// [facade] is the configured [FastingCalendar], which every calendar surface
+/// reads. The calendar guide's fasting card holds its own traditions, practice
+/// and look in memory and passes a lookup over them, so the real providers
+/// draw its grid and panel without the demo ever calling
+/// [FastingCalendar.configure] — the owner's own fasting settings stay as
+/// they are.
+///
+/// The three look helpers are written here once, over [appearance]: the
+/// facade's static `styleOf` / `colorOf` / `iconFor` and the providers'
+/// reads of a demo's look are the same code.
+abstract class FastingLookup {
+  const FastingLookup();
+
+  /// The configured [FastingCalendar], read live.
+  static const FastingLookup facade = _FacadeFastingLookup();
+
+  /// Fasting entries for [day], as [FastingCalendar.on] answers them.
+  List<FastingInfo> on(DateTime day);
+
+  FastingAppearance get appearance;
+
+  FastingTraditionStyle styleOf(FastingTradition tradition) =>
+      appearance.styleFor(tradition);
+
+  /// Effective colour for [tradition] — its override, else the shared
+  /// fasting violet.
+  Color colorOf(FastingTradition tradition) =>
+      styleOf(tradition).colorOr(CalendarColors.fasting);
+
+  /// Effective icon for [tradition] — its override, else the built-in.
+  /// Mirrors `CalendarCategories.iconFor`: an unknown key falls back rather
+  /// than throwing.
+  IconData iconFor(FastingTradition tradition) =>
+      CalendarIcons.forKey(styleOf(tradition).iconKey) ??
+      FastingCalendar.defaultIconOf(tradition);
+}
+
+class _FacadeFastingLookup extends FastingLookup {
+  const _FacadeFastingLookup();
+
+  @override
+  List<FastingInfo> on(DateTime day) => FastingCalendar.on(day);
+
+  @override
+  FastingAppearance get appearance => FastingCalendar.appearance;
+}
+
 /// Synchronous facade computing fasting days for the enabled traditions.
 ///
 /// Mirrors [PublicHolidays]: configured once from settings (by the calendar
@@ -178,19 +227,17 @@ abstract final class FastingCalendar {
   static FastingSchedule get schedule => _schedule;
 
   static FastingTraditionStyle styleOf(FastingTradition tradition) =>
-      _appearance.styleFor(tradition);
+      FastingLookup.facade.styleOf(tradition);
 
-  /// Effective colour for [tradition] — its override, else the shared
-  /// fasting violet.
+  /// Effective colour for [tradition]: [FastingLookup.colorOf] over the
+  /// configured appearance.
   static Color colorOf(FastingTradition tradition) =>
-      _appearance.styleFor(tradition).colorOr(CalendarColors.fasting);
+      FastingLookup.facade.colorOf(tradition);
 
-  /// Effective icon for [tradition] — its override, else the built-in.
-  /// Mirrors `CalendarCategories.iconFor`: an unknown key falls back rather
-  /// than throwing.
+  /// Effective icon for [tradition]: [FastingLookup.iconFor] over the
+  /// configured appearance.
   static IconData iconFor(FastingTradition tradition) =>
-      CalendarIcons.forKey(_appearance.styleFor(tradition).iconKey) ??
-      defaultIconOf(tradition);
+      FastingLookup.facade.iconFor(tradition);
 
   /// Grid decoration for [day], resolved across every tradition that marks
   /// it. Memoized; safe to call once per cell per build.
@@ -225,34 +272,7 @@ abstract final class FastingCalendar {
     if (_traditions.isEmpty) return FastingCellStyle.empty;
     final cached = _cellStyles[key];
     if (cached != null) return cached;
-    final infos = on(key);
-    var resolved = FastingCellStyle.empty;
-    if (infos.isNotEmpty) {
-      Color? tint;
-      Color? numberColor;
-      var tintPriority = 1 << 30;
-      var numberPriority = 1 << 30;
-      for (final info in infos) {
-        final style = _appearance.styleFor(info.tradition);
-        final priority = style.priority;
-        switch (style.style) {
-          case FastingDisplayStyle.tint:
-            if (priority < tintPriority) {
-              tintPriority = priority;
-              tint = style.colorOr(CalendarColors.fasting);
-            }
-          case FastingDisplayStyle.strong:
-            if (priority < numberPriority) {
-              numberPriority = priority;
-              numberColor = style.colorOr(CalendarColors.fasting);
-            }
-          case FastingDisplayStyle.bar:
-          case FastingDisplayStyle.none:
-            break;
-        }
-      }
-      resolved = FastingCellStyle(tint: tint, numberColor: numberColor);
-    }
+    final resolved = resolveCellStyle(on(key), _appearance);
     // A bounded FIFO, never a wholesale clear from inside the lookup: this
     // method runs twice per cell per build (`calendar_page.dart` and
     // `CellTintResolver`), so a clear here could fire between the two calls
@@ -267,6 +287,42 @@ abstract final class FastingCalendar {
     }
     _cellStyles[key] = resolved;
     return resolved;
+  }
+
+  /// The grid decoration [infos] — one day's entries — resolve to under
+  /// [appearance]: per slot, the tradition with the strongest placement
+  /// wins. Pure, so a lookup other than the facade (the guide's fasting
+  /// card) resolves its own days the way [cellStyleForUtcDay] resolves the
+  /// configured ones, with no memo of its own.
+  static FastingCellStyle resolveCellStyle(
+    List<FastingInfo> infos,
+    FastingAppearance appearance,
+  ) {
+    if (infos.isEmpty) return FastingCellStyle.empty;
+    Color? tint;
+    Color? numberColor;
+    var tintPriority = 1 << 30;
+    var numberPriority = 1 << 30;
+    for (final info in infos) {
+      final style = appearance.styleFor(info.tradition);
+      final priority = style.priority;
+      switch (style.style) {
+        case FastingDisplayStyle.tint:
+          if (priority < tintPriority) {
+            tintPriority = priority;
+            tint = style.colorOr(CalendarColors.fasting);
+          }
+        case FastingDisplayStyle.strong:
+          if (priority < numberPriority) {
+            numberPriority = priority;
+            numberColor = style.colorOr(CalendarColors.fasting);
+          }
+        case FastingDisplayStyle.bar:
+        case FastingDisplayStyle.none:
+          break;
+      }
+    }
+    return FastingCellStyle(tint: tint, numberColor: numberColor);
   }
 
   /// Fasting entries for [day] — at most one per enabled tradition, in
@@ -425,7 +481,36 @@ abstract final class FastingCalendar {
 
   // ── Year builders ──────────────────────────────────────────────────
 
-  static Map<DateTime, List<FastingInfo>> _buildYear(int year) {
+  /// [computeYear] calls, counted inside an `assert` as
+  /// `DaySummaryResolver.debugDefaultsBuilds` is, so release builds carry
+  /// none of it: a year is a few hundred map writes, and the guide's fasting
+  /// card must build one on a change, never on a frame.
+  @visibleForTesting
+  static int debugComputeYearCalls = 0;
+
+  static Map<DateTime, List<FastingInfo>> _buildYear(int year) => computeYear(
+    year,
+    traditions: _traditions,
+    orthodoxGreatFasts: _orthodoxGreatFasts,
+    schedule: _schedule,
+  );
+
+  /// [year]'s fasting days under the given configuration, keyed by date-only
+  /// UTC day, each list in [FastingTradition] declaration order — the map the
+  /// configured [on] caches, built from arguments rather than the configured
+  /// values. Pure and uncached: the guide's fasting card builds its own years
+  /// from its own switches with it, and never touches the configuration the
+  /// calendar reads.
+  static Map<DateTime, List<FastingInfo>> computeYear(
+    int year, {
+    required Set<FastingTradition> traditions,
+    bool orthodoxGreatFasts = true,
+    FastingSchedule schedule = const FastingSchedule(),
+  }) {
+    assert(() {
+      debugComputeYearCalls++;
+      return true;
+    }());
     final out = <DateTime, List<FastingInfo>>{};
     // Every builder returns the tradition's own calendar, untouched by the
     // practice; the practice subtracts here, in one probe per produced entry,
@@ -435,26 +520,26 @@ abstract final class FastingCalendar {
     // off still filled with a great fast.
     void merge(Map<DateTime, FastingInfo> tradition) {
       tradition.forEach((day, info) {
-        if (!_schedule.keeps(day, weeklyRule: info.period.isWeeklyRule)) {
+        if (!schedule.keeps(day, weeklyRule: info.period.isWeeklyRule)) {
           return;
         }
         (out[day] ??= []).add(info);
       });
     }
 
-    if (_traditions.contains(FastingTradition.orthodox)) {
-      merge(_buildOrthodox(year));
+    if (traditions.contains(FastingTradition.orthodox)) {
+      merge(_buildOrthodox(year, greatFasts: orthodoxGreatFasts));
     }
-    if (_traditions.contains(FastingTradition.catholic)) {
+    if (traditions.contains(FastingTradition.catholic)) {
       merge(_buildCatholic(year));
     }
-    if (_traditions.contains(FastingTradition.muslim)) {
+    if (traditions.contains(FastingTradition.muslim)) {
       merge(_buildMuslim(year));
     }
-    if (_traditions.contains(FastingTradition.jewish)) {
+    if (traditions.contains(FastingTradition.jewish)) {
       merge(_buildJewish(year));
     }
-    _applyForcedDays(year, out);
+    _applyForcedDays(year, out, traditions: traditions, schedule: schedule);
     return out;
   }
 
@@ -467,17 +552,22 @@ abstract final class FastingCalendar {
   /// A forced day no tradition claimed is attributed to the first enabled
   /// tradition in declaration order — the same one whose colour and icon the
   /// grid already uses for a day only one tradition marks.
-  static void _applyForcedDays(int year, Map<DateTime, List<FastingInfo>> out) {
-    if (_schedule.forceDates.isEmpty) return;
+  static void _applyForcedDays(
+    int year,
+    Map<DateTime, List<FastingInfo>> out, {
+    required Set<FastingTradition> traditions,
+    required FastingSchedule schedule,
+  }) {
+    if (schedule.forceDates.isEmpty) return;
     FastingTradition? owner;
     for (final tradition in FastingTradition.values) {
-      if (_traditions.contains(tradition)) {
+      if (traditions.contains(tradition)) {
         owner = tradition;
         break;
       }
     }
     if (owner == null) return;
-    for (final day in _schedule.forceDates) {
+    for (final day in schedule.forceDates) {
       if (day.year != year || out.containsKey(day)) continue;
       out[day] = [
         FastingInfo(owner, FastingPeriod.personalFast, FastingRegime.oil),
@@ -494,7 +584,10 @@ abstract final class FastingCalendar {
   /// feast dispensations), the three strict single days, Cheesefare week's
   /// dairy days, and the year-round weekly fast on every unclaimed day —
   /// suppressed in the fast-free (harți) weeks that follow the great feasts.
-  static Map<DateTime, FastingInfo> _buildOrthodox(int year) {
+  static Map<DateTime, FastingInfo> _buildOrthodox(
+    int year, {
+    required bool greatFasts,
+  }) {
     final map = <DateTime, FastingInfo>{};
     final pascha = LiturgicalComputus.easterSundayOrthodox(year);
     const t = FastingTradition.orthodox;
@@ -524,7 +617,7 @@ abstract final class FastingCalendar {
     // optional (`orthodoxGreatFasts` setting): people who keep only the
     // weekly fast days skip straight to the weekday rule below, which
     // then applies year-round.
-    if (_orthodoxGreatFasts) {
+    if (greatFasts) {
       _buildOrthodoxGreatFasts(pascha, at, set);
     }
 

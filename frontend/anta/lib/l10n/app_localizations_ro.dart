@@ -6119,12 +6119,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuideViewsTitle => 'Lună, două săptămâni sau o săptămână';
 
   @override
-  String calendarGuideViewsBody(
-    String calendar,
-    String overview,
-    String month,
-  ) {
-    return 'Titlul „$calendar” este un meniu: o lună întreagă, două săptămâni, o săptămână sau „$overview”. Dacă zilele se restrâng la unul sau două rânduri, alege din nou „$month” acolo.';
+  String calendarGuideViewsBody(String month) {
+    return 'Dacă zilele se restrâng la unul sau două rânduri, s-a schimbat vederea din meniul titlului: alege din nou „$month” acolo.';
   }
 
   @override
@@ -6308,11 +6304,19 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuideHowDoI => 'Cum fac să…';
 
   @override
-  String get calendarGuidePagePractice => 'Calendar de exercițiu';
+  String get calendarGuidePagePractice => 'Calendar de exercițiu: evenimente';
 
   @override
   String get calendarGuidePagePracticeCaption =>
-      'Un calendar care nu salvează nimic. Încearcă totul aici.';
+      'Un calendar care nu salvează nimic. Adaugă, modifică și șterge în voie.';
+
+  @override
+  String get calendarGuidePagePracticeFiltering =>
+      'Calendar de exercițiu: filtre';
+
+  @override
+  String get calendarGuidePagePracticeFilteringCaption =>
+      'Același calendar, mai plin. Ascunde lucruri cu pâlnia și adu-le înapoi.';
 
   @override
   String get calendarGuidePageScreenCaption =>
@@ -6548,6 +6552,28 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get calendarGuideCardGrid => 'Grila lunii';
+
+  @override
+  String get calendarGuideCardPanel => 'Panoul de sub ea';
+
+  @override
+  String get calendarGuideCardOverview => 'Sumarul';
+
+  @override
+  String calendarGuideCoachOverviewMode(
+    String year,
+    String month,
+    String list,
+  ) {
+    return 'Atinge „$year”, „$month” sau „$list”: trei feluri de a vedea aceleași evenimente.';
+  }
+
+  @override
+  String get calendarGuideCoachOverviewPeriod =>
+      'Săgețile dau înainte și înapoi; butonul dintre ele te aduce la azi.';
+
+  @override
   String calendarGuideCoachEventsAdd(String save) {
     return 'Atinge + ca să adaugi un eveniment. Dă-i un nume, apoi atinge „$save”.';
   }
@@ -6691,4 +6717,112 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get calendarGuideDemoEventFlightNote =>
       'Poarta se deschide cu două ore înainte.';
+
+  @override
+  String get calendarGuideTourFilterOpen =>
+      'Atinge pâlnia din dreapta sus: ea ascunde ce nu-ți trebuie.';
+
+  @override
+  String calendarGuideTourFilterCategory(String categories, String apply) {
+    return 'Atinge „$categories”, debifează una, apoi „$apply”.';
+  }
+
+  @override
+  String calendarGuideTourFilterTrait(String onlyShow, String apply) {
+    return 'Deschide pâlnia din nou: încearcă „$onlyShow”, apoi „$apply”.';
+  }
+
+  @override
+  String calendarGuideTourFilterReset(String reset, String apply) {
+    return 'În pâlnie, atinge „$reset”, apoi „$apply”.';
+  }
+
+  @override
+  String get calendarGuideTourFilterDone =>
+      'Totul e la loc. Un filtru doar ascunde, nu șterge niciodată.';
+
+  @override
+  String get calendarGuideDemoEventPilates => 'Pilates';
+
+  @override
+  String get calendarGuideDemoEventPiano => 'Lecția de pian';
+
+  @override
+  String get calendarGuideDemoEventInsurance => 'Asigurarea mașinii';
+
+  @override
+  String get calendarGuideDemoEventTax => 'Declarația de venit';
+
+  @override
+  String get calendarGuideDemoEventTaxNote =>
+      'Hârtiile sunt în dosarul albastru.';
+
+  @override
+  String get calendarGuideDemoEventLunch => 'Prânz cu echipa';
+
+  @override
+  String get calendarGuideDemoEventPlants => 'Udă florile';
+
+  @override
+  String get calendarGuidePageFasting => 'Zilele de post';
+
+  @override
+  String get calendarGuidePageFastingCaption =>
+      'Posturile ortodoxe, catolice, musulmane sau evreiești în grilă și în panoul zilei';
+
+  @override
+  String get calendarGuideFastingLead =>
+      'Calendarul poate marca zilele de post ale tradiției tale, cu rânduiala fiecărei zile.';
+
+  @override
+  String get calendarGuideCoachFastingTradition =>
+      'Alege o tradiție sub grilă: zilele ei de post se colorează.';
+
+  @override
+  String calendarGuideCoachFastingStyle(String appearance) {
+    return 'Atinge „$appearance” ca să le arăți ca nuanță, bară sau număr îngroșat.';
+  }
+
+  @override
+  String calendarGuideCoachFastingPractice(String myPractice) {
+    return 'Atinge „$myPractice” ca să păstrezi doar zilele săptămânii în care postești.';
+  }
+
+  @override
+  String get calendarGuideFastingWhereTitle => 'Unde se pornește';
+
+  @override
+  String calendarGuideFastingWhereBody(
+    String calendarSettings,
+    String fastingSection,
+  ) {
+    return '„$calendarSettings” → „$fastingSection”, un comutator pentru fiecare tradiție. Mai multe pot fi pornite deodată, fiecare cu aspectul ei.';
+  }
+
+  @override
+  String get calendarGuideFastingRulesTitle => 'Ce spune rândul';
+
+  @override
+  String get calendarGuideFastingRulesBody =>
+      'Rândul numește postul și rânduiala zilei: post aspru, dezlegare la vin și ulei, la pește, la lactate, sau de la răsărit până la apus. Datele urmează calendarele tipărite obișnuite; datele musulmane pot diferi cu o zi față de observarea lunii.';
+
+  @override
+  String get calendarGuideFastingPracticeTitle => 'Rânduiala ta';
+
+  @override
+  String calendarGuideFastingPracticeBody(
+    String myPractice,
+    String applyTo,
+    String allFasts,
+  ) {
+    return '„$myPractice” păstrează doar zilele săptămânii în care postești, oprește luni întregi și sare sau adaugă zile singure. Posturile lungi marchează în continuare fiecare zi a lor, dacă „$applyTo” nu este pus pe „$allFasts”.';
+  }
+
+  @override
+  String get calendarGuideFastingHideTitle => 'Ascunderea lor pentru o vreme';
+
+  @override
+  String calendarGuideFastingHideBody(String fasting, String apply) {
+    return 'În pâlnie, oprește „$fasting” și atinge „$apply”: zilele de post dispar din grilă și din panou până le pornești din nou.';
+  }
 }

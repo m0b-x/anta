@@ -14,6 +14,7 @@ import '../models/recurrence_rule.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/recurrence_formatter.dart';
 import '../utils/calendar_week_start.dart';
+import '../utils/guide_locale_format.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'calendar_guide_try_card.dart';
 import 'event_avatar.dart';
@@ -34,7 +35,7 @@ import 'month_dot_matrix.dart';
 class GuideKindsDemo extends GuideCardDemo {
   GuideKindsDemo({DateTime Function() now = DateTime.now})
     : _today = _todayUtc(now()),
-      super(CalendarGuideTopic.kinds);
+      super(CalendarGuideTopic.kinds.cards.single);
 
   static const String slug = 'kinds';
 

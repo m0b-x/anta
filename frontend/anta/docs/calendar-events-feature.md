@@ -7467,3 +7467,63 @@ panel?"), and the pages were long paragraphs under one card. The record's
 
 The device pass stays 27 flows (`26_guide` expects the two skips and the
 Templates row). No data semantics changed; nothing a demo does writes.
+
+## Addendum (2026-10-30): the guide's second review — two practice lessons, the screen page's real views, a fasting page
+
+The owner's read of the coached guide, the next morning: the practice
+calendar is "Practice calendar events" and needs a twin for filtering;
+The calendar screen page was "near useless" and should show the real
+views; a fasting page was missing; and "if we update our widgets that we
+normally use in the app the update should be automatic" — no copies. The
+record's §7.6 (`docs/calendar-guide-page.md`, D53–D69) answers all four.
+
+- **Two lessons, one page.** `CalendarGuidePracticePage(lesson:)` over
+  `GuidePracticeLesson { events, filtering }`: the lesson picks the
+  title, the seed (six events; twelve for filtering, one per funnel axis
+  the demo can hold — the money axis reads the note ledger), the band's
+  tour and the container id; the `practice-*` control ids are shared. The
+  filtering tour marks its steps from what the sandboxed filter sheet
+  returns (`funnel`, `category`, `trait`, `reset` — the last earned only
+  after the first two), inside the band's pinned 72 / 111 / 111 dp.
+- **The screen page's three cards over one demo.** `CalendarGuideTopic.cards`
+  (`GuideCardSpec`) lets a page hold several "Try it" cards; the screen
+  page's `screen` (the calendar bar over the month grid), `panel` (the
+  mode bar over Day / Timeline / Upcoming) and `overview` (the chip row,
+  the period nav, Year / Month / List — Month on open, one month listed)
+  share a `GuideScreenWorld`, so one picked day. Nothing on them edits.
+- **The wiring shared, not copied.** `GuideCalendarGrid`, `GuideDemoPanel`
+  and `GuideCalendarBar` are lifted from the practice page and drawn by
+  the cards; `OverviewModeChips` is lifted from the overview page, which
+  draws it too; the overview card's tiles come from a real
+  `AgendaMonthStore` and the one `AgendaYearTile.ofTally`; `GuideStageSlot`
+  gives a fixed slot whose inner scrollables hand a finger's overscroll
+  to the page (without it a 480 px slot held two thirds of a 780 screen).
+  What stays two copies is `_CalendarTable`'s bloc-bound `TableCalendar`
+  wiring against `GuideCalendarGrid` — the calendar page's hot path, the
+  owner's call (record §6).
+- **The fasting page** (`CalendarGuideTopic.fasting`, "Fasting days"): the
+  month grid washed and barred by the real fasting providers, the four
+  traditions as a chip row under it, Appearance into the real
+  `FastingStyleSheet` (now `sandbox:`, reaching its icon picker and swatch
+  strip), My practice into the real `FastingScheduleSheet`, Multi-day
+  fasts, a day panel for the picked day; four read rows. The engine
+  gained pure seams the static path itself calls —
+  `FastingCalendar.computeYear` and `resolveCellStyle` — and a
+  `FastingLookup` (`lookup:` on the three fasting providers,
+  `fastingLookup:` on their `defaults` factories; the `facade` reads the
+  engine live), so the card never calls `configure` and the suites pin
+  `FastingCalendar.revision`.
+- **Read seams added:** `DayTimelineView.onEventTap` and
+  `AgendaDayListRowBuilder.onEntryTap` nullable (an inert block or row),
+  `DaySummaryPanel` without a chevron on a row with no tap,
+  `GuideCalendarGrid(tintResolver:, numberColorFor:)`, `AgendaYearGrid(controller:)`.
+  The coach line clamps its text scale at 1.3 like the band, and the
+  panel card's slot follows the same clamp.
+
+The device pass is 28 flows: `27_guide_lessons` (the filtering lesson,
+the fasting page) joins `26_guide`, which now walks the screen page's
+three cards. Gate: analyze clean, suite +11264 ~10 −1 (the Windows-only
+`host_devices_test` case), `qa pass calendar -d emulator-5556` 28 / 28,
+`qa errors` empty. No data semantics changed; nothing a demo does
+writes. The strings are `calendarGuide*` keys in the three ARBs (§8.4 of
+the record).

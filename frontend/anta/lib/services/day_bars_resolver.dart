@@ -72,15 +72,20 @@ class PublicHolidayDayBarProvider implements DayBarProvider {
 class FastingDayBarProvider implements DayBarProvider {
   final AppLocalizations l10n;
 
-  const FastingDayBarProvider(this.l10n);
+  /// Where the days and their look are read from; null reads the configured
+  /// [FastingCalendar]. The guide's fasting card passes its own.
+  final FastingLookup? lookup;
+
+  const FastingDayBarProvider(this.l10n, {this.lookup});
 
   @override
   Iterable<DayBar> barsFor(DateTime day, List<CalendarEvent> events) {
-    final infos = FastingCalendar.on(day);
+    final source = lookup ?? FastingLookup.facade;
+    final infos = source.on(day);
     if (infos.isEmpty) return const [];
     final bars = <DayBar>[];
     for (final info in infos) {
-      final style = FastingCalendar.styleOf(info.tradition);
+      final style = source.styleOf(info.tradition);
       if (style.style != FastingDisplayStyle.bar) continue;
       bars.add(
         DayBar(
@@ -244,7 +249,8 @@ class DayBarsResolver {
   /// built, so the bar it would have emitted costs nothing to leave out. They
   /// come from `CalendarGridFilters`, and the day panel's
   /// `DaySummaryResolver.defaults` takes the same three, so an annotation
-  /// hidden on the grid is hidden in the panel too.
+  /// hidden on the grid is hidden in the panel too. [fastingLookup] reaches
+  /// the fasting provider; null is the configured `FastingCalendar`.
   factory DayBarsResolver.defaults(
     AppLocalizations l10n, {
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
@@ -253,6 +259,7 @@ class DayBarsResolver {
     bool showFasting = true,
     bool showMoney = true,
     bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
+    FastingLookup? fastingLookup,
   }) {
     return DayBarsResolver(
       providers: [
@@ -262,7 +269,7 @@ class DayBarsResolver {
           isMissed: isMissed,
         ),
         if (showHolidays) PublicHolidayDayBarProvider(l10n),
-        if (showFasting) FastingDayBarProvider(l10n),
+        if (showFasting) FastingDayBarProvider(l10n, lookup: fastingLookup),
         WeekendDayBarProvider(l10n),
         if (showMoney) MoneyDayBarProvider(l10n),
       ],

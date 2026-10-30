@@ -7643,16 +7643,10 @@
   "@calendarGuideViewsTitle": {
     "description": "Calendar guide row title about the grid formats"
   },
-  "calendarGuideViewsBody": "The title “{calendar}” is a menu: a whole month, two weeks, one week, or “{overview}”. If the days shrink to one or two rows, pick “{month}” there again.",
+  "calendarGuideViewsBody": "If the days shrink to one or two rows, the title menu was switched: pick “{month}” there again.",
   "@calendarGuideViewsBody": {
-    "description": "Calendar guide paragraph about the title's view menu; the placeholders are that menu's labels",
+    "description": "Calendar guide paragraph about a grid shrunk by the title's view menu; month is that menu's Month label",
     "placeholders": {
-      "calendar": {
-        "type": "String"
-      },
-      "overview": {
-        "type": "String"
-      },
       "month": {
         "type": "String"
       }
@@ -7975,13 +7969,21 @@
   "@calendarGuideHowDoI": {
     "description": "Calendar guide hub label over the task pages"
   },
-  "calendarGuidePagePractice": "Practice calendar",
+  "calendarGuidePagePractice": "Practice calendar events",
   "@calendarGuidePagePractice": {
-    "description": "Calendar guide hub row and page title of the practice calendar"
+    "description": "Calendar guide hub row and page title of the practice calendar's events lesson"
   },
-  "calendarGuidePagePracticeCaption": "A calendar that saves nothing. Try everything here.",
+  "calendarGuidePagePracticeCaption": "A calendar that saves nothing. Add, change and delete freely.",
   "@calendarGuidePagePracticeCaption": {
-    "description": "Calendar guide hub caption of the practice calendar row"
+    "description": "Calendar guide hub caption of the practice calendar's events lesson row"
+  },
+  "calendarGuidePagePracticeFiltering": "Practice calendar filtering",
+  "@calendarGuidePagePracticeFiltering": {
+    "description": "Calendar guide hub row and page title of the practice calendar's filtering lesson"
+  },
+  "calendarGuidePagePracticeFilteringCaption": "The same calendar, fuller. Hide things with the funnel and bring them back.",
+  "@calendarGuidePagePracticeFilteringCaption": {
+    "description": "Calendar guide hub caption of the practice calendar's filtering lesson row"
   },
   "calendarGuidePageScreenCaption": "The month, the bars, the panel, the menus",
   "@calendarGuidePageScreenCaption": {
@@ -8299,6 +8301,37 @@
       }
     }
   },
+  "calendarGuideCardGrid": "The month grid",
+  "@calendarGuideCardGrid": {
+    "description": "Calendar guide: the title of the screen page's card that shows the calendar's bar over its month grid"
+  },
+  "calendarGuideCardPanel": "The panel under it",
+  "@calendarGuideCardPanel": {
+    "description": "Calendar guide: the title of the screen page's card that shows the panel under the grid"
+  },
+  "calendarGuideCardOverview": "The overview",
+  "@calendarGuideCardOverview": {
+    "description": "Calendar guide: the title of the screen page's card that shows the overview's three modes"
+  },
+  "calendarGuideCoachOverviewMode": "Tap “{year}”, “{month}” or “{list}”: three ways to see the same events.",
+  "@calendarGuideCoachOverviewMode": {
+    "description": "Calendar guide coach instruction; year, month and list are the overview's mode chips' labels",
+    "placeholders": {
+      "year": {
+        "type": "String"
+      },
+      "month": {
+        "type": "String"
+      },
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCoachOverviewPeriod": "The arrows step back and forward; the button between them returns to today.",
+  "@calendarGuideCoachOverviewPeriod": {
+    "description": "Calendar guide coach instruction about the overview's period arrows and its Today button"
+  },
   "calendarGuideCoachEventsAdd": "Tap + to add an event. Give it a name, then tap “{save}”.",
   "@calendarGuideCoachEventsAdd": {
     "description": "Calendar guide coach instruction; save is the editor's Save label",
@@ -8541,5 +8574,170 @@
   "calendarGuideDemoEventFlightNote": "Gate opens two hours before.",
   "@calendarGuideDemoEventFlightNote": {
     "description": "Description of the Flight demo event in the calendar guide"
+  },
+  "calendarGuideTourFilterOpen": "Tap the funnel at the top right: it hides things you do not need.",
+  "@calendarGuideTourFilterOpen": {
+    "description": "Practice calendar filtering tour instruction"
+  },
+  "calendarGuideTourFilterCategory": "Tap “{categories}”, untick one, then “{apply}”.",
+  "@calendarGuideTourFilterCategory": {
+    "description": "Practice calendar filtering tour instruction; categories is the filter sheet's Categories row label, apply its Apply label",
+    "placeholders": {
+      "categories": {
+        "type": "String"
+      },
+      "apply": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideTourFilterTrait": "Open the funnel again: try “{onlyShow}”, then “{apply}”.",
+  "@calendarGuideTourFilterTrait": {
+    "description": "Practice calendar filtering tour instruction; onlyShow is the filter sheet's Only show row label, apply its Apply label",
+    "placeholders": {
+      "onlyShow": {
+        "type": "String"
+      },
+      "apply": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideTourFilterReset": "In the funnel, tap “{reset}”, then “{apply}”.",
+  "@calendarGuideTourFilterReset": {
+    "description": "Practice calendar filtering tour instruction; reset is the filter sheet's Reset filters label, apply its Apply label",
+    "placeholders": {
+      "reset": {
+        "type": "String"
+      },
+      "apply": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideTourFilterDone": "Everything is back. A filter only hides, it never deletes.",
+  "@calendarGuideTourFilterDone": {
+    "description": "Practice calendar filtering tour line once every step is done"
+  },
+  "calendarGuideDemoEventPilates": "Pilates",
+  "@calendarGuideDemoEventPilates": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventPiano": "Piano lesson",
+  "@calendarGuideDemoEventPiano": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventInsurance": "Car insurance",
+  "@calendarGuideDemoEventInsurance": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventTax": "Tax return",
+  "@calendarGuideDemoEventTax": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventTaxNote": "Papers are in the blue folder.",
+  "@calendarGuideDemoEventTaxNote": {
+    "description": "Description of the Tax return demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventLunch": "Team lunch",
+  "@calendarGuideDemoEventLunch": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuideDemoEventPlants": "Water the plants",
+  "@calendarGuideDemoEventPlants": {
+    "description": "Name of a demo event in the calendar guide"
+  },
+  "calendarGuidePageFasting": "Fasting days",
+  "@calendarGuidePageFasting": {
+    "description": "Calendar guide hub row and page title: the fasting page"
+  },
+  "calendarGuidePageFastingCaption": "Orthodox, Catholic, Muslim or Jewish fasts on the grid and in the day panel",
+  "@calendarGuidePageFastingCaption": {
+    "description": "Calendar guide hub row caption under the fasting page's title"
+  },
+  "calendarGuideFastingLead": "The calendar can mark the fast days of your tradition, with each day's rule.",
+  "@calendarGuideFastingLead": {
+    "description": "Calendar guide: the line under the fasting page's heading"
+  },
+  "calendarGuideCoachFastingTradition": "Pick a tradition under the grid: its fast days get a tint.",
+  "@calendarGuideCoachFastingTradition": {
+    "description": "Calendar guide coach instruction on the fasting card: pick a tradition's chip under the grid"
+  },
+  "calendarGuideCoachFastingStyle": "Tap “{appearance}” to show them as a tint, a bar or a bold day number.",
+  "@calendarGuideCoachFastingStyle": {
+    "description": "Calendar guide coach instruction on the fasting card; appearance is the fasting appearance row's label",
+    "placeholders": {
+      "appearance": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCoachFastingPractice": "Tap “{myPractice}” to keep only the weekdays you fast on.",
+  "@calendarGuideCoachFastingPractice": {
+    "description": "Calendar guide coach instruction on the fasting card; myPractice is the fasting schedule row's label",
+    "placeholders": {
+      "myPractice": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideFastingWhereTitle": "Where it is switched on",
+  "@calendarGuideFastingWhereTitle": {
+    "description": "Calendar guide read row title on the fasting page"
+  },
+  "calendarGuideFastingWhereBody": "“{calendarSettings}” → “{fastingSection}”, one switch per tradition. Several can be on at once, each with its own look.",
+  "@calendarGuideFastingWhereBody": {
+    "description": "Calendar guide read row body; calendarSettings is the Calendar settings row's label, fastingSection the fasting section's title",
+    "placeholders": {
+      "calendarSettings": {
+        "type": "String"
+      },
+      "fastingSection": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideFastingRulesTitle": "What the row says",
+  "@calendarGuideFastingRulesTitle": {
+    "description": "Calendar guide read row title on the fasting page: the day panel's fasting row"
+  },
+  "calendarGuideFastingRulesBody": "The row names the fast and the day's rule: strict, wine and oil, fish, dairy, or dawn to sunset. The dates follow the common printed calendars; Muslim dates can differ by a day from the moon sighting.",
+  "@calendarGuideFastingRulesBody": {
+    "description": "Calendar guide read row body on the fasting page"
+  },
+  "calendarGuideFastingPracticeTitle": "Your own practice",
+  "@calendarGuideFastingPracticeTitle": {
+    "description": "Calendar guide read row title on the fasting page"
+  },
+  "calendarGuideFastingPracticeBody": "“{myPractice}” keeps only the weekdays you fast on, turns whole months off, and skips or adds single days. The long fasts still mark every one of their days unless “{applyTo}” is set to “{allFasts}”.",
+  "@calendarGuideFastingPracticeBody": {
+    "description": "Calendar guide read row body; myPractice is the fasting schedule row's label, applyTo the weekday scope's title, allFasts its All fasts choice",
+    "placeholders": {
+      "myPractice": {
+        "type": "String"
+      },
+      "applyTo": {
+        "type": "String"
+      },
+      "allFasts": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideFastingHideTitle": "Hiding them for a while",
+  "@calendarGuideFastingHideTitle": {
+    "description": "Calendar guide read row title on the fasting page"
+  },
+  "calendarGuideFastingHideBody": "In the funnel, turn off “{fasting}” and tap “{apply}”: the fast days leave the grid and the panel until you turn it on again.",
+  "@calendarGuideFastingHideBody": {
+    "description": "Calendar guide read row body; fasting is the filter sheet's fasting layer label, apply its Apply label",
+    "placeholders": {
+      "fasting": {
+        "type": "String"
+      },
+      "apply": {
+        "type": "String"
+      }
+    }
   }
 }

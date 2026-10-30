@@ -9,13 +9,14 @@ import '../utils/event_agenda.dart';
 import 'calendar_category.dart';
 import 'calendar_event.dart';
 import 'calendar_grid_filters.dart';
+import 'calendar_guide_content.dart';
 import 'calendar_panel_mode.dart';
 import 'day_bar.dart';
 import 'event_alert.dart';
 import 'recurrence_rule.dart';
 
-/// The practice calendar's whole world: six events, their marks and skips,
-/// and what the page is showing.
+/// The practice calendar's whole world: six events — twelve for the
+/// filtering lesson — their marks and skips, and what the page is showing.
 ///
 /// A plain mutable object the practice page's `State` owns, because the page
 /// must save nothing: the real calendar's presence, skip and description
@@ -27,7 +28,37 @@ class GuideDemoCalendar {
     required AppLocalizations l10n,
     required DateTime today,
     required List<CalendarCategory> categories,
+    GuidePracticeLesson lesson = GuidePracticeLesson.events,
+  }) : this._(
+         l10n: l10n,
+         today: today,
+         categories: categories,
+         lesson: lesson,
+         seeded: true,
+       );
+
+  /// A calendar with no events at all: the fasting card's grid, where the
+  /// fast days are the whole lesson and an event's bars would only crowd
+  /// them. [reset] restores the same emptiness.
+  GuideDemoCalendar.empty({
+    required AppLocalizations l10n,
+    required DateTime today,
+  }) : this._(
+         l10n: l10n,
+         today: today,
+         categories: const [],
+         lesson: GuidePracticeLesson.events,
+         seeded: false,
+       );
+
+  GuideDemoCalendar._({
+    required AppLocalizations l10n,
+    required DateTime today,
+    required List<CalendarCategory> categories,
+    required this.lesson,
+    required bool seeded,
   }) : _l10n = l10n,
+       _seeded = seeded,
        _categories = [
          for (final category in categories)
            if (!category.isHidden) category,
@@ -38,6 +69,13 @@ class GuideDemoCalendar {
   }
 
   final AppLocalizations _l10n;
+
+  /// False for [GuideDemoCalendar.empty]: no seed events and no seed marks.
+  final bool _seeded;
+
+  /// Which seed this demo holds and [reset] restores: the filtering lesson
+  /// needs an event on every axis the funnel offers (D55).
+  final GuidePracticeLesson lesson;
 
   /// The owner's visible categories as `CategoryService` loaded them — never
   /// the static `CalendarCategories` cache, which is still empty when the
@@ -51,8 +89,10 @@ class GuideDemoCalendar {
   /// in any way that matters, and every seed date is relative to it.
   final DateTime today;
 
-  /// How far the Upcoming panel looks ahead of today: enough for every demo
-  /// event to show at least once (the book club fortnightly, rent monthly).
+  /// How far the Upcoming panel looks ahead of today: enough for every
+  /// weekly, fortnightly and monthly demo event to show at least once (the
+  /// book club, rent). A yearly one shows only when its day is near, and an
+  /// ended one (the filtering lesson's piano) never does.
   static const int upcomingDays = 35;
 
   /// The prefix of every demo id: no stored event carries it, so nothing a
@@ -128,7 +168,8 @@ class GuideDemoCalendar {
   static PresenceStatus _statusOf(bool missed) =>
       missed ? PresenceStatus.missed : PresenceStatus.present;
 
-  /// Back to the six seed events, today picked, the month shown, no filter.
+  /// Back to the lesson's seed events, today picked, the month shown, no
+  /// filter.
   void reset() {
     _events = _seedEvents;
     _presence
@@ -383,6 +424,7 @@ class GuideDemoCalendar {
   /// owner's own colours; the birthday takes the Birthday built-in when it is
   /// visible.
   List<CalendarEvent> _seed() {
+    if (!_seeded) return const [];
     final visible = _categories;
     String categoryAt(int index) => visible.isEmpty
         ? CalendarCategories.fallback.id
@@ -442,17 +484,92 @@ class GuideDemoCalendar {
         startDate: _offset(9),
         description: _l10n.calendarGuideDemoEventFlightNote,
       ),
+      if (lesson == GuidePracticeLesson.filtering)
+        ..._filteringSeed(categoryAt),
+    ];
+  }
+
+  /// The six the filtering lesson adds (the record's §8.4.2), one per axis
+  /// the funnel offers that a demo can hold — the money axis reads the note
+  /// ledger and is left out — their categories continuing the cycle.
+  List<CalendarEvent> _filteringSeed(String Function(int index) categoryAt) {
+    final renewal = _offset(15);
+    return [
+      CalendarEvent(
+        id: '${idPrefix}pilates',
+        title: _l10n.calendarGuideDemoEventPilates,
+        categoryId: categoryAt(6),
+        startDate: _offset(-14),
+        // Two weekdays that are never today's, so the day she lands on
+        // gains only the plants over what the events lesson shows there.
+        rule: WeeklyRecurrence(
+          weekdays: {_offset(1).weekday, _offset(4).weekday},
+        ),
+        time: const EventTime(startMinute: 7 * 60, durationMinutes: 60),
+        tracksPresence: true,
+        priority: kMinEventPriority + 1,
+      ),
+      CalendarEvent(
+        id: '${idPrefix}piano',
+        title: _l10n.calendarGuideDemoEventPiano,
+        categoryId: categoryAt(7),
+        startDate: _offset(-68),
+        rule: WeeklyRecurrence(weekdays: {_offset(2).weekday}),
+        endDate: _offset(-14),
+        time: const EventTime(startMinute: 16 * 60, durationMinutes: 45),
+      ),
+      CalendarEvent(
+        id: '${idPrefix}insurance',
+        title: _l10n.calendarGuideDemoEventInsurance,
+        categoryId: categoryAt(8),
+        startDate: DateTime.utc(today.year - 3, renewal.month, renewal.day),
+        rule: const YearlyRecurrence(),
+        countOccurrences: true,
+        countStyle: OccurrenceCountStyle.elapsed,
+      ),
+      CalendarEvent(
+        id: '${idPrefix}tax',
+        title: _l10n.calendarGuideDemoEventTax,
+        categoryId: categoryAt(9),
+        startDate: _offset(20),
+        description: _l10n.calendarGuideDemoEventTaxNote,
+        priority: kMinEventPriority,
+      ),
+      CalendarEvent(
+        id: '${idPrefix}lunch',
+        title: _l10n.calendarGuideDemoEventLunch,
+        categoryId: categoryAt(10),
+        startDate: _offset(4),
+        time: const EventTime(startMinute: 12 * 60 + 30, durationMinutes: 60),
+      ),
+      CalendarEvent(
+        id: '${idPrefix}plants',
+        title: _l10n.calendarGuideDemoEventPlants,
+        categoryId: categoryAt(11),
+        startDate: _offset(-30),
+        rule: const DailyRecurrence(interval: 3),
+        priority: kMaxEventPriority,
+      ),
     ];
   }
 
   /// Yoga's four past weeks: the last one missed, the three before present,
-  /// so the attendance count has something to say.
+  /// so the attendance count has something to say. In the filtering lesson
+  /// Pilates' most recent day is missed too, so Missed only has two events
+  /// to keep.
   Map<String, Map<DateTime, PresenceStatus>> _seedPresence() => {
-    '${idPrefix}yoga': {
-      _offset(-7): PresenceStatus.missed,
-      _offset(-14): PresenceStatus.present,
-      _offset(-21): PresenceStatus.present,
-      _offset(-28): PresenceStatus.present,
-    },
+    if (_seeded)
+      '${idPrefix}yoga': {
+        _offset(-7): PresenceStatus.missed,
+        _offset(-14): PresenceStatus.present,
+        _offset(-21): PresenceStatus.present,
+        _offset(-28): PresenceStatus.present,
+      },
+    if (lesson == GuidePracticeLesson.filtering)
+      '${idPrefix}pilates': {
+        _offset(-3): PresenceStatus.missed,
+        _offset(-6): PresenceStatus.present,
+        _offset(-10): PresenceStatus.present,
+      },
   };
 }

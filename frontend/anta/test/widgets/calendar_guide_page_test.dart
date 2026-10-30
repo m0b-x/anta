@@ -42,7 +42,7 @@ Finder _list() => find
     .first;
 
 /// The hub's rows top to bottom: "Start here" holds the screen and Good to
-/// know, "How do I…" the seven tasks.
+/// know, "How do I…" the eight tasks.
 final List<CalendarGuideTopic> _hubOrder = [
   CalendarGuideTopic.screen,
   CalendarGuideTopic.good,
@@ -54,10 +54,14 @@ final List<CalendarGuideTopic> _hubOrder = [
 Finder _page(CalendarGuideTopic topic) =>
     find.bySemanticsIdentifier(SemanticsIds.calendarGuidePage(topic.slug));
 
-/// The Practice calendar's row, first in "Start here".
-final Finder _practice = find.bySemanticsIdentifier(
-  SemanticsIds.calendarGuidePage(calendarGuidePracticeSlug),
-);
+Finder _lesson(GuidePracticeLesson lesson) =>
+    find.bySemanticsIdentifier(SemanticsIds.calendarGuidePage(lesson.slug));
+
+/// The practice calendar's events lesson's row, first in "Start here".
+final Finder _practice = _lesson(GuidePracticeLesson.events);
+
+/// Its filtering lesson's row, second.
+final Finder _practiceFiltering = _lesson(GuidePracticeLesson.filtering);
 
 Finder _row(String slug) =>
     find.bySemanticsIdentifier(SemanticsIds.calendarGuideRow(slug));
@@ -99,9 +103,14 @@ void _expectNoClippedText(WidgetTester tester) {
 void main() {
   final en = AppLocalizationsEn();
 
-  testWidgets('the hub lists its ten rows under its two cards', (tester) async {
+  testWidgets('the hub lists its twelve rows under its two cards', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
+
+    // The two lessons and every page, Fasting days the last task (D60).
+    expect(GuidePracticeLesson.values.length + _hubOrder.length, 12);
 
     expect(find.text(en.calendarGuideIntro), findsOneWidget);
     expect(
@@ -109,21 +118,28 @@ void main() {
       findsOneWidget,
     );
     expect(find.text(en.calendarGuideStartHere), findsOneWidget);
-    expect(_practice, findsOneWidget);
-    expect(
-      find.descendant(
-        of: _practice,
-        matching: find.text(en.calendarGuidePagePractice),
+    for (final (lesson, title, caption) in [
+      (
+        GuidePracticeLesson.events,
+        en.calendarGuidePagePractice,
+        en.calendarGuidePagePracticeCaption,
       ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: _practice,
-        matching: find.text(en.calendarGuidePagePracticeCaption),
+      (
+        GuidePracticeLesson.filtering,
+        en.calendarGuidePagePracticeFiltering,
+        en.calendarGuidePagePracticeFilteringCaption,
       ),
-      findsOneWidget,
-    );
+    ]) {
+      expect(_lesson(lesson), findsOneWidget, reason: lesson.slug);
+      expect(
+        find.descendant(of: _lesson(lesson), matching: find.text(title)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: _lesson(lesson), matching: find.text(caption)),
+        findsOneWidget,
+      );
+    }
     for (final topic in _hubOrder) {
       await _scrollTo(tester, _page(topic));
       expect(_page(topic), findsOneWidget, reason: topic.slug);
@@ -148,8 +164,8 @@ void main() {
     );
   });
 
-  testWidgets('"Start here" holds the practice calendar, the screen and Good '
-      'to know, "How do I…" the seven tasks in order', (tester) async {
+  testWidgets('"Start here" holds the two practice lessons, the screen and '
+      'Good to know, "How do I…" the eight tasks in order', (tester) async {
     // Tall enough that the list builds every row at once.
     tester.view.physicalSize = const Size(412, 3000);
     tester.view.devicePixelRatio = 1;
@@ -167,6 +183,7 @@ void main() {
       CalendarGuideTopic.categories,
       CalendarGuideTopic.finding,
       CalendarGuideTopic.setup,
+      CalendarGuideTopic.fasting,
     ];
     for (final (cardTitle, topics) in [
       (en.calendarGuideStartHere, startHere),
@@ -183,15 +200,18 @@ void main() {
         );
       }
     }
-    expect(
-      find.descendant(
-        of: _cardOf(_practice),
-        matching: find.text(en.calendarGuideStartHere),
-      ),
-      findsOneWidget,
-    );
+    for (final practice in [_practice, _practiceFiltering]) {
+      expect(
+        find.descendant(
+          of: _cardOf(practice),
+          matching: find.text(en.calendarGuideStartHere),
+        ),
+        findsOneWidget,
+      );
+    }
     final order = [
       _practice,
+      _practiceFiltering,
       for (final topic in [...startHere, ...howDoI]) _page(topic),
     ];
     for (var i = 1; i < order.length; i++) {
@@ -282,13 +302,15 @@ void main() {
 
       await tester.pumpWidget(_host());
       await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: _practice,
-          matching: find.byIcon(calendarGuidePracticeIcon),
-        ),
-        findsOneWidget,
-      );
+      for (final practice in [_practice, _practiceFiltering]) {
+        expect(
+          find.descendant(
+            of: practice,
+            matching: find.byIcon(calendarGuidePracticeIcon),
+          ),
+          findsOneWidget,
+        );
+      }
       for (final topic in _hubOrder) {
         await _scrollTo(tester, _page(topic));
         expect(
@@ -313,14 +335,16 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await _scrollTo(tester, _practice);
-      expect(
-        find.descendant(
-          of: _practice,
-          matching: find.byIcon(calendarGuidePracticeIcon),
-        ),
-        findsNothing,
-      );
+      for (final practice in [_practice, _practiceFiltering]) {
+        await _scrollTo(tester, practice);
+        expect(
+          find.descendant(
+            of: practice,
+            matching: find.byIcon(calendarGuidePracticeIcon),
+          ),
+          findsNothing,
+        );
+      }
       for (final topic in _hubOrder) {
         await _scrollTo(tester, _page(topic));
         expect(
@@ -385,6 +409,38 @@ void main() {
     expect(find.text(en.noMatchesFound), findsOneWidget);
   });
 
+  testWidgets('a word only in a fasting row\'s body finds that row under its '
+      'page\'s row, and nothing else', (tester) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    // "sighting" is in the What the row says body alone (§8.4.4).
+    await tester.enterText(find.byType(TextField), 'sighting');
+    await tester.pumpAndSettle();
+    expect(_row('fasting-rules'), findsOneWidget);
+    expect(_page(CalendarGuideTopic.fasting), findsOneWidget);
+    expect(
+      tester.getTopLeft(_page(CalendarGuideTopic.fasting)).dy,
+      lessThan(tester.getTopLeft(_row('fasting-rules')).dy),
+    );
+    for (final slug in const [
+      'fasting-where',
+      'fasting-practice',
+      'fasting-hide',
+    ]) {
+      expect(_row(slug), findsNothing, reason: slug);
+    }
+    for (final topic in CalendarGuideTopic.values) {
+      if (topic == CalendarGuideTopic.fasting) continue;
+      expect(_page(topic), findsNothing, reason: topic.slug);
+      for (final row in topic.rows(en)) {
+        expect(_row(row.slug), findsNothing, reason: row.slug);
+      }
+    }
+    expect(_practice, findsNothing);
+    expect(_practiceFiltering, findsNothing);
+  });
+
   testWidgets('a query that hits a page name keeps only the matching rows '
       'of that page', (tester) async {
     await tester.pumpWidget(_host());
@@ -443,6 +499,22 @@ void main() {
     }
   });
 
+  testWidgets('every card\'s first instruction finds its page\'s row: the '
+      'screen page\'s panel and overview cards too (D58)', (tester) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    for (final card in CalendarGuideTopic.screen.cards) {
+      await tester.enterText(find.byType(TextField), card.steps.first.line(en));
+      await tester.pumpAndSettle();
+      expect(
+        _page(CalendarGuideTopic.screen),
+        findsOneWidget,
+        reason: card.slug,
+      );
+    }
+  });
+
   testWidgets("a search hit's page row opens that page", (tester) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
@@ -466,7 +538,7 @@ void main() {
     (Locale('en'), 'practice'),
     (Locale('de'), 'Übung'),
   ]) {
-    testWidgets('"$query" finds the Practice calendar row, alone in a section '
+    testWidgets('"$query" finds both practice rows, each alone in a section '
         'under its own name', (tester) async {
       await tester.pumpWidget(_host(locale: locale));
       await tester.pumpAndSettle();
@@ -474,32 +546,66 @@ void main() {
 
       await tester.enterText(find.byType(TextField), query);
       await tester.pumpAndSettle();
-      expect(_practice, findsOneWidget);
-      final card = _cardOf(_practice);
-      expect(
-        find.descendant(
-          of: card,
-          matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is HighlightedText &&
-                widget.text == l10n.calendarGuidePagePractice,
-          ),
-        ),
-        findsNWidgets(2),
-      );
-      expect(
-        find.descendant(
-          of: card,
-          matching: find.byIcon(calendarGuidePracticeIcon),
-        ),
-        findsWidgets,
-      );
-      for (final topic in CalendarGuideTopic.values) {
+      for (final lesson in GuidePracticeLesson.values) {
+        expect(_lesson(lesson), findsOneWidget, reason: lesson.slug);
+        final card = _cardOf(_lesson(lesson));
         expect(
-          find.descendant(of: card, matching: _page(topic)),
-          findsNothing,
-          reason: topic.slug,
+          find.descendant(
+            of: card,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is HighlightedText &&
+                  widget.text == lesson.title(l10n),
+            ),
+          ),
+          findsNWidgets(2),
         );
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.byIcon(calendarGuidePracticeIcon),
+          ),
+          findsWidgets,
+        );
+        for (final other in GuidePracticeLesson.values) {
+          if (other == lesson) continue;
+          expect(
+            find.descendant(of: card, matching: _lesson(other)),
+            findsNothing,
+          );
+        }
+        for (final topic in CalendarGuideTopic.values) {
+          expect(
+            find.descendant(of: card, matching: _page(topic)),
+            findsNothing,
+            reason: topic.slug,
+          );
+        }
+      }
+    });
+  }
+
+  // A word only that lesson's first tour line holds — not its title, not
+  // its caption: the row is found by what the lesson asks her to try, as a
+  // page's row is by its card's.
+  for (final (lesson, word) in const [
+    (GuidePracticeLesson.events, 'bar'),
+    (GuidePracticeLesson.filtering, 'need'),
+  ]) {
+    testWidgets('"$word", from its first tour line, finds the '
+        '${lesson.name} lesson\'s row alone', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+      expect(lesson.steps.first.line(en), contains(word));
+      expect(lesson.title(en).toLowerCase(), isNot(contains(word)));
+      expect(lesson.caption(en).toLowerCase(), isNot(contains(word)));
+
+      await tester.enterText(find.byType(TextField), word);
+      await tester.pumpAndSettle();
+      expect(_lesson(lesson), findsOneWidget);
+      for (final other in GuidePracticeLesson.values) {
+        if (other == lesson) continue;
+        expect(_lesson(other), findsNothing, reason: other.slug);
       }
     });
   }

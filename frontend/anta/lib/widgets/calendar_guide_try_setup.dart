@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_guide_content.dart';
 import '../services/app_navigator.dart';
+import '../utils/guide_locale_format.dart';
 import 'calendar_appearance_preview.dart';
 import 'calendar_guide_try_card.dart';
 import 'form_rows.dart';
@@ -21,7 +22,7 @@ import 'form_rows.dart';
 class GuideSetupDemo extends GuideCardDemo {
   GuideSetupDemo({DateTime Function() now = DateTime.now})
     : _today = _todayUtc(now()),
-      super(CalendarGuideTopic.setup);
+      super(CalendarGuideTopic.setup.cards.single);
 
   static const String slug = 'setup';
 

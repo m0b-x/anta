@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/day_summary_entry.dart';
 import 'package:anta/widgets/day_summary_panel.dart';
 
@@ -133,5 +134,52 @@ void main() {
 
     expect(stripeFinder(shortKey, Colors.blue), findsOneWidget);
     expect(stripeFinder(tallKey, Colors.red), findsOneWidget);
+  });
+
+  // D69 of the guide record: a row that opens nothing promises nothing.
+  testWidgets('an event row draws its chevron only when a tap opens it', (
+    tester,
+  ) async {
+    final event = CalendarEvent(
+      id: 'yoga',
+      title: 'Yoga',
+      categoryId: 'other',
+      startDate: DateTime.utc(2026, 8, 24),
+    );
+    Future<void> pump({ValueChanged<CalendarEvent>? onEventTap}) =>
+        tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: SizedBox(
+                width: 360,
+                child: DaySummaryPanel(
+                  day: DateTime.utc(2026, 8, 24),
+                  entries: [
+                    DaySummaryEntry(
+                      key: 'event:yoga',
+                      icon: Icons.event,
+                      color: Colors.blue,
+                      title: 'Yoga',
+                      priority: 0,
+                      event: event,
+                    ),
+                  ],
+                  onEventTap: onEventTap,
+                ),
+              ),
+            ),
+          ),
+        );
+    final chevron = find.byIcon(Icons.chevron_right_rounded);
+
+    await pump();
+    expect(chevron, findsNothing);
+    expect(tester.widget<ListTile>(find.byType(ListTile)).onTap, isNull);
+
+    await pump(onEventTap: (_) {});
+    expect(chevron, findsOneWidget);
   });
 }

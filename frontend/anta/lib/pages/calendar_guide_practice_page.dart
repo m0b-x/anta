@@ -6,46 +6,35 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../constants/app_bar_metrics.dart';
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
-import '../constants/calendar_weekend.dart';
 import '../constants/guide_metrics.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
-import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_guide_coach.dart';
 import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
-import '../models/calendar_panel_mode.dart';
-import '../models/day_summary_entry.dart';
 import '../models/recurrence_rule.dart';
 import '../services/category_service.dart';
 import '../services/day_bars_resolver.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/settings_service.dart';
-import '../utils/calendar_days_of_week.dart';
-import '../utils/calendar_week_start.dart';
+import '../utils/guide_locale_format.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/sheet_guard.dart';
-import '../widgets/agenda_day_list_rows.dart';
-import '../widgets/agenda_list_view.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/calendar_add_fab.dart';
-import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_date_picker_sheet.dart';
-import '../widgets/calendar_day_bars.dart';
-import '../widgets/calendar_day_cell.dart';
 import '../widgets/calendar_filter_sheet.dart';
-import '../widgets/calendar_guide_try_card.dart';
+import '../widgets/calendar_guide_bar.dart';
+import '../widgets/calendar_guide_demo_panel.dart';
+import '../widgets/calendar_guide_grid.dart';
 import '../widgets/calendar_header_menus.dart';
-import '../widgets/day_summary_panel.dart';
-import '../widgets/day_timeline_view.dart';
 import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
@@ -53,16 +42,22 @@ import '../widgets/event_template_picker_sheet.dart';
 import '../widgets/form_rows.dart';
 
 /// The guide's practice calendar: the real calendar's grid, panel, menus and
-/// sheets over six demo events, where a newcomer can tap, add, change and
-/// delete freely because nothing is saved.
+/// sheets over demo events, where a newcomer can tap, add, change and delete
+/// freely because nothing is saved.
 ///
 /// Every sheet it opens is the real one in its sandbox mode, and every
 /// answer lands in a [GuideDemoCalendar] this page's `State` owns — never in
 /// a bloc, a service or one of the calendar's static caches. A band under the
-/// bar says so once, and its second line walks her through a five-step tour
-/// (D42), one tap at a time.
+/// bar says so once, and its second line walks her through the [lesson]'s
+/// tour (D42, D56), one tap at a time. One page for both lessons (D54): the
+/// lesson picks the seed, the tour and the route's name, never the screen.
 class CalendarGuidePracticePage extends StatefulWidget {
-  const CalendarGuidePracticePage({super.key});
+  const CalendarGuidePracticePage({
+    super.key,
+    this.lesson = GuidePracticeLesson.events,
+  });
+
+  final GuidePracticeLesson lesson;
 
   @override
   State<CalendarGuidePracticePage> createState() =>
@@ -85,9 +80,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
 
   /// The band's tour: its line is the next tap to make, or the report of an
   /// action the page cannot show (D47).
-  final GuideCoach _coach = GuideCoach(
-    calendarGuideTourSteps,
-    closing: calendarGuideTourDone,
+  late final GuideCoach _coach = GuideCoach(
+    widget.lesson.steps,
+    closing: widget.lesson.closing,
   );
 
   /// Bumped on every change to [_coach]: the band and Start over listen to
@@ -146,6 +141,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         l10n: AppLocalizations.of(context)!,
         today: DateTime.now(),
         categories: categories,
+        lesson: widget.lesson,
       );
     });
   }
@@ -167,14 +163,6 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     super.dispose();
   }
 
-  static String _formatLabel(AppLocalizations l10n, CalendarFormat format) {
-    return switch (format) {
-      CalendarFormat.month => l10n.calendarFormatMonth,
-      CalendarFormat.twoWeeks => l10n.calendarFormatTwoWeeks,
-      CalendarFormat.week => l10n.calendarFormatWeek,
-    };
-  }
-
   /// The reports of the actions that show nothing on the page (D47): the
   /// rows that would leave for another page or share a file. Every other
   /// action's result is on the grid, the panel or the bar.
@@ -190,9 +178,23 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     l10n.calendarGuideYouAreHere,
   ];
 
-  /// [action], a tour step's, just happened: the band moves on.
-  void _did(String action) {
-    _coach.did(action);
+  /// [action] just happened: the band moves on when it is a step of this
+  /// lesson's tour.
+  void _did(String action) => _mark([action]);
+
+  /// [actions] happened together (one Apply can hide a category and set a
+  /// trait): every one that is a step of this lesson's tour is done. The
+  /// page reports its actions whatever the lesson, so one that is no step
+  /// here counts as any other action: it clears a standing report.
+  void _mark(Iterable<String> actions) {
+    final steps = actions.where(_coach.hasStep).toList();
+    if (steps.isEmpty) {
+      _clearReport();
+      return;
+    }
+    for (final step in steps) {
+      _coach.did(step);
+    }
     _coachRevision.value++;
   }
 
@@ -262,96 +264,52 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
     final demo = _demo;
     if (demo != null) _resolversFor(l10n);
     final active = demo?.filters.activeCount ?? 0;
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      appBar: AppBar(
-        titleSpacing: CalendarViewMenu.titleSpacing,
-        excludeHeaderSemantics: true,
-        title: CalendarViewMenu(
-          page: CalendarViewPage.calendar,
-          onPageSelected: (_) => _say(
-            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarOverview),
-          ),
-          format: demo?.format ?? CalendarFormat.month,
-          onFormatSelected: demo == null
-              ? null
-              : (format) => _setFormat(format),
-          // The body names the route "Practice calendar"; the title only
-          // quotes the real calendar's.
-          namesRoute: false,
-        ),
-        // The calendar page's bar, so the practice reads as the real thing.
-        backgroundColor: colorScheme.surface,
-        scrolledUnderElevation: 0,
-        toolbarHeight: AppBarMetrics.toolbarHeight,
-        iconTheme: IconThemeData(
-          size: AppBarMetrics.glyphSize,
-          color: colorScheme.onSurface,
-        ),
-        actionsIconTheme: IconThemeData(
-          size: AppBarMetrics.glyphSize,
-          color: colorScheme.onSurface,
-        ),
-        actions: [
-          // In the saved filters' slot, which the demo has no use for;
-          // disabled, never hidden, until there is something to undo — a
-          // change to the demo or a step of the tour.
-          ValueListenableBuilder<int>(
-            valueListenable: _coachRevision,
-            builder: (context, _, _) => AutomationId(
-              identifier: SemanticsIds.practiceReset,
-              child: IconButton(
-                tooltip: l10n.calendarGuideDemoReset,
-                iconSize: AppBarMetrics.glyphSize,
-                icon: const Icon(Icons.restart_alt_rounded),
-                onPressed:
-                    demo == null || !(demo.isDirty || _coach.advanced)
-                    ? null
-                    : _reset,
-              ),
-            ),
-          ),
-          AutomationId(
-            identifier: SemanticsIds.practiceFilterOpen,
+      appBar: GuideCalendarBar(
+        format: demo?.format ?? CalendarFormat.month,
+        onFormatSelected: demo == null ? null : (format) => _setFormat(format),
+        onPageSelected: (_) =>
+            _say((l10n) => l10n.calendarGuideWouldOpen(l10n.calendarOverview)),
+        // In the saved filters' slot, which the demo has no use for;
+        // disabled, never hidden, until there is something to undo — a
+        // change to the demo or a step of the tour.
+        savedFiltersSlot: ValueListenableBuilder<int>(
+          valueListenable: _coachRevision,
+          builder: (context, _, _) => AutomationId(
+            identifier: SemanticsIds.practiceReset,
             child: IconButton(
-              tooltip: l10n.filterCalendar,
-              isSelected: active > 0,
+              tooltip: l10n.calendarGuideDemoReset,
               iconSize: AppBarMetrics.glyphSize,
-              // The calendar page's badge: on the glyph, out of the
-              // button's merged node.
-              icon: ExcludeSemantics(
-                child: Badge.count(
-                  count: active,
-                  isLabelVisible: active > 0,
-                  child: Icon(
-                    active > 0
-                        ? Icons.filter_alt_rounded
-                        : Icons.filter_alt_outlined,
-                  ),
-                ),
-              ),
-              onPressed: demo == null ? null : _openFilters,
+              icon: const Icon(Icons.restart_alt_rounded),
+              onPressed: demo == null || !(demo.isDirty || _coach.advanced)
+                  ? null
+                  : _reset,
             ),
           ),
-          CalendarOverflowMenu(
-            identifier: SemanticsIds.practiceMore,
-            onAlerts: () => _say(
-              (l10n) => l10n.calendarGuideWouldOpen(l10n.alertsTitle),
-            ),
-            onExport: demo == null || demo.events.isEmpty
-                ? null
-                : () => _say((l10n) => l10n.calendarGuideWouldShare),
-            onGuide: () => _say((l10n) => l10n.calendarGuideYouAreHere),
-            onSettings: () => _say(
-              (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow),
-            ),
+        ),
+        filterSlot: GuideCalendarBar.filterButton(
+          identifier: SemanticsIds.practiceFilterOpen,
+          tooltip: l10n.filterCalendar,
+          activeCount: active,
+          onPressed: demo == null ? null : _openFilters,
+        ),
+        moreSlot: CalendarOverflowMenu(
+          identifier: SemanticsIds.practiceMore,
+          onAlerts: () =>
+              _say((l10n) => l10n.calendarGuideWouldOpen(l10n.alertsTitle)),
+          onExport: demo == null || demo.events.isEmpty
+              ? null
+              : () => _say((l10n) => l10n.calendarGuideWouldShare),
+          onGuide: () => _say((l10n) => l10n.calendarGuideYouAreHere),
+          onSettings: () => _say(
+            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow),
           ),
-        ],
+        ),
       ),
       body: Column(
         children: [
@@ -364,18 +322,56 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           Expanded(
             child: Semantics(
               container: true,
-              identifier: SemanticsIds.calendarGuidePractice,
+              identifier: switch (widget.lesson) {
+                GuidePracticeLesson.events =>
+                  SemanticsIds.calendarGuidePractice,
+                GuidePracticeLesson.filtering =>
+                  SemanticsIds.calendarGuidePracticeFiltering,
+              },
               scopesRoute: true,
               namesRoute: true,
               explicitChildNodes: true,
-              label: l10n.calendarGuidePagePractice,
+              label: widget.lesson.title(l10n),
               child: demo == null
                   ? const Center(child: CircularProgressIndicator())
                   : Column(
                       children: [
-                        RepaintBoundary(child: _grid(context, l10n)),
+                        RepaintBoundary(
+                          child: GuideCalendarGrid(
+                            demo: demo,
+                            appearance: _appearance,
+                            barsResolver: _barsResolver!,
+                            monthTitle: _monthTitle,
+                            onDaySelected: _pickDay,
+                            onPageChanged: (focused) =>
+                                setState(() => demo.focus(focused)),
+                          ),
+                        ),
                         const Divider(height: 1),
-                        Expanded(child: _panel(context, l10n)),
+                        Expanded(
+                          child: GuideDemoPanel(
+                            demo: demo,
+                            appearance: _appearance,
+                            palette: _palette,
+                            summaryResolver: _summaryResolver!,
+                            bottomClearance: AppSpacing.fabClearance,
+                            onModeChanged: (mode) {
+                              setState(() => demo.panelMode = mode);
+                              _clearReport();
+                            },
+                            onEventTap: _openEvent,
+                            onToggleMissed: (event, day, missed) {
+                              setState(
+                                () => demo.setPresence(
+                                  event.id,
+                                  day,
+                                  missed: missed,
+                                ),
+                              );
+                              _clearReport();
+                            },
+                          ),
+                        ),
                       ],
                     ),
             ),
@@ -393,322 +389,18 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     );
   }
 
-  /// The calendar page's `TableCalendar`, its arguments copied, over the
-  /// demo's per-day map.
-  Widget _grid(BuildContext context, AppLocalizations l10n) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final accent = _appearance.accentOr(colorScheme.primary);
-    final rowHeight = CalendarDayCell.rowHeightFor(
-      CalendarDayBars.stripHeight(
-        _appearance.maxDayBars,
-        _appearance.markerStyle,
-      ),
-    );
-    final cellStyle = _appearance.cellStyleFor(theme.brightness);
-    final monthly = demo.format == CalendarFormat.month;
-    final fadesOutside = monthly;
-    final barsResolver = _barsResolver!;
-    final titleStyle = theme.textTheme.titleMedium!.copyWith(
-      fontWeight: FontWeight.w600,
-    );
-
-    Widget cell(DateTime day, {required bool isOutside}) => CalendarDayCell(
-      day: day,
-      isToday: isSameDay(day, demo.today),
-      isSelected: isSameDay(day, demo.selectedDay),
-      isOutside: isOutside,
-      isWeekend: CalendarWeekend.isWeekend(day),
-      todayStyle: _appearance.todayStyle,
-      highlightWeekends: _appearance.highlightWeekends,
-      accent: accent,
-      cellStyle: cellStyle,
-    );
-
-    return TableCalendar<CalendarEvent>(
-      firstDay: CalendarBounds.earliest,
-      lastDay: CalendarBounds.latest,
-      focusedDay: demo.focusedDay,
-      selectedDayPredicate: (day) => isSameDay(demo.selectedDay, day),
-      calendarFormat: demo.format,
-      formatAnimationDuration: const Duration(milliseconds: 1),
-      pageAnimationEnabled: false,
-      availableGestures: AvailableGestures.horizontalSwipe,
-      eventLoader: demo.eventsFor,
-      startingDayOfWeek: startingDayOfWeekFor(_appearance.weekStart),
-      weekendDays: CalendarWeekend.days,
-      weekNumbersVisible: _appearance.showWeekNumbers,
-      rowHeight: rowHeight,
-      daysOfWeekHeight: CalendarDaysOfWeek.height,
-      locale: l10n.localeName,
-      availableCalendarFormats: {
-        for (final format in CalendarFormat.values)
-          format: _formatLabel(l10n, format),
-      },
-      headerStyle: HeaderStyle(
-        formatButtonVisible: false,
-        titleCentered: true,
-        titleTextStyle: titleStyle,
-        headerPadding: const EdgeInsets.symmetric(
-          horizontal: GuideMetrics.practiceHeaderInset,
-        ),
-        leftChevronMargin: EdgeInsets.zero,
-        rightChevronMargin: EdgeInsets.zero,
-        leftChevronPadding: const EdgeInsets.all(
-          GuideMetrics.practiceChevronPadding,
-        ),
-        rightChevronPadding: const EdgeInsets.all(
-          GuideMetrics.practiceChevronPadding,
-        ),
-        // The chevrons are bare ink wells: the tooltip on the glyph is
-        // what names each one.
-        leftChevronIcon: Tooltip(
-          message: monthly
-              ? l10n.dayListPreviousMonth
-              : l10n.overviewPeriodPrevious,
-          child: Icon(
-            Icons.chevron_left_rounded,
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-        rightChevronIcon: Tooltip(
-          message: monthly ? l10n.dayListNextMonth : l10n.overviewPeriodNext,
-          child: Icon(
-            Icons.chevron_right_rounded,
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-      daysOfWeekStyle: CalendarDaysOfWeek.style(
-        theme,
-        highlightWeekends: _appearance.highlightWeekends,
-      ),
-      calendarStyle: CalendarStyle(
-        outsideDaysVisible: true,
-        weekNumberTextStyle: theme.textTheme.labelSmall!.copyWith(
-          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-        ),
-        markersMaxCount: 0,
-      ),
-      calendarBuilders: CalendarBuilders<CalendarEvent>(
-        // Plain text: the stock title is a gesture detector with no
-        // callback, which still reads as a button that does nothing.
-        headerTitleBuilder: (context, day) => Text(
-          _monthTitle.of(l10n).format(day),
-          style: titleStyle,
-          textAlign: TextAlign.center,
-        ),
-        defaultBuilder: (context, day, _) => cell(day, isOutside: false),
-        todayBuilder: (context, day, _) => cell(day, isOutside: false),
-        selectedBuilder: (context, day, _) => cell(day, isOutside: false),
-        outsideBuilder: (context, day, _) => cell(day, isOutside: fadesOutside),
-        markerBuilder: (context, day, events) {
-          final bars = demo.barsFor(day, events, barsResolver);
-          if (bars.isEmpty) return const SizedBox.shrink();
-          final isOutside =
-              fadesOutside &&
-              (day.month != demo.focusedDay.month ||
-                  day.year != demo.focusedDay.year);
-          return Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.only(
-                bottom: GuideMetrics.practiceMarkerInset,
-              ),
-              child: CalendarDayBars(
-                bars: bars,
-                maxBars: _appearance.maxDayBars,
-                style: _appearance.markerStyle,
-                opacity: isOutside ? CalendarDayCell.outsideAlpha : 1.0,
-              ),
-            ),
-          );
-        },
-      ),
-      onDaySelected: (selected, focused) {
-        final day = DateTime.utc(selected.year, selected.month, selected.day);
-        setState(() {
-          demo.selectedDay = day;
-          demo.focus(focused);
-        });
-        // A day without a bar leaves nothing to open: the band keeps
-        // asking for one with.
-        if (demo.eventsFor(day).isNotEmpty) {
-          _did('picked');
-        } else {
-          _clearReport();
-        }
-      },
-      onPageChanged: (focused) => setState(() => demo.focus(focused)),
-    );
-  }
-
-  /// The panel on the page ground under the mode switch, as the calendar's
-  /// bottom panel draws it.
-  Widget _panel(BuildContext context, AppLocalizations l10n) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.pageGround,
-      child: Column(
-        children: [
-          PanelModeBar(
-            mode: demo.panelMode,
-            onChanged: (mode) {
-              setState(() => demo.panelMode = mode);
-              _clearReport();
-            },
-            onTouched: () {},
-            // The demo panel never covers the grid: the grid is what the
-            // page is for.
-            expanded: false,
-            onToggleExpanded: null,
-          ),
-          Expanded(
-            child: SafeArea(
-              top: false,
-              child: RepaintBoundary(child: _panelBody(l10n)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<CalendarEvent> _panelEvents(DateTime day) =>
-      demo.filters.panelShowsAll ? demo.allEventsFor(day) : demo.eventsFor(day);
-
-  Widget _panelBody(AppLocalizations l10n) {
-    final day = demo.selectedDay;
-    switch (demo.panelMode) {
-      case CalendarPanelMode.day:
-        return DaySummaryPanel(
-          day: day,
-          entries: _dayEntries(day),
-          onEventTap: (event) => _openEvent(event, day),
-          onToggleMissed: (event, missed) {
-            setState(() => demo.setPresence(event.id, day, missed: missed));
-            _clearReport();
-          },
-          colorPalette: _palette,
-        );
-      case CalendarPanelMode.timeline:
-        return DayTimelineView(
-          day: day,
-          events: _panelEvents(day),
-          onEventTap: (event) => _openEvent(event, day),
-          missedDisplay: _appearance.missedDisplay,
-          isMissed: demo.isMissed,
-        );
-      case CalendarPanelMode.upcoming:
-        return _upcoming(l10n);
+  void _pickDay(DateTime day, DateTime focused) {
+    setState(() {
+      demo.selectedDay = day;
+      demo.focus(focused);
+    });
+    // A day without a bar leaves nothing to open: the band keeps asking for
+    // one with.
+    if (demo.eventsFor(day).isNotEmpty) {
+      _did('picked');
+    } else {
+      _clearReport();
     }
-  }
-
-  /// The day's entries with each one's presence and description read from
-  /// the demo's own marks and rows: the shared resolver reads the real
-  /// calendar's caches, which hold nothing for a demo event.
-  List<DaySummaryEntry> _dayEntries(DateTime day) {
-    final entries = _summaryResolver!.resolve(day, _panelEvents(day));
-    return [
-      for (final entry in entries)
-        if (entry.event case final event?)
-          DaySummaryEntry(
-            key: entry.key,
-            icon: entry.icon,
-            color: entry.color,
-            stripeAccent: entry.stripeAccent,
-            title: entry.title,
-            subtitle: entry.subtitle,
-            description: _rowDescription(demo.descriptionFor(event, day)),
-            priority: entry.priority,
-            event: event,
-            presenceTracked: entry.presenceTracked,
-            missed: entry.presenceTracked && demo.isMissed(event, day),
-          )
-        else
-          entry,
-    ];
-  }
-
-  /// The resolver's rule for a row: trimmed, and a blank day shows none.
-  static String? _rowDescription(String? raw) {
-    final trimmed = raw?.trim();
-    return trimmed == null || trimmed.isEmpty ? null : trimmed;
-  }
-
-  /// What is coming over the demo's next weeks, drawn by the overview's and
-  /// the day list's row builder, with presence from the demo's marks.
-  Widget _upcoming(AppLocalizations l10n) {
-    final occurrences = demo.upcoming();
-    // Converted with nothing dropped, so the entries stay index for index
-    // with the occurrences; the missed display is applied below, from the
-    // demo's marks.
-    final converted = AgendaListView.eventDayEntries(
-      occurrences,
-      l10n,
-      false,
-      showRecurrenceLabels: _appearance.showRecurrenceLabels,
-      missedDisplay: CalendarMissedDisplay.faded,
-    );
-    final hideMissed =
-        _appearance.missedDisplay == CalendarMissedDisplay.hidden;
-    final byDay = <DateTime, List<AgendaDayListEntry>>{};
-    for (var i = 0; i < occurrences.length; i++) {
-      final occurrence = occurrences[i];
-      final entry = converted[i];
-      final missed =
-          entry.presenceTracked &&
-          demo.isMissed(occurrence.event, occurrence.day);
-      if (hideMissed && missed) continue;
-      (byDay[occurrence.day] ??= []).add(
-        AgendaDayListEntry(
-          day: entry.day,
-          icon: entry.icon,
-          color: entry.color,
-          title: entry.title,
-          subtitle: entry.subtitle,
-          missed: missed,
-          eventId: entry.eventId,
-          presenceTracked: entry.presenceTracked,
-        ),
-      );
-    }
-    final rows = buildAgendaDayListRows(
-      byDay.keys.toList(),
-      (day) => byDay[day]!,
-      groupByDay: true,
-      withMonths: true,
-      keptCountOf: (day) => byDay[day]!.where((e) => !e.missed).length,
-    );
-    final padding = EdgeInsets.fromLTRB(
-      RowMetrics.groupInset,
-      FormMetrics.bodyTop,
-      RowMetrics.groupInset,
-      AppSpacing.fabClearance,
-    );
-    if (rows.isEmpty) {
-      return ListView(
-        padding: padding,
-        children: [
-          FormCaption(
-            text: l10n.dayListEmptyRange,
-            padding: FormMetrics.groupCaptionPadding,
-          ),
-        ],
-      );
-    }
-    final builder = AgendaDayListRowBuilder(
-      rows: rows,
-      today: demo.today,
-      onEntryTap: (entry) {
-        final event = demo.byId(entry.eventId ?? '');
-        if (event != null) _openEvent(event, entry.day);
-      },
-    );
-    return ListView.builder(
-      padding: padding,
-      itemCount: rows.length,
-      itemBuilder: builder.build,
-    );
   }
 
   void _setFormat(CalendarFormat format) {
@@ -723,19 +415,43 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     _coachRevision.value++;
   }
 
+  /// The funnel: the sandboxed filter sheet, its answer the demo's filters.
+  ///
+  /// The tours' steps are read from what the sheet returns — it reports
+  /// only on Apply — and reach the band once it is closed, as the event
+  /// trip's do. A dismissal is an action too (D49): it marks only the
+  /// opening, and clears a standing report in either lesson.
   Future<void> _openFilters() => _sheets.run<void>(() async {
+    final before = demo.filters;
     final picked = await CalendarFilterSheet.show(
       context,
-      filters: demo.filters,
+      filters: before,
       sandbox: true,
     );
-    if (picked == null || !mounted) return;
-    setState(() => demo.filters = picked);
-    if (picked.activeCount > 0) {
-      _did('filtered');
-    } else {
-      _clearReport();
+    if (!mounted) return;
+    if (picked == null) {
+      _did('funnel');
+      return;
     }
+    setState(() => demo.filters = picked);
+    final hidesCategories = picked.hiddenCategoryIds.isNotEmpty;
+    // Every axis but the categories, a layer turned off included: the
+    // badge's count less the one the categories add.
+    final traits = picked.activeCount - (hidesCategories ? 1 : 0);
+    // Taking the filters off counts only once both kinds were put on: the
+    // closing line says everything is back, which must be true when read.
+    final cleared =
+        picked.activeCount == 0 &&
+        before.activeCount > 0 &&
+        _coach.hasDone('category') &&
+        _coach.hasDone('trait');
+    _mark([
+      'funnel',
+      if (picked.activeCount > 0) 'filtered',
+      if (hidesCategories) 'category',
+      if (traits > 0) 'trait',
+      if (cleared) 'reset',
+    ]);
   });
 
   /// The add button: the sandboxed editor, its event joining the demo.
@@ -785,11 +501,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     try {
       await _eventSheets(event, day, steps);
     } finally {
-      if (mounted) {
-        for (final step in steps) {
-          _did(step);
-        }
-      }
+      if (mounted) _mark(steps);
     }
   }
 

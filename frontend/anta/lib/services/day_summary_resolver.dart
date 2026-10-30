@@ -89,22 +89,27 @@ class PublicHolidaySummaryProvider implements DaySummaryProvider {
 class FastingSummaryProvider implements DaySummaryProvider {
   final AppLocalizations l10n;
 
-  const FastingSummaryProvider(this.l10n);
+  /// Where the days and their look are read from; null reads the configured
+  /// [FastingCalendar]. The guide's fasting card passes its own.
+  final FastingLookup? lookup;
+
+  const FastingSummaryProvider(this.l10n, {this.lookup});
 
   @override
   Iterable<DaySummaryEntry> summaryFor(
     DateTime day,
     List<CalendarEvent> events,
   ) {
-    final infos = FastingCalendar.on(day);
+    final source = lookup ?? FastingLookup.facade;
+    final infos = source.on(day);
     if (infos.isEmpty) return const [];
     return [
       for (final info in infos)
-        if (FastingCalendar.styleOf(info.tradition) case final style)
+        if (source.styleOf(info.tradition) case final style)
           DaySummaryEntry(
             key: 'fasting:${info.tradition.name}',
-            icon: FastingCalendar.iconFor(info.tradition),
-            color: FastingCalendar.colorOf(info.tradition),
+            icon: source.iconFor(info.tradition),
+            color: source.colorOf(info.tradition),
             // A custom title replaces the computed period name outright —
             // someone who writes "Post" wants that on every Orthodox day,
             // not the specific fast's name.
@@ -351,12 +356,15 @@ class DaySummaryResolver {
   static int debugDefaultsBuilds = 0;
 
   /// Default resolver bundling events + public holiday + weekend.
+  /// [fastingLookup] reaches the fasting provider; null is the configured
+  /// `FastingCalendar`.
   factory DaySummaryResolver.defaults(
     AppLocalizations l10n, {
     bool showRecurrence = true,
     bool showHolidays = true,
     bool showFasting = true,
     bool showMoney = true,
+    FastingLookup? fastingLookup,
   }) {
     assert(() {
       debugDefaultsBuilds++;
@@ -369,7 +377,7 @@ class DaySummaryResolver {
         // `DayBarsResolver.defaults` — the grid and this panel must hide the
         // same annotations, so they read the same three flags.
         if (showHolidays) PublicHolidaySummaryProvider(l10n),
-        if (showFasting) FastingSummaryProvider(l10n),
+        if (showFasting) FastingSummaryProvider(l10n, lookup: fastingLookup),
         WeekendSummaryProvider(l10n),
         if (showMoney) MoneyDaySummaryProvider(l10n),
       ],

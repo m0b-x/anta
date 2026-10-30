@@ -24,7 +24,7 @@ enum _RowAction { edit, delete }
 /// Create category through the real category form in its sandbox mode.
 /// Every change lands in this list; the catalogue is never touched.
 class GuideCategoriesDemo extends GuideCardDemo {
-  GuideCategoriesDemo() : super(CalendarGuideTopic.categories);
+  GuideCategoriesDemo() : super(CalendarGuideTopic.categories.cards.single);
 
   static const String slug = 'categories';
 

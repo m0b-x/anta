@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
@@ -48,6 +49,7 @@ void main() {
     WidgetTester tester,
     List<CalendarEvent> events, {
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
+    ValueChanged<CalendarEvent>? onEventTap = _ignoreTap,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -58,7 +60,7 @@ void main() {
           body: DayTimelineView(
             day: day,
             events: events,
-            onEventTap: (_) {},
+            onEventTap: onEventTap,
             missedDisplay: missedDisplay,
           ),
         ),
@@ -194,4 +196,42 @@ void main() {
     expect(after, before);
     expect(after, 2);
   });
+
+  testWidgets('without onEventTap a block and an all-day chip are inert: a '
+      'tap does nothing and neither offers one to semantics', (tester) async {
+    final handle = tester.ensureSemantics();
+    await pumpTimeline(tester, [
+      event(
+        'timed',
+        title: 'Timed',
+        time: const EventTime(startMinute: 540, durationMinutes: 60),
+      ),
+      event('all-day', title: 'All day'),
+    ], onEventTap: null);
+
+    await tester.tap(find.text('Timed'));
+    await tester.tap(find.text('All day'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+
+    final block = find
+        .ancestor(of: find.text('Timed'), matching: find.byType(InkWell))
+        .first;
+    expect(tester.widget<InkWell>(block).onTap, isNull);
+    expect(find.byType(ActionChip), findsNothing);
+    expect(find.byType(Chip), findsOneWidget);
+    for (final title in ['Timed', 'All day']) {
+      expect(
+        tester
+            .getSemantics(find.text(title))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isFalse,
+        reason: title,
+      );
+    }
+    handle.dispose();
+  });
 }
+
+void _ignoreTap(CalendarEvent _) {}

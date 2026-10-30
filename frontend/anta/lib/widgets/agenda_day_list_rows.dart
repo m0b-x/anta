@@ -330,7 +330,9 @@ class AgendaDayListRowBuilder {
   /// Date-only UTC today, for the Today/Tomorrow day headers.
   final DateTime today;
 
-  final ValueChanged<AgendaDayListEntry> onEntryTap;
+  /// An entry row's tap; null leaves those rows inert, as the guide's
+  /// stages draw them.
+  final ValueChanged<AgendaDayListEntry>? onEntryTap;
 
   /// The day panel's presence button on every row whose entry tracks
   /// presence ([AgendaDayListEntry.presenceTracked]), handed the status to
@@ -378,7 +380,7 @@ class AgendaDayListRowBuilder {
   const AgendaDayListRowBuilder({
     required this.rows,
     required this.today,
-    required this.onEntryTap,
+    this.onEntryTap,
     this.onEntryPresence,
     this.presenceIdentifier,
     this.onEntryEdit,
@@ -530,6 +532,7 @@ class AgendaDayListRowBuilder {
   Widget _entryRow(AppLocalizations l10n, AgendaDayListEntry entry) {
     final onEdit = onEntryEdit;
     final onPresence = onEntryPresence;
+    final onTap = onEntryTap;
     final FormTrailingButton? trailing;
     if (onEdit != null && entry.editable) {
       trailing = FormTrailingButton(
@@ -558,7 +561,7 @@ class AgendaDayListRowBuilder {
         captionMaxLines: captionMaxLines,
         singleLine: singleLineTitles,
         identifier: rowIdentifier?.call(entry),
-        onTap: () => onEntryTap(entry),
+        onTap: onTap == null ? null : () => onTap(entry),
         showChevron: false,
         trailingButton: trailing,
       ),

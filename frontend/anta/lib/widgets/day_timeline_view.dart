@@ -27,7 +27,9 @@ class DayTimelineView extends StatefulWidget {
   /// Events occurring on [day], already category-filtered by the bloc.
   final List<CalendarEvent> events;
 
-  final ValueChanged<CalendarEvent> onEventTap;
+  /// Null draws every block and chip inert, with no tap in semantics: the
+  /// guide's stages show the timeline without opening anything from it.
+  final ValueChanged<CalendarEvent>? onEventTap;
 
   /// Whether occurrences marked as missed are dimmed or dropped. Hidden mode
   /// filters [events] before the layout is computed, so a dropped event costs
@@ -43,7 +45,7 @@ class DayTimelineView extends StatefulWidget {
     super.key,
     required this.day,
     required this.events,
-    required this.onEventTap,
+    this.onEventTap,
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.isMissed,
   });
@@ -182,22 +184,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                         opacity: _isMissed(event)
                             ? CalendarColors.missedEventAlpha
                             : 1.0,
-                        child: ActionChip(
-                          avatar: Icon(
-                            CalendarCategories.iconFor(event),
-                            size: 18,
-                            color: EventSummaryProvider.colorFor(
-                              event,
-                              CalendarCategories.resolve(event.categoryId),
-                            ),
-                          ),
-                          label: Text(event.title),
-                          visualDensity: VisualDensity.compact,
-                          backgroundColor: _colorFor(
-                            event,
-                          ).withValues(alpha: 0.12),
-                          onPressed: () => widget.onEventTap(event),
-                        ),
+                        child: _allDayChip(event),
                       ),
                     ),
                 ],
@@ -258,7 +245,10 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                               child: _TimelineBlockCard(
                                 block: block,
                                 color: _colorFor(block.event),
-                                onTap: () => widget.onEventTap(block.event),
+                                onTap: switch (widget.onEventTap) {
+                                  final onTap? => () => onTap(block.event),
+                                  null => null,
+                                },
                               ),
                             ),
                           ),
@@ -281,6 +271,38 @@ class _DayTimelineViewState extends State<DayTimelineView> {
           ),
         ),
       ],
+    );
+  }
+
+  /// An all-day event's chip. Without [DayTimelineView.onEventTap] it is a
+  /// plain [Chip] in the same colours: a disabled `ActionChip` would grey
+  /// it out, and an inert stage is not a disabled one.
+  Widget _allDayChip(CalendarEvent event) {
+    final avatar = Icon(
+      CalendarCategories.iconFor(event),
+      size: 18,
+      color: EventSummaryProvider.colorFor(
+        event,
+        CalendarCategories.resolve(event.categoryId),
+      ),
+    );
+    final label = Text(event.title);
+    final background = _colorFor(event).withValues(alpha: 0.12);
+    final onTap = widget.onEventTap;
+    if (onTap == null) {
+      return Chip(
+        avatar: avatar,
+        label: label,
+        visualDensity: VisualDensity.compact,
+        backgroundColor: background,
+      );
+    }
+    return ActionChip(
+      avatar: avatar,
+      label: label,
+      visualDensity: VisualDensity.compact,
+      backgroundColor: background,
+      onPressed: () => onTap(event),
     );
   }
 
@@ -345,7 +367,9 @@ class _HourRow extends StatelessWidget {
 class _TimelineBlockCard extends StatelessWidget {
   final TimelineBlock block;
   final Color color;
-  final VoidCallback onTap;
+
+  /// Null leaves the block inert.
+  final VoidCallback? onTap;
 
   const _TimelineBlockCard({
     required this.block,

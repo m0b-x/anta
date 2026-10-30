@@ -115,6 +115,11 @@ class AgendaYearGrid extends StatelessWidget {
   final DateTime? highlightMonth;
   final int highlightToken;
 
+  /// The grid's own scroll position, for a host that opens it on a given row
+  /// through the controller's initial offset — the guide's overview card,
+  /// whose slot shows three rows of the four. Null scrolls as before.
+  final ScrollController? controller;
+
   const AgendaYearGrid({
     super.key,
     required this.tiles,
@@ -126,6 +131,7 @@ class AgendaYearGrid extends StatelessWidget {
     required this.tileBackground,
     this.highlightMonth,
     this.highlightToken = 0,
+    this.controller,
   });
 
   static final Map<String, DateFormat> _labelFormatCache = {};
@@ -146,6 +152,7 @@ class AgendaYearGrid extends StatelessWidget {
       background: tileBackground,
     );
     return GridView.builder(
+      controller: controller,
       padding: padding,
       gridDelegate: YearMonthTile.gridDelegate,
       itemCount: tiles.length,

@@ -54,6 +54,25 @@ void main() {
     expect(() => coach().did('menu'), throwsA(isA<AssertionError>()));
   });
 
+  test('hasStep answers for the steps alone; hasDone for the done or '
+      'skipped ones, until reset', () {
+    final c = coach();
+    expect(c.hasStep('open'), isTrue);
+    expect(c.hasStep('menu'), isFalse);
+    expect(c.hasDone('open'), isFalse);
+
+    c
+      ..did('open')
+      ..skip();
+    expect(c.hasDone('open'), isTrue);
+    expect(c.hasDone('add'), isTrue, reason: 'skipped');
+    expect(c.hasDone('delete'), isFalse);
+    expect(c.hasDone('menu'), isFalse);
+
+    c.reset();
+    expect(c.hasDone('open'), isFalse);
+  });
+
   test('skip with no report marks the current step done; at the end it is '
       'a no-op', () {
     final c = coach()..did('add');

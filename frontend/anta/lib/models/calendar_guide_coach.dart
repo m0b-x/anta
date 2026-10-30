@@ -40,10 +40,19 @@ class GuideCoach {
   final Set<String> _done = {};
   GuideLine? _report;
 
+  /// Whether [action] is one of [steps]: a page that runs more than one
+  /// tour (the practice calendar's lessons) asks before [did], which takes
+  /// steps only.
+  bool hasStep(String action) => steps.any((step) => step.action == action);
+
+  /// Whether [action]'s step is done or skipped: a step that only means
+  /// something after others (taking filters back off) asks first.
+  bool hasDone(String action) => _done.contains(action);
+
   /// [action] — one of [steps] — happened: its step is done. The stage
   /// shows what it did (D49), so the line goes back to an instruction.
   void did(String action) {
-    assert(steps.any((step) => step.action == action), action);
+    assert(hasStep(action), action);
     _done.add(action);
     _report = null;
   }
@@ -91,8 +100,7 @@ class GuideCoach {
   bool get advanced => _done.isNotEmpty;
 
   /// The current instruction, or the closing line once every step is done.
-  String next(AppLocalizations l10n) =>
-      current?.line(l10n) ?? _closing(l10n);
+  String next(AppLocalizations l10n) => current?.line(l10n) ?? _closing(l10n);
 
   String? report(AppLocalizations l10n) => _report?.call(l10n);
 

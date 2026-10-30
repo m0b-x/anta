@@ -89,11 +89,23 @@ class EventCellTintProvider implements CellTintProvider {
 class FastingCellTintProvider implements CellTintProvider {
   final int priority;
 
-  const FastingCellTintProvider({required this.priority});
+  /// Where the days and their look are read from; null reads the configured
+  /// [FastingCalendar] through its per-day memo. The guide's fasting card
+  /// passes its own, resolved through [FastingCalendar.resolveCellStyle]
+  /// without a memo — its year maps are O(1) already.
+  final FastingLookup? lookup;
+
+  const FastingCellTintProvider({required this.priority, this.lookup});
 
   @override
   CellTintLayer? tintFor(DateTime day, List<CalendarEvent> events) {
-    final tint = FastingCalendar.cellStyleFor(day).tint;
+    final source = lookup;
+    final tint = source == null
+        ? FastingCalendar.cellStyleFor(day).tint
+        : FastingCalendar.resolveCellStyle(
+            source.on(day),
+            source.appearance,
+          ).tint;
     if (tint == null) return null;
     return CellTintLayer(
       key: 'fasting',
@@ -134,19 +146,31 @@ class CellTintResolver {
   /// the fasting provider outright, which also takes the day rail's base band
   /// with it — the band *is* the runner-up wash, so there is no second place
   /// to suppress it.
+  ///
+  /// [fastingLookup] reaches the fasting provider; null is the configured
+  /// `FastingCalendar`.
   factory CellTintResolver.defaults(
     CalendarAppearance appearance, {
     bool showFasting = true,
+    FastingLookup? fastingLookup,
   }) {
     // With event tinting off the fasting wash is the only source, and the
     // conflict setting is unreachable — rendering stays exactly as it was
     // before the feature existed.
     if (!appearance.eventTint) {
-      return showFasting
+      if (!showFasting) return none;
+      return fastingLookup == null
           ? const CellTintResolver(
               providers: [FastingCellTintProvider(priority: winnerPriority)],
             )
-          : none;
+          : CellTintResolver(
+              providers: [
+                FastingCellTintProvider(
+                  priority: winnerPriority,
+                  lookup: fastingLookup,
+                ),
+              ],
+            );
     }
     final eventFirst =
         appearance.tintConflict != CalendarTintConflict.fastingWins;
@@ -159,6 +183,7 @@ class CellTintResolver {
         if (showFasting)
           FastingCellTintProvider(
             priority: eventFirst ? runnerUpPriority : winnerPriority,
+            lookup: fastingLookup,
           ),
       ],
       layerRunnerUp: appearance.tintConflict == CalendarTintConflict.both,

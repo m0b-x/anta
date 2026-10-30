@@ -133,6 +133,14 @@ abstract final class SemanticsIds {
   static const String calendarGuidePracticeBanner =
       'calendar-guide-practice-banner';
 
+  /// The practice page's body in its filtering lesson, so a flow knows which
+  /// lesson it opened. Only the body differs: the band, the bar and the add
+  /// button keep the ids below in both lessons, because the two are one
+  /// page and never on screen together, so a flow cannot land on the wrong
+  /// one.
+  static const String calendarGuidePracticeFiltering =
+      'calendar-guide-practice-filtering';
+
   /// The practice page's bar buttons and add button. Their own ids, not the
   /// real calendar's, so a flow that taps one can never land on the other.
   static const String practiceReset = 'practice-reset';

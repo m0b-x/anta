@@ -25,7 +25,7 @@ import 'settings_section_list.dart';
 /// saved — every sheet a stage opens runs in its sandbox mode and its answer
 /// lands in the demo.
 abstract class GuideCardDemo extends ChangeNotifier {
-  GuideCardDemo(CalendarGuideTopic topic) : _coach = GuideCoach(topic.steps);
+  GuideCardDemo(GuideCardSpec card) : _coach = GuideCoach(card.steps);
 
   final GuideCoach _coach;
 
@@ -47,6 +47,13 @@ abstract class GuideCardDemo extends ChangeNotifier {
 
   bool get needsAppearance => false;
 
+  /// The stage runs edge to edge inside the card at every text scale, its
+  /// hairline only above and below — for a stage of the real calendar's
+  /// own width-hungry widgets (the screen page's grid, panel and overview),
+  /// which the inset patch would narrow by another 24 dp. The other cards
+  /// go edge to edge only from [GuideMetrics.stageFullBleedTextScale] up.
+  bool get stageFullBleed => false;
+
   /// The coach line now: one clause (D49) — the next instruction, or the
   /// report of an action the stage cannot show.
   String line(AppLocalizations l10n) => _coach.line(l10n);
@@ -67,10 +74,23 @@ abstract class GuideCardDemo extends ChangeNotifier {
 
   Widget buildStage(BuildContext context);
 
+  /// Set once the page has disposed the demo. A stage marks a step after a
+  /// sheet's future completes, and the page can go in between — a pop that
+  /// takes the sheet and the page together — so every mark after that is
+  /// dropped rather than notifying a disposed notifier.
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   /// [action] — a coach step's — just happened; the stage shows what it
   /// did, so the line moves on to what is next.
   @protected
   void did(String action) {
+    if (_disposed) return;
     _coach.did(action);
     notifyListeners();
   }
@@ -79,6 +99,7 @@ abstract class GuideCardDemo extends ChangeNotifier {
   /// did, and redraws the card.
   @protected
   void say(GuideLine report) {
+    if (_disposed) return;
     _coach.say(report);
     notifyListeners();
   }
@@ -87,8 +108,18 @@ abstract class GuideCardDemo extends ChangeNotifier {
   /// report belonged to the action before this one, so it goes.
   @protected
   void changed() {
+    if (_disposed) return;
     _coach.clearReport();
     notifyListeners();
+  }
+
+  /// [changed] without the redraw, for an action whose redraw another
+  /// notifier brings — a pick on the screen page's shared demo, which every
+  /// card there listens to — so one tap costs one rebuild.
+  @protected
+  void dropReport() {
+    if (_disposed) return;
+    _coach.clearReport();
   }
 
   /// The card's coach slot, for a stage that has to bring the line into
@@ -123,44 +154,25 @@ String calendarGuideLongestDate(DateFormat dates) {
   return longest;
 }
 
-/// One [DateFormat] of a demo, made again only when the language changes:
-/// a format parses its pattern when it is made, and a stage or a caption
-/// that made one per build paid that on every keystroke and every tap.
-class GuideLocaleFormat {
-  GuideLocaleFormat(this._make);
-
-  final DateFormat Function(String localeName) _make;
-  DateFormat? _format;
-  String? _localeName;
-
-  DateFormat of(AppLocalizations l10n) {
-    final format = _format;
-    if (format != null && _localeName == l10n.localeName) return format;
-    _localeName = l10n.localeName;
-    return _format = _make(l10n.localeName);
-  }
-}
-
-/// The page's "Try it" card: its first instruction as its one entry's
-/// title — so the kit's search finds it (D48) — over the card's body, which
-/// draws the live coach line in the title's place.
+/// One "Try it" card of a page, under [card]'s title: its first instruction
+/// as its one entry's title — so the kit's search finds it (D48) — over the
+/// card's body, which draws the live coach line in the title's place.
 SettingsSectionData calendarGuideTrySection({
   required AppLocalizations l10n,
-  required CalendarGuideTopic topic,
-  required String lead,
+  required GuideCardSpec card,
   required GuideCardDemo demo,
   required List<String> candidates,
 }) {
   return SettingsSectionData(
     icon: calendarGuidePracticeIcon,
-    title: l10n.calendarGuideTryIt,
+    title: card.title(l10n),
     entries: [
       SettingsEntry(
-        title: lead,
+        title: card.steps.first.line(l10n),
         titleStyle: calendarGuideParagraphStyle,
-        identifier: SemanticsIds.calendarGuideTry(topic.slug),
+        identifier: SemanticsIds.calendarGuideTry(card.slug),
         builder: (context, _, _) => CalendarGuideTryCard(
-          slug: topic.slug,
+          slug: card.slug,
           demo: demo,
           candidates: candidates,
         ),
@@ -193,8 +205,9 @@ class CalendarGuideTryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final fullBleed =
+        demo.stageFullBleed ||
         MediaQuery.textScalerOf(context).scale(1) >=
-        GuideMetrics.stageFullBleedTextScale;
+            GuideMetrics.stageFullBleedTextScale;
     final line = BorderSide(
       color: colorScheme.outlineVariant,
       width: GuideMetrics.stageOutline,
@@ -212,49 +225,54 @@ class CalendarGuideTryCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: inset,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsetsDirectional.only(
-                          top: _lineInset(MediaQuery.textScalerOf(context)),
-                        ),
-                        child: FormCaptionSlot(
-                          key: demo.captionSlotKey,
-                          // Level with the skip; a short line leaves its
-                          // blank below, never above.
-                          alignment: AlignmentDirectional.topStart,
-                          candidates: [
-                            for (final text in candidates)
-                              Text(text, style: style),
-                          ],
-                          child: Semantics(
-                            container: true,
-                            liveRegion: true,
-                            identifier: SemanticsIds.calendarGuideTryCaption(
-                              slug,
+              // The line and its candidates are laid out under one clamp, so
+              // the slot is sized for the line as drawn.
+              MediaQuery.withClampedTextScaling(
+                maxScaleFactor: GuideMetrics.coachMaxTextScale,
+                child: Builder(
+                  builder: (context) => Padding(
+                    padding: inset,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Padding(
+                            padding: EdgeInsetsDirectional.only(
+                              top: _lineInset(MediaQuery.textScalerOf(context)),
                             ),
-                            child: Text(demo.line(l10n), style: style),
+                            child: FormCaptionSlot(
+                              key: demo.captionSlotKey,
+                              // Level with the skip; a short line leaves its
+                              // blank below, never above.
+                              alignment: AlignmentDirectional.topStart,
+                              candidates: [
+                                for (final text in candidates)
+                                  Text(text, style: style),
+                              ],
+                              child: Semantics(
+                                container: true,
+                                liveRegion: true,
+                                identifier:
+                                    SemanticsIds.calendarGuideTryCaption(slug),
+                                child: Text(demo.line(l10n), style: style),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: GuideMetrics.coachGap),
+                        FormTrailingButton(
+                          icon: Icons.skip_next_rounded,
+                          tooltip: l10n.calendarGuideSkipStep,
+                          identifier: SemanticsIds.calendarGuideTrySkip(slug),
+                          color: colorScheme.onSurfaceVariant,
+                          disabledColor: colorScheme.onSurfaceVariant
+                              .withValues(alpha: FormMetrics.disabledOpacity),
+                          // Disabled, never hidden, once every step is done.
+                          onPressed: demo.finished ? null : demo.skip,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: GuideMetrics.coachGap),
-                    FormTrailingButton(
-                      icon: Icons.skip_next_rounded,
-                      tooltip: l10n.calendarGuideSkipStep,
-                      identifier: SemanticsIds.calendarGuideTrySkip(slug),
-                      color: colorScheme.onSurfaceVariant,
-                      disabledColor: colorScheme.onSurfaceVariant.withValues(
-                        alpha: FormMetrics.disabledOpacity,
-                      ),
-                      // Disabled, never hidden, once every step is done.
-                      onPressed: demo.finished ? null : demo.skip,
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(height: GuideMetrics.coachToStage),

@@ -136,7 +136,8 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
         icon: Icons.flag_rounded,
         title: l10n.calendarGuideStartHere,
         entries: [
-          _practiceEntry(l10n),
+          for (final lesson in GuidePracticeLesson.values)
+            _practiceEntry(l10n, lesson),
           for (final topic in _startHere) _pageEntry(l10n, topic),
         ],
       ),
@@ -154,15 +155,16 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
   /// While a query is live the hub cards give way to one section per page,
   /// its own row first and then its matching read rows: a match is shown
   /// under the name of the page that holds it, one tap from the rest of that
-  /// page. The kit drops a section with nothing matching. The practice
-  /// calendar has no read rows, so its section holds its own row alone.
+  /// page. The kit drops a section with nothing matching. A practice lesson
+  /// has no read rows, so its section holds its own row alone.
   List<SettingsSectionData> _searchSections(AppLocalizations l10n) {
     return [
-      SettingsSectionData(
-        icon: calendarGuidePracticeIcon,
-        title: l10n.calendarGuidePagePractice,
-        entries: [_practiceEntry(l10n)],
-      ),
+      for (final lesson in GuidePracticeLesson.values)
+        SettingsSectionData(
+          icon: lesson.icon,
+          title: lesson.title(l10n),
+          entries: [_practiceEntry(l10n, lesson)],
+        ),
       for (final topic in CalendarGuideTopic.values)
         _searchSection(l10n, topic, _rows[topic] ?? const []),
     ];
@@ -207,10 +209,10 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
     return SettingsEntry(
       title: topic.title(l10n),
       description: topic.caption(l10n),
-      // The card's lead-in too: what the page lets her try is a reason to
+      // Every card's lead-in too: what the page lets her try is a reason to
       // open it.
       keywords: [
-        ?topic.tryLead(l10n),
+        for (final card in topic.cards) card.steps.first.line(l10n),
         for (final row in rows) ...[row.title, row.body],
       ],
       identifier: SemanticsIds.calendarGuidePage(topic.slug),
@@ -230,23 +232,29 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
     );
   }
 
-  /// The row that opens the practice calendar, first in "Start here" (D23):
+  /// The row that opens a practice lesson, first in "Start here" (D23, D54):
   /// trying the calendar is where a newcomer begins.
-  SettingsEntry _practiceEntry(AppLocalizations l10n) {
+  SettingsEntry _practiceEntry(
+    AppLocalizations l10n,
+    GuidePracticeLesson lesson,
+  ) {
     return SettingsEntry(
-      title: l10n.calendarGuidePagePractice,
-      description: l10n.calendarGuidePagePracticeCaption,
-      identifier: SemanticsIds.calendarGuidePage(calendarGuidePracticeSlug),
+      title: lesson.title(l10n),
+      description: lesson.caption(l10n),
+      // The tour's first line, as a page's row takes its card's: what the
+      // lesson asks her to try is a reason to open it.
+      keywords: [lesson.steps.first.line(l10n)],
+      identifier: SemanticsIds.calendarGuidePage(lesson.slug),
       builder: (context, title, description) => LayoutBuilder(
         builder: (context, constraints) => _HubRow(
           icon: _glyphsFit(context, l10n, constraints.maxWidth)
-              ? calendarGuidePracticeIcon
+              ? lesson.icon
               : null,
           title: title,
           description: description,
           onTap: () => AppNavigator.push<void>(
             context,
-            const CalendarGuidePracticePage(),
+            CalendarGuidePracticePage(lesson: lesson),
           ),
         ),
       ),
@@ -271,8 +279,8 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
   /// [width] wide leaves beside the glyph and the chevron. When one does not,
   /// every row drops its glyph together — a word broken mid-way reads worse
   /// than a missing icon, and rows with and without one would not line up.
-  /// The Practice calendar's title is measured too, so the row it adds
-  /// changes nothing.
+  /// The practice lessons' titles are measured too, so the rows they add
+  /// change nothing.
   bool _measureGlyphsFit(
     BuildContext context,
     AppLocalizations l10n,
@@ -296,7 +304,7 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
         column /* the glyph */ -
         column /* the chevron */;
     final titles = [
-      l10n.calendarGuidePagePractice,
+      for (final lesson in GuidePracticeLesson.values) lesson.title(l10n),
       for (final topic in CalendarGuideTopic.values) topic.title(l10n),
     ];
     final painter = TextPainter(

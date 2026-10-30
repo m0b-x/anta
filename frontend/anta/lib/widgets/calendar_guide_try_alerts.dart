@@ -31,7 +31,7 @@ class GuideAlertsDemo extends GuideCardDemo {
   GuideAlertsDemo({DateTime Function() now = DateTime.now})
     : _now = now,
       _today = _todayUtc(now()),
-      super(CalendarGuideTopic.alerts);
+      super(CalendarGuideTopic.alerts.cards.single);
 
   /// Handed on to the quick alarm sheet, so its times read the same day.
   final DateTime Function() _now;

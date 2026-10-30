@@ -1,0 +1,57 @@
+# The calendar guide's lessons (docs/calendar-guide-page.md §7.6): the hub's
+# Practice calendar filtering row pushes the practice page over its fuller
+# seed; the funnel opens the sandboxed filter sheet, a category is unticked
+# in the real picker and applied, the badge counts it, and Start over brings
+# the seed back; back to the hub, and back to the calendar. Then the hub's
+# Fasting days row: its card, the Orthodox switch turned on (the shot shows
+# the washed grid), back to the hub and to the calendar.
+# - Everything on the practice page is a demo: nothing it does reaches the
+#   seed, so the flows after it see the calendar as the seed left it. The
+#   fasting card's switches never reach the fasting settings either.
+# - The badge sits on the funnel's glyph, out of the button's merged node,
+#   so no step can read it: the shot after Apply is where it is checked.
+# - Gym is the first built-in category, so its picker row is in view
+#   without a scroll and the demo's first event wears it.
+tap id:calendar-more
+wait id:calendar-guide-open
+tap id:calendar-guide-open
+wait id:calendar-guide
+scroll-to id:calendar-guide-page-practice-filtering --in id:calendar-guide --max 40
+tap id:calendar-guide-page-practice-filtering
+wait id:calendar-guide-practice-filtering
+expect id:calendar-guide-practice-banner id:practice-filter-open id:practice-reset id:practice-skip
+shot 27_guide_lessons_filtering
+tap id:practice-filter-open
+wait id:filter-apply
+tap id:filter-categories
+wait id:category-pick-done
+tap id:category-pick-gym
+tap id:category-pick-done
+wait id:filter-apply
+tap id:filter-apply
+wait id:practice-filter-open
+shot 27_guide_lessons_filtered
+tap id:practice-reset
+wait id:practice-filter-open
+shot 27_guide_lessons_reset
+key back
+wait id:calendar-guide
+key back
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-guide-open
+tap id:calendar-guide-open
+wait id:calendar-guide
+scroll-to id:calendar-guide-page-fasting --in id:calendar-guide --max 40
+tap id:calendar-guide-page-fasting
+wait id:calendar-guide-topic-fasting
+expect id:calendar-guide-try-fasting id:try-fasting-appearance id:try-fasting-skip-step
+scroll-to id:try-fasting-tradition-orthodox --in id:calendar-guide-topic-fasting --max 10
+tap id:try-fasting-tradition-orthodox
+expect "Tap “Appearance” to show them as a tint, a bar or a bold day number."
+shot 27_guide_lessons_fasting
+key back
+wait id:calendar-guide
+key back
+wait id:calendar-add-event
+errors

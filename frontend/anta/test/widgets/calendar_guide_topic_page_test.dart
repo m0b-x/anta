@@ -47,14 +47,20 @@ Finder _list() => find
 Finder _row(String slug) =>
     find.bySemanticsIdentifier(SemanticsIds.calendarGuideRow(slug));
 
-Future<void> _scrollTo(WidgetTester tester, Finder finder) =>
-    tester.scrollUntilVisible(
-      finder,
-      300,
-      scrollable: _list(),
-      // German at text scale 2.0 on a 360-wide phone runs to many screens.
-      maxScrolls: 200,
+/// Moves the page's own list rather than dragging it: a drag in the middle
+/// of the screen page lands on a stage's slot, which scrolls on its own.
+Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
+  final position = tester.state<ScrollableState>(_list()).position;
+  // German at text scale 2.0 on a 360-wide phone runs to many screens.
+  for (var i = 0; i < 200 && finder.evaluate().isEmpty; i++) {
+    position.jumpTo(
+      (position.pixels + 300).clamp(0.0, position.maxScrollExtent),
     );
+    await tester.pump();
+  }
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+}
 
 /// Every string drawn under [row], highlighted or not.
 Iterable<String> _textsUnder(WidgetTester tester, Finder row) => tester
@@ -120,6 +126,13 @@ const Map<CalendarGuideTopic, List<String>> _slugs = {
   CalendarGuideTopic.categories: ['category', 'cat-change', 'cat-alerts'],
   CalendarGuideTopic.finding: ['filters', 'overview'],
   CalendarGuideTopic.setup: ['settings', 'language'],
+  // D64, the second review's: where, what the row says, her practice, hiding.
+  CalendarGuideTopic.fasting: [
+    'fasting-where',
+    'fasting-rules',
+    'fasting-practice',
+    'fasting-hide',
+  ],
   CalendarGuideTopic.good: ['opening', 'back', 'notes'],
 };
 
@@ -282,6 +295,19 @@ void main() {
         expect(
           _textsUnder(tester, _row('rail')),
           contains(contains('$open${l10n.eventShowInDayRailAuto}$close')),
+        );
+      });
+
+      testWidgets('${locale.languageCode}: fasting', (tester) async {
+        await tester.pumpWidget(
+          _host(CalendarGuideTopic.fasting, locale: locale),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollTo(tester, _row('fasting-hide'));
+        expect(
+          _textsUnder(tester, _row('fasting-hide')),
+          contains(contains('$open${l10n.upcomingShowFasting}$close')),
         );
       });
     }

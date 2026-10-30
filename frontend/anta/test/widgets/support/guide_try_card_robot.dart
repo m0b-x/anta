@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/settings_section_list.dart';
 
 /// Drives one "Try it" card of a calendar guide page for its suite: the
 /// tests say what she does on the stage and read what the card says, by the
@@ -83,6 +84,68 @@ class GuideTryCardRobot {
 
   Rect get stageRect => tester.getRect(_stage);
 
+  /// Moves the page's list from its top down until the card is built, then
+  /// brings it into view — by the list's position, not a drag: a drag over
+  /// another card's stage would scroll that stage's own slot.
+  Future<void> reveal() async {
+    final list = find
+        .descendant(
+          of: find.byType(SettingsSectionList),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final position = tester.state<ScrollableState>(list).position;
+    if (card.evaluate().isEmpty) {
+      position.jumpTo(0);
+      await tester.pump();
+    }
+    for (var i = 0; i < 200 && card.evaluate().isEmpty; i++) {
+      position.jumpTo(
+        (position.pixels + 300).clamp(0.0, position.maxScrollExtent),
+      );
+      await tester.pump();
+    }
+    await tester.ensureVisible(card);
+    await tester.pumpAndSettle();
+  }
+
+  /// Scrolls the page's list only as far as [target] needs to be whole on
+  /// screen, as a finger would — never an inner scrollable, whose month
+  /// pager `ensureVisible` would page, and never to the top, where
+  /// `ensureVisible` would put a chip under the grid it washes.
+  Future<void> showOnPage(Finder target) async {
+    final list = find
+        .descendant(
+          of: find.byType(SettingsSectionList),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final position = tester.state<ScrollableState>(list).position;
+    final viewport = tester.getRect(list);
+    final rect = tester.getRect(target);
+    final delta = rect.top < viewport.top
+        ? rect.top - viewport.top
+        : rect.bottom > viewport.bottom
+        ? rect.bottom - viewport.bottom
+        : 0.0;
+    if (delta == 0) return;
+    position.jumpTo(
+      (position.pixels + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  /// Taps the stage's [name] chip where the page shows it — the fasting
+  /// card's traditions, under the grid they wash.
+  Future<void> tapChip(String name) async {
+    await showOnPage(control(name));
+    await tester.tap(control(name));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> _tap(Finder target) async {
     await tester.ensureVisible(target);
     await tester.pumpAndSettle();
@@ -110,6 +173,17 @@ class GuideTryCardRobot {
     );
     return row.onTap != null;
   }
+
+  /// The stage's [name] switch row, for its value and whether it answers.
+  FormSwitchRow switchRow(String name) => tester.widget(
+    find.ancestor(of: control(name), matching: find.byType(FormSwitchRow)),
+  );
+
+  /// The stage's [name] picker row: disabled, never removed, while it has
+  /// nothing to open.
+  FormPickerRow pickerRow(String name) => tester.widget(
+    find.ancestor(of: control(name), matching: find.byType(FormPickerRow)),
+  );
 
   /// The stage's [name] chip, for its selected and disabled states.
   FormChip chip(String name) => tester.widget<FormChip>(

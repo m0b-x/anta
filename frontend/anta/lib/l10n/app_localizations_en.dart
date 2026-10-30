@@ -6017,12 +6017,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideViewsTitle => 'Month, two weeks or one week';
 
   @override
-  String calendarGuideViewsBody(
-    String calendar,
-    String overview,
-    String month,
-  ) {
-    return 'The title “$calendar” is a menu: a whole month, two weeks, one week, or “$overview”. If the days shrink to one or two rows, pick “$month” there again.';
+  String calendarGuideViewsBody(String month) {
+    return 'If the days shrink to one or two rows, the title menu was switched: pick “$month” there again.';
   }
 
   @override
@@ -6205,11 +6201,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideHowDoI => 'How do I…';
 
   @override
-  String get calendarGuidePagePractice => 'Practice calendar';
+  String get calendarGuidePagePractice => 'Practice calendar events';
 
   @override
   String get calendarGuidePagePracticeCaption =>
-      'A calendar that saves nothing. Try everything here.';
+      'A calendar that saves nothing. Add, change and delete freely.';
+
+  @override
+  String get calendarGuidePagePracticeFiltering =>
+      'Practice calendar filtering';
+
+  @override
+  String get calendarGuidePagePracticeFilteringCaption =>
+      'The same calendar, fuller. Hide things with the funnel and bring them back.';
 
   @override
   String get calendarGuidePageScreenCaption =>
@@ -6442,6 +6446,28 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get calendarGuideCardGrid => 'The month grid';
+
+  @override
+  String get calendarGuideCardPanel => 'The panel under it';
+
+  @override
+  String get calendarGuideCardOverview => 'The overview';
+
+  @override
+  String calendarGuideCoachOverviewMode(
+    String year,
+    String month,
+    String list,
+  ) {
+    return 'Tap “$year”, “$month” or “$list”: three ways to see the same events.';
+  }
+
+  @override
+  String get calendarGuideCoachOverviewPeriod =>
+      'The arrows step back and forward; the button between them returns to today.';
+
+  @override
   String calendarGuideCoachEventsAdd(String save) {
     return 'Tap + to add an event. Give it a name, then tap “$save”.';
   }
@@ -6583,4 +6609,111 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calendarGuideDemoEventFlightNote => 'Gate opens two hours before.';
+
+  @override
+  String get calendarGuideTourFilterOpen =>
+      'Tap the funnel at the top right: it hides things you do not need.';
+
+  @override
+  String calendarGuideTourFilterCategory(String categories, String apply) {
+    return 'Tap “$categories”, untick one, then “$apply”.';
+  }
+
+  @override
+  String calendarGuideTourFilterTrait(String onlyShow, String apply) {
+    return 'Open the funnel again: try “$onlyShow”, then “$apply”.';
+  }
+
+  @override
+  String calendarGuideTourFilterReset(String reset, String apply) {
+    return 'In the funnel, tap “$reset”, then “$apply”.';
+  }
+
+  @override
+  String get calendarGuideTourFilterDone =>
+      'Everything is back. A filter only hides, it never deletes.';
+
+  @override
+  String get calendarGuideDemoEventPilates => 'Pilates';
+
+  @override
+  String get calendarGuideDemoEventPiano => 'Piano lesson';
+
+  @override
+  String get calendarGuideDemoEventInsurance => 'Car insurance';
+
+  @override
+  String get calendarGuideDemoEventTax => 'Tax return';
+
+  @override
+  String get calendarGuideDemoEventTaxNote => 'Papers are in the blue folder.';
+
+  @override
+  String get calendarGuideDemoEventLunch => 'Team lunch';
+
+  @override
+  String get calendarGuideDemoEventPlants => 'Water the plants';
+
+  @override
+  String get calendarGuidePageFasting => 'Fasting days';
+
+  @override
+  String get calendarGuidePageFastingCaption =>
+      'Orthodox, Catholic, Muslim or Jewish fasts on the grid and in the day panel';
+
+  @override
+  String get calendarGuideFastingLead =>
+      'The calendar can mark the fast days of your tradition, with each day\'s rule.';
+
+  @override
+  String get calendarGuideCoachFastingTradition =>
+      'Pick a tradition under the grid: its fast days get a tint.';
+
+  @override
+  String calendarGuideCoachFastingStyle(String appearance) {
+    return 'Tap “$appearance” to show them as a tint, a bar or a bold day number.';
+  }
+
+  @override
+  String calendarGuideCoachFastingPractice(String myPractice) {
+    return 'Tap “$myPractice” to keep only the weekdays you fast on.';
+  }
+
+  @override
+  String get calendarGuideFastingWhereTitle => 'Where it is switched on';
+
+  @override
+  String calendarGuideFastingWhereBody(
+    String calendarSettings,
+    String fastingSection,
+  ) {
+    return '“$calendarSettings” → “$fastingSection”, one switch per tradition. Several can be on at once, each with its own look.';
+  }
+
+  @override
+  String get calendarGuideFastingRulesTitle => 'What the row says';
+
+  @override
+  String get calendarGuideFastingRulesBody =>
+      'The row names the fast and the day\'s rule: strict, wine and oil, fish, dairy, or dawn to sunset. The dates follow the common printed calendars; Muslim dates can differ by a day from the moon sighting.';
+
+  @override
+  String get calendarGuideFastingPracticeTitle => 'Your own practice';
+
+  @override
+  String calendarGuideFastingPracticeBody(
+    String myPractice,
+    String applyTo,
+    String allFasts,
+  ) {
+    return '“$myPractice” keeps only the weekdays you fast on, turns whole months off, and skips or adds single days. The long fasts still mark every one of their days unless “$applyTo” is set to “$allFasts”.';
+  }
+
+  @override
+  String get calendarGuideFastingHideTitle => 'Hiding them for a while';
+
+  @override
+  String calendarGuideFastingHideBody(String fasting, String apply) {
+    return 'In the funnel, turn off “$fasting” and tap “$apply”: the fast days leave the grid and the panel until you turn it on again.';
+  }
 }

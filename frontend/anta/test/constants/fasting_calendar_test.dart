@@ -545,4 +545,238 @@ void main() {
       expect(FastingCalendar.cellStyleFor(_d(2026, 1, 14)).isEmpty, isTrue);
     });
   });
+
+  // D62: the guide's fasting card builds its own years and styles through
+  // these; they must answer exactly what the configured facade answers.
+  group('the pure seams', () {
+    tearDown(FastingCalendar.resetConfiguration);
+
+    List<(FastingTradition, FastingPeriod, FastingRegime)> entries(
+      List<FastingInfo> infos,
+    ) => [for (final info in infos) (info.tradition, info.period, info.regime)];
+
+    final practice = const FastingSchedule().copyWith(
+      weekdays: const {DateTime.wednesday},
+      months: const {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12},
+      skipDates: {_d(2027, 3, 17)},
+      forceDates: {_d(2027, 7, 6), _d(2027, 3, 18)},
+    );
+
+    for (final (name, traditions, greatFasts, schedule) in [
+      (
+        'every tradition, the multi-day fasts, the default practice',
+        FastingTradition.values.toSet(),
+        true,
+        const FastingSchedule(),
+      ),
+      (
+        'Orthodox and Catholic without the multi-day fasts, a practice of '
+            'one weekday, a month off, a skipped and two forced days',
+        const {FastingTradition.orthodox, FastingTradition.catholic},
+        false,
+        practice,
+      ),
+      (
+        'Muslim and Jewish under the same practice',
+        const {FastingTradition.muslim, FastingTradition.jewish},
+        true,
+        practice,
+      ),
+    ]) {
+      test('computeYear equals the configured on() on every day: $name', () {
+        FastingCalendar.configure(
+          traditions: traditions,
+          orthodoxGreatFasts: greatFasts,
+          schedule: schedule,
+        );
+        for (final year in const [2027, 2028]) {
+          final computed = FastingCalendar.computeYear(
+            year,
+            traditions: traditions,
+            orthodoxGreatFasts: greatFasts,
+            schedule: schedule,
+          );
+          var marked = 0;
+          for (final day in _daysOf(year)) {
+            final expected = entries(FastingCalendar.on(day));
+            if (expected.isNotEmpty) marked++;
+            expect(
+              entries(computed[day] ?? const []),
+              expected,
+              reason: '$day',
+            );
+          }
+          expect(computed.length, marked, reason: '$year holds no other day');
+          expect(marked, greaterThan(0));
+        }
+      });
+    }
+
+    // What the pure build itself decides, without the facade.
+    group('computeYear under a practice', () {
+      const orthodoxOnly = {FastingTradition.orthodox};
+      // A strict Wednesday of the Orthodox Great Lent of 2027.
+      final lentWednesday = _d(2027, 3, 17);
+      final noWednesday = const FastingSchedule().copyWith(
+        weekdays: const {DateTime.friday},
+      );
+
+      test('Wednesday off under the all-fasts scope unmarks a Great Lent '
+          'Wednesday; under the weekly scope it stays marked', () {
+        final all = FastingCalendar.computeYear(
+          2027,
+          traditions: orthodoxOnly,
+          schedule: noWednesday.copyWith(
+            weekdayScope: FastingWeekdayScope.allFasts,
+          ),
+        );
+        expect(all[lentWednesday], isNull);
+
+        final weekly = FastingCalendar.computeYear(
+          2027,
+          traditions: orthodoxOnly,
+          schedule: noWednesday.copyWith(
+            weekdayScope: FastingWeekdayScope.weeklyOnly,
+          ),
+        );
+        expect(entries(weekly[lentWednesday]!), [
+          (
+            FastingTradition.orthodox,
+            FastingPeriod.greatLent,
+            FastingRegime.strict,
+          ),
+        ]);
+      });
+
+      test('a month turned off holds no weekly fast day', () {
+        final year = FastingCalendar.computeYear(
+          2027,
+          traditions: orthodoxOnly,
+          schedule: const FastingSchedule().copyWith(
+            months: {
+              for (var month = 1; month <= 12; month++)
+                if (month != DateTime.october) month,
+            },
+          ),
+        );
+        expect(
+          year.keys.where((day) => day.month == DateTime.october),
+          isEmpty,
+        );
+        // September keeps its Wednesdays.
+        expect(
+          entries(year[_d(2027, 9, 22)]!).single.$2,
+          FastingPeriod.weekdayFast,
+        );
+      });
+
+      test('a forced date outside every fast is a personal fast', () {
+        // A Monday outside the long fasts: no Orthodox mark of its own.
+        final monday = _d(2027, 10, 11);
+        expect(
+          FastingCalendar.computeYear(2027, traditions: orthodoxOnly)[monday],
+          isNull,
+        );
+        final forced = FastingCalendar.computeYear(
+          2027,
+          traditions: orthodoxOnly,
+          schedule: const FastingSchedule().copyWith(forceDates: {monday}),
+        );
+        expect(entries(forced[monday]!), [
+          (
+            FastingTradition.orthodox,
+            FastingPeriod.personalFast,
+            FastingRegime.oil,
+          ),
+        ]);
+      });
+    });
+
+    test('computeYear neither reads nor moves the configuration', () {
+      _configureOrthodox(greatFasts: true);
+      final revision = FastingCalendar.revision;
+      final configured = FastingCalendar.on(_d(2027, 3, 10));
+
+      final muslim = FastingCalendar.computeYear(
+        2027,
+        traditions: const {FastingTradition.muslim},
+      );
+
+      expect(muslim.values.expand((infos) => infos).map((i) => i.tradition), {
+        FastingTradition.muslim,
+      });
+      expect(FastingCalendar.revision, revision);
+      expect(FastingCalendar.traditions, {FastingTradition.orthodox});
+      expect(entries(FastingCalendar.on(_d(2027, 3, 10))), entries(configured));
+    });
+
+    test('resolveCellStyle equals cellStyleForUtcDay for a marked day', () {
+      const red = 0xFFE53935;
+      const blue = 0xFF1E88E5;
+      final appearance = const FastingAppearance()
+          .withStyle(
+            FastingTradition.orthodox,
+            const FastingTraditionStyle(
+              style: FastingDisplayStyle.strong,
+              colorValue: red,
+            ),
+          )
+          .withStyle(
+            FastingTradition.catholic,
+            const FastingTraditionStyle(colorValue: blue),
+          );
+      FastingCalendar.configure(
+        traditions: const {
+          FastingTradition.orthodox,
+          FastingTradition.catholic,
+        },
+        appearance: appearance,
+      );
+      // A Friday of 2027's Catholic Lent, an Orthodox weekly fast day: one
+      // entry for each tradition, each asking for its own slot.
+      final day = _d(2027, 3, 12);
+      expect(FastingCalendar.on(day), hasLength(2));
+
+      final resolved = FastingCalendar.resolveCellStyle(
+        FastingCalendar.on(day),
+        appearance,
+      );
+      final configured = FastingCalendar.cellStyleForUtcDay(day);
+      expect(resolved.tint, const Color(blue));
+      expect(resolved.numberColor, const Color(red));
+      expect(resolved.tint, configured.tint);
+      expect(resolved.numberColor, configured.numberColor);
+      expect(
+        FastingCalendar.resolveCellStyle(const [], appearance).isEmpty,
+        isTrue,
+      );
+    });
+
+    test('the facade lookup reads the configured look', () {
+      const green = 0xFF43A047;
+      final appearance = const FastingAppearance().withStyle(
+        FastingTradition.muslim,
+        const FastingTraditionStyle(colorValue: green, iconKey: 'star'),
+      );
+      FastingCalendar.configure(
+        traditions: const {FastingTradition.muslim},
+        appearance: appearance,
+      );
+      const lookup = FastingLookup.facade;
+      expect(lookup.appearance, appearance);
+      expect(lookup.colorOf(FastingTradition.muslim), const Color(green));
+      expect(
+        lookup.colorOf(FastingTradition.muslim),
+        FastingCalendar.colorOf(FastingTradition.muslim),
+      );
+      expect(
+        lookup.iconFor(FastingTradition.muslim),
+        FastingCalendar.iconFor(FastingTradition.muslim),
+      );
+      expect(
+        lookup.iconFor(FastingTradition.jewish),
+        FastingCalendar.defaultIconOf(FastingTradition.jewish),
+      );
+    });
+  });
 }

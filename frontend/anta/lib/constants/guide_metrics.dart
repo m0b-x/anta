@@ -84,6 +84,13 @@ abstract final class GuideMetrics {
   /// target already carries air round its glyph, so the gap stays small.
   static const double coachGap = 8;
 
+  /// Where a card's coach line and its skip stop growing (D66), as the
+  /// practice band's [bannerMaxTextScale] (D39): at 2.0 the German fasting
+  /// line took seven lines, a 273 dp slot, and the line and the stage it
+  /// points at never shared the screen. The stage below keeps the full
+  /// scale; it is what she reads and taps.
+  static const double coachMaxTextScale = 1.3;
+
   /// The stage: a patch of the page's ground inside the card — a step darker
   /// in dark, the same tone as the card in light, where the hairline alone
   /// draws its edge — its corners a step inside the card's, and the air its
@@ -133,4 +140,29 @@ abstract final class GuideMetrics {
   /// the appearance preview leave it, so the bars sit where the real grid
   /// draws them.
   static const double practiceMarkerInset = 4;
+
+  /// The screen page's panel card: the mode bar and the slot under it that
+  /// each of the three bodies scrolls inside — about three of the Day
+  /// panel's rows at 1.0 — so a mode switch changes what the slot holds and
+  /// never the card's height. Under half a 732 dp viewport, so the page
+  /// around it stays in reach.
+  static const double panelStageHeight = 300;
+
+  /// The panel slot grows with the text up to this scale, 390 dp, and no
+  /// further (D69): the mode bar is the real one and grows with the text,
+  /// and at 2.0 a fixed 300 left the Day body about 200 dp under it — not
+  /// one whole row. 390 still sits under half a 732 dp viewport.
+  static const double panelStageMaxTextScale = 1.3;
+
+  /// The overview card's slot under its nav, one for Year, Month and List,
+  /// each body scrolling inside it: at 1.0 about a mini month, the picked
+  /// day's rows a scroll below it, or three rows of tiles — under half a
+  /// 732 dp viewport, as the panel card's.
+  static const double overviewStageBodyHeight = 360;
+
+  /// The fasting card's day panel under its grid: the date and two rows at
+  /// 1.0 — a fast with its rule and the weekend, the most a day here says
+  /// unless several traditions are on — scrolling inside the slot past
+  /// that, so a picked day changes the rows and never the card's height.
+  static const double fastingPanelHeight = 220;
 }

@@ -6056,12 +6056,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarGuideViewsTitle => 'Monat, zwei Wochen oder eine Woche';
 
   @override
-  String calendarGuideViewsBody(
-    String calendar,
-    String overview,
-    String month,
-  ) {
-    return 'Der Titel „$calendar“ ist ein Menü: ein ganzer Monat, zwei Wochen, eine Woche oder „$overview“. Wenn die Tage auf ein oder zwei Reihen schrumpfen, wähle dort wieder „$month“.';
+  String calendarGuideViewsBody(String month) {
+    return 'Wenn die Tage auf ein oder zwei Reihen schrumpfen, wurde im Titelmenü umgeschaltet: Wähle dort wieder „$month“.';
   }
 
   @override
@@ -6248,11 +6244,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarGuideHowDoI => 'Wie mache ich …';
 
   @override
-  String get calendarGuidePagePractice => 'Übungskalender';
+  String get calendarGuidePagePractice => 'Übungskalender: Ereignisse';
 
   @override
   String get calendarGuidePagePracticeCaption =>
-      'Ein Kalender, der nichts speichert. Probier hier alles aus.';
+      'Ein Kalender, der nichts speichert. Füge hinzu, ändere und lösche nach Belieben.';
+
+  @override
+  String get calendarGuidePagePracticeFiltering => 'Übungskalender: Filter';
+
+  @override
+  String get calendarGuidePagePracticeFilteringCaption =>
+      'Derselbe Kalender, voller. Verstecke Dinge mit dem Trichter und hol sie zurück.';
 
   @override
   String get calendarGuidePageScreenCaption =>
@@ -6487,6 +6490,28 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get calendarGuideCardGrid => 'Das Monatsraster';
+
+  @override
+  String get calendarGuideCardPanel => 'Der Bereich darunter';
+
+  @override
+  String get calendarGuideCardOverview => 'Die Übersicht';
+
+  @override
+  String calendarGuideCoachOverviewMode(
+    String year,
+    String month,
+    String list,
+  ) {
+    return 'Tippe auf „$year“, „$month“ oder „$list“: drei Arten, dieselben Ereignisse zu sehen.';
+  }
+
+  @override
+  String get calendarGuideCoachOverviewPeriod =>
+      'Die Pfeile blättern vor und zurück; die Taste dazwischen führt zu heute zurück.';
+
+  @override
   String calendarGuideCoachEventsAdd(String save) {
     return 'Tippe auf +, um ein Ereignis hinzuzufügen. Gib ihm einen Namen und tippe auf „$save“.';
   }
@@ -6631,4 +6656,112 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get calendarGuideDemoEventFlightNote =>
       'Das Gate öffnet zwei Stunden vorher.';
+
+  @override
+  String get calendarGuideTourFilterOpen =>
+      'Tippe auf den Trichter oben rechts: Er versteckt, was du nicht brauchst.';
+
+  @override
+  String calendarGuideTourFilterCategory(String categories, String apply) {
+    return 'Tippe auf „$categories“, wähle eine ab, dann „$apply“.';
+  }
+
+  @override
+  String calendarGuideTourFilterTrait(String onlyShow, String apply) {
+    return 'Öffne den Trichter erneut: Probier „$onlyShow“, dann „$apply“.';
+  }
+
+  @override
+  String calendarGuideTourFilterReset(String reset, String apply) {
+    return 'Tippe im Trichter auf „$reset“, dann „$apply“.';
+  }
+
+  @override
+  String get calendarGuideTourFilterDone =>
+      'Alles ist wieder da. Ein Filter versteckt nur, er löscht nie.';
+
+  @override
+  String get calendarGuideDemoEventPilates => 'Pilates';
+
+  @override
+  String get calendarGuideDemoEventPiano => 'Klavierstunde';
+
+  @override
+  String get calendarGuideDemoEventInsurance => 'Kfz-Versicherung';
+
+  @override
+  String get calendarGuideDemoEventTax => 'Steuererklärung';
+
+  @override
+  String get calendarGuideDemoEventTaxNote =>
+      'Die Unterlagen sind im blauen Ordner.';
+
+  @override
+  String get calendarGuideDemoEventLunch => 'Mittagessen mit dem Team';
+
+  @override
+  String get calendarGuideDemoEventPlants => 'Blumen gießen';
+
+  @override
+  String get calendarGuidePageFasting => 'Fastentage';
+
+  @override
+  String get calendarGuidePageFastingCaption =>
+      'Orthodoxe, katholische, muslimische oder jüdische Fastentage im Raster und im Tagesbereich';
+
+  @override
+  String get calendarGuideFastingLead =>
+      'Der Kalender kann die Fastentage deiner Tradition markieren, mit der Regel jedes Tages.';
+
+  @override
+  String get calendarGuideCoachFastingTradition =>
+      'Wähle unter dem Raster eine Tradition: Ihre Fastentage werden getönt.';
+
+  @override
+  String calendarGuideCoachFastingStyle(String appearance) {
+    return 'Tippe auf „$appearance“, um sie als Tönung, Balken oder fette Tageszahl zu zeigen.';
+  }
+
+  @override
+  String calendarGuideCoachFastingPractice(String myPractice) {
+    return 'Tippe auf „$myPractice“, um nur die Wochentage zu behalten, an denen du fastest.';
+  }
+
+  @override
+  String get calendarGuideFastingWhereTitle => 'Wo es eingeschaltet wird';
+
+  @override
+  String calendarGuideFastingWhereBody(
+    String calendarSettings,
+    String fastingSection,
+  ) {
+    return '„$calendarSettings“ → „$fastingSection“, ein Schalter je Tradition. Mehrere können zugleich an sein, jede mit eigener Darstellung.';
+  }
+
+  @override
+  String get calendarGuideFastingRulesTitle => 'Was die Zeile sagt';
+
+  @override
+  String get calendarGuideFastingRulesBody =>
+      'Die Zeile nennt das Fasten und die Regel des Tages: streng, Wein und Öl, Fisch, Milchprodukte oder von der Morgendämmerung bis zum Sonnenuntergang. Die Daten folgen den üblichen gedruckten Kalendern; muslimische Daten können um einen Tag von der Mondsichtung abweichen.';
+
+  @override
+  String get calendarGuideFastingPracticeTitle => 'Deine eigene Praxis';
+
+  @override
+  String calendarGuideFastingPracticeBody(
+    String myPractice,
+    String applyTo,
+    String allFasts,
+  ) {
+    return '„$myPractice“ behält nur die Wochentage, an denen du fastest, schaltet ganze Monate aus und überspringt oder ergänzt einzelne Tage. Die langen Fastenzeiten markieren weiter jeden ihrer Tage, außer „$applyTo“ steht auf „$allFasts“.';
+  }
+
+  @override
+  String get calendarGuideFastingHideTitle => 'Eine Weile ausblenden';
+
+  @override
+  String calendarGuideFastingHideBody(String fasting, String apply) {
+    return 'Schalte im Trichter „$fasting“ aus und tippe auf „$apply“: Die Fastentage verschwinden aus Raster und Bereich, bis du es wieder einschaltest.';
+  }
 }
