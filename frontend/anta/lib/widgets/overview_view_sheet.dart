@@ -9,6 +9,7 @@ import '../constants/row_metrics.dart';
 import '../constants/saved_list_name.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/overview_view.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../services/overview_view_service.dart';
@@ -38,11 +39,18 @@ class OverviewViewSheet extends StatefulWidget {
   /// and name are unused.
   final OverviewView current;
 
+  /// The overview's day and week start, which a rolling view's period is
+  /// read on ([OverviewView.periodOn]) for its ✓ and its caption.
+  final DateTime today;
+  final CalendarWeekStart weekStart;
+
   final ValueChanged<OverviewView> onApply;
 
   const OverviewViewSheet({
     super.key,
     required this.current,
+    required this.today,
+    required this.weekStart,
     required this.onApply,
   });
 
@@ -51,6 +59,8 @@ class OverviewViewSheet extends StatefulWidget {
   static Future<void> show(
     BuildContext context, {
     required OverviewView current,
+    required DateTime today,
+    required CalendarWeekStart weekStart,
     required ValueChanged<OverviewView> onApply,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -73,7 +83,12 @@ class OverviewViewSheet extends StatefulWidget {
                 MediaQuery.sizeOf(context).height *
                 FormMetrics.sheetHeightFactor,
           ),
-          child: OverviewViewSheet(current: current, onApply: onApply),
+          child: OverviewViewSheet(
+            current: current,
+            today: today,
+            weekStart: weekStart,
+            onApply: onApply,
+          ),
         ),
       ),
     );
@@ -146,6 +161,8 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
     widget.current.period,
     widget.current.options,
     widget.current.categoryIds,
+    today: widget.today,
+    weekStart: widget.weekStart,
   );
 
   /// Applies [ordered] optimistically, then persists it; reconciling with the
@@ -199,8 +216,9 @@ class _OverviewViewSheetState extends State<OverviewViewSheet> {
 
   /// The row's caption: the period in the Period menu's own words, so a view
   /// is findable by its span as well as by its name.
-  String _caption(OverviewView view, AppLocalizations l10n) =>
-      view.period.menuValue(l10n);
+  String _caption(OverviewView view, AppLocalizations l10n) => view
+      .periodOn(today: widget.today, weekStart: widget.weekStart)
+      .menuValue(l10n);
 
   List<OverviewView> _visible(AppLocalizations l10n) {
     if (_query.isEmpty) return _views;

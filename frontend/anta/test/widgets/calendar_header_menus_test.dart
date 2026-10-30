@@ -52,6 +52,9 @@ void main() {
   late final overviewRow = find.bySemanticsIdentifier(
     SemanticsIds.calendarOverviewOpen,
   );
+  late final reportRow = find.bySemanticsIdentifier(
+    SemanticsIds.calendarReportOpen,
+  );
   late final monthRow = find.bySemanticsIdentifier(
     SemanticsIds.calendarFormatMonth,
   );
@@ -293,6 +296,50 @@ void main() {
       expect(picked, [CalendarViewPage.calendar]);
     });
 
+    testWidgets('the third row opens the report, which names itself and '
+        'checks its own row', (tester) async {
+      final picked = <CalendarViewPage>[];
+      await tester.pumpWidget(host(title: calendarTitle(onPage: picked.add)));
+
+      await open(tester, title);
+      expect(reportRow, findsOneWidget);
+      expect(
+        find.descendant(
+          of: reportRow,
+          matching: find.byIcon(Icons.bar_chart_rounded),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(reportRow);
+      await tester.pumpAndSettle();
+      expect(picked, [CalendarViewPage.report]);
+
+      await tester.pumpWidget(
+        host(
+          title: CalendarViewMenu(
+            page: CalendarViewPage.report,
+            onPageSelected: picked.add,
+          ),
+        ),
+      );
+      expect(find.text('Report'), findsOneWidget);
+      await open(tester, title);
+      expect(
+        find.descendant(
+          of: reportRow,
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(reportRow);
+      await tester.pumpAndSettle();
+      expect(picked, [CalendarViewPage.report], reason: 'the current page');
+      await open(tester, title);
+      await tester.tap(overviewRow);
+      await tester.pumpAndSettle();
+      expect(picked, [CalendarViewPage.report, CalendarViewPage.overview]);
+    });
+
     testWidgets('opening the menu drops focus, so closing it cannot raise the '
         'keyboard again', (tester) async {
       final focusNode = FocusNode();
@@ -476,7 +523,7 @@ void main() {
         await open(tester, title);
 
         final items = find.byWidgetPredicate((w) => w is PopupMenuItem);
-        expect(items, findsNWidgets(5));
+        expect(items, findsNWidgets(6));
         for (final element in items.evaluate()) {
           final size = tester.getSize(find.byWidget(element.widget));
           expect(size.height, AppTheme.menuItemHeight);

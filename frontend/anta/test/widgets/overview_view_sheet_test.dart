@@ -5,6 +5,7 @@ import 'package:anta/constants/saved_list_name.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/overview_view.dart';
@@ -67,6 +68,32 @@ void main() {
     return view!.id;
   }
 
+  // October 13, 2026 is a Tuesday; eight days later is Wednesday the 21st.
+  testWidgets('a view saved on this week, decoded a week ago, is captioned and '
+      'ticked as the week of the day the sheet opens on', (tester) async {
+    final saved = DateTime(2026, 10, 13);
+    final later = DateTime(2026, 10, 21);
+    service.clock = () => saved;
+    final id = await seed(
+      'This week',
+      period: OverviewPeriod.thisWeek(
+        today: saved,
+        weekStart: CalendarWeekStart.monday,
+      ),
+    );
+    final thisWeek = OverviewWeekPeriod(DateTime.utc(2026, 10, 19));
+
+    final robot = OverviewViewRobot(tester);
+    await robot.show(
+      current: OverviewView(id: '', name: '', period: thisWeek),
+      applied: applied,
+      today: later,
+    );
+
+    expect(robot.rowCaption(id), thisWeek.menuValue(robot.l10n));
+    expect(robot.isChecked(id), isTrue);
+  });
+
   testWidgets('save names the list shown, lists it marked in use and says so', (
     tester,
   ) async {
@@ -78,7 +105,16 @@ void main() {
 
     final saved = service.views.single;
     expect(saved.name, 'Gym lately');
-    expect(saved.matches(last90, perEvent, {'gym'}), isTrue);
+    expect(
+      saved.matches(
+        last90,
+        perEvent,
+        {'gym'},
+        today: DateTime.now(),
+        weekStart: CalendarWeekStart.monday,
+      ),
+      isTrue,
+    );
     expect(robot.isOpen, isTrue);
     expect(robot.hasRow(saved.id), isTrue);
     expect(robot.isChecked(saved.id), isTrue);
@@ -180,7 +216,16 @@ void main() {
     final view = service.views.single;
     expect(view.id, id);
     expect(view.name, 'Gym');
-    expect(view.matches(last90, perEvent, {'gym'}), isTrue);
+    expect(
+      view.matches(
+        last90,
+        perEvent,
+        {'gym'},
+        today: DateTime.now(),
+        weekStart: CalendarWeekStart.monday,
+      ),
+      isTrue,
+    );
     expect(robot.isChecked(id), isTrue);
     expect(robot.isOpen, isTrue);
   });

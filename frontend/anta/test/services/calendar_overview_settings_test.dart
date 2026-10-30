@@ -4,6 +4,7 @@ import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/services/settings_service.dart';
@@ -70,6 +71,78 @@ void main() {
       today: DateTime.utc(2027, 1, 2),
     );
     expect(nextYear.period, const OverviewYearPeriod(2027));
+  });
+
+  // October 11, 2026 is a Sunday.
+  test('this week reads on the stored week start, this month as the month '
+      'of the day it is read', () async {
+    await settings.setCalendarOverviewPeriod(
+      OverviewPeriod.thisWeek(
+        today: today,
+        weekStart: CalendarWeekStart.monday,
+      ),
+      today: today,
+    );
+    expect(
+      await db.userSettingsDao.getValue(SettingsKeys.calendarOverviewPeriod),
+      'thisWeek',
+    );
+    expect(
+      (await settings.getCalendarOverviewSettings(today: today)).period,
+      OverviewWeekPeriod(DateTime.utc(2026, 10, 5)),
+    );
+
+    await settings.setCalendarWeekStart(CalendarWeekStart.sunday);
+    expect(
+      (await settings.getCalendarOverviewSettings(today: today)).period,
+      OverviewWeekPeriod(DateTime.utc(2026, 10, 11)),
+    );
+    await settings.setCalendarWeekStart(CalendarWeekStart.saturday);
+    expect(
+      (await settings.getCalendarOverviewSettings(today: today)).period,
+      OverviewWeekPeriod(DateTime.utc(2026, 10, 10)),
+    );
+
+    await settings.setCalendarOverviewPeriod(
+      OverviewPeriod.thisMonth(today: today),
+      today: today,
+    );
+    expect(
+      await db.userSettingsDao.getValue(SettingsKeys.calendarOverviewPeriod),
+      'thisMonth',
+    );
+    final nextMonth = await settings.getCalendarOverviewSettings(
+      today: DateTime.utc(2026, 11, 2),
+    );
+    expect(nextMonth.period, const OverviewMonthPeriod(2026, 11));
+  });
+
+  test('a paged week or month clears the stored period', () async {
+    await settings.setCalendarOverviewPeriod(
+      OverviewPeriod.thisMonth(today: today),
+      today: today,
+    );
+    await settings.setCalendarOverviewPeriod(
+      OverviewWeekPeriod(DateTime.utc(2026, 9, 28)),
+      today: today,
+    );
+    expect(
+      await db.userSettingsDao.getValue(SettingsKeys.calendarOverviewPeriod),
+      isNull,
+    );
+
+    await settings.setCalendarOverviewPeriod(
+      OverviewPeriod.thisMonth(today: today),
+      today: today,
+    );
+    await settings.setCalendarOverviewPeriod(
+      const OverviewMonthPeriod(2026, 9),
+      today: today,
+    );
+    expect(
+      await db.userSettingsDao.getValue(SettingsKeys.calendarOverviewPeriod),
+      isNull,
+    );
   });
 
   test('a custom span or a past year clears the stored period', () async {

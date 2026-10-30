@@ -5,6 +5,7 @@ import '../models/counter.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/nav_destination.dart';
 import '../models/note_metadata.dart';
+import '../models/report_look.dart';
 import '../models/restore_location_mode.dart';
 import '../repositories/note_repository.dart';
 import '../services/drawer_host_registry.dart';
@@ -21,6 +22,7 @@ import '../pages/calendar_categories_page.dart';
 import '../pages/calendar_appearance_page.dart';
 import '../pages/calendar_guide_page.dart';
 import '../pages/calendar_overview_page.dart';
+import '../pages/calendar_report_page.dart';
 import '../pages/event_templates_page.dart';
 import '../pages/vocabularies_page.dart';
 import '../pages/counter_management_page.dart';
@@ -494,11 +496,11 @@ abstract final class AppNavigator {
   /// other, each with its own grid, panel and scroll position, and leave the
   /// user two back gestures from where they were.
   ///
-  /// Except over the overview: with an overview above the calendar found, a
-  /// collapse would pop the overview and lose its period, its search and its
-  /// place in the list, so the calendar is pushed over it and back returns to
-  /// the list — and so it is with no calendar beneath, an overview opened
-  /// from the drawer (review 3). That calendar is named
+  /// Except over the overview or the report: with either above the calendar
+  /// found, a collapse would pop it and lose its period, its search and its
+  /// place in the list, so the calendar is pushed over it and back returns
+  /// there — and so it is with no calendar beneath, an overview opened from
+  /// the drawer (review 3; the report since D36.1). That calendar is named
   /// [occurrenceCalendarRouteName] and
   /// **unstamped**: restore records the longest stamped prefix, so the next
   /// launch reopens the overview it came from rather than replaying a
@@ -512,12 +514,14 @@ abstract final class AppNavigator {
     if (navigator != null) {
       final routes = _livePageRoutes(navigator);
       final index = routes.lastIndexWhere(_isCalendar);
-      final overviewAbove = routes
+      final viewAbove = routes
           .skip(index + 1)
           .any(
-            (route) => _isStamped(route, NavDestinationKind.calendarOverview),
+            (route) =>
+                _isStamped(route, NavDestinationKind.calendarOverview) ||
+                _isStamped(route, NavDestinationKind.calendarReport),
           );
-      if (overviewAbove) {
+      if (viewAbove) {
         return navigator.push<void>(
           MaterialPageRoute(
             builder: (_) =>
@@ -597,6 +601,20 @@ abstract final class AppNavigator {
     );
   }
 
+  /// The report page (D35): a feature beside the calendar and the overview,
+  /// stamped so a relaunch restores it — without [look], which is for this
+  /// visit only, so a restored report reads its own settings.
+  static Future<void> toCalendarReport(
+    BuildContext context, {
+    ReportLook? look,
+  }) {
+    return push(
+      context,
+      CalendarReportPage(look: look),
+      destination: const NavDestination(NavDestinationKind.calendarReport),
+    );
+  }
+
   static Future<void> toAlerts(BuildContext context) {
     return push(
       context,
@@ -605,24 +623,74 @@ abstract final class AppNavigator {
     );
   }
 
-  /// The view menu's Calendar row, on the overview. The calendar and the
-  /// overview are two views of one feature, so switching between them never
-  /// stacks: see [returnOrPush].
+  /// The view menu's Calendar row, on the overview or the report. The
+  /// calendar, the overview and the report are three views of one feature,
+  /// so switching between them never stacks: see [switchCalendarView].
   static Future<void> switchToCalendar(BuildContext context) {
-    return returnOrPush(
+    return switchCalendarView(
       context,
       NavDestinationKind.calendar,
       () => toCalendar(context),
     );
   }
 
-  /// The view menu's Overview row, on the calendar. See [switchToCalendar].
+  /// The view menu's Overview row. See [switchToCalendar].
   static Future<void> switchToCalendarOverview(BuildContext context) {
-    return returnOrPush(
+    return switchCalendarView(
       context,
       NavDestinationKind.calendarOverview,
       () => toCalendarOverview(context),
     );
+  }
+
+  /// The view menu's Report row. See [switchToCalendar]; a report already
+  /// beneath is returned to as it stands, so [look] applies only to a push.
+  static Future<void> switchToCalendarReport(
+    BuildContext context, {
+    ReportLook? look,
+  }) {
+    return switchCalendarView(
+      context,
+      NavDestinationKind.calendarReport,
+      () => toCalendarReport(context, look: look),
+    );
+  }
+
+  static bool _isCalendarView(Route<dynamic> route) =>
+      _isCalendar(route) ||
+      _isStamped(route, NavDestinationKind.calendarOverview) ||
+      _isStamped(route, NavDestinationKind.calendarReport);
+
+  /// Returns to the [target] view when it sits beneath the page [context]
+  /// belongs to with only calendar views above it (D36.1), playing one
+  /// transition; runs [push] otherwise.
+  ///
+  /// [returnOrPush] looks only at the page directly beneath, which held for
+  /// two views: with three, calendar → overview → report → Calendar would
+  /// stack a second calendar. A page of another kind in between — the hub,
+  /// a note — is a page the user walked through, and survives.
+  @visibleForTesting
+  static Future<void> switchCalendarView(
+    BuildContext context,
+    NavDestinationKind target,
+    Future<void> Function() push,
+  ) {
+    final navigator = Navigator.of(context);
+    final routes = _livePageRoutes(navigator);
+    final current = ModalRoute.of(context);
+    final index = routes.indexWhere((route) => identical(route, current));
+    for (var i = index - 1; i >= 0; i--) {
+      final route = routes[i];
+      final isTarget = target == NavDestinationKind.calendar
+          ? _isCalendar(route)
+          : _isStamped(route, target);
+      if (isTarget) {
+        _collapseOnto(navigator, routes, i);
+        return Future<void>.value();
+      }
+      if (!_isCalendarView(route)) break;
+    }
+    return push();
   }
 
   /// The Alerts row of the calendar's and the overview's ⋮ menu. Every hub
@@ -637,7 +705,8 @@ abstract final class AppNavigator {
   }
 
   /// Returns to the page stamped [kind] when it sits **directly beneath** the
-  /// page [context] belongs to, playing one pop; runs [push] otherwise.
+  /// page [context] belongs to, playing one pop; runs [push] otherwise. The
+  /// hub's rule; the calendar views switch through [switchCalendarView].
   ///
   /// Only the page directly beneath: collapsing onto one further down would
   /// throw away every page the user walked through on the way here.
@@ -1052,6 +1121,7 @@ abstract final class AppNavigator {
       NavDestinationKind.permissions => const PermissionsPage(),
       NavDestinationKind.calendarOverview => const CalendarOverviewPage(),
       NavDestinationKind.calendarGuide => const CalendarGuidePage(),
+      NavDestinationKind.calendarReport => const CalendarReportPage(),
     };
   }
 }

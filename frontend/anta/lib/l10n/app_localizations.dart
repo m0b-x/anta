@@ -8242,6 +8242,18 @@ abstract class AppLocalizations {
   /// **'Period'**
   String get overviewPeriod;
 
+  /// Overview list period: the calendar week holding today, starting on the calendar's first weekday
+  ///
+  /// In en, this message translates to:
+  /// **'This week'**
+  String get overviewPeriodThisWeek;
+
+  /// Overview list period: the calendar month holding today, from its 1st to its last day
+  ///
+  /// In en, this message translates to:
+  /// **'This month'**
+  String get overviewPeriodThisMonth;
+
   /// Overview list period: the twelve months ending today
   ///
   /// In en, this message translates to:
@@ -11106,6 +11118,270 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'In the funnel, turn off “{fasting}” and tap “{apply}”: the fast days leave the grid and the panel until you turn it on again.'**
   String calendarGuideFastingHideBody(String fasting, String apply);
+
+  /// Title of the calendar report page (what happened and what is planned over a period), also its row in the calendar's title view menu beside Calendar and Overview
+  ///
+  /// In en, this message translates to:
+  /// **'Report'**
+  String get reportTitle;
+
+  /// Section label above the report's stat tiles
+  ///
+  /// In en, this message translates to:
+  /// **'Totals'**
+  String get reportSectionTotals;
+
+  /// Section label above the report's column chart of occurrences per day, week or month
+  ///
+  /// In en, this message translates to:
+  /// **'Over time'**
+  String get reportSectionOverTime;
+
+  /// Section label above the report's missed days, grouped by category
+  ///
+  /// In en, this message translates to:
+  /// **'Missed'**
+  String get reportSectionMissed;
+
+  /// Section label above the report's occurrences still to come in the period, grouped by category
+  ///
+  /// In en, this message translates to:
+  /// **'Ahead'**
+  String get reportSectionAhead;
+
+  /// Report stat tile: occurrences that happened in the period up to today, missed ones excluded
+  ///
+  /// In en, this message translates to:
+  /// **'Events'**
+  String get reportTileEvents;
+
+  /// Report stat tile: tracked occurrences attended, shown as attended of total
+  ///
+  /// In en, this message translates to:
+  /// **'Attended'**
+  String get reportTileAttended;
+
+  /// Report stat tile: tracked occurrences missed
+  ///
+  /// In en, this message translates to:
+  /// **'Missed'**
+  String get reportTileMissed;
+
+  /// Report stat tile: hours spent on timed occurrences
+  ///
+  /// In en, this message translates to:
+  /// **'Hours'**
+  String get reportTileHours;
+
+  /// Report stat tile: ticked task items of all task items in the descriptions
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks'**
+  String get reportTileTasks;
+
+  /// Report stat tile of a future period: every occurrence planned in it
+  ///
+  /// In en, this message translates to:
+  /// **'Planned'**
+  String get reportTilePlanned;
+
+  /// Report stat tile value: a part of a whole, e.g. 21 of 24 attended or 9 of 12 tasks ticked; both numbers already formatted
+  ///
+  /// In en, this message translates to:
+  /// **'{value} of {total}'**
+  String reportOfTotal(String value, String total);
+
+  /// Under the report's Tasks tile: how many task items are still unticked
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 open} other {{count} open}}'**
+  String reportTasksOpen(int count);
+
+  /// Under the report's Attended tile: the share attended, a whole number
+  ///
+  /// In en, this message translates to:
+  /// **'{percent} %'**
+  String reportPercent(String percent);
+
+  /// Screen reader wording of the Attended tile's share
+  ///
+  /// In en, this message translates to:
+  /// **'{percent} percent'**
+  String reportPercentSpoken(String percent);
+
+  /// Decimal hours in the report, e.g. 18.5 h; hours is already formatted with the locale's decimal separator
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h'**
+  String reportHours(String hours);
+
+  /// First part of the caption under the report's tiles: the last day counted, e.g. To 30 October
+  ///
+  /// In en, this message translates to:
+  /// **'To {date}'**
+  String reportCaptionTo(String date);
+
+  /// Part of the caption under the report's tiles naming the period the tiles' changes compare against
+  ///
+  /// In en, this message translates to:
+  /// **'against {period}'**
+  String reportCaptionAgainst(String period);
+
+  /// Part of the caption under the report's tiles: skipped days in the counted part of the period
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 skipped} other {{count} skipped}}'**
+  String reportSkippedCount(int count);
+
+  /// Part of the caption under the report's tiles: occurrences still to come in the period
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 ahead} other {{count} ahead}}'**
+  String reportAheadCount(int count);
+
+  /// Report band subtitle: occurrences that happened in the period
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 event} other {{count} events}}'**
+  String reportEventCount(int count);
+
+  /// Report band subtitle of a future period: occurrences planned in it
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 planned} other {{count} planned}}'**
+  String reportPlannedCount(int count);
+
+  /// Caption under the report's tiles when the period holds no occurrence, shown after the period's name and a dot ("October 2026 · Nothing happened")
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing happened'**
+  String get reportCaptionNothing;
+
+  /// Screen reader wording of a report tile's change against the previous period, when it grew
+  ///
+  /// In en, this message translates to:
+  /// **'{delta} more than {period}'**
+  String reportDeltaMore(String delta, String period);
+
+  /// Screen reader wording of a report tile's change against the previous period, when it shrank
+  ///
+  /// In en, this message translates to:
+  /// **'{delta} less than {period}'**
+  String reportDeltaLess(String delta, String period);
+
+  /// Screen reader wording of a report tile that did not change against the previous period
+  ///
+  /// In en, this message translates to:
+  /// **'same as {period}'**
+  String reportDeltaSame(String period);
+
+  /// Screen reader wording of a report tile that has nothing in the period (drawn as a dash)
+  ///
+  /// In en, this message translates to:
+  /// **'none'**
+  String get reportTileNone;
+
+  /// Report Period menu item: the calendar week before this one
+  ///
+  /// In en, this message translates to:
+  /// **'Last week'**
+  String get reportPeriodLastWeek;
+
+  /// Report Period menu item: the calendar week after this one
+  ///
+  /// In en, this message translates to:
+  /// **'Next week'**
+  String get reportPeriodNextWeek;
+
+  /// Report Period menu item: the calendar month before this one
+  ///
+  /// In en, this message translates to:
+  /// **'Last month'**
+  String get reportPeriodLastMonth;
+
+  /// Report Period menu item: the calendar month after this one
+  ///
+  /// In en, this message translates to:
+  /// **'Next month'**
+  String get reportPeriodNextMonth;
+
+  /// Report footer row opening the overview's list on the report's period and categories
+  ///
+  /// In en, this message translates to:
+  /// **'Show as list'**
+  String get reportShowAsList;
+
+  /// Report footer row sharing the report as text
+  ///
+  /// In en, this message translates to:
+  /// **'Share report'**
+  String get reportShare;
+
+  /// Report footer row on a week period, setting up a weekly notification with this report
+  ///
+  /// In en, this message translates to:
+  /// **'Send me this report weekly'**
+  String get reportSendWeekly;
+
+  /// Report footer row on a month or longer period, setting up a monthly notification with this report
+  ///
+  /// In en, this message translates to:
+  /// **'Send me this report monthly'**
+  String get reportSendMonthly;
+
+  /// Legend item of the report's Over time chart for the occurrences that took place; the other item reuses reportTileMissed
+  ///
+  /// In en, this message translates to:
+  /// **'Happened'**
+  String get reportLegendHappened;
+
+  /// Caption under the report's Over time chart naming the weekday with the most occurrences, e.g. Most on Monday
+  ///
+  /// In en, this message translates to:
+  /// **'Most on {weekday}'**
+  String reportTrendBusiest(String weekday);
+
+  /// Part of the caption under the report's Over time chart: the usual start and end time of the timed occurrences, e.g. usually 18:00 – 19:30
+  ///
+  /// In en, this message translates to:
+  /// **'usually {from} – {to}'**
+  String reportTrendUsual(String from, String to);
+
+  /// Part of the caption under the report's Over time chart when the occurrences have a usual start time but no duration, e.g. usually at 18:00
+  ///
+  /// In en, this message translates to:
+  /// **'usually at {time}'**
+  String reportTrendUsualAt(String time);
+
+  /// Spoken summary of the report's Over time chart when it has no caption: the tallest column's count and the day, week or month it covers, e.g. Peak 2 on Monday, October 5
+  ///
+  /// In en, this message translates to:
+  /// **'Peak {peak} on {date}'**
+  String reportTrendPeak(String peak, String date);
+
+  /// What a screen reader hears for the report's Over time chart: the section name, then the chart's caption or its peak
+  ///
+  /// In en, this message translates to:
+  /// **'Over time. {summary}'**
+  String reportTrendSpoken(String summary);
+
+  /// Spoken summary of the report's Over time chart with one column per week and no caption: the tallest column's count and the first day of its week, e.g. Peak 4 in the week of October 5
+  ///
+  /// In en, this message translates to:
+  /// **'Peak {peak} in the week of {date}'**
+  String reportTrendPeakWeek(String peak, String date);
+
+  /// Spoken summary of the report's Over time chart with one column per month and no caption: the tallest column's count and its month, e.g. Peak 12 in October 2026
+  ///
+  /// In en, this message translates to:
+  /// **'Peak {peak} in {month}'**
+  String reportTrendPeakMonth(String peak, String month);
+
+  /// Start of a report stat tile's detail line when the tiles are too narrow for '21 of 24' in the value: the whole the large figure is a part of, e.g. of 24 · 88 %
+  ///
+  /// In en, this message translates to:
+  /// **'of {total}'**
+  String reportOfTotalOnly(String total);
 }
 
 class _AppLocalizationsDelegate

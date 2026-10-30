@@ -956,8 +956,12 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           builder: (context, state) {
             return CalendarViewMenu(
               page: CalendarViewPage.calendar,
-              onPageSelected: (_) =>
-                  AppNavigator.switchToCalendarOverview(context),
+              onPageSelected: (page) => switch (page) {
+                CalendarViewPage.report => AppNavigator.switchToCalendarReport(
+                  context,
+                ),
+                _ => AppNavigator.switchToCalendarOverview(context),
+              },
               format: _formatOf(state),
               onFormatSelected: !_isLoaded(state)
                   ? null

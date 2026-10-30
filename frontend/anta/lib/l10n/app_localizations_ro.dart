@@ -4887,6 +4887,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get overviewPeriod => 'Perioadă';
 
   @override
+  String get overviewPeriodThisWeek => 'Săptămâna aceasta';
+
+  @override
+  String get overviewPeriodThisMonth => 'Luna aceasta';
+
+  @override
   String get overviewPeriodLast12Months => 'Ultimele 12 luni';
 
   @override
@@ -6824,5 +6830,216 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String calendarGuideFastingHideBody(String fasting, String apply) {
     return 'În pâlnie, oprește „$fasting” și atinge „$apply”: zilele de post dispar din grilă și din panou până le pornești din nou.';
+  }
+
+  @override
+  String get reportTitle => 'Raport';
+
+  @override
+  String get reportSectionTotals => 'Totaluri';
+
+  @override
+  String get reportSectionOverTime => 'În timp';
+
+  @override
+  String get reportSectionMissed => 'Ratate';
+
+  @override
+  String get reportSectionAhead => 'Urmează';
+
+  @override
+  String get reportTileEvents => 'Evenimente';
+
+  @override
+  String get reportTileAttended => 'Prezențe';
+
+  @override
+  String get reportTileMissed => 'Ratate';
+
+  @override
+  String get reportTileHours => 'Ore';
+
+  @override
+  String get reportTileTasks => 'Sarcini';
+
+  @override
+  String get reportTilePlanned => 'Planificate';
+
+  @override
+  String reportOfTotal(String value, String total) {
+    return '$value din $total';
+  }
+
+  @override
+  String reportTasksOpen(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de deschise',
+      few: '$count deschise',
+      one: '1 deschisă',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportPercent(String percent) {
+    return '$percent %';
+  }
+
+  @override
+  String reportPercentSpoken(String percent) {
+    return '$percent la sută';
+  }
+
+  @override
+  String reportHours(String hours) {
+    return '$hours h';
+  }
+
+  @override
+  String reportCaptionTo(String date) {
+    return 'Până la $date';
+  }
+
+  @override
+  String reportCaptionAgainst(String period) {
+    return 'față de $period';
+  }
+
+  @override
+  String reportSkippedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de sărite',
+      few: '$count sărite',
+      one: '1 sărită',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportAheadCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de rămase',
+      few: '$count rămase',
+      one: '1 rămas',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: '1 eveniment',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportPlannedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de planificate',
+      few: '$count planificate',
+      one: '1 planificat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportCaptionNothing => 'Nu s-a întâmplat nimic';
+
+  @override
+  String reportDeltaMore(String delta, String period) {
+    return 'cu $delta mai mult decât $period';
+  }
+
+  @override
+  String reportDeltaLess(String delta, String period) {
+    return 'cu $delta mai puțin decât $period';
+  }
+
+  @override
+  String reportDeltaSame(String period) {
+    return 'la fel ca $period';
+  }
+
+  @override
+  String get reportTileNone => 'nimic';
+
+  @override
+  String get reportPeriodLastWeek => 'Săptămâna trecută';
+
+  @override
+  String get reportPeriodNextWeek => 'Săptămâna viitoare';
+
+  @override
+  String get reportPeriodLastMonth => 'Luna trecută';
+
+  @override
+  String get reportPeriodNextMonth => 'Luna viitoare';
+
+  @override
+  String get reportShowAsList => 'Arată ca listă';
+
+  @override
+  String get reportShare => 'Distribuie raportul';
+
+  @override
+  String get reportSendWeekly => 'Trimite-mi raportul săptămânal';
+
+  @override
+  String get reportSendMonthly => 'Trimite-mi raportul lunar';
+
+  @override
+  String get reportLegendHappened => 'Au avut loc';
+
+  @override
+  String reportTrendBusiest(String weekday) {
+    return 'Cel mai des: $weekday';
+  }
+
+  @override
+  String reportTrendUsual(String from, String to) {
+    return 'de obicei $from – $to';
+  }
+
+  @override
+  String reportTrendUsualAt(String time) {
+    return 'de obicei la $time';
+  }
+
+  @override
+  String reportTrendPeak(String peak, String date) {
+    return 'Maxim $peak pe $date';
+  }
+
+  @override
+  String reportTrendSpoken(String summary) {
+    return 'În timp. $summary';
+  }
+
+  @override
+  String reportTrendPeakWeek(String peak, String date) {
+    return 'Maxim $peak în săptămâna din $date';
+  }
+
+  @override
+  String reportTrendPeakMonth(String peak, String month) {
+    return 'Maxim $peak în $month';
+  }
+
+  @override
+  String reportOfTotalOnly(String total) {
+    return 'din $total';
   }
 }

@@ -153,6 +153,27 @@ void main() {
     });
   });
 
+  group('wouldOccurOnUtcDay', () {
+    test('a skipped day would still occur', () {
+      final daily = event();
+      skip([day]);
+
+      expect(daily.occursOnUtcDay(day), isFalse);
+      expect(daily.wouldOccurOnUtcDay(day), isTrue);
+    });
+
+    test('a day the rule never produces is absent either way', () {
+      // 12 August 2026 is a Wednesday.
+      final mondays = event(
+        rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
+      );
+      skip([day]);
+
+      expect(mondays.occursOnUtcDay(day), isFalse);
+      expect(mondays.wouldOccurOnUtcDay(day), isFalse);
+    });
+  });
+
   group('facade', () {
     test('daysFor returns the cancelled set and is empty when unknown', () {
       skip([day, day.add(const Duration(days: 2))]);

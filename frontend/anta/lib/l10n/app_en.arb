@@ -6015,6 +6015,14 @@
   "@overviewPeriod": {
     "description": "Label of the overview list's row choosing the span of days it lists, and the title of the picker choosing a custom span"
   },
+  "overviewPeriodThisWeek": "This week",
+  "@overviewPeriodThisWeek": {
+    "description": "Overview list period: the calendar week holding today, starting on the calendar's first weekday"
+  },
+  "overviewPeriodThisMonth": "This month",
+  "@overviewPeriodThisMonth": {
+    "description": "Overview list period: the calendar month holding today, from its 1st to its last day"
+  },
   "overviewPeriodLast12Months": "Last 12 months",
   "@overviewPeriodLast12Months": {
     "description": "Overview list period: the twelve months ending today"
@@ -8736,6 +8744,313 @@
         "type": "String"
       },
       "apply": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTitle": "Report",
+  "@reportTitle": {
+    "description": "Title of the calendar report page (what happened and what is planned over a period), also its row in the calendar's title view menu beside Calendar and Overview"
+  },
+  "reportSectionTotals": "Totals",
+  "@reportSectionTotals": {
+    "description": "Section label above the report's stat tiles"
+  },
+  "reportSectionOverTime": "Over time",
+  "@reportSectionOverTime": {
+    "description": "Section label above the report's column chart of occurrences per day, week or month"
+  },
+  "reportSectionMissed": "Missed",
+  "@reportSectionMissed": {
+    "description": "Section label above the report's missed days, grouped by category"
+  },
+  "reportSectionAhead": "Ahead",
+  "@reportSectionAhead": {
+    "description": "Section label above the report's occurrences still to come in the period, grouped by category"
+  },
+  "reportTileEvents": "Events",
+  "@reportTileEvents": {
+    "description": "Report stat tile: occurrences that happened in the period up to today, missed ones excluded"
+  },
+  "reportTileAttended": "Attended",
+  "@reportTileAttended": {
+    "description": "Report stat tile: tracked occurrences attended, shown as attended of total"
+  },
+  "reportTileMissed": "Missed",
+  "@reportTileMissed": {
+    "description": "Report stat tile: tracked occurrences missed"
+  },
+  "reportTileHours": "Hours",
+  "@reportTileHours": {
+    "description": "Report stat tile: hours spent on timed occurrences"
+  },
+  "reportTileTasks": "Tasks",
+  "@reportTileTasks": {
+    "description": "Report stat tile: ticked task items of all task items in the descriptions"
+  },
+  "reportTilePlanned": "Planned",
+  "@reportTilePlanned": {
+    "description": "Report stat tile of a future period: every occurrence planned in it"
+  },
+  "reportOfTotal": "{value} of {total}",
+  "@reportOfTotal": {
+    "description": "Report stat tile value: a part of a whole, e.g. 21 of 24 attended or 9 of 12 tasks ticked; both numbers already formatted",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTasksOpen": "{count, plural, one {1 open} other {{count} open}}",
+  "@reportTasksOpen": {
+    "description": "Under the report's Tasks tile: how many task items are still unticked",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportPercent": "{percent} %",
+  "@reportPercent": {
+    "description": "Under the report's Attended tile: the share attended, a whole number",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "reportPercentSpoken": "{percent} percent",
+  "@reportPercentSpoken": {
+    "description": "Screen reader wording of the Attended tile's share",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "reportHours": "{hours} h",
+  "@reportHours": {
+    "description": "Decimal hours in the report, e.g. 18.5 h; hours is already formatted with the locale's decimal separator",
+    "placeholders": {
+      "hours": {
+        "type": "String"
+      }
+    }
+  },
+  "reportCaptionTo": "To {date}",
+  "@reportCaptionTo": {
+    "description": "First part of the caption under the report's tiles: the last day counted, e.g. To 30 October",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "reportCaptionAgainst": "against {period}",
+  "@reportCaptionAgainst": {
+    "description": "Part of the caption under the report's tiles naming the period the tiles' changes compare against",
+    "placeholders": {
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSkippedCount": "{count, plural, one {1 skipped} other {{count} skipped}}",
+  "@reportSkippedCount": {
+    "description": "Part of the caption under the report's tiles: skipped days in the counted part of the period",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportAheadCount": "{count, plural, one {1 ahead} other {{count} ahead}}",
+  "@reportAheadCount": {
+    "description": "Part of the caption under the report's tiles: occurrences still to come in the period",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportEventCount": "{count, plural, one {1 event} other {{count} events}}",
+  "@reportEventCount": {
+    "description": "Report band subtitle: occurrences that happened in the period",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportPlannedCount": "{count, plural, one {1 planned} other {{count} planned}}",
+  "@reportPlannedCount": {
+    "description": "Report band subtitle of a future period: occurrences planned in it",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportCaptionNothing": "Nothing happened",
+  "@reportCaptionNothing": {
+    "description": "Caption under the report's tiles when the period holds no occurrence, shown after the period's name and a dot (\"October 2026 · Nothing happened\")"
+  },
+  "reportDeltaMore": "{delta} more than {period}",
+  "@reportDeltaMore": {
+    "description": "Screen reader wording of a report tile's change against the previous period, when it grew",
+    "placeholders": {
+      "delta": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportDeltaLess": "{delta} less than {period}",
+  "@reportDeltaLess": {
+    "description": "Screen reader wording of a report tile's change against the previous period, when it shrank",
+    "placeholders": {
+      "delta": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportDeltaSame": "same as {period}",
+  "@reportDeltaSame": {
+    "description": "Screen reader wording of a report tile that did not change against the previous period",
+    "placeholders": {
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTileNone": "none",
+  "@reportTileNone": {
+    "description": "Screen reader wording of a report tile that has nothing in the period (drawn as a dash)"
+  },
+  "reportPeriodLastWeek": "Last week",
+  "@reportPeriodLastWeek": {
+    "description": "Report Period menu item: the calendar week before this one"
+  },
+  "reportPeriodNextWeek": "Next week",
+  "@reportPeriodNextWeek": {
+    "description": "Report Period menu item: the calendar week after this one"
+  },
+  "reportPeriodLastMonth": "Last month",
+  "@reportPeriodLastMonth": {
+    "description": "Report Period menu item: the calendar month before this one"
+  },
+  "reportPeriodNextMonth": "Next month",
+  "@reportPeriodNextMonth": {
+    "description": "Report Period menu item: the calendar month after this one"
+  },
+  "reportShowAsList": "Show as list",
+  "@reportShowAsList": {
+    "description": "Report footer row opening the overview's list on the report's period and categories"
+  },
+  "reportShare": "Share report",
+  "@reportShare": {
+    "description": "Report footer row sharing the report as text"
+  },
+  "reportSendWeekly": "Send me this report weekly",
+  "@reportSendWeekly": {
+    "description": "Report footer row on a week period, setting up a weekly notification with this report"
+  },
+  "reportSendMonthly": "Send me this report monthly",
+  "@reportSendMonthly": {
+    "description": "Report footer row on a month or longer period, setting up a monthly notification with this report"
+  },
+  "reportLegendHappened": "Happened",
+  "@reportLegendHappened": {
+    "description": "Legend item of the report's Over time chart for the occurrences that took place; the other item reuses reportTileMissed"
+  },
+  "reportTrendBusiest": "Most on {weekday}",
+  "@reportTrendBusiest": {
+    "description": "Caption under the report's Over time chart naming the weekday with the most occurrences, e.g. Most on Monday",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTrendUsual": "usually {from} – {to}",
+  "@reportTrendUsual": {
+    "description": "Part of the caption under the report's Over time chart: the usual start and end time of the timed occurrences, e.g. usually 18:00 – 19:30",
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTrendUsualAt": "usually at {time}",
+  "@reportTrendUsualAt": {
+    "description": "Part of the caption under the report's Over time chart when the occurrences have a usual start time but no duration, e.g. usually at 18:00",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTrendPeak": "Peak {peak} on {date}",
+  "@reportTrendPeak": {
+    "description": "Spoken summary of the report's Over time chart when it has no caption: the tallest column's count and the day, week or month it covers, e.g. Peak 2 on Monday, October 5",
+    "placeholders": {
+      "peak": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTrendSpoken": "Over time. {summary}",
+  "@reportTrendSpoken": {
+    "description": "What a screen reader hears for the report's Over time chart: the section name, then the chart's caption or its peak",
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTrendPeakWeek": "Peak {peak} in the week of {date}",
+  "@reportTrendPeakWeek": {
+    "description": "Spoken summary of the report's Over time chart with one column per week and no caption: the tallest column's count and the first day of its week, e.g. Peak 4 in the week of October 5",
+    "placeholders": {
+      "peak": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTrendPeakMonth": "Peak {peak} in {month}",
+  "@reportTrendPeakMonth": {
+    "description": "Spoken summary of the report's Over time chart with one column per month and no caption: the tallest column's count and its month, e.g. Peak 12 in October 2026",
+    "placeholders": {
+      "peak": {
+        "type": "String"
+      },
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "reportOfTotalOnly": "of {total}",
+  "@reportOfTotalOnly": {
+    "description": "Start of a report stat tile's detail line when the tiles are too narrow for '21 of 24' in the value: the whole the large figure is a part of, e.g. of 24 · 88 %",
+    "placeholders": {
+      "total": {
         "type": "String"
       }
     }

@@ -4802,6 +4802,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get overviewPeriod => 'Period';
 
   @override
+  String get overviewPeriodThisWeek => 'This week';
+
+  @override
+  String get overviewPeriodThisMonth => 'This month';
+
+  @override
   String get overviewPeriodLast12Months => 'Last 12 months';
 
   @override
@@ -6715,5 +6721,211 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String calendarGuideFastingHideBody(String fasting, String apply) {
     return 'In the funnel, turn off “$fasting” and tap “$apply”: the fast days leave the grid and the panel until you turn it on again.';
+  }
+
+  @override
+  String get reportTitle => 'Report';
+
+  @override
+  String get reportSectionTotals => 'Totals';
+
+  @override
+  String get reportSectionOverTime => 'Over time';
+
+  @override
+  String get reportSectionMissed => 'Missed';
+
+  @override
+  String get reportSectionAhead => 'Ahead';
+
+  @override
+  String get reportTileEvents => 'Events';
+
+  @override
+  String get reportTileAttended => 'Attended';
+
+  @override
+  String get reportTileMissed => 'Missed';
+
+  @override
+  String get reportTileHours => 'Hours';
+
+  @override
+  String get reportTileTasks => 'Tasks';
+
+  @override
+  String get reportTilePlanned => 'Planned';
+
+  @override
+  String reportOfTotal(String value, String total) {
+    return '$value of $total';
+  }
+
+  @override
+  String reportTasksOpen(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count open',
+      one: '1 open',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportPercent(String percent) {
+    return '$percent %';
+  }
+
+  @override
+  String reportPercentSpoken(String percent) {
+    return '$percent percent';
+  }
+
+  @override
+  String reportHours(String hours) {
+    return '$hours h';
+  }
+
+  @override
+  String reportCaptionTo(String date) {
+    return 'To $date';
+  }
+
+  @override
+  String reportCaptionAgainst(String period) {
+    return 'against $period';
+  }
+
+  @override
+  String reportSkippedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count skipped',
+      one: '1 skipped',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportAheadCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ahead',
+      one: '1 ahead',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events',
+      one: '1 event',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportPlannedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count planned',
+      one: '1 planned',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportCaptionNothing => 'Nothing happened';
+
+  @override
+  String reportDeltaMore(String delta, String period) {
+    return '$delta more than $period';
+  }
+
+  @override
+  String reportDeltaLess(String delta, String period) {
+    return '$delta less than $period';
+  }
+
+  @override
+  String reportDeltaSame(String period) {
+    return 'same as $period';
+  }
+
+  @override
+  String get reportTileNone => 'none';
+
+  @override
+  String get reportPeriodLastWeek => 'Last week';
+
+  @override
+  String get reportPeriodNextWeek => 'Next week';
+
+  @override
+  String get reportPeriodLastMonth => 'Last month';
+
+  @override
+  String get reportPeriodNextMonth => 'Next month';
+
+  @override
+  String get reportShowAsList => 'Show as list';
+
+  @override
+  String get reportShare => 'Share report';
+
+  @override
+  String get reportSendWeekly => 'Send me this report weekly';
+
+  @override
+  String get reportSendMonthly => 'Send me this report monthly';
+
+  @override
+  String get reportLegendHappened => 'Happened';
+
+  @override
+  String reportTrendBusiest(String weekday) {
+    return 'Most on $weekday';
+  }
+
+  @override
+  String reportTrendUsual(String from, String to) {
+    return 'usually $from – $to';
+  }
+
+  @override
+  String reportTrendUsualAt(String time) {
+    return 'usually at $time';
+  }
+
+  @override
+  String reportTrendPeak(String peak, String date) {
+    return 'Peak $peak on $date';
+  }
+
+  @override
+  String reportTrendSpoken(String summary) {
+    return 'Over time. $summary';
+  }
+
+  @override
+  String reportTrendPeakWeek(String peak, String date) {
+    return 'Peak $peak in the week of $date';
+  }
+
+  @override
+  String reportTrendPeakMonth(String peak, String month) {
+    return 'Peak $peak in $month';
+  }
+
+  @override
+  String reportOfTotalOnly(String total) {
+    return 'of $total';
   }
 }

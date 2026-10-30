@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:anta/constants/calendar_bounds.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 
@@ -18,6 +21,7 @@ void main() {
   final today = DateTime.utc(2026, 10, 11);
   const bounds = (first: 2019, last: 2030);
   final en = lookupAppLocalizations(const Locale('en'));
+  const monday = CalendarWeekStart.monday;
 
   group('resolve', () {
     test('a year is January 1 to December 31', () {
@@ -166,11 +170,19 @@ void main() {
     test('fromChoice round-trips every preset row through menuChoice', () {
       for (final choice in OverviewPeriodChoice.values) {
         if (choice == OverviewPeriodChoice.custom) continue;
-        final period = OverviewPeriod.fromChoice(choice, today: today);
+        final period = OverviewPeriod.fromChoice(
+          choice,
+          today: today,
+          weekStart: monday,
+        );
         expect(period.menuChoice(today: today), choice);
       }
       expect(
-        OverviewPeriod.fromChoice(OverviewPeriodChoice.thisYear, today: today),
+        OverviewPeriod.fromChoice(
+          OverviewPeriodChoice.thisYear,
+          today: today,
+          weekStart: monday,
+        ),
         const OverviewYearPeriod(2026),
       );
     });
@@ -180,6 +192,7 @@ void main() {
         () => OverviewPeriod.fromChoice(
           OverviewPeriodChoice.custom,
           today: today,
+          weekStart: monday,
         ),
         throwsArgumentError,
       );
@@ -206,7 +219,11 @@ void main() {
           OverviewRollingPeriod(preset),
       ]) {
         expect(
-          OverviewPeriod.decode(period.encode(today: today), today: today),
+          OverviewPeriod.decode(
+            period.encode(today: today),
+            today: today,
+            weekStart: monday,
+          ),
           period,
         );
       }
@@ -222,7 +239,7 @@ void main() {
         'garbage',
       ]) {
         expect(
-          OverviewPeriod.decode(value, today: today),
+          OverviewPeriod.decode(value, today: today, weekStart: monday),
           const OverviewYearPeriod(2026),
           reason: '$value',
         );
@@ -430,6 +447,373 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  // October 11, 2026 is a Sunday.
+  group('this week and this month (S0)', () {
+    const sunday = CalendarWeekStart.sunday;
+    const saturday = CalendarWeekStart.saturday;
+    final thisWeek = OverviewWeekPeriod(DateTime.utc(2026, 10, 5));
+    const october = OverviewMonthPeriod(2026, 10);
+
+    OverviewPeriod? step(OverviewPeriod period, int direction) =>
+        period.stepped(direction: direction, today: today, yearBounds: bounds);
+
+    test('this week starts on the calendar week start', () {
+      // A Sunday under a Monday start belongs to the Monday before it.
+      expect(
+        OverviewPeriod.thisWeek(today: today, weekStart: monday),
+        thisWeek,
+      );
+      expect(
+        OverviewPeriod.thisWeek(today: today, weekStart: sunday),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 11)),
+      );
+      expect(
+        OverviewPeriod.thisWeek(today: today, weekStart: saturday),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 10)),
+      );
+      expect(
+        OverviewPeriod.thisWeek(
+          today: DateTime.utc(2026, 10, 12),
+          weekStart: monday,
+        ),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 12)),
+      );
+      expect(
+        OverviewPeriod.thisWeek(
+          today: DateTime(2026, 10, 11, 23, 30),
+          weekStart: monday,
+        ),
+        thisWeek,
+      );
+      expect(OverviewPeriod.thisMonth(today: today), october);
+    });
+
+    test('a week resolves to seven days, a month to its own length', () {
+      expect(thisWeek.resolve(today: today, yearBounds: bounds), (
+        start: DateTime.utc(2026, 10, 5),
+        end: DateTime.utc(2026, 10, 11),
+      ));
+      expect(
+        OverviewWeekPeriod(
+          DateTime.utc(2026, 12, 28),
+        ).resolve(today: today, yearBounds: bounds),
+        (start: DateTime.utc(2026, 12, 28), end: DateTime.utc(2027, 1, 3)),
+      );
+      expect(october.resolve(today: today, yearBounds: bounds), (
+        start: DateTime.utc(2026, 10, 1),
+        end: DateTime.utc(2026, 10, 31),
+      ));
+      expect(
+        const OverviewMonthPeriod(
+          2028,
+          2,
+        ).resolve(today: today, yearBounds: bounds),
+        (start: DateTime.utc(2028, 2, 1), end: DateTime.utc(2028, 2, 29)),
+      );
+      expect(
+        const OverviewMonthPeriod(
+          2026,
+          2,
+        ).resolve(today: today, yearBounds: bounds),
+        (start: DateTime.utc(2026, 2, 1), end: DateTime.utc(2026, 2, 28)),
+      );
+    });
+
+    test('a week across a DST change still ends on its seventh day', () {
+      // Europe's clocks move on Sunday, March 29, 2026.
+      final week = OverviewWeekPeriod(DateTime.utc(2026, 3, 23));
+      expect(week.end, DateTime.utc(2026, 3, 29));
+      expect(week.end.isUtc, isTrue);
+      expect(step(week, 1), OverviewWeekPeriod(DateTime.utc(2026, 3, 30)));
+    });
+
+    test('a week steps by seven days, a month to its calendar neighbour', () {
+      expect(step(thisWeek, -1), OverviewWeekPeriod(DateTime.utc(2026, 9, 28)));
+      expect(step(thisWeek, 1), OverviewWeekPeriod(DateTime.utc(2026, 10, 12)));
+      expect(
+        step(OverviewWeekPeriod(DateTime.utc(2026, 12, 28)), 1),
+        OverviewWeekPeriod(DateTime.utc(2027, 1, 4)),
+      );
+      expect(step(october, -1), const OverviewMonthPeriod(2026, 9));
+      expect(step(october, 1), const OverviewMonthPeriod(2026, 11));
+      expect(
+        step(const OverviewMonthPeriod(2026, 12), 1),
+        const OverviewMonthPeriod(2027, 1),
+      );
+      expect(
+        step(const OverviewMonthPeriod(2027, 1), -1),
+        const OverviewMonthPeriod(2026, 12),
+      );
+    });
+
+    test('last month is the whole month before, never a length back', () {
+      expect(step(october, -1)!.resolve(today: today, yearBounds: bounds), (
+        start: DateTime.utc(2026, 9, 1),
+        end: DateTime.utc(2026, 9, 30),
+      ));
+      expect(
+        step(step(october, -1)!, -1)!.resolve(today: today, yearBounds: bounds),
+        (start: DateTime.utc(2026, 8, 1), end: DateTime.utc(2026, 8, 31)),
+      );
+    });
+
+    test('a week or month step wholly outside the year bounds is none', () {
+      expect(step(const OverviewMonthPeriod(2019, 1), -1), isNull);
+      expect(step(const OverviewMonthPeriod(2030, 12), 1), isNull);
+      expect(step(OverviewWeekPeriod(DateTime.utc(2019, 1, 1)), -1), isNull);
+      // December 23 + 7 still reaches into 2030.
+      expect(
+        step(OverviewWeekPeriod(DateTime.utc(2030, 12, 23)), 1),
+        OverviewWeekPeriod(DateTime.utc(2030, 12, 30)),
+      );
+      expect(step(OverviewWeekPeriod(DateTime.utc(2030, 12, 30)), 1), isNull);
+    });
+
+    test('menuChoice checks This week or This month only for today', () {
+      expect(thisWeek.menuChoice(today: today), OverviewPeriodChoice.thisWeek);
+      expect(
+        step(thisWeek, -1)!.menuChoice(today: today),
+        OverviewPeriodChoice.custom,
+      );
+      expect(october.menuChoice(today: today), OverviewPeriodChoice.thisMonth);
+      expect(
+        const OverviewMonthPeriod(2026, 9).menuChoice(today: today),
+        OverviewPeriodChoice.custom,
+      );
+      expect(
+        const OverviewMonthPeriod(2025, 10).menuChoice(today: today),
+        OverviewPeriodChoice.custom,
+      );
+    });
+
+    test('menuValue names a week by its span and a month by its name', () {
+      expect(thisWeek.menuValue(en), 'Oct 5 – Oct 11, 2026');
+      expect(
+        OverviewWeekPeriod(DateTime.utc(2026, 12, 28)).menuValue(en),
+        'Dec 28, 2026 – Jan 3, 2027',
+      );
+      expect(october.menuValue(en), 'October 2026');
+      expect(
+        october.menuValue(lookupAppLocalizations(const Locale('de'))),
+        'Oktober 2026',
+      );
+    });
+
+    test('this week and this month are stored; a paged one is not', () {
+      expect(thisWeek.encode(today: today), 'thisWeek');
+      expect(october.encode(today: today), 'thisMonth');
+      expect(step(thisWeek, 1)!.encode(today: today), isNull);
+      expect(const OverviewMonthPeriod(2026, 9).encode(today: today), isNull);
+      expect(const OverviewMonthPeriod(2025, 10).encode(today: today), isNull);
+      expect(
+        OverviewPeriod.decode('thisWeek', today: today, weekStart: monday),
+        thisWeek,
+      );
+      expect(
+        OverviewPeriod.decode('thisMonth', today: today, weekStart: monday),
+        october,
+      );
+    });
+
+    test('a stored this week starts on the week start read now', () {
+      for (final weekStart in CalendarWeekStart.values) {
+        final period = OverviewPeriod.thisWeek(
+          today: today,
+          weekStart: weekStart,
+        );
+        expect(
+          OverviewPeriod.decode(
+            period.encode(today: today),
+            today: today,
+            weekStart: weekStart,
+          ),
+          period,
+          reason: weekStart.name,
+        );
+      }
+      expect(
+        OverviewPeriod.decode('thisWeek', today: today, weekStart: sunday),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 11)),
+      );
+      expect(
+        OverviewPeriod.decode('thisWeek', today: today, weekStart: saturday),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 10)),
+      );
+    });
+
+    test('fromChoice reads the week start for This week alone', () {
+      expect(
+        OverviewPeriod.fromChoice(
+          OverviewPeriodChoice.thisWeek,
+          today: today,
+          weekStart: sunday,
+        ),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 11)),
+      );
+      expect(
+        OverviewPeriod.fromChoice(
+          OverviewPeriodChoice.thisMonth,
+          today: today,
+          weekStart: sunday,
+        ),
+        october,
+      );
+    });
+
+    test('across midnight This week and This month move on; a paged one '
+        'stays', () {
+      // Sunday to Monday: the next week.
+      expect(
+        thisWeek.followingToday(
+          before: today,
+          today: DateTime.utc(2026, 10, 12),
+        ),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 12)),
+      );
+      // A page left open for sixteen days lands on the week holding today.
+      expect(
+        thisWeek.followingToday(
+          before: today,
+          today: DateTime.utc(2026, 10, 27),
+        ),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 26)),
+      );
+      // Within the week nothing moves.
+      expect(
+        thisWeek.followingToday(
+          before: DateTime.utc(2026, 10, 6),
+          today: DateTime.utc(2026, 10, 7),
+        ),
+        thisWeek,
+      );
+      final lastWeek = step(thisWeek, -1)!;
+      expect(
+        lastWeek.followingToday(
+          before: today,
+          today: DateTime.utc(2026, 10, 12),
+        ),
+        lastWeek,
+      );
+      expect(
+        october.followingToday(
+          before: DateTime.utc(2026, 10, 31),
+          today: DateTime.utc(2026, 11, 1),
+        ),
+        const OverviewMonthPeriod(2026, 11),
+      );
+      expect(
+        const OverviewMonthPeriod(2026, 12).followingToday(
+          before: DateTime.utc(2026, 12, 31),
+          today: DateTime.utc(2027, 1, 1),
+        ),
+        const OverviewMonthPeriod(2027, 1),
+      );
+      expect(
+        const OverviewMonthPeriod(2026, 9).followingToday(
+          before: DateTime.utc(2026, 10, 31),
+          today: DateTime.utc(2026, 11, 1),
+        ),
+        const OverviewMonthPeriod(2026, 9),
+      );
+    });
+
+    test('a week or month step past the calendar bounds is none', () {
+      const wide = (first: 1800, last: 2200);
+      OverviewPeriod? stepWide(OverviewPeriod period, int direction) =>
+          period.stepped(direction: direction, today: today, yearBounds: wide);
+
+      // January 1, 1900 is a Monday; December 27, 2100 is a Monday.
+      expect(
+        stepWide(OverviewWeekPeriod(DateTime.utc(1900, 1, 1)), -1),
+        isNull,
+      );
+      expect(
+        stepWide(OverviewWeekPeriod(DateTime.utc(1900, 1, 1)), 1),
+        OverviewWeekPeriod(DateTime.utc(1900, 1, 8)),
+      );
+      expect(
+        stepWide(OverviewWeekPeriod(DateTime.utc(2100, 12, 27)), 1),
+        isNull,
+      );
+      expect(stepWide(const OverviewMonthPeriod(1900, 1), -1), isNull);
+      expect(
+        stepWide(const OverviewMonthPeriod(1900, 1), 1),
+        const OverviewMonthPeriod(1900, 2),
+      );
+      expect(stepWide(const OverviewMonthPeriod(2100, 12), 1), isNull);
+      // A Sunday-start week over New Year 1900 reaches into the calendar.
+      expect(
+        stepWide(OverviewWeekPeriod(DateTime.utc(1900, 1, 7)), -1),
+        OverviewWeekPeriod(DateTime.utc(1899, 12, 31)),
+      );
+    });
+
+    test('a week over the calendar bounds is titled by the days it lists', () {
+      final first = OverviewWeekPeriod(DateTime.utc(1899, 12, 31));
+      expect(first.resolve(today: today, yearBounds: bounds), (
+        start: CalendarBounds.earliest,
+        end: DateTime.utc(1900, 1, 6),
+      ));
+      expect(first.menuValue(en), 'Jan 1 – Jan 6, 1900');
+      expect(
+        OverviewWeekPeriod(DateTime.utc(2100, 12, 27)).menuValue(en),
+        'Dec 27 – Dec 31, 2100',
+      );
+    });
+
+    test('a clock moved back a day moves This week, This month and This year '
+        'back with it', () {
+      // From Monday, October 5 back to Sunday, October 4.
+      expect(
+        thisWeek.followingToday(
+          before: DateTime.utc(2026, 10, 5),
+          today: DateTime.utc(2026, 10, 4),
+        ),
+        OverviewWeekPeriod(DateTime.utc(2026, 9, 28)),
+      );
+      expect(
+        october.followingToday(
+          before: DateTime.utc(2026, 10, 1),
+          today: DateTime.utc(2026, 9, 30),
+        ),
+        const OverviewMonthPeriod(2026, 9),
+      );
+      expect(
+        const OverviewYearPeriod(2027).followingToday(
+          before: DateTime.utc(2027, 1, 1),
+          today: DateTime.utc(2026, 12, 31),
+        ),
+        const OverviewYearPeriod(2026),
+      );
+    });
+
+    test('weeks and months compare by value', () {
+      expect(
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 5)),
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 5)),
+      );
+      expect(october, isNot(const OverviewMonthPeriod(2025, 10)));
+      expect(
+        october,
+        isNot(
+          OverviewCustomPeriod(
+            DateTime.utc(2026, 10, 1),
+            DateTime.utc(2026, 10, 31),
+          ),
+        ),
+      );
+    });
+
+    test('the model reads no wall clock', () {
+      // Doc comments may name the wall clock; code may not read it.
+      final code = File('lib/models/overview_period.dart')
+          .readAsLinesSync()
+          .where((line) => !line.trimLeft().startsWith('///'))
+          .join('\n');
+      expect(code, isNot(contains('DateTime.now')));
     });
   });
 

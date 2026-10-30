@@ -100,6 +100,7 @@ abstract final class SemanticsIds {
   static const String calendarViewMenu = 'calendar-view-menu';
   static const String calendarViewCalendar = 'calendar-view-calendar';
   static const String calendarOverviewOpen = 'calendar-overview-open';
+  static const String calendarReportOpen = 'calendar-report-open';
   static const String calendarFormatMonth = 'calendar-format-month';
   static const String calendarFormatTwoWeeks = 'calendar-format-two-weeks';
   static const String calendarFormatWeek = 'calendar-format-week';
@@ -625,6 +626,8 @@ abstract final class SemanticsIds {
   static const String overviewMissedOnly = 'overview-missed-only';
   static const String overviewSearch = 'overview-search';
   static const String overviewCategories = 'overview-categories';
+  static const String overviewPeriodThisWeek = 'overview-period-this-week';
+  static const String overviewPeriodThisMonth = 'overview-period-this-month';
   static const String overviewPeriodThisYear = 'overview-period-this-year';
   static const String overviewPeriodLast12Months =
       'overview-period-last-12-months';
@@ -791,6 +794,38 @@ abstract final class SemanticsIds {
   static const String timePadAm = 'time-pad-am';
   static const String timePadPm = 'time-pad-pm';
   static String timePadDigit(int digit) => 'time-pad-digit-$digit';
+
+  /// The calendar report (`docs/calendar-report-roadmap.md` §4.8): the bar's
+  /// Categories button and ⋮, the band's nav, the Period menu's rows, the
+  /// body, the Totals tiles and the footer rows.
+  static const String reportCategoriesOpen = 'report-categories-open';
+  static const String reportMore = 'report-more';
+  static const String reportNavPrevious = 'report-nav-previous';
+  static const String reportNavNext = 'report-nav-next';
+  static const String reportNavToday = 'report-nav-today';
+  static const String reportNavTitle = 'report-nav-title';
+  static const String reportPeriodThisWeek = 'report-period-this-week';
+  static const String reportPeriodLastWeek = 'report-period-last-week';
+  static const String reportPeriodNextWeek = 'report-period-next-week';
+  static const String reportPeriodThisMonth = 'report-period-this-month';
+  static const String reportPeriodLastMonth = 'report-period-last-month';
+  static const String reportPeriodNextMonth = 'report-period-next-month';
+  static const String reportPeriodThisYear = 'report-period-this-year';
+  static const String reportPeriodLast12Months =
+      'report-period-last-12-months';
+  static const String reportPeriodLast90Days = 'report-period-last-90-days';
+  static const String reportPeriodCustom = 'report-period-custom';
+  static const String reportBody = 'report-body';
+
+  /// A Totals tile, by its `ReportTile` name: `report-tile-events`,
+  /// `-attended`, `-missed`, `-hours`, `-tasks`, `-planned`.
+  static String reportTile(String tile) => 'report-tile-$tile';
+
+  /// The Over time card, one node with the chart's spoken summary.
+  static const String reportTrend = 'report-trend';
+  static const String reportShowList = 'report-show-list';
+  static const String reportShare = 'report-share';
+  static const String reportSend = 'report-send';
 
   static const String permissionsPromptContinue = 'permissions-prompt-continue';
   static const String permissionsPromptNotNow = 'permissions-prompt-not-now';

@@ -10,6 +10,7 @@ import '../models/recurrence_rule.dart';
 import '../models/upcoming_agenda_filters.dart';
 import 'event_query_matcher.dart';
 import 'event_search_query.dart';
+import 'within_day_order.dart';
 
 /// One dated occurrence of a [CalendarEvent] inside an agenda range.
 ///
@@ -946,28 +947,11 @@ abstract final class EventAgenda {
     return (start, requestedEnd.isAfter(maxEnd) ? maxEnd : requestedEnd);
   }
 
-  /// Ordering of two events falling on the same day: higher priority first —
-  /// P1 before P5, so **ascending** on the stored number (matching the
-  /// day-cell bar stack) — then all-day before timed, then by start time,
-  /// then by title so the order is stable across rebuilds.
-  ///
-  /// The **single comparator** for same-day event order — the agenda sorts
-  /// occurrences with it and `EventSummaryProvider` emits day-panel entries
-  /// through it, so the two surfaces cannot disagree.
-  static int compareWithinDay(CalendarEvent a, CalendarEvent b) {
-    final byPriority = a.priority.compareTo(b.priority);
-    if (byPriority != 0) return byPriority;
-    final aTime = a.time;
-    final bTime = b.time;
-    if (aTime == null && bTime != null) return -1;
-    if (aTime != null && bTime == null) return 1;
-    if (aTime != null && bTime != null) {
-      final byStart = aTime.startMinute.compareTo(bTime.startMinute);
-      if (byStart != 0) return byStart;
-    }
-    final byTitle = a.titleFold.compareTo(b.titleFold);
-    return byTitle != 0 ? byTitle : a.id.compareTo(b.id);
-  }
+  /// Stays the one same-day order every surface sorts with; the body lives
+  /// in `within_day_order.dart` ([compareEventsWithinDay]) so a pure fold
+  /// can share it without importing the agenda.
+  static int compareWithinDay(CalendarEvent a, CalendarEvent b) =>
+      compareEventsWithinDay(a, b);
 
   /// Date-only UTC normalization, matching `CalendarBloc._dateOnly`.
   static DateTime dateOnly(DateTime date) =>

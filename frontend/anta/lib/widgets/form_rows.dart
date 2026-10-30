@@ -2047,6 +2047,207 @@ class FormActionRow extends FormDividedRow {
   }
 }
 
+/// `[leading] label / caption / ▬▬▬──── [trailing]` — a row that shows a
+/// thing's share of a total beside its name: the report's category headers,
+/// where the meter says how this category compares with the busiest one and
+/// the caption carries the numbers.
+///
+/// The caption shrinks to fit one line inside a box of its one-line height
+/// (`AgendaPeriodNav`'s count rule) instead of truncating or wrapping, so a
+/// refold that lengthens the numbers never changes the row's height under
+/// the finger. The meter is drawn only when [fraction] is set; a fill above
+/// zero is never thinner than it is tall, so a sliver of a share still
+/// shows, and zero draws the bare track.
+///
+/// One node: the row's words are spelled out in [semanticsLabel] (the
+/// caption's figures read badly aloud), with [expanded] for a row that
+/// folds what is under it.
+class FormMeterRow extends FormDividedRow {
+  /// A 40 dp widget — an `EventAvatar` — in the title row's leading box.
+  final Widget leading;
+  final String label;
+
+  /// The row's numbers, on one line that shrinks rather than cuts.
+  final String? caption;
+
+  /// The share the meter fills, clamped to 0 to 1, a non-finite value read
+  /// as 0; null draws no meter.
+  final double? fraction;
+
+  /// The fill's colour; the scheme's `primary` when null.
+  final Color? meterColor;
+
+  /// A trailing glyph — the fold chevron — after [FormMetrics.gap].
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  /// What a screen reader hears; [label] when null.
+  final String? semanticsLabel;
+
+  /// Whether what the row folds is open; null for a row that folds nothing.
+  final bool? expanded;
+  final String? identifier;
+
+  const FormMeterRow({
+    super.key,
+    required this.leading,
+    required this.label,
+    this.caption,
+    this.fraction,
+    this.meterColor,
+    this.trailing,
+    required this.onTap,
+    this.semanticsLabel,
+    this.expanded,
+    this.identifier,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final scaler = MediaQuery.textScalerOf(context);
+    final captionText = caption;
+    final share = fraction;
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: FormMetrics.labelSize,
+            height: FormMetrics.labelLineHeight / FormMetrics.labelSize,
+            fontWeight: FontWeight.w500,
+            color: colorScheme.onSurface,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (captionText != null)
+          SizedBox(
+            height: scaler.scale(FormMetrics.captionLineHeight),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                captionText,
+                style: TextStyle(
+                  fontSize: FormMetrics.captionSize,
+                  height:
+                      FormMetrics.captionLineHeight / FormMetrics.captionSize,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                maxLines: 1,
+                softWrap: false,
+              ),
+            ),
+          ),
+        if (share != null) ...[
+          const SizedBox(height: FormMetrics.meterGap),
+          _FormMeter(
+            fraction: share,
+            color: meterColor ?? colorScheme.primary,
+            track: colorScheme.rowDivider,
+          ),
+        ],
+      ],
+    );
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(
+        minHeight: FormMetrics.twoLineRowMinHeight,
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: RowMetrics.groupInset,
+          right: FormMetrics.rowEndPadding,
+          top: RowMetrics.twoLinePadding.top,
+          bottom: RowMetrics.twoLinePadding.bottom,
+        ),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: FormMetrics.rowLeadingSize,
+              child: Center(child: leading),
+            ),
+            const SizedBox(width: FormMetrics.gap),
+            Expanded(child: text),
+            if (trailing case final end?) ...[
+              const SizedBox(width: FormMetrics.gap),
+              end,
+            ],
+          ],
+        ),
+      ),
+    );
+    return Semantics(
+      container: true,
+      button: onTap != null,
+      expanded: expanded,
+      label: semanticsLabel ?? label,
+      identifier: identifier,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: InkWell(onTap: onTap, child: row),
+      ),
+    );
+  }
+}
+
+/// [FormMeterRow]'s track and fill, sized to the text column's width.
+class _FormMeter extends StatelessWidget {
+  const _FormMeter({
+    required this.fraction,
+    required this.color,
+    required this.track,
+  });
+
+  final double fraction;
+  final Color color;
+  final Color track;
+
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(FormMetrics.meterHeight / 2),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: FormMetrics.meterHeight,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          // A share of an empty total (0 / 0) arrives as NaN: nothing to fill.
+          final share = fraction.isFinite ? fraction.clamp(0.0, 1.0) : 0.0;
+          return DecoratedBox(
+            decoration: BoxDecoration(color: track, borderRadius: _radius),
+            child: share <= 0
+                ? const SizedBox.expand()
+                : Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: SizedBox(
+                      width: math.min(
+                        width,
+                        math.max(FormMetrics.meterHeight, share * width),
+                      ),
+                      height: FormMetrics.meterHeight,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: _radius,
+                        ),
+                      ),
+                    ),
+                  ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// `label … [−] value [+]` — a small number stepped one at a time: the
 /// Repeat sheet's interval, a custom alert offset.
 ///

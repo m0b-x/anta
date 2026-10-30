@@ -4,8 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
+import 'package:anta/models/overview_view.dart';
 import 'package:anta/services/overview_view_service.dart';
 
 import '../database/support/db_test_support.dart';
@@ -42,6 +44,20 @@ void main() {
     );
     return view!.id;
   }
+
+  /// [OverviewViewService.matching] on a fixed day; none of the periods
+  /// below rolls, so the day only has to be one.
+  OverviewView? match(
+    OverviewPeriod period,
+    OverviewListOptions options,
+    Set<String> categoryIds,
+  ) => service.matching(
+    period,
+    options,
+    categoryIds,
+    today: DateTime(2026, 10, 14),
+    weekStart: CalendarWeekStart.monday,
+  );
 
   setUp(() async {
     OverviewViewService.reset();
@@ -85,30 +101,22 @@ void main() {
         DateTime.utc(2026, 1, 1),
         DateTime.utc(2026, 3, 31),
       );
-      expect(service.matching(sameSpan, perEvent, {'gym'})?.name, 'Q1 gym');
+      expect(match(sameSpan, perEvent, {'gym'})?.name, 'Q1 gym');
     });
 
     test('each part decides', () async {
       await save('Q1 gym');
 
+      expect(match(const OverviewYearPeriod(2026), perEvent, {'gym'}), isNull);
+      expect(match(q1, perEvent.copyWith(missedOnly: false), {'gym'}), isNull);
       expect(
-        service.matching(const OverviewYearPeriod(2026), perEvent, {'gym'}),
+        match(q1, perEvent.copyWith(rows: OverviewRows.everyOccurrence), {
+          'gym',
+        }),
         isNull,
       );
-      expect(
-        service.matching(q1, perEvent.copyWith(missedOnly: false), {'gym'}),
-        isNull,
-      );
-      expect(
-        service.matching(
-          q1,
-          perEvent.copyWith(rows: OverviewRows.everyOccurrence),
-          {'gym'},
-        ),
-        isNull,
-      );
-      expect(service.matching(q1, perEvent, const {}), isNull);
-      expect(service.matching(q1, perEvent, {'gym', 'work'}), isNull);
+      expect(match(q1, perEvent, const {}), isNull);
+      expect(match(q1, perEvent, {'gym', 'work'}), isNull);
     });
   });
 
@@ -220,7 +228,7 @@ void main() {
     await service.delete(id);
 
     expect(service.views, isEmpty);
-    expect(service.matching(q1, perEvent, {'gym'}), isNull);
+    expect(match(q1, perEvent, {'gym'}), isNull);
     final rows = await db
         .customSelect('SELECT is_deleted, version FROM overview_views')
         .get();
@@ -255,6 +263,74 @@ void main() {
     addTearDown(other.close);
     final rebound = await OverviewViewService.forTesting(other);
     expect(identical(rebound, service), isFalse);
+  });
+
+  // October 14, 2026 is a Wednesday: its week starts on Sunday the 11th or
+  // on Monday the 12th.
+  group('the week start', () {
+    final wednesday = DateTime(2026, 10, 14);
+
+    Future<void> saveThisWeek() async {
+      service.clock = () => wednesday;
+      await service.create(
+        name: 'This week',
+        period: OverviewPeriod.thisWeek(
+          today: wednesday,
+          weekStart: CalendarWeekStart.monday,
+        ),
+        options: OverviewListOptions.defaults,
+        categoryIds: const {},
+      );
+    }
+
+    Future<OverviewViewService> rebind({
+      CalendarWeekStart weekStart = CalendarWeekStart.monday,
+      Future<CalendarWeekStart> Function()? weekStartReader,
+    }) async {
+      OverviewViewService.reset();
+      final rebound = await OverviewViewService.forTesting(
+        db,
+        weekStart: weekStart,
+        weekStartReader: weekStartReader,
+      );
+      rebound.clock = () => wednesday;
+      await rebound.reload();
+      return rebound;
+    }
+
+    test(
+      'a view saved on this week decodes onto the week start read',
+      () async {
+        await saveThisWeek();
+
+        final sundays = await rebind(weekStart: CalendarWeekStart.sunday);
+        expect(
+          sundays.views.single.period,
+          OverviewWeekPeriod(DateTime.utc(2026, 10, 11)),
+        );
+        expect(sundays.views.single.rollsWithToday, isTrue);
+
+        final mondays = await rebind();
+        expect(
+          mondays.views.single.period,
+          OverviewWeekPeriod(DateTime.utc(2026, 10, 12)),
+        );
+      },
+    );
+
+    test('a week start read that fails loads the views on Monday', () async {
+      await saveThisWeek();
+
+      final fallback = await rebind(
+        weekStart: CalendarWeekStart.sunday,
+        weekStartReader: () async => throw StateError('no settings'),
+      );
+      expect(fallback.views.single.name, 'This week');
+      expect(
+        fallback.views.single.period,
+        OverviewWeekPeriod(DateTime.utc(2026, 10, 12)),
+      );
+    });
   });
 
   group('backup', () {

@@ -9,16 +9,16 @@ import '../l10n/app_localizations.dart';
 import 'automation_id.dart';
 import 'form_menu_item.dart';
 
-/// The two pages of the calendar feature, which [CalendarViewMenu] switches
+/// The three pages of the calendar feature, which [CalendarViewMenu] switches
 /// between.
-enum CalendarViewPage { calendar, overview }
+enum CalendarViewPage { calendar, overview, report }
 
-/// The app-bar title of the calendar and the overview, as a menu: the page it
-/// names, the other page one pick away and, as a second group, how the grid
-/// is looked at rather than what it shows — Month / 2 weeks / Week — which is
-/// why it lives in no filter sheet. The overview's Year / Month / List is not
-/// here: it is that page's primary control, so it sits on the page as chips
-/// (`docs/calendar-overview-list-roadmap.md` D12).
+/// The app-bar title of the calendar, the overview and the report, as a menu:
+/// the page it names, the other two one pick away and, as a second group, how
+/// the grid is looked at rather than what it shows — Month / 2 weeks / Week —
+/// which is why it lives in no filter sheet. The overview's Year / Month /
+/// List is not here: it is that page's primary control, so it sits on the
+/// page as chips (`docs/calendar-overview-list-roadmap.md` D12).
 ///
 /// A popup route like the app's overflow menus, never a `MenuAnchor`, whose
 /// items expose no semantics nodes on iOS. Focus is dropped before the menu
@@ -50,8 +50,8 @@ class CalendarViewMenu extends StatelessWidget {
   /// checked.
   final CalendarViewPage page;
 
-  /// Called with the other page. Picking the current one only closes the
-  /// menu.
+  /// Called with the page picked, never the current one: picking that only
+  /// closes the menu.
   final ValueChanged<CalendarViewPage> onPageSelected;
 
   /// The grid's format, checked in the menu's second group. Null leaves the
@@ -77,6 +77,7 @@ class CalendarViewMenu extends StatelessWidget {
     return switch (page) {
       CalendarViewPage.calendar => l10n.calendar,
       CalendarViewPage.overview => l10n.calendarOverview,
+      CalendarViewPage.report => l10n.reportTitle,
     };
   }
 
@@ -151,6 +152,16 @@ class CalendarViewMenu extends StatelessWidget {
           icon: Icons.grid_view_rounded,
           label: _labelOf(l10n, CalendarViewPage.overview),
           checked: page == CalendarViewPage.overview,
+        ),
+      ),
+      FormMenuChoiceItem<_ViewChoice>(
+        value: const _PageChoice(CalendarViewPage.report),
+        checked: page == CalendarViewPage.report,
+        child: FormMenuItemRow(
+          identifier: SemanticsIds.calendarReportOpen,
+          icon: Icons.bar_chart_rounded,
+          label: _labelOf(l10n, CalendarViewPage.report),
+          checked: page == CalendarViewPage.report,
         ),
       ),
       if (format != null) ...[

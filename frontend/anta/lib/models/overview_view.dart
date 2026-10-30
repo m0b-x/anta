@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 
+import 'calendar_appearance.dart';
 import 'overview_list_options.dart';
 import 'overview_period.dart';
 
@@ -31,14 +32,16 @@ class OverviewView extends Equatable {
   /// `OverviewViewService.reorder`.
   final int sortOrder;
 
-  /// How the stored period was written, for a year: `true` for the rolling
-  /// "this year", `false` for a pinned number, `null` for a period the user
-  /// has just picked, which [toJson] then reads off `today` as before.
+  /// How the stored period was written, for a week, a month or a year:
+  /// `true` for the rolling "this week", "this month" or "this year",
+  /// `false` for a pinned one, `null` for a period the user has just picked,
+  /// which [toJson] then reads off `today` as before.
   ///
-  /// The one bit [OverviewYearPeriod] cannot carry, and the reason a decode
-  /// no longer loses it: a rename on a later day re-encodes the period it
-  /// decoded, and without this a view left on "this year" over New Year
-  /// pinned the old one for good (review 2).
+  /// The one bit [OverviewWeekPeriod], [OverviewMonthPeriod] and
+  /// [OverviewYearPeriod] cannot carry, and the reason a decode no longer
+  /// loses it: a rename on a later day re-encodes the period it decoded, and
+  /// without this a view left on "this year" over New Year — or on "this
+  /// week" over a Monday — pinned the old one for good (review 2).
   final bool? rollsWithToday;
 
   const OverviewView({
@@ -72,14 +75,40 @@ class OverviewView extends Equatable {
     );
   }
 
-  /// Whether the overview showing [period], [options] and [categoryIds] is
-  /// this view's list.
+  /// The period this view lists on [today] — the one live read of it.
+  ///
+  /// [period] is a snapshot taken when the view was decoded, and a view
+  /// stays decoded for as long as the service lives: a view saved on "this
+  /// week" read on Monday from Sunday's snapshot would list last week, fail
+  /// to match the This week list and, applied, persist a past week — which
+  /// clears the period key. A rolling view is re-derived from [today] by its
+  /// kind instead; a pinned one or a period just picked is [period] as is.
+  OverviewPeriod periodOn({
+    required DateTime today,
+    required CalendarWeekStart weekStart,
+  }) {
+    if (rollsWithToday != true) return period;
+    return switch (period) {
+      OverviewWeekPeriod() => OverviewPeriod.thisWeek(
+        today: today,
+        weekStart: weekStart,
+      ),
+      OverviewMonthPeriod() => OverviewPeriod.thisMonth(today: today),
+      OverviewYearPeriod() => OverviewPeriod.thisYear(today: today),
+      OverviewRollingPeriod() || OverviewCustomPeriod() => period,
+    };
+  }
+
+  /// Whether the overview showing [period], [options] and [categoryIds] on
+  /// [today] is this view's list, the view's period read through [periodOn].
   bool matches(
     OverviewPeriod period,
     OverviewListOptions options,
-    Set<String> categoryIds,
-  ) {
-    return this.period == period &&
+    Set<String> categoryIds, {
+    required DateTime today,
+    required CalendarWeekStart weekStart,
+  }) {
+    return periodOn(today: today, weekStart: weekStart) == period &&
         this.options.order == options.order &&
         this.options.rows == options.rows &&
         this.options.missedOnly == options.missedOnly &&
@@ -88,11 +117,16 @@ class OverviewView extends Equatable {
 
   static const String _period = 'period';
   static const String _kind = 'kind';
+  static const String _kindWeek = 'week';
+  static const String _kindThisWeek = 'thisWeek';
+  static const String _kindMonth = 'month';
+  static const String _kindThisMonth = 'thisMonth';
   static const String _kindYear = 'year';
   static const String _kindThisYear = 'thisYear';
   static const String _kindPreset = 'preset';
   static const String _kindCustom = 'custom';
   static const String _year = 'year';
+  static const String _month = 'month';
   static const String _preset = 'preset';
   static const String _start = 'start';
   static const String _end = 'end';
@@ -103,13 +137,30 @@ class OverviewView extends Equatable {
 
   /// The stored blob: what is listed, not who the view is — the id, the name
   /// and the position are the row's own columns. The categories are sorted
-  /// so one list always writes one blob. [today]'s year is saved as "this
-  /// year", which rolls with the calendar as the Period menu's presets do;
-  /// any other year — one paged to — keeps its number. A period this view
-  /// was decoded with keeps the kind it was stored under
-  /// ([rollsWithToday]), whatever day it is written on.
+  /// so one list always writes one blob. [today]'s week, month and year are
+  /// saved as "this week", "this month" and "this year", which roll with the
+  /// calendar as the Period menu's presets do; any other one — paged to —
+  /// keeps its dates. A period this view was decoded with keeps the kind it
+  /// was stored under ([rollsWithToday]), whatever day it is written on.
   Map<String, Object?> toJson({required DateTime today}) => {
     _period: switch (period) {
+      OverviewWeekPeriod()
+          when rollsWithToday ??
+              period.menuChoice(today: today) ==
+                  OverviewPeriodChoice.thisWeek =>
+        {_kind: _kindThisWeek},
+      OverviewWeekPeriod(:final start) => {
+        _kind: _kindWeek,
+        _start: _day(start),
+      },
+      OverviewMonthPeriod(:final year, :final month)
+          when rollsWithToday ?? (year == today.year && month == today.month) =>
+        {_kind: _kindThisMonth},
+      OverviewMonthPeriod(:final year, :final month) => {
+        _kind: _kindMonth,
+        _year: year,
+        _month: month,
+      },
       OverviewYearPeriod(:final year)
           when rollsWithToday ?? year == today.year =>
         {_kind: _kindThisYear},
@@ -130,16 +181,19 @@ class OverviewView extends Equatable {
     _categories: categoryIds.toList()..sort(),
   };
 
-  /// Reads [toJson]'s output forward-compatibly: "this year" is [today]'s; a
-  /// period this build cannot read — an unknown kind, a preset a newer build
-  /// added, a malformed date — is this year too; an absent or unknown option
-  /// is its default; an unknown key
-  /// is ignored. Never throws, so one bad blob cannot hide the other views.
+  /// Reads [toJson]'s output forward-compatibly: "this week", "this month"
+  /// and "this year" are [today]'s, the week starting on [weekStart] — the
+  /// calendar's now, not when the view was saved; a period this build cannot
+  /// read — an unknown kind, a preset a newer build added, a malformed date —
+  /// is this year too; an absent or unknown option is its default; an
+  /// unknown key is ignored. Never throws, so one bad blob cannot hide the
+  /// other views.
   static OverviewView fromJson(
     Object? json, {
     required String id,
     required String name,
     required DateTime today,
+    required CalendarWeekStart weekStart,
     int sortOrder = 0,
   }) {
     final map = json is Map ? json : const {};
@@ -148,7 +202,7 @@ class OverviewView extends Equatable {
     return OverviewView(
       id: id,
       name: name,
-      period: _decodePeriod(map[_period], today: today),
+      period: _decodePeriod(map[_period], today: today, weekStart: weekStart),
       options: OverviewListOptions(
         order: OverviewOrder.fromName(_string(map[_order])),
         rows: OverviewRows.fromName(_string(map[_rows])),
@@ -164,21 +218,41 @@ class OverviewView extends Equatable {
     );
   }
 
-  /// Which year kind [raw] was stored under, or `null` for a period that is
-  /// no year at all and for one this build read as this year by fallback —
-  /// both of which re-encode from `today` as they always did.
+  /// Which week, month or year kind [raw] was stored under, or `null` for a
+  /// period that is none of those and for one this build read as this year
+  /// by fallback — both of which re-encode from `today` as they always did.
   static bool? _rollsWithToday(Object? raw) {
     if (raw is! Map) return null;
     return switch (raw[_kind]) {
-      _kindThisYear => true,
+      _kindThisWeek || _kindThisMonth || _kindThisYear => true,
+      _kindWeek when _parseDay(raw[_start]) != null => false,
+      _kindMonth when _month1to12(raw[_month]) != null && raw[_year] is int =>
+        false,
       _kindYear when raw[_year] is int => false,
       _ => null,
     };
   }
 
-  static OverviewPeriod _decodePeriod(Object? raw, {required DateTime today}) {
+  static OverviewPeriod _decodePeriod(
+    Object? raw, {
+    required DateTime today,
+    required CalendarWeekStart weekStart,
+  }) {
     if (raw is Map) {
       switch (raw[_kind]) {
+        case _kindThisWeek:
+          return OverviewPeriod.thisWeek(today: today, weekStart: weekStart);
+        case _kindWeek:
+          final start = _parseDay(raw[_start]);
+          if (start != null) return OverviewWeekPeriod(start);
+        case _kindThisMonth:
+          return OverviewPeriod.thisMonth(today: today);
+        case _kindMonth:
+          final year = raw[_year];
+          final month = _month1to12(raw[_month]);
+          if (year is int && month != null) {
+            return OverviewMonthPeriod(year, month);
+          }
         case _kindThisYear:
           return OverviewPeriod.thisYear(today: today);
         case _kindYear:
@@ -202,6 +276,13 @@ class OverviewView extends Equatable {
   }
 
   static String? _string(Object? value) => value is String ? value : null;
+
+  /// A stored month number, or null for one no calendar has: a month 13
+  /// would otherwise roll into the next year's January.
+  static int? _month1to12(Object? value) =>
+      value is int && value >= DateTime.january && value <= DateTime.december
+      ? value
+      : null;
 
   static String _day(DateTime day) =>
       '${day.year.toString().padLeft(4, '0')}-'

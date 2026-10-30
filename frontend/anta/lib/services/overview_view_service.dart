@@ -9,9 +9,11 @@ import '../constants/json_keys.dart';
 import '../database/daos/overview_view_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
+import '../models/calendar_appearance.dart';
 import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
 import '../models/overview_view.dart';
+import 'settings_service.dart';
 
 /// Owns `overview_views` — the overview's saved lists (D17 · A).
 ///
@@ -51,16 +53,29 @@ class OverviewViewService {
   @visibleForTesting
   DateTime Function() clock = DateTime.now;
 
-  OverviewViewService._();
+  /// Where a view saved on "this week" learns which day the calendar's week
+  /// starts on, read on every [_load] so a reload follows the setting.
+  final Future<CalendarWeekStart> Function() _weekStart;
+
+  OverviewViewService._(this._weekStart);
 
   static Future<OverviewViewService> getInstance() =>
-      _createOnce(AppDatabase.getInstance);
+      _createOnce(AppDatabase.getInstance, _settingsWeekStart);
 
   /// Binds the singleton to an arbitrary [AppDatabase] so tests run the real
   /// DAO against `NativeDatabase.memory()`. Never use it in app code.
+  /// [weekStart] stands in for the calendar setting, which this seam does
+  /// not read so a test needs no settings singleton; [weekStartReader], when
+  /// given, replaces it, so a test can stage a read that fails.
   @visibleForTesting
-  static Future<OverviewViewService> forTesting(AppDatabase db) =>
-      _createOnce(() async => db);
+  static Future<OverviewViewService> forTesting(
+    AppDatabase db, {
+    CalendarWeekStart weekStart = CalendarWeekStart.monday,
+    Future<CalendarWeekStart> Function()? weekStartReader,
+  }) => _createOnce(() async => db, weekStartReader ?? () async => weekStart);
+
+  static Future<CalendarWeekStart> _settingsWeekStart() async =>
+      (await SettingsService.getInstance()).getCalendarWeekStart();
 
   /// One construction at a time, and never one a database switch overtook.
   ///
@@ -70,6 +85,7 @@ class OverviewViewService {
   /// a dead handle for the rest of the session.
   static Future<OverviewViewService> _createOnce(
     Future<AppDatabase> Function() open,
+    Future<CalendarWeekStart> Function() weekStart,
   ) {
     final existing = _instance;
     if (existing != null) return Future.value(existing);
@@ -85,13 +101,13 @@ class OverviewViewService {
 
       Future<OverviewViewService> restart() async {
         if (identical(_initializing, creating)) _initializing = null;
-        return await _createOnce(open);
+        return await _createOnce(open, weekStart);
       }
 
       try {
         final db = await open();
         if (overtaken()) return await restart();
-        final service = OverviewViewService._();
+        final service = OverviewViewService._(weekStart);
         service._dao = db.overviewViewDao;
         await service._load();
         if (overtaken()) return await restart();
@@ -148,10 +164,20 @@ class OverviewViewService {
   }
 
   Future<void> _load() async {
+    var weekStart = CalendarWeekStart.monday;
+    try {
+      weekStart = await _weekStart();
+    } catch (e) {
+      // The views still load: only one saved on "this week" can differ, by
+      // the day its week starts on.
+      debugPrint('[OverviewViewService] Week start read error: $e');
+    }
     try {
       final rows = await _dao.getAll();
       final today = clock();
-      _cache = List.unmodifiable(rows.map((row) => _rowToView(row, today)));
+      _cache = List.unmodifiable(
+        rows.map((row) => _rowToView(row, today, weekStart)),
+      );
     } catch (e) {
       debugPrint('[OverviewViewService] Load error: $e');
       _cache = const [];
@@ -163,10 +189,20 @@ class OverviewViewService {
   OverviewView? matching(
     OverviewPeriod period,
     OverviewListOptions options,
-    Set<String> categoryIds,
-  ) {
+    Set<String> categoryIds, {
+    required DateTime today,
+    required CalendarWeekStart weekStart,
+  }) {
     for (final view in _cache) {
-      if (view.matches(period, options, categoryIds)) return view;
+      if (view.matches(
+        period,
+        options,
+        categoryIds,
+        today: today,
+        weekStart: weekStart,
+      )) {
+        return view;
+      }
     }
     return null;
   }
@@ -299,7 +335,11 @@ class OverviewViewService {
     await _load();
   }
 
-  OverviewView _rowToView(OverviewViewRow row, DateTime today) {
+  OverviewView _rowToView(
+    OverviewViewRow row,
+    DateTime today,
+    CalendarWeekStart weekStart,
+  ) {
     Object? json;
     try {
       json = row.payload.isEmpty ? null : jsonDecode(row.payload);
@@ -311,6 +351,7 @@ class OverviewViewService {
       id: row.id,
       name: row.name,
       today: today,
+      weekStart: weekStart,
       sortOrder: row.sortOrder,
     );
   }

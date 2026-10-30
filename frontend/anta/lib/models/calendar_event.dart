@@ -505,15 +505,26 @@ class CalendarEvent extends Equatable {
       debugOccursOnCalls++;
       return true;
     }());
+    if (!wouldOccurOnUtcDay(day)) return false;
+    return rule is OneTimeRecurrence || !EventSkips.isSkipped(id, day);
+  }
+
+  /// Whether the rule produces an occurrence on [day] before any skip is
+  /// applied — [occursOnUtcDay] without the skip filter, and the first half
+  /// of it, so the two can never drift.
+  ///
+  /// For a reader that must tell a live skip from a stale one: a skip row
+  /// outlives a rule change (moving a routine from Mondays to Tuesdays keeps
+  /// the cancelled Monday), so the report counts a skipped day only where
+  /// this still says the event would have occurred. [day] must be date-only
+  /// UTC.
+  bool wouldOccurOnUtcDay(DateTime day) {
     assert(
       day == DateTime.utc(day.year, day.month, day.day),
       'occursOnUtcDay requires a date-only UTC day; call occursOn to normalize',
     );
     final end = endDateUtc;
     if (end != null && day.isAfter(end)) return false;
-    if (rule is! OneTimeRecurrence && EventSkips.isSkipped(id, day)) {
-      return false;
-    }
     return rule.occursOn(day, startDateUtc, retroactive: retroactive);
   }
 

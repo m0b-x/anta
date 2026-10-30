@@ -252,6 +252,16 @@ class SettingsKeys {
   /// [defaultCalendarOverviewRows].
   static const String calendarOverviewRows = 'calendar_overview_rows';
 
+  /// The calendar report's period, in `OverviewPeriod.encode`'s grammar:
+  /// `thisWeek`, `thisMonth`, `thisYear` or `preset:<name>`. Absent — the
+  /// default — is this month; a stepped or custom span is never stored, so
+  /// the report reopens on the base period (D35, D18).
+  static const String reportPeriod = 'calendar_report_period';
+
+  /// The calendar report's category allowlist, stored as the overview's
+  /// ([calendarOverviewCategories]): a sorted CSV, empty = every category.
+  static const String reportCategoryIds = 'calendar_report_categories';
+
   /// Whether day-panel / agenda event rows mention the repeat pattern
   /// ("Daily", "Every 2 weeks", …) in their subtitle.
   static const String calendarShowRecurrenceLabels =

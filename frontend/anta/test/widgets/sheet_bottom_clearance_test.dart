@@ -1210,6 +1210,8 @@ void main() {
           name: '',
           period: OverviewRollingPeriod(OverviewRollingPreset.last90Days),
         ),
+        today: DateTime(2026, 10, 14),
+        weekStart: CalendarWeekStart.monday,
         onApply: (_) {},
       ),
     );

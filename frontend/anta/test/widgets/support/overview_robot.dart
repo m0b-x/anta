@@ -702,6 +702,8 @@ class OverviewRobot {
   bool get periodEnabled => _nav.onTitleTap != null;
 
   static String _periodItemId(OverviewPeriodChoice choice) => switch (choice) {
+    OverviewPeriodChoice.thisWeek => SemanticsIds.overviewPeriodThisWeek,
+    OverviewPeriodChoice.thisMonth => SemanticsIds.overviewPeriodThisMonth,
     OverviewPeriodChoice.thisYear => SemanticsIds.overviewPeriodThisYear,
     OverviewPeriodChoice.last12Months =>
       SemanticsIds.overviewPeriodLast12Months,

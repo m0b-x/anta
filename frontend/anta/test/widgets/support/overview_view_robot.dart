@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_view.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/overview_view_sheet.dart';
@@ -44,6 +45,8 @@ class OverviewViewRobot {
     Locale locale = const Locale('en'),
     Size surface = defaultSurface,
     double? textScale,
+    DateTime? today,
+    CalendarWeekStart weekStart = CalendarWeekStart.monday,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -67,6 +70,8 @@ class OverviewViewRobot {
               onPressed: () => OverviewViewSheet.show(
                 context,
                 current: current,
+                today: today ?? DateTime.now(),
+                weekStart: weekStart,
                 onApply: applied.add,
               ),
               child: const Text(_openLabel),
@@ -100,6 +105,9 @@ class OverviewViewRobot {
   bool isChecked(String viewId) => _row(viewId).checked;
 
   String rowName(String viewId) => _row(viewId).label;
+
+  /// The row's caption: the view's period in the Period menu's words.
+  String? rowCaption(String viewId) => _row(viewId).caption;
 
   bool get canSave =>
       tester

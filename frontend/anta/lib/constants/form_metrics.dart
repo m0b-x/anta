@@ -229,6 +229,15 @@ abstract final class FormMetrics {
   static const double dividerIndentPlain = RowMetrics.dividerIndentPlain;
   static const double dividerIndentTitle = 70;
 
+  /// `FormMeterRow`'s track: thin enough to read as a share under the text,
+  /// not as a bar chart beside it, and unscaled, so large text grows only
+  /// the lines that hold words.
+  static const double meterHeight = 4;
+
+  /// Between a meter row's caption and its track: the track belongs to the
+  /// row's numbers, so it sits a little apart from the words above it.
+  static const double meterGap = 6;
+
   /// A chip's height while its label's line fits it, which is up to 160 %
   /// text; past that it is the chip's minimum and the chip grows with the
   /// line, so a label is never cut.

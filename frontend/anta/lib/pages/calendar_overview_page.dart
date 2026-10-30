@@ -582,7 +582,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   ///
   /// The allowlist, the mode and the period are left alone. Only this page
   /// writes them, and a month drilled into from a year tile is not persisted,
-  /// so reading the mode back would throw the user out of it.
+  /// so reading the mode back would throw the user out of it. The one
+  /// exception is This week under a new week start ([_followWeekStart]).
   Future<void> _resumeUncovered() async {
     final settings = await SettingsService.getInstance();
     final loaded = await settings.getCalendarOverviewSettings(today: _today);
@@ -592,8 +593,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _hapticFeedback = loaded.hapticFeedback;
       _palette = loaded.palette;
       if (loaded.appearance != _appearance) {
+        final weekStartChanged =
+            loaded.appearance.weekStart != _appearance.weekStart;
         _appearance = loaded.appearance;
         _storeStale = true;
+        if (weekStartChanged) _followWeekStart();
       }
     }
     // A page pushed from inside a row's trip returns to the trip: what was
@@ -613,6 +617,27 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _scheduleYearRun();
     }
     if (raw != null) _land();
+  }
+
+  /// This week — as the home and as the period shown — re-read on the week
+  /// start just set, so the This week row lists the grid's week. Nothing is
+  /// persisted: both read back as the same `thisWeek`. A week paged away
+  /// from today is a look at those seven days and stays as it is.
+  void _followWeekStart() {
+    OverviewPeriod follow(OverviewPeriod period) =>
+        period is OverviewWeekPeriod &&
+            period.menuChoice(today: _today) == OverviewPeriodChoice.thisWeek
+        ? OverviewPeriod.thisWeek(
+            today: _today,
+            weekStart: _appearance.weekStart,
+          )
+        : period;
+    _home = follow(_home);
+    final period = follow(_period);
+    if (period != _period) {
+      _period = period;
+      _year = _firstYearOf(period);
+    }
   }
 
   /// The ⋮ menu's Calendar settings. Settings → Categories can delete a
@@ -1016,7 +1041,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _foldNav() {
     final l10n = _l10n;
     _totalsCaption = l10n == null ? '' : _totalsLabel(l10n);
-    _activeView = _viewService?.matching(_shownPeriod, _options, _categoryIds);
+    _activeView = _viewService?.matching(
+      _shownPeriod,
+      _options,
+      _categoryIds,
+      today: _today,
+      weekStart: _appearance.weekStart,
+    );
     _canStepBack = _steppedPeriod(-1) != null;
     _canStepForward = _steppedPeriod(1) != null;
   }
@@ -1936,7 +1967,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   Future<void> _selectPeriod(OverviewPeriodChoice choice) async {
     final OverviewPeriod period;
     if (choice != OverviewPeriodChoice.custom) {
-      period = OverviewPeriod.fromChoice(choice, today: _today);
+      period = OverviewPeriod.fromChoice(
+        choice,
+        today: _today,
+        weekStart: _appearance.weekStart,
+      );
     } else {
       final picked = await _pickRange();
       if (picked == null) return;
@@ -2172,6 +2207,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         options: _options,
         categoryIds: _categoryIds,
       ),
+      today: _today,
+      weekStart: _appearance.weekStart,
       onApply: _applyView,
     );
     // A save, a rename or a delete inside changes what the list matches.
@@ -2185,7 +2222,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _applyView(OverviewView view) {
     if (!mounted) return;
     _listLook(
-      period: view.period,
+      period: view.periodOn(today: _today, weekStart: _appearance.weekStart),
       categoryIds: view.categoryIds,
       options: view.options,
     );
@@ -2405,7 +2442,20 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       excludeHeaderSemantics: true,
       title: CalendarViewMenu(
         page: CalendarViewPage.overview,
-        onPageSelected: (_) => AppNavigator.switchToCalendar(context),
+        onPageSelected: (page) => switch (page) {
+          // The report opens on what this page shows, for the visit (D35):
+          // Month mode hands its month, not its year (D36.8).
+          CalendarViewPage.report => AppNavigator.switchToCalendarReport(
+            context,
+            look: (
+              period: _mode == AgendaDayListMode.month
+                  ? OverviewMonthPeriod(_month.year, _month.month)
+                  : _shownPeriod,
+              categoryIds: _categoryIds,
+            ),
+          ),
+          _ => AppNavigator.switchToCalendar(context),
+        },
       ),
       toolbarHeight: AppBarMetrics.toolbarHeight,
       // The leading glyph and the actions take their size and colour from
@@ -2658,6 +2708,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     OverviewPeriodChoice choice,
   ) {
     return switch (choice) {
+      OverviewPeriodChoice.thisWeek => l10n.overviewPeriodThisWeek,
+      OverviewPeriodChoice.thisMonth => l10n.overviewPeriodThisMonth,
       OverviewPeriodChoice.thisYear => l10n.upcomingPeriodWholeYear,
       OverviewPeriodChoice.last12Months => l10n.overviewPeriodLast12Months,
       OverviewPeriodChoice.last90Days => l10n.overviewPeriodLast90Days,
@@ -2668,6 +2720,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   static IconData _periodIcon(OverviewPeriodChoice choice) {
     return switch (choice) {
+      OverviewPeriodChoice.thisWeek => Icons.view_week_rounded,
+      OverviewPeriodChoice.thisMonth => Icons.calendar_view_month_rounded,
       OverviewPeriodChoice.thisYear => Icons.today_rounded,
       OverviewPeriodChoice.last12Months => Icons.history_rounded,
       OverviewPeriodChoice.last90Days => Icons.history_rounded,
@@ -2678,6 +2732,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   static String _periodId(OverviewPeriodChoice choice) {
     return switch (choice) {
+      OverviewPeriodChoice.thisWeek => SemanticsIds.overviewPeriodThisWeek,
+      OverviewPeriodChoice.thisMonth => SemanticsIds.overviewPeriodThisMonth,
       OverviewPeriodChoice.thisYear => SemanticsIds.overviewPeriodThisYear,
       OverviewPeriodChoice.last12Months =>
         SemanticsIds.overviewPeriodLast12Months,
@@ -2738,9 +2794,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   /// Every shape the list nav's title takes, so a step never moves the list
-  /// (D15): the presets, a year, and for every month a same-year and a
-  /// cross-year span on it with two-digit days — every month, because the
-  /// widest abbreviation is a matter of pixels, not characters (review 6).
+  /// (D15): the presets, a year, every month's name — a month period's
+  /// title, This month and the months it steps to — and for every month a
+  /// same-year and a cross-year span on it with two-digit days, which a week
+  /// is titled with too — every month, because the widest abbreviation is a
+  /// matter of pixels, not characters (review 6).
   /// The list's alone: Year's and Month's boxes are their own titles' (D20 ·
   /// A), one line at 1.0, so the span's second line costs the tiles nothing.
   /// Built once per locale and year.
@@ -2755,6 +2813,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       l10n.overviewPeriodAllTime,
       '$year',
       for (var m = DateTime.january; m <= DateTime.december; m++) ...[
+        OverviewMonthPeriod(year, m).menuValue(l10n),
         dateSpanLabel(
           l10n,
           DateTime.utc(year, m, 10),

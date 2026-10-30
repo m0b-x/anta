@@ -34,7 +34,8 @@ enum NavDestinationKind {
   alerts,
   permissions,
   calendarOverview,
-  calendarGuide;
+  calendarGuide,
+  calendarReport;
 
   /// Whether popping this page should raise the drawer beneath it.
   ///

@@ -4124,6 +4124,249 @@ void main() {
       expect(scrolled(tester), isFalse);
     });
   });
+
+  group('meter row', () {
+    const fill = Color(0xFF2E7D32);
+
+    FormMeterRow meterRow({
+      String caption = '14 · 13.2 h · 2 missed',
+      double? fraction = 0.5,
+      bool? expanded,
+      VoidCallback? onTap,
+    }) => FormMeterRow(
+      leading: const SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+      label: 'Gym',
+      caption: caption,
+      fraction: fraction,
+      meterColor: fill,
+      trailing: const Icon(Icons.expand_more_rounded),
+      onTap: onTap,
+      semanticsLabel: 'Gym, 14 events, 13.2 hours, 2 missed',
+      expanded: expanded,
+      identifier: 'meter-row',
+    );
+
+    Future<void> pump(
+      WidgetTester tester,
+      Widget row, {
+      double textScale = 1.0,
+    }) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: ListView(
+              children: [
+                FormRowGroup(trailingGap: false, children: [row]),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    }
+
+    Finder meterBox(Color color) => find.descendant(
+      of: find.byType(FormMeterRow),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is DecoratedBox &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).color == color,
+      ),
+    );
+
+    Color trackColor(WidgetTester tester) =>
+        Theme.of(tester.element(find.byType(FormMeterRow))).colorScheme
+            .rowDivider;
+
+    testWidgets('one node carries the label, the expanded flag, the id and '
+        'the tap', (tester) async {
+      final handle = tester.ensureSemantics();
+      var taps = 0;
+      for (final expanded in [false, true]) {
+        await pump(
+          tester,
+          meterRow(expanded: expanded, onTap: () => taps++),
+        );
+        final node = tester.getSemantics(find.bySemanticsIdentifier('meter-row'));
+        final data = node.getSemanticsData();
+        expect(node.childrenCount, 0, reason: 'the row is one node');
+        expect(data.identifier, 'meter-row');
+        expect(data.label, 'Gym, 14 events, 13.2 hours, 2 missed');
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(
+          data.flagsCollection.isExpanded,
+          expanded ? Tristate.isTrue : Tristate.isFalse,
+        );
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+      }
+      await tester.tap(find.bySemanticsIdentifier('meter-row'));
+      expect(taps, 1);
+      handle.dispose();
+    });
+
+    testWidgets('the label stands in when there is no spoken label, and a '
+        'row with no tap is no button', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(
+        tester,
+        const FormMeterRow(
+          leading: SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+          label: 'Gym',
+          onTap: null,
+          identifier: 'meter-row',
+        ),
+      );
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier('meter-row'))
+          .getSemanticsData();
+      expect(data.label, 'Gym');
+      expect(data.flagsCollection.isButton, isFalse);
+      handle.dispose();
+    });
+
+    testWidgets('the caption shrinks inside one caption line at German 2.0', (
+      tester,
+    ) async {
+      const caption = '14 Ereignisse · 13,2 Std. · 2 verpasst · eine lange Zeile';
+      await pump(tester, meterRow(caption: caption), textScale: 2.0);
+      final box = find
+          .ancestor(of: find.text(caption), matching: find.byType(SizedBox))
+          .first;
+      expect(
+        tester.getSize(box).height,
+        lessThanOrEqualTo(2.0 * FormMetrics.captionLineHeight + 0.01),
+      );
+      expect(
+        tester.getSize(find.text(caption)).height,
+        closeTo(2.0 * FormMetrics.captionLineHeight, 0.01),
+        reason: 'one line, never wrapped',
+      );
+      expect(
+        tester.getRect(find.text(caption)).right,
+        lessThanOrEqualTo(tester.getRect(box).right + 0.01),
+        reason: 'shrunk to the box, never cut',
+      );
+    });
+
+    testWidgets('a tiny share fills at least the track height, zero fills '
+        'nothing', (tester) async {
+      await pump(tester, meterRow(fraction: 0.001));
+      expect(tester.getSize(meterBox(fill)).width, FormMetrics.meterHeight);
+      expect(meterBox(trackColor(tester)), findsOneWidget);
+
+      await pump(tester, meterRow(fraction: 0));
+      expect(meterBox(fill), findsNothing);
+      expect(meterBox(trackColor(tester)), findsOneWidget);
+
+      await pump(tester, meterRow(fraction: 1));
+      expect(
+        tester.getSize(meterBox(fill)).width,
+        tester.getSize(meterBox(trackColor(tester))).width,
+      );
+    });
+
+    testWidgets('a share of an empty total (NaN) fills nothing, past one '
+        'fills the track', (tester) async {
+      await pump(tester, meterRow(fraction: double.nan));
+      expect(tester.takeException(), isNull);
+      expect(meterBox(fill), findsNothing);
+      expect(meterBox(trackColor(tester)), findsOneWidget);
+
+      await pump(tester, meterRow(fraction: 1.5));
+      expect(
+        tester.getSize(meterBox(fill)).width,
+        tester.getSize(meterBox(trackColor(tester))).width,
+      );
+    });
+
+    testWidgets('no colour fills in primary', (tester) async {
+      await pump(
+        tester,
+        const FormMeterRow(
+          leading: SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+          label: 'Gym',
+          fraction: 0.5,
+          onTap: null,
+        ),
+      );
+      final primary = Theme.of(
+        tester.element(find.byType(FormMeterRow)),
+      ).colorScheme.primary;
+      expect(meterBox(primary), findsOneWidget);
+    });
+
+    testWidgets('a long label takes two lines and ellipsizes at German 2.0', (
+      tester,
+    ) async {
+      const label =
+          'Krafttraining im Fitnessstudio mit Aufwärmen, Dehnen und einer '
+          'langen Abkühlphase danach';
+      await pump(
+        tester,
+        const FormMeterRow(
+          leading: SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+          label: label,
+          caption: '14 · 13,2 Std. · 2 verpasst',
+          fraction: 0.5,
+          onTap: null,
+        ),
+        textScale: 2.0,
+      );
+      final text = tester.widget<Text>(find.text(label));
+      expect(text.maxLines, 2);
+      expect(text.overflow, TextOverflow.ellipsis);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: find.text(label), matching: find.byType(RichText)),
+      );
+      expect(paragraph.didExceedMaxLines, isTrue);
+      expect(
+        tester.getSize(find.text(label)).height,
+        closeTo(2 * 2.0 * FormMetrics.labelLineHeight, 0.01),
+      );
+    });
+
+    testWidgets('no fraction draws no meter', (tester) async {
+      await pump(tester, meterRow(fraction: null));
+      expect(meterBox(fill), findsNothing);
+      expect(meterBox(trackColor(tester)), findsNothing);
+    });
+
+    for (final (scale, height) in [(1.0, 66.0), (1.3, 77.4), (2.0, 104.0)]) {
+      testWidgets('with a meter the row is $height high at $scale', (
+        tester,
+      ) async {
+        await pump(tester, meterRow(), textScale: scale);
+        expect(
+          tester.getSize(find.byType(FormMeterRow)).height,
+          closeTo(height, 1),
+        );
+      });
+    }
+
+    testWidgets('without a meter the row is the two-line minimum at 1.0', (
+      tester,
+    ) async {
+      await pump(tester, meterRow(fraction: null));
+      expect(
+        tester.getSize(find.byType(FormMeterRow)).height,
+        closeTo(FormMetrics.twoLineRowMinHeight, 1),
+      );
+    });
+
+    test('the divider indents to the text, past the leading box', () {
+      expect(meterRow().dividerIndent, FormMetrics.dividerIndentTitle);
+    });
+  });
 }
 
 /// A sub-sheet's shape around a [FormHeaderHairline]: the header over a

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -180,6 +182,168 @@ void main() {
     await tester.pumpAndSettle();
     expect(hubRoute.isCurrent, isTrue);
     expect(calendarRoute.isActive, isFalse);
+  });
+
+  group('three views (D36.1)', () {
+    const report = NavDestination(NavDestinationKind.calendarReport);
+
+    int liveRoutes() => AppNavigator.routeObserver.pageRoutes
+        .where((route) => route.isActive)
+        .length;
+
+    testWidgets('calendar → overview → report → Calendar → Overview → '
+        'Report never grows the stack', (tester) async {
+      await pumpApp(tester);
+      final calendarRoute = await push(
+        tester,
+        pageRoute('calendar', destination: calendar),
+      );
+      await push(tester, pageRoute('overview', destination: overview));
+      await push(tester, pageRoute('report', destination: report));
+      final deepest = liveRoutes();
+      observer.clear();
+      var pushes = 0;
+
+      await AppNavigator.switchCalendarView(
+        contexts['report']!,
+        NavDestinationKind.calendar,
+        () async => pushes++,
+      );
+      await tester.pumpAndSettle();
+      expect(pushes, 0);
+      expect(calendarRoute.isCurrent, isTrue);
+      expect(observer.popped, hasLength(1), reason: 'one transition');
+      expect(liveRoutes(), deepest - 2);
+
+      // The pushes the menu would make from the calendar, then back down.
+      await push(tester, pageRoute('overview 2', destination: overview));
+      await push(tester, pageRoute('report 2', destination: report));
+      await AppNavigator.switchCalendarView(
+        contexts['report 2']!,
+        NavDestinationKind.calendarOverview,
+        () async => pushes++,
+      );
+      await tester.pumpAndSettle();
+      expect(pushes, 0);
+      expect(find.text('overview 2'), findsOneWidget);
+      expect(liveRoutes(), deepest - 1);
+
+      await AppNavigator.switchCalendarView(
+        contexts['overview 2']!,
+        NavDestinationKind.calendarReport,
+        () async => pushes++,
+      );
+      expect(pushes, 1, reason: 'no report beneath: a push');
+    });
+
+    testWidgets('the real wrapper pops the report and the overview off the '
+        'calendar', (tester) async {
+      await pumpApp(tester);
+      final calendarRoute = await push(
+        tester,
+        pageRoute('calendar', destination: calendar),
+      );
+      final overviewRoute = await push(
+        tester,
+        pageRoute('overview', destination: overview),
+      );
+      await push(tester, pageRoute('report', destination: report));
+
+      await AppNavigator.switchToCalendar(contexts['report']!);
+      await tester.pumpAndSettle();
+      expect(calendarRoute.isCurrent, isTrue);
+      expect(overviewRoute.isActive, isFalse);
+    });
+
+    testWidgets('a page of another kind above the target still pushes', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await push(tester, pageRoute('calendar', destination: calendar));
+      await push(tester, pageRoute('hub', destination: alerts));
+      await push(tester, pageRoute('report', destination: report));
+      observer.clear();
+      var pushes = 0;
+
+      await AppNavigator.switchCalendarView(
+        contexts['report']!,
+        NavDestinationKind.calendar,
+        () async => pushes++,
+      );
+      await tester.pumpAndSettle();
+      expect(pushes, 1, reason: 'the hub the user walked through survives');
+      expect(observer.popped, isEmpty);
+      expect(observer.removed, isEmpty);
+    });
+  });
+
+  group('an alert tap (D36.1)', () {
+    /// The app on the navigator the alert paths use. The calendar the tap
+    /// pushes is taken off again before a frame builds it: what is checked
+    /// is where it goes, not the page.
+    Future<void> pumpAlertApp(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: AppNavigator.navigatorKey,
+          navigatorObservers: [AppNavigator.routeObserver, observer],
+          home: const Scaffold(body: Text('root')),
+        ),
+      );
+    }
+
+    Future<void> pushAlert(WidgetTester tester, Route<void> route) async {
+      AppNavigator.navigatorKey.currentState!.push(route);
+      await tester.pumpAndSettle();
+    }
+
+    for (final kind in [
+      NavDestinationKind.calendarOverview,
+      NavDestinationKind.calendarReport,
+    ]) {
+      testWidgets('over a ${kind.name} above the calendar, the calendar is '
+          'pushed, named and unstamped', (tester) async {
+        addTearDown(() => AppNavigator.pendingCalendarOccurrence.value = null);
+        await pumpAlertApp(tester);
+        await pushAlert(tester, pageRoute('calendar', destination: calendar));
+        final viewRoute = pageRoute('view', destination: NavDestination(kind));
+        await pushAlert(tester, viewRoute);
+        observer.clear();
+
+        unawaited(
+          AppNavigator.toCalendarOccurrence(
+            day: DateTime.utc(2026, 10, 30),
+            eventId: 'e1',
+          ),
+        );
+        final pushed = observer.pushed.single;
+        expect(pushed.settings.name, AppNavigator.occurrenceCalendarRouteName);
+        expect(pushed.settings.arguments, isNull);
+        expect(viewRoute.isActive, isTrue);
+        expect(AppNavigator.pendingCalendarOccurrence.value, isNull);
+        AppNavigator.navigatorKey.currentState!.removeRoute(pushed);
+        await tester.pumpAndSettle();
+      });
+    }
+
+    testWidgets('over the calendar alone, it collapses', (tester) async {
+      addTearDown(() => AppNavigator.pendingCalendarOccurrence.value = null);
+      await pumpAlertApp(tester);
+      final calendarRoute = pageRoute('calendar', destination: calendar);
+      await pushAlert(tester, calendarRoute);
+      await pushAlert(tester, pageRoute('hub', destination: alerts));
+      observer.clear();
+
+      unawaited(
+        AppNavigator.toCalendarOccurrence(
+          day: DateTime.utc(2026, 10, 30),
+          eventId: 'e1',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(observer.pushed, isEmpty);
+      expect(calendarRoute.isCurrent, isTrue);
+      expect(AppNavigator.pendingCalendarOccurrence.value?.eventId, 'e1');
+    });
   });
 }
 

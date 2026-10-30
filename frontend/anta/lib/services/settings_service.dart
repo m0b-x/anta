@@ -1298,6 +1298,9 @@ class SettingsService {
       period: OverviewPeriod.decode(
         values[SettingsKeys.calendarOverviewPeriod],
         today: today ?? DateTime.now(),
+        weekStart: _decodeCalendarWeekStart(
+          values[SettingsKeys.calendarWeekStart],
+        ),
       ),
       // Missed only is session-only by decision, so it always opens off.
       listOptions: OverviewListOptions(
@@ -1349,6 +1352,84 @@ class SettingsService {
         encoded,
       );
     }
+  }
+
+  static const List<String> _calendarReportKeys = [
+    ..._calendarAppearanceKeys,
+    SettingsKeys.reportPeriod,
+    SettingsKeys.reportCategoryIds,
+  ];
+
+  /// What the calendar report remembers (D35), in one statement: its period,
+  /// its allowlist and the calendar's appearance — whose week start This
+  /// week and the trend's columns follow, and which the range picker draws
+  /// its grid in. [today] (date-only) is what a stored `thisWeek` or
+  /// `thisMonth` means.
+  Future<
+    ({
+      OverviewPeriod period,
+      Set<String> categoryIds,
+      CalendarAppearance appearance,
+    })
+  >
+  getCalendarReportSettings({required DateTime today}) async {
+    final values = await _db.userSettingsDao.getValuesFor(_calendarReportKeys);
+    final appearance = _decodeCalendarAppearance(values);
+    return (
+      period: _decodeReportPeriod(
+        values[SettingsKeys.reportPeriod],
+        today: today,
+        weekStart: appearance.weekStart,
+      ),
+      categoryIds: UpcomingAgendaFilters.decodeCategories(
+        values[SettingsKeys.reportCategoryIds] ?? '',
+      ),
+      appearance: appearance,
+    );
+  }
+
+  /// [OverviewPeriod.decode] with the report's own default, This month: that
+  /// decoder falls back to this year for an absent or unknown value, and the
+  /// report has no All time (D18), so either reads as this month here.
+  static OverviewPeriod _decodeReportPeriod(
+    String? raw, {
+    required DateTime today,
+    required CalendarWeekStart weekStart,
+  }) {
+    final fallback = OverviewPeriod.thisMonth(today: today);
+    if (raw == null) return fallback;
+    final period = OverviewPeriod.decode(
+      raw,
+      today: today,
+      weekStart: weekStart,
+    );
+    return switch (period) {
+      OverviewRollingPeriod(preset: OverviewRollingPreset.allTime) => fallback,
+      OverviewYearPeriod() when period.encode(today: today) != raw => fallback,
+      _ => period,
+    };
+  }
+
+  /// Stores [period] as [OverviewPeriod.encode] spells it, or clears the key
+  /// for a span that is not kept, so the report reopens on This month rather
+  /// than on a look that has gone stale.
+  Future<void> setCalendarReportPeriod(
+    OverviewPeriod period, {
+    required DateTime today,
+  }) async {
+    final encoded = period.encode(today: today);
+    if (encoded == null) {
+      await _db.userSettingsDao.deleteValue(SettingsKeys.reportPeriod);
+    } else {
+      await _db.userSettingsDao.setValue(SettingsKeys.reportPeriod, encoded);
+    }
+  }
+
+  Future<void> setCalendarReportCategories(Set<String> ids) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.reportCategoryIds,
+      UpcomingAgendaFilters.encodeCategories(ids),
+    );
   }
 
   /// Stores the order and the rows in one batch; Missed only is never

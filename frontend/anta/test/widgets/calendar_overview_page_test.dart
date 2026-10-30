@@ -25,6 +25,7 @@ import 'package:anta/constants/occurrence_descriptions.dart';
 import 'package:anta/constants/overview_list_metrics.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -38,6 +39,7 @@ import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/calendar_overview_page.dart';
 import 'package:anta/pages/calendar_page.dart';
+import 'package:anta/pages/calendar_report_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/alert_keep_notice.dart';
@@ -382,6 +384,8 @@ void main() {
           (row.identifier, row.checked),
       ],
       [
+        (SemanticsIds.overviewPeriodThisWeek, false),
+        (SemanticsIds.overviewPeriodThisMonth, false),
         (SemanticsIds.overviewPeriodThisYear, true),
         (SemanticsIds.overviewPeriodLast12Months, false),
         (SemanticsIds.overviewPeriodLast90Days, false),
@@ -389,6 +393,63 @@ void main() {
         (SemanticsIds.overviewPeriodCustom, false),
       ],
     );
+  });
+
+  testWidgets('This month picked in Year mode opens the list on this month, '
+      'its name as the title, and persists it (S0)', (tester) async {
+    await pumpPage(tester);
+    final robot = OverviewRobot(tester);
+
+    await robot.pickPeriod(OverviewPeriodChoice.thisMonth);
+
+    expect(robot.currentMode, AgendaDayListMode.list);
+    expect(
+      robot.navTitle,
+      DateFormat.yMMMM('en').format(DateTime(year, today.month)),
+    );
+    expect(await robot.periodChoice(), OverviewPeriodChoice.thisMonth);
+    final settings = await SettingsService.getInstance();
+    expect(
+      (await settings.getCalendarOverviewSettings()).period,
+      OverviewMonthPeriod(year, today.month),
+    );
+    // Leg day runs daily from January 1: one row per day of the month, and
+    // the stretch class on March 9.
+    final days = DateTime.utc(year, today.month + 1, 0).day;
+    expect(
+      robot.navCount,
+      lookupAppLocalizations(
+        const Locale('en'),
+      ).daySummaryEntryCount(days + (today.month == 3 ? 1 : 0)),
+    );
+  });
+
+  testWidgets('This week picked in Year mode opens the list on the week of the '
+      'calendar week start (S0)', (tester) async {
+    final settings = await SettingsService.getInstance();
+    await settings.setCalendarWeekStart(CalendarWeekStart.sunday);
+    await pumpPage(tester);
+    final robot = OverviewRobot(tester);
+
+    await robot.pickPeriod(OverviewPeriodChoice.thisWeek);
+
+    expect(robot.currentMode, AgendaDayListMode.list);
+    final week =
+        OverviewPeriod.thisWeek(
+              today: today,
+              weekStart: CalendarWeekStart.sunday,
+            )
+            as OverviewWeekPeriod;
+    expect(week.start.weekday, DateTime.sunday);
+    expect(
+      robot.navTitle,
+      dateSpanLabel(
+        lookupAppLocalizations(const Locale('en')),
+        week.start,
+        week.end,
+      ),
+    );
+    expect(await robot.periodChoice(), OverviewPeriodChoice.thisWeek);
   });
 
   testWidgets('This year brings its header back up even though the scroll '
@@ -596,12 +657,29 @@ void main() {
         findsOneWidget,
       );
       expect(id(SemanticsIds.calendarFormatMonth), findsNothing);
-      // The two pages and nothing under them: the modes left the menu.
+      // The three pages and nothing under them: the modes left the menu.
+      expect(id(SemanticsIds.calendarReportOpen), findsOneWidget);
       expect(
         find.byWidgetPredicate((w) => w is PopupMenuItem),
-        findsNWidgets(2),
+        findsNWidgets(3),
       );
       expect(find.byType(PopupMenuDivider), findsNothing);
+    });
+
+    testWidgets('Month mode hands the report its month, not its year '
+        '(D36.8)', (tester) async {
+      await pumpPage(tester);
+      final robot = OverviewRobot(tester);
+      await robot.selectMode(AgendaDayListMode.month);
+      await robot.previous();
+      final month = DateTime.utc(today.year, today.month - 1);
+
+      await open(tester, SemanticsIds.calendarViewMenu);
+      await open(tester, SemanticsIds.calendarReportOpen);
+      final page = tester.widget<CalendarReportPage>(
+        find.byType(CalendarReportPage),
+      );
+      expect(page.look?.period, OverviewMonthPeriod(month.year, month.month));
     });
 
     testWidgets('the bar is AppBarMetrics on the page ground: 48 dp, 22 px '
@@ -1917,6 +1995,102 @@ void main() {
         rule: const DailyRecurrence(),
       );
 
+      OverviewWeekPeriod weekOf(CalendarWeekStart weekStart) =>
+          OverviewPeriod.thisWeek(today: today, weekStart: weekStart)
+              as OverviewWeekPeriod;
+
+      String weekTitle(OverviewWeekPeriod week) =>
+          dateSpanLabel(en, week.start, week.end);
+
+      Future<String?> storedPeriod() =>
+          db.userSettingsDao.getValue(SettingsKeys.calendarOverviewPeriod);
+
+      testWidgets('This week ► lists next week as a look — Custom ticked, '
+          'nothing persisted — and ◄ / Today come back to This week (S0)', (
+        tester,
+      ) async {
+        emitEvents([longDaily]);
+        final robot = OverviewRobot(tester);
+        final week = weekOf(CalendarWeekStart.monday);
+        await openList(robot, period: week, surface: phone);
+        expect(robot.navTitle, weekTitle(week));
+        expect(await robot.periodChoice(), OverviewPeriodChoice.thisWeek);
+        expect(robot.navTodayTooltip, 'Back to ${weekTitle(week)}');
+
+        await robot.next();
+        final next = OverviewWeekPeriod(
+          DateTime.utc(week.start.year, week.start.month, week.start.day + 7),
+        );
+        expect(robot.navTitle, weekTitle(next));
+        expect(await robot.periodChoice(), OverviewPeriodChoice.custom);
+        expect(robot.navCount, count(7));
+        expect(
+          await storedPeriod(),
+          'thisWeek',
+          reason: 'a step never persists',
+        );
+
+        await robot.previous();
+        expect(robot.navTitle, weekTitle(week));
+        expect(await robot.periodChoice(), OverviewPeriodChoice.thisWeek);
+        expect(robot.canJumpToToday, isFalse);
+
+        await robot.previous();
+        expect(await robot.periodChoice(), OverviewPeriodChoice.custom);
+        await robot.today();
+        expect(robot.navTitle, weekTitle(week));
+        expect(await robot.periodChoice(), OverviewPeriodChoice.thisWeek);
+        expect(await storedPeriod(), 'thisWeek');
+      });
+
+      // One page per case: a second open over the same tree keeps the
+      // page's state, so it would not open in Month mode again.
+      for (final choice in [
+        OverviewPeriodChoice.thisWeek,
+        OverviewPeriodChoice.thisMonth,
+      ]) {
+        testWidgets('${choice.name} picked in Month mode opens the list on '
+            'its span (S0)', (tester) async {
+          final robot = OverviewRobot(tester);
+          await robot.open(
+            bloc: bloc,
+            importExport: importExport,
+            mode: AgendaDayListMode.month,
+          );
+          expect(robot.currentMode, AgendaDayListMode.month);
+
+          await robot.pickPeriod(choice);
+
+          expect(robot.currentMode, AgendaDayListMode.list);
+          expect(
+            robot.navTitle,
+            choice == OverviewPeriodChoice.thisWeek
+                ? weekTitle(weekOf(CalendarWeekStart.monday))
+                : DateFormat.yMMMM('en').format(DateTime(year, today.month)),
+          );
+          expect(await robot.periodChoice(), choice);
+        });
+      }
+
+      testWidgets('a week start changed while a page covers the overview '
+          're-reads This week — the period and the home — persisting nothing '
+          '(S0)', (tester) async {
+        final settings = await SettingsService.getInstance();
+        final robot = OverviewRobot(tester);
+        await openList(robot, period: weekOf(CalendarWeekStart.monday));
+
+        await robot.cover();
+        await settings.setCalendarWeekStart(CalendarWeekStart.sunday);
+        await robot.uncover();
+
+        final sundays = weekOf(CalendarWeekStart.sunday);
+        expect(robot.navTitle, weekTitle(sundays));
+        expect(await robot.periodChoice(), OverviewPeriodChoice.thisWeek);
+        expect(robot.canJumpToToday, isFalse, reason: 'the home moved too');
+        expect(robot.navTodayTooltip, 'Back to ${weekTitle(sundays)}');
+        expect(await storedPeriod(), 'thisWeek');
+      });
+
       testWidgets('List mode draws the nav: the period as its title, the '
           'count as its subtitle, no count caption (D15)', (tester) async {
         final robot = OverviewRobot(tester);
@@ -2997,9 +3171,7 @@ void main() {
           bloc: bloc,
           importExport: importExport,
           mode: AgendaDayListMode.year,
-          period: const OverviewRollingPeriod(
-            OverviewRollingPreset.last90Days,
-          ),
+          period: const OverviewRollingPeriod(OverviewRollingPreset.last90Days),
         );
         await tester.pumpAndSettle();
 
@@ -3008,10 +3180,9 @@ void main() {
         expect(robot.periodValue, march.menuValue(en));
         expect(robot.shows('Stretch class'), isTrue);
         expect(robot.shows('Leg day'), isFalse);
-        expect(
-          (await settings.getCalendarOverviewSettings()).categoryIds,
-          {'mobility'},
-        );
+        expect((await settings.getCalendarOverviewSettings()).categoryIds, {
+          'mobility',
+        });
       });
 
       testWidgets('a tap with an overview under another page collapses onto '
@@ -3102,6 +3273,49 @@ void main() {
         );
         return view!.id;
       }
+
+      testWidgets('a view saved on this week and decoded a week ago matches '
+          'and applies as this week, keeping the stored key (S0, F1)', (
+        tester,
+      ) async {
+        // The service decoded the view eight days ago and has not since,
+        // as one held across a Monday does: its snapshot is last week's.
+        final service = await OverviewViewService.getInstance();
+        final weekAgo = today.subtract(const Duration(days: 8));
+        service.clock = () => weekAgo;
+        final saved = await service.create(
+          name: 'This week',
+          period: OverviewPeriod.thisWeek(
+            today: weekAgo,
+            weekStart: CalendarWeekStart.monday,
+          ),
+          options: OverviewListOptions.defaults,
+          categoryIds: const {},
+        );
+        final thisWeek = OverviewPeriod.thisWeek(
+          today: today,
+          weekStart: CalendarWeekStart.monday,
+        );
+        expect(saved!.period, isNot(thisWeek));
+
+        final robot = OverviewRobot(tester);
+        await openList(robot, period: thisWeek);
+        expect(robot.viewsSelected, isTrue);
+
+        await robot.pickPeriod(OverviewPeriodChoice.thisYear);
+        expect(robot.viewsSelected, isFalse);
+        await robot.applyView(saved.id);
+
+        expect(robot.navTitle, thisWeek.menuValue(en));
+        expect(await robot.periodChoice(), OverviewPeriodChoice.thisWeek);
+        expect(robot.viewsSelected, isTrue);
+        expect(
+          await db.userSettingsDao.getValue(
+            SettingsKeys.calendarOverviewPeriod,
+          ),
+          'thisWeek',
+        );
+      });
 
       testWidgets('the bookmarks button sits between the tune button and the '
           '⋮, live and unselected with nothing saved', (tester) async {
