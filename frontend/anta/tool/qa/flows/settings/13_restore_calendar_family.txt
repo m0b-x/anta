@@ -8,6 +8,11 @@
 #   debounce) and a relaunch force-stops the app with no pause to flush on,
 #   so the row's tap holds 2 s before the relaunch can run.
 # - A relaunch is a cold start: the restored page is waited for 20 s.
+# - The guide row is the hub list's last and sits below the fold since the
+#   Fasting and Alert settings rows joined the Calendar section; it is
+#   reached through the hub's search ("calendar works"), as 11_hub_guide
+#   does, never scrolled onto the bottom edge where the agent's tap on a
+#   list's last row presses nothing.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -83,6 +88,9 @@ wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
 tap id:drawer-settings
 wait id:settings-bar-hub
+tap id:settings-hub-search
+type "calendar works"
+wait id:settings-hub-row-calendarGuide
 tap id:settings-hub-row-calendarGuide --settle 2000
 wait id:calendar-guide
 relaunch

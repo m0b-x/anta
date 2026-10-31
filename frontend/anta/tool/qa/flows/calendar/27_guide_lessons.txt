@@ -48,7 +48,7 @@ wait id:calendar-guide-topic-fasting
 expect id:calendar-guide-try-fasting id:try-fasting-appearance id:try-fasting-skip-step
 scroll-to id:try-fasting-tradition-orthodox --in id:calendar-guide-topic-fasting --max 10
 tap id:try-fasting-tradition-orthodox
-expect "Tap “Appearance” to show them as a tint, a bar or a bold day number."
+expect "Tap “Look on the calendar” to show them as a tint, a bar or a bold day number."
 shot 27_guide_lessons_fasting
 key back
 wait id:calendar-guide

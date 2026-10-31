@@ -4,11 +4,21 @@
 # 01_drawer_places.
 # - The guide's bar has no settings-bar anchor; the page is known by its
 #   list, calendar-guide, as in the calendar suite.
+# - The How to row is the hub list's last and sits below the fold since the
+#   Fasting and Alert settings rows joined the Calendar section (S3, S4). A
+#   scroll-to would park it on the bottom edge, where the agent's tap on a
+#   list's last row presses nothing (17_developer_options), so the row is
+#   reached through the hub's search: "calendar works" leaves it alone at
+#   the top.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
 tap id:drawer-settings
 wait id:settings-bar-hub
+tap id:settings-hub-search
+type "calendar works"
+wait id:settings-hub-row-calendarGuide
+expect --absent id:settings-hub-row-alertSettings
 tap id:settings-hub-row-calendarGuide
 wait id:calendar-guide
 tap id:nav-back
@@ -22,6 +32,9 @@ wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
 tap id:drawer-settings
 wait id:settings-bar-hub
+tap id:settings-hub-search
+type "calendar works"
+wait id:settings-hub-row-calendarGuide
 tap id:settings-hub-row-calendarGuide
 wait id:calendar-guide
 key back
