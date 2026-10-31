@@ -9,9 +9,12 @@
 #   the snackbar's words.
 # - The basic.json reseed before the flow starts the app locked; already
 #   unlocked, the taps do nothing and the drawer stays open.
-# - The hub row is the App section's last and may sit below the fold, so it
-#   is scrolled to before the tap, inside the hub's list (settings-hub-list):
-#   the first scrollable in the dump may be the search field.
+# - The hub row is the list's last. A scroll-to puts it on the bottom edge,
+#   and there the agent's tap intermittently stops the list's settle instead
+#   of pressing the row (hand-driven 2026-10-31: the tap reported the row's
+#   node and nothing opened; a 3 s pause or a native touch pressed it). So
+#   the row is reached through the hub's search instead: "Developer" leaves
+#   it alone at the top of the list, with no scroll at all.
 # - Locking is left to the widget suites: the page's Lock button carries no
 #   id.
 tap id:nav-menu
@@ -28,7 +31,10 @@ wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
 tap id:drawer-settings
 wait id:settings-bar-hub
-scroll-to id:settings-hub-row-developerOptions --in id:settings-hub-list
+tap id:settings-hub-search
+type "Developer"
+wait id:settings-hub-row-developerOptions
+expect --absent id:settings-hub-row-permissions
 tap id:settings-hub-row-developerOptions
 wait id:settings-bar-developer
 key back
