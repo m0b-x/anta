@@ -1,0 +1,15 @@
+# Markdown shortcuts is pushed unstamped, so the stored stack never names
+# it: a relaunch from it lands on the folder root (S2 gives it a kind, D3).
+# - The row's tap holds 2 s, as in the stamped flows, so a stack written
+#   after the push would be on disk before the relaunch.
+# - The relaunch holds 3 s before anything is read: the root draws before
+#   the replay runs, so a root seen at once would prove nothing.
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-markdown-shortcuts --settle 2000
+wait id:settings-bar-markdown
+relaunch --settle 3000
+wait id:create-folder --timeout 20
+expect --absent id:settings-bar-markdown --absent id:drawer-settings
+look 12_relaunched
+errors

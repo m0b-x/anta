@@ -1,0 +1,10 @@
+# The labels the settings flows may still target, one per line: seeded
+# content only, never a control's own words — a control gets a SemanticsIds
+# entry instead (test/qa/flows_lint_test.dart). A comment is "# " and its
+# text, so a label may start with "#".
+# Asserted only, never acted on: the Language and Theme dialogs
+# (AppDialogs.radioSelect / choose) and the About dialog carry no id, so
+# each is read by its title or its description.
+Select Language
+Select Theme
+An offline-first personal tracker

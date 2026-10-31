@@ -1,0 +1,38 @@
+# Restore after a relaunch for the three stamped pages outside the App
+# family — Calendar settings, Alerts, Permissions: each opened from the
+# drawer, the app relaunched on the same database (a bare `relaunch`), the
+# page back on screen, and system back down to the folder root with the
+# drawer closed. The App family is 11_restore_app_family.
+# - The stack is written 400 ms after the push (NavigationHistoryService's
+#   debounce) and a relaunch force-stops the app with no pause to flush on,
+#   so the row's tap holds 2 s before the relaunch can run.
+# - A relaunch is a cold start: the restored page is waited for 20 s.
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar-settings --settle 2000
+wait id:settings-bar-calendar
+relaunch
+wait id:settings-bar-calendar --timeout 20
+key back
+wait id:create-folder
+expect --absent id:settings-bar-calendar --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-alerts --settle 2000
+wait id:settings-bar-alerts
+relaunch
+wait id:settings-bar-alerts --timeout 20
+key back
+wait id:create-folder
+expect --absent id:settings-bar-alerts --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-permissions
+tap id:drawer-permissions --settle 2000
+wait id:settings-bar-permissions
+relaunch
+wait id:settings-bar-permissions --timeout 20
+key back
+wait id:create-folder
+expect --absent id:settings-bar-permissions --absent id:drawer-settings
+errors

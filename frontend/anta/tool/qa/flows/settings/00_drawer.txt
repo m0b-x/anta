@@ -1,0 +1,17 @@
+# Today's drawer from the folder root: every always-drawn row by its id,
+# then closed by system back.
+# - The rows live in a ListView, so the lower half may sit past the cache
+#   extent and out of the tree: the second expect runs after a scroll-to.
+# - Developer options must not be drawn on a fresh seed; it would sit
+#   between Theme and About, so its absence is read after the scroll.
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+expect id:drawer-calendar-overview id:drawer-calendar-settings id:drawer-alerts id:drawer-markdown-shortcuts id:drawer-counters id:drawer-sharing id:drawer-settings id:settings-databases
+look 00_drawer
+scroll-to id:drawer-about
+expect id:drawer-permissions id:drawer-language id:settings-appearance id:drawer-about --absent id:drawer-developer-options
+key back
+wait id:create-folder
+expect --absent id:drawer-settings
+errors

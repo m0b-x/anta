@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/dev_options.dart';
 import '../services/dev_options_service.dart';
@@ -74,7 +75,11 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
     final devOptions = DevOptions.instance;
 
     return Scaffold(
-      appBar: SettingsAppBar(title: l10n.developerOptions, popsToDrawer: true),
+      appBar: SettingsAppBar(
+        title: l10n.developerOptions,
+        popsToDrawer: true,
+        identifier: SemanticsIds.settingsBarDeveloper,
+      ),
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _swipeEnabled,
       body: SafeArea(

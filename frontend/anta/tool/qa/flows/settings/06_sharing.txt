@@ -1,0 +1,24 @@
+# Sharing from the drawer, left twice: by the bar's arrow, which today
+# raises the drawer again, then by system back, which lands on the folder
+# root with the drawer closed — the S6 asymmetry S2 removes (D3: back
+# returns to the route beneath, always).
+# - The drawer that rises is the root's: the page pops with
+#   SettingsResult.openDrawer and the row's awaiter opens the top drawer.
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-sharing
+wait id:settings-bar-sharing
+tap id:nav-back
+wait id:drawer-settings
+expect --absent id:settings-bar-sharing
+key back
+wait id:create-folder
+expect --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-sharing
+wait id:settings-bar-sharing
+key back
+wait id:create-folder
+expect --absent id:drawer-settings --absent id:settings-bar-sharing
+errors

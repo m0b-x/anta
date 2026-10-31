@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/permissions/permissions_bloc.dart';
 import '../constants/app_spacing.dart';
+import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../models/app_permission.dart';
@@ -92,6 +93,7 @@ class _PermissionsViewState extends State<_PermissionsView> {
       appBar: SettingsAppBar(
         title: l10n.permissionsTitle,
         popsToDrawer: widget.popsToDrawer,
+        identifier: SemanticsIds.settingsBarPermissions,
       ),
       body: SafeArea(
         top: false,

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../config/default_markdown_shortcuts.dart';
 import '../constants/app_constants.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/custom_markdown_shortcut.dart';
@@ -2290,6 +2291,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         appBar: SettingsAppBar(
           title: AppLocalizations.of(context)!.markdownShortcuts,
           popsToDrawer: true,
+          identifier: SemanticsIds.settingsBarMarkdown,
           actions: [
             IconButton(
               icon: Icon(

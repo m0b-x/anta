@@ -1,0 +1,28 @@
+# Databases from the drawer, left twice: by the bar's arrow, which today
+# raises the drawer again, then by system back, which lands on the folder
+# root with the drawer closed — the S6 asymmetry S2 removes (D3: back
+# returns to the route beneath, always).
+# - The drawer that rises is the root's: the page pops with
+#   SettingsResult.openDrawer and the row's awaiter opens the top drawer.
+# - The row sits in the drawer's lower half, which may be past the list's
+#   cache extent, so it is scrolled to before the tap.
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:settings-databases
+tap id:settings-databases
+wait id:settings-bar-databases
+tap id:nav-back
+wait id:drawer-settings
+expect --absent id:settings-bar-databases
+key back
+wait id:create-folder
+expect --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:settings-databases
+tap id:settings-databases
+wait id:settings-bar-databases
+key back
+wait id:create-folder
+expect --absent id:drawer-settings --absent id:settings-bar-databases
+errors

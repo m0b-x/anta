@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
+import '../constants/semantics_ids.dart';
 import '../database/database.dart';
 import '../services/database_manager.dart';
 import '../services/settings_service.dart';
@@ -115,6 +116,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       appBar: SettingsAppBar(
         title: AppLocalizations.of(context)!.databaseSettings,
         popsToDrawer: true,
+        identifier: SemanticsIds.settingsBarDatabases,
       ),
       body: SafeArea(
         top: false,

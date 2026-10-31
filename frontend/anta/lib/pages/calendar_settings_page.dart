@@ -323,6 +323,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       appBar: SettingsAppBar(
         title: l10n.calendarSettings,
         showMenuButton: false,
+        identifier: SemanticsIds.settingsBarCalendar,
       ),
       body: SafeArea(
         top: false,

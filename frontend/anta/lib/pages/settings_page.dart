@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/form_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/label_style.dart';
@@ -169,7 +170,11 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _folderSwipeEnabled,
-      appBar: SettingsAppBar(title: l10n.appSettings, popsToDrawer: true),
+      appBar: SettingsAppBar(
+        title: l10n.appSettings,
+        popsToDrawer: true,
+        identifier: SemanticsIds.settingsBarApp,
+      ),
       body: SafeArea(
         top: false,
         child: _isLoading

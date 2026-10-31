@@ -41,6 +41,7 @@ $q fleet boot 1                        # ONE guest is the default: anta_qa_1 on 
 $q fleet install --build               # build the QA driver APK once (≈ 10–40 s), install on every booted guest (≈ 3 s each)
 $q pass calendar -d emulator-5556      # 26 flows, a fresh seed before each: ≈ 6.6 min on a fresh guest — run it in the background (a worn guest took over 10 min, past a foreground tool call's cap)
 $q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
+$q pass settings -d emulator-5556      # the settings suite: a fresh basic.json seed before each flow, no prelude (each starts on the folder root)
 $q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no): ≈ 4.5 min
 $q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports

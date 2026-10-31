@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/pairing/pairing_bloc.dart';
 import '../bloc/sync/sync_bloc.dart';
+import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
@@ -85,7 +86,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     return Scaffold(
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _swipeEnabled,
-      appBar: SettingsAppBar(title: l10n.sharingSettings, popsToDrawer: true),
+      appBar: SettingsAppBar(
+        title: l10n.sharingSettings,
+        popsToDrawer: true,
+        identifier: SemanticsIds.settingsBarSharing,
+      ),
       body: SafeArea(
         top: false,
         child: MultiBlocListener(

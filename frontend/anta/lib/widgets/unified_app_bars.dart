@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
+import 'automation_id.dart';
 import 'leading_nav_pair.dart';
 import 'search_field_app_bar.dart';
 
@@ -27,6 +29,11 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// wants.
   final Color? backgroundColor;
 
+  /// Set by a settings bar whose [title] carries its own heading semantics:
+  /// `AppBar`'s wrapper would otherwise stay behind as a second, unlabelled
+  /// heading.
+  final bool excludeHeaderSemantics;
+
   const UnifiedAppBar({
     super.key,
     this.leading,
@@ -38,7 +45,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.leadingWidth,
     this.backgroundColor,
     this.style = AppBarStyle.main,
-  });
+  }) : excludeHeaderSemantics = false;
 
   const UnifiedAppBar.main({
     super.key,
@@ -50,7 +57,8 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.toolbarHeight,
     this.leadingWidth,
     this.backgroundColor,
-  }) : style = AppBarStyle.main;
+  }) : style = AppBarStyle.main,
+       excludeHeaderSemantics = false;
 
   /// [backgroundColor], when given, draws the bar flat on that ground — a
   /// settings-family page that owns a ground of its own (the Alerts hub's
@@ -65,6 +73,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.toolbarHeight,
     this.leadingWidth,
     this.backgroundColor,
+    this.excludeHeaderSemantics = false,
   }) : style = AppBarStyle.settings;
 
   @override
@@ -94,6 +103,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
           color: colorScheme.onSurface,
         ),
         title: title,
+        excludeHeaderSemantics: excludeHeaderSemantics,
         actions: actions,
         elevation: elevation,
         backgroundColor: ground,
@@ -139,6 +149,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
           color: colorScheme.onSurface,
         ),
         title: title,
+        excludeHeaderSemantics: excludeHeaderSemantics,
         actions: actions,
         backgroundColor: Colors.transparent,
         elevation: elevation ?? 0,
@@ -445,6 +456,10 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// settings gradient ([UnifiedAppBar.settings]).
   final Color? backgroundColor;
 
+  /// A `SemanticsIds` entry put on the title, so a device script can tell
+  /// which page is on top without reading translated text.
+  final String? identifier;
+
   const SettingsAppBar({
     super.key,
     required this.title,
@@ -452,6 +467,7 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.showMenuButton = true,
     this.popsToDrawer = false,
     this.backgroundColor,
+    this.identifier,
   });
 
   @override
@@ -461,21 +477,45 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     final scaffold = Scaffold.maybeOf(context);
     final drawsPair = showMenuButton && (scaffold?.hasDrawer ?? false);
+    final Widget titleText = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: AppBarMetrics.titleFontSize,
+        fontWeight: AppBarMetrics.titleFontWeight,
+      ),
+    );
+    final id = identifier;
     return UnifiedAppBar.settings(
       backgroundColor: backgroundColor,
       toolbarHeight: AppBarMetrics.toolbarHeight,
       leadingWidth: drawsPair ? LeadingNavPair.width : null,
-      leading: showMenuButton ? _buildLeading(context, scaffold) : null,
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontSize: AppBarMetrics.titleFontSize,
-          fontWeight: AppBarMetrics.titleFontWeight,
-        ),
-      ),
+      leading: showMenuButton
+          ? _buildLeading(context, scaffold)
+          : _impliedBack(context, scaffold),
+      title: id == null ? titleText : _identifiedTitle(id, titleText),
+      excludeHeaderSemantics: id != null,
       actions: actions,
+    );
+  }
+
+  /// An identifier always starts a semantics node of its own, so the label
+  /// would leave the node `AppBar` marks as the heading that names the route;
+  /// this node carries both flags instead, and the bar drops its own wrapper
+  /// (`excludeHeaderSemantics`) so no unlabelled heading is left beside it.
+  /// `AppBar` names routes everywhere but on Apple platforms, and so does
+  /// this.
+  static Widget _identifiedTitle(String id, Widget text) {
+    final namesRoute = switch (defaultTargetPlatform) {
+      TargetPlatform.iOS || TargetPlatform.macOS => null,
+      _ => true,
+    };
+    return Semantics(
+      identifier: id,
+      header: true,
+      namesRoute: namesRoute,
+      child: text,
     );
   }
 
@@ -496,6 +536,22 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
       );
     }
     return LeadingNavPair(onBack: back, onMenu: scaffold.openDrawer);
+  }
+
+  /// The arrow `AppBar` would imply for a page without the menu button, drawn
+  /// here so it carries [SemanticsIds.navBack] — a device script then leaves
+  /// every settings page by one id. Only where `AppBar` would draw a back
+  /// arrow (a drawer implies its menu button, a full-screen dialog its close
+  /// button, and both stay `AppBar`'s); it pops `null`, as that arrow does.
+  static Widget? _impliedBack(BuildContext context, ScaffoldState? scaffold) {
+    if (scaffold?.hasDrawer ?? false) return null;
+    final route = ModalRoute.of(context);
+    if (!(route?.impliesAppBarDismissal ?? false)) return null;
+    if (route is PageRoute && route.fullscreenDialog) return null;
+    return const AutomationId(
+      identifier: SemanticsIds.navBack,
+      child: BackButton(),
+    );
   }
 }
 

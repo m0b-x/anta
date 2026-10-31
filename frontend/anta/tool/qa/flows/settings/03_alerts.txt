@@ -1,0 +1,21 @@
+# Alerts from the drawer, left twice: by the bar's arrow, then by system
+# back; both land on the folder root with the drawer closed. Today this is
+# one of the two rows whose arrow does not raise the drawer — the S6
+# asymmetry S2 removes (D3: back returns to the route beneath, always).
+# - The bar draws no menu button; its lone arrow carries nav-back all the
+#   same.
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-alerts
+wait id:settings-bar-alerts
+tap id:nav-back
+wait id:create-folder
+expect --absent id:drawer-settings --absent id:settings-bar-alerts
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-alerts
+wait id:settings-bar-alerts
+key back
+wait id:create-folder
+expect --absent id:drawer-settings --absent id:settings-bar-alerts
+errors

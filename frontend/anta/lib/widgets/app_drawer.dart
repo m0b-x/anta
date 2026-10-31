@@ -148,6 +148,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.tune_rounded,
                   title: l10n.calendarSettingsRow,
                   subtitle: l10n.calendarSettingsRowDesc,
+                  identifier: SemanticsIds.drawerCalendarSettings,
                   onTap: () {
                     AppNavigator.pop(context);
                     AppNavigator.toCalendarSettings(context);
@@ -171,6 +172,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.text_format_rounded,
                   title: l10n.markdownShortcuts,
                   subtitle: l10n.markdownShortcutsDesc,
+                  identifier: SemanticsIds.drawerMarkdownShortcuts,
                   onTap: () {
                     final blocState = context.read<MarkdownBarBloc>().state;
                     final shortcuts = blocState is MarkdownBarLoaded
@@ -190,6 +192,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.pin_rounded,
                   title: l10n.counterSettings,
                   subtitle: l10n.counterSettingsDesc,
+                  identifier: SemanticsIds.drawerCounters,
                   onTap: () => _openSettingsPage(
                     context,
                     AppNavigator.toCounterManagement,
@@ -202,6 +205,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.cloud_sync_rounded,
                   title: l10n.sharingSettings,
                   subtitle: l10n.sharingSettingsDesc,
+                  identifier: SemanticsIds.drawerSharing,
                   onTap: () =>
                       _openSettingsPage(context, AppNavigator.toSyncSettings),
                 ),
@@ -233,6 +237,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.language_rounded,
                   title: l10n.languageSettings,
                   subtitle: l10n.languageSettingsDesc,
+                  identifier: SemanticsIds.drawerLanguage,
                   onTap: () {
                     AppNavigator.pop(context);
                     _showLanguageDialog(context);
@@ -260,6 +265,7 @@ class _AppDrawerState extends State<AppDrawer> {
                       icon: Icons.developer_mode_rounded,
                       title: l10n.developerOptions,
                       subtitle: l10n.developerOptionsDesc,
+                      identifier: SemanticsIds.drawerDeveloperOptions,
                       onTap: () => _openSettingsPage(
                         context,
                         AppNavigator.toDeveloperOptions,
@@ -275,6 +281,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.info_outline_rounded,
                   title: l10n.about,
                   subtitle: 'ANTA v1.0.0',
+                  identifier: SemanticsIds.drawerAbout,
                   onTap: () {
                     AppNavigator.pop(context);
                     _showAboutDialog(context);

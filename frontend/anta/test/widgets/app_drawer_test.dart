@@ -7,6 +7,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/dev_options.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/drawer_host_registry.dart';
@@ -151,9 +152,18 @@ void main() {
 
       for (final id in [
         SemanticsIds.drawerCalendar,
+        SemanticsIds.drawerCalendarOverview,
+        SemanticsIds.drawerCalendarSettings,
+        SemanticsIds.drawerAlerts,
+        SemanticsIds.drawerMarkdownShortcuts,
+        SemanticsIds.drawerCounters,
+        SemanticsIds.drawerSharing,
         SemanticsIds.drawerSettings,
-        SemanticsIds.settingsAppearance,
         SemanticsIds.settingsDatabases,
+        SemanticsIds.drawerPermissions,
+        SemanticsIds.drawerLanguage,
+        SemanticsIds.settingsAppearance,
+        SemanticsIds.drawerAbout,
       ]) {
         expect(
           find.bySemanticsIdentifier(id),
@@ -169,6 +179,29 @@ void main() {
           of: find.bySemanticsIdentifier(SemanticsIds.drawerSettings),
           matching: find.text(l10n.appSettings),
         ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the Developer options row carries its id once unlocked, '
+        'and is absent before', (tester) async {
+      addTearDown(DevOptions.instance.lockDeveloperMode);
+      await pumpHost(tester);
+      hostState(tester).openDrawer();
+      await settle(tester);
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.drawerDeveloperOptions),
+        findsNothing,
+      );
+
+      DevOptions.instance.developerModeUnlocked = true;
+      await settle(tester);
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.drawerDeveloperOptions),
         findsOneWidget,
       );
 

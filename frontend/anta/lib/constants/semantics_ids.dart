@@ -11,7 +11,9 @@
 abstract final class SemanticsIds {
   /// The two halves of [LeadingNavPair], on every nested screen. The root
   /// browser's lone menu button carries [navMenu] too, so a flow opens the
-  /// drawer by one id wherever it starts.
+  /// drawer by one id wherever it starts; a settings bar drawn without the
+  /// menu button marks its lone arrow [navBack], so a flow leaves either kind
+  /// by one id.
   static const String navBack = 'nav-back';
   static const String navMenu = 'nav-menu';
 
@@ -54,6 +56,28 @@ abstract final class SemanticsIds {
   static const String drawerAlerts = 'drawer-alerts';
   static const String drawerPermissions = 'drawer-permissions';
 
+  /// The drawer's Calendar settings row; the categories record names it.
+  static const String drawerCalendarSettings = 'drawer-calendar-settings';
+
+  /// The drawer's Markdown shortcuts row.
+  static const String drawerMarkdownShortcuts = 'drawer-markdown-shortcuts';
+
+  /// The drawer's Counters row.
+  static const String drawerCounters = 'drawer-counters';
+
+  /// The drawer's Sharing row.
+  static const String drawerSharing = 'drawer-sharing';
+
+  /// The drawer's Language row, which opens the language dialog.
+  static const String drawerLanguage = 'drawer-language';
+
+  /// The drawer's Developer options row, drawn only once taps on the drawer
+  /// header's icon have unlocked it.
+  static const String drawerDeveloperOptions = 'drawer-developer-options';
+
+  /// The drawer's About row, which opens the about dialog.
+  static const String drawerAbout = 'drawer-about';
+
   /// The two smart rows above the root browser's folders. Named for the
   /// drawer because that is the vocabulary the driver was written against;
   /// the destinations themselves have never lived in the drawer.
@@ -82,6 +106,35 @@ abstract final class SemanticsIds {
   /// The search field of every settings page that has one; its hint says
   /// which list it filters, so a flow tells the pages apart by their rows.
   static const String settingsSearch = 'settings-search';
+
+  /// App settings' bar title. Each `settingsBar*` id is the anchor a flow
+  /// waits on to know which settings page is on top, since the title text is
+  /// translated.
+  static const String settingsBarApp = 'settings-bar-app';
+
+  /// Calendar settings' bar title.
+  static const String settingsBarCalendar = 'settings-bar-calendar';
+
+  /// The Alerts hub's bar title.
+  static const String settingsBarAlerts = 'settings-bar-alerts';
+
+  /// Markdown shortcuts' bar title.
+  static const String settingsBarMarkdown = 'settings-bar-markdown';
+
+  /// The Counters page's bar title.
+  static const String settingsBarCounters = 'settings-bar-counters';
+
+  /// The Sharing page's bar title.
+  static const String settingsBarSharing = 'settings-bar-sharing';
+
+  /// The Databases page's bar title.
+  static const String settingsBarDatabases = 'settings-bar-databases';
+
+  /// Developer options' bar title.
+  static const String settingsBarDeveloper = 'settings-bar-developer';
+
+  /// The Permissions page's bar title.
+  static const String settingsBarPermissions = 'settings-bar-permissions';
 
   /// The calendar's controls that are not a day cell. The month title opens
   /// the month/year picker; its label is the month itself.

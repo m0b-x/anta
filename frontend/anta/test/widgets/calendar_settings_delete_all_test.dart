@@ -83,6 +83,14 @@ void main() {
         rule: const DailyRecurrence(),
       ),
     );
+    await events.upsert(
+      CalendarEvent(
+        id: 'e2',
+        title: 'Dentist',
+        categoryId: 'gym',
+        startDate: DateTime.utc(2026, 2, 3),
+      ),
+    );
     // Warmed in the real async zone: the service opens the file-backed
     // database, which never completes under a test body's `FakeAsync`.
     await PublicHolidayService.getInstance();
@@ -131,16 +139,11 @@ void main() {
     fail('"$text" never came into view');
   }
 
-  testWidgets('the wipe tells the store it moved', (tester) async {
-    final heard = <void>[];
-    final subscription = CalendarEventService.externalChanges.listen(heard.add);
-    addTearDown(subscription.cancel);
-    final revision = CalendarEventService.externalRevision;
-
-    await pumpPage(tester);
+  /// Opens the confirm through the row's own callback: the row sits at the
+  /// end of a long scroll, and what is under test is the wipe, not the hit
+  /// test.
+  Future<void> openConfirm(WidgetTester tester) async {
     await scrollTo(tester, 'Delete all events');
-    // Through the row's own callback: the row sits at the end of a long
-    // scroll, and what is under test is the wipe, not the hit test.
     final row = tester.widget<ListTile>(
       find.ancestor(
         of: find.text('Delete all events'),
@@ -150,6 +153,64 @@ void main() {
     expect(row.enabled, isTrue);
     row.onTap!();
     await tester.pumpAndSettle();
+  }
+
+  Future<List<CalendarEventRow>> seededRows(WidgetTester tester) async =>
+      (await tester.runAsync(
+        () => db.calendarEventDao.getByIdsIncludingDeleted(const ['e1', 'e2']),
+      ))!;
+
+  testWidgets('confirm tombstones every event and the count re-reads', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+    await openConfirm(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    // A soft wipe: both rows are still there, each a tombstone the sync push
+    // can carry — a hard delete would leave the other devices holding them.
+    final rows = await seededRows(tester);
+    expect(rows.map((r) => r.id), unorderedEquals(['e1', 'e2']));
+    expect(rows.every((r) => r.isDeleted), isTrue);
+    expect(await tester.runAsync(db.calendarEventDao.getAll), isEmpty);
+
+    // The page's own count went to zero: the row says so and stops offering
+    // a second wipe.
+    expect(find.text('No events to delete'), findsOneWidget);
+    final row = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('Delete all events'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(row.enabled, isFalse);
+  });
+
+  testWidgets('cancel writes nothing', (tester) async {
+    final revision = CalendarEventService.externalRevision;
+
+    await pumpPage(tester);
+    await openConfirm(tester);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    final rows = await seededRows(tester);
+    expect(rows, hasLength(2));
+    expect(rows.any((r) => r.isDeleted), isFalse);
+    expect((await CalendarEventService.getInstance()).events, hasLength(2));
+    expect(CalendarEventService.externalRevision, revision);
+    expect(find.text('No events to delete'), findsNothing);
+  });
+
+  testWidgets('the wipe tells the store it moved', (tester) async {
+    final heard = <void>[];
+    final subscription = CalendarEventService.externalChanges.listen(heard.add);
+    addTearDown(subscription.cancel);
+    final revision = CalendarEventService.externalRevision;
+
+    await pumpPage(tester);
+    await openConfirm(tester);
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
