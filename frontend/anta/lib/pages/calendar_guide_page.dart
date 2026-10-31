@@ -225,10 +225,7 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
               : null,
           title: title,
           description: description,
-          onTap: () => AppNavigator.push<void>(
-            context,
-            CalendarGuideTopicPage(topic: topic),
-          ),
+          onTap: () => AppNavigator.toCalendarGuideTopic(context, topic),
         ),
       ),
     );

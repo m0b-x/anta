@@ -8800,6 +8800,12 @@ abstract class AppLocalizations {
   /// **'Off — no notice before an alarm'**
   String get alertsNoticeLeadOff;
 
+  /// Caption under the upcoming-alarm notice slider when its minutes are whole hours, from 60 up
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{A quiet notice 1 hour before an alarm, with Skip and Open} other{A quiet notice {count} hours before an alarm, with Skip and Open}}'**
+  String alertsNoticeLeadHours(int count);
+
   /// Text line of the quiet notice posted ahead of an alarm, under the event's title. The time is the alarm's own, followed by its day (alertsWhenOnDay) when the alarm is not due on the day the notice is posted
   ///
   /// In en, this message translates to:
@@ -8908,10 +8914,10 @@ abstract class AppLocalizations {
   /// **'Force stopping ANTA disarms every alarm until you open it again.'**
   String get alertsForceStopNote;
 
-  /// Calendar settings button that schedules a ring ten seconds from now. The ring itself is titled alarmTestTitle, on its page and on its notification
+  /// Alert settings button that schedules a ring ten seconds from now. The ring itself is titled alarmTestTitle, on its page and on its notification
   ///
   /// In en, this message translates to:
-  /// **'Test alarm in 10 s'**
+  /// **'Test alarm in 10 s'**
   String get alertsTestAlarm;
 
   /// Confirmation after the test alarm was scheduled
@@ -9616,6 +9622,42 @@ abstract class AppLocalizations {
   /// **'No alert'**
   String get alertsDefaultNone;
 
+  /// The alert sheet's remove button when it edits a settings default: removing means a new event starts with no alert
+  ///
+  /// In en, this message translates to:
+  /// **'No default alert'**
+  String get alertsDefaultRemove;
+
+  /// Title of the Alert settings page, of the settings hub's row that opens it, of the tooltip on the gear button in the Alerts page's bar, and of the row on Calendar settings that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Alert settings'**
+  String get alertSettingsTitle;
+
+  /// Alert settings section holding the alert a new timed or all-day event starts with
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults'**
+  String get alertSettingsSectionDefaults;
+
+  /// Alert settings section holding the alarm sound, snooze, upcoming notice and silence lengths
+  ///
+  /// In en, this message translates to:
+  /// **'Sound and timing'**
+  String get alertSettingsSectionTiming;
+
+  /// Alert settings row that opens the categories page, where each category's alerts are set
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts per category'**
+  String get alertSettingsCategoriesRow;
+
+  /// Description of the Alerts per category row
+  ///
+  /// In en, this message translates to:
+  /// **'Set on each category'**
+  String get alertSettingsCategoriesDesc;
+
   /// Settings row and sound chooser title for which sound an alarm plays
   ///
   /// In en, this message translates to:
@@ -9814,6 +9856,12 @@ abstract class AppLocalizations {
   /// **'Week start, cells, markers, colors'**
   String get settingsRowAppearanceDesc;
 
+  /// Subtitle of the settings hub row that opens the Alert settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults, sound, timing, permissions'**
+  String get settingsRowAlertsDesc;
+
   /// Subtitle of the row that opens the calendar's Categories page
   ///
   /// In en, this message translates to:
@@ -9874,7 +9922,7 @@ abstract class AppLocalizations {
   /// **'Account and paired devices'**
   String get settingsRowSharingDesc;
 
-  /// Description of the calendar settings row that opens the Permissions page
+  /// Caption of the Alert settings page's Permissions row, which opens the Permissions page; the German says Mitteilungen, the app's word for notifications in running text, because Benachrichtigungen alone is wider than the caption's column at text scale 2.0 on a 360 dp phone
   ///
   /// In en, this message translates to:
   /// **'Notifications, exact timing, full-screen alarms, battery'**

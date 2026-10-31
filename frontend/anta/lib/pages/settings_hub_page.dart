@@ -123,7 +123,6 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
               l10n.calendarCategories,
               l10n.fastingSectionTitle,
               l10n.calendarEventsSection,
-              l10n.calendarAlertsSection,
             ],
             identifier: SemanticsIds.settingsHubRow('calendarSettings'),
             builder: (_, title, description) => _pageRow(
@@ -165,6 +164,37 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
               title,
               description,
               () => AppNavigator.toCalendarCategories(context),
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.alertSettingsTitle,
+            description: l10n.settingsRowAlertsDesc,
+            // The page's rows are named too: "snooze" is a row there, not a
+            // section, and it must find this page. "Alerts" too: the title
+            // says "Alert" and the matcher is a plain substring.
+            keywords: [
+              l10n.calendarAlertsSection,
+              l10n.alertSettingsSectionDefaults,
+              l10n.alertSettingsSectionTiming,
+              l10n.permissionsTitle,
+              l10n.calendarCategories,
+              l10n.calendarGuideHowItWorks,
+              l10n.calendarGuidePageAlerts,
+              l10n.alertsDefaultTimed,
+              l10n.alertsDefaultAllDay,
+              l10n.alertsSound,
+              l10n.alertsSnoozeLength,
+              l10n.alertsNoticeLead,
+              l10n.alertsSilenceAfter,
+              l10n.alertsTestAlarm,
+            ],
+            identifier: SemanticsIds.settingsHubRow('alertSettings'),
+            builder: (_, title, description) => _pageRow(
+              colorScheme,
+              Icons.alarm_rounded,
+              title,
+              description,
+              () => AppNavigator.toAlertSettings(context),
             ),
           ),
         ],

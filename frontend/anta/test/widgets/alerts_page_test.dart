@@ -21,6 +21,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_digest.dart';
+import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/alerts_page.dart';
 import 'package:anta/services/alert_scheduler.dart';
@@ -41,6 +42,15 @@ class _RecordingObserver extends BlocObserver {
   void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
     super.onEvent(bloc, event);
     events.add(event);
+  }
+}
+
+class _PushObserver extends NavigatorObserver {
+  final List<Route<dynamic>> pushed = [];
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushed.add(route);
   }
 }
 
@@ -171,10 +181,12 @@ void main() {
     CalendarWeekStart weekStart = CalendarWeekStart.monday,
     Future<bool> Function(BuildContext context)? afterDigestSaved,
     ThemeData? theme,
+    List<NavigatorObserver> navigatorObservers = const [],
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
+        navigatorObservers: navigatorObservers,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('en'),
@@ -729,6 +741,45 @@ void main() {
     await pumpHub(tester, () => [entryOf()]);
 
     expect(find.text('Turn on'), findsNothing);
+  });
+
+  // D5: the hub's settings are one tap away, on its bar.
+  testWidgets('the bar\'s ⚙ pushes Alert settings, stamped as its kind', (
+    tester,
+  ) async {
+    final pushes = _PushObserver();
+    await pumpHub(tester, () => const [], navigatorObservers: [pushes]);
+    pushes.pushed.clear();
+
+    final button = find.bySemanticsIdentifier(SemanticsIds.alertsSettingsOpen);
+    expect(button, findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byTooltip('Alert settings'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.settings_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(button);
+
+    final destination = pushes.pushed.single.settings.arguments;
+    expect(destination, isA<NavDestination>());
+    expect(
+      (destination as NavDestination).kind,
+      NavDestinationKind.alertSettings,
+    );
+
+    // Torn down before a frame builds the page: the route and its stamp
+    // are the contract here, not what Alert settings paints.
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   // v42, D14: the hub is where digests live. It reads them from the facade

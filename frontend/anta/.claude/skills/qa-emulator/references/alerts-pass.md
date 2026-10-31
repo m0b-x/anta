@@ -34,7 +34,9 @@ hand. Measured after the grant: `pass alerts` 5/5 in 265 s, `alerts_pair`
   alarm with "remove after it rings") and "Stretch" at +7 (a Reminder-tier
   alert, which the flows leave armed for a look at the shade by hand).
   `test/qa/alerts_fixture_test.dart` pins it. Its flows: `00_test_alarm`
-  (Calendar settings' test ring: the page read by its ids, Stop),
+  (the Alert settings page's test ring, reached through the Alerts hub's ⚙
+  `alerts-settings-open` since the settings rework's S3 — the page read by
+  its ids, Stop, then a walk back to the calendar for `01_event_alarm`),
   `01_event_alarm` (Leg day's ring, read and stopped) and `02_remove_after`
   (Tea timer: the remove row, Keep, Stop, then the calendar's row no longer
   saying "removed after it rings").
@@ -58,9 +60,11 @@ hand. Measured after the grant: `pass alerts` 5/5 in 265 s, `alerts_pair`
   (`alarm-open-database` while the Open row is the switch to another
   database), `alarm-keep-event`, and `alarm-body`, its scroll region — a
   reversed scroll hides its start, so `scroll-to --up --in id:alarm-body`
-  brings the time back on a short screen; Calendar settings' test ring is
-  `alerts-test-alarm`. Two stacked pages both carry `alarm-stop`, so nothing
-  can be waited for between their two Stops: the pair flow pauses instead.
+  brings the time back on a short screen; the Alert settings page's test
+  ring is `alerts-test-alarm` (its list is `alert-settings-list`, the
+  `--in` a `scroll-to` there takes). Two stacked pages both carry
+  `alarm-stop`, so nothing can be waited for between their two Stops: the
+  pair flow pauses instead.
 - A flow's `shot` is adb's: with ANTA in front and unlocked it shows the
   ring's heads-up over the page, and flows 00 and 01 wait 3.5 s before theirs
   (`key back --settle 3500`, a verb the page swallows) so the page is on

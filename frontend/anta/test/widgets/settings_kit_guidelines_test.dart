@@ -21,6 +21,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/label_style.dart';
+import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/permissions_page.dart';
 import 'package:anta/pages/settings_hub_page.dart';
@@ -33,6 +34,7 @@ import 'package:anta/services/label_appearance_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/settings_search.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/permission_tile.dart';
 import 'package:anta/widgets/settings_search_field.dart';
@@ -44,13 +46,13 @@ import '../goldens/support/golden_matrix.dart';
 import '../services/permission_support.dart';
 
 /// The settings kit against Android's tap-target, labelled-tap and text
-/// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the two
-/// pages that use the most of it — App settings and Calendar settings — and
-/// on the settings hub every page is opened from, at 1.0 in light English
-/// and at 2.0 in dark German on the small phone, with Roboto loaded so text
-/// is measured as a phone draws it. The search field's
-/// own contract — 48 dp, growing with the text, a labelled clear button with
-/// an id — is pinned beside it.
+/// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the
+/// pages that use the most of it — App settings, Calendar settings and Alert
+/// settings — and on the settings hub every page is opened from, at 1.0 in
+/// light English and at 2.0 in dark German on the small phone, with Roboto
+/// loaded so text is measured as a phone draws it. The search field's own
+/// contract — 48 dp, growing with the text, a labelled clear button with an
+/// id — is pinned beside it.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -286,6 +288,20 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       handle.dispose();
     });
+
+    testWidgets('Alert settings meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(goldenApp(cell, home: const AlertSettingsPage()));
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
   }
 
   // With no clear-button slot while empty the German hint is whole on the
@@ -481,6 +497,161 @@ void main() {
       expect(
         find.bySemanticsIdentifier(SemanticsIds.settingsSearch),
         findsNothing,
+      );
+    });
+  });
+
+  group('the yielding tile', () {
+    /// One yielding tile on a kit page, as Alert settings draws its
+    /// defaults: [value] in a box no wider than the room it is given.
+    Future<void> pumpTile(
+      WidgetTester tester,
+      GoldenCell cell, {
+      required String title,
+      required String description,
+      required String value,
+    }) async {
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(
+          cell,
+          home: Scaffold(
+            body: SettingsSectionList(
+              sections: [
+                SettingsSectionData(
+                  icon: Icons.schedule_rounded,
+                  title: 'Defaults',
+                  entries: [
+                    SettingsEntry(
+                      title: title,
+                      description: description,
+                      builder: (context, title, description) =>
+                          SettingsYieldingTile(
+                            leading: const Icon(Icons.today_rounded),
+                            title: title,
+                            subtitle: description,
+                            value: value,
+                            trailing: (maxWidth) => ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: maxWidth),
+                              child: Text(value),
+                            ),
+                          ),
+                    ),
+                  ],
+                ),
+              ],
+              query: SettingsQuery.empty,
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    }
+
+    ListTile tile(WidgetTester tester) =>
+        tester.widget<ListTile>(find.byType(ListTile));
+
+    RenderParagraph paragraphOf(WidgetTester tester, String text) =>
+        tester.renderObject<RenderParagraph>(find.text(text));
+
+    /// [text] laid out on one line: as tall as one line of its own style.
+    void expectOneLine(WidgetTester tester, String text) {
+      final paragraph = paragraphOf(tester, text);
+      final line = TextPainter(
+        text: paragraph.text,
+        textScaler: paragraph.textScaler,
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      addTearDown(line.dispose);
+      expect(paragraph.size.height, moreOrLessEquals(line.height), reason: text);
+    }
+
+    /// [text] is never narrower than its longest word: no word is broken.
+    void expectWholeWords(WidgetTester tester, String text) {
+      final paragraph = paragraphOf(tester, text);
+      expect(
+        paragraph.size.width,
+        greaterThanOrEqualTo(
+          paragraph.getMinIntrinsicWidth(double.infinity) - 0.01,
+        ),
+        reason: '"$text" breaks inside a word',
+      );
+    }
+
+    const phoneEn = GoldenCell(
+      dark: false,
+      locale: Locale('en'),
+      textScale: 1.0,
+      size: Size(360, 780),
+    );
+
+    testWidgets('at 1.0 on a 360 phone a value that would leave the title '
+        'less than half its column goes under the description: the title '
+        'on one line, the caption whole', (tester) async {
+      const title = 'All-day events';
+      const caption = 'The alert a new all-day event starts with';
+      const value = 'Reminder · The day before, 9:00 AM';
+      await pumpTile(
+        tester,
+        phoneEn,
+        title: title,
+        description: caption,
+        value: value,
+      );
+
+      expect(tile(tester).trailing, isNull);
+      expectOneLine(tester, title);
+      expectWholeWords(tester, caption);
+      expect(
+        tester.getRect(find.text(value)).top,
+        greaterThanOrEqualTo(tester.getRect(find.text(caption)).bottom),
+      );
+      expectWholeWords(tester, value);
+    });
+
+    testWidgets('at 1.0 on a 360 phone a short value stays beside the title', (
+      tester,
+    ) async {
+      await pumpTile(
+        tester,
+        phoneEn,
+        title: 'All-day events',
+        description: 'The alert a new all-day event starts with',
+        value: 'No alert',
+      );
+
+      expect(tile(tester).trailing, isNotNull);
+      expectOneLine(tester, 'All-day events');
+      expectOneLine(tester, 'No alert');
+    });
+
+    testWidgets('German at 2.0 on a 360 phone a value goes under the '
+        'description, as before', (tester) async {
+      const title = 'Ganztägige Termine';
+      const caption =
+          'Die Erinnerung, mit der ein neuer ganztägiger Termin startet';
+      const value = 'Mitteilung · Am Vortag, 09:00';
+      await pumpTile(
+        tester,
+        const GoldenCell(
+          dark: true,
+          locale: Locale('de'),
+          textScale: 2.0,
+          size: Size(360, 780),
+        ),
+        title: title,
+        description: caption,
+        value: value,
+      );
+
+      expect(tile(tester).trailing, isNull);
+      expectWholeWords(tester, title);
+      expectWholeWords(tester, caption);
+      expectWholeWords(tester, value);
+      expect(
+        tester.getRect(find.text(value)).top,
+        greaterThanOrEqualTo(tester.getRect(find.text(caption)).bottom),
       );
     });
   });

@@ -150,6 +150,18 @@ class RowMetrics {
   /// title at 2.0 is never squeezed to a letter a line.
   static const double settingsCountMaxShare = 1 / 3;
 
+  /// The least of a settings row's text column a value beside the title may
+  /// leave to the title and its description: under it the value goes under
+  /// the description, since a value of 197 px left "All-day events" one
+  /// word a line and its caption seven lines tall at 1.0 on a 360 phone.
+  static const double settingsValueMinTextShare = 1 / 2;
+
+  /// The most steps a settings slider reads out to size its caption's slot
+  /// from every reading: a caption whose longest reading falls mid-range
+  /// ("1410 minutes before" against "24 hours before") moved the slider
+  /// under the finger when only the ends were measured. Past it, the ends.
+  static const int sliderReadingTemplatesMax = 200;
+
   /// "No matches": the air above and below it and its glyph.
   static const double emptyStatePadding = 48.0;
   static const double emptyStateGlyphSize = 48.0;

@@ -65,6 +65,7 @@ void main() {
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
     bool forCategory = false,
+    String? removeLabel,
     Size? surface,
     Locale locale = const Locale('en'),
     double? textScale,
@@ -103,6 +104,7 @@ void main() {
                   showRemoveAfter: showRemoveAfter,
                   removeAfterAlert: removeAfterAlert,
                   forCategory: forCategory,
+                  removeLabel: removeLabel,
                 );
                 result.closed = true;
               },
@@ -223,6 +225,20 @@ void main() {
     final sheet = AlertSheetRobot(tester);
     final result = await openSheet(tester);
 
+    await sheet.tapRemoveAlert();
+
+    expect(result.value, isA<AlertEditorRemoved>());
+  });
+
+  testWidgets('the remove row reads "Remove alert" unless the caller names '
+      'what removal means, and either way reports a removal', (tester) async {
+    final sheet = AlertSheetRobot(tester);
+    await openSheet(tester);
+    expect(sheet.removeAlertLabel, 'Remove alert');
+    await sheet.close();
+
+    final result = await openSheet(tester, removeLabel: 'No default alert');
+    expect(sheet.removeAlertLabel, 'No default alert');
     await sheet.tapRemoveAlert();
 
     expect(result.value, isA<AlertEditorRemoved>());
@@ -1618,6 +1634,161 @@ void main() {
       await sheet.confirmCustom();
       await sheet.save();
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  // Done reports whether any control was used, never whether the values
+  // moved: a settings default saves a draft chosen as it stands, and an
+  // untouched Done there saves nothing (N148).
+  group('touched', () {
+    // The time pad reads the haptics setting as it opens.
+    late AppDatabase db;
+
+    setUp(() async {
+      SettingsService.reset();
+      db = await openTestDatabase();
+      SettingsService.forTesting(db);
+    });
+
+    tearDown(() async {
+      SettingsService.reset();
+      await db.close();
+    });
+
+    Future<bool> touchedAfter(
+      WidgetTester tester,
+      Future<void> Function(AlertSheetRobot sheet) act, {
+      EventAlert initial = alert,
+      bool allDay = false,
+      bool showRemoveAfter = false,
+    }) async {
+      final sheet = AlertSheetRobot(tester);
+      final result = await openSheet(
+        tester,
+        initial: initial,
+        allDay: allDay,
+        showRemoveAfter: showRemoveAfter,
+      );
+      await act(sheet);
+      await sheet.save();
+      return (result.value as AlertEditorSaved).touched;
+    }
+
+    testWidgets('false on a Done straight after opening', (tester) async {
+      expect(await touchedAfter(tester, (_) async {}), isFalse);
+    });
+
+    testWidgets('false after a Custom sub-sheet backed out of', (
+      tester,
+    ) async {
+      expect(
+        await touchedAfter(tester, (sheet) async {
+          await sheet.openCustom();
+          await sheet.cancelCustom();
+        }),
+        isFalse,
+      );
+    });
+
+    testWidgets('false after a sound sheet left through its ✕', (
+      tester,
+    ) async {
+      expect(
+        await touchedAfter(tester, (sheet) async {
+          await sheet.tapSoundRow();
+          await tester.tap(find.bySemanticsIdentifier(SemanticsIds.soundClose));
+          await tester.pumpAndSettle();
+        }, initial: alert.copyWith(mode: AlertMode.ring)),
+        isFalse,
+      );
+    });
+
+    testWidgets('true after a tier change, and after a change and back', (
+      tester,
+    ) async {
+      expect(
+        await touchedAfter(
+          tester,
+          (sheet) => sheet.chooseTier(AlertMode.ring),
+        ),
+        isTrue,
+      );
+      expect(
+        await touchedAfter(tester, (sheet) async {
+          await sheet.chooseTier(AlertMode.ring);
+          await sheet.chooseTier(AlertMode.notify);
+        }),
+        isTrue,
+      );
+    });
+
+    testWidgets('true after a tap on the tier already shown', (tester) async {
+      expect(
+        await touchedAfter(
+          tester,
+          (sheet) => sheet.chooseTier(AlertMode.notify),
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('true after a When preset, even the one already shown', (
+      tester,
+    ) async {
+      expect(
+        await touchedAfter(
+          tester,
+          (sheet) => sheet.choosePreset('10 min before'),
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('true after a confirmed Custom offset', (tester) async {
+      expect(
+        await touchedAfter(tester, (sheet) async {
+          await sheet.openCustom();
+          await sheet.confirmCustom();
+        }),
+        isTrue,
+      );
+    });
+
+    testWidgets('true after a picked time of day', (tester) async {
+      expect(
+        await touchedAfter(
+          tester,
+          (sheet) =>
+              sheet.pickTimeOfDay(const TimeOfDay(hour: 7, minute: 15)),
+          allDay: true,
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('true after a picked sound', (tester) async {
+      expect(
+        await touchedAfter(tester, (sheet) async {
+          await sheet.tapSoundRow();
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.soundPhoneDefault),
+          );
+          await tester.pumpAndSettle();
+        }, initial: alert.copyWith(mode: AlertMode.ring)),
+        isTrue,
+      );
+    });
+
+    testWidgets('true after the remove-after switch', (tester) async {
+      expect(
+        await touchedAfter(
+          tester,
+          (sheet) => sheet.toggleRemoveAfter(),
+          initial: alert.copyWith(mode: AlertMode.ring),
+          showRemoveAfter: true,
+        ),
+        isTrue,
+      );
     });
   });
 }

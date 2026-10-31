@@ -159,6 +159,7 @@ void main() {
     'calendarSettings',
     'calendarAppearance',
     'calendarCategories',
+    'alertSettings',
   ];
   const notesRows = ['markdownSettings', 'counterManagement'];
   const appRows = [
@@ -216,6 +217,7 @@ void main() {
       ('calendarSettings', NavDestinationKind.calendarSettings),
       ('calendarAppearance', NavDestinationKind.calendarAppearance),
       ('calendarCategories', NavDestinationKind.calendarCategories),
+      ('alertSettings', NavDestinationKind.alertSettings),
       ('counterManagement', NavDestinationKind.counterManagement),
       ('settings', NavDestinationKind.settings),
       ('databaseSettings', NavDestinationKind.databaseSettings),
@@ -338,6 +340,76 @@ void main() {
         expect(
           row(kind),
           kind == 'calendarSettings' ? findsOneWidget : findsNothing,
+          reason: kind,
+        );
+      }
+
+      await teardownApp(tester);
+    });
+
+    // Snooze is a row on Alert settings, not a section, and it left
+    // Calendar settings with the rest of the alerts (D5).
+    testWidgets('"snooze" finds Alert settings only', (tester) async {
+      DevOptions.instance.developerModeUnlocked = true;
+      await pumpHub(tester);
+
+      await search(tester, 'snooze');
+
+      for (final kind in allRows) {
+        expect(
+          row(kind),
+          kind == 'alertSettings' ? findsOneWidget : findsNothing,
+          reason: kind,
+        );
+      }
+
+      await teardownApp(tester);
+    });
+
+    // The row's title says "Alert", and the section name that held the word
+    // left Calendar settings' keywords with the alerts.
+    testWidgets('"alerts" finds Alert settings only', (tester) async {
+      DevOptions.instance.developerModeUnlocked = true;
+      await pumpHub(tester);
+
+      await search(tester, 'alerts');
+
+      for (final kind in allRows) {
+        expect(
+          row(kind),
+          kind == 'alertSettings' ? findsOneWidget : findsNothing,
+          reason: kind,
+        );
+      }
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('"Schlummer" finds Alert settings only, in German', (
+      tester,
+    ) async {
+      DevOptions.instance.developerModeUnlocked = true;
+      tester.view.physicalSize = const Size(1000, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        app(
+          cell: const GoldenCell(
+            dark: false,
+            locale: Locale('de'),
+            textScale: 1.0,
+            size: Size(1000, 2400),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await search(tester, 'Schlummer');
+
+      for (final kind in allRows) {
+        expect(
+          row(kind),
+          kind == 'alertSettings' ? findsOneWidget : findsNothing,
           reason: kind,
         );
       }

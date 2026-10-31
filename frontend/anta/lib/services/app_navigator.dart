@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'dart:async';
 import '../models/alert_payload.dart';
+import '../models/calendar_guide_content.dart';
 import '../models/counter.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/date_range.dart';
@@ -20,6 +21,7 @@ import '../services/quick_alarm_request.dart';
 import '../services/settings_service.dart';
 import '../pages/settings_hub_page.dart';
 import '../pages/settings_page.dart';
+import '../pages/alert_settings_page.dart';
 import '../pages/alerts_page.dart';
 import '../pages/all_notes_page.dart';
 import '../pages/calendar_page.dart';
@@ -27,6 +29,7 @@ import '../pages/calendar_settings_page.dart';
 import '../pages/calendar_categories_page.dart';
 import '../pages/calendar_appearance_page.dart';
 import '../pages/calendar_guide_page.dart';
+import '../pages/calendar_guide_topic_page.dart';
 import '../pages/calendar_overview_page.dart';
 import '../pages/calendar_report_page.dart';
 import '../pages/event_templates_page.dart';
@@ -621,6 +624,29 @@ abstract final class AppNavigator {
       const CalendarSettingsPage(),
       destination: const NavDestination(NavDestinationKind.calendarSettings),
     );
+  }
+
+  /// Alert settings (D5): stamped, so a relaunch restores it beneath
+  /// whatever opened it — the hub, the Alerts hub, Calendar settings.
+  static Future<void> toAlertSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.alertSettings)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const AlertSettingsPage(),
+      destination: const NavDestination(NavDestinationKind.alertSettings),
+    );
+  }
+
+  /// One page of the guide, opened from the guide's hub or straight from a
+  /// settings page's "How it works" row (D12). Never stamped: a page is a
+  /// few seconds' reading, so a relaunch lands on whatever opened it.
+  static Future<void> toCalendarGuideTopic(
+    BuildContext context,
+    CalendarGuideTopic topic,
+  ) {
+    return push<void>(context, CalendarGuideTopicPage(topic: topic));
   }
 
   /// The guide reads nothing and writes nothing, so the calendar and the
@@ -1320,6 +1346,7 @@ abstract final class AppNavigator {
         counter: entry.counter!,
       ),
       NavDestinationKind.developerOptions => const DeveloperOptionsPage(),
+      NavDestinationKind.alertSettings => const AlertSettingsPage(),
     };
   }
 }

@@ -2,49 +2,37 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get_it/get_it.dart';
-import '../constants/alert_constants.dart';
 import '../constants/app_colors.dart';
-import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
-import '../constants/event_alerts.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/form_metrics.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../constants/calendar_icons.dart';
-import '../models/alert_sound.dart';
 import '../models/calendar_appearance.dart';
-import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
-import '../models/recurrence_rule.dart';
-import '../widgets/alert_editor_sheet.dart';
-import '../widgets/alert_sound_sheet.dart';
 import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../constants/semantics_ids.dart';
-import '../services/alert_gateway.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
 import '../services/calendar_palette_service.dart';
-import '../services/event_time_formatter.dart';
-import '../services/permission_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/automation_id.dart';
 import '../widgets/removed_holidays_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/slider_setting_row.dart';
 import '../widgets/unified_app_bars.dart';
+import 'alert_settings_page.dart';
 
 /// Calendar settings page grouping every calendar-specific option
 /// (week start, holiday set, appearance, day-bar density, …) in one place.
@@ -89,24 +77,11 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   int _eventCount = 0;
   int _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
 
-  int _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
-  int _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
-  int _noticeLeadMinutes = SettingsKeys.defaultAlertNoticeLeadMinutes;
-
-  /// What a new event's first alert is seeded with, per shape. `null` is a
-  /// value of its own — "no default" — and is what the rows render as
-  /// `alertsDefaultNone`.
+  /// What a new event's first alert is seeded with, per shape — read here
+  /// only for the Alert settings row's value line. `null` is a value of its
+  /// own, "no default".
   TimedAlertDefault? _timedAlertDefault;
   AllDayAlertDefault? _allDayAlertDefault;
-
-  /// Which sound an alarm plays when its own alert names none. `''` reads as
-  /// the phone's default alarm — the setting has no "unset", unlike an alert.
-  String _alertSound = SettingsKeys.defaultAlertSound;
-
-  /// The phone's name for [_alertSound] when it is a picked one, resolved off
-  /// the first frame so the row never waits on a platform round trip.
-  String? _alertSoundTitle;
-  bool _alertSoundTitleResolved = false;
 
   Set<FastingTradition> _fastingTraditions = const {};
   FastingAppearance _fastingAppearance = const FastingAppearance();
@@ -157,66 +132,15 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _eventService = eventService;
       _eventCount = eventService.events.length;
       _descriptionLimit = descriptionLimit;
-      _snoozeMinutes = alerts.snoozeMinutes;
-      _silenceAfterMinutes = alerts.silenceAfterMinutes;
-      _noticeLeadMinutes = alerts.noticeLeadMinutes;
       _timedAlertDefault = alerts.timedDefault;
       _allDayAlertDefault = alerts.allDayDefault;
-      _alertSound = alerts.sound;
       _fastingTraditions = fastingTraditions;
       _fastingAppearance = fastingAppearance;
       _fastingGreatFasts = fastingGreatFasts;
       _fastingSchedule = fastingSchedule;
       _isLoading = false;
     });
-    unawaited(_resolveAlertSoundTitle());
   }
-
-  /// Asks the phone what it calls the stored sound, once per load. Best-effort
-  /// and unawaited: a build with no gateway simply never answers and the row
-  /// keeps its neutral name.
-  Future<void> _resolveAlertSoundTitle() async {
-    if (AlertSound.decode(_alertSound) is! AlertSoundUri) return;
-    if (!GetIt.I.isRegistered<AlertGateway>()) return;
-    final title = await GetIt.I<AlertGateway>().soundTitle(_alertSound);
-    if (!mounted) return;
-    setState(() {
-      _alertSoundTitle = title;
-      _alertSoundTitleResolved = true;
-    });
-  }
-
-  /// Writes the app-wide alarm sound and makes the phone catch up.
-  ///
-  /// The reconcile is the point: nothing about any event changed, so no bloc
-  /// dispatches and nothing else would ever re-arm the alarms already standing
-  /// on the old sound. The pass re-arms exactly the registrations whose arm
-  /// signature moved and leaves every other one on its fast path.
-  Future<void> _editAlertSound() async {
-    _onHapticFeedback();
-    final l10n = AppLocalizations.of(context)!;
-    final result = await AlertSoundSheet.show(context, value: _alertSound);
-    if (result == null || !mounted) return;
-    switch (result) {
-      case AlertSoundPickerMissing():
-        CustomSnackbar.showError(context, l10n.alertSoundPickerUnavailable);
-      case AlertSoundPicked(:final value, :final title):
-        setState(() {
-          _alertSound = value ?? SettingsKeys.defaultAlertSound;
-          _alertSoundTitle = title;
-          _alertSoundTitleResolved = title != null;
-        });
-        await _settings?.setAlertSound(_alertSound);
-        await AlertScheduler.reconcileAllQuietly(
-          AlertReconcileReason.eventChanged,
-        );
-    }
-  }
-
-  PermissionService? get _permissionService =>
-      GetIt.I.isRegistered<PermissionService>()
-      ? GetIt.I<PermissionService>()
-      : null;
 
   /// Optimistic like every other row on this page: the fold is a view
   /// preference, so a failed write costs nothing worth blocking the tap for.
@@ -847,400 +771,60 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
-  /// §5.7. The permissions link, two defaults, two lengths and a test ring.
-  ///
-  /// What the operating system allows lives on the Permissions page; the row
-  /// here only says whether anything essential is missing, read **live** off
-  /// the `PermissionService` snapshot and never stored.
+  /// The one row left where the alerts section was (D5): every alert option
+  /// moved to [AlertSettingsPage], and the row reads the two defaults back so
+  /// the page still answers "what does a new event start with" at a glance.
+  /// The section keeps its id, so a user's fold on it holds.
   SettingsSectionData _buildAlertsSection(
     ColorScheme colorScheme,
     AppLocalizations l10n,
   ) {
-    final captionStyle = TextStyle(
-      fontSize: 12,
-      color: colorScheme.onSurfaceVariant,
-    );
     return SettingsSectionData(
       id: _sectionAlerts,
       icon: Icons.alarm_rounded,
       title: l10n.calendarAlertsSection,
       entries: [
         SettingsEntry(
-          title: l10n.permissionsTitle,
-          description: l10n.permissionsCalendarRowDesc,
+          title: l10n.alertSettingsTitle,
+          description: AlertSettingsPage.defaultsSummary(
+            context,
+            timed: _timedAlertDefault,
+            allDay: _allDayAlertDefault,
+          ),
           keywords: [
+            l10n.alertsDefaultTimed,
+            l10n.alertsDefaultAllDay,
+            l10n.alertsSound,
+            l10n.alertsSnoozeLength,
+            l10n.alertsNoticeLead,
+            l10n.alertsSilenceAfter,
+            // The permissions row's own words, as its entry here listed them
+            // before it moved, so this page's search still finds the way.
+            l10n.permissionsTitle,
             l10n.alertsNotifications,
             l10n.permissionExactAlarms,
             l10n.alertsFullScreenAlarms,
             l10n.alertsBattery,
+            l10n.alertsTestAlarm,
           ],
-          builder: (context, title, description) =>
-              _permissionsTile(colorScheme, title, description),
-        ),
-        SettingsEntry(
-          title: l10n.alertsDefaultTimed,
-          description: l10n.alertsDefaultTimedDesc,
-          identifier: SemanticsIds.alertsDefaultTimed,
-          builder: (context, title, description) {
-            final value = _describeDefault(l10n, allDay: false);
-            return SettingsYieldingTile(
-              leading: Icon(Icons.schedule_rounded, color: colorScheme.primary),
-              title: title,
-              subtitle: description,
-              value: value,
-              trailing: (maxWidth) =>
-                  _buildValueText(value, colorScheme, maxWidth: maxWidth),
-              onTap: () => _editAlertDefault(allDay: false),
-            );
-          },
-        ),
-        SettingsEntry(
-          title: l10n.alertsDefaultAllDay,
-          description: l10n.alertsDefaultAllDayDesc,
-          identifier: SemanticsIds.alertsDefaultAllDay,
-          builder: (context, title, description) {
-            final value = _describeDefault(l10n, allDay: true);
-            return SettingsYieldingTile(
-              leading: Icon(Icons.today_rounded, color: colorScheme.primary),
-              title: title,
-              subtitle: description,
-              value: value,
-              trailing: (maxWidth) =>
-                  _buildValueText(value, colorScheme, maxWidth: maxWidth),
-              onTap: () => _editAlertDefault(allDay: true),
-            );
-          },
-        ),
-        SettingsEntry(
-          title: l10n.alertsSound,
-          description: l10n.alertsSoundDesc,
-          keywords: [l10n.alertSoundPhoneDefault, l10n.eventAlertModeRing],
-          builder: (context, title, description) {
-            // The same sentence-wide value as the two default rows above,
-            // which took the whole tile at 200 % in German like the dropdown.
-            final value = AlertSoundSheet.labelFor(
-              l10n,
-              _alertSound,
-              title: _alertSoundTitle,
-              titleResolved: _alertSoundTitleResolved,
-            );
-            return SettingsYieldingTile(
-              leading: Icon(
-                Icons.music_note_rounded,
-                color: colorScheme.primary,
-              ),
-              title: title,
-              subtitle: description,
-              value: value,
-              trailing: (maxWidth) =>
-                  _buildValueText(value, colorScheme, maxWidth: maxWidth),
-              onTap: _editAlertSound,
-            );
-          },
-        ),
-        SettingsEntry(
-          title: l10n.alertsSnoozeLength,
-          description: l10n.alertsSnoozeLengthDesc(_snoozeMinutes),
-          builder: (context, title, description) => SliderSettingRow(
+          identifier: SemanticsIds.calendarSettingsAlertsOpen,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.alarm_rounded, color: colorScheme.primary),
             title: title,
-            description: description,
-            value: _snoozeMinutes,
-            min: SettingsKeys.minAlertSnoozeMinutes,
-            max: SettingsKeys.maxAlertSnoozeMinutes,
-            divisions:
-                (SettingsKeys.maxAlertSnoozeMinutes -
-                    SettingsKeys.minAlertSnoozeMinutes) ~/
-                SettingsKeys.alertSnoozeMinutesStep,
-            captionStyle: captionStyle,
-            draftCaption: (draft) => l10n.alertsSnoozeLengthDesc(draft),
-            onCommit: (value) async {
+            subtitle: description,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            // The value line is this page's copy of the two defaults, so it
+            // is read back when the alert page pops, as the appearance row
+            // reads its page's writes back.
+            onTap: () async {
               _onHapticFeedback();
-              setState(() => _snoozeMinutes = value);
-              await _settings?.setAlertSnoozeMinutes(value);
-              // Armed into every alarm-tier entry as the plugin's own Snooze
-              // (OS-2), so standing alarms owe the same catch-up a changed
-              // sound gets.
-              await AlertScheduler.reconcileAllQuietly(
-                AlertReconcileReason.eventChanged,
-              );
+              await AppNavigator.toAlertSettings(context);
+              if (mounted) await _loadSettings();
             },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.alertsNoticeLead,
-          description: _noticeLeadMinutes == 0
-              ? l10n.alertsNoticeLeadOff
-              : l10n.alertsNoticeLeadDesc(_noticeLeadMinutes),
-          builder: (context, title, description) => SliderSettingRow(
-            title: title,
-            description: description,
-            value: _noticeLeadMinutes,
-            min: SettingsKeys.minAlertNoticeLeadMinutes,
-            max: SettingsKeys.maxAlertNoticeLeadMinutes,
-            divisions:
-                (SettingsKeys.maxAlertNoticeLeadMinutes -
-                    SettingsKeys.minAlertNoticeLeadMinutes) ~/
-                SettingsKeys.alertNoticeLeadMinutesStep,
-            captionStyle: captionStyle,
-            draftCaption: (draft) => draft == 0
-                ? l10n.alertsNoticeLeadOff
-                : l10n.alertsNoticeLeadDesc(draft),
-            onCommit: (value) async {
-              _onHapticFeedback();
-              setState(() => _noticeLeadMinutes = value);
-              await _settings?.setAlertNoticeLeadMinutes(value);
-              // The lead rides the arm signature, so this is what moves — or
-              // removes — the notice of every alarm already standing.
-              await AlertScheduler.reconcileAllQuietly(
-                AlertReconcileReason.eventChanged,
-              );
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.alertsSilenceAfter,
-          description: l10n.alertsSilenceAfterDesc(_silenceAfterMinutes),
-          builder: (context, title, description) => SliderSettingRow(
-            title: title,
-            description: description,
-            value: _silenceAfterMinutes,
-            min: SettingsKeys.minAlertSilenceAfterMinutes,
-            max: SettingsKeys.maxAlertSilenceAfterMinutes,
-            divisions:
-                SettingsKeys.maxAlertSilenceAfterMinutes -
-                SettingsKeys.minAlertSilenceAfterMinutes,
-            captionStyle: captionStyle,
-            draftCaption: (draft) => l10n.alertsSilenceAfterDesc(draft),
-            onCommit: (value) async {
-              _onHapticFeedback();
-              setState(() => _silenceAfterMinutes = value);
-              await _settings?.setAlertSilenceAfterMinutes(value);
-              // Frozen into every alarm-tier entry as `timeoutAfterMillis` at
-              // arm time, so a standing alarm would ring for the old length
-              // until something unrelated re-scheduled it — the snooze
-              // slider's catch-up, for the same reason.
-              await AlertScheduler.reconcileAllQuietly(
-                AlertReconcileReason.eventChanged,
-              );
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.alertsTestAlarm,
-          // The force-stop note rides this row rather than a row of its own:
-          // it is the one thing about alerts nothing in the app can fix, and
-          // it belongs beside the button that proves they work.
-          description: l10n.alertsForceStopNote,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.sm,
-              AppSpacing.lg,
-              AppSpacing.lg,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AutomationId(
-                  identifier: SemanticsIds.alertsTestAlarm,
-                  child: OutlinedButton.icon(
-                    onPressed: _scheduleTestAlarm,
-                    icon: const Icon(Icons.alarm_add_rounded),
-                    label: title,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                if (description != null)
-                  DefaultTextStyle.merge(
-                    style: captionStyle,
-                    child: description,
-                  ),
-              ],
-            ),
           ),
         ),
       ],
     );
-  }
-
-  Widget _permissionsTile(
-    ColorScheme colorScheme,
-    Widget title,
-    Widget? description,
-  ) {
-    Widget tile(bool attention) => ListTile(
-      leading: Icon(
-        Icons.verified_user_outlined,
-        color: attention ? colorScheme.error : colorScheme.primary,
-      ),
-      title: title,
-      subtitle: description,
-      trailing: Icon(
-        attention ? Icons.error_outline_rounded : Icons.chevron_right_rounded,
-        color: attention ? colorScheme.error : colorScheme.onSurfaceVariant,
-      ),
-      onTap: () {
-        _onHapticFeedback();
-        AppNavigator.toPermissions(context);
-      },
-    );
-    final service = _permissionService;
-    if (service == null) return tile(false);
-    return ValueListenableBuilder(
-      valueListenable: service.snapshot,
-      builder: (context, snapshot, _) =>
-          tile(snapshot?.needsAttention ?? false),
-    );
-  }
-
-  /// The stand-in event the two default rows describe themselves through.
-  ///
-  /// [EventAlert.describe] answers for an *event*, and a default belongs to no
-  /// event — so the row hands it the one property that decides the reading,
-  /// the derived `allDay`. Anything else on this object is unread.
-  static CalendarEvent _alertSampleEvent({required bool allDay}) =>
-      CalendarEvent(
-        id: '',
-        title: '',
-        categoryId: kDefaultCategoryId,
-        startDate: DateTime.utc(2026),
-        rule: const OneTimeRecurrence(),
-        time: allDay ? null : const EventTime(startMinute: 9 * 60),
-      );
-
-  /// The alert a default currently stands for, as one alert-shaped object, or
-  /// null when the setting says "none".
-  EventAlert? _defaultAlert({required bool allDay}) {
-    if (allDay) {
-      final value = _allDayAlertDefault;
-      if (value == null) return null;
-      return EventAlert(
-        id: 'default',
-        eventId: '',
-        mode: value.mode,
-        daysBefore: value.daysBefore,
-        dayMinute: value.dayMinute,
-      );
-    }
-    final value = _timedAlertDefault;
-    if (value == null) return null;
-    return EventAlert(
-      id: 'default',
-      eventId: '',
-      mode: value.mode,
-      offsetMinutes: value.offsetMinutes,
-    );
-  }
-
-  /// A tile's value — a default read back, the alarm sound's name — wrapping
-  /// inside [maxWidth]: each is a sentence, and as an unbounded trailing it
-  /// took the title's room at a large text scale.
-  Widget _buildValueText(
-    String value,
-    ColorScheme colorScheme, {
-    required double maxWidth,
-  }) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: Text(value, style: TextStyle(color: colorScheme.onSurfaceVariant)),
-    );
-  }
-
-  String _describeDefault(AppLocalizations l10n, {required bool allDay}) {
-    final alert = _defaultAlert(allDay: allDay);
-    if (alert == null) return l10n.alertsDefaultNone;
-    final tier = alert.isAlarm
-        ? l10n.eventAlertModeRing
-        : l10n.eventAlertModeNotify;
-    final timing = alert.describe(
-      l10n,
-      _alertSampleEvent(allDay: allDay),
-      formatMinute: (minute) =>
-          EventTimeFormatter.formatMinute(minute, context),
-    );
-    return '$tier · $timing';
-  }
-
-  /// Edits one default through the same sheet an event's own alert uses, so
-  /// the timing vocabulary cannot drift between the two. Remove there means
-  /// "no default" — the `none` the decoder reads as "seed nothing".
-  Future<void> _editAlertDefault({required bool allDay}) async {
-    _onHapticFeedback();
-    final sample = _alertSampleEvent(allDay: allDay);
-    final result = await AlertEditorSheet.show(
-      context,
-      alert:
-          _defaultAlert(allDay: allDay) ??
-          AlertEditorSheet.draft(eventId: '', allDay: allDay),
-      event: sample,
-      // A default encodes a tier and an offset, nothing else — and the Alarm
-      // sound row below this one is where the sound actually lives.
-      showSound: false,
-    );
-    if (result == null || !mounted) return;
-    switch (result) {
-      case AlertEditorRemoved():
-        setState(() {
-          if (allDay) {
-            _allDayAlertDefault = null;
-          } else {
-            _timedAlertDefault = null;
-          }
-        });
-        if (allDay) {
-          await _settings?.setAlertDefaultAllDay(null);
-        } else {
-          await _settings?.setAlertDefaultTimed(null);
-        }
-      case AlertEditorSaved(:final alert):
-        if (allDay) {
-          final value = (
-            mode: alert.mode,
-            daysBefore: alert.daysBefore,
-            dayMinute: alert.dayMinute ?? kDefaultAlertDayMinute,
-          );
-          setState(() => _allDayAlertDefault = value);
-          await _settings?.setAlertDefaultAllDay(value);
-        } else {
-          final value = (mode: alert.mode, offsetMinutes: alert.offsetMinutes);
-          setState(() => _timedAlertDefault = value);
-          await _settings?.setAlertDefaultTimed(value);
-        }
-    }
-  }
-
-  Future<void> _scheduleTestAlarm() async {
-    final l10n = AppLocalizations.of(context)!;
-    _onHapticFeedback();
-    final permissions = await _permissionService?.refresh();
-    if (!mounted) return;
-    if (permissions?.needsAttention ?? false) {
-      CustomSnackbar.showWithAction(
-        context,
-        message: l10n.permissionsAlertBlocked,
-        actionLabel: l10n.permissionsReview,
-        onAction: () {
-          if (context.mounted) AppNavigator.toPermissions(context);
-        },
-      );
-      return;
-    }
-    int? osId;
-    try {
-      final scheduler = await AlertScheduler.getInstance();
-      osId = await scheduler.scheduleTestAlarm(
-        title: l10n.alertsTestAlarm,
-        delay: kAlertTestAlarmDelay,
-      );
-    } catch (e) {
-      debugPrint('[CalendarSettings] test alarm failed: $e');
-    }
-    if (!mounted) return;
-    if (osId == null) {
-      CustomSnackbar.showError(context, l10n.alertsTestAlarmFailed);
-      return;
-    }
-    CustomSnackbar.showSuccess(context, l10n.alertsTestAlarmScheduled);
   }
 
   void _showResetConfirmation() async {
@@ -1359,14 +943,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingGreatFasts = true;
       _fastingSchedule = const FastingSchedule();
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
-      _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
-      _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
-      _noticeLeadMinutes = SettingsKeys.defaultAlertNoticeLeadMinutes;
       _timedAlertDefault = shipped.timedDefault;
       _allDayAlertDefault = shipped.allDayDefault;
-      _alertSound = shipped.sound;
-      _alertSoundTitle = null;
-      _alertSoundTitleResolved = false;
       _collapsedSections = keptFolds;
     });
     // A reset can move the sound off a picked one, so the standing alarms owe

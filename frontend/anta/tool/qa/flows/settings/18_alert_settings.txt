@@ -1,0 +1,30 @@
+# Alert settings through the hub (D2, D5): its row opens the page, the first
+# row of each of the five sections is there by id — Defaults, Sound and
+# timing, Permissions, Categories, How it works — and system back lands on
+# the hub, then on the folder root with the drawer closed (D3). The arrow's
+# side of the contract is the other hub flows'.
+# - The row is the Calendar section's fourth, not the list's last, so the
+#   agent's reveal reaches it without the bottom-edge trap 17 names.
+# - The last three sections may lie past the viewport plus the cache extent
+#   on a small phone, where no node stands for them yet (the Permissions row
+#   is borderline on the Pixel at 1.0), so the first two are read as the
+#   page opens and the last three after a scroll-to inside the page's own
+#   list (a bare scroll-to swipes the dump's first scrollable).
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-alertSettings
+wait id:settings-bar-alert-settings
+expect id:alerts-default-timed id:alert-settings-sound
+shot 18_alert_settings
+scroll-to id:alert-settings-how-it-works-open --in id:alert-settings-list --max 14
+expect id:alert-settings-permissions id:alert-settings-categories-open id:alert-settings-how-it-works-open
+key back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-alert-settings
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

@@ -1794,7 +1794,7 @@ with the event's title as its body, posted `fireAt − lead` ahead of every
 **planned, alarm-tier** fire — never for a snooze, a test ring or a
 reminder, and never when the instant is already behind now — with two
 foreground actions, **Skip** and **Open**. The lead is
-`alert_notice_lead_minutes` (Calendar settings → Alerts, under the Snooze
+`alert_notice_lead_minutes` (Alert settings — its own page since the settings rework's S3, 2026-10-31 — under the Snooze
 slider; default 120, 0–1440 in steps of 30, `0` reads "Off"), and it rides
 the arm signature as `~n<lead>` after the snooze token, so a change — off
 included — re-arms every standing alarm and thereby moves or removes its
@@ -2027,7 +2027,7 @@ editor reports its complete alert set on `EventEditorSaved.alerts` and
 `CalendarBloc` persists it through `EventAlertService.replaceForEvent` — after
 the event upsert, before the reconcile, because the reconcile plans from the
 rows. A new event is seeded from `alert_default_timed` / `alert_default_all_day`
-(Calendar settings → Alerts; `none` means "seed nothing", and **`none` is what
+(Alert settings' Defaults, since 2026-10-31; `none` means "seed nothing", and **`none` is what
 both ship as since 2026-09-21** — an alert is opt-in, so a new event has none
 until the user adds one or names a default), and an existing one from the
 synchronous `EventAlerts` facade.

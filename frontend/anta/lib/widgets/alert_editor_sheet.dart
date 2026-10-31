@@ -41,7 +41,18 @@ class AlertEditorSaved extends AlertEditorResult {
   final EventAlert alert;
   final bool removeAfterAlert;
 
-  const AlertEditorSaved(this.alert, {this.removeAfterAlert = false});
+  /// Whether any control was used before Done — false for a Done straight
+  /// after opening. A value comparison cannot tell "left as offered" from
+  /// "changed and changed back", and only the first is a look rather than a
+  /// choice: the settings defaults write nothing for it (N148), while the
+  /// event editor adds the alert either way.
+  final bool touched;
+
+  const AlertEditorSaved(
+    this.alert, {
+    this.removeAfterAlert = false,
+    this.touched = false,
+  });
 }
 
 /// The user asked for this alert to go away.
@@ -52,10 +63,11 @@ class AlertEditorRemoved extends AlertEditorResult {
 /// Draft-and-Done editor for exactly one [EventAlert] (§5.2).
 ///
 /// Nothing here writes: the sheet pops with an [AlertEditorResult] and the
-/// surface that owns the event — the event editor, or the Calendar settings
-/// row holding a default — decides what that means. That is what lets the same
-/// sheet edit an alert on an event and the template a new event is seeded
-/// from, without either path growing a second copy of the timing controls.
+/// surface that owns the event — the event editor, or the Alert settings
+/// page's row holding a default — decides what that means. That is what lets
+/// the same sheet edit an alert on an event and the template a new event is
+/// seeded from, without either path growing a second copy of the timing
+/// controls.
 ///
 /// [event] is what decides whether the When row asks for minutes before a
 /// start or for a day and a time: the derived [CalendarEvent.allDay], never a
@@ -82,10 +94,10 @@ class AlertEditorSheet extends StatefulWidget {
 
   /// Whether the Sound row is offered at all.
   ///
-  /// False for the Calendar-settings defaults: `alert_default_timed` encodes a
+  /// False for the Alert settings defaults: `alert_default_timed` encodes a
   /// tier and an offset and nothing else, so a sound chosen there would be
-  /// discarded on save — and the Alarm sound row two lines below it on the same
-  /// page is the control that actually means something.
+  /// discarded on save — and the Alert settings page's own Sound row is the
+  /// control that actually means something.
   final bool showSound;
 
   /// Whether the **event-level** remove-after-it-rings switch is offered
@@ -103,6 +115,11 @@ class AlertEditorSheet extends StatefulWidget {
   /// switch, which is a one-time event's own flag and is never inherited.
   final bool forCategory;
 
+  /// The remove row's words, when removing means something other than
+  /// "this alert is gone" — on a settings default it means a new event starts
+  /// with none (N148). Null reads the stock "Remove alert".
+  final String? removeLabel;
+
   const AlertEditorSheet({
     super.key,
     required this.alert,
@@ -112,6 +129,7 @@ class AlertEditorSheet extends StatefulWidget {
     this.showRemoveAfter = false,
     this.removeAfterAlert = false,
     this.forCategory = false,
+    this.removeLabel,
   });
 
   static Future<AlertEditorResult?> show(
@@ -123,6 +141,7 @@ class AlertEditorSheet extends StatefulWidget {
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
     bool forCategory = false,
+    String? removeLabel,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<AlertEditorResult>(
@@ -149,6 +168,7 @@ class AlertEditorSheet extends StatefulWidget {
           showRemoveAfter: showRemoveAfter,
           removeAfterAlert: removeAfterAlert,
           forCategory: forCategory,
+          removeLabel: removeLabel,
         ),
       ),
     );
@@ -230,6 +250,11 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   /// event's flag back as it came however many tiers it is walked through,
   /// because that flag belongs to whichever of the event's alerts rings.
   bool _demoted = false;
+
+  /// Whether a control has been used, reported as [AlertEditorSaved.touched].
+  /// Set by the handlers that write a value — a sub-sheet backed out of
+  /// writes none and leaves it as it was.
+  bool _touched = false;
 
   /// The alert's own sound, `null` for "follow the app setting". Kept across a
   /// flip to the reminder tier exactly as both offset sets are: the row dims,
@@ -319,6 +344,7 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
         );
       case AlertSoundPicked(:final value, :final title):
         setState(() {
+          _touched = true;
           _sound = value;
           _soundTitle = title;
           // A freshly picked sound the picker did not name is still a sound
@@ -346,6 +372,9 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   }
 
   void _setMode(AlertMode mode) {
+    // A tap on the tier already shown is a choice too: it is how a settings
+    // default is set to exactly the draft the sheet opened on.
+    _touched = true;
     if (mode == _mode) return;
     setState(() {
       _mode = mode;
@@ -360,6 +389,7 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
 
   void _setWhenValue(int value, {required bool allDay}) {
     setState(() {
+      _touched = true;
       if (allDay) {
         _daysBefore = value;
       } else {
@@ -398,7 +428,10 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
       title: AppLocalizations.of(context)!.eventAlertTimeOfDay,
     );
     if (picked == null || !mounted) return;
-    setState(() => _dayMinute = picked);
+    setState(() {
+      _touched = true;
+      _dayMinute = picked;
+    });
   }
 
   /// The alert as the sheet currently describes it. Both offset sets ride
@@ -421,9 +454,13 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
       _mode == AlertMode.ring ? _removeAfter : _removeAfter && !_demoted;
 
   void _save() {
-    Navigator.of(
-      context,
-    ).pop(AlertEditorSaved(_draft, removeAfterAlert: _removeAfterResult));
+    Navigator.of(context).pop(
+      AlertEditorSaved(
+        _draft,
+        removeAfterAlert: _removeAfterResult,
+        touched: _touched,
+      ),
+    );
   }
 
   @override
@@ -636,7 +673,10 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
       identifier: SemanticsIds.alertRemoveAfter,
       value: isAlarm && _removeAfter,
       onChanged: isAlarm
-          ? (value) => setState(() => _removeAfter = value)
+          ? (value) => setState(() {
+              _touched = true;
+              _removeAfter = value;
+            })
           : null,
     );
   }
@@ -644,7 +684,7 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   Widget _buildRemoveRow(AppLocalizations l10n) {
     return FormActionRow(
       glyph: Icons.delete_outline_rounded,
-      label: l10n.eventAlertRemove,
+      label: widget.removeLabel ?? l10n.eventAlertRemove,
       destructive: true,
       identifier: SemanticsIds.alertRemove,
       onTap: () => Navigator.of(context).pop(const AlertEditorRemoved()),

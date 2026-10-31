@@ -1,12 +1,14 @@
 # The alarm page on the settings page's own ring. Seeded from
 # tool/qa/fixtures/alerts.json, though this flow needs none of its events:
-# from the root to the calendar, its ⋮, Calendar settings and the last row of
-# the last section — "Test alarm in 10 s" — then the page, read by its ids,
-# and Stop.
+# from the root through the drawer to the Alerts hub, its ⚙ to Alert
+# settings (D5 of docs/settings-rework-roadmap.md) and the row under the
+# Permissions section's first — "Test alarm in 10 s" — then the page, read
+# by its ids, and Stop.
 # - Run it straight after the relaunch that pushed the seed. The fixture's
 #   first alarm rings between two and three minutes after the seed was
 #   resolved, and a ring that arrives while another is going is queued or
-#   dropped by the plugin; this flow takes about twenty seconds.
+#   dropped by the plugin; this flow takes well under a minute, most of it
+#   the ten seconds its own ring waits and the shot's three and a half.
 # - Push the seed with `qa relaunch`, never with `qa run`. `run` resolves the
 #   fixture and then builds, so the build comes out of that lead: the first
 #   alarm rings inside this flow or, after a longer build, is already in the
@@ -23,37 +25,44 @@
 # - The page calls it "Test alarm", in a row of its own that reads exactly
 #   that; "Test alarm in 10 s" is the settings button under the page, and
 #   until the redraw of 2026-10 was what the ringing page was titled too.
+#   Its spaces after "in" are no-break ones, so the check reads the prefix.
 # - id:alarm-body is the part of the page that scrolls: on a short screen
 #   the time leaves through its top, and `scroll-to --up --in id:alarm-body`
 #   brings it back.
 # - ANTA is in front on an unlocked phone, so Android also draws the ring's
 #   notification as a heads-up over the top of the page, a second or two
 #   after the page itself; and the page's own bar style — dark status icons
-#   on its light ground, where Calendar settings had light ones — reaches
-#   the system a moment after its first frame. The shot is adb's, not the
+#   on its light ground, where the settings page under it had light ones —
+#   reaches the system a moment after its first frame. The shot is adb's, not the
 #   agent's, so it shows whatever has arrived by then: `key back` is given
 #   three and a half seconds before it, and they are for both. Back itself
 #   must do nothing: back is not Stop. The page keeps everything low, so the
 #   heads-up in the shot lands on bare ground.
-# - Stop pops the page onto Calendar settings; back from there is the
-#   calendar, where the next flow starts.
+# - Stop pops the page onto Alert settings; back from there is the Alerts
+#   hub, and back again the folder root it was opened over. 01_event_alarm
+#   waits for its ring on the calendar and ends on it, so the flow then
+#   opens the calendar from the drawer, where the next flow starts.
 tap id:nav-menu
-wait id:drawer-calendar
-tap id:drawer-calendar
-wait id:calendar-add-event
-tap id:calendar-more
-wait id:calendar-settings-open
-tap id:calendar-settings-open
-wait id:calendar-add-event --gone
-scroll-to id:alerts-test-alarm --max 14
+wait id:drawer-alerts
+tap id:drawer-alerts
+wait id:settings-bar-alerts
+tap id:alerts-settings-open
+wait id:settings-bar-alert-settings
+scroll-to id:alerts-test-alarm --in id:alert-settings-list --max 14
 tap id:alerts-test-alarm
 wait id:alarm-stop --timeout 30
-expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-body "Test alarm" --absent id:alarm-keep-event --absent "Test alarm in 10 s" --absent id:alarm-open-database
+expect id:alarm-stop id:alarm-snooze id:alarm-open-event id:alarm-body "Test alarm" --absent id:alarm-keep-event --absent "Test alarm in" --absent id:alarm-open-database
 key back --settle 3500
 shot 00_test_alarm
 tap id:alarm-stop
 wait id:alarm-stop --gone
 expect id:alerts-test-alarm
 key back
+wait id:settings-bar-alerts
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
 wait id:calendar-add-event
 errors

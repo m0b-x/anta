@@ -26,6 +26,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/counter.dart';
 import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/nav_destination.dart';
+import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/alerts_page.dart';
 import 'package:anta/pages/calendar_appearance_page.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
@@ -686,6 +687,38 @@ void main() {
         await teardownApp(tester);
       });
 
+      testWidgets('Alert settings from any opener: stamped, a second '
+          'toAlertSettings over it pushes nothing, and the arrow pops to the '
+          'opener with no drawer raised (D3, D5)', (tester) async {
+        final opener = await pushOpener(tester);
+        unawaited(AppNavigator.toAlertSettings(opener));
+        await settle(tester);
+        expect(
+          observer.pageRoutes.single.settings.arguments,
+          const NavDestination(NavDestinationKind.alertSettings),
+        );
+        observer.clear();
+
+        await AppNavigator.toAlertSettings(
+          tester.element(find.byType(AlertSettingsPage)),
+        );
+        await settle(tester);
+
+        expect(observer.pageRoutes, isEmpty);
+        expect(
+          find.byType(AlertSettingsPage, skipOffstage: false),
+          findsOneWidget,
+        );
+
+        await tapArrow(tester);
+
+        expect(find.byType(AlertSettingsPage), findsNothing);
+        expect(find.text('opener'), findsOneWidget);
+        expect(host().isDrawerOpen, isFalse);
+
+        await teardownApp(tester);
+      });
+
       testWidgets('the editor\'s Counters: the arrow pops null to the '
           'opener, no drawer raised (D3)', (tester) async {
         final opener = await pushOpener(tester);
@@ -896,6 +929,72 @@ void main() {
       await teardownApp(tester);
     });
 
+    testWidgets('Alert settings opened from the hub records [settingsHub, '
+        'alertSettings], and the recorded chain restores whole (D5)', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      final navigator = AppNavigator.navigatorKey.currentContext!;
+      unawaited(
+        AppNavigator.push<void>(
+          navigator,
+          const _Opener(),
+          destination: const NavDestination(NavDestinationKind.settingsHub),
+        ),
+      );
+      unawaited(AppNavigator.toAlertSettings(navigator));
+
+      final recorded = history.stack;
+      expect(recorded, const [
+        NavDestination(NavDestinationKind.settingsHub),
+        NavDestination(NavDestinationKind.alertSettings),
+      ]);
+      await teardownApp(tester);
+
+      await saveStack(tester, recorded);
+      await pumpApp(tester);
+      observer.clear();
+      await restore(tester);
+
+      expect(restoredDestinations(), recorded);
+      expect(pageOf(observer.pageRoutes.last), isA<AlertSettingsPage>());
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('a stack stored before alertSettings existed restores '
+        'unchanged: the kind is appended, so no stored name moves', (
+      tester,
+    ) async {
+      expect(NavDestinationKind.values.last, NavDestinationKind.alertSettings);
+      final db = await tester.runAsync(AppDatabase.getInstance);
+      await tester.runAsync(
+        () => db!.userSettingsDao.setValue(
+          SettingsKeys.lastLocationStack,
+          jsonEncode({
+            'v': NavDestination.stackVersion,
+            'stack': [
+              {'k': 'settingsHub'},
+              {'k': 'calendarSettings'},
+              {'k': 'permissions'},
+            ],
+          }),
+        ),
+      );
+      await pumpApp(tester);
+      observer.clear();
+
+      await restore(tester);
+
+      expect(restoredDestinations(), const [
+        NavDestination(NavDestinationKind.settingsHub),
+        NavDestination(NavDestinationKind.calendarSettings),
+        NavDestination(NavDestinationKind.permissions),
+      ]);
+
+      await teardownApp(tester);
+    });
+
     testWidgets('a per-note counter page whose counter is gone stops the '
         'chain beneath it', (tester) async {
       await saveStack(tester, [
@@ -1093,6 +1192,14 @@ final _hubRows = <_Row>[
     stamp: const NavDestination(NavDestinationKind.calendarCategories),
   ),
   _Row(
+    name: 'Alert settings',
+    rowId: SemanticsIds.settingsHubRow('alertSettings'),
+    pageType: AlertSettingsPage,
+    barId: SemanticsIds.settingsBarAlertSettings,
+    title: (l10n) => l10n.alertSettingsTitle,
+    stamp: const NavDestination(NavDestinationKind.alertSettings),
+  ),
+  _Row(
     name: 'Editor and markdown',
     rowId: SemanticsIds.settingsHubRow('markdownSettings'),
     pageType: MarkdownSettingsPage,
@@ -1181,6 +1288,7 @@ const _restorable = <NavDestinationKind, Type>{
   NavDestinationKind.noteMoneyCurrency: NoteMoneyCurrencyPage,
   NavDestinationKind.counterPerNote: CounterPerNotePage,
   NavDestinationKind.developerOptions: DeveloperOptionsPage,
+  NavDestinationKind.alertSettings: AlertSettingsPage,
 };
 
 class _RecordingObserver extends NavigatorObserver {

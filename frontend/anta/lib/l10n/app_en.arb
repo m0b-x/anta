@@ -6490,6 +6490,16 @@
   "@alertsNoticeLeadOff": {
     "description": "Caption under the upcoming-alarm notice slider when it is at zero"
   },
+  "alertsNoticeLeadHours": "{count, plural, =1{A quiet notice 1 hour before an alarm, with Skip and Open} other{A quiet notice {count} hours before an alarm, with Skip and Open}}",
+  "@alertsNoticeLeadHours": {
+    "description": "Caption under the upcoming-alarm notice slider when its minutes are whole hours, from 60 up",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
   "alertsUpcomingTitle": "Alarm at {time}",
   "@alertsUpcomingTitle": {
     "description": "Text line of the quiet notice posted ahead of an alarm, under the event's title. The time is the alarm's own, followed by its day (alertsWhenOnDay) when the alarm is not due on the day the notice is posted",
@@ -6610,9 +6620,9 @@
   "@alertsForceStopNote": {
     "description": "Note under the alert settings explaining that a force stop cancels pending alarms"
   },
-  "alertsTestAlarm": "Test alarm in 10 s",
+  "alertsTestAlarm": "Test alarm in 10 s",
   "@alertsTestAlarm": {
-    "description": "Calendar settings button that schedules a ring ten seconds from now. The ring itself is titled alarmTestTitle, on its page and on its notification"
+    "description": "Alert settings button that schedules a ring ten seconds from now. The ring itself is titled alarmTestTitle, on its page and on its notification"
   },
   "alertsTestAlarmScheduled": "Test alarm set for 10 seconds from now",
   "@alertsTestAlarmScheduled": {
@@ -7255,6 +7265,30 @@
   "@alertsDefaultNone": {
     "description": "Value of a default row that seeds no alert at all"
   },
+  "alertsDefaultRemove": "No default alert",
+  "@alertsDefaultRemove": {
+    "description": "The alert sheet's remove button when it edits a settings default: removing means a new event starts with no alert"
+  },
+  "alertSettingsTitle": "Alert settings",
+  "@alertSettingsTitle": {
+    "description": "Title of the Alert settings page, of the settings hub's row that opens it, of the tooltip on the gear button in the Alerts page's bar, and of the row on Calendar settings that opens it"
+  },
+  "alertSettingsSectionDefaults": "Defaults",
+  "@alertSettingsSectionDefaults": {
+    "description": "Alert settings section holding the alert a new timed or all-day event starts with"
+  },
+  "alertSettingsSectionTiming": "Sound and timing",
+  "@alertSettingsSectionTiming": {
+    "description": "Alert settings section holding the alarm sound, snooze, upcoming notice and silence lengths"
+  },
+  "alertSettingsCategoriesRow": "Alerts per category",
+  "@alertSettingsCategoriesRow": {
+    "description": "Alert settings row that opens the categories page, where each category's alerts are set"
+  },
+  "alertSettingsCategoriesDesc": "Set on each category",
+  "@alertSettingsCategoriesDesc": {
+    "description": "Description of the Alerts per category row"
+  },
   "alertsSound": "Alarm sound",
   "@alertsSound": {
     "description": "Settings row and sound chooser title for which sound an alarm plays"
@@ -7407,6 +7441,10 @@
   "@settingsRowAppearanceDesc": {
     "description": "Subtitle of the settings hub row that opens the calendar's Appearance page"
   },
+  "settingsRowAlertsDesc": "Defaults, sound, timing, permissions",
+  "@settingsRowAlertsDesc": {
+    "description": "Subtitle of the settings hub row that opens the Alert settings page"
+  },
   "calendarCategoriesRowDesc": "Create, order, archive",
   "@calendarCategoriesRowDesc": {
     "description": "Subtitle of the row that opens the calendar's Categories page"
@@ -7449,7 +7487,7 @@
   },
   "permissionsCalendarRowDesc": "Notifications, exact timing, full-screen alarms, battery",
   "@permissionsCalendarRowDesc": {
-    "description": "Description of the calendar settings row that opens the Permissions page"
+    "description": "Caption of the Alert settings page's Permissions row, which opens the Permissions page; the German says Mitteilungen, the app's word for notifications in running text, because Benachrichtigungen alone is wider than the caption's column at text scale 2.0 on a 360 dp phone"
   },
   "permissionsAllSet": "All set",
   "@permissionsAllSet": {

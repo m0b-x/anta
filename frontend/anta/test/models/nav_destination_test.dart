@@ -237,6 +237,7 @@ void main() {
           'noteMoneyCurrency',
           'counterPerNote',
           'developerOptions',
+          'alertSettings',
         ],
       );
     });

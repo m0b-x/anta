@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/public_holidays.dart';
-import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -33,7 +32,8 @@ import '../goldens/support/golden_fonts.dart';
 /// pass). The rows now yield to their text column: the value wraps in what
 /// the title's and the subtitle's longest word leave, while it fits the
 /// height the tile gives a trailing there, and goes under the description
-/// otherwise.
+/// otherwise. The default-alert rows moved to Alert settings (D5) and their
+/// cases with them, to `alert_settings_page_test.dart`.
 ///
 /// Roboto is loaded, so a word is as wide as a phone draws it: the test
 /// font's full-em glyphs made "Ganztägige" at 200 % wider than its whole
@@ -207,61 +207,6 @@ void main() {
     );
   }
 
-  /// The lines [text] was laid out on.
-  int linesOf(WidgetTester tester, String text) {
-    final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
-    return paragraph
-        .getBoxesForSelection(
-          TextSelection(baseOffset: 0, extentOffset: text.length),
-        )
-        .map((box) => box.top.round())
-        .toSet()
-        .length;
-  }
-
-  /// The value of the row titled [title] sits in the tile's trailing, beside
-  /// the title, whole.
-  void expectBeside(WidgetTester tester, String title, String value) {
-    final tile = tester.widget<ListTile>(tileOf(title));
-    expect(tile.trailing, isNotNull, reason: '"$value" is not beside');
-    expect(
-      find.descendant(
-        of: find.byWidget(tile.trailing!),
-        matching: find.text(value),
-      ),
-      findsOneWidget,
-    );
-    expectUnclipped(tester, value);
-    expectWholeWords(tester, value, title: title);
-  }
-
-  /// The value of the row titled [title] sits under the description, inside
-  /// the tile, whole.
-  void expectUnder(WidgetTester tester, String title, String value) {
-    expect(
-      tester.widget<ListTile>(tileOf(title)).trailing,
-      isNull,
-      reason: '"$value" is not under its title',
-    );
-    final tile = tester.getRect(tileOf(title));
-    final valueRect = tester.getRect(find.text(value));
-    expect(
-      valueRect.top,
-      greaterThanOrEqualTo(tester.getRect(find.text(title)).bottom),
-      reason: '"$value" is not under its title',
-    );
-    expect(
-      valueRect.right,
-      lessThanOrEqualTo(tile.right - FormMetrics.rowEndPadding),
-    );
-    expect(
-      valueRect.left,
-      greaterThanOrEqualTo(tile.left + RowMetrics.groupInset),
-    );
-    expectUnclipped(tester, value);
-    expectWholeWords(tester, value, title: title);
-  }
-
   testWidgets('German at text scale 2.0 on a 360 × 780 phone with both '
       'defaults set lays out, every title as whole as its row allows and '
       'every value under its title, inside the tile', (tester) async {
@@ -295,31 +240,23 @@ void main() {
     expect(button.menuWidth, columnOf(tester, 'Feiertage'));
     expect(button.itemHeight, isNull);
 
-    // The list builds its rows as they come into view, so each alert row is
-    // read once the page has been scrolled down to it. The values — a
-    // sentence each — wrap under their title with the text column's width,
-    // never beside it, and every line of them is painted.
-    for (final MapEntry(key: title, value: value) in const {
-      'Termine mit Uhrzeit': 'Alarm · 10 Min. vorher',
-      'Ganztägige Termine': 'Mitteilung · Am Vortag, 09:00',
-      'Weckton': 'Standard-Weckton des Telefons',
-    }.entries) {
-      await scrollTo(tester, title);
-      expect(tester.takeException(), isNull);
-      expectTitleWhole(tester, title);
-      expectUnder(tester, title, value);
-    }
+    // The one row left of the alerts section (D5), at the page's foot: its
+    // value line is both defaults read back, and the page lays out down to
+    // it. The rows themselves are `alert_settings_page_test.dart`'s.
+    await scrollTo(tester, 'Einstellungen für Erinnerungen');
+    expect(tester.takeException(), isNull);
+    expectTitleWhole(tester, 'Einstellungen für Erinnerungen');
+    expectUnclipped(
+      tester,
+      'Termine mit Uhrzeit · Alarm · 10 Min. vorher\n'
+      'Ganztägige Termine · Mitteilung · Am Vortag, 09:00',
+    );
   });
 
-  testWidgets('German at text scale 2.0 on a 360 × 780 phone with the all-day '
-      'default at Alarm · a week before: that value and the alarm sound\'s '
-      'are whole and uncut under their titles, and every subtitle holds its '
-      'words where the column allows', (tester) async {
-    await settings.setAlertDefaultAllDay((
-      mode: AlertMode.ring,
-      daysBefore: 7,
-      dayMinute: 9 * 60,
-    ));
+  testWidgets('German at text scale 2.0 on a 360 × 780 phone: the holiday '
+      'set\'s subtitle holds its words where the column allows', (
+    tester,
+  ) async {
     await pumpPage(
       tester,
       surface: phone,
@@ -338,85 +275,6 @@ void main() {
         matching: find.text('Christlich (West)'),
       ),
     );
-
-    // Every value row, each read once scrolled to: a value taller beside the
-    // title than the tile lets a trailing be is under the description, with
-    // the column's width and every line of it painted; so is each subtitle's
-    // word, where the column allows.
-    for (final (title, value, subtitle) in const [
-      (
-        'Termine mit Uhrzeit',
-        'Alarm · 10 Min. vorher',
-        'Die Erinnerung, mit der ein neuer Termin mit Uhrzeit startet',
-      ),
-      (
-        'Ganztägige Termine',
-        'Alarm · 7 Tage vorher, 09:00',
-        'Die Erinnerung, mit der ein neuer ganztägiger Termin startet',
-      ),
-      (
-        'Weckton',
-        'Standard-Weckton des Telefons',
-        'Was ein Alarm spielt, wenn die Erinnerung keinen Ton nennt',
-      ),
-    ]) {
-      await scrollTo(tester, title);
-      expect(tester.takeException(), isNull);
-      expectTitleWhole(tester, title);
-      expectUnder(tester, title, value);
-      expectWholeWords(tester, subtitle, title: title);
-    }
-  });
-
-  testWidgets('a value that fits the cap the tile gives a trailing stays '
-      'beside the title, one that does not goes under: one line beside at '
-      '2.0, under at 2.0 where beside it would take two lines', (tester) async {
-    // The phone's density, so the cap is the phone's 56 dp.
-    const density = VisualDensity.standard;
-    // No all-day default: "No alert" is one line at any width.
-    await settings.setAlertDefaultAllDay(null);
-    // The large phone: in Roboto at 2.0 the timed value would wrap beside
-    // its title there, and the column under it holds it on one line.
-    await pumpPage(
-      tester,
-      surface: const Size(412, 915),
-      locale: const Locale('en'),
-      textScale: 2.0,
-      density: density,
-    );
-    expect(tester.takeException(), isNull);
-    await scrollTo(tester, 'All-day events');
-    expect(tester.takeException(), isNull);
-
-    // Two lines of the trailing style at 200 % are taller than the cap, so
-    // the second line's descenders would be cut beside the title.
-    const timed = 'Alarm · 10 min before';
-    expectUnder(tester, 'Timed events', timed);
-    expect(linesOf(tester, timed), 1);
-    expectBeside(tester, 'All-day events', 'No alert');
-    expect(linesOf(tester, 'No alert'), 1);
-  });
-
-  testWidgets('at 1.0 a two-line value fits the cap and stays beside the '
-      'title, whole', (tester) async {
-    // The small phone: in Roboto the all-day value is two lines beside its
-    // title there, and one on the large one.
-    await pumpPage(
-      tester,
-      surface: phone,
-      locale: const Locale('en'),
-      density: VisualDensity.standard,
-    );
-    expect(tester.takeException(), isNull);
-    await scrollTo(tester, 'All-day events');
-    expect(tester.takeException(), isNull);
-
-    const timed = 'Alarm · 10 min before';
-    expectBeside(tester, 'Timed events', timed);
-    expect(linesOf(tester, timed), 1);
-    const allDay = 'Reminder · The day before, 9:00 AM';
-    expectBeside(tester, 'All-day events', allDay);
-    expect(linesOf(tester, allDay), greaterThanOrEqualTo(2));
   });
 
   testWidgets('the cap the page holds a value to is the constraint a tile '
@@ -450,10 +308,8 @@ void main() {
     }
   });
 
-  testWidgets('where everything fits the rows are the stock tile: the value '
-      'and the dropdown beside the title, the dropdown untouched', (
-    tester,
-  ) async {
+  testWidgets('where everything fits the holiday row is the stock tile: the '
+      'dropdown beside the title, untouched', (tester) async {
     // Wide enough for the test font's names to fit beside their titles.
     await pumpPage(
       tester,
@@ -461,27 +317,6 @@ void main() {
       locale: const Locale('en'),
     );
     expect(tester.takeException(), isNull);
-    await scrollTo(tester, 'All-day events');
-
-    for (final MapEntry(key: title, value: value) in const {
-      'Timed events': 'Alarm · 10 min before',
-      'All-day events': 'Reminder · The day before, 9:00 AM',
-    }.entries) {
-      final tile = tester.widget<ListTile>(tileOf(title));
-      expect(tile.trailing, isNotNull, reason: title);
-      expect(
-        find.descendant(
-          of: find.byWidget(tile.trailing!),
-          matching: find.text(value),
-        ),
-        findsOneWidget,
-      );
-      // Beside the title, on the title's line.
-      final titleRect = tester.getRect(find.text(title));
-      final valueRect = tester.getRect(find.text(value));
-      expect(valueRect.left, greaterThan(titleRect.right));
-      expect(valueRect.top, lessThan(titleRect.bottom));
-    }
 
     final dropdown = find.byType(DropdownButton<HolidayProfile>);
     expect(

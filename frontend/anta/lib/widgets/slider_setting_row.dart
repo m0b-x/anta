@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../constants/row_metrics.dart';
 import 'form_rows.dart';
 import 'settings_section_list.dart' show settingsCaptionStyle;
 
@@ -117,6 +119,76 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
     super.dispose();
   }
 
+  /// The step whose reading is tallest, and the readings, style and width it
+  /// was measured for: laid out again only when one of them changes, never
+  /// on a drag tick.
+  ({List<String> readings, TextStyle style, TextScaler scaler, double width})?
+  _measuredFor;
+  int? _tallestStep;
+
+  /// The values the caption's slot is sized from. Every step's reading, when
+  /// there are at most [RowMetrics.sliderReadingTemplatesMax] of them — the
+  /// longest may fall anywhere in the range (the notice's "1410 minutes
+  /// before" against its "24 hours before") — as the tallest of them laid
+  /// out at [width]; past that bound, the two ends.
+  List<int> _templateValues(
+    BuildContext context,
+    TextStyle style,
+    double width,
+  ) {
+    final steps = widget.divisions + 1;
+    if (widget.divisions <= 0 ||
+        steps > RowMetrics.sliderReadingTemplatesMax ||
+        !width.isFinite) {
+      return [widget.min, widget.max];
+    }
+    final span = widget.max - widget.min;
+    final values = [
+      for (var i = 0; i < steps; i++)
+        widget.min + (span * i / widget.divisions).round(),
+    ];
+    final readings = [for (final value in values) widget.draftCaption(value)];
+    var effective = DefaultTextStyle.of(context).style.merge(style);
+    if (MediaQuery.boldTextOf(context)) {
+      effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    final scaler = MediaQuery.textScalerOf(context);
+    final measured = _measuredFor;
+    if (measured == null ||
+        measured.style != effective ||
+        measured.scaler != scaler ||
+        measured.width != width ||
+        !listEquals(measured.readings, readings)) {
+      final direction = Directionality.of(context);
+      final locale = Localizations.maybeLocaleOf(context);
+      var tallest = 0;
+      var tallestHeight = -1.0;
+      for (var i = 0; i < readings.length; i++) {
+        final painter = TextPainter(
+          text: TextSpan(text: readings[i], style: effective),
+          textDirection: direction,
+          textScaler: scaler,
+          locale: locale,
+        )..layout(maxWidth: width);
+        if (painter.height > tallestHeight) {
+          tallestHeight = painter.height;
+          tallest = i;
+        }
+        painter.dispose();
+      }
+      _measuredFor = (
+        readings: readings,
+        style: effective,
+        scaler: scaler,
+        width: width,
+      );
+      _tallestStep = values[tallest];
+    }
+    return [
+      ...{widget.min, widget.max, ?_tallestStep},
+    ];
+  }
+
   void _handleChanged(double value) {
     final rounded = value.round();
     setState(() => _draft = rounded);
@@ -164,16 +236,22 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
           children: [
             widget.title,
             ExcludeSemantics(
-              // The longest reading is the idle caption or one at either end
-              // of the range — the most digits, the plural form — and what is
-              // shown sizes the slot too, so it is never a template as well.
-              child: FormCaptionSlot(
-                candidates: [
-                  if (draft != null) ?description,
-                  reading(widget.min),
-                  reading(widget.max),
-                ],
-                child: caption ?? const SizedBox.shrink(),
+              // The tallest reading is the idle caption or the tallest step's
+              // — and what is shown sizes the slot too, so it is never a
+              // template as well.
+              child: LayoutBuilder(
+                builder: (context, constraints) => FormCaptionSlot(
+                  candidates: [
+                    if (draft != null) ?description,
+                    for (final value in _templateValues(
+                      context,
+                      draftStyle,
+                      constraints.maxWidth,
+                    ))
+                      reading(value),
+                  ],
+                  child: caption ?? const SizedBox.shrink(),
+                ),
               ),
             ),
             Slider(

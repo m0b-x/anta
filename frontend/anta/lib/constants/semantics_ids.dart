@@ -126,6 +126,12 @@ abstract final class SemanticsIds {
   /// The Alerts hub's bar title.
   static const String settingsBarAlerts = 'settings-bar-alerts';
 
+  /// The Alerts hub's ⚙, which opens Alert settings (D5).
+  static const String alertsSettingsOpen = 'alerts-settings-open';
+
+  /// The Alert settings page's bar title.
+  static const String settingsBarAlertSettings = 'settings-bar-alert-settings';
+
   /// Markdown shortcuts' bar title.
   static const String settingsBarMarkdown = 'settings-bar-markdown';
 
@@ -256,9 +262,9 @@ abstract final class SemanticsIds {
       'try-$slug-$control';
 
   /// Calendar settings' rows that open a page or a sheet, and the two
-  /// default-alert rows: a section header shares some of their words, and
-  /// the rest read back a value. A fasting style row exists per enabled
-  /// tradition, so it is keyed by `FastingTradition.name`.
+  /// default-alert rows (on Alert settings since D5): a section header shares
+  /// some of their words, and the rest read back a value. A fasting style row
+  /// exists per enabled tradition, so it is keyed by `FastingTradition.name`.
   static const String calendarAppearanceOpen = 'calendar-appearance-open';
   static const String calendarCategoriesOpen = 'calendar-categories-open';
   static const String calendarRemovedHolidaysOpen =
@@ -271,6 +277,26 @@ abstract final class SemanticsIds {
       'calendar-event-templates-open';
   static const String alertsDefaultTimed = 'alerts-default-timed';
   static const String alertsDefaultAllDay = 'alerts-default-all-day';
+
+  /// Calendar settings' one row left where its alerts section was (D5): it
+  /// opens the Alert settings page.
+  static const String calendarSettingsAlertsOpen =
+      'calendar-settings-alerts-open';
+
+  /// The Alert settings page's list, for a flow that swipes inside it, and
+  /// its rows that had no id while they lived on Calendar settings — the two
+  /// defaults and the test alarm keep theirs. The categories and how-it-works
+  /// rows open a page each.
+  static const String alertSettingsList = 'alert-settings-list';
+  static const String alertSettingsSound = 'alert-settings-sound';
+  static const String alertSettingsSnooze = 'alert-settings-snooze';
+  static const String alertSettingsNotice = 'alert-settings-notice';
+  static const String alertSettingsSilence = 'alert-settings-silence';
+  static const String alertSettingsPermissions = 'alert-settings-permissions';
+  static const String alertSettingsCategoriesOpen =
+      'alert-settings-categories-open';
+  static const String alertSettingsHowItWorksOpen =
+      'alert-settings-how-it-works-open';
 
   /// The appearance page's Today highlight and Highlight color rows —
   /// containers above their own segments and swatches — and the Missed days
@@ -525,7 +551,7 @@ abstract final class SemanticsIds {
   static const String alarmOpenDatabase = 'alarm-open-database';
   static const String alarmBody = 'alarm-body';
 
-  /// The calendar settings row that arms a ring ten seconds from now.
+  /// The Alert settings row that arms a ring ten seconds from now.
   static const String alertsTestAlarm = 'alerts-test-alarm';
 
   /// The event editor's "Add alert" chip and the Save of the sheet it raises.

@@ -706,14 +706,7 @@ class SettingsYieldingTile extends StatelessWidget {
     var widest = 0.0;
     final title = this.title;
     if (title is HighlightedText) {
-      widest = _longestWord(
-        context,
-        title.text,
-        (tileTheme.titleTextStyle ??
-                theme.textTheme.bodyLarge ??
-                const TextStyle())
-            .merge(title.style),
-      );
+      widest = _longestWord(context, title.text, _titleStyle(context, title));
     }
     final subtitle = this.subtitle;
     if (subtitle is HighlightedText) {
@@ -730,6 +723,25 @@ class SettingsYieldingTile extends StatelessWidget {
     return widest;
   }
 
+  /// [title]'s style as the tile lays it out: its own under the kit's.
+  static TextStyle _titleStyle(BuildContext context, HighlightedText title) =>
+      (ListTileTheme.of(context).titleTextStyle ??
+              Theme.of(context).textTheme.bodyLarge ??
+              const TextStyle())
+          .merge(title.style);
+
+  /// How wide the title is on one line; nothing for a title that is not
+  /// text the tile can measure.
+  double _titleLineWidth(BuildContext context) {
+    final title = this.title;
+    if (title is! HighlightedText) return 0;
+    final painter = _painter(context, title.text, _titleStyle(context, title))
+      ..layout();
+    final width = painter.maxIntrinsicWidth;
+    painter.dispose();
+    return width;
+  }
+
   /// The style the tile gives a trailing, which is what [value] is drawn in
   /// beside the title and, under the description, through
   /// `DefaultTextStyle.merge`.
@@ -741,19 +753,23 @@ class SettingsYieldingTile extends StatelessWidget {
         );
   }
 
-  /// The height [value] takes laid out in [width] beside the title, in the
-  /// style the tile gives a trailing; nothing for a trailing with no text.
-  double _valueHeight(BuildContext context, double width) {
+  /// The box [value] takes laid out in [width] beside the title, in the
+  /// style the tile gives a trailing — as wide as its longest line, or the
+  /// whole [width] once it wraps; nothing for a trailing with no text.
+  Size _valueSize(BuildContext context, double width) {
     final value = this.value;
-    if (value == null) return 0;
+    if (value == null) return Size.zero;
     final painter = _painter(
       context,
       value,
       _trailingStyle(context) ?? const TextStyle(),
     )..layout(maxWidth: width);
-    final height = painter.height;
+    final size = Size(
+      painter.maxIntrinsicWidth < width ? painter.maxIntrinsicWidth : width,
+      painter.height,
+    );
     painter.dispose();
-    return height;
+    return size;
   }
 
   @override
@@ -773,10 +789,19 @@ class SettingsYieldingTile extends StatelessWidget {
         final minBeside = MediaQuery.textScalerOf(
           context,
         ).scale(FormMetrics.settingsValueMinBesideWidth);
+        final valueSize = _valueSize(context, beside);
+        // And only while what the value leaves the text holds the title on
+        // one line and half the column: the longest-word check alone let a
+        // wrapped value take all but "All-" of "All-day events".
+        final textColumn = column - valueSize.width - _titleGap;
         if (beside >= minBeside &&
-            _valueHeight(context, beside) <=
+            valueSize.height <=
                 listTileTrailingCap(context) +
-                    FormMetrics.settingsValueCapTolerance) {
+                    FormMetrics.settingsValueCapTolerance &&
+            (value == null ||
+                (textColumn >=
+                        column * RowMetrics.settingsValueMinTextShare &&
+                    _titleLineWidth(context) <= textColumn))) {
           return ListTile(
             contentPadding: _contentPadding,
             minLeadingWidth: _minLeadingWidth,

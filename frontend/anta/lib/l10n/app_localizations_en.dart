@@ -5164,6 +5164,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alertsNoticeLeadOff => 'Off — no notice before an alarm';
 
   @override
+  String alertsNoticeLeadHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'A quiet notice $count hours before an alarm, with Skip and Open',
+      one: 'A quiet notice 1 hour before an alarm, with Skip and Open',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String alertsUpcomingTitle(String time) {
     return 'Alarm at $time';
   }
@@ -5231,7 +5242,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Force stopping ANTA disarms every alarm until you open it again.';
 
   @override
-  String get alertsTestAlarm => 'Test alarm in 10 s';
+  String get alertsTestAlarm => 'Test alarm in 10 s';
 
   @override
   String get alertsTestAlarmScheduled =>
@@ -5700,6 +5711,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alertsDefaultNone => 'No alert';
 
   @override
+  String get alertsDefaultRemove => 'No default alert';
+
+  @override
+  String get alertSettingsTitle => 'Alert settings';
+
+  @override
+  String get alertSettingsSectionDefaults => 'Defaults';
+
+  @override
+  String get alertSettingsSectionTiming => 'Sound and timing';
+
+  @override
+  String get alertSettingsCategoriesRow => 'Alerts per category';
+
+  @override
+  String get alertSettingsCategoriesDesc => 'Set on each category';
+
+  @override
   String get alertsSound => 'Alarm sound';
 
   @override
@@ -5816,6 +5845,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsRowAppearanceDesc => 'Week start, cells, markers, colors';
+
+  @override
+  String get settingsRowAlertsDesc => 'Defaults, sound, timing, permissions';
 
   @override
   String get calendarCategoriesRowDesc => 'Create, order, archive';

@@ -143,6 +143,17 @@ abstract final class FormMetrics {
   /// Between a settings row's text and the control drawn under it.
   static const double settingsControlGap = 8;
 
+  /// A settings row's full-width button (the Test alarm): air above and
+  /// below its label and at its sides. Material's own has no vertical air
+  /// and a fixed 40 dp minimum, so at text scale 2.0 its words touched the
+  /// outline; the row adds the label's scaled line to this for its minimum.
+  static const EdgeInsetsDirectional settingsButtonPadding =
+      EdgeInsetsDirectional.symmetric(
+        horizontal: rowEndPadding,
+        vertical: settingsButtonVerticalPadding,
+      );
+  static const double settingsButtonVerticalPadding = 10;
+
   /// A settings tile's leading slot and the gap after it — the stock
   /// Material 3 tile's, a 24 dp glyph and 16 dp — held in the kit's
   /// `ListTileTheme`, so a row that measures its own text column

@@ -1,18 +1,24 @@
 # The alert sheet's second caller (docs/calendar-language-tier-2-roadmap.md
-# §3.2, §4.1): Calendar settings' two default-alert rows. The timed default
+# §3.2, §4.1): the two default-alert rows, on Alert settings since D5 of
+# docs/settings-rework-roadmap.md, reached from Calendar settings' one
+# Alerts row (the page's last) as a user coming from the calendar would;
+# back lands on Calendar settings, then on the calendar. The timed default
 # opens the sheet without the Alarm sound row and without Remove after it
 # rings, takes a preset from the When menu and is read back on the settings
-# row as "Tier · offset"; the all-day default shows Time of day and is
-# confirmed as it opened. Both are then set back to none through the sheet's
-# Remove alert, which here means "no default" — the fixture ships both as
-# none, and a default left behind would seed an alert into every event the
-# other flows create.
+# row as "Tier · offset"; the all-day default shows Time of day, and Done on
+# it untouched leaves the row at "No alert" (N148) — reopened, a tier tap
+# makes it a choice and Done writes it. Both are then set back to none
+# through the sheet's "No default alert" — the fixture ships both as none,
+# and a default left behind would seed an alert into every event the other
+# flows create.
 # - The two settings rows are tapped by id and read by their last line, the
 #   tier and the timing or "No alert".
 # - The all-day row's time follows the phone's clock, so only "On the day"
 #   is read, never the hour.
-# - A default is no event: the sheet offers Remove alert even while the
-#   default is none, and Done on an untouched sheet writes the draft.
+# - The Defaults section is Alert settings' first, so both rows are on
+#   screen when the page opens; only Calendar settings is scrolled.
+# - A default is no event: the sheet offers "No default alert" even while
+#   the default is none, and Done on an untouched sheet writes nothing.
 # - Scrolling this page with the semantics tree on makes the Android engine
 #   log `E/AccessibilityBridge: transform has not been initialized` (see
 #   15_templates.txt); the agent's own buffer stays clean.
@@ -20,7 +26,9 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to id:alerts-default-all-day --max 14
+scroll-to id:calendar-settings-alerts-open --max 14
+tap id:calendar-settings-alerts-open
+wait id:settings-bar-alert-settings
 expect id:alerts-default-timed id:alerts-default-all-day "No alert" --absent "min before" --absent "On the day"
 tap id:alerts-default-timed
 wait id:alert-sheet-save
@@ -40,7 +48,13 @@ expect id:alert-when id:alert-time-of-day id:alert-remove "On the day" --absent 
 shot 16_alert_default_allday
 tap id:alert-sheet-save
 wait id:alert-sheet-save --gone
-expect "Reminder · 30 min before" "Reminder · On the day"
+expect "Reminder · 30 min before" "No alert" --absent "On the day"
+tap id:alerts-default-all-day
+wait id:alert-sheet-save
+tap id:alert-type-alarm
+tap id:alert-sheet-save
+wait id:alert-sheet-save --gone
+expect "Reminder · 30 min before" "Alarm · On the day"
 shot 16_alert_defaults_set
 tap id:alerts-default-timed
 wait id:alert-sheet-save
@@ -52,6 +66,8 @@ wait id:alert-sheet-save
 tap id:alert-remove
 wait id:alert-sheet-save --gone
 expect id:alerts-default-timed id:alerts-default-all-day "No alert" --absent "min before" --absent "On the day"
+key back
+wait id:settings-bar-calendar
 key back
 wait id:calendar-add-event
 errors

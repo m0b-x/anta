@@ -5204,6 +5204,19 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertsNoticeLeadOff => 'Aus – kein Hinweis vor einem Alarm';
 
   @override
+  String alertsNoticeLeadHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Ein leiser Hinweis $count Stunden vor einem Alarm, mit Überspringen und Öffnen',
+      one:
+          'Ein leiser Hinweis 1 Stunde vor einem Alarm, mit Überspringen und Öffnen',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String alertsUpcomingTitle(String time) {
     return 'Alarm um $time';
   }
@@ -5271,7 +5284,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ein erzwungenes Beenden von ANTA deaktiviert alle Alarme, bis du die App wieder öffnest.';
 
   @override
-  String get alertsTestAlarm => 'Testalarm in 10 s';
+  String get alertsTestAlarm => 'Testalarm in 10 s';
 
   @override
   String get alertsTestAlarmScheduled => 'Testalarm in 10 Sekunden gesetzt';
@@ -5737,6 +5750,24 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertsDefaultNone => 'Keine Erinnerung';
 
   @override
+  String get alertsDefaultRemove => 'Keine Standard-Erinnerung';
+
+  @override
+  String get alertSettingsTitle => 'Einstellungen für Erinnerungen';
+
+  @override
+  String get alertSettingsSectionDefaults => 'Standardwerte';
+
+  @override
+  String get alertSettingsSectionTiming => 'Ton und Zeiten';
+
+  @override
+  String get alertSettingsCategoriesRow => 'Erinnerungen pro Kategorie';
+
+  @override
+  String get alertSettingsCategoriesDesc => 'Für jede Kategorie festgelegt';
+
+  @override
   String get alertsSound => 'Weckton';
 
   @override
@@ -5857,6 +5888,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Wochenbeginn, Zellen, Markierungen, Farben';
 
   @override
+  String get settingsRowAlertsDesc =>
+      'Standardwerte, Ton, Zeiten, Berechtigungen';
+
+  @override
   String get calendarCategoriesRowDesc => 'Erstellen, ordnen, archivieren';
 
   @override
@@ -5892,7 +5927,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get permissionsCalendarRowDesc =>
-      'Benachrichtigungen, genaue Zeit, Vollbild-Alarme, Akku';
+      'Mitteilungen, genaue Zeit, Vollbild-Alarme, Akku';
 
   @override
   String get permissionsAllSet => 'Alles bereit';

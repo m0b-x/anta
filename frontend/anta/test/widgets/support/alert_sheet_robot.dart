@@ -178,6 +178,11 @@ class AlertSheetRobot {
 
   bool get removeAlertVisible => _shown(_removeAlertRow);
 
+  /// The words on the remove row — "No default alert" where the sheet edits
+  /// a settings default.
+  String get removeAlertLabel =>
+      tester.widget<FormActionRow>(_removeAlertRow).label;
+
   bool get timeOfDayVisible => _shown(_timeOfDayRow);
 
   /// What the Time of day row reads.

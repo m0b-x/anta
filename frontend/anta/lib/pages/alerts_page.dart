@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/permissions/permissions_bloc.dart';
 import '../constants/alert_constants.dart';
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
@@ -390,6 +391,19 @@ class _AlertsPageState extends State<AlertsPage> {
         showMenuButton: false,
         backgroundColor: ground,
         identifier: SemanticsIds.settingsBarAlerts,
+        actions: [
+          AutomationId(
+            identifier: SemanticsIds.alertsSettingsOpen,
+            child: IconButton(
+              tooltip: l10n.alertSettingsTitle,
+              icon: const Icon(
+                Icons.settings_rounded,
+                size: AppBarMetrics.glyphSize,
+              ),
+              onPressed: () => AppNavigator.toAlertSettings(context),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         top: false,

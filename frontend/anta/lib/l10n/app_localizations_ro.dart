@@ -5257,6 +5257,20 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertsNoticeLeadOff => 'Oprit – fără anunț înainte de alarmă';
 
   @override
+  String alertsNoticeLeadHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Un anunț discret cu $count de ore înainte de alarmă, cu Sari și Deschide',
+      few:
+          'Un anunț discret cu $count ore înainte de alarmă, cu Sari și Deschide',
+      one: 'Un anunț discret cu 1 oră înainte de alarmă, cu Sari și Deschide',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String alertsUpcomingTitle(String time) {
     return 'Alarmă la $time';
   }
@@ -5324,7 +5338,7 @@ class AppLocalizationsRo extends AppLocalizations {
       'Oprirea forțată a ANTA dezactivează toate alarmele până când redeschizi aplicația.';
 
   @override
-  String get alertsTestAlarm => 'Alarmă de test în 10 s';
+  String get alertsTestAlarm => 'Alarmă de test în 10 s';
 
   @override
   String get alertsTestAlarmScheduled =>
@@ -5794,6 +5808,24 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertsDefaultNone => 'Fără alertă';
 
   @override
+  String get alertsDefaultRemove => 'Fără alertă implicită';
+
+  @override
+  String get alertSettingsTitle => 'Setări alerte';
+
+  @override
+  String get alertSettingsSectionDefaults => 'Valori implicite';
+
+  @override
+  String get alertSettingsSectionTiming => 'Sunet și temporizare';
+
+  @override
+  String get alertSettingsCategoriesRow => 'Alerte pe categorie';
+
+  @override
+  String get alertSettingsCategoriesDesc => 'Setate pe fiecare categorie';
+
+  @override
   String get alertsSound => 'Sunet alarmă';
 
   @override
@@ -5913,6 +5945,10 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get settingsRowAppearanceDesc =>
       'Început de săptămână, celule, marcaje, culori';
+
+  @override
+  String get settingsRowAlertsDesc =>
+      'Valori implicite, sunet, temporizare, permisiuni';
 
   @override
   String get calendarCategoriesRowDesc => 'Creează, ordonează, arhivează';

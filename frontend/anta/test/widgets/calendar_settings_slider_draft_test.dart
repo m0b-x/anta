@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/utils/settings_search.dart';
+import 'package:anta/widgets/form_rows.dart' show FormCaptionSlot;
 import 'package:anta/widgets/settings_section_list.dart';
 import 'package:anta/widgets/slider_setting_row.dart';
 
@@ -331,5 +332,53 @@ void main() {
     expect(draftStyle.fontSize, settingsCaptionStyle.fontSize);
     expect(draftStyle.height, settingsCaptionStyle.height);
     expect(tester.getRect(find.byType(Slider)), before);
+  });
+
+  testWidgets('a reading longer mid-range than at either end sizes the '
+      'slot: the slider stays put at the idle value and at that step', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(240, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // The notice row's shape: the ends read short ("off", "24 hours"),
+    // a step between them takes lines more.
+    String reading(int draft) => draft == 7
+        ? 'a reading in the middle of the range that wraps onto lines'
+        : '$draft';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SliderSettingRow(
+            title: const Text('Notice'),
+            description: const Text('idle'),
+            value: 2,
+            min: 0,
+            max: 10,
+            divisions: 10,
+            captionStyle: captionStyle,
+            draftCaption: reading,
+            onCommit: (_) {},
+          ),
+        ),
+      ),
+    );
+    final idle = tester.getRect(find.byType(Slider));
+    final slot = tester.getSize(find.byType(FormCaptionSlot));
+
+    for (final step in [7, 0, 10, 7]) {
+      slider(tester).onChanged!(step.toDouble());
+      await tester.pump();
+      expect(shown(reading(step)), findsOneWidget);
+      expect(tester.getRect(find.byType(Slider)), idle, reason: 'at $step');
+      expect(tester.getSize(find.byType(FormCaptionSlot)), slot);
+    }
+    // The mid-range reading is taller than one line: it is what sized the
+    // slot, not an end.
+    expect(
+      tester.getSize(shown(reading(7))).height,
+      greaterThan(tester.getSize(find.text('idle')).height),
+    );
+    expect(slot.height, tester.getSize(shown(reading(7))).height);
   });
 }
