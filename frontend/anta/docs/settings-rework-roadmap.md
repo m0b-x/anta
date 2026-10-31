@@ -1,6 +1,9 @@
 # Settings rework — design record (2026-10-30)
 
-**Status: PLAN** — proposed 2026-10-30 after the categories brainstorm
+**Status: IN PROGRESS** — the build started 2026-10-31 in the interleaved
+session §1 describes (the merged eleven-step order; the Report record reads
+COMMITTED, `350973b8`); the step reached is kept in §7.1's last line.
+Proposed 2026-10-30 after the categories brainstorm
 (`docs/calendar-categories-roadmap.md`). The owner asked for one accessible
 settings page with proper navigation between the pages, a fasting page and
 an alert-settings page "with good design", the whole settings area designed
@@ -410,6 +413,7 @@ Re-grep before editing; lines are from 2026-10-30. The inventory table (§2.2)
 holds each page's reach, kind and suite; the defect table (§2.3) each
 defect's line. In addition:
 
+- **Bootstrap keys** (the §1 pre-S2 step, grepped 2026-10-31 — the keys read before any settings UI exists, which no slice may rename, re-default or move): `'active_database'`, a raw `SharedPreferences` string read by `DatabaseManager.getActiveDatabaseName()` (`database_manager.dart:13, 43-45`; `main.dart:592`) before the database opens; `SettingsKeys.onboardingCompleted` through `isOnboardingCompleted()` (`main.dart:684`), the launch gate; `SettingsKeys.locale` and `SettingsKeys.themeMode`, read straight off `db.userSettingsDao` by `AppSettingsBloc` (`app_settings_bloc.dart:82-84`) on `LoadAppSettings`, before the first `MaterialApp` frame (`main.dart:757, 789-790`); `SettingsKeys.restoreLocationMode` and `SettingsKeys.lastLocationStack` through `AppNavigator.restoreLastLocation()` (`app_navigator.dart:1069-1073`), after the first frame. `lib/core/di/injection.dart` reads no setting.
 - Drawer: `app_drawer.dart` `_openSettingsPage` 76-86, group label 88, rows 123-283 (Calendar 123-165, Notes 168-207, App 209-283), avatar push 441-445, permissions row 470-485, `_buildMenuItem` 524, About 587-594, language dialog 611-617, theme dialog 633-638, developer unlock taps ~60-75.
 - Navigator: `app_navigator.dart` `SettingsResult` 43, `push` 79-91, `toSettings` 431, `toDatabaseSettings` 423, `toSyncSettings` 439, `toCounterManagement` 460, `toCalendarGuide` 596, `toCalendarSettings` 590, `toAlerts` 622, `toPermissions` 854-866 (the dedupe pattern), `toCalendarCategories` 870, `toCalendarAppearance` 882, `toEventTemplates` 890, `toVocabularies` 898, `toCounterPerNote` 902, `toDeveloperOptions` 909, `toShortcutEditor` 913, `toMarkdownColors` 932, `restoreLastLocation` 960, the reopen branch 986-1004, `_pageFor` 1092-1126; `nav_destination.dart` kinds 19-38, `reopensDrawerOnPop` 48-54, the stamp 103; `navigation_history_service.dart:186-193` records the stamped prefix only.
 - Bars: `unified_app_bars.dart` `UnifiedAppBar.settings` 58 and the gradient 79-86 / 117, `SettingsAppBar` 431-446, `_buildLeading` 484-492.
