@@ -113,181 +113,187 @@ class _AppDrawerState extends State<AppDrawer> {
           // Header
           _buildHeader(context, colorScheme),
 
-          // Menu items
+          // Menu items. The list carries its own id: a device flow reaching a
+          // row past the cache extent swipes inside it, and the drawer's
+          // first scrollable in a dump is the header's avatar block, where a
+          // swipe scrolls nothing.
           Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                const SizedBox(height: 4),
+            child: Semantics(
+              identifier: SemanticsIds.drawerList,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  const SizedBox(height: 4),
 
-                _buildGroupLabel(context, l10n.calendar),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.calendar_month_rounded,
-                  title: l10n.calendar,
-                  subtitle: l10n.calendarDesc,
-                  identifier: SemanticsIds.drawerCalendar,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toCalendar(context);
-                  },
-                ),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.grid_view_rounded,
-                  title: l10n.calendarOverview,
-                  subtitle: l10n.calendarOverviewDesc,
-                  identifier: SemanticsIds.drawerCalendarOverview,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toCalendarOverview(context);
-                  },
-                ),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.tune_rounded,
-                  title: l10n.calendarSettingsRow,
-                  subtitle: l10n.calendarSettingsRowDesc,
-                  identifier: SemanticsIds.drawerCalendarSettings,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toCalendarSettings(context);
-                  },
-                ),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.notifications_active_rounded,
-                  title: l10n.alertsTitle,
-                  subtitle: l10n.alertsRowDesc,
-                  identifier: SemanticsIds.drawerAlerts,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toAlerts(context);
-                  },
-                ),
-
-                _buildGroupLabel(context, l10n.notes),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.text_format_rounded,
-                  title: l10n.markdownShortcuts,
-                  subtitle: l10n.markdownShortcutsDesc,
-                  identifier: SemanticsIds.drawerMarkdownShortcuts,
-                  onTap: () {
-                    final blocState = context.read<MarkdownBarBloc>().state;
-                    final shortcuts = blocState is MarkdownBarLoaded
-                        ? blocState.currentShortcuts
-                        : <CustomMarkdownShortcut>[];
-                    _openSettingsPage(
-                      context,
-                      (ctx) => AppNavigator.toMarkdownSettings(
-                        ctx,
-                        allShortcuts: shortcuts,
-                      ),
-                    );
-                  },
-                ),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.pin_rounded,
-                  title: l10n.counterSettings,
-                  subtitle: l10n.counterSettingsDesc,
-                  identifier: SemanticsIds.drawerCounters,
-                  onTap: () => _openSettingsPage(
-                    context,
-                    AppNavigator.toCounterManagement,
+                  _buildGroupLabel(context, l10n.calendar),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.calendar_month_rounded,
+                    title: l10n.calendar,
+                    subtitle: l10n.calendarDesc,
+                    identifier: SemanticsIds.drawerCalendar,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      AppNavigator.toCalendar(context);
+                    },
                   ),
-                ),
-
-                const SizedBox(height: 12),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.cloud_sync_rounded,
-                  title: l10n.sharingSettings,
-                  subtitle: l10n.sharingSettingsDesc,
-                  identifier: SemanticsIds.drawerSharing,
-                  onTap: () =>
-                      _openSettingsPage(context, AppNavigator.toSyncSettings),
-                ),
-
-                _buildGroupLabel(context, l10n.appGroupLabel),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.settings_rounded,
-                  title: l10n.appSettings,
-                  subtitle: l10n.appSettingsDesc,
-                  identifier: SemanticsIds.drawerSettings,
-                  onTap: () =>
-                      _openSettingsPage(context, AppNavigator.toSettings),
-                ),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.storage_rounded,
-                  title: l10n.databaseSettings,
-                  subtitle: l10n.databaseSettingsDesc,
-                  identifier: SemanticsIds.settingsDatabases,
-                  onTap: () => _openSettingsPage(
-                    context,
-                    AppNavigator.toDatabaseSettings,
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.grid_view_rounded,
+                    title: l10n.calendarOverview,
+                    subtitle: l10n.calendarOverviewDesc,
+                    identifier: SemanticsIds.drawerCalendarOverview,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      AppNavigator.toCalendarOverview(context);
+                    },
                   ),
-                ),
-                _buildPermissionsItem(context, l10n),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.language_rounded,
-                  title: l10n.languageSettings,
-                  subtitle: l10n.languageSettingsDesc,
-                  identifier: SemanticsIds.drawerLanguage,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    _showLanguageDialog(context);
-                  },
-                ),
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.palette_rounded,
-                  title: l10n.themeSettings,
-                  subtitle: l10n.themeSettingsDesc,
-                  identifier: SemanticsIds.settingsAppearance,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    _showThemeDialog(context);
-                  },
-                ),
-                ListenableBuilder(
-                  listenable: DevOptions.instance,
-                  builder: (context, _) {
-                    if (!DevOptions.instance.developerModeUnlocked) {
-                      return const SizedBox.shrink();
-                    }
-                    return _buildMenuItem(
-                      context: context,
-                      icon: Icons.developer_mode_rounded,
-                      title: l10n.developerOptions,
-                      subtitle: l10n.developerOptionsDesc,
-                      identifier: SemanticsIds.drawerDeveloperOptions,
-                      onTap: () => _openSettingsPage(
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.tune_rounded,
+                    title: l10n.calendarSettingsRow,
+                    subtitle: l10n.calendarSettingsRowDesc,
+                    identifier: SemanticsIds.drawerCalendarSettings,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      AppNavigator.toCalendarSettings(context);
+                    },
+                  ),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.notifications_active_rounded,
+                    title: l10n.alertsTitle,
+                    subtitle: l10n.alertsRowDesc,
+                    identifier: SemanticsIds.drawerAlerts,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      AppNavigator.toAlerts(context);
+                    },
+                  ),
+
+                  _buildGroupLabel(context, l10n.notes),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.text_format_rounded,
+                    title: l10n.markdownShortcuts,
+                    subtitle: l10n.markdownShortcutsDesc,
+                    identifier: SemanticsIds.drawerMarkdownShortcuts,
+                    onTap: () {
+                      final blocState = context.read<MarkdownBarBloc>().state;
+                      final shortcuts = blocState is MarkdownBarLoaded
+                          ? blocState.currentShortcuts
+                          : <CustomMarkdownShortcut>[];
+                      _openSettingsPage(
                         context,
-                        AppNavigator.toDeveloperOptions,
-                      ),
-                    );
-                  },
-                ),
+                        (ctx) => AppNavigator.toMarkdownSettings(
+                          ctx,
+                          allShortcuts: shortcuts,
+                        ),
+                      );
+                    },
+                  ),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.pin_rounded,
+                    title: l10n.counterSettings,
+                    subtitle: l10n.counterSettingsDesc,
+                    identifier: SemanticsIds.drawerCounters,
+                    onTap: () => _openSettingsPage(
+                      context,
+                      AppNavigator.toCounterManagement,
+                    ),
+                  ),
 
-                const Divider(indent: 16, endIndent: 16),
+                  const SizedBox(height: 12),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.cloud_sync_rounded,
+                    title: l10n.sharingSettings,
+                    subtitle: l10n.sharingSettingsDesc,
+                    identifier: SemanticsIds.drawerSharing,
+                    onTap: () =>
+                        _openSettingsPage(context, AppNavigator.toSyncSettings),
+                  ),
 
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.info_outline_rounded,
-                  title: l10n.about,
-                  subtitle: 'ANTA v1.0.0',
-                  identifier: SemanticsIds.drawerAbout,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    _showAboutDialog(context);
-                  },
-                ),
-              ],
+                  _buildGroupLabel(context, l10n.appGroupLabel),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.settings_rounded,
+                    title: l10n.appSettings,
+                    subtitle: l10n.appSettingsDesc,
+                    identifier: SemanticsIds.drawerSettings,
+                    onTap: () =>
+                        _openSettingsPage(context, AppNavigator.toSettings),
+                  ),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.storage_rounded,
+                    title: l10n.databaseSettings,
+                    subtitle: l10n.databaseSettingsDesc,
+                    identifier: SemanticsIds.settingsDatabases,
+                    onTap: () => _openSettingsPage(
+                      context,
+                      AppNavigator.toDatabaseSettings,
+                    ),
+                  ),
+                  _buildPermissionsItem(context, l10n),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.language_rounded,
+                    title: l10n.languageSettings,
+                    subtitle: l10n.languageSettingsDesc,
+                    identifier: SemanticsIds.drawerLanguage,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      _showLanguageDialog(context);
+                    },
+                  ),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.palette_rounded,
+                    title: l10n.themeSettings,
+                    subtitle: l10n.themeSettingsDesc,
+                    identifier: SemanticsIds.settingsAppearance,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      _showThemeDialog(context);
+                    },
+                  ),
+                  ListenableBuilder(
+                    listenable: DevOptions.instance,
+                    builder: (context, _) {
+                      if (!DevOptions.instance.developerModeUnlocked) {
+                        return const SizedBox.shrink();
+                      }
+                      return _buildMenuItem(
+                        context: context,
+                        icon: Icons.developer_mode_rounded,
+                        title: l10n.developerOptions,
+                        subtitle: l10n.developerOptionsDesc,
+                        identifier: SemanticsIds.drawerDeveloperOptions,
+                        onTap: () => _openSettingsPage(
+                          context,
+                          AppNavigator.toDeveloperOptions,
+                        ),
+                      );
+                    },
+                  ),
+
+                  const Divider(indent: 16, endIndent: 16),
+
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.info_outline_rounded,
+                    title: l10n.about,
+                    subtitle: 'ANTA v1.0.0',
+                    identifier: SemanticsIds.drawerAbout,
+                    onTap: () {
+                      AppNavigator.pop(context);
+                      _showAboutDialog(context);
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
 

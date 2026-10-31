@@ -5,10 +5,12 @@
 #   choose, Flutter's showAboutDialog), so each is read by its title or its
 #   description in an expect, never waited for or tapped (_labels.txt).
 # - The three rows sit in the drawer's lower half, which may be past the
-#   list's cache extent, so each is scrolled to before the tap.
+#   list's cache extent, so each is scrolled to before the tap — inside the
+#   list (--in id:drawer-list), because the drawer's first scrollable in a
+#   dump is the header's avatar block, which scrolls nothing.
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:drawer-language
+scroll-to id:drawer-language --in id:drawer-list
 tap id:drawer-language
 expect "Select Language" --absent id:drawer-settings
 key back
@@ -16,7 +18,7 @@ wait id:create-folder
 expect --absent "Select Language" --absent id:drawer-settings
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:settings-appearance
+scroll-to id:settings-appearance --in id:drawer-list
 tap id:settings-appearance
 expect "Select Theme" --absent id:drawer-settings
 key back
@@ -24,7 +26,7 @@ wait id:create-folder
 expect --absent "Select Theme" --absent id:drawer-settings
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:drawer-about
+scroll-to id:drawer-about --in id:drawer-list
 tap id:drawer-about
 expect "An offline-first personal tracker" --absent id:drawer-settings
 key back

@@ -78,6 +78,12 @@ abstract final class SemanticsIds {
   /// The drawer's About row, which opens the about dialog.
   static const String drawerAbout = 'drawer-about';
 
+  /// The drawer's scrolling list of rows. A flow reaching a row past the
+  /// list's cache extent swipes inside it (`scroll-to … --in id:drawer-list`):
+  /// the first scrollable a dump lists is the header's avatar block, and a
+  /// swipe there scrolls nothing (settings pass, 2026-10-31).
+  static const String drawerList = 'drawer-list';
+
   /// The two smart rows above the root browser's folders. Named for the
   /// drawer because that is the vocabulary the driver was written against;
   /// the destinations themselves have never lived in the drawer.

@@ -9,7 +9,7 @@
 #   cache extent, so it is scrolled to before the tap.
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:drawer-permissions
+scroll-to id:drawer-permissions --in id:drawer-list
 tap id:drawer-permissions
 wait id:settings-bar-permissions
 tap id:nav-back
@@ -20,7 +20,7 @@ wait id:create-folder
 expect --absent id:drawer-settings
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:drawer-permissions
+scroll-to id:drawer-permissions --in id:drawer-list
 tap id:drawer-permissions
 wait id:settings-bar-permissions
 key back

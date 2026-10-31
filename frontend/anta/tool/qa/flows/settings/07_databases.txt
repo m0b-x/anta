@@ -8,7 +8,7 @@
 #   cache extent, so it is scrolled to before the tap.
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:settings-databases
+scroll-to id:settings-databases --in id:drawer-list
 tap id:settings-databases
 wait id:settings-bar-databases
 tap id:nav-back
@@ -19,7 +19,7 @@ wait id:create-folder
 expect --absent id:drawer-settings
 tap id:nav-menu
 wait id:drawer-calendar
-scroll-to id:settings-databases
+scroll-to id:settings-databases --in id:drawer-list
 tap id:settings-databases
 wait id:settings-bar-databases
 key back
