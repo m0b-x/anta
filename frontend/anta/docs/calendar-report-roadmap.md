@@ -1,8 +1,7 @@
 # Calendar report — design record (2026-10-30)
 
-**Status: IMPLEMENTED 2026-10-31 — S0–S2 committed `08470643`, S3–S5
-committed and pushed by the lead in one change on the owner's word (the
-next session that opens this record writes that hash here); the designer's
+**Status: COMMITTED — S0–S2 `08470643`, S3–S5 `350973b8` (2026-10-31,
+committed and pushed by the lead on the owner's word); the designer's
 spec is §4.8, the as-built notes per slice §7.1, the verification §8, what
 was left §9** — proposed 2026-10-30; the same day the owner delegated every
 lettered decision ("you have free will … the focus on this feature is
