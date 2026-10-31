@@ -45,7 +45,8 @@ enum NavDestinationKind {
   noteMoneyCurrency,
   counterPerNote,
   developerOptions,
-  alertSettings;
+  alertSettings,
+  fastingSettings;
 
   /// Whether popping this page should raise the drawer beneath it — never,
   /// since back always lands on the route beneath (D3). Nothing reads it any

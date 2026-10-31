@@ -3,26 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
-import '../constants/calendar_colors.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/form_metrics.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
-import '../constants/calendar_icons.dart';
 import '../models/calendar_appearance.dart';
 import '../models/event_alert.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
-import '../widgets/fasting_schedule_sheet.dart';
-import '../widgets/fasting_style_sheet.dart';
 import '../constants/semantics_ids.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
-import '../services/calendar_palette_service.dart';
 import '../services/public_holiday_service.dart';
-import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
@@ -33,6 +27,7 @@ import '../widgets/settings_section_list.dart';
 import '../widgets/slider_setting_row.dart';
 import '../widgets/unified_app_bars.dart';
 import 'alert_settings_page.dart';
+import 'fasting_settings_page.dart';
 
 /// Calendar settings page grouping every calendar-specific option
 /// (week start, holiday set, appearance, day-bar density, …) in one place.
@@ -43,7 +38,8 @@ class CalendarSettingsPage extends StatefulWidget {
   State<CalendarSettingsPage> createState() => _CalendarSettingsPageState();
 }
 
-class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
+class _CalendarSettingsPageState extends State<CalendarSettingsPage>
+    with RouteAware {
   // Persisted fold state is keyed on these, so they are frozen strings, not
   // titles and not positions — renaming or reordering a section must not
   // reopen a card the user folded shut.
@@ -83,10 +79,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   TimedAlertDefault? _timedAlertDefault;
   AllDayAlertDefault? _allDayAlertDefault;
 
+  /// Read here only for the Fasting row's value line.
   Set<FastingTradition> _fastingTraditions = const {};
-  FastingAppearance _fastingAppearance = const FastingAppearance();
-  bool _fastingGreatFasts = true;
-  FastingSchedule _fastingSchedule = const FastingSchedule();
 
   @override
   void initState() {
@@ -95,9 +89,30 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
   void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// Called when a page pushed above this one is popped. The rows' own tap
+  /// continuations read their page's writes back only for a page they
+  /// pushed; a relaunch that restores `[calendarSettings, fastingSettings]`
+  /// pushed the page above with no tap here, and without this its writes
+  /// would leave the row stale and a fold toggled next would write a stale
+  /// fold set.
+  @override
+  void didPopNext() {
+    _loadSettings();
   }
 
   Future<void> _loadSettings() async {
@@ -107,19 +122,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final holidayService = await PublicHolidayService.getInstance();
     final eventService = await CalendarEventService.getInstance();
     final fastingTraditions = await settings.getFastingTraditions();
-    final fastingAppearance = await settings.getFastingAppearance();
-    final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
-    final fastingSchedule = await settings.getFastingSchedule();
     final descriptionLimit = await settings.getEventDescriptionLimit();
     final alerts = await settings.getAlertSettings();
     final collapsedSections = await settings
         .getCalendarSettingsCollapsedSections();
-    // Publishes the palette facade the fasting style sheet's swatch picker
-    // reads synchronously; without it a sheet opened from here before any
-    // other picker would offer zero of the colours the user does have. The
-    // accent and palette rows moved to `CalendarAppearancePage`, which does
-    // the same prewarm for itself.
-    await CalendarPaletteService.getInstance();
 
     if (!mounted) return;
     setState(() {
@@ -135,9 +141,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _timedAlertDefault = alerts.timedDefault;
       _allDayAlertDefault = alerts.allDayDefault;
       _fastingTraditions = fastingTraditions;
-      _fastingAppearance = fastingAppearance;
-      _fastingGreatFasts = fastingGreatFasts;
-      _fastingSchedule = fastingSchedule;
       _isLoading = false;
     });
   }
@@ -150,87 +153,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     if (!next.remove(id)) next.add(id);
     setState(() => _collapsedSections = next);
     await _settings?.setCalendarSettingsCollapsedSections(next);
-  }
-
-  Future<void> _toggleFastingTradition(
-    FastingTradition tradition,
-    bool enabled,
-  ) async {
-    _onHapticFeedback();
-    setState(() {
-      final next = {..._fastingTraditions};
-      enabled ? next.add(tradition) : next.remove(tradition);
-      _fastingTraditions = next;
-    });
-    await _settings?.setFastingTraditions(_fastingTraditions);
-  }
-
-  FastingTraditionStyle _fastingStyleOf(FastingTradition tradition) =>
-      _fastingAppearance.styleFor(tradition);
-
-  /// "Subtle tint · After holidays" — the two choices that actually change
-  /// where the user will see the fast.
-  String _fastingStyleSummary(
-    FastingTradition tradition,
-    AppLocalizations l10n,
-  ) {
-    final style = _fastingStyleOf(tradition);
-    return '${FastingCalendar.styleNameOf(style.style, l10n)} · '
-        '${FastingCalendar.placementNameOf(style.placement, l10n)}';
-  }
-
-  /// Opens the per-tradition appearance sheet. Edits arrive live through
-  /// `onChanged`, so each tap persists and repaints the row behind the
-  /// sheet — closing is never a "discard".
-  Future<void> _editFastingStyle(FastingTradition tradition) async {
-    await FastingStyleSheet.show(
-      context,
-      tradition: tradition,
-      initialStyle: _fastingStyleOf(tradition),
-      onChanged: (style) async {
-        setState(() {
-          _fastingAppearance = _fastingAppearance.withStyle(tradition, style);
-        });
-        await _settings?.setFastingAppearance(_fastingAppearance);
-      },
-    );
-  }
-
-  /// Opens the personal schedule sheet. Like the appearance sheet, edits
-  /// arrive live through `onChanged`, so each tap persists and the summary
-  /// row behind the sheet repaints — closing is never a "discard".
-  Future<void> _editFastingSchedule() async {
-    await FastingScheduleSheet.show(
-      context,
-      initialSchedule: _fastingSchedule,
-      appearance: _appearance,
-      onChanged: (schedule) async {
-        setState(() => _fastingSchedule = schedule);
-        await _settings?.setFastingSchedule(schedule);
-      },
-    );
-  }
-
-  /// "Wed, Fri · All year · 3 exceptions" — the three facts that decide which
-  /// days get marked, in the order the engine applies them.
-  String _fastingScheduleSummary(AppLocalizations l10n) {
-    final parts = <String>[
-      _fastingSchedule.weekdays.isEmpty
-          ? l10n.fastingScheduleNoDays
-          : RecurrenceFormatter.formatWeekdays(
-              _fastingSchedule.weekdays,
-              l10n.localeName,
-            ),
-      if (_fastingSchedule.keepsEveryMonth)
-        l10n.fastingScheduleAllYear
-      else if (_fastingSchedule.months.isEmpty)
-        l10n.fastingScheduleNoMonths
-      else
-        l10n.fastingMonthsCount(_fastingSchedule.months.length),
-      if (_fastingSchedule.exceptionCount > 0)
-        l10n.fastingExceptionsCount(_fastingSchedule.exceptionCount),
-    ];
-    return parts.join(' · ');
   }
 
   void _onHapticFeedback() {
@@ -270,12 +192,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
                   Expanded(
                     child: SettingsSectionList(
                       query: _query,
-                      sections: _buildSections(
-                        context,
-                        theme,
-                        colorScheme,
-                        l10n,
-                      ),
+                      sections: _buildSections(context, colorScheme, l10n),
                       collapsedSections: _collapsedSections,
                       onToggleSection: _toggleSection,
                       footer: [
@@ -300,7 +217,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
 
   List<SettingsSectionData> _buildSections(
     BuildContext context,
-    ThemeData theme,
     ColorScheme colorScheme,
     AppLocalizations l10n,
   ) {
@@ -312,7 +228,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _buildCategoriesSection(colorScheme, l10n),
       _buildAppearanceSection(colorScheme, l10n),
       _buildFilteringSection(colorScheme, l10n),
-      _buildFastingSection(theme, colorScheme, l10n),
+      _buildFastingSection(colorScheme, l10n),
       _buildEventsSection(colorScheme, l10n),
       _buildAlertsSection(colorScheme, l10n),
     ];
@@ -571,123 +487,57 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
+  /// The one row left where the fasting section was (D6): every fasting
+  /// option moved to [FastingSettingsPage], and the row reads the traditions
+  /// on back. The section keeps its id, so a user's fold on it holds.
   SettingsSectionData _buildFastingSection(
-    ThemeData theme,
     ColorScheme colorScheme,
     AppLocalizations l10n,
   ) {
-    final entries = <SettingsEntry>[];
-
-    for (final tradition in FastingTradition.values) {
-      final traditionName = FastingCalendar.traditionNameOf(tradition, l10n);
-      entries.add(
+    return SettingsSectionData(
+      id: _sectionFasting,
+      icon: Icons.restaurant_menu_rounded,
+      title: l10n.fastingSectionTitle,
+      entries: [
         SettingsEntry(
-          title: traditionName,
-          builder: (context, title, description) => SwitchListTile(
-            value: _fastingTraditions.contains(tradition),
-            secondary: Icon(
-              _fastingStyleOf(tradition).iconKey == null
-                  ? FastingCalendar.defaultIconOf(tradition)
-                  : (CalendarIcons.forKey(_fastingStyleOf(tradition).iconKey) ??
-                        FastingCalendar.defaultIconOf(tradition)),
-              color: _fastingTraditions.contains(tradition)
-                  ? _fastingStyleOf(tradition).colorOr(CalendarColors.fasting)
-                  : colorScheme.onSurfaceVariant,
-            ),
-            title: title,
-            onChanged: (value) => _toggleFastingTradition(tradition, value),
+          title: l10n.fastingSettingsTitle,
+          description: FastingSettingsPage.summary(
+            l10n,
+            traditions: _fastingTraditions,
           ),
-        ),
-      );
-      // The appearance row only exists for enabled traditions — configuring
-      // the look of something that draws nothing is noise.
-      if (_fastingTraditions.contains(tradition)) {
-        entries.add(
-          SettingsEntry(
-            title: l10n.fastingAppearanceTitle,
-            description: _fastingStyleSummary(tradition, l10n),
-            // Searchable by the tradition it belongs to, since the visible
-            // title is the same word for every one of them.
-            keywords: [traditionName],
-            identifier: SemanticsIds.calendarFastingStyleOpen(tradition.name),
-            builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.only(left: 32),
-              child: ListTile(
-                dense: true,
-                leading: Icon(Icons.tune_rounded, color: colorScheme.primary),
-                title: title,
-                subtitle: description,
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => _editFastingStyle(tradition),
-              ),
-            ),
-          ),
-        );
-      }
-    }
-
-    if (_fastingTraditions.contains(FastingTradition.orthodox)) {
-      entries.add(
-        SettingsEntry(
-          title: l10n.fastingOrthodoxGreatFasts,
-          description: l10n.fastingOrthodoxGreatFastsDesc,
-          builder: (context, title, description) => SwitchListTile(
-            value: _fastingGreatFasts,
-            secondary: Icon(
-              Icons.date_range_rounded,
-              color: colorScheme.primary,
-            ),
-            title: title,
-            subtitle: description,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(() => _fastingGreatFasts = value);
-              await _settings?.setFastingOrthodoxGreatFasts(value);
-            },
-          ),
-        ),
-      );
-    }
-
-    // Gated on *any* tradition, not just Orthodox: the schedule subtracts
-    // from every tradition's weekly rule, so hiding it behind Orthodox would
-    // leave a Catholic-only install unable to reach the Friday it controls.
-    if (_fastingTraditions.isNotEmpty) {
-      entries.add(
-        SettingsEntry(
-          title: l10n.fastingScheduleTitle,
-          description: _fastingScheduleSummary(l10n),
-          // The weekday, month and exception labels live inside the sheet
-          // now, so settings search needs them declared here to stay findable.
+          // The moved rows' own words, so this page's search still finds the
+          // way to them.
           keywords: [
+            l10n.fastingSectionTitle,
+            for (final tradition in FastingTradition.values)
+              FastingCalendar.traditionNameOf(tradition, l10n),
+            l10n.fastingLookRow,
+            l10n.fastingOrthodoxGreatFasts,
+            l10n.fastingPracticeRow,
             l10n.fastingWeekdayDaysTitle,
             l10n.fastingMonthsTitle,
             l10n.fastingExceptionsSkipTitle,
           ],
-          identifier: SemanticsIds.calendarFastingScheduleOpen,
+          identifier: SemanticsIds.calendarSettingsFastingOpen,
           builder: (context, title, description) => ListTile(
             leading: Icon(
-              Icons.event_repeat_rounded,
+              Icons.restaurant_menu_rounded,
               color: colorScheme.primary,
             ),
             title: title,
             subtitle: description,
             trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: _editFastingSchedule,
+            // The value line is this page's copy of the traditions, so it is
+            // read back when the fasting page pops, as the alerts row reads
+            // its page's writes back.
+            onTap: () async {
+              _onHapticFeedback();
+              await AppNavigator.toFastingSettings(context);
+              if (mounted) await _loadSettings();
+            },
           ),
         ),
-      );
-    }
-
-    return SettingsSectionData(
-      id: _sectionFasting,
-      icon: Icons.restaurant_menu_rounded,
-      title: l10n.fastingSectionTitle,
-      intro: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        child: Text(l10n.fastingSectionDesc),
-      ),
-      entries: entries,
+      ],
     );
   }
 
@@ -939,9 +789,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       );
       _holidayProfile = _holidayService?.profile ?? HolidayProfile.generic;
       _fastingTraditions = const {};
-      _fastingAppearance = const FastingAppearance();
-      _fastingGreatFasts = true;
-      _fastingSchedule = const FastingSchedule();
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
       _timedAlertDefault = shipped.timedDefault;
       _allDayAlertDefault = shipped.allDayDefault;

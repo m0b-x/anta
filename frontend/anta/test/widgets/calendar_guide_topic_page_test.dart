@@ -312,6 +312,18 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // The page the rows moved to and the row that opens the practice,
+        // by the names they carry there.
+        await _scrollTo(tester, _row('fasting-where'));
+        expect(
+          _textsUnder(tester, _row('fasting-where')),
+          contains(contains('$open${l10n.fastingSettingsTitle}$close')),
+        );
+        await _scrollTo(tester, _row('fasting-practice'));
+        expect(
+          _textsUnder(tester, _row('fasting-practice')),
+          contains(contains('$open${l10n.fastingPracticeRow}$close')),
+        );
         await _scrollTo(tester, _row('fasting-hide'));
         expect(
           _textsUnder(tester, _row('fasting-hide')),

@@ -1373,10 +1373,6 @@
   "@fastingWeekdayDaysDesc": {
     "description": "Hint under the weekly fast day chips"
   },
-  "fastingAppearanceTitle": "Appearance",
-  "@fastingAppearanceTitle": {
-    "description": "Row opening the per-tradition fasting appearance editor"
-  },
   "fastingPlacementTitle": "Order in the day panel",
   "@fastingPlacementTitle": {
     "description": "Label for the chips choosing where the fasting row sits"
@@ -1420,10 +1416,6 @@
   "fastingDescriptionHint": "Shown under the rule — markdown works here",
   "@fastingDescriptionHint": {
     "description": "Placeholder for the fasting description field"
-  },
-  "fastingScheduleTitle": "My practice",
-  "@fastingScheduleTitle": {
-    "description": "Settings row opening the personal fasting schedule sheet"
   },
   "fastingScheduleAllYear": "All year",
   "@fastingScheduleAllYear": {
@@ -1475,7 +1467,7 @@
   "@fastingWeekdayScopeAll": {
     "description": "Weekday scope option: the weekday set gates every fast"
   },
-  "fastingExceptionsSkipTitle": "Days off",
+  "fastingExceptionsSkipTitle": "Dates I don't fast",
   "@fastingExceptionsSkipTitle": {
     "description": "Label above the skipped fasting dates list"
   },
@@ -7289,6 +7281,30 @@
   "@alertSettingsCategoriesDesc": {
     "description": "Description of the Alerts per category row"
   },
+  "fastingSettingsTitle": "Fasting",
+  "@fastingSettingsTitle": {
+    "description": "Title of the Fasting settings page and of the row on Calendar settings that opens it"
+  },
+  "fastingSectionTraditions": "Traditions",
+  "@fastingSectionTraditions": {
+    "description": "Fasting settings section holding one switch per fasting tradition, each with its look row"
+  },
+  "fastingLookRow": "Look on the calendar",
+  "@fastingLookRow": {
+    "description": "Fasting settings row under a tradition's switch that opens how that tradition's fast is drawn on the calendar"
+  },
+  "fastingGreatFastsOffDesc": "Off: only your weekly fast days, all year",
+  "@fastingGreatFastsOffDesc": {
+    "description": "Description of the Orthodox multi-day fasts switch while it is off: what the calendar then marks"
+  },
+  "fastingPracticeRow": "Your practice",
+  "@fastingPracticeRow": {
+    "description": "Fasting settings section and row opening the personal fasting schedule (weekdays, months, single dates)"
+  },
+  "fastingTraditionsOff": "Off",
+  "@fastingTraditionsOff": {
+    "description": "Value of Calendar settings' Fasting row while no fasting tradition is on"
+  },
   "alertsSound": "Alarm sound",
   "@alertsSound": {
     "description": "Settings row and sound chooser title for which sound an alarm plays"
@@ -7444,6 +7460,10 @@
   "settingsRowAlertsDesc": "Defaults, sound, timing, permissions",
   "@settingsRowAlertsDesc": {
     "description": "Subtitle of the settings hub row that opens the Alert settings page"
+  },
+  "settingsRowFastingDesc": "Traditions, your practice",
+  "@settingsRowFastingDesc": {
+    "description": "Subtitle of the settings hub row that opens the Fasting settings page, naming its traditions and the user's own fasting practice"
   },
   "calendarCategoriesRowDesc": "Create, order, archive",
   "@calendarCategoriesRowDesc": {

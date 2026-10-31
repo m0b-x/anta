@@ -20,9 +20,11 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/dev_options.dart';
+import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/label_style.dart';
 import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
+import 'package:anta/pages/fasting_settings_page.dart';
 import 'package:anta/pages/permissions_page.dart';
 import 'package:anta/pages/settings_hub_page.dart';
 import 'package:anta/pages/settings_page.dart';
@@ -47,12 +49,12 @@ import '../services/permission_support.dart';
 
 /// The settings kit against Android's tap-target, labelled-tap and text
 /// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the
-/// pages that use the most of it — App settings, Calendar settings and Alert
-/// settings — and on the settings hub every page is opened from, at 1.0 in
-/// light English and at 2.0 in dark German on the small phone, with Roboto
-/// loaded so text is measured as a phone draws it. The search field's own
-/// contract — 48 dp, growing with the text, a labelled clear button with an
-/// id — is pinned beside it.
+/// pages that use the most of it — App settings, Calendar settings, Alert
+/// settings and Fasting settings — and on the settings hub every page is
+/// opened from, at 1.0 in light English and at 2.0 in dark German on the
+/// small phone, with Roboto loaded so text is measured as a phone draws it.
+/// The search field's own contract — 48 dp, growing with the text, a
+/// labelled clear button with an id — is pinned beside it.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -295,6 +297,29 @@ void main() {
       final handle = tester.ensureSemantics();
       setGoldenSurface(tester, cell);
       await tester.pumpWidget(goldenApp(cell, home: const AlertSettingsPage()));
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    // Orthodox on, so the page holds enabled rows beside the disabled look
+    // rows of the three traditions left off.
+    testWidgets('Fasting settings meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () async => (await SettingsService.getInstance()).setFastingTraditions(
+          const {FastingTradition.orthodox},
+        ),
+      );
+      final handle = tester.ensureSemantics();
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(cell, home: const FastingSettingsPage()),
+      );
       await settle(tester);
 
       expect(tester.takeException(), isNull);

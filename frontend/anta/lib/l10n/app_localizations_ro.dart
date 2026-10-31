@@ -1147,9 +1147,6 @@ class AppLocalizationsRo extends AppLocalizations {
       'Alege zilele pe care le ții — mulți postesc doar miercurea și vinerea';
 
   @override
-  String get fastingAppearanceTitle => 'Aspect';
-
-  @override
   String get fastingPlacementTitle => 'Ordinea în panoul zilei';
 
   @override
@@ -1181,9 +1178,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get fastingDescriptionHint => 'Apare sub regim — merge și markdown';
-
-  @override
-  String get fastingScheduleTitle => 'Rânduiala mea';
 
   @override
   String get fastingScheduleAllYear => 'Tot anul';
@@ -1230,7 +1224,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get fastingWeekdayScopeAll => 'Toate posturile';
 
   @override
-  String get fastingExceptionsSkipTitle => 'Zile libere';
+  String get fastingExceptionsSkipTitle => 'Zile în care nu postesc';
 
   @override
   String get fastingExceptionsSkipHint =>
@@ -5826,6 +5820,25 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertSettingsCategoriesDesc => 'Setate pe fiecare categorie';
 
   @override
+  String get fastingSettingsTitle => 'Post';
+
+  @override
+  String get fastingSectionTraditions => 'Tradiții';
+
+  @override
+  String get fastingLookRow => 'Aspect în calendar';
+
+  @override
+  String get fastingGreatFastsOffDesc =>
+      'Oprit: doar zilele tale săptămânale de post, tot anul';
+
+  @override
+  String get fastingPracticeRow => 'Rânduiala ta';
+
+  @override
+  String get fastingTraditionsOff => 'Oprit';
+
+  @override
   String get alertsSound => 'Sunet alarmă';
 
   @override
@@ -5949,6 +5962,9 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get settingsRowAlertsDesc =>
       'Valori implicite, sunet, temporizare, permisiuni';
+
+  @override
+  String get settingsRowFastingDesc => 'Tradiții, rânduiala ta';
 
   @override
   String get calendarCategoriesRowDesc => 'Creează, ordonează, arhivează';

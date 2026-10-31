@@ -3,7 +3,7 @@
 # timing, Permissions, Categories, How it works — and system back lands on
 # the hub, then on the folder root with the drawer closed (D3). The arrow's
 # side of the contract is the other hub flows'.
-# - The row is the Calendar section's fourth, not the list's last, so the
+# - The row is the Calendar section's fifth, not the list's last, so the
 #   agent's reveal reaches it without the bottom-edge trap 17 names.
 # - The last three sections may lie past the viewport plus the cache extent
 #   on a small phone, where no node stands for them yet (the Permissions row

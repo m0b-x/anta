@@ -238,6 +238,7 @@ void main() {
           'counterPerNote',
           'developerOptions',
           'alertSettings',
+          'fastingSettings',
         ],
       );
     });

@@ -132,6 +132,9 @@ abstract final class SemanticsIds {
   /// The Alert settings page's bar title.
   static const String settingsBarAlertSettings = 'settings-bar-alert-settings';
 
+  /// The Fasting settings page's bar title.
+  static const String settingsBarFasting = 'settings-bar-fasting';
+
   /// Markdown shortcuts' bar title.
   static const String settingsBarMarkdown = 'settings-bar-markdown';
 
@@ -297,6 +300,22 @@ abstract final class SemanticsIds {
       'alert-settings-categories-open';
   static const String alertSettingsHowItWorksOpen =
       'alert-settings-how-it-works-open';
+
+  /// Calendar settings' one row left where its fasting section was (D6): it
+  /// opens the Fasting settings page.
+  static const String calendarSettingsFastingOpen =
+      'calendar-settings-fasting-open';
+
+  /// The Fasting settings page's list and its rows that had no id while they
+  /// lived on Calendar settings — the look and practice rows keep theirs
+  /// (`calendarFastingStyleOpen`, `calendarFastingScheduleOpen`). A tradition
+  /// switch is keyed by `FastingTradition.name`.
+  static const String fastingSettingsList = 'fasting-settings-list';
+  static String fastingTraditionSwitch(String tradition) =>
+      'fasting-tradition-switch-$tradition';
+  static const String fastingGreatFastsSwitch = 'fasting-great-fasts-switch';
+  static const String fastingSettingsHowItWorksOpen =
+      'fasting-settings-how-it-works-open';
 
   /// The appearance page's Today highlight and Highlight color rows —
   /// containers above their own segments and swatches — and the Missed days

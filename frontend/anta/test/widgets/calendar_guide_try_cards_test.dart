@@ -2712,7 +2712,7 @@ void main() {
       await expectNothingSaved();
     });
 
-    testWidgets('My practice opens the real schedule sheet: a weekday '
+    testWidgets('Your practice opens the real schedule sheet: a weekday '
         'unticked leaves the grid, the step is marked once it has closed', (
       tester,
     ) async {
@@ -2874,7 +2874,7 @@ void main() {
     // real today and asks the engine which days to pick: the Catholic
     // calendar never marks a Sunday outside Lent and Advent's own rule, and
     // marks every Friday.
-    testWidgets('a day skipped in My practice loses its wash and its row; a '
+    testWidgets('a day skipped in Your practice loses its wash and its row; a '
         'day forced gains both', (tester) async {
       final real = DateTime.now();
       final catholic = FastingCalendar.computeYear(

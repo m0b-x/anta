@@ -261,7 +261,7 @@ class GuideFastingDemo extends GuideCardDemo {
     String? identifier,
   }) => FormPickerRow(
     glyph: Icons.tune_rounded,
-    label: l10n.fastingAppearanceTitle,
+    label: l10n.fastingLookRow,
     value: tradition == null
         ? null
         : FastingCalendar.traditionNameOf(tradition, l10n),
@@ -332,7 +332,7 @@ class GuideFastingDemo extends GuideCardDemo {
               ),
               FormPickerRow(
                 glyph: Icons.event_repeat_rounded,
-                label: l10n.fastingScheduleTitle,
+                label: l10n.fastingPracticeRow,
                 enabled: first != null,
                 identifier: control('practice'),
                 onTap: first == null ? null : () => _editSchedule(context),

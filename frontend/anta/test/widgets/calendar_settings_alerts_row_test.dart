@@ -20,6 +20,7 @@ import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/page_route_recorder.dart';
 
 /// Calendar settings' one Alerts row (D5): its value line names each default
 /// by the shape it serves, it opens Alert settings stamped, and it reads the
@@ -174,7 +175,7 @@ void main() {
   });
 
   testWidgets('the row opens Alert settings, stamped', (tester) async {
-    final observer = _RecordingObserver();
+    final observer = PageRouteRecorder();
     await pumpPage(tester, observers: [observer]);
     observer.pushed.clear();
 
@@ -220,13 +221,4 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
-}
-
-class _RecordingObserver extends NavigatorObserver {
-  final List<Route<dynamic>> pushed = [];
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    if (route is PageRoute) pushed.add(route);
-  }
 }

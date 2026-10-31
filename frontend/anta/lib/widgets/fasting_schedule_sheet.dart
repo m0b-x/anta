@@ -190,7 +190,7 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
           leadingTooltip: l10n.close,
           leadingIdentifier: SemanticsIds.fastingScheduleClose,
           onLeading: () => Navigator.of(context).pop(),
-          title: l10n.fastingScheduleTitle,
+          title: l10n.fastingPracticeRow,
           scrolled: _hairline.scrolled,
           trailingInset: FormMetrics.headerActionInset,
           // Nothing to confirm: every control has already written.

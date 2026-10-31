@@ -1,11 +1,17 @@
 # The fasting schedule sheet (docs/calendar-language-tier-3-roadmap.md §3.4)
-# from Calendar settings' "My practice" row: the weekday chips by id (Monday
-# toggled on and off again, so the seed's Wed, Fri are left as they were),
-# the weekday scope's hint following the selected chip, the exception rows
-# scrolled into view, Days off opening the Dates sheet and its Cancel, then
-# the sheet's ✕ — every write is live, so nothing is confirmed.
-# - The row lives under the Religious fasting section, below the fold of
-#   the settings page: scroll-to brings it up.
+# from the Fasting page's "Your practice" row, reached through Calendar
+# settings' Fasting row (docs/settings-rework-roadmap.md D6): the weekday
+# chips by id (Monday toggled on and off again, so the seed's Wed, Fri are
+# left as they were), the weekday scope's hint following the selected chip,
+# the exception rows scrolled into view, Dates I don't fast opening the
+# Dates sheet and its Cancel, then the sheet's ✕ — every write is live, so
+# nothing is confirmed — and system back through the Fasting page and
+# Calendar settings to the calendar.
+# - Calendar settings' Fasting row sits mid-page, below the fold: scroll-to
+#   brings it up. On the Fasting page the practice row is the second section,
+#   reached inside the page's own list.
+# - The row is enabled only while a tradition is on: the seed turns
+#   Orthodox on.
 # - The sheet's own scroll view is the first scrollable while it is up, so
 #   scroll-to needs no --in here.
 # - The months' Select all is disabled in place with all twelve ticked: it
@@ -17,7 +23,10 @@ tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
-scroll-to id:calendar-fasting-schedule-open
+scroll-to id:calendar-settings-fasting-open --max 14
+tap id:calendar-settings-fasting-open
+wait id:settings-bar-fasting
+scroll-to id:calendar-fasting-schedule-open --in id:fasting-settings-list --max 14
 tap id:calendar-fasting-schedule-open
 wait id:fasting-schedule-close
 expect id:fasting-weekday-1 id:fasting-weekday-7 id:fasting-weekdays-all id:fasting-weekdays-none id:fasting-weekday-scope-weekly id:fasting-weekday-scope-all id:fasting-month-1 id:fasting-month-12 id:fasting-months-all id:fasting-months-none "Multi-day fasts still mark every one of their days" "A month you turn off is never marked"
@@ -37,7 +46,9 @@ shot 19_fasting_days_off_picker
 tap id:date-picker-cancel
 wait id:fasting-schedule-close
 tap id:fasting-schedule-close
-wait id:settings-search
+wait id:settings-bar-fasting
+key back
+wait id:settings-bar-calendar
 key back
 wait id:calendar-add-event
 errors

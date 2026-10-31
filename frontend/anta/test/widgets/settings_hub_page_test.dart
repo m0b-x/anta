@@ -159,6 +159,7 @@ void main() {
     'calendarSettings',
     'calendarAppearance',
     'calendarCategories',
+    'fastingSettings',
     'alertSettings',
   ];
   const notesRows = ['markdownSettings', 'counterManagement'];
@@ -212,11 +213,30 @@ void main() {
     await teardownApp(tester);
   });
 
+  // §4.2's order: Fasting sits between Categories and Alert settings.
+  testWidgets('the Calendar section lists its rows in order', (tester) async {
+    await pumpHub(tester);
+
+    final tops = [
+      for (final kind in calendarRows) tester.getTopLeft(row(kind)).dy,
+    ];
+    for (var i = 1; i < tops.length; i++) {
+      expect(
+        tops[i],
+        greaterThan(tops[i - 1]),
+        reason: '${calendarRows[i]} below ${calendarRows[i - 1]}',
+      );
+    }
+
+    await teardownApp(tester);
+  });
+
   group('each page row pushes its page', () {
     for (final (kind, stamp) in const [
       ('calendarSettings', NavDestinationKind.calendarSettings),
       ('calendarAppearance', NavDestinationKind.calendarAppearance),
       ('calendarCategories', NavDestinationKind.calendarCategories),
+      ('fastingSettings', NavDestinationKind.fastingSettings),
       ('alertSettings', NavDestinationKind.alertSettings),
       ('counterManagement', NavDestinationKind.counterManagement),
       ('settings', NavDestinationKind.settings),
@@ -410,6 +430,58 @@ void main() {
         expect(
           row(kind),
           kind == 'alertSettings' ? findsOneWidget : findsNothing,
+          reason: kind,
+        );
+      }
+
+      await teardownApp(tester);
+    });
+
+    // The fasting section left Calendar settings' keywords with the section
+    // (D6), so the word opens the Fasting page alone; "Orthodox" is a switch
+    // there, not a section.
+    for (final query in ['fasting', 'Orthodox']) {
+      testWidgets('"$query" finds Fasting only', (tester) async {
+        DevOptions.instance.developerModeUnlocked = true;
+        await pumpHub(tester);
+
+        await search(tester, query);
+
+        for (final kind in allRows) {
+          expect(
+            row(kind),
+            kind == 'fastingSettings' ? findsOneWidget : findsNothing,
+            reason: kind,
+          );
+        }
+
+        await teardownApp(tester);
+      });
+    }
+
+    testWidgets('"Fasten" finds Fasting only, in German', (tester) async {
+      DevOptions.instance.developerModeUnlocked = true;
+      tester.view.physicalSize = const Size(1000, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        app(
+          cell: const GoldenCell(
+            dark: false,
+            locale: Locale('de'),
+            textScale: 1.0,
+            size: Size(1000, 2400),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await search(tester, 'Fasten');
+
+      for (final kind in allRows) {
+        expect(
+          row(kind),
+          kind == 'fastingSettings' ? findsOneWidget : findsNothing,
           reason: kind,
         );
       }

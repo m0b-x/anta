@@ -35,6 +35,8 @@ import '../goldens/support/golden_fonts.dart';
 import '../services/permission_support.dart';
 import 'support/alert_settings_robot.dart';
 import 'support/alert_sheet_robot.dart';
+import 'support/page_route_recorder.dart';
+import 'support/settings_page_whole.dart';
 
 /// Alert settings (D5): the rows that left Calendar settings, re-pinned on
 /// their own page — the two defaults through the alert sheet, the sliders'
@@ -718,7 +720,7 @@ void main() {
     testWidgets('Alerts per category opens the categories page, stamped', (
       tester,
     ) async {
-      final observer = _RecordingObserver();
+      final observer = PageRouteRecorder();
       await pumpPage(tester, observers: [observer]);
       observer.pushed.clear();
 
@@ -736,7 +738,7 @@ void main() {
 
     testWidgets('How it works pushes the guide\'s alerts topic, unstamped '
         '(D12)', (tester) async {
-      final observer = _RecordingObserver();
+      final observer = PageRouteRecorder();
       await pumpPage(tester, observers: [observer]);
       observer.pushed.clear();
 
@@ -787,85 +789,6 @@ void main() {
         await tester.pumpAndSettle();
       }
       fail('"$text" never came into view');
-    }
-
-    /// Every line of [paragraph] starts after a space, after a hyphen, or at
-    /// a soft hyphen (U+00AD) — the engine's legitimate break inside a long
-    /// word, though it draws no hyphen there — and never inside a word.
-    void expectBreaksBetweenWords(RenderParagraph paragraph) {
-      final text = paragraph.text.toPlainText();
-      int? previous;
-      double? previousTop;
-      for (var i = 0; i < text.length; i++) {
-        if (text[i] == ' ' || text[i] == '\u00AD') continue;
-        final boxes = paragraph.getBoxesForSelection(
-          TextSelection(baseOffset: i, extentOffset: i + 1),
-        );
-        if (boxes.isEmpty) continue;
-        final top = boxes.first.top;
-        if (previous != null && (top - previousTop!).abs() > 0.5) {
-          final between = text.substring(previous + 1, i);
-          expect(
-            text[previous] == '-' ||
-                between.contains(' ') ||
-                between.contains('\u00AD'),
-            isTrue,
-            reason:
-                '"$text" breaks inside a word: '
-                '"${text.substring(0, i)}|${text.substring(i)}"',
-          );
-        }
-        previous = i;
-        previousTop = top;
-      }
-    }
-
-    /// Every paragraph laid out on the page — top to bottom, the slot
-    /// templates too — is painted whole and holds its words: none is cut
-    /// short or at the side, none is narrower than its longest word where
-    /// that word fits the width it was given, and none breaks inside a word
-    /// there. Nothing overflows on the way down.
-    Future<void> expectPageWhole(WidgetTester tester) async {
-      final list = find.byType(ListView);
-      for (var i = 0; i < 60; i++) {
-        expect(tester.takeException(), isNull);
-        for (final element in find.byType(RichText).evaluate()) {
-          final paragraph = element.renderObject;
-          if (paragraph is! RenderParagraph || !paragraph.hasSize) continue;
-          final text = paragraph.text.toPlainText();
-          expect(paragraph.didExceedMaxLines, isFalse, reason: '"$text"');
-          expect(
-            paragraph.size.height,
-            greaterThanOrEqualTo(paragraph.textSize.height - 0.01),
-            reason: '"$text" is cut short',
-          );
-          expect(
-            paragraph.size.width,
-            greaterThanOrEqualTo(paragraph.textSize.width - 0.01),
-            reason: '"$text" is cut at the side',
-          );
-          final longestWord = paragraph.getMinIntrinsicWidth(double.infinity);
-          if (longestWord <= paragraph.constraints.maxWidth) {
-            expect(
-              paragraph.size.width,
-              greaterThanOrEqualTo(longestWord - 0.01),
-              reason: '"$text" breaks inside a word',
-            );
-            expectBreaksBetweenWords(paragraph);
-          }
-        }
-        final position = tester
-            .state<ScrollableState>(
-              find
-                  .descendant(of: list, matching: find.byType(Scrollable))
-                  .first,
-            )
-            .position;
-        if (position.pixels >= position.maxScrollExtent) return;
-        await tester.drag(list, const Offset(0, -300));
-        await tester.pumpAndSettle();
-      }
-      fail('the page never reached its end');
     }
 
     Finder tileOf(String title) =>
@@ -975,6 +898,7 @@ void main() {
         surface: phone,
         locale: const Locale('de'),
         textScale: 2.0,
+        density: VisualDensity.standard,
       );
       expect(tester.takeException(), isNull);
 
@@ -1021,6 +945,7 @@ void main() {
           surface: phone,
           locale: locale,
           textScale: 2.0,
+          density: VisualDensity.standard,
         );
         final label = strings.alertsTestAlarm;
         await scrollTo(tester, label);
@@ -1076,6 +1001,7 @@ void main() {
         surface: phone,
         locale: const Locale('de'),
         textScale: 2.0,
+        density: VisualDensity.standard,
       );
       await scrollTo(tester, 'Ganztägige Termine');
       expectUnder(
@@ -1191,6 +1117,7 @@ void main() {
           locale: locale,
           textScale: scale,
           dark: dark,
+          density: VisualDensity.standard,
         );
         await expectPageWhole(tester);
 
@@ -1207,6 +1134,7 @@ void main() {
         locale: const Locale('de'),
         textScale: 2.0,
         dark: true,
+        density: VisualDensity.standard,
       );
       final caption = AppLocalizationsDe().permissionsCalendarRowDesc;
       // Flutter 3.44 breaks at a soft hyphen but draws no hyphen there, so
@@ -1244,6 +1172,7 @@ void main() {
           surface: phone,
           locale: locale,
           textScale: scale,
+          density: VisualDensity.standard,
         );
         final robot = AlertSettingsRobot(tester);
         List<int> steps(int min, int max, int step) => [
@@ -1311,13 +1240,4 @@ void main() {
       });
     }
   });
-}
-
-class _RecordingObserver extends NavigatorObserver {
-  final List<Route<dynamic>> pushed = [];
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    if (route is PageRoute) pushed.add(route);
-  }
 }

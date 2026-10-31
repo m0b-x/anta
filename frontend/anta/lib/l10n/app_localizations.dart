@@ -1936,12 +1936,6 @@ abstract class AppLocalizations {
   /// **'Pick the days you keep — many fast only on Wednesday and Friday'**
   String get fastingWeekdayDaysDesc;
 
-  /// Row opening the per-tradition fasting appearance editor
-  ///
-  /// In en, this message translates to:
-  /// **'Appearance'**
-  String get fastingAppearanceTitle;
-
   /// Label for the chips choosing where the fasting row sits
   ///
   /// In en, this message translates to:
@@ -2007,12 +2001,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Shown under the rule — markdown works here'**
   String get fastingDescriptionHint;
-
-  /// Settings row opening the personal fasting schedule sheet
-  ///
-  /// In en, this message translates to:
-  /// **'My practice'**
-  String get fastingScheduleTitle;
 
   /// Schedule summary fragment: every month is kept
   ///
@@ -2083,7 +2071,7 @@ abstract class AppLocalizations {
   /// Label above the skipped fasting dates list
   ///
   /// In en, this message translates to:
-  /// **'Days off'**
+  /// **'Dates I don\'t fast'**
   String get fastingExceptionsSkipTitle;
 
   /// Hint under the skipped fasting dates list
@@ -9658,6 +9646,42 @@ abstract class AppLocalizations {
   /// **'Set on each category'**
   String get alertSettingsCategoriesDesc;
 
+  /// Title of the Fasting settings page and of the row on Calendar settings that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting'**
+  String get fastingSettingsTitle;
+
+  /// Fasting settings section holding one switch per fasting tradition, each with its look row
+  ///
+  /// In en, this message translates to:
+  /// **'Traditions'**
+  String get fastingSectionTraditions;
+
+  /// Fasting settings row under a tradition's switch that opens how that tradition's fast is drawn on the calendar
+  ///
+  /// In en, this message translates to:
+  /// **'Look on the calendar'**
+  String get fastingLookRow;
+
+  /// Description of the Orthodox multi-day fasts switch while it is off: what the calendar then marks
+  ///
+  /// In en, this message translates to:
+  /// **'Off: only your weekly fast days, all year'**
+  String get fastingGreatFastsOffDesc;
+
+  /// Fasting settings section and row opening the personal fasting schedule (weekdays, months, single dates)
+  ///
+  /// In en, this message translates to:
+  /// **'Your practice'**
+  String get fastingPracticeRow;
+
+  /// Value of Calendar settings' Fasting row while no fasting tradition is on
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get fastingTraditionsOff;
+
   /// Settings row and sound chooser title for which sound an alarm plays
   ///
   /// In en, this message translates to:
@@ -9861,6 +9885,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Defaults, sound, timing, permissions'**
   String get settingsRowAlertsDesc;
+
+  /// Subtitle of the settings hub row that opens the Fasting settings page, naming its traditions and the user's own fasting practice
+  ///
+  /// In en, this message translates to:
+  /// **'Traditions, your practice'**
+  String get settingsRowFastingDesc;
 
   /// Subtitle of the row that opens the calendar's Categories page
   ///

@@ -161,6 +161,15 @@ abstract final class FormMetrics {
   static const double settingsLeadingWidth = 24;
   static const double settingsTitleGap = 16;
 
+  /// The column a kit tile's title starts in, from the group's edge: a
+  /// settings row that belongs to the row above it (a tradition's look row,
+  /// its Multi-day fasts switch) carries no glyph of its own and starts its
+  /// title here, under that row's title — with a glyph its text column was
+  /// 144 dp at text scale 2.0 on a 360 dp phone, narrower than one German
+  /// word. [subRowInset] is the form rows' column, four short of it.
+  static const double settingsSubRowInset =
+      RowMetrics.groupInset + settingsLeadingWidth + settingsTitleGap;
+
   /// Narrower than this beside its title — at text scale 1.0, scaled with
   /// the text — a settings value is a column of broken words and goes under
   /// the description instead: a fixed width squeezed the holiday set to

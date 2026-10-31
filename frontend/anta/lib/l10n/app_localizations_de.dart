@@ -1122,7 +1122,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get fastingOrthodoxGreatFastsDesc =>
-      'Große Fastenzeit, Weihnachts-, Apostel-, Entschlafungsfasten, strenge Einzeltage';
+      'Große Fastenzeit, Weihnachts-, Apostel-, Entschlafungs-Fasten, strenge Einzeltage';
 
   @override
   String get fastingWeekdayDaysTitle => 'Wöchentliche Fastentage';
@@ -1130,9 +1130,6 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get fastingWeekdayDaysDesc =>
       'Wähle deine Tage — viele fasten nur mittwochs und freitags';
-
-  @override
-  String get fastingAppearanceTitle => 'Darstellung';
 
   @override
   String get fastingPlacementTitle => 'Reihenfolge im Tagespanel';
@@ -1167,9 +1164,6 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get fastingDescriptionHint =>
       'Wird unter der Regel angezeigt — Markdown möglich';
-
-  @override
-  String get fastingScheduleTitle => 'Meine Praxis';
 
   @override
   String get fastingScheduleAllYear => 'Ganzes Jahr';
@@ -1215,7 +1209,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get fastingWeekdayScopeAll => 'Alle Fastenzeiten';
 
   @override
-  String get fastingExceptionsSkipTitle => 'Freie Tage';
+  String get fastingExceptionsSkipTitle => 'Tage, an denen ich nicht faste';
 
   @override
   String get fastingExceptionsSkipHint =>
@@ -5768,6 +5762,25 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertSettingsCategoriesDesc => 'Für jede Kategorie festgelegt';
 
   @override
+  String get fastingSettingsTitle => 'Fasten';
+
+  @override
+  String get fastingSectionTraditions => 'Traditionen';
+
+  @override
+  String get fastingLookRow => 'Darstellung im Kalender';
+
+  @override
+  String get fastingGreatFastsOffDesc =>
+      'Aus: nur deine wöchentlichen Fastentage, das ganze Jahr';
+
+  @override
+  String get fastingPracticeRow => 'Deine Praxis';
+
+  @override
+  String get fastingTraditionsOff => 'Aus';
+
+  @override
   String get alertsSound => 'Weckton';
 
   @override
@@ -5890,6 +5903,9 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settingsRowAlertsDesc =>
       'Standardwerte, Ton, Zeiten, Berechtigungen';
+
+  @override
+  String get settingsRowFastingDesc => 'Traditionen, deine Praxis';
 
   @override
   String get calendarCategoriesRowDesc => 'Erstellen, ordnen, archivieren';

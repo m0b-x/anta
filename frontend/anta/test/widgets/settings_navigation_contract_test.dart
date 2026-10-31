@@ -25,6 +25,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/counter.dart';
 import 'package:anta/models/dev_options.dart';
+import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/alerts_page.dart';
@@ -40,6 +41,7 @@ import 'package:anta/pages/counter_per_note_page.dart';
 import 'package:anta/pages/database_settings_page.dart';
 import 'package:anta/pages/developer_options_page.dart';
 import 'package:anta/pages/event_templates_page.dart';
+import 'package:anta/pages/fasting_settings_page.dart';
 import 'package:anta/pages/markdown_colors_page.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
 import 'package:anta/pages/note_bar_assignment_page.dart';
@@ -719,6 +721,38 @@ void main() {
         await teardownApp(tester);
       });
 
+      testWidgets('Fasting settings from any opener: stamped, a second '
+          'toFastingSettings over it pushes nothing, and the arrow pops to '
+          'the opener with no drawer raised (D3, D6)', (tester) async {
+        final opener = await pushOpener(tester);
+        unawaited(AppNavigator.toFastingSettings(opener));
+        await settle(tester);
+        expect(
+          observer.pageRoutes.single.settings.arguments,
+          const NavDestination(NavDestinationKind.fastingSettings),
+        );
+        observer.clear();
+
+        await AppNavigator.toFastingSettings(
+          tester.element(find.byType(FastingSettingsPage)),
+        );
+        await settle(tester);
+
+        expect(observer.pageRoutes, isEmpty);
+        expect(
+          find.byType(FastingSettingsPage, skipOffstage: false),
+          findsOneWidget,
+        );
+
+        await tapArrow(tester);
+
+        expect(find.byType(FastingSettingsPage), findsNothing);
+        expect(find.text('opener'), findsOneWidget);
+        expect(host().isDrawerOpen, isFalse);
+
+        await teardownApp(tester);
+      });
+
       testWidgets('the editor\'s Counters: the arrow pops null to the '
           'opener, no drawer raised (D3)', (tester) async {
         final opener = await pushOpener(tester);
@@ -748,6 +782,58 @@ void main() {
 
         await teardownApp(tester);
       });
+    });
+
+    // A relaunch pushes Fasting settings over Calendar settings with no tap
+    // of the row's, so only the page's `didPopNext` reads the write back.
+    testWidgets('a restored [calendarSettings, fastingSettings]: a tradition '
+        'turned on above shows on the Fasting row after the pop', (
+      tester,
+    ) async {
+      final history = NavigationHistoryService(
+        writeDebounce: const Duration(milliseconds: 10),
+      );
+      GetIt.I.registerSingleton<NavigationHistoryService>(history);
+      addTearDown(() async {
+        await GetIt.I.unregister<NavigationHistoryService>();
+        history.dispose();
+      });
+      Future<void> store(
+        Set<FastingTradition> traditions,
+        List<NavDestination> stack,
+      ) => tester.runAsync(() async {
+        final settings = await SettingsService.getInstance();
+        await settings.setFastingTraditions(traditions);
+        await settings.saveLastLocationStack(stack);
+      });
+      await store(const {}, const [
+        NavDestination(NavDestinationKind.calendarSettings),
+        NavDestination(NavDestinationKind.fastingSettings),
+      ]);
+      await pumpHost(tester);
+      await tester.runAsync(AppNavigator.restoreLastLocation);
+      await settle(tester);
+      expect(find.byType(FastingSettingsPage), findsOneWidget);
+
+      await tapRow(
+        tester,
+        SemanticsIds.fastingTraditionSwitch(FastingTradition.orthodox.name),
+      );
+      await tapArrow(tester);
+
+      expect(find.byType(FastingSettingsPage), findsNothing);
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(
+            SemanticsIds.calendarSettingsFastingOpen,
+          ),
+          matching: find.text('Orthodox'),
+        ),
+        findsOneWidget,
+      );
+
+      await teardownApp(tester);
+      await store(const {}, const []);
     });
   });
 
@@ -962,11 +1048,117 @@ void main() {
       await teardownApp(tester);
     });
 
+    testWidgets('Fasting settings opened from the hub records [settingsHub, '
+        'fastingSettings], and the recorded chain restores whole (D6)', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      final navigator = AppNavigator.navigatorKey.currentContext!;
+      unawaited(
+        AppNavigator.push<void>(
+          navigator,
+          const _Opener(),
+          destination: const NavDestination(NavDestinationKind.settingsHub),
+        ),
+      );
+      unawaited(AppNavigator.toFastingSettings(navigator));
+
+      final recorded = history.stack;
+      expect(recorded, const [
+        NavDestination(NavDestinationKind.settingsHub),
+        NavDestination(NavDestinationKind.fastingSettings),
+      ]);
+      await teardownApp(tester);
+
+      await saveStack(tester, recorded);
+      await pumpApp(tester);
+      observer.clear();
+      await restore(tester);
+
+      expect(restoredDestinations(), recorded);
+      expect(pageOf(observer.pageRoutes.last), isA<FastingSettingsPage>());
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('Fasting settings opened from Calendar settings records '
+        '[calendarSettings, fastingSettings], and the recorded chain restores '
+        'whole (D6)', (tester) async {
+      await pumpApp(tester);
+      final navigator = AppNavigator.navigatorKey.currentContext!;
+      unawaited(
+        AppNavigator.push<void>(
+          navigator,
+          const _Opener(),
+          destination: const NavDestination(
+            NavDestinationKind.calendarSettings,
+          ),
+        ),
+      );
+      unawaited(AppNavigator.toFastingSettings(navigator));
+
+      final recorded = history.stack;
+      expect(recorded, const [
+        NavDestination(NavDestinationKind.calendarSettings),
+        NavDestination(NavDestinationKind.fastingSettings),
+      ]);
+      await teardownApp(tester);
+
+      await saveStack(tester, recorded);
+      await pumpApp(tester);
+      observer.clear();
+      await restore(tester);
+
+      expect(restoredDestinations(), recorded);
+      expect(pageOf(observer.pageRoutes.last), isA<FastingSettingsPage>());
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('a stack stored before fastingSettings existed restores '
+        'unchanged, alertSettings in it included: the kind is appended, so no '
+        'stored name moves', (tester) async {
+      expect(
+        NavDestinationKind.values.last,
+        NavDestinationKind.fastingSettings,
+      );
+      final db = await tester.runAsync(AppDatabase.getInstance);
+      await tester.runAsync(
+        () => db!.userSettingsDao.setValue(
+          SettingsKeys.lastLocationStack,
+          jsonEncode({
+            'v': NavDestination.stackVersion,
+            'stack': [
+              {'k': 'settingsHub'},
+              {'k': 'calendarSettings'},
+              {'k': 'alertSettings'},
+            ],
+          }),
+        ),
+      );
+      await pumpApp(tester);
+      observer.clear();
+
+      await restore(tester);
+
+      expect(restoredDestinations(), const [
+        NavDestination(NavDestinationKind.settingsHub),
+        NavDestination(NavDestinationKind.calendarSettings),
+        NavDestination(NavDestinationKind.alertSettings),
+      ]);
+
+      await teardownApp(tester);
+    });
+
     testWidgets('a stack stored before alertSettings existed restores '
         'unchanged: the kind is appended, so no stored name moves', (
       tester,
     ) async {
-      expect(NavDestinationKind.values.last, NavDestinationKind.alertSettings);
+      expect(
+        NavDestinationKind.values.indexOf(NavDestinationKind.alertSettings),
+        NavDestinationKind.values.indexOf(NavDestinationKind.developerOptions) +
+            1,
+      );
       final db = await tester.runAsync(AppDatabase.getInstance);
       await tester.runAsync(
         () => db!.userSettingsDao.setValue(
@@ -1192,6 +1384,14 @@ final _hubRows = <_Row>[
     stamp: const NavDestination(NavDestinationKind.calendarCategories),
   ),
   _Row(
+    name: 'Fasting',
+    rowId: SemanticsIds.settingsHubRow('fastingSettings'),
+    pageType: FastingSettingsPage,
+    barId: SemanticsIds.settingsBarFasting,
+    title: (l10n) => l10n.fastingSettingsTitle,
+    stamp: const NavDestination(NavDestinationKind.fastingSettings),
+  ),
+  _Row(
     name: 'Alert settings',
     rowId: SemanticsIds.settingsHubRow('alertSettings'),
     pageType: AlertSettingsPage,
@@ -1289,6 +1489,7 @@ const _restorable = <NavDestinationKind, Type>{
   NavDestinationKind.counterPerNote: CounterPerNotePage,
   NavDestinationKind.developerOptions: DeveloperOptionsPage,
   NavDestinationKind.alertSettings: AlertSettingsPage,
+  NavDestinationKind.fastingSettings: FastingSettingsPage,
 };
 
 class _RecordingObserver extends NavigatorObserver {

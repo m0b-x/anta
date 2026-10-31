@@ -1,0 +1,31 @@
+# Fasting through the hub (D2, D6): its row opens the page, the first rows
+# of each of the three sections are there by id — the four tradition
+# switches, the Orthodox look row and the Great fasts sub-row under it in
+# Traditions, the schedule row in Your practice, How it works — and system
+# back lands on the hub, then on the folder root with the drawer closed
+# (D3). The arrow's side of the contract is the other hub flows'.
+# - The row is the Calendar section's fourth, before Alert settings, not the
+#   list's last, so the agent's reveal reaches it without the bottom-edge
+#   trap 17 names.
+# - The last sections may lie past the viewport plus the cache extent on a
+#   small phone, where no node stands for them yet, so Traditions is read as
+#   the page opens and the rest after a scroll-to inside the page's own list
+#   (a bare scroll-to swipes the dump's first scrollable).
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-fastingSettings
+wait id:settings-bar-fasting
+expect id:fasting-tradition-switch-orthodox id:fasting-tradition-switch-catholic id:fasting-tradition-switch-muslim id:fasting-tradition-switch-jewish id:calendar-fasting-style-open-orthodox id:fasting-great-fasts-switch
+shot 19_fasting_settings
+scroll-to id:fasting-settings-how-it-works-open --in id:fasting-settings-list --max 14
+expect id:calendar-fasting-schedule-open id:fasting-settings-how-it-works-open
+key back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-fasting
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

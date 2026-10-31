@@ -217,6 +217,28 @@ void main() {
       {'appearance_week'},
       reason: 'this page\'s folds open; the appearance page\'s stay',
     );
+    // The page shows what it wrote: the Fasting row, unfolded with its
+    // section, reads the traditions back as none.
+    final fastingRow = find.bySemanticsIdentifier(
+      SemanticsIds.calendarSettingsFastingOpen,
+    );
+    await tester.scrollUntilVisible(
+      fastingRow,
+      -300,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsSectionList),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(
+      find.descendant(
+        of: fastingRow,
+        matching: find.text(l10n.fastingTraditionsOff),
+      ),
+      findsOneWidget,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

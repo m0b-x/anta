@@ -837,7 +837,7 @@ same shape as the agenda search field in `CalendarBottomPanel`.
   turning it off drops the four great fasts, the strict single days and
   Cheesefare, leaving only the weekly rule, which then applies year-round.
 
-**The personal schedule** ("My practice", `FastingScheduleSheet`, shown while
+**The personal schedule** ("Your practice" on the Fasting settings page since the settings rework's S4, 2026-10-31 — "My practice" on Calendar settings before; `FastingScheduleSheet`; its row disabled, never hidden, until
 **any** tradition is enabled) is one `FastingSchedule` persisted as JSON under
 `calendar_fasting_schedule`:
 
@@ -6554,7 +6554,7 @@ and `calendar-ui` (the ids, the nav).
 **Why.** Eight surfaces, each reached from a migrated one — the Upcoming
 summary cards open the day list, the category picker opens the category
 editor, the Look sheet embeds the swatch strip and opens the colour picker,
-Calendar settings opens the two fasting sheets and the removed-holidays
+The Fasting settings page (the settings rework's S4, 2026-10-31, reached from one row on Calendar settings, the hub and the guide) opens the two fasting sheets, and Calendar settings the removed-holidays
 sheet, the appearance page opens the palette — still spoke the older chrome
 (the stock drag band, centred or oversized titles, `Card`s, `ListTile`s,
 `ChoiceChip`s, `FilterChip`s, `SegmentedButton`s, outlined fields, a bottom
@@ -6683,7 +6683,7 @@ old UI and four dead keys.
   nothing; each scope is a labelled chip pair whose caption is a
   `FormCaptionSlot` over both hints, showing the selected scope's, so the
   rows below never move (the scope row stays with all twelve months
-  ticked). The exception dates are two picker rows — Days off, Extra fast
+  ticked). The exception dates are two picker rows — Dates I don't fast ("Days off" until 2026-10-31, N111), Extra fast
   days — reading the count back and opening the Dates sheet additively as
   before; at the cap of 200 the row reads "Limit reached" and is disabled
   whole. Each is followed by one sub-row per date with a ✕.
@@ -6790,8 +6790,9 @@ Strength card's days opened by its id, List · Month with today picked and
 Whole month · Year in both scopes · a tile drilled and ← back · List, then
 the agenda's filters reset), `18_category_editor` (the Strength edit form
 and its icon picker, the create form's duplicate warning),
-`19_fasting_schedule` (a weekday toggled twice, the weekday scope's two
-hints, the exception rows, Days off into the Dates sheet and out),
+`19_fasting_schedule` (through Calendar settings' Fasting row onto the Fasting
+settings page since 2026-10-31; a weekday toggled twice, the weekday scope's two
+hints, the exception rows, Dates I don't fast into the Dates sheet and out),
 `20_fasting_style` (the grid menu's four items, the title dialog's hint and
 its Cancel), `21_removed_holidays` (the seeded suppression restored and the
 empty caption — it consumes the seed, so a lone re-run needs `qa relaunch

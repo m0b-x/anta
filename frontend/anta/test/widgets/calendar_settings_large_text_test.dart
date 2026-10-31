@@ -10,11 +10,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
+import 'package:anta/pages/fasting_settings_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
@@ -23,6 +26,7 @@ import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import 'support/settings_page_whole.dart';
 
 /// Calendar settings at a large text scale. `ListTile` gives its trailing
 /// whatever width it asks for and the title the rest, so the holiday set's
@@ -276,6 +280,56 @@ void main() {
       ),
     );
   });
+
+  // Three traditions on, so the Fasting row's value is the longest it gets
+  // short of all four: each name whole, each dot held to the name after it.
+  for (final locale in const [Locale('de'), Locale('ro')]) {
+    testWidgets('${locale.languageCode} at text scale 2.0 on a 360 × 780 '
+        'phone with three traditions on: the page lays out to its end with '
+        'no overflow, the Fasting row whole on the way, no word broken', (
+      tester,
+    ) async {
+      const traditions = {
+        FastingTradition.orthodox,
+        FastingTradition.catholic,
+        FastingTradition.jewish,
+      };
+      await tester.runAsync(() => settings.setFastingTraditions(traditions));
+      await pumpPage(
+        tester,
+        surface: phone,
+        locale: locale,
+        textScale: 2.0,
+        density: VisualDensity.standard,
+      );
+      final row = find.bySemanticsIdentifier(
+        SemanticsIds.calendarSettingsFastingOpen,
+      );
+      await expectPageWhole(tester, within: row);
+
+      // The pass went by the row; back up to it to see it held the three.
+      await tester.scrollUntilVisible(
+        row,
+        -300,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text(
+            FastingSettingsPage.summary(l10n, traditions: traditions),
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+  }
 
   testWidgets('the cap the page holds a value to is the constraint a tile '
       'hands its trailing, at the phone\'s density and the desktop\'s', (

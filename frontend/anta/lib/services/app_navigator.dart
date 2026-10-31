@@ -38,6 +38,7 @@ import '../pages/counter_management_page.dart';
 import '../pages/counter_per_note_page.dart';
 import '../pages/database_settings_page.dart';
 import '../pages/developer_options_page.dart';
+import '../pages/fasting_settings_page.dart';
 import '../pages/markdown_colors_page.dart';
 import '../pages/markdown_settings_page.dart';
 import '../pages/note_bar_assignment_page.dart';
@@ -636,6 +637,19 @@ abstract final class AppNavigator {
       context,
       const AlertSettingsPage(),
       destination: const NavDestination(NavDestinationKind.alertSettings),
+    );
+  }
+
+  /// Fasting settings (D6): stamped like Alert settings, so a relaunch
+  /// restores it beneath whatever opened it — the hub or Calendar settings.
+  static Future<void> toFastingSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.fastingSettings)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const FastingSettingsPage(),
+      destination: const NavDestination(NavDestinationKind.fastingSettings),
     );
   }
 
@@ -1347,6 +1361,7 @@ abstract final class AppNavigator {
       ),
       NavDestinationKind.developerOptions => const DeveloperOptionsPage(),
       NavDestinationKind.alertSettings => const AlertSettingsPage(),
+      NavDestinationKind.fastingSettings => const FastingSettingsPage(),
     };
   }
 }

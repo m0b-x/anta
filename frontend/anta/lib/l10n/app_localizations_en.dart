@@ -1127,9 +1127,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Pick the days you keep — many fast only on Wednesday and Friday';
 
   @override
-  String get fastingAppearanceTitle => 'Appearance';
-
-  @override
   String get fastingPlacementTitle => 'Order in the day panel';
 
   @override
@@ -1162,9 +1159,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get fastingDescriptionHint =>
       'Shown under the rule — markdown works here';
-
-  @override
-  String get fastingScheduleTitle => 'My practice';
 
   @override
   String get fastingScheduleAllYear => 'All year';
@@ -1209,7 +1203,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fastingWeekdayScopeAll => 'All fasts';
 
   @override
-  String get fastingExceptionsSkipTitle => 'Days off';
+  String get fastingExceptionsSkipTitle => 'Dates I don\'t fast';
 
   @override
   String get fastingExceptionsSkipHint =>
@@ -5729,6 +5723,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alertSettingsCategoriesDesc => 'Set on each category';
 
   @override
+  String get fastingSettingsTitle => 'Fasting';
+
+  @override
+  String get fastingSectionTraditions => 'Traditions';
+
+  @override
+  String get fastingLookRow => 'Look on the calendar';
+
+  @override
+  String get fastingGreatFastsOffDesc =>
+      'Off: only your weekly fast days, all year';
+
+  @override
+  String get fastingPracticeRow => 'Your practice';
+
+  @override
+  String get fastingTraditionsOff => 'Off';
+
+  @override
   String get alertsSound => 'Alarm sound';
 
   @override
@@ -5848,6 +5861,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsRowAlertsDesc => 'Defaults, sound, timing, permissions';
+
+  @override
+  String get settingsRowFastingDesc => 'Traditions, your practice';
 
   @override
   String get calendarCategoriesRowDesc => 'Create, order, archive';

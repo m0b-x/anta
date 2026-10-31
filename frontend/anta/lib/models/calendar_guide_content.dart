@@ -368,13 +368,12 @@ enum CalendarGuideTopic {
       ),
       GuideCoachStep(
         'style',
-        (l10n) =>
-            l10n.calendarGuideCoachFastingStyle(l10n.fastingAppearanceTitle),
+        (l10n) => l10n.calendarGuideCoachFastingStyle(l10n.fastingLookRow),
       ),
       GuideCoachStep(
         'practice',
         (l10n) =>
-            l10n.calendarGuideCoachFastingPractice(l10n.fastingScheduleTitle),
+            l10n.calendarGuideCoachFastingPractice(l10n.fastingPracticeRow),
       ),
     ],
   };
@@ -651,7 +650,7 @@ enum CalendarGuideTopic {
         l10n.calendarGuideFastingWhereTitle,
         l10n.calendarGuideFastingWhereBody(
           l10n.calendarSettingsRow,
-          l10n.fastingSectionTitle,
+          l10n.fastingSettingsTitle,
         ),
       ),
       CalendarGuideRow(
@@ -665,7 +664,7 @@ enum CalendarGuideTopic {
         Icons.event_repeat_rounded,
         l10n.calendarGuideFastingPracticeTitle,
         l10n.calendarGuideFastingPracticeBody(
-          l10n.fastingScheduleTitle,
+          l10n.fastingPracticeRow,
           l10n.fastingWeekdayScopeTitle,
           l10n.fastingWeekdayScopeAll,
         ),

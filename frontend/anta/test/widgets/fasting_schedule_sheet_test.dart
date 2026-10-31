@@ -171,8 +171,8 @@ void main() {
       expect(robot.weekdayScope, FastingWeekdayScope.allFasts);
     });
 
-    testWidgets('Days off adds the picked dates and takes them out of the '
-        'extra fast days', (tester) async {
+    testWidgets('Dates I don\'t fast adds the picked dates, out of the extra '
+        'fast days', (tester) async {
       final (robot, writes) = await open(
         tester,
         initial: FastingSchedule(forceDates: {first}),
@@ -419,7 +419,7 @@ void main() {
       expect(await robot.addLabel(FastingDateKind.force), 'None');
     });
 
-    testWidgets('at the cap the Days off row is disabled in place and the '
+    testWidgets('at the cap Dates I don\'t fast is disabled in place and the '
         'Extra fast days row stays enabled', (tester) async {
       final full = {
         for (var i = 0; i < FastingSchedule.maxExceptionDates; i++)
@@ -457,7 +457,7 @@ void main() {
           textScale: 2.0,
           surface: phone,
         );
-        expect(robot.headerTitle, 'Meine Praxis');
+        expect(robot.headerTitle, 'Deine Praxis');
         expect(robot.sectionLabelWhole('Wöchentliche Fastentage'), isTrue);
         expect(robot.sectionLabelWhole('Monate, die du hältst'), isTrue);
         expect(robot.textWhole('Alle auswählen'), isTrue);
@@ -468,7 +468,7 @@ void main() {
         );
         expect(robot.textWhole('Nur wöchentliches Fasten'), isTrue);
         expect(robot.textWhole('Alle Fastenzeiten'), isTrue);
-        expect(robot.textWhole('Freie Tage'), isTrue);
+        expect(robot.textWhole('Tage, an denen ich nicht faste'), isTrue);
         expect(robot.textWhole('Zusätzliche Fastentage'), isTrue);
         for (
           var weekday = DateTime.monday;
@@ -561,7 +561,7 @@ void main() {
     testWidgets('the ✕ carries its id, is named Close and closes the sheet '
         'without a write', (tester) async {
       final (robot, writes) = await open(tester);
-      expect(robot.headerTitle, 'My practice');
+      expect(robot.headerTitle, 'Your practice');
       final close = robot.nodeOf(SemanticsIds.fastingScheduleClose);
       expect(close.tooltip, 'Close');
       expect(close.flagsCollection.isButton, isTrue);
