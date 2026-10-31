@@ -1,11 +1,14 @@
 # Calendar categories — design record (2026-10-30)
 
-**Status: PLAN** — proposed 2026-10-30 from a brainstorm ("why is there no
-category page in the hamburger menu?") and a read-only investigation of the
-categories subsystem (an Opus 5.5 reviewer, 21 findings K1–K21 and 10
-app-wide items A1–A10, §2). The owner runs the build in a separate session,
-after the Report record (`docs/calendar-report-roadmap.md`) reads COMMITTED
-(§1 says why). Decisions A–H in §3 are lettered and unanswered. The mock:
+**Status: IN PROGRESS** — the build started 2026-10-31 in the interleaved
+session the settings record's §1 describes (its merged eleven-step order
+governs; this record's S0 is step 1, S1 step 2, S2 step 5, S3 step 6, S4
+step 11); the Report record reads COMMITTED (`350973b8`). Proposed
+2026-10-30 from a brainstorm ("why is there no category page in the
+hamburger menu?") and a read-only investigation of the categories subsystem
+(an Opus 5.5 reviewer, 21 findings K1–K21 and 10 app-wide items A1–A10,
+§2). Decisions A–H are taken (§3): on 2026-10-31 the owner said every
+decision is already taken, so each stands as recommended. The mock:
 https://claude.ai/artifact/SGdohQ4zqp3RvA2DCEe93r — the page light and dark
 (a row menu open), the delete sheet, German at text scale 2.0, the drawer's
 Calendar group and the calendar's ⋮ with the new entries, the decisions and
@@ -151,14 +154,21 @@ D-numbers are assigned on answering and nothing here is rewritten afterwards
 
 | | Decision | Options | Answered |
 | --- | --- | --- | --- |
-| A | Where the page lives | **A1** a drawer row after Overview plus a ⋮ item after Alerts, the settings entry stays — the page is reached from the grid when a category is wrong and from the drawer when setting up · A2 the ⋮ item only · A3 the drawer row only | — |
-| B | Hide becomes Archive | **B1** rename the action, the section and the guide line; archived rows keep their counts and their events stay everywhere — the funnel already owns "hide" · B2 keep "Hide", explain it in the guide only | — |
-| C | Delete | **C1** a sub-sheet with the consequences and a Move-events-to row, Other preselected — it is also the merge · C2 keep the dialog, add the consequences text only · C3 C1 plus a separate "Merge into…" menu item opening the same sheet with the target required | — |
-| D | The default category of a new event | **D1** the first non-archived category in the user's order — the seeded order keeps Gym first, so nothing changes for anyone who never reordered, and the order gains a purpose · D2 a "Default for new events" menu item stored as a setting · D3 keep Gym | — |
-| E | Add | **E1** a FAB bottom right, as the calendar's own add button — thumb reach · E2 an "Add category" action row at the end of the list · E3 keep the app-bar + | — |
-| F | Category alerts on an archived category | **F1** keep firing, as today, and the guide says so in one line — no behaviour change · F2 archiving silences the category's own alerts until restore — a data decision | — |
-| G | The row's alert mark | **G1** "Alerts on" in the caption, no bell — costs nothing at 2.0 · G2 keep the bell as a trailing glyph before ⋮ | — |
-| H | Sort A–Z | **H1** stays in the bar's ⋮ behind a confirm that says the manual order is replaced · H2 remove it · H3 keep it unconfirmed | — |
+| A | Where the page lives | **A1** a drawer row after Overview plus a ⋮ item after Alerts, the settings entry stays — the page is reached from the grid when a category is wrong and from the drawer when setting up · A2 the ⋮ item only · A3 the drawer row only | A1, 2026-10-31 |
+| B | Hide becomes Archive | **B1** rename the action, the section and the guide line; archived rows keep their counts and their events stay everywhere — the funnel already owns "hide" · B2 keep "Hide", explain it in the guide only | B1, 2026-10-31 |
+| C | Delete | **C1** a sub-sheet with the consequences and a Move-events-to row, Other preselected — it is also the merge · C2 keep the dialog, add the consequences text only · C3 C1 plus a separate "Merge into…" menu item opening the same sheet with the target required | C1, 2026-10-31 |
+| D | The default category of a new event | **D1** the first non-archived category in the user's order — the seeded order keeps Gym first, so nothing changes for anyone who never reordered, and the order gains a purpose · D2 a "Default for new events" menu item stored as a setting · D3 keep Gym | D1, 2026-10-31 |
+| E | Add | **E1** a FAB bottom right, as the calendar's own add button — thumb reach · E2 an "Add category" action row at the end of the list · E3 keep the app-bar + | E1, 2026-10-31 |
+| F | Category alerts on an archived category | **F1** keep firing, as today, and the guide says so in one line — no behaviour change · F2 archiving silences the category's own alerts until restore — a data decision | F1, 2026-10-31 |
+| G | The row's alert mark | **G1** "Alerts on" in the caption, no bell — costs nothing at 2.0 · G2 keep the bell as a trailing glyph before ⋮ | G1, 2026-10-31 |
+| H | Sort A–Z | **H1** stays in the bar's ⋮ behind a confirm that says the manual order is replaced · H2 remove it · H3 keep it unconfirmed | H1, 2026-10-31 |
+
+Answered 2026-10-31: the owner opened the implementing session with "every
+decision is already taken (A–H …); do not reopen them", so each row's
+recommended option — the first, in bold — is the decision. The letters stay
+the identifiers (the settings record's D1–D14 run in the same session and
+D-numbers here would collide); the spec's "under A1 / B1 / C1 / D1 / E1 / F1
+/ G1 / H1" branches are the ones built.
 
 Changes that need no decision, because the language or a finding settles
 them: K4 (orphans resolve to the stored Other), K5 (content rows, form menu
@@ -342,7 +352,7 @@ against the diff. Nothing red carries over.
 
 ### 7.1 As built
 
-(appended per slice by the implementing session)
+- **S0, 2026-10-31.** Ids on the current page, named for §4.2 so S2 keeps them: `categoryRowMenu(id)`, `categoryMenuMoveToTop` / `categoryMenuEdit` / `categoryMenuArchive` (today's hide / show item) / `categoryMenuDelete`, `categorySortAz`, plus `categoryRowVisibility(id)` on the eye, which retires with it in S2; the page diff is semantics wrappers only (a `PopupMenuItem` merges its subtree, so a `Semantics(identifier:)` on the item's row is what the merged node carries). Flow `tool/qa/flows/calendar/29_categories_page.txt`: archive and restore read from the row's ⋮ ("Show" / "Hide", the popup's barrier hiding the page's nodes), a reorder by two 900 ms drags asserted with `--ordered`, the delete through `sheet-confirm` on the one-event confirm text, a create found by its typed name; `_labels.txt` gained its two labels. Seven pins in the page suite: every targeted id reachable; a delete read back from both events (`kFallbackCategoryId`) and from the category's tombstone (`isDeleted`, `version` +1, a later stamp); a reorder from a gapped start (`sortOrder` 100) to a dense 0..N-1 with the untouched rows keeping `version` and `hlcTimestamp`; a row tap opening the editor; a create listed; the zero-event message; the archive item writing the flag. Reviewer: "ship after fixes" — all eight applied. No ARB change. The flow has **not** run on a device yet; its four device-only assumptions (the barrier, the 500 ms settles, the 900 ms drags, the confirm substring) are checked at the first device pass. Found in passing, for S3: the seeded template "Leg day" names `qa-cal-strength`, so after flow 29's delete it points at a deleted category (each flow reseeds, so nothing else sees it) — the delete sheet should say what happens to templates.
 
 ## 8. Definition of done
 

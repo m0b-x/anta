@@ -15,3 +15,6 @@ Holiday restored
 Saved as
 Ninety days
 Saved view options
+# 29_categories_page: the delete's message, and the created category.
+Category deleted
+QA flow category

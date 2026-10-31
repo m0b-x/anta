@@ -699,6 +699,31 @@ abstract final class SemanticsIds {
   static const String categoryAdd = 'category-add';
   static String categoryRow(String id) => 'category-row-$id';
 
+  /// The Categories page bar's ⋮ item that sorts every category A–Z.
+  static const String categorySortAz = 'category-sort-az';
+
+  /// A category row's ⋮, keyed by the category's id: every row's button wears
+  /// the same tooltip.
+  static String categoryRowMenu(String id) => 'category-menu-$id';
+
+  /// A category row's eye, keyed by the category's id; it retires with the
+  /// eye when the page moves archiving into the ⋮.
+  static String categoryRowVisibility(String id) => 'category-visibility-$id';
+
+  /// A category row's ⋮ item that moves the category to the top of the order.
+  static const String categoryMenuMoveToTop = 'category-menu-move-to-top';
+
+  /// A category row's ⋮ item that opens the category editor.
+  static const String categoryMenuEdit = 'category-menu-edit';
+
+  /// A category row's ⋮ item that archives or restores the category. Named
+  /// for Archive, the action's name once the page is reworked, so a flow
+  /// keeps its target across the rename.
+  static const String categoryMenuArchive = 'category-menu-archive';
+
+  /// A category row's ⋮ item that deletes a custom category.
+  static const String categoryMenuDelete = 'category-menu-delete';
+
   /// The colour strip wherever a sheet embeds it: the row as a container
   /// above the swatches' own nodes (the Look sheet's keeps [lookColor]), the
   /// three dots whose tooltips change with the locale, and the three items

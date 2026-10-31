@@ -55,6 +55,12 @@ calendar page except `00_open`, which starts at the root — so a full pass
 starts from a fresh launch. `21_removed_holidays` consumes the seed (it
 restores the suppressed holiday, which cannot be removed again from the
 day panel), so a lone re-run of it needs `relaunch --fresh --seed` first.
+`29_categories_page` (2026-10-31, the categories rework's safety net: the
+Categories page before its rework — Strength archived by its eye and
+restored through its ⋮, a long-press drag below Archive and back with the
+order asserted by `expect --ordered`, Strength deleted through its ⋮ and the
+confirm, a category created through +) consumes the seed too: it deletes
+Strength, so a lone re-run needs `relaunch --fresh --seed` first.
 
 Placeholders work in step files too: `tap "{{longdate+1}}"` taps tomorrow's
 day cell by the label the grid gives it.

@@ -346,12 +346,16 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
                 // reason the handles go dead.
                 enabled: !_isFiltering,
                 onTap: _sortAlphabetically,
-                child: Row(
-                  children: [
-                    const Icon(Icons.sort_by_alpha_rounded, size: 18),
-                    const SizedBox(width: 8),
-                    Text(l10n.sortCategoriesAlphabetically),
-                  ],
+                // The item merges its subtree, so the id lands on its node.
+                child: Semantics(
+                  identifier: SemanticsIds.categorySortAz,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.sort_by_alpha_rounded, size: 18),
+                      const SizedBox(width: 8),
+                      Text(l10n.sortCategoriesAlphabetically),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -589,80 +593,102 @@ class _CategoryRow extends StatelessWidget {
                         )
                       : null,
                 ),
-                IconButton(
-                  icon: Icon(
-                    category.isHidden ? Icons.visibility_off : Icons.visibility,
+                AutomationId(
+                  identifier: SemanticsIds.categoryRowVisibility(category.id),
+                  child: IconButton(
+                    icon: Icon(
+                      category.isHidden
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    tooltip: category.isHidden ? l10n.show : l10n.hide,
+                    onPressed: onToggleHidden,
                   ),
-                  tooltip: category.isHidden ? l10n.show : l10n.hide,
-                  onPressed: onToggleHidden,
                 ),
-                PopupMenuButton<_CategoryAction>(
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: onAction,
-                  itemBuilder: (ctx) => [
-                    // Reorder and filtering are mutually exclusive, and this
-                    // writes the whole order: offered while the handles are
-                    // dead it would persist a promotion the ranked list never
-                    // shows, so there is nothing on screen to undo it by.
-                    if (dragIndex != null)
-                      PopupMenuItem(
-                        value: _CategoryAction.moveToTop,
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.vertical_align_top_rounded,
-                              size: 18,
+                AutomationId(
+                  identifier: SemanticsIds.categoryRowMenu(category.id),
+                  child: PopupMenuButton<_CategoryAction>(
+                    icon: const Icon(Icons.more_vert),
+                    onSelected: onAction,
+                    itemBuilder: (ctx) => [
+                      // Reorder and filtering are mutually exclusive, and this
+                      // writes the whole order: offered while the handles are
+                      // dead it would persist a promotion the ranked list never
+                      // shows, so there is nothing on screen to undo it by.
+                      if (dragIndex != null)
+                        PopupMenuItem(
+                          value: _CategoryAction.moveToTop,
+                          child: Semantics(
+                            identifier: SemanticsIds.categoryMenuMoveToTop,
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.vertical_align_top_rounded,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(l10n.moveToTop),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Text(l10n.moveToTop),
-                          ],
-                        ),
-                      ),
-                    PopupMenuItem(
-                      value: _CategoryAction.toggleHidden,
-                      child: Row(
-                        children: [
-                          Icon(
-                            category.isHidden
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                            size: 18,
                           ),
-                          const SizedBox(width: 8),
-                          Text(category.isHidden ? l10n.show : l10n.hide),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: _CategoryAction.edit,
-                      child: Row(
-                        children: [
-                          const Icon(Icons.edit, size: 18),
-                          const SizedBox(width: 8),
-                          Text(l10n.edit),
-                        ],
-                      ),
-                    ),
-                    // Built-ins can be hidden; they still cannot be deleted.
-                    if (!category.isBuiltIn)
+                        ),
                       PopupMenuItem(
-                        value: _CategoryAction.delete,
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.delete,
-                              size: 18,
-                              color: theme.colorScheme.error,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              l10n.delete,
-                              style: TextStyle(color: theme.colorScheme.error),
-                            ),
-                          ],
+                        value: _CategoryAction.toggleHidden,
+                        child: Semantics(
+                          identifier: SemanticsIds.categoryMenuArchive,
+                          child: Row(
+                            children: [
+                              Icon(
+                                category.isHidden
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(category.isHidden ? l10n.show : l10n.hide),
+                            ],
+                          ),
                         ),
                       ),
-                  ],
+                      PopupMenuItem(
+                        value: _CategoryAction.edit,
+                        child: Semantics(
+                          identifier: SemanticsIds.categoryMenuEdit,
+                          child: Row(
+                            children: [
+                              const Icon(Icons.edit, size: 18),
+                              const SizedBox(width: 8),
+                              Text(l10n.edit),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Built-ins can be hidden; they still cannot be deleted.
+                      if (!category.isBuiltIn)
+                        PopupMenuItem(
+                          value: _CategoryAction.delete,
+                          child: Semantics(
+                            identifier: SemanticsIds.categoryMenuDelete,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete,
+                                  size: 18,
+                                  color: theme.colorScheme.error,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  l10n.delete,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),

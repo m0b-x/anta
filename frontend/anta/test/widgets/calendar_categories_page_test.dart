@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart' show Value;
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -9,15 +11,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/category_editor_robot.dart';
 
 /// The page carries five slices at once — reorder, hide, search, the app-bar
 /// create action and the usage counts — so what earns a test is where they
@@ -32,6 +40,7 @@ import '../database/support/db_test_support.dart';
 void main() {
   late AppDatabase db;
   late CategoryService service;
+  late CalendarEventService events;
 
   /// Distinguishes successive pumps of the same page so a re-pump rebuilds
   /// from scratch. Without it the element tree reuses the existing `State` and
@@ -45,7 +54,7 @@ void main() {
     service = await CategoryService.forTesting(db);
     // The page reads its usage counts from the event service, which owns
     // them; binding it here keeps `getInstance()` off `path_provider`.
-    await CalendarEventService.forTesting(db);
+    events = await CalendarEventService.forTesting(db);
     pumps = 0;
   });
 
@@ -695,6 +704,277 @@ void main() {
       expect(service.categories.map((c) => c.name), isNot(contains('Fitness')));
       expect(observer.events.whereType<CategoryAlertsChanged>(), hasLength(1));
       await tester.pump(const Duration(seconds: 10));
+    });
+  });
+
+  // The categories rework's safety net (docs/calendar-categories-roadmap.md
+  // §7 S0): what the page does today, end to end, reached the way the device
+  // flow reaches it — by semantics id — so the relocation that follows is
+  // proven against it.
+  group('the page end to end', () {
+    Finder byId(String id) => find.bySemanticsIdentifier(id);
+
+    AppLocalizations l10nOf(WidgetTester tester) => AppLocalizations.of(
+      tester.element(find.byType(CalendarCategoriesPage)),
+    )!;
+
+    setUp(() {
+      // The editor reads the palette through the settings.
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      SettingsService.forTesting(db);
+    });
+
+    tearDown(() {
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+    });
+
+    Future<CalendarCategory> fitness() => service.create(
+      name: 'Fitness',
+      colorValue: 0xFF112233,
+      iconKey: 'event',
+    );
+
+    Future<void> openMenuItem(
+      WidgetTester tester,
+      String categoryId,
+      String item,
+    ) async {
+      await tester.tap(byId(SemanticsIds.categoryRowMenu(categoryId)));
+      await tester.pumpAndSettle();
+      await tester.tap(byId(item));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('every control a device flow targets carries its id', (
+      tester,
+    ) async {
+      final custom = await fitness();
+      await pumpPage(tester);
+
+      expect(byId(SemanticsIds.categoryAdd), findsOneWidget);
+      expect(byId(SemanticsIds.categoryRow(custom.id)), findsOneWidget);
+      expect(
+        byId(SemanticsIds.categoryRowVisibility(custom.id)),
+        findsOneWidget,
+      );
+      expect(byId(SemanticsIds.categoryRowMenu('gym')), findsOneWidget);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byIcon(Icons.more_vert),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(byId(SemanticsIds.categorySortAz), findsOneWidget);
+      await tester.tapAt(const Offset(1, 1));
+      await tester.pumpAndSettle();
+
+      await tester.tap(byId(SemanticsIds.categoryRowMenu(custom.id)));
+      await tester.pumpAndSettle();
+      for (final item in [
+        SemanticsIds.categoryMenuMoveToTop,
+        SemanticsIds.categoryMenuArchive,
+        SemanticsIds.categoryMenuEdit,
+        SemanticsIds.categoryMenuDelete,
+      ]) {
+        expect(byId(item), findsOneWidget, reason: item);
+      }
+    });
+
+    testWidgets('a delete taken through moves the events to Other and says '
+        'so', (tester) async {
+      final custom = await fitness();
+      for (final id in ['fitness-1', 'fitness-2']) {
+        await events.upsert(
+          CalendarEvent(
+            id: id,
+            title: 'Session $id',
+            categoryId: custom.id,
+            startDate: DateTime.utc(2026, 8, 1),
+          ),
+        );
+      }
+      await pumpPage(tester);
+      final l10n = l10nOf(tester);
+      final before = (await tester.runAsync(
+        () => db.calendarCategoryDao.getByIdsIncludingDeleted([custom.id]),
+      ))!.single;
+
+      await openMenuItem(tester, custom.id, SemanticsIds.categoryMenuDelete);
+      expect(
+        find.textContaining(l10n.deleteCategoryConfirmWithEvents(2, 'Fitness')),
+        findsOneWidget,
+      );
+      await tester.tap(byId(SemanticsIds.sheetConfirm));
+      await tester.pump();
+      await settleWrites(tester);
+
+      final stored = (await tester.runAsync(db.calendarEventDao.getAll))!;
+      expect(
+        {
+          for (final row in stored)
+            if (row.id.startsWith('fitness-')) row.id: row.category,
+        },
+        {'fitness-1': kFallbackCategoryId, 'fitness-2': kFallbackCategoryId},
+      );
+      // A tombstone with a fresh stamp, never a hard delete: the stamp is what
+      // carries the delete to another device.
+      final tombstone = (await tester.runAsync(
+        () => db.calendarCategoryDao.getByIdsIncludingDeleted([custom.id]),
+      ))!.single;
+      expect(tombstone.isDeleted, isTrue);
+      expect(tombstone.version, before.version + 1);
+      expect(tombstone.hlcTimestamp.compareTo(before.hlcTimestamp), isPositive);
+      expect(byId(SemanticsIds.categoryRow(custom.id)), findsNothing);
+      expect(find.text('Fitness'), findsNothing);
+      expect(find.text(l10n.categoryDeleted), findsOneWidget);
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('a delete with no events asks without the hiding hint', (
+      tester,
+    ) async {
+      final custom = await fitness();
+      await pumpPage(tester);
+      final l10n = l10nOf(tester);
+
+      await openMenuItem(tester, custom.id, SemanticsIds.categoryMenuDelete);
+
+      expect(find.text(l10n.deleteCategoryConfirm('Fitness')), findsOneWidget);
+      expect(find.textContaining(l10n.deleteCategoryHideHint), findsNothing);
+
+      await tester.tap(byId(SemanticsIds.sheetCancel));
+      await tester.pumpAndSettle();
+      expect(byId(SemanticsIds.categoryRow(custom.id)), findsOneWidget);
+    });
+
+    testWidgets('a long press drags a row one slot down, persisted densely', (
+      tester,
+    ) async {
+      // A custom past a gap, the way the device fixture seeds its customs at
+      // 100: with the built-ins alone already dense, a swap of two would read
+      // dense whatever `reorder` wrote.
+      await db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: 'gapped',
+          name: 'Pilates',
+          colorValue: 0xFF445566,
+          iconKey: 'event',
+          sortOrder: const Value(100),
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      await service.reload();
+      await pumpPage(tester);
+      final before = {
+        for (final row in (await tester.runAsync(
+          db.calendarCategoryDao.getAll,
+        ))!)
+          row.id: row,
+      };
+      expect(before['gapped']!.sortOrder, 100);
+
+      final from = tester.getCenter(byId(SemanticsIds.categoryRow('gym')));
+      final to = tester.getCenter(byId(SemanticsIds.categoryRow('cardio')));
+
+      // The whole row lifts on a long press (the delayed listener), so the
+      // finger holds past the timeout before it moves.
+      final gesture = await tester.startGesture(from);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      for (var step = 1; step <= 10; step++) {
+        await gesture.moveTo(Offset.lerp(from, to, step / 10)!);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await settleWrites(tester);
+
+      final rows = [...(await tester.runAsync(db.calendarCategoryDao.getAll))!]
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      expect(rows.map((r) => r.id).take(2), ['cardio', 'gym']);
+      expect(
+        rows.map((r) => r.sortOrder).toList(),
+        List.generate(rows.length, (i) => i),
+        reason: 'reorder writes dense 0..N-1: no gap, no tie',
+      );
+      expect(rows.last.id, 'gapped');
+      expect(CalendarCategories.all.map((c) => c.id).take(2), [
+        'cardio',
+        'gym',
+      ]);
+
+      // Only the rows whose slot changed are written, all under one stamp; a
+      // row the drag left in place keeps its version and its stamp.
+      final moved = {'cardio', 'gym', 'gapped'};
+      final stamps = {
+        for (final row in rows)
+          if (moved.contains(row.id)) row.hlcTimestamp,
+      };
+      expect(stamps, hasLength(1));
+      for (final row in rows) {
+        final was = before[row.id]!;
+        if (moved.contains(row.id)) {
+          expect(row.version, was.version + 1, reason: row.id);
+          expect(row.hlcTimestamp, isNot(was.hlcTimestamp), reason: row.id);
+        } else {
+          expect(row.version, was.version, reason: row.id);
+          expect(row.hlcTimestamp, was.hlcTimestamp, reason: row.id);
+        }
+      }
+    });
+
+    testWidgets('the menu archive item writes the flag', (tester) async {
+      await pumpPage(tester);
+
+      await openMenuItem(tester, 'gym', SemanticsIds.categoryMenuArchive);
+      await settleWrites(tester);
+
+      final gym = (await tester.runAsync(
+        () => db.calendarCategoryDao.getByIdsIncludingDeleted(['gym']),
+      ))!.single;
+      expect(gym.isHidden, isTrue);
+      expect(gym.isDeleted, isFalse);
+      expect(byId(SemanticsIds.categoryRow('gym')), findsOneWidget);
+    });
+
+    testWidgets('a row tap opens the editor on that category', (tester) async {
+      await fitness();
+      await pumpPage(tester);
+
+      await tester.tap(find.text('Fitness'));
+      await tester.pumpAndSettle();
+
+      final editor = CategoryEditorRobot(tester);
+      expect(byId(SemanticsIds.categoryEditorName), findsOneWidget);
+      expect(editor.nameText, 'Fitness');
+      await editor.close();
+    });
+
+    testWidgets('a create through + is listed when the editor closes', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      expect(find.text('Pilates'), findsNothing);
+
+      await tester.tap(byId(SemanticsIds.categoryAdd));
+      await tester.pumpAndSettle();
+      final editor = CategoryEditorRobot(tester);
+      await editor.typeName('Pilates');
+      await editor.save();
+      await settleWrites(tester);
+
+      final created = service.categories.singleWhere(
+        (c) => c.name == 'Pilates',
+      );
+      expect(byId(SemanticsIds.categoryRow(created.id)), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(Card), matching: find.text('Pilates')),
+        findsOneWidget,
+      );
     });
   });
 }
