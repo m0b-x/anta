@@ -633,7 +633,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           description: l10n.calendarCategoriesDesc,
           identifier: SemanticsIds.calendarCategoriesOpen,
           builder: (context, title, description) => ListTile(
-            leading: Icon(Icons.palette_outlined, color: colorScheme.primary),
+            leading: Icon(Icons.category_rounded, color: colorScheme.primary),
             title: title,
             subtitle: description,
             trailing: const Icon(Icons.chevron_right_rounded),

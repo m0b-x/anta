@@ -580,7 +580,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
     final isReport = _cadence.isReport;
     return [
       FormPickerRow(
-        glyph: Icons.category_outlined,
+        glyph: Icons.category_rounded,
         identifier: SemanticsIds.digestCategories,
         label: l10n.calendarCategories,
         value: digestCategoriesLabel(

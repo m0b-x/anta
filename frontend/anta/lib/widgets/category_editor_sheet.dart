@@ -158,8 +158,16 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   void initState() {
     super.initState();
     final initial = widget.initial;
+    // The field's limit governs typing only, never its initial text, so a
+    // long query handed over by the picker is cut here (in characters, as
+    // the counter counts) or Save would store it whole.
     _nameController = TextEditingController(
-      text: initial?.name ?? widget.initialName ?? '',
+      text:
+          initial?.name ??
+          widget.initialName?.characters
+              .take(kCategoryNameMaxLength)
+              .toString() ??
+          '',
     );
     _colorValue = initial?.colorValue ?? _defaultCategoryColor;
     _iconKey = initial?.iconKey ?? _defaultCategoryIconKey;

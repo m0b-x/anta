@@ -768,7 +768,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _descriptionScroll = CodeScrollController();
     _descriptionSearch = ReEditorSearchController()
       ..initialize(_descriptionController);
-    _categoryId = initial?.categoryId ?? kDefaultCategoryId;
+    _categoryId = initial?.categoryId ?? CalendarCategories.defaultForNewEvent;
     _iconKey = initial?.iconKey;
     _date = _normalize(initial?.startDate ?? widget.defaultDate);
     _endDate = initial?.endDate == null ? null : _normalize(initial!.endDate!);
@@ -3004,7 +3004,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       children: [
                         _buildTitleRow(l10n, icon, accent),
                         FormPickerRow(
-                          glyph: Icons.label_outlined,
+                          glyph: Icons.category_rounded,
                           identifier: SemanticsIds.eventCategory,
                           label: l10n.eventCategory,
                           value: CalendarCategories.labelOf(category, l10n),

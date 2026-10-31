@@ -587,7 +587,7 @@ enum CalendarGuideTopic {
     categories => [
       CalendarGuideRow(
         'category',
-        Icons.label_outlined,
+        Icons.category_rounded,
         l10n.calendarGuideCategoryTitle,
         l10n.calendarGuideCategoryBody(l10n.eventCategory),
       ),

@@ -1814,6 +1814,35 @@ void main() {
       expect(saved.event.countStyle, OccurrenceCountStyle.elapsed);
     });
 
+    testWidgets('a new event opens on the first unarchived category', (
+      tester,
+    ) async {
+      CalendarCategories.updateCache([
+        for (final (i, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.id,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: i,
+            isBuiltIn: true,
+            isHidden: seed.id == 'gym',
+          ),
+      ]);
+      addTearDown(() => CalendarCategories.updateCache(const []));
+      final results = await open(tester);
+      final row = tester.widget<FormPickerRow>(
+        find.byWidgetPredicate(
+          (w) =>
+              w is FormPickerRow && w.identifier == SemanticsIds.eventCategory,
+        ),
+      );
+      expect(row.value, 'Cardio');
+      await typeTitle(tester, 'Run');
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.categoryId, 'cardio');
+    });
+
     testWidgets('the Icon & color sheet writes back into the saved event', (
       tester,
     ) async {

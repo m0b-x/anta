@@ -357,7 +357,7 @@ void main() {
 
     expect(pickerApply(), findsNothing);
     expect(find.byType(Checkbox), findsNothing);
-    expect(find.text('Type'), findsOneWidget);
+    expect(find.text('Category'), findsOneWidget);
     // The current one wears the check glyph; the bulk rows are multi-only.
     expect(rowNamed(tester, 'Cat2').checked, isTrue);
     expect(rowNamed(tester, 'Cat2').exclusive, isTrue);

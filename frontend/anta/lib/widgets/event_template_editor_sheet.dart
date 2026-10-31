@@ -173,7 +173,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
     super.initState();
     final source = widget.initial ?? widget.draft;
     _nameController = TextEditingController(text: source?.name ?? '');
-    _categoryId = source?.categoryId ?? kDefaultCategoryId;
+    _categoryId = source?.categoryId ?? CalendarCategories.defaultForNewEvent;
 
     _arrivedRule = _templateRuleOf(source?.rule ?? const OneTimeRecurrence());
     _repeat = _repeatOf(
@@ -631,7 +631,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
         identifier: SemanticsIds.templateName,
       ),
       FormPickerRow(
-        glyph: Icons.label_outlined,
+        glyph: Icons.category_rounded,
         identifier: SemanticsIds.templateCategory,
         label: l10n.eventCategory,
         value: CalendarCategories.labelOf(category, l10n),

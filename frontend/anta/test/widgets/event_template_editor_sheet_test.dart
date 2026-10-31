@@ -1473,7 +1473,7 @@ void main() {
       final capture = groups[0].children;
       expect(capture[0], isA<FormTitleRow>());
       final category = capture[1] as FormPickerRow;
-      expect(category.glyph, Icons.label_outlined);
+      expect(category.glyph, Icons.category_rounded);
       expect(category.label, 'Category');
       final look = capture[2] as FormPickerRow;
       expect(look.glyph, Icons.palette_outlined);
@@ -1949,6 +1949,33 @@ void main() {
       expect(form.categoryLabel, 'Cardio');
       expect(avatarOf(tester).icon, CalendarIcons.forKey(cardio.iconKey));
       expect(avatarOf(tester).color, cardio.color);
+    });
+
+    testWidgets('a new template opens on the first unarchived category', (
+      tester,
+    ) async {
+      CalendarCategories.updateCache([
+        for (final (i, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.id,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: i,
+            isBuiltIn: true,
+            isHidden: seed.id == 'gym',
+          ),
+      ]);
+
+      final saved = await saveFrom(
+        tester,
+        edit: (form) async {
+          expect(form.categoryLabel, 'Cardio');
+          await form.enterName('Run');
+        },
+      );
+
+      expect(saved.categoryId, 'cardio');
     });
 
     testWidgets('a dismissed category picker changes nothing', (tester) async {

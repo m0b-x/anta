@@ -79,8 +79,11 @@ abstract final class CalendarCategories {
   /// on must see it.
   static int get revision => _revision;
 
-  /// Fallback for an event whose stored id no longer resolves (e.g. its
-  /// custom category was deleted). Keeps render paths total.
+  /// The last resort of [resolve]: an empty cache (the first frames, a reset
+  /// service before its next load, an isolate that never loaded one) or a
+  /// cache without an Other. An id that no longer resolves goes to the stored
+  /// Other first, so the user's colour and icon for it are what an orphan
+  /// wears. Keeps render paths total.
   static const CalendarCategory fallback = CalendarCategory(
     id: 'other',
     name: 'Other',
@@ -94,8 +97,8 @@ abstract final class CalendarCategories {
   ///
   /// Builds [visible] as a *second* list rather than filtering [all]: dropping
   /// a hidden category from the lookup would make [resolve] fall through to
-  /// [fallback] and repaint every one of its events grey, which is the exact
-  /// opposite of what hiding means.
+  /// the stored Other and repaint every one of its events as Other, which is
+  /// the exact opposite of what hiding means.
   static void updateCache(List<CalendarCategory> categories) {
     final sorted = [...categories]..sort(_byOrder);
     _ordered = List.unmodifiable(sorted);
@@ -147,9 +150,22 @@ abstract final class CalendarCategories {
   /// O(1) lookup; null when unknown.
   static CalendarCategory? byId(String id) => _byId[id];
 
-  /// O(1) lookup that always yields a usable category ([fallback] when the
-  /// id is unknown).
-  static CalendarCategory resolve(String id) => _byId[id] ?? fallback;
+  /// O(1) lookup that always yields a usable category.
+  ///
+  /// An unknown id (a sync race, a categories-only restore) resolves to the
+  /// stored Other, so an orphan draws in the user's own Other colour and
+  /// icon — the category whose alerts it already inherits; [fallback] only
+  /// when the cache holds no Other at all.
+  static CalendarCategory resolve(String id) =>
+      _byId[id] ?? _byId[kFallbackCategoryId] ?? fallback;
+
+  /// The category a brand-new event or template opens on: the first
+  /// unarchived one in the user's order, so the order the user keeps is the
+  /// default they get and an archived category is never handed out;
+  /// [kFallbackCategoryId] when every category is archived, or while the
+  /// cache is empty (a reset service until its next load).
+  static String get defaultForNewEvent =>
+      _visible.isEmpty ? kFallbackCategoryId : _visible.first.id;
 
   /// Resolves the display icon for [event]: an explicit per-event override
   /// wins, otherwise the event's category icon, otherwise a safe default.

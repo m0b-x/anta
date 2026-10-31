@@ -2,7 +2,8 @@
 /// field limit, named here beside its counter threshold the way the event
 /// title's pair is, so the two never drift apart in the sheet. The category
 /// picker hands a typed query to the editor as the field's initial text
-/// without reading this: the field's own limit governs what is typed next.
+/// without reading this: the editor clamps that text to it, since the
+/// field's own limit governs only what is typed next.
 const int kCategoryNameMaxLength = 40;
 
 /// The length from which the name field shows its counter: quiet for an

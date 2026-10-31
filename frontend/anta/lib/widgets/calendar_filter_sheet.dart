@@ -554,7 +554,7 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
                   FormRowGroup(
                     children: [
                       FormPickerRow(
-                        glyph: Icons.label_outlined,
+                        glyph: Icons.category_rounded,
                         label: l10n.calendarCategories,
                         value: _categoriesValue(l10n, categories),
                         identifier: SemanticsIds.filterCategories,

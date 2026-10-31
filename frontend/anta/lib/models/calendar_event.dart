@@ -16,8 +16,11 @@ enum CalendarEventCategory {
   other,
 }
 
-/// Stable id of the default built-in category assigned to brand-new events
-/// and used as the reassignment target when a custom category is deleted.
+/// Stable id of the first built-in in the seed order. Neither a new event's
+/// default (`CalendarCategories.defaultForNewEvent` follows the user's
+/// order) nor a deleted category's reassignment target ([kFallbackCategoryId]
+/// is): its one reader in the app is Calendar settings' sample event for the
+/// alert wording, whose category is never shown; the rest are tests.
 const String kDefaultCategoryId = 'gym';
 
 /// Stable id of the catch-all built-in category.

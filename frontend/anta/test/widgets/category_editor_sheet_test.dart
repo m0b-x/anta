@@ -11,6 +11,7 @@ import 'package:get_it/get_it.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
+import 'package:anta/constants/category_name.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -193,6 +194,46 @@ void main() {
     final existing = await custom('Old');
     await robot.show(initial: existing, initialName: 'Dentist');
     expect(robot.nameText, 'Old');
+  });
+
+  testWidgets('an initialName over the limit is clamped to it and Save '
+      'stores the clamped name', (tester) async {
+    final robot = CategoryEditorRobot(tester);
+    final outcome = await robot.show(initialName: 'x' * 60);
+
+    expect(robot.nameText, 'x' * kCategoryNameMaxLength);
+    expect(
+      robot.counterText,
+      '$kCategoryNameMaxLength/$kCategoryNameMaxLength',
+    );
+
+    await robot.save();
+
+    expect(outcome.result!.name, 'x' * kCategoryNameMaxLength);
+    expect(
+      CalendarCategories.byId(outcome.result!.id)!.name,
+      'x' * kCategoryNameMaxLength,
+    );
+  });
+
+  testWidgets('the clamp counts graphemes, as the field does: an emoji name '
+      'keeps whole glyphs', (tester) async {
+    // Four code units per grapheme: a code-unit cut would hand the field ten
+    // glyphs and could end on half a surrogate pair.
+    const glyph = '👍🏽';
+    final robot = CategoryEditorRobot(tester);
+    final outcome = await robot.show(initialName: glyph * 60);
+
+    expect(robot.nameText, glyph * kCategoryNameMaxLength);
+    expect(robot.nameText.characters.length, kCategoryNameMaxLength);
+    expect(
+      robot.counterText,
+      '$kCategoryNameMaxLength/$kCategoryNameMaxLength',
+    );
+
+    await robot.save();
+
+    expect(outcome.result!.name, glyph * kCategoryNameMaxLength);
   });
 
   testWidgets('Save is disabled on a blank name and enabled once something '

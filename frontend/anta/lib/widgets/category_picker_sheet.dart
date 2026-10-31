@@ -277,7 +277,7 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
           leadingTooltip: l10n.cancel,
           leadingIdentifier: SemanticsIds.categoryPickClose,
           onLeading: () => Navigator.of(context).pop(),
-          title: _isMulti ? l10n.calendarCategories : l10n.eventType,
+          title: _isMulti ? l10n.calendarCategories : l10n.eventCategory,
           scrolled: _headerScrolled,
           trailingInset: FormMetrics.headerActionInset,
           // Single mode picks on tap and has nothing to confirm.

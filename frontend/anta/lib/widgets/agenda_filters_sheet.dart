@@ -597,7 +597,7 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
                             _update(_draft.copyWith(eventType: type)),
                       ),
                       FormPickerRow(
-                        glyph: Icons.label_outlined,
+                        glyph: Icons.category_rounded,
                         label: l10n.calendarCategories,
                         value: _categoriesValue(l10n, categories),
                         identifier: SemanticsIds.agendaFilterCategories,
