@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../l10n/app_localizations.dart';
 import '../services/settings_service.dart';
@@ -158,6 +159,7 @@ class _MarkdownColorsPageState extends State<MarkdownColorsPage> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.markdownColorsTitle),
       body: SafeArea(
         top: false,

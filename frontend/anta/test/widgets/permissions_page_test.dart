@@ -50,8 +50,9 @@ void main() {
 
       expect(find.text("Alarms and reminders can't work yet"), findsOneWidget);
       expect(find.text('1 permission is off'), findsOneWidget);
-      expect(find.text('Essential'), findsOneWidget);
-      expect(find.text('Recommended'), findsOneWidget);
+      // Section headers draw the browser's uppercase label.
+      expect(find.text('ESSENTIAL'), findsOneWidget);
+      expect(find.text('RECOMMENDED'), findsOneWidget);
       expect(find.text('Alarms & reminders'), findsNothing);
       expect(find.text('On'), findsOneWidget);
 

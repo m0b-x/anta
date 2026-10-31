@@ -60,9 +60,9 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
   }) : style = AppBarStyle.main,
        excludeHeaderSemantics = false;
 
-  /// [backgroundColor], when given, draws the bar flat on that ground — a
-  /// settings-family page that owns a ground of its own (the Alerts hub's
-  /// `pageGround`) — instead of the settings gradient.
+  /// The settings family's bar: flat on [backgroundColor], or on
+  /// `pageGround` — the ground the settings kit's list paints — when none is
+  /// given.
   const UnifiedAppBar.settings({
     super.key,
     this.leading,
@@ -83,77 +83,32 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // The browser's bar is a `SliverAppBar.large` that a gradient cannot
     // follow across 116 px of collapse, and the editor's bar is the shape it
-    // settles into — so the main style is flat Material 3 surface, and a host
-    // that owns a ground of its own hands it over as `backgroundColor`, which
-    // also switches the scrolled-under tint off. The settings pages keep the
-    // gradient until they are redesigned.
-    if (style == AppBarStyle.main || backgroundColor != null) {
-      final ground = backgroundColor;
-      return AppBar(
-        leading: leading,
-        leadingWidth: leadingWidth,
-        automaticallyImplyLeading: automaticallyImplyLeading,
-        toolbarHeight: preferredSize.height,
-        actionsIconTheme: IconThemeData(
-          size: AppBarMetrics.glyphSize,
-          color: colorScheme.onSurface,
-        ),
-        title: title,
-        excludeHeaderSemantics: excludeHeaderSemantics,
-        actions: actions,
-        elevation: elevation,
-        backgroundColor: ground,
-        surfaceTintColor: ground == null ? null : Colors.transparent,
-        scrolledUnderElevation: ground == null ? null : 0,
-      );
-    }
-
-    final (startColor, endColor) = isDark
-        ? (
-            colorScheme.surfaceContainerHigh,
-            colorScheme.surfaceContainerHighest,
-          )
-        : (
-            colorScheme.primaryContainer,
-            colorScheme.primary.withValues(alpha: 0.5),
-          );
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [startColor, endColor],
-        ),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+    // settles into — so every bar is flat Material 3: the main style on the
+    // surface unless its host hands over a ground of its own, the settings
+    // style on the settings kit's `pageGround`. A ground also switches the
+    // scrolled-under tint off, so the bar cannot drift off its page's colour.
+    final ground =
+        backgroundColor ??
+        (style == AppBarStyle.settings ? colorScheme.pageGround : null);
+    return AppBar(
+      leading: leading,
+      leadingWidth: leadingWidth,
+      automaticallyImplyLeading: automaticallyImplyLeading,
+      toolbarHeight: preferredSize.height,
+      actionsIconTheme: IconThemeData(
+        size: AppBarMetrics.glyphSize,
+        color: colorScheme.onSurface,
       ),
-      child: AppBar(
-        leading: leading,
-        leadingWidth: leadingWidth,
-        automaticallyImplyLeading: automaticallyImplyLeading,
-        toolbarHeight: preferredSize.height,
-        actionsIconTheme: IconThemeData(
-          size: AppBarMetrics.glyphSize,
-          color: colorScheme.onSurface,
-        ),
-        title: title,
-        excludeHeaderSemantics: excludeHeaderSemantics,
-        actions: actions,
-        backgroundColor: Colors.transparent,
-        elevation: elevation ?? 0,
-      ),
+      title: title,
+      excludeHeaderSemantics: excludeHeaderSemantics,
+      actions: actions,
+      elevation: elevation,
+      backgroundColor: ground,
+      surfaceTintColor: ground == null ? null : Colors.transparent,
+      scrolledUnderElevation: ground == null ? null : 0,
     );
   }
 }
@@ -452,8 +407,8 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// caller would either ignore or, worse, honour.
   final bool popsToDrawer;
 
-  /// The page's own ground, for a page that paints one; null keeps the
-  /// settings gradient ([UnifiedAppBar.settings]).
+  /// The page's own ground, for a page that paints one; null puts the bar
+  /// on `pageGround`, the settings kit's ground ([UnifiedAppBar.settings]).
   final Color? backgroundColor;
 
   /// A `SemanticsIds` entry put on the title, so a device script can tell
@@ -505,7 +460,9 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// this node carries both flags instead, and the bar drops its own wrapper
   /// (`excludeHeaderSemantics`) so no unlabelled heading is left beside it.
   /// `AppBar` names routes everywhere but on Apple platforms, and so does
-  /// this.
+  /// this. The level is what Android reads (its bridge marks a heading from
+  /// `headingLevel` alone) and the flag what VoiceOver reads; level 1 puts
+  /// the kit's level-2 section headers under the page's name.
   static Widget _identifiedTitle(String id, Widget text) {
     final namesRoute = switch (defaultTargetPlatform) {
       TargetPlatform.iOS || TargetPlatform.macOS => null,
@@ -514,6 +471,7 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     return Semantics(
       identifier: id,
       header: true,
+      headingLevel: 1,
       namesRoute: namesRoute,
       child: text,
     );

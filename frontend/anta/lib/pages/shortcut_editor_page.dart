@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../bloc/counter/counter_bloc.dart';
+import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/counter.dart';
 import '../models/custom_markdown_shortcut.dart';
@@ -1425,6 +1426,7 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
         _beforeFocusNode.hasFocus || _afterFocusNode.hasFocus;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: widget.shortcut == null ? l10n.newShortcut : l10n.editShortcut,
         showMenuButton: false,

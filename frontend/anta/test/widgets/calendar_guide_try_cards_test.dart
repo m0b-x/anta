@@ -312,8 +312,12 @@ void main() {
 
       expect(robot.card, findsOneWidget);
       expect(
-        tester.getTopLeft(find.text(en.calendarGuideTryIt)).dy,
-        lessThan(tester.getTopLeft(find.text(en.calendarGuideHowItWorks)).dy),
+        tester.getTopLeft(find.text(en.calendarGuideTryIt.toUpperCase())).dy,
+        lessThan(
+          tester
+              .getTopLeft(find.text(en.calendarGuideHowItWorks.toUpperCase()))
+              .dy,
+        ),
       );
       // The first instruction is the entry's searchable title, drawn as the
       // coach line until she acts — above the stage.
@@ -399,7 +403,7 @@ void main() {
     testWidgets('a page with nothing to try has no card', (tester) async {
       await open(tester, CalendarGuideTopic.good);
 
-      expect(find.text(en.calendarGuideTryIt), findsNothing);
+      expect(find.text(en.calendarGuideTryIt.toUpperCase()), findsNothing);
       expect(find.byType(CalendarGuideTryCard), findsNothing);
     });
 
@@ -572,7 +576,7 @@ void main() {
         [for (final card in cards) stepsOfCard(card).first],
       );
       expect(list.sections[3].title, en.calendarGuideHowItWorks);
-      expect(find.text(en.calendarGuideTryIt), findsNothing);
+      expect(find.text(en.calendarGuideTryIt.toUpperCase()), findsNothing);
       await expectNothingSaved();
     });
 
@@ -3681,7 +3685,10 @@ void main() {
             // the list's bottom: a text box at the bar's edge would be
             // sampled with the bar's colours, not its own.
             final section = find
-                .ancestor(of: robot.card, matching: find.byType(Card))
+                .ancestor(
+                  of: robot.card,
+                  matching: find.byType(SettingsSectionCard),
+                )
                 .first;
             Future<void> meetsBoth(String state) async {
               final list = find

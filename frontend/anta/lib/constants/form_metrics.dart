@@ -111,6 +111,63 @@ abstract final class FormMetrics {
   /// caption line fit one 48 dp target together — the period nav's title over
   /// its count.
   static const double captionLineHeight = 18;
+
+  /// The settings kit's rows on the browser's heights: a label line over a
+  /// caption line inside this much air is a [twoLineRowMinHeight] row, and a
+  /// one-line row still reaches [rowMinHeight] through the tile's minimum.
+  static const double settingsRowVerticalPadding =
+      (twoLineRowMinHeight - labelLineHeight - captionLineHeight) / 2;
+
+  /// Developer options' denser rows (`SettingsSectionStyle.compact`): a
+  /// debugging page holds many switches and reads as a list of flags.
+  static const double settingsCompactRowVerticalPadding = 8;
+
+  /// A settings tile's sides: the group's inset at the start, the tighter
+  /// row end where a switch or a value carries its own optical margin.
+  static const EdgeInsetsDirectional settingsRowPadding =
+      EdgeInsetsDirectional.only(
+        start: RowMetrics.groupInset,
+        end: rowEndPadding,
+      );
+
+  /// A settings row the kit draws without a tile — a segmented choice, a
+  /// slider — padded as a tile pads its text, so the titles line up.
+  static const EdgeInsetsDirectional settingsControlRowPadding =
+      EdgeInsetsDirectional.fromSTEB(
+        RowMetrics.groupInset,
+        settingsRowVerticalPadding,
+        rowEndPadding,
+        settingsRowVerticalPadding,
+      );
+
+  /// Between a settings row's text and the control drawn under it.
+  static const double settingsControlGap = 8;
+
+  /// A settings tile's leading slot and the gap after it — the stock
+  /// Material 3 tile's, a 24 dp glyph and 16 dp — held in the kit's
+  /// `ListTileTheme`, so a row that measures its own text column
+  /// (`SettingsYieldingTile`) starts its title where its neighbours do.
+  static const double settingsLeadingWidth = 24;
+  static const double settingsTitleGap = 16;
+
+  /// Narrower than this beside its title — at text scale 1.0, scaled with
+  /// the text — a settings value is a column of broken words and goes under
+  /// the description instead: a fixed width squeezed the holiday set to
+  /// "Chr…" in German at 2.0.
+  static const double settingsValueMinBesideWidth = 96;
+
+  /// Between a settings row's description and a value that went under it.
+  static const double settingsValueUnderGap = 4;
+
+  /// Breathing room on the height a value must fit beside its title: the
+  /// text engine rounds a line's height, and a value a hair over the cap
+  /// would be cut by that hair.
+  static const double settingsValueCapTolerance = 0.5;
+
+  /// A settings section folding open or shut: long enough to read as one
+  /// motion, short enough that a fold never feels like waiting for the row
+  /// you were reaching for.
+  static const Duration settingsFoldDuration = Duration(milliseconds: 180);
   static const double counterSize = 12;
 
   /// The colour dot before a row's value — what Icon & color reads back —

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../constants/form_metrics.dart';
+import '../constants/app_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
@@ -168,6 +168,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
+      backgroundColor: colorScheme.pageGround,
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _folderSwipeEnabled,
       appBar: SettingsAppBar(
@@ -239,7 +240,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.restoreLocation,
           description: l10n.restoreLocationDesc,
           keywords: _keywords(l10n.restoreLocationKeywords),
-          builder: (context, title, description) => _choiceRow(
+          builder: (context, title, description) => settingsChoiceRow(
             title: title,
             description: description,
             value: _restoreLocationMode,
@@ -286,7 +287,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.labelStyle,
           description: l10n.labelStyleDesc,
           keywords: _keywords(l10n.labelStyleKeywords),
-          builder: (context, title, description) => _choiceRow(
+          builder: (context, title, description) => settingsChoiceRow(
             title: title,
             description: description,
             value: _labelStyle,
@@ -485,7 +486,7 @@ class _SettingsPageState extends State<SettingsPage> {
             title: l10n.autoSaveInterval,
             description: l10n.autoSaveIntervalDesc(_autoSaveInterval),
             keywords: _keywords(l10n.autoSaveKeywords),
-            builder: (context, title, description) => _sliderRow(
+            builder: (context, title, description) => settingsSliderRow(
               title: title,
               description: description,
               value: _autoSaveInterval.toDouble(),
@@ -493,6 +494,7 @@ class _SettingsPageState extends State<SettingsPage> {
               max: 30,
               divisions: 29,
               labelBuilder: (v) => '${v}s',
+              semanticValue: l10n.autoSaveIntervalDesc,
               onChanged: (value) async {
                 _onHapticFeedback();
                 setState(() => _autoSaveInterval = value.round());
@@ -565,12 +567,7 @@ class _SettingsPageState extends State<SettingsPage> {
       title: l10n.deprecatedSection,
       intro: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        child: Text(
-          l10n.deprecatedSectionIntro,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
+        child: Text(l10n.deprecatedSectionIntro),
       ),
       entries: [
         SettingsEntry(
@@ -629,13 +626,14 @@ class _SettingsPageState extends State<SettingsPage> {
           keywords: _keywords(l10n.performanceKeywords),
           titleStyle: disabledStyle,
           descriptionStyle: disabledStyle,
-          builder: (context, title, description) => _sliderRow(
+          builder: (context, title, description) => settingsSliderRow(
             title: title,
             description: description,
             value: _previewLinesPerChunk.toDouble(),
             min: 1,
             max: 50,
             divisions: 49,
+            semanticValue: l10n.previewLinesPerChunkDesc,
             enabled: enabled,
             onChanged: (value) async {
               _onHapticFeedback();
@@ -660,155 +658,6 @@ class _SettingsPageState extends State<SettingsPage> {
       subtitle: description,
       value: value,
       onChanged: enabled ? onChanged : null,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    );
-  }
-
-  /// A one-of-N row. The options sit under the title rather than beside it so
-  /// three labels still fit on a narrow phone without the row reflowing as the
-  /// locale changes.
-  Widget _choiceRow<T extends Enum>({
-    required Widget title,
-    required Widget? description,
-    required T value,
-    required Map<T, String> labels,
-    required ValueChanged<T> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          title,
-          const SizedBox(height: 4),
-          ?description,
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              // Side by side while every word fits its segment; a segmented
-              // button never moves a word to another segment, so a word
-              // wider than its third ("Ordner und Notizen" at 200 %) broke
-              // mid-word. Stacked, each choice has the row's full width.
-              final horizontal = _choiceWordsFit(
-                context,
-                labels.values,
-                constraints.maxWidth / labels.length,
-              );
-              return SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<T>(
-                  direction: horizontal ? Axis.horizontal : Axis.vertical,
-                  // A stadium as tall as three stacked choices reads as one
-                  // big pill; stacked, the group takes the menu's corners.
-                  style: horizontal
-                      ? null
-                      : const ButtonStyle(
-                          shape: WidgetStatePropertyAll(
-                            RoundedRectangleBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(FormMetrics.menuRadius),
-                              ),
-                            ),
-                          ),
-                        ),
-                  showSelectedIcon: false,
-                  segments: [
-                    for (final entry in labels.entries)
-                      ButtonSegment<T>(
-                        value: entry.key,
-                        label: Text(entry.value, textAlign: TextAlign.center),
-                      ),
-                  ],
-                  selected: {value},
-                  onSelectionChanged: (selection) => onChanged(selection.first),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// The spaces the line breaker breaks at: the no-break ones (U+00A0,
-  /// U+2007, U+202F) hold their words together, so a word is measured with
-  /// them.
-  static final RegExp _breakingSpaces = RegExp(
-    '[ \\t\\n\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u205F\\u3000]+',
-  );
-
-  /// Whether every word of [labels] fits a segment [segmentWidth] wide on
-  /// one line, measured as a label-only segment draws it: the theme's
-  /// `labelLarge` inside the text button padding Material scales with the
-  /// text size.
-  bool _choiceWordsFit(
-    BuildContext context,
-    Iterable<String> labels,
-    double segmentWidth,
-  ) {
-    final style = Theme.of(context).textTheme.labelLarge;
-    final textScaler = MediaQuery.textScalerOf(context);
-    final fontSize = style?.fontSize ?? 14;
-    final padding = ButtonStyleButton.scaledPadding(
-      const EdgeInsets.symmetric(horizontal: 12),
-      const EdgeInsets.symmetric(horizontal: 8),
-      const EdgeInsets.symmetric(horizontal: 4),
-      textScaler.scale(fontSize) / 14,
-    ).resolve(Directionality.of(context));
-    final room = segmentWidth - padding.horizontal;
-    final painter = TextPainter(
-      textDirection: Directionality.of(context),
-      textScaler: textScaler,
-      maxLines: 1,
-    );
-    try {
-      for (final label in labels) {
-        for (final word in label.split(_breakingSpaces)) {
-          painter
-            ..text = TextSpan(text: word, style: style)
-            ..layout();
-          // An exact fit can still wrap in the engine, so a word needs half
-          // a pixel to spare.
-          if (room - painter.width < 0.5) return false;
-        }
-      }
-      return true;
-    } finally {
-      painter.dispose();
-    }
-  }
-
-  Widget _sliderRow({
-    required Widget title,
-    required Widget? description,
-    required double value,
-    required double min,
-    required double max,
-    required int divisions,
-    required ValueChanged<double> onChanged,
-    String Function(int)? labelBuilder,
-    bool enabled = true,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          title,
-          const SizedBox(height: 4),
-          ?description,
-          Slider(
-            value: value,
-            min: min,
-            max: max,
-            divisions: divisions,
-            label: labelBuilder != null
-                ? labelBuilder(value.round())
-                : '${value.round()}',
-            onChanged: enabled ? onChanged : null,
-          ),
-        ],
-      ),
     );
   }
 

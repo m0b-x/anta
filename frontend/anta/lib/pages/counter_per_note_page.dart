@@ -6,6 +6,7 @@ import 'package:get_it/get_it.dart';
 import '../bloc/counter_per_note/counter_per_note_bloc.dart';
 import '../bloc/counter_per_note/counter_per_note_event.dart';
 import '../bloc/counter_per_note/counter_per_note_state.dart';
+import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/counter.dart';
 import '../repositories/note_repository.dart';
@@ -45,6 +46,7 @@ class _CounterPerNoteView extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return LoadingScaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.counterPerNoteValues),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _addNote(context),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/permissions/permissions_bloc.dart';
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
@@ -88,6 +89,7 @@ class _PermissionsViewState extends State<_PermissionsView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _swipeEnabled,
       appBar: SettingsAppBar(

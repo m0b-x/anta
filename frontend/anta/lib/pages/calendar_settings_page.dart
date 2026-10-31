@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import '../constants/alert_constants.dart';
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/event_alerts.dart';
@@ -320,6 +321,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.calendarSettings,
         showMenuButton: false,
@@ -403,7 +405,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.holidayProfileTitle,
           description: PublicHolidays.profileNameOf(_holidayProfile, l10n),
-          builder: (context, title, description) => _YieldingTile(
+          builder: (context, title, description) => SettingsYieldingTile(
             leading: Icon(Icons.public_rounded, color: colorScheme.primary),
             title: title,
             subtitle: description,
@@ -758,12 +760,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       title: l10n.fastingSectionTitle,
       intro: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        child: Text(
-          l10n.fastingSectionDesc,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
+        child: Text(l10n.fastingSectionDesc),
       ),
       entries: entries,
     );
@@ -885,7 +882,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           identifier: SemanticsIds.alertsDefaultTimed,
           builder: (context, title, description) {
             final value = _describeDefault(l10n, allDay: false);
-            return _YieldingTile(
+            return SettingsYieldingTile(
               leading: Icon(Icons.schedule_rounded, color: colorScheme.primary),
               title: title,
               subtitle: description,
@@ -902,7 +899,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           identifier: SemanticsIds.alertsDefaultAllDay,
           builder: (context, title, description) {
             final value = _describeDefault(l10n, allDay: true);
-            return _YieldingTile(
+            return SettingsYieldingTile(
               leading: Icon(Icons.today_rounded, color: colorScheme.primary),
               title: title,
               subtitle: description,
@@ -926,7 +923,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
               title: _alertSoundTitle,
               titleResolved: _alertSoundTitleResolved,
             );
-            return _YieldingTile(
+            return SettingsYieldingTile(
               leading: Icon(
                 Icons.music_note_rounded,
                 color: colorScheme.primary,
@@ -1382,231 +1379,3 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 }
-
-/// A settings tile whose trailing yields to its title.
-///
-/// `ListTile` lays its trailing out first and gives the title what is left,
-/// so a trailing as wide as a sentence — a default alert read back, the
-/// holiday set's dropdown, as wide as the widest profile's name — squeezed
-/// the title to a letter a line at a large text scale, and at 200 % in
-/// German the dropdown took the whole tile and the page would not lay out at
-/// all (the Tier 2 device pass). Here the text column's longest word — the
-/// title's or the subtitle's — is measured first: [trailing] gets what that
-/// leaves beside the title, to wrap or ellipsize in, and goes under the
-/// description with the text column's whole width instead when that is under
-/// [_minBesideWidth] or when the value, laid out there, is taller than the
-/// tile lets a trailing be ([listTileTrailingCap]). Where everything fits —
-/// every row at the scales the page was drawn at — the tile is the stock one
-/// it was.
-class _YieldingTile extends StatelessWidget {
-  final Widget leading;
-  final Widget title;
-  final Widget? subtitle;
-
-  /// The text [trailing] shows, when it shows one — measured for the height
-  /// it would take beside the title. Null for a trailing that is one line
-  /// whatever its room (the holiday set's dropdown).
-  final String? value;
-
-  /// Builds the trailing for the width it may take: what is left beside the
-  /// title, or the text column's width under the description.
-  final Widget Function(double maxWidth) trailing;
-  final VoidCallback? onTap;
-
-  /// Narrower than this beside the title, a value is a column of broken
-  /// words; it goes under the description instead.
-  static const double _minBesideWidth = 96;
-
-  /// Breathing room on the cap a value must fit beside the title: the text
-  /// engine rounds a line's height, and a value a hair over the cap would be
-  /// cut by that hair.
-  static const double _capTolerance = 0.5;
-
-  /// `ListTile`'s own geometry, passed to it explicitly so the arithmetic
-  /// below reads off the numbers the tile lays out with.
-  static const EdgeInsets _contentPadding = EdgeInsets.symmetric(
-    horizontal: 16,
-  );
-  static const double _minLeadingWidth = 40;
-  static const double _titleGap = 16;
-  static const double _underGap = 4;
-
-  const _YieldingTile({
-    required this.leading,
-    required this.title,
-    this.subtitle,
-    this.value,
-    required this.trailing,
-    this.onTap,
-  });
-
-  /// [text] as the tile lays it out in [style]: the bold-text setting, the
-  /// text scale, the direction. The caller lays it out and disposes it.
-  static TextPainter _painter(
-    BuildContext context,
-    String text,
-    TextStyle style,
-  ) {
-    var effective = style;
-    if (MediaQuery.boldTextOf(context)) {
-      effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
-    }
-    return TextPainter(
-      text: TextSpan(text: text, style: effective),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      locale: Localizations.maybeLocaleOf(context),
-    );
-  }
-
-  /// The widest run [text] cannot break — its longest word — in [style].
-  static double _longestWord(
-    BuildContext context,
-    String text,
-    TextStyle style,
-  ) {
-    final painter = _painter(context, text, style)..layout();
-    final width = painter.minIntrinsicWidth;
-    painter.dispose();
-    return width;
-  }
-
-  /// The widest run the text column cannot break: the longest word of the
-  /// title and of the subtitle, each laid out as the tile lays it out — the
-  /// tile's own style under the kit's. The subtitle counts too: a column cut
-  /// to the title's word broke "Erinnerung" in the line under it.
-  double _columnWordWidth(BuildContext context) {
-    final theme = Theme.of(context);
-    final tileTheme = ListTileTheme.of(context);
-    var widest = 0.0;
-    final title = this.title;
-    if (title is HighlightedText) {
-      widest = _longestWord(
-        context,
-        title.text,
-        (tileTheme.titleTextStyle ??
-                theme.textTheme.bodyLarge ??
-                const TextStyle())
-            .merge(title.style),
-      );
-    }
-    final subtitle = this.subtitle;
-    if (subtitle is HighlightedText) {
-      final word = _longestWord(
-        context,
-        subtitle.text,
-        (tileTheme.subtitleTextStyle ??
-                theme.textTheme.bodyMedium ??
-                const TextStyle())
-            .merge(subtitle.style),
-      );
-      if (word > widest) widest = word;
-    }
-    return widest;
-  }
-
-  /// The style the tile gives a trailing, which is what [value] is drawn in
-  /// beside the title and, under the description, through
-  /// `DefaultTextStyle.merge`.
-  static TextStyle? _trailingStyle(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListTileTheme.of(context).leadingAndTrailingTextStyle ??
-        theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        );
-  }
-
-  /// The height [value] takes laid out in [width] beside the title, in the
-  /// style the tile gives a trailing; nothing for a trailing with no text.
-  double _valueHeight(BuildContext context, double width) {
-    final value = this.value;
-    if (value == null) return 0;
-    final painter = _painter(
-      context,
-      value,
-      _trailingStyle(context) ?? const TextStyle(),
-    )..layout(maxWidth: width);
-    final height = painter.height;
-    painter.dispose();
-    return height;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final column =
-            constraints.maxWidth -
-            _contentPadding.horizontal -
-            _minLeadingWidth -
-            _titleGap;
-        final beside = column - _columnWordWidth(context) - _titleGap;
-        // Beside the title only while the value fits the height the tile
-        // gives a trailing: a taller one is cut there, and a line's
-        // descenders went first — "Alarm · 7 Tage vorher, 09:00" lost its
-        // time at 200 % on the device.
-        if (beside >= _minBesideWidth &&
-            _valueHeight(context, beside) <=
-                listTileTrailingCap(context) + _capTolerance) {
-          return ListTile(
-            contentPadding: _contentPadding,
-            minLeadingWidth: _minLeadingWidth,
-            horizontalTitleGap: _titleGap,
-            leading: leading,
-            title: title,
-            subtitle: subtitle,
-            trailing: trailing(beside),
-            onTap: onTap,
-          );
-        }
-        // The style the tile gives a trailing, so the value reads the same
-        // under the description as it does beside the title.
-        final trailingStyle = _trailingStyle(context);
-        return ListTile(
-          contentPadding: _contentPadding,
-          minLeadingWidth: _minLeadingWidth,
-          horizontalTitleGap: _titleGap,
-          leading: leading,
-          title: title,
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ?subtitle,
-              Padding(
-                padding: const EdgeInsets.only(top: _underGap),
-                child: trailingStyle == null
-                    ? trailing(column)
-                    : DefaultTextStyle.merge(
-                        style: trailingStyle,
-                        child: trailing(column),
-                      ),
-              ),
-            ],
-          ),
-          onTap: onTap,
-        );
-      },
-    );
-  }
-}
-
-/// The tallest `ListTile` lets a trailing be: the one-line tile's height —
-/// 48 dense, 56 otherwise — under the theme's visual density. That is the
-/// tile's own `_RenderListTile.maxIconHeightConstraint`, which has no public
-/// name, so the numbers are copied from it and
-/// `calendar_settings_large_text_test` holds them to the constraint a laid-out
-/// tile hands its trailing.
-@visibleForTesting
-double listTileTrailingCap(BuildContext context) {
-  final tileTheme = ListTileTheme.of(context);
-  final density = tileTheme.visualDensity ?? Theme.of(context).visualDensity;
-  final dense = tileTheme.dense ?? false;
-  return (dense ? _denseTileHeight : _tileHeight) +
-      density.baseSizeAdjustment.dy;
-}
-
-/// `ListTile`'s one-line heights, as its `_defaultTileHeight` and the
-/// trailing cap both read them.
-const double _tileHeight = 56;
-const double _denseTileHeight = 48;

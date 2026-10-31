@@ -113,6 +113,10 @@ abstract final class SemanticsIds {
   /// which list it filters, so a flow tells the pages apart by their rows.
   static const String settingsSearch = 'settings-search';
 
+  /// The settings search field's clear button, drawn only while the field
+  /// holds text.
+  static const String settingsSearchClear = 'settings-search-clear';
+
   /// App settings' bar title. Each `settingsBar*` id is the anchor a flow
   /// waits on to know which settings page is on top, since the title text is
   /// translated.

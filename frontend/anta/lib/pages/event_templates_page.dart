@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_templates.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
@@ -89,6 +90,7 @@ class _EventTemplatesPageState extends State<EventTemplatesPage> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.eventTemplates, showMenuButton: false),
       floatingActionButton: AutomationId(
         identifier: SemanticsIds.templatesCreate,

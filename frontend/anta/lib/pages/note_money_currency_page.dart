@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../database/database.dart';
 import '../l10n/app_localizations.dart';
 import '../services/settings_service.dart';
@@ -110,6 +111,7 @@ class _NoteMoneyCurrencyPageState extends State<NoteMoneyCurrencyPage> {
     final filtered = _filteredEntries;
 
     return LoadingScaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.moneyPerNoteCurrency),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

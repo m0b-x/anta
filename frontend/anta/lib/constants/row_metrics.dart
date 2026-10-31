@@ -113,4 +113,16 @@ class RowMetrics {
 
   /// "3 folders, 5 notes", centred on the bar behind the buttons.
   static const double bottomBarCountFontSize = 13.0;
+
+  /// The hairline between two rows of a group, and the space it takes.
+  static const double dividerThickness = 1.0;
+
+  /// The widest a folded section's "12 options" may grow beside its title,
+  /// as a share of the header: past it the count wraps, so a long German
+  /// title at 2.0 is never squeezed to a letter a line.
+  static const double settingsCountMaxShare = 1 / 3;
+
+  /// "No matches": the air above and below it and its glyph.
+  static const double emptyStatePadding = 48.0;
+  static const double emptyStateGlyphSize = 48.0;
 }

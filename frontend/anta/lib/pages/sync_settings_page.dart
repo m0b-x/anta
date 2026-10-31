@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/pairing/pairing_bloc.dart';
 import '../bloc/sync/sync_bloc.dart';
+import '../constants/app_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
@@ -84,6 +85,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _swipeEnabled,
       appBar: SettingsAppBar(

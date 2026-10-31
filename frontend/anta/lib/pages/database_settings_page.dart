@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
+import '../constants/app_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../database/database.dart';
 import '../services/database_manager.dart';
@@ -111,6 +112,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       drawer: const AppDrawer(),
       drawerEnableOpenDragGesture: _swipeEnabled,
       appBar: SettingsAppBar(

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/vocabulary.dart';
 import '../services/app_navigator.dart';
@@ -134,6 +135,7 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.vocabularies, showMenuButton: false),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _create,

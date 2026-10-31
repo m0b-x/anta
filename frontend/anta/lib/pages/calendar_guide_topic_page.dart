@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
 import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -184,6 +185,7 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
     final cards = topic.cards;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.calendarGuideTitle,
         showMenuButton: false,

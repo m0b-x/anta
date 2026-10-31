@@ -278,24 +278,29 @@ class CalendarGuideTryCard extends StatelessWidget {
               const SizedBox(height: GuideMetrics.coachToStage),
               Padding(
                 padding: fullBleed ? EdgeInsets.zero : inset,
+                // The stage draws the real calendar's widgets as the calendar
+                // draws them, outside the settings kit's row theme.
                 child: RepaintBoundary(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colorScheme.pageGround,
-                      border: fullBleed
-                          ? Border(top: line, bottom: line)
-                          : Border.fromBorderSide(line),
-                      borderRadius: fullBleed
-                          ? null
-                          : BorderRadius.circular(GuideMetrics.stageRadius),
-                    ),
-                    child: Padding(
-                      padding: fullBleed
-                          ? const EdgeInsets.symmetric(
-                              vertical: GuideMetrics.stagePadding,
-                            )
-                          : const EdgeInsets.all(GuideMetrics.stagePadding),
-                      child: demo.buildStage(context),
+                  child: ListTileTheme(
+                    data: Theme.of(context).listTileTheme,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: colorScheme.pageGround,
+                        border: fullBleed
+                            ? Border(top: line, bottom: line)
+                            : Border.fromBorderSide(line),
+                        borderRadius: fullBleed
+                            ? null
+                            : BorderRadius.circular(GuideMetrics.stageRadius),
+                      ),
+                      child: Padding(
+                        padding: fullBleed
+                            ? const EdgeInsets.symmetric(
+                                vertical: GuideMetrics.stagePadding,
+                              )
+                            : const EdgeInsets.all(GuideMetrics.stagePadding),
+                        child: demo.buildStage(context),
+                      ),
                     ),
                   ),
                 ),

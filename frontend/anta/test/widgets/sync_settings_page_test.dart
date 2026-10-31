@@ -316,7 +316,9 @@ void main() {
     // reported; the title "Anmeldung fehlgeschlagen" and the error under it
     // are laid out zero dp wide, one glyph per line, and the row grows to
     // about 2,700 dp. When S5 bounds the trailing widget, this expectation
-    // flips to a drawn title.
+    // flips to a drawn title. S1's kit rows (no card margin, a 12 dp row
+    // end) hand the title about 5 dp: still narrower than one glyph, the
+    // same defect.
     testWidgets('a failed sign-in, de 2.0 on 360 × 780 collapses the account '
         'title to zero width (known, S5)', (tester) async {
       await boot(offline: true);
@@ -334,7 +336,7 @@ void main() {
       expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
       expect(syncBloc!.state, const SyncFailure(AuthError.offline));
-      expect(titleWidthsBesideButtons(tester), [0]);
+      expect(titleWidthsBesideButtons(tester), [lessThan(10)]);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

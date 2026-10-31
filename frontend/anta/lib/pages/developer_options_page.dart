@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../constants/app_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/dev_options.dart';
@@ -75,6 +76,7 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
     final devOptions = DevOptions.instance;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.developerOptions,
         popsToDrawer: true,

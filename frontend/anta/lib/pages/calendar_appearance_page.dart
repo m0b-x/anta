@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_palette.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
@@ -142,6 +143,7 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.calendarAppearanceSection,
         showMenuButton: false,

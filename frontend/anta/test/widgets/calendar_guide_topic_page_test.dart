@@ -215,9 +215,10 @@ void main() {
       final lead = topic.lead(en);
       if (lead != null) expect(find.text(lead), findsOneWidget);
       // A page with something to try opens on its "Try it" card; "How it
-      // works" follows it.
-      await _scrollTo(tester, find.text(en.calendarGuideHowItWorks));
-      expect(find.text(en.calendarGuideHowItWorks), findsOneWidget);
+      // works" follows it, under the kit's uppercase section header.
+      final howItWorks = find.text(en.calendarGuideHowItWorks.toUpperCase());
+      await _scrollTo(tester, howItWorks);
+      expect(howItWorks, findsOneWidget);
 
       for (final row in topic.rows(en)) {
         await _scrollTo(tester, _row(row.slug));

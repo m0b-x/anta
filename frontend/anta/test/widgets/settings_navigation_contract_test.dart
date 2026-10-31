@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -278,15 +277,30 @@ void main() {
           expect(title.identifier, row.barId);
           expect(title.label, row.title(l10n));
           expect(title.flagsCollection.isHeader, isTrue);
+          expect(title.headingLevel, 1);
           expect(title.flagsCollection.namesRoute, isTrue);
-          // And it is the page's only heading: `AppBar`'s own wrapper would
-          // otherwise stay beside it as a heading with no label.
+          // Android reads a heading from its level, VoiceOver from its flag,
+          // so a heading is either. None is unlabelled (`AppBar`'s own
+          // wrapper would be), the title is the page's one level-1 heading,
+          // and every other one, a section header, is level 2 under it.
+          final headings = find.semantics
+              .byPredicate((node) {
+                final data = node.getSemanticsData();
+                return data.flagsCollection.isHeader || data.headingLevel > 0;
+              })
+              .evaluate()
+              .map((node) => node.getSemanticsData())
+              .toList();
+          expect(headings.where((h) => h.label.isEmpty), isEmpty);
           expect(
-            find.semantics
-                .byFlag(SemanticsFlag.isHeader)
-                .evaluate()
-                .map((node) => node.label),
-            [row.title(l10n)],
+            headings.where((h) => h.headingLevel == 1).map((h) => h.identifier),
+            [row.barId],
+          );
+          expect(
+            headings
+                .where((h) => h.identifier != row.barId)
+                .map((h) => h.headingLevel),
+            everyElement(2),
           );
           expect(tester.takeException(), isNull);
 

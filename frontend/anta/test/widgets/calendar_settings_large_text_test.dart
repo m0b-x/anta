@@ -8,7 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -21,6 +23,7 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
+import '../goldens/support/golden_fonts.dart';
 
 /// Calendar settings at a large text scale. `ListTile` gives its trailing
 /// whatever width it asks for and the title the rest, so the holiday set's
@@ -32,10 +35,11 @@ import '../database/support/db_test_support.dart';
 /// height the tile gives a trailing there, and goes under the description
 /// otherwise.
 ///
-/// The test font draws every glyph a full em wide, about twice a phone's
-/// font, so a German word can be wider than the whole text column here
-/// ("Ganztägige" at 200 %: 285 dp in 232). A title is therefore asserted to
-/// be as whole as its column allows, never narrower than that.
+/// Roboto is loaded, so a word is as wide as a phone draws it: the test
+/// font's full-em glyphs made "Ganztägige" at 200 % wider than its whole
+/// column, and the dropdown's "under its title" was measured on boxes. A
+/// title is still asserted to be as whole as its column allows, never
+/// narrower than that.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -50,6 +54,7 @@ void main() {
   late Directory tempDir;
 
   setUpAll(() async {
+    await loadGoldenFonts();
     // `PublicHolidayService` binds to the file-backed `AppDatabase`, which
     // needs `path_provider` (the appearance page suite pays the same).
     tempDir = await Directory.systemTemp.createTemp('anta_settings_large');
@@ -154,7 +159,10 @@ void main() {
   /// The width the tile's text column has: the tile less its padding, its
   /// leading slot and the gap after it.
   double columnOf(WidgetTester tester, String title) =>
-      tester.getRect(tileOf(title)).width - 32 - 40 - 16;
+      tester.getRect(tileOf(title)).width -
+      FormMetrics.settingsRowPadding.horizontal -
+      FormMetrics.settingsLeadingWidth -
+      FormMetrics.settingsTitleGap;
 
   /// [text], a line of the tile titled [title], holds its words whole, or —
   /// where one word is wider than the whole text column, which the test
@@ -242,8 +250,14 @@ void main() {
       greaterThanOrEqualTo(tester.getRect(find.text(title)).bottom),
       reason: '"$value" is not under its title',
     );
-    expect(valueRect.right, lessThanOrEqualTo(tile.right - 16));
-    expect(valueRect.left, greaterThanOrEqualTo(tile.left + 16));
+    expect(
+      valueRect.right,
+      lessThanOrEqualTo(tile.right - FormMetrics.rowEndPadding),
+    );
+    expect(
+      valueRect.left,
+      greaterThanOrEqualTo(tile.left + RowMetrics.groupInset),
+    );
     expectUnclipped(tester, value);
     expectWholeWords(tester, value, title: title);
   }
@@ -267,7 +281,10 @@ void main() {
     expect(dropdown, findsOneWidget);
     final holidayTile = tester.getRect(tileOf('Feiertage'));
     final dropdownRect = tester.getRect(dropdown);
-    expect(dropdownRect.right, lessThanOrEqualTo(holidayTile.right - 16));
+    expect(
+      dropdownRect.right,
+      lessThanOrEqualTo(holidayTile.right - FormMetrics.rowEndPadding),
+    );
     expect(
       dropdownRect.top,
       greaterThanOrEqualTo(tester.getRect(find.text('Feiertage')).bottom),
@@ -353,14 +370,16 @@ void main() {
 
   testWidgets('a value that fits the cap the tile gives a trailing stays '
       'beside the title, one that does not goes under: one line beside at '
-      '2.0, two lines under at 2.0, two lines beside at 1.0', (tester) async {
+      '2.0, under at 2.0 where beside it would take two lines', (tester) async {
     // The phone's density, so the cap is the phone's 56 dp.
     const density = VisualDensity.standard;
     // No all-day default: "No alert" is one line at any width.
     await settings.setAlertDefaultAllDay(null);
+    // The large phone: in Roboto at 2.0 the timed value would wrap beside
+    // its title there, and the column under it holds it on one line.
     await pumpPage(
       tester,
-      surface: const Size(600, 1000),
+      surface: const Size(412, 915),
       locale: const Locale('en'),
       textScale: 2.0,
       density: density,
@@ -373,16 +392,18 @@ void main() {
     // the second line's descenders would be cut beside the title.
     const timed = 'Alarm · 10 min before';
     expectUnder(tester, 'Timed events', timed);
-    expect(linesOf(tester, timed), 2);
+    expect(linesOf(tester, timed), 1);
     expectBeside(tester, 'All-day events', 'No alert');
     expect(linesOf(tester, 'No alert'), 1);
   });
 
   testWidgets('at 1.0 a two-line value fits the cap and stays beside the '
       'title, whole', (tester) async {
+    // The small phone: in Roboto the all-day value is two lines beside its
+    // title there, and one on the large one.
     await pumpPage(
       tester,
-      surface: const Size(412, 915),
+      surface: phone,
       locale: const Locale('en'),
       density: VisualDensity.standard,
     );
@@ -392,7 +413,7 @@ void main() {
 
     const timed = 'Alarm · 10 min before';
     expectBeside(tester, 'Timed events', timed);
-    expect(linesOf(tester, timed), 2);
+    expect(linesOf(tester, timed), 1);
     const allDay = 'Reminder · The day before, 9:00 AM';
     expectBeside(tester, 'All-day events', allDay);
     expect(linesOf(tester, allDay), greaterThanOrEqualTo(2));

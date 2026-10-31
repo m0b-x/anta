@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'row_metrics.dart';
+
 /// The calendar guide's own numbers.
 ///
 /// The guide is a settings-kit page of read rows: the kit draws the cards and
@@ -44,8 +46,8 @@ abstract final class GuideMetrics {
   /// rule measures a hub title's words in the style the kit draws them in,
   /// or it would drop the glyphs too early or let a word break. A test holds
   /// the two together, so a change in the kit fails there first.
-  static const double hubTitleFontSize = 14;
-  static const FontWeight hubTitleFontWeight = FontWeight.w500;
+  static const double hubTitleFontSize = RowMetrics.titleFontSize;
+  static const FontWeight hubTitleFontWeight = FontWeight.w400;
 
   /// The practice page's band under its bar: as tight as a banner can sit
   /// while its two lines still read as one block, the glyph a size under the

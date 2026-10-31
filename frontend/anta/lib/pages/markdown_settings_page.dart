@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../config/default_markdown_shortcuts.dart';
+import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
@@ -31,6 +32,10 @@ class MarkdownSettingsPage extends StatefulWidget {
   @override
   State<MarkdownSettingsPage> createState() => _MarkdownSettingsPageState();
 }
+
+/// Around the shortcuts' search field in their pinned filter bar; the bar's
+/// fixed extent counts its vertical part, so the two can never disagree.
+const EdgeInsets _shortcutSearchPadding = EdgeInsets.fromLTRB(16, 8, 16, 8);
 
 class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     with SingleTickerProviderStateMixin {
@@ -1799,7 +1804,14 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
               SliverPersistentHeader(
                 pinned: true,
                 delegate: _ShortcutFilterHeaderDelegate(
-                  height: (showSearch ? 56.0 : 0.0) + (showChips ? 46.0 : 0.0),
+                  // The field's own height, which follows the text scale,
+                  // and the padding the filter bar puts above and below it.
+                  height:
+                      (showSearch
+                          ? SettingsSearchField.heightFor(context) +
+                                _shortcutSearchPadding.vertical
+                          : 0.0) +
+                      (showChips ? 46.0 : 0.0),
                   background: theme.colorScheme.surface,
                   child: _buildShortcutFilterBar(
                     context,
@@ -1888,7 +1900,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
       children: [
         if (showSearch)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            padding: _shortcutSearchPadding,
             child: SettingsSearchField(
               controller: _shortcutSearchController,
               hint: l10n.searchShortcuts,
@@ -2286,6 +2298,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         }
       },
       child: LoadingScaffold(
+        backgroundColor: Theme.of(context).colorScheme.pageGround,
         drawer: const AppDrawer(),
         drawerEnableOpenDragGesture: _swipeEnabled,
         appBar: SettingsAppBar(

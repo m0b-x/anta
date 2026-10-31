@@ -69,9 +69,12 @@ Finder _row(String slug) =>
 Future<void> _scrollTo(WidgetTester tester, Finder finder) => tester
     .scrollUntilVisible(finder, 300, scrollable: _list(), maxScrolls: 200);
 
-/// The section card [finder] sits in.
+/// The kit's section [finder] sits in — its header and its group of rows.
 Finder _cardOf(Finder finder) =>
-    find.ancestor(of: finder, matching: find.byType(Card)).first;
+    find.ancestor(of: finder, matching: find.byType(SettingsSectionCard)).first;
+
+/// A section's header as the kit draws it: the browser's uppercase label.
+Finder _header(String title) => find.text(title.toUpperCase());
 
 /// No laid-out text in the hub's list is cut: every paragraph is as tall as
 /// its lines need and none ran out of lines. The search field's hint is the
@@ -117,7 +120,7 @@ void main() {
       find.bySemanticsIdentifier(SemanticsIds.calendarGuide),
       findsOneWidget,
     );
-    expect(find.text(en.calendarGuideStartHere), findsOneWidget);
+    expect(_header(en.calendarGuideStartHere), findsOneWidget);
     for (final (lesson, title, caption) in [
       (
         GuidePracticeLesson.events,
@@ -158,7 +161,7 @@ void main() {
     expect(
       find.descendant(
         of: _cardOf(_page(CalendarGuideTopic.setup)),
-        matching: find.text(en.calendarGuideHowDoI),
+        matching: _header(en.calendarGuideHowDoI),
       ),
       findsOneWidget,
     );
@@ -194,7 +197,7 @@ void main() {
         expect(
           find.descendant(
             of: _cardOf(_page(topic)),
-            matching: find.text(cardTitle),
+            matching: _header(cardTitle),
           ),
           findsOneWidget,
           reason: topic.slug,
@@ -205,7 +208,7 @@ void main() {
       expect(
         find.descendant(
           of: _cardOf(practice),
-          matching: find.text(en.calendarGuideStartHere),
+          matching: _header(en.calendarGuideStartHere),
         ),
         findsOneWidget,
       );
@@ -373,25 +376,28 @@ void main() {
     expect(_row('kinds-tricky'), findsOneWidget);
     expect(_row('description'), findsNothing);
     expect(find.text(en.calendarGuideIntro), findsNothing);
-    expect(find.text(en.calendarGuideStartHere), findsNothing);
-    expect(find.text(en.calendarGuideHowDoI), findsNothing);
+    expect(_header(en.calendarGuideStartHere), findsNothing);
+    expect(_header(en.calendarGuideHowDoI), findsNothing);
     // The row lives on the kinds page: it sits in that page's section, under
     // the page's name and after the row that opens the page.
     final kinds = CalendarGuideTopic.kinds;
     final card = _cardOf(_row('kinds-tricky'));
-    // The page's name and glyph twice in the card — once on the row that
-    // opens the page, once more on the section's header.
+    // The page's name twice in the section — once on the row that opens the
+    // page, once more, uppercase, on the section's header — and its glyph
+    // once, on the row: the header draws none.
     Finder pageName(Finder scope) => find.descendant(
       of: scope,
       matching: find.byWidgetPredicate(
-        (widget) => widget is HighlightedText && widget.text == kinds.title(en),
+        (widget) =>
+            widget is HighlightedText &&
+            widget.text.toUpperCase() == kinds.title(en).toUpperCase(),
       ),
     );
     expect(pageName(card), findsNWidgets(2));
     expect(pageName(_page(kinds)), findsOneWidget);
     expect(
       find.descendant(of: card, matching: find.byIcon(kinds.icon)),
-      findsNWidgets(2),
+      findsOneWidget,
     );
     expect(
       find.descendant(of: _page(kinds), matching: find.byIcon(kinds.icon)),
@@ -406,7 +412,7 @@ void main() {
     await tester.enterText(field, '');
     await tester.pumpAndSettle();
     expect(_row('kinds-tricky'), findsNothing);
-    expect(find.text(en.calendarGuideStartHere), findsOneWidget);
+    expect(_header(en.calendarGuideStartHere), findsOneWidget);
     await _scrollTo(tester, _page(CalendarGuideTopic.kinds));
     expect(_page(CalendarGuideTopic.kinds), findsOneWidget);
 
@@ -559,9 +565,10 @@ void main() {
           find.descendant(
             of: card,
             matching: find.byWidgetPredicate(
+              // The row's title and the header's, uppercase.
               (widget) =>
                   widget is HighlightedText &&
-                  widget.text == lesson.title(l10n),
+                  widget.text.toUpperCase() == lesson.title(l10n).toUpperCase(),
             ),
           ),
           findsNWidgets(2),

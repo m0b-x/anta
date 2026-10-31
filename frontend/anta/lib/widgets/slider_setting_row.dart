@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'form_rows.dart';
+import 'settings_section_list.dart' show settingsCaptionStyle;
+
 /// A settings-row slider that keeps every drag tick **local** so a fast drag
 /// does not fire a haptic, an awaited settings write and a whole-page
 /// `setState` (the caption's search-highlighted description, the live
@@ -11,15 +14,18 @@ import 'package:flutter/material.dart';
 /// [onCommit] fires exactly once per drag: from the platform's
 /// `onChangeEnd` when it arrives, or — as a fallback, because
 /// accessibility-driven changes do not always call `onChangeEnd` — from a
-/// short debounce timer restarted on every tick. Whichever fires first wins;
+/// short debounce timer restarted on every tick, or from `dispose` when the
+/// row leaves before either has fired. Whichever fires first wins;
 /// the local draft is what makes that safe, since it doubles as "is a commit
 /// still owed for this drag".
 ///
 /// While a drag is in progress the caption cannot use the pre-rendered,
 /// search-highlighted [description] widget (it was built from the old value
 /// and would freeze mid-drag) — it renders [draftCaption] as plain text
-/// instead, styled with [captionStyle] so it is visually identical to the
+/// instead, in the kit's caption role so it is visually identical to the
 /// real caption. Search highlighting returns the instant the drag commits.
+/// The caption's slot is as tall as the tallest caption it may show, so a
+/// reading that takes another line never moves the slider under the finger.
 class SliderSettingRow extends StatefulWidget {
   final Widget title;
   final Widget? description;
@@ -28,6 +34,9 @@ class SliderSettingRow extends StatefulWidget {
   final int max;
   final int divisions;
   final String Function(int draft) draftCaption;
+
+  /// Only its colour is read: the draft is drawn in the kit's caption role,
+  /// the size and line its descriptions have, so the row keeps its height.
   final TextStyle captionStyle;
   final ValueChanged<int> onCommit;
 
@@ -59,6 +68,16 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
   int? _draft;
   Timer? _debounceTimer;
 
+  /// The route the row is drawn in, read while it is still in the tree:
+  /// `dispose` has no context to ask.
+  ModalRoute<Object?>? _route;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
   @override
   void didUpdateWidget(covariant SliderSettingRow oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -69,9 +88,32 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
     }
   }
 
+  /// A draft still owed a commit is committed, never dropped: a keyboard or
+  /// TalkBack change made within the debounce of leaving the page was lost
+  /// with the timer. Leaving with the page, the page is already out of the
+  /// tree and takes the commit now; leaving alone — a fold, a search that
+  /// filtered the row out — the page is mid-frame and still mounted, and
+  /// takes it once the frame is done, if its route and the page in it are
+  /// still there. This row's own State is gone by then, so the page's
+  /// subtree is what is asked: a page torn down in that frame cannot take a
+  /// `setState`.
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    final draft = _draft;
+    if (draft != null) {
+      final commit = widget.onCommit;
+      final route = _route;
+      if (route != null && route.isActive) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (route.isActive && (route.subtreeContext?.mounted ?? false)) {
+            commit(draft);
+          }
+        });
+      } else {
+        commit(draft);
+      }
+    }
     super.dispose();
   }
 
@@ -99,28 +141,54 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
   Widget build(BuildContext context) {
     final draft = _draft;
     final displayValue = draft ?? widget.value;
-    final caption = draft == null
-        ? widget.description
-        : Text(widget.draftCaption(draft), style: widget.captionStyle);
+    final draftStyle = settingsCaptionStyle.copyWith(
+      color:
+          widget.captionStyle.color ??
+          Theme.of(context).colorScheme.onSurfaceVariant,
+    );
+    Text reading(int value) =>
+        Text(widget.draftCaption(value), style: draftStyle);
+    final description = widget.description;
+    final caption = draft == null ? description : reading(draft);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          widget.title,
-          const SizedBox(height: 4),
-          ?caption,
-          Slider(
-            value: displayValue.toDouble(),
-            min: widget.min.toDouble(),
-            max: widget.max.toDouble(),
-            divisions: widget.divisions,
-            label: '$displayValue',
-            onChanged: _handleChanged,
-            onChangeEnd: _handleChangeEnd,
-          ),
-        ],
+    // One node to a screen reader: the title, and the caption's sentence as
+    // its value — the number with its unit, where the slider alone says a
+    // percentage. The caption and the bubble say that number again, so the
+    // caption never joins the node and the bubble's number only while a drag
+    // shows the bubble.
+    return MergeSemantics(
+      child: Padding(
+        padding: FormMetrics.settingsControlRowPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            widget.title,
+            ExcludeSemantics(
+              // The longest reading is the idle caption or one at either end
+              // of the range — the most digits, the plural form — and what is
+              // shown sizes the slot too, so it is never a template as well.
+              child: FormCaptionSlot(
+                candidates: [
+                  if (draft != null) ?description,
+                  reading(widget.min),
+                  reading(widget.max),
+                ],
+                child: caption ?? const SizedBox.shrink(),
+              ),
+            ),
+            Slider(
+              value: displayValue.toDouble(),
+              min: widget.min.toDouble(),
+              max: widget.max.toDouble(),
+              divisions: widget.divisions,
+              label: draft == null ? null : '$draft',
+              semanticFormatterCallback: (value) =>
+                  widget.draftCaption(value.round()),
+              onChanged: _handleChanged,
+              onChangeEnd: _handleChangeEnd,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/counter/counter_bloc.dart';
+import '../constants/app_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/counter.dart';
@@ -45,6 +46,7 @@ class _CounterManagementPageState extends State<CounterManagementPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return LoadingScaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.counterSettings,
         popsToDrawer: true,

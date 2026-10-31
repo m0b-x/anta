@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
+import '../constants/app_colors.dart';
 import '../database/database.dart';
 import '../l10n/app_localizations.dart';
 import '../models/markdown_bar_profile.dart';
@@ -103,6 +104,7 @@ class _NoteBarAssignmentPageState extends State<NoteBarAssignmentPage> {
     final filtered = _filteredEntries;
 
     return LoadingScaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.perNoteBarAssignment),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
