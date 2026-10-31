@@ -799,6 +799,46 @@ void main() {
       expect(taps, 1);
     });
 
+    testWidgets('a header text button draws its colour role while enabled and '
+        'the disabled colour without a tap', (tester) async {
+      // The delete sheet's Delete: `error` while it can act, the theme's
+      // disabled colour while the counts load or the delete runs.
+      Future<Color?> labelColor({Color? color, required bool enabled}) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => FormHeaderTextButton(
+                  label: 'Delete',
+                  color: color == null
+                      ? null
+                      : Theme.of(context).colorScheme.error,
+                  onPressed: enabled ? () {} : null,
+                ),
+              ),
+            ),
+          ),
+        );
+        // The button's `Material` animates its text style to a new colour.
+        await tester.pumpAndSettle();
+        return tester
+            .renderObject<RenderParagraph>(find.text('Delete'))
+            .text
+            .style
+            ?.color;
+      }
+
+      final scheme = ThemeData().colorScheme;
+      expect(await labelColor(enabled: true), scheme.primary);
+      expect(
+        await labelColor(color: scheme.error, enabled: true),
+        scheme.error,
+      );
+      final disabled = (await labelColor(color: scheme.error, enabled: false))!;
+      expect(disabled.withValues(alpha: 1), scheme.onSurface);
+      expect(disabled.a, closeTo(0.38, 0.01));
+    });
+
     testWidgets('a header text button without one is named by its label', (
       tester,
     ) async {
@@ -3261,6 +3301,35 @@ void main() {
       expect(avatarRect.size, const Size.square(FormMetrics.rowLeadingSize));
       expect(avatarRect.center.dy, moreOrLessEquals(row.center.dy));
     });
+
+    testWidgets('a glyph-sized leading gives the title the 18 dp it frees, '
+        'the hairline at the glyph rows\' indent', (tester) async {
+      const row = FormReadTitleRow(
+        leading: Icon(Icons.star, size: FormMetrics.glyphSize),
+        leadingSize: FormMetrics.glyphSize,
+        title: 'Leg day',
+        caption: 'Gym',
+      );
+      await tester.pumpWidget(grouped(row));
+
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentGlyph);
+      expect(
+        tester.widget<Divider>(find.byType(Divider)).indent,
+        FormMetrics.dividerIndentGlyph,
+      );
+      expect(
+        tester.getTopLeft(find.text('Leg day')).dx,
+        FormMetrics.dividerIndentGlyph,
+      );
+      expect(
+        tester.getRect(find.byIcon(Icons.star)).left,
+        RowMetrics.groupInset,
+      );
+      expect(
+        FormMetrics.dividerIndentTitle - FormMetrics.dividerIndentGlyph,
+        FormMetrics.rowLeadingSize - FormMetrics.glyphSize,
+      );
+    });
   });
 
   group('hero row', () {
@@ -4016,6 +4085,66 @@ void main() {
       expect(dismisses, 0);
       expect(find.byType(FormSheetFrame), findsOneWidget);
     });
+
+    testWidgets('MainAxisSize.min makes the sheet as tall as its content; '
+        'the default fills its box', (tester) async {
+      const content = Key('content');
+      const box = 500.0;
+      Future<Rect> frameIn(MainAxisSize? size) async {
+        final chrome = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const FormSheetHandle(),
+            FormSheetHeader(
+              leadingIcon: Icons.close_rounded,
+              leadingTooltip: 'Cancel',
+              onLeading: () {},
+              title: 'New category',
+              trailing: const SizedBox.shrink(),
+            ),
+          ],
+        );
+        const body = [Flexible(child: SizedBox(key: content, height: 120))];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Align(
+              alignment: Alignment.bottomCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: box),
+                child: size == null
+                    ? FormSheetFrame(
+                        chrome: chrome,
+                        body: body,
+                        onLeave: () async {},
+                        isClean: () => true,
+                        onDismiss: () {},
+                      )
+                    : FormSheetFrame(
+                        mainAxisSize: size,
+                        chrome: chrome,
+                        body: body,
+                        onLeave: () async {},
+                        isClean: () => true,
+                        onDismiss: () {},
+                      ),
+              ),
+            ),
+          ),
+        );
+        return tester.getRect(find.byType(FormSheetFrame));
+      }
+
+      final tall = await frameIn(MainAxisSize.min);
+      expect(tall.bottom, tester.getRect(find.byKey(content)).bottom);
+      expect(tall.height, lessThan(box));
+
+      final filled = await frameIn(null);
+      expect(filled.height, box);
+      expect(
+        tester.getRect(find.byKey(content)).bottom,
+        lessThan(filled.bottom),
+      );
+    });
   });
 
   group('header layout', () {
@@ -4031,6 +4160,7 @@ void main() {
       String title = 'Add event',
       String action = 'Save',
       double width = 360,
+      bool leadingEnabled = true,
     }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
@@ -4049,7 +4179,7 @@ void main() {
               child: FormSheetHeader(
                 leadingIcon: Icons.close_rounded,
                 leadingTooltip: 'Cancel',
-                onLeading: () {},
+                onLeading: leadingEnabled ? () {} : null,
                 title: title,
                 stackTitleAtLargeText: stack,
                 trailing: FilledButton(onPressed: () {}, child: Text(action)),
@@ -4058,6 +4188,19 @@ void main() {
           ),
         ),
       );
+    }
+
+    for (final stack in [false, true]) {
+      testWidgets('a null onLeading disables the ✕ in place, a 48 dp target '
+          'still (stack: $stack)', (tester) async {
+        await pumpHeader(tester, 2.0, stack: stack, leadingEnabled: false);
+
+        final close = find.widgetWithIcon(IconButton, Icons.close_rounded);
+        expect(close, findsOneWidget);
+        expect(tester.widget<IconButton>(close).onPressed, isNull);
+        expect(tester.getSize(close).width, greaterThanOrEqualTo(48));
+        expect(tester.getSize(close).height, greaterThanOrEqualTo(48));
+      });
     }
 
     testWidgets('a header that does not opt in stays one 48 dp row at 2.0', (

@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
-import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
@@ -26,6 +26,7 @@ import '../services/event_alert_service.dart';
 import '../services/event_time_formatter.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import 'alert_editor_sheet.dart';
+import 'app_dialogs.dart';
 import 'automation_id.dart';
 import 'color_swatch_picker.dart';
 import 'event_avatar.dart';
@@ -49,8 +50,12 @@ const String _defaultCategoryIconKey = 'event';
 /// keeps its stored name — its localized label is a read row — while its
 /// colour, icon and alerts stay editable.
 ///
-/// Unguarded, as every sub-sheet: the name, icon and colour are three taps to
-/// redo, and each alert it holds is one row to re-add.
+/// Guarded (K11 of the categories record): a typed name and drafted alerts
+/// are more than a tap to redo, so ✕, back, the system back gesture and the
+/// barrier and a dismissing drag ask before discarding a draft that differs
+/// from what the sheet opened with. The drag is `FormSheetFrame`'s, as every
+/// guarded sheet's is — the route's own pops without consulting the guard —
+/// on the frame's content-tall option, so the sub-sheet keeps its box.
 class CategoryEditorSheet extends StatefulWidget {
   final CalendarCategory? initial;
 
@@ -80,18 +85,17 @@ class CategoryEditorSheet extends StatefulWidget {
     String? initialName,
     bool sandbox = false,
   }) {
-    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<CalendarCategory>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: false,
-      backgroundColor: colorScheme.pageGround,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(FormMetrics.sheetRadius),
-        ),
-      ),
+      // The frame owns the drag (the route's own would pop past the guard)
+      // and paints the ground and the radius itself, so a dragged sheet
+      // uncovers nothing of the route's.
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       builder: (context) => ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight:
@@ -142,6 +146,18 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// refreshes and the picker ticks it.
   CalendarCategory? _written;
 
+  /// The draft as the sheet opened — the picker's typed text included, so a
+  /// create it opened is clean until something changes — which [_isDirty]
+  /// compares against.
+  late final String _openedName;
+  late final int _openedColor;
+  late final String _openedIconKey;
+  late final List<CategoryAlert> _openedAlerts;
+
+  /// Held while the discard question is up, so a second back or barrier tap
+  /// cannot stack a second dialog.
+  bool _leaving = false;
+
   /// Memo behind [_duplicateOf]: the folded term it last scanned for, the
   /// catalog revision and locale it scanned under, and what it found.
   String? _duplicateTerm;
@@ -175,6 +191,10 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
         ? const []
         : List<CategoryAlert>.of(EventAlerts.categoryAlertsFor(initial.id));
     _seededAlertIds = {for (final alert in _alerts) alert.id};
+    _openedName = _nameController.text.trim();
+    _openedColor = _colorValue;
+    _openedIconKey = _iconKey;
+    _openedAlerts = _alerts;
   }
 
   @override
@@ -245,6 +265,44 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   }
 
   void _blur() => FocusManager.instance.primaryFocus?.unfocus();
+
+  /// Whether leaving would lose anything. The alerts compare by value, not by
+  /// [_alertsTouched]: one switched off and on again is the set it opened
+  /// with.
+  bool get _isDirty =>
+      _nameController.text.trim() != _openedName ||
+      _colorValue != _openedColor ||
+      _iconKey != _openedIconKey ||
+      !listEquals(_alerts, _openedAlerts);
+
+  /// Serves ✕, back, the system back gesture, the barrier and a dismissing
+  /// drag. Nothing leaves while Save is writing: its own pop is on the way,
+  /// and a question opened under it would take that pop instead of the
+  /// sheet. After a save whose alerts then failed it hands back the row that
+  /// save wrote, as ✕ always has — asking first while the draft holds
+  /// anything that save did not store; otherwise a dirty draft asks first.
+  Future<void> _leave() async {
+    if (_leaving || _saving) return;
+    final written = _written;
+    _leaving = true;
+    try {
+      final dirty = written == null ? _isDirty : _differsFrom(written);
+      final leave = !dirty || await AppDialogs.confirmDiscard(context);
+      if (!leave || !mounted) return;
+      Navigator.of(context).pop(written);
+    } finally {
+      _leaving = false;
+    }
+  }
+
+  /// Whether the draft differs from what the partial save at [written]
+  /// stored: the row against the row, the alerts against the set the facade
+  /// holds for it, which the failed alert write left as it was.
+  bool _differsFrom(CalendarCategory written) =>
+      (!_isBuiltIn && _nameController.text.trim() != written.name) ||
+      _colorValue != written.colorValue ||
+      _iconKey != written.iconKey ||
+      !listEquals(_alerts, EventAlerts.categoryAlertsFor(written.id));
 
   Future<void> _pickIcon() async {
     // Before the picker opens: the route under it remembers a focused name
@@ -503,53 +561,46 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     final l10n = AppLocalizations.of(context)!;
     // The larger of the keyboard inset and the system's bottom inset pads the
     // scroll view, never the whole body — the rule every calendar sheet
-    // follows (`sheet_bottom_clearance_test.dart`): the box is a fixed
-    // fraction of the screen, and a tall IME would collapse a padded Column
-    // to nothing.
+    // follows (`sheet_bottom_clearance_test.dart`): the box is clamped to a
+    // fraction of the screen, and under a tall IME a padded Column would
+    // collapse the rows to nothing while a padded scroll view just scrolls.
     final clearance = math.max(
       MediaQuery.viewInsetsOf(context).bottom,
       MediaQuery.viewPaddingOf(context).bottom,
     );
-    // Back and the barrier leave the way ✕ does: with the row a failed alert
-    // write left behind, when there is one.
-    return PopScope<CalendarCategory>(
-      canPop: _written == null,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) Navigator.of(context).pop(_written);
-      },
-      child: _buildBody(context, l10n, clearance),
-    );
-  }
-
-  Widget _buildBody(
-    BuildContext context,
-    AppLocalizations l10n,
-    double clearance,
-  ) {
-    return Column(
+    // Back, the barrier and a dismissing drag reach `_leave` through the
+    // frame and leave the way ✕ does; a drag on a clean sheet pops at once.
+    return FormSheetFrame(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const FormSheetHandle(),
-        FormSheetHeader(
-          leadingIcon: Icons.close_rounded,
-          leadingTooltip: l10n.cancel,
-          leadingIdentifier: SemanticsIds.categoryEditorClose,
-          onLeading: () => Navigator.of(context).pop(_written),
-          title: _isEditing ? l10n.editCategory : l10n.createCategory,
-          scrolled: _hairline.scrolled,
-          trailingInset: FormMetrics.headerActionInset,
-          // The name is typed without a rebuild of the form; Save follows
-          // its controller instead.
-          trailing: ListenableBuilder(
-            listenable: _nameController,
-            builder: (context, _) => FormHeaderTextButton(
-              label: l10n.save,
-              identifier: SemanticsIds.categoryEditorSave,
-              onPressed: _canSave ? _onSave : null,
+      onLeave: _leave,
+      isClean: () => !_saving && !_isDirty && _written == null,
+      onDismiss: () => Navigator.of(context).pop(_written),
+      chrome: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const FormSheetHandle(),
+          FormSheetHeader(
+            leadingIcon: Icons.close_rounded,
+            leadingTooltip: l10n.cancel,
+            leadingIdentifier: SemanticsIds.categoryEditorClose,
+            onLeading: _saving ? null : _leave,
+            title: _isEditing ? l10n.editCategory : l10n.createCategory,
+            scrolled: _hairline.scrolled,
+            trailingInset: FormMetrics.headerActionInset,
+            // The name is typed without a rebuild of the form; Save follows
+            // its controller instead.
+            trailing: ListenableBuilder(
+              listenable: _nameController,
+              builder: (context, _) => FormHeaderTextButton(
+                label: l10n.save,
+                identifier: SemanticsIds.categoryEditorSave,
+                onPressed: _canSave ? _onSave : null,
+              ),
             ),
           ),
-        ),
+        ],
+      ),
+      body: [
         Flexible(
           child: _hairline.watch(
             child: SingleChildScrollView(

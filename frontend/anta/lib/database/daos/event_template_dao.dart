@@ -146,6 +146,23 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Live templates per category id, the [CalendarEventDao.countByCategory]
+  /// shape: the rows [reassignCategory] would move, so a category with none
+  /// is absent rather than present at zero.
+  Future<Map<String, int>> countByCategory() async {
+    final total = eventTemplates.id.count();
+    final rows =
+        await (selectOnly(eventTemplates)
+              ..addColumns([eventTemplates.category, total])
+              ..where(const CustomExpression<bool>('is_deleted = 0'))
+              ..groupBy([eventTemplates.category]))
+            .get();
+    return {
+      for (final row in rows)
+        row.read(eventTemplates.category)!: row.read(total) ?? 0,
+    };
+  }
+
   /// Next free display position. Tombstones count: reusing a dead template's
   /// slot would reorder the list if that template is ever resurrected.
   Future<int> nextSortOrder() async {

@@ -43,6 +43,14 @@ class FormSheetFrame extends StatefulWidget {
   /// Pops the route with its "cancelled" result — the clean drag's exit.
   final VoidCallback onDismiss;
 
+  /// [MainAxisSize.min] makes the sheet as tall as its content under the box
+  /// the route gives it, with a `Flexible` scroll view in [body]: a guarded
+  /// form of a handful of rows (the category editor) still needs the drag
+  /// that asks before a draft is lost, but the fixed form-sheet height would
+  /// leave most of it empty. The default fills the box, which a sheet with a
+  /// docked bar needs to keep the bar on the bottom edge.
+  final MainAxisSize mainAxisSize;
+
   const FormSheetFrame({
     super.key,
     required this.chrome,
@@ -50,6 +58,7 @@ class FormSheetFrame extends StatefulWidget {
     required this.onLeave,
     required this.isClean,
     required this.onDismiss,
+    this.mainAxisSize = MainAxisSize.max,
   });
 
   @override
@@ -169,6 +178,7 @@ class _FormSheetFrameState extends State<FormSheetFrame>
             ),
           ),
           child: Column(
+            mainAxisSize: widget.mainAxisSize,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Excluded from semantics: a gesture detector with vertical

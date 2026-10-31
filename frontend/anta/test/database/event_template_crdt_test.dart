@@ -202,6 +202,34 @@ void main() {
     });
   });
 
+  group('countByCategory', () {
+    test('counts live templates per category, a tombstone left out', () async {
+      await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
+      await db.eventTemplateDao.upsertTemplate(_entry('t2', 'Leg day'));
+      await db.eventTemplateDao.upsertTemplate(
+        _entry('t3', 'Checkup', category: 'dentist'),
+      );
+      await db.eventTemplateDao.upsertTemplate(
+        _entry('t4', 'Cleaning', category: 'dentist'),
+      );
+      await db.eventTemplateDao.softDeleteById('t4');
+
+      expect(await db.eventTemplateDao.countByCategory(), {
+        'gym': 2,
+        'dentist': 1,
+      });
+    });
+
+    test('a category with no live template is absent', () async {
+      await db.eventTemplateDao.upsertTemplate(
+        _entry('t1', 'Checkup', category: 'dentist'),
+      );
+      await db.eventTemplateDao.softDeleteById('t1');
+
+      expect(await db.eventTemplateDao.countByCategory(), isEmpty);
+    });
+  });
+
   group('the v29 migration', () {
     /// Rebuilds the pre-v29 world: the table simply does not exist.
     Future<void> dropTemplates() async {
@@ -272,12 +300,13 @@ EventTemplatesCompanion _entry(
   String name, {
   DateTime? createdAt,
   int sortOrder = 0,
+  String category = 'gym',
 }) {
   final stamp = createdAt ?? DateTime.utc(2026, 1, 1);
   return EventTemplatesCompanion(
     id: Value(id),
     name: Value(name),
-    category: const Value('gym'),
+    category: Value(category),
     sortOrder: Value(sortOrder),
     createdAt: Value(stamp),
     updatedAt: Value(stamp),

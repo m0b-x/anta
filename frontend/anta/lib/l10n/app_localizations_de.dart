@@ -398,11 +398,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get deleteCategory => 'Kategorie löschen';
 
   @override
-  String deleteCategoryConfirm(String name) {
-    return '„$name“ löschen? Ereignisse damit werden zu „Sonstiges“ verschoben.';
-  }
-
-  @override
   String get categoryDeleted => 'Kategorie gelöscht';
 
   @override
@@ -413,29 +408,13 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Änderung konnte nicht gespeichert werden';
 
   @override
-  String deleteCategoryConfirmWithEvents(int count, String name) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other:
-          '$count Ereignisse zu „Sonstiges“ verschieben und „$name“ löschen?',
-      one: '1 Ereignis zu „Sonstiges“ verschieben und „$name“ löschen?',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String get deleteCategoryHideHint =>
-      'Verbergen behält diese Ereignisse in ihrer eigenen Farbe.';
-
-  @override
   String categoryEventCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count Ereignisse',
-      one: '1 Ereignis',
-      zero: 'Keine Ereignisse',
+      other: '$count Ereignisse',
+      one: '1 Ereignis',
+      zero: 'Keine Ereignisse',
     );
     return '$_temp0';
   }
@@ -492,6 +471,16 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get sortCategoriesAlphabetically => 'A–Z sortieren';
+
+  @override
+  String get categorySortConfirmTitle => 'Kategorien A–Z sortieren?';
+
+  @override
+  String get categorySortConfirmBody =>
+      'Deine eigene Reihenfolge wird ersetzt.';
+
+  @override
+  String get sort => 'Sortieren';
 
   @override
   String get moveToTop => 'Nach oben';
@@ -5658,6 +5647,44 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get categoryDeleteEllipsis => 'Löschen…';
+
+  @override
+  String get categoryDeleteMoveTo => 'Ereignisse verschieben nach';
+
+  @override
+  String categoryDeleteImpactAlerts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Erinnerungen',
+      one: '1 Erinnerung',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoryDeleteImpactTemplates(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Vorlagen',
+      one: '1 Vorlage',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoryDeleteConsequences(String name) {
+    return 'Gespeicherte Ansichten, Zusammenfassungen und Berichte, die nur $name auswählen, zeigen nichts, bis du neu auswählst.';
+  }
+
+  @override
+  String get categoryDeleteAlertsRemoved =>
+      'Die Erinnerungen der Kategorie werden entfernt.';
+
+  @override
+  String get categoryDeleteTemplatesMove =>
+      'Die Vorlagen der Kategorie werden mit den Ereignissen verschoben.';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

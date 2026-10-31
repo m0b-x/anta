@@ -52,11 +52,16 @@ class CategoryPickerSheet extends StatefulWidget {
   /// is left out; search and picking stay as they are.
   final bool sandbox;
 
+  /// Ids never listed, whatever the selection keeps: the delete sheet's own
+  /// category, which cannot be where its events move.
+  final Set<String> exclude;
+
   const CategoryPickerSheet({
     super.key,
     required this.mode,
     required this.initialSelection,
     this.sandbox = false,
+    this.exclude = const {},
   });
 
   /// Picks one category. Returns its id, or `null` when dismissed.
@@ -64,12 +69,14 @@ class CategoryPickerSheet extends StatefulWidget {
     BuildContext context, {
     required String selectedId,
     bool sandbox = false,
+    Set<String> exclude = const {},
   }) async {
     final picked = await _show(
       context,
       mode: CategoryPickerMode.single,
       initialSelection: {selectedId},
       sandbox: sandbox,
+      exclude: exclude,
     );
     if (picked == null || picked.isEmpty) return null;
     return picked.first;
@@ -103,6 +110,7 @@ class CategoryPickerSheet extends StatefulWidget {
     required CategoryPickerMode mode,
     required Set<String> initialSelection,
     required bool sandbox,
+    Set<String> exclude = const {},
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<String>>(
@@ -125,6 +133,7 @@ class CategoryPickerSheet extends StatefulWidget {
           mode: mode,
           initialSelection: initialSelection,
           sandbox: sandbox,
+          exclude: exclude,
         ),
       ),
     );
@@ -240,7 +249,14 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     // threshold) mid-interaction. Invariant 8 is "visible plus its own
     // selected ids"; for a sheet that edits a selection, those are the ids it
     // was handed.
-    final categories = CalendarCategories.visiblePlus(widget.initialSelection);
+    final listed = CalendarCategories.visiblePlus(widget.initialSelection);
+    final exclude = widget.exclude;
+    final categories = exclude.isEmpty
+        ? listed
+        : [
+            for (final category in listed)
+              if (!exclude.contains(category.id)) category,
+          ];
     final rows = _isFiltering
         ? [
             for (final ranked in rankCategories(_query, categories, l10n))

@@ -64,6 +64,7 @@ void main() {
   });
 
   tearDown(() async {
+    writes.release();
     CategoryService.reset();
     CalendarPaletteService.reset();
     SettingsService.reset();
@@ -382,45 +383,226 @@ void main() {
     );
   });
 
-  testWidgets('the close button returns null and writes nothing', (
-    tester,
-  ) async {
-    final robot = CategoryEditorRobot(tester);
-    final outcome = await robot.show();
-    await robot.typeName('Yoga');
+  group('leaving', () {
+    List<String> names() => [for (final c in service.categories) c.name];
 
-    await robot.close();
+    testWidgets('✕ on a clean create leaves at once with null', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      final before = names();
 
-    expect(outcome.returned, isTrue);
-    expect(outcome.result, isNull);
-    expect(robot.isOpen, isFalse);
-    expect(service.categories.map((c) => c.name), isNot(contains('Yoga')));
-  });
+      await robot.close();
 
-  testWidgets('the system back returns null and writes nothing', (
-    tester,
-  ) async {
-    final robot = CategoryEditorRobot(tester);
-    final outcome = await robot.show();
-    await robot.typeName('Yoga');
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+      expect(robot.isOpen, isFalse);
+      expect(names(), before);
+    });
 
-    await robot.systemBack();
+    testWidgets('✕ on a typed name asks, and Discard returns null and writes '
+        'nothing', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
 
-    expect(outcome.returned, isTrue);
-    expect(outcome.result, isNull);
-    expect(service.categories.map((c) => c.name), isNot(contains('Yoga')));
-  });
+      await robot.close();
 
-  testWidgets('a scrim tap returns null and writes nothing', (tester) async {
-    final robot = CategoryEditorRobot(tester);
-    final outcome = await robot.show();
-    await robot.typeName('Yoga');
+      expect(robot.discardAsked, isTrue);
+      expect(robot.isOpen, isTrue);
+      expect(outcome.returned, isFalse);
 
-    await robot.tapBarrier();
+      await robot.discard();
 
-    expect(outcome.returned, isTrue);
-    expect(outcome.result, isNull);
-    expect(service.categories.map((c) => c.name), isNot(contains('Yoga')));
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+      expect(robot.isOpen, isFalse);
+      expect(names(), isNot(contains('Yoga')));
+    });
+
+    testWidgets('✕ on an edit whose colour changed asks', (tester) async {
+      final existing = await custom('Old');
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: existing);
+      await robot.pickSwatch(green);
+
+      await robot.close();
+
+      expect(robot.discardAsked, isTrue);
+      await robot.discard();
+      expect(outcome.result, isNull);
+      expect(CalendarCategories.byId(existing.id), existing);
+    });
+
+    testWidgets('the system back on a dirty sheet asks, and Discard returns '
+        'null and writes nothing', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+
+      await robot.systemBack();
+
+      expect(robot.discardAsked, isTrue);
+      expect(outcome.returned, isFalse);
+      await robot.discard();
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+      expect(names(), isNot(contains('Yoga')));
+    });
+
+    testWidgets('a scrim tap on a clean sheet leaves at once with null and '
+        'writes nothing', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      final before = names();
+
+      await robot.tapBarrier();
+
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+      expect(names(), before);
+    });
+
+    testWidgets('a scrim tap on a dirty sheet asks: Keep editing keeps the '
+        'sheet and its text, Discard returns null and writes nothing', (
+      tester,
+    ) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+
+      await robot.tapBarrier();
+      expect(robot.discardAsked, isTrue);
+
+      await robot.keepEditing();
+      expect(robot.discardAsked, isFalse);
+      expect(robot.isOpen, isTrue);
+      expect(robot.nameText, 'Yoga');
+      expect(outcome.returned, isFalse);
+
+      await robot.tapBarrier();
+      await robot.discard();
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+      expect(names(), isNot(contains('Yoga')));
+    });
+
+    testWidgets('a create opened with the picker\'s typed text is clean until '
+        'something changes', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initialName: 'Pil');
+
+      await robot.close();
+
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+    });
+
+    testWidgets('Save pops with the category and asks nothing', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+
+      await robot.save();
+
+      expect(robot.discardAsked, isFalse);
+      expect(robot.isOpen, isFalse);
+      expect(outcome.result?.name, 'Yoga');
+    });
+
+    testWidgets('a dismissing fling on a dirty sheet snaps back and asks: '
+        'Keep editing leaves the sheet where it was', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+      final top = robot.handleTop;
+
+      await robot.flingDown();
+
+      expect(robot.discardAsked, isTrue);
+      expect(robot.handleTop, top, reason: 'asked over a sheet at rest');
+      expect(outcome.returned, isFalse);
+
+      await robot.keepEditing();
+
+      expect(robot.isOpen, isTrue);
+      expect(robot.handleTop, top);
+      expect(robot.nameText, 'Yoga');
+      expect(outcome.returned, isFalse);
+    });
+
+    testWidgets('a dismissing fling on a clean sheet leaves at once with '
+        'null', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      final before = names();
+
+      await robot.flingDown();
+
+      expect(robot.discardAsked, isFalse);
+      expect(robot.isOpen, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+      expect(names(), before);
+    });
+
+    testWidgets('a picker\'s text over the limit is clean on open: the clamp '
+        'runs before the opened draft is taken', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initialName: 'x' * 60);
+      expect(robot.nameText, 'x' * kCategoryNameMaxLength);
+
+      await robot.close();
+
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
+    });
+
+    testWidgets('✕ while a dismissing drag snaps back asks once: the drag\'s '
+        'own ask finds the question up', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+
+      await robot.closeDuringSnapBack();
+
+      expect(robot.discardQuestions, 1);
+      await robot.discard();
+      expect(robot.isOpen, isFalse);
+      expect(outcome.result, isNull);
+    });
+
+    testWidgets('while Save writes, ✕ is disabled and neither back nor the '
+        'barrier asks; the save then pops with what it wrote', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+      writes.holdNext('calendar_categories');
+
+      await robot.save();
+
+      expect(writes.held, isTrue, reason: 'create reads MAX(sort_order)');
+      expect(robot.closeEnabled, isFalse);
+      await robot.close();
+      await robot.systemBack();
+      await robot.tapBarrier();
+      expect(robot.discardAsked, isFalse);
+      expect(robot.isOpen, isTrue);
+      expect(outcome.returned, isFalse);
+
+      writes.release();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(robot.isOpen, isFalse);
+      expect(robot.saveFailureShown, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result?.name, 'Yoga');
+      expect(names(), contains('Yoga'));
+    });
   });
 
   testWidgets('the name is focused on create and not on edit', (tester) async {
@@ -866,8 +1048,26 @@ void main() {
       await robot.addAlert();
       await sheet.save();
       await robot.close();
+      expect(robot.discardAsked, isTrue);
+      await robot.discard();
 
       expect(EventAlerts.categoryAlertsFor(kBirthdayCategoryId), isEmpty);
+    });
+
+    testWidgets('an alert switched off and on again leaves the sheet clean', (
+      tester,
+    ) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [seeded('a1')]);
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: birthdays());
+
+      await robot.toggleAlert(0);
+      await robot.toggleAlert(0);
+      await robot.close();
+
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull);
     });
 
     testWidgets('a failed alert write keeps the sheet open, says so, and the '
@@ -900,8 +1100,10 @@ void main() {
       expect(EventAlerts.categoryAlertsFor(created.id), hasLength(1));
     });
 
-    testWidgets('after a failed alert write ✕ hands back the category the '
-        'save did write', (tester) async {
+    testWidgets('after a failed alert write ✕ asks for the alert the save '
+        'did not store, and Discard hands back the category it did write', (
+      tester,
+    ) async {
       final robot = CategoryEditorRobot(tester);
       final sheet = AlertSheetRobot(tester);
       final outcome = await robot.show();
@@ -916,11 +1118,40 @@ void main() {
 
       await robot.close();
 
+      expect(robot.discardAsked, isTrue);
+      expect(outcome.returned, isFalse);
+
+      await robot.discard();
+
       expect(robot.isOpen, isFalse);
       final stored = service.categories.singleWhere(
         (c) => c.name == 'Training',
       );
       expect(outcome.result, stored);
+      expect(EventAlerts.categoryAlertsFor(stored.id), isEmpty);
+    });
+
+    testWidgets('after a failed alert write that left the stored alerts as '
+        'drafted, ✕ hands back the written category at once', (tester) async {
+      await alerts.replaceForCategory(kBirthdayCategoryId, [seeded('a1')]);
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: birthdays());
+      await robot.pickSwatch(green);
+      // Touched but equal by value: the write is attempted, and its own read
+      // is what fails, since an unchanged row is never written.
+      await robot.toggleAlert(0);
+      await robot.toggleAlert(0);
+      writes.failNext('calendar_category_alerts');
+      await robot.save();
+      expect(robot.isOpen, isTrue);
+      expect(robot.saveFailureShown, isTrue);
+
+      await robot.close();
+
+      expect(robot.discardAsked, isFalse);
+      expect(robot.isOpen, isFalse);
+      expect(outcome.result?.colorValue, green);
+      expect(outcome.result, CalendarCategories.byId(kBirthdayCategoryId));
     });
 
     testWidgets('a row\'s switch is the category\'s own on / off for the '
@@ -1209,10 +1440,63 @@ class _RecordingObserver extends BlocObserver {
   }
 }
 
+/// Holds or fails the next read of one table — copied from the delete
+/// sheet's suite: `create`'s `MAX(sort_order)` read, held so a case can act
+/// on the sheet mid-save, or the alert write's own read, failed where the
+/// write itself would be skipped as unchanged.
+class _ReadGate extends QueryInterceptor {
+  Completer<void>? _hold;
+  String? _table;
+  bool _fail = false;
+  bool held = false;
+
+  void holdNext(String table) {
+    _table = table;
+    _fail = false;
+    _hold = Completer<void>();
+  }
+
+  void failNext(String table) {
+    _table = table;
+    _fail = true;
+  }
+
+  void release() {
+    final hold = _hold;
+    _hold = null;
+    _table = null;
+    _fail = false;
+    if (hold != null && !hold.isCompleted) hold.complete();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final table = _table;
+    if (_fail && table != null && statement.contains(table)) {
+      _table = null;
+      _fail = false;
+      throw StateError('read of $table failed');
+    }
+    final rows = await super.runSelect(executor, statement, args);
+    final hold = _hold;
+    if (hold != null && table != null && statement.contains(table)) {
+      _table = null;
+      held = true;
+      await hold.future;
+    }
+    return rows;
+  }
+}
+
 /// Fails every write on demand — or only the ones whose statement names
 /// [failOnly] — so a save can be made to fail without closing the database
-/// under the sheet.
-class _WriteFailure extends QueryInterceptor {
+/// under the sheet; the reads go through [_ReadGate], the database's one
+/// interceptor.
+class _WriteFailure extends _ReadGate {
   bool fail = false;
   String? failOnly;
 

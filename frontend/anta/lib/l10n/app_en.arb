@@ -530,15 +530,6 @@
   "@deleteCategory": {
     "description": "Action/title for deleting a custom event category"
   },
-  "deleteCategoryConfirm": "Delete \"{name}\"? Events using it will move to Other.",
-  "@deleteCategoryConfirm": {
-    "description": "Confirmation message when deleting a custom event category",
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
   "categoryDeleted": "Category deleted",
   "@categoryDeleted": {
     "description": "Snackbar shown after a custom category is deleted"
@@ -551,21 +542,9 @@
   "@categoryChangeFailed": {
     "description": "Snackbar on the categories page when hiding, deleting or reordering a category fails"
   },
-  "deleteCategoryConfirmWithEvents": "{count, plural, =1{Move 1 event to Other and delete \"{name}\"?} other{Move {count} events to Other and delete \"{name}\"?}}",
-  "@deleteCategoryConfirmWithEvents": {
-    "description": "Confirmation message when deleting a category that still has events",
-    "placeholders": {
-      "count": { "type": "int", "example": "12" },
-      "name": { "type": "String" }
-    }
-  },
-  "deleteCategoryHideHint": "Hiding it instead keeps those events in their own color.",
-  "@deleteCategoryHideHint": {
-    "description": "Extra sentence suggesting hiding rather than deleting a category that has events"
-  },
-  "categoryEventCount": "{count, plural, =0{No events} =1{1 event} other{{count} events}}",
+  "categoryEventCount": "{count, plural, =0{No events} =1{1 event} other{{count} events}}",
   "@categoryEventCount": {
-    "description": "Number of events using a category, shown in the category row subtitle",
+    "description": "Number of events using a category, shown in the category row subtitle and the delete sheet's counts. Keep the no-break spaces between the words so the segment never splits across lines",
     "placeholders": {
       "count": { "type": "int", "example": "12" }
     }
@@ -638,6 +617,18 @@
   "sortCategoriesAlphabetically": "Sort A–Z",
   "@sortCategoriesAlphabetically": {
     "description": "Overflow menu action sorting categories alphabetically"
+  },
+  "categorySortConfirmTitle": "Sort categories A–Z?",
+  "@categorySortConfirmTitle": {
+    "description": "Title of the dialog confirming that the categories are sorted alphabetically"
+  },
+  "categorySortConfirmBody": "Your own order is replaced.",
+  "@categorySortConfirmBody": {
+    "description": "Body of the dialog confirming an A–Z sort: the user's manual category order is lost"
+  },
+  "sort": "Sort",
+  "@sort": {
+    "description": "Confirm button that sorts a list"
   },
   "moveToTop": "Move to top",
   "@moveToTop": {
@@ -7176,7 +7167,40 @@
   },
   "categoryDeleteEllipsis": "Delete…",
   "@categoryDeleteEllipsis": {
-    "description": "Row menu item on the categories page that opens the delete confirmation; the ellipsis says a question follows"
+    "description": "Row menu item on the categories page that opens the delete sheet; the ellipsis says a question follows"
+  },
+  "categoryDeleteMoveTo": "Move events to",
+  "@categoryDeleteMoveTo": {
+    "description": "Label of the delete sheet's row that picks the category a deleted category's events and templates move to; the value is that category's name"
+  },
+  "categoryDeleteImpactAlerts": "{count, plural, =1{1 alert} other{{count} alerts}}",
+  "@categoryDeleteImpactAlerts": {
+    "description": "Delete sheet: how many alerts of the category are removed with it, one segment of the line under its name (omitted at zero). Keep the no-break spaces between the words so the segment never splits across lines",
+    "placeholders": {
+      "count": { "type": "int", "example": "2" }
+    }
+  },
+  "categoryDeleteImpactTemplates": "{count, plural, =1{1 template} other{{count} templates}}",
+  "@categoryDeleteImpactTemplates": {
+    "description": "Delete sheet: how many event templates use the category, one segment of the line under its name (omitted at zero). Keep the no-break spaces between the words so the segment never splits across lines",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "categoryDeleteConsequences": "Saved views, digests and reports that pick only {name} show nothing until you pick again.",
+  "@categoryDeleteConsequences": {
+    "description": "Caption under the delete sheet's group, always its last sentence: what else the delete changes",
+    "placeholders": {
+      "name": { "type": "String", "example": "Dentist" }
+    }
+  },
+  "categoryDeleteAlertsRemoved": "Its alerts are removed.",
+  "@categoryDeleteAlertsRemoved": {
+    "description": "Delete sheet: the caption's sentence shown only when the category has alerts, which are removed with it"
+  },
+  "categoryDeleteTemplatesMove": "Its templates move with the events.",
+  "@categoryDeleteTemplatesMove": {
+    "description": "Delete sheet: the sentence before the consequences caption when the category has templates, which move to the same category as its events"
   },
   "eventAlertCountdown": "{kind} in {duration}",
   "@eventAlertCountdown": {

@@ -137,6 +137,29 @@ void main() {
     expect(picked, 'c2');
   });
 
+  testWidgets('single mode leaves out the excluded ids, the selection still '
+      'listed', (tester) async {
+    seed(4);
+    String? picked;
+    await openSheet<String>(tester, (context) async {
+      picked = await CategoryPickerSheet.pickSingle(
+        context,
+        selectedId: 'c0',
+        exclude: {'c1'},
+      );
+      return picked;
+    });
+
+    expect(find.text('Cat1'), findsNothing);
+    for (final label in ['Cat0', 'Cat2', 'Cat3']) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    await tester.tap(find.text('Cat3'));
+    await tester.pumpAndSettle();
+
+    expect(picked, 'c3');
+  });
+
   testWidgets('multi mode returns an empty set, never null, when cleared', (
     tester,
   ) async {

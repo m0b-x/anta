@@ -4,9 +4,10 @@
 # seeded Archive (its slot is kept), then restored through the same item and
 # back above the header; it is dragged onto Other, the built-in above it, by
 # a long press and put back, the order asserted both ways — the drag stays
-# inside In use; deleted through its ⋮ with the confirm, which names its one
-# seeded event, the message waited for and the row gone; then a category is
-# created through the FAB, and the page scrolls to it by itself.
+# inside In use; deleted through its ⋮ on the delete sheet, its Move events
+# to row on screen, the message waited for and the row gone; then a category
+# is created through the FAB, and the page scrolls to it by itself; last, the
+# bar's Sort A–Z is cancelled on its confirm and the manual order stands.
 # - Reached as flow 18 reaches it. At 1.0 the nine built-ins, Strength, the
 #   Archived header and Archive do not all fit one screen, and `expect` never
 #   scrolls: the header's row is scrolled to before each ordered check.
@@ -18,9 +19,13 @@
 # - The drag lifts the row by a long press anywhere on it (the delayed drag
 #   listener lifts at 500 ms), so each drag holds 900 ms. Strength is
 #   scrolled to first so it and Other are both on screen.
-# - The delete's confirm is the shared dialog's id:sheet-confirm.
+# - The delete is the delete sheet (S3): its Move events to row and its
+#   Delete button carry ids of their own.
 # - The new category is appended to In use; the create scrolls it into view
 #   and flashes it, so the flow waits for its typed name without scrolling.
+# - Sort A–Z's confirm is the shared dialog's: id:sheet-confirm and
+#   id:sheet-cancel. The seeded Gym sits above Cardio, which A–Z would swap;
+#   both are at the top of the list, scrolled back to after the create.
 tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
@@ -53,10 +58,11 @@ expect --ordered id:category-row-other id:category-row-qa-cal-strength
 tap id:category-menu-qa-cal-strength
 wait id:category-menu-delete
 tap id:category-menu-delete
-wait id:sheet-confirm
-expect 'Move 1 event to Other and delete "Strength"?'
-shot 29_categories_delete_confirm
-tap id:sheet-confirm
+wait id:category-delete-confirm
+expect "1 event"
+expect id:category-delete-target
+shot 29_categories_delete_sheet
+tap id:category-delete-confirm
 wait "Category deleted"
 expect id:category-row-other --absent id:category-row-qa-cal-strength
 tap id:category-add
@@ -66,6 +72,14 @@ tap id:category-editor-save
 wait id:category-editor-save --gone
 wait "QA flow category"
 shot 29_categories_created
+tap id:category-bar-menu
+wait id:category-sort-az
+tap id:category-sort-az
+wait id:sheet-confirm
+tap id:sheet-cancel
+wait id:sheet-confirm --gone
+scroll-to id:category-row-gym --up
+expect --ordered id:category-row-gym id:category-row-cardio
 key back
 wait id:calendar-categories-open
 key back

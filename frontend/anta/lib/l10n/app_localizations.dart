@@ -844,12 +844,6 @@ abstract class AppLocalizations {
   /// **'Delete category'**
   String get deleteCategory;
 
-  /// Confirmation message when deleting a custom event category
-  ///
-  /// In en, this message translates to:
-  /// **'Delete \"{name}\"? Events using it will move to Other.'**
-  String deleteCategoryConfirm(String name);
-
   /// Snackbar shown after a custom category is deleted
   ///
   /// In en, this message translates to:
@@ -868,22 +862,10 @@ abstract class AppLocalizations {
   /// **'Couldn\'t save the change'**
   String get categoryChangeFailed;
 
-  /// Confirmation message when deleting a category that still has events
+  /// Number of events using a category, shown in the category row subtitle and the delete sheet's counts. Keep the no-break spaces between the words so the segment never splits across lines
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{Move 1 event to Other and delete \"{name}\"?} other{Move {count} events to Other and delete \"{name}\"?}}'**
-  String deleteCategoryConfirmWithEvents(int count, String name);
-
-  /// Extra sentence suggesting hiding rather than deleting a category that has events
-  ///
-  /// In en, this message translates to:
-  /// **'Hiding it instead keeps those events in their own color.'**
-  String get deleteCategoryHideHint;
-
-  /// Number of events using a category, shown in the category row subtitle
-  ///
-  /// In en, this message translates to:
-  /// **'{count, plural, =0{No events} =1{1 event} other{{count} events}}'**
+  /// **'{count, plural, =0{No events} =1{1 event} other{{count} events}}'**
   String categoryEventCount(int count);
 
   /// Placeholder for the category search field
@@ -957,6 +939,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sort A–Z'**
   String get sortCategoriesAlphabetically;
+
+  /// Title of the dialog confirming that the categories are sorted alphabetically
+  ///
+  /// In en, this message translates to:
+  /// **'Sort categories A–Z?'**
+  String get categorySortConfirmTitle;
+
+  /// Body of the dialog confirming an A–Z sort: the user's manual category order is lost
+  ///
+  /// In en, this message translates to:
+  /// **'Your own order is replaced.'**
+  String get categorySortConfirmBody;
+
+  /// Confirm button that sorts a list
+  ///
+  /// In en, this message translates to:
+  /// **'Sort'**
+  String get sort;
 
   /// Row menu action moving an item to the first position
   ///
@@ -9514,11 +9514,47 @@ abstract class AppLocalizations {
   /// **'Restore'**
   String get categoryRestore;
 
-  /// Row menu item on the categories page that opens the delete confirmation; the ellipsis says a question follows
+  /// Row menu item on the categories page that opens the delete sheet; the ellipsis says a question follows
   ///
   /// In en, this message translates to:
   /// **'Delete…'**
   String get categoryDeleteEllipsis;
+
+  /// Label of the delete sheet's row that picks the category a deleted category's events and templates move to; the value is that category's name
+  ///
+  /// In en, this message translates to:
+  /// **'Move events to'**
+  String get categoryDeleteMoveTo;
+
+  /// Delete sheet: how many alerts of the category are removed with it, one segment of the line under its name (omitted at zero). Keep the no-break spaces between the words so the segment never splits across lines
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 alert} other{{count} alerts}}'**
+  String categoryDeleteImpactAlerts(int count);
+
+  /// Delete sheet: how many event templates use the category, one segment of the line under its name (omitted at zero). Keep the no-break spaces between the words so the segment never splits across lines
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 template} other{{count} templates}}'**
+  String categoryDeleteImpactTemplates(int count);
+
+  /// Caption under the delete sheet's group, always its last sentence: what else the delete changes
+  ///
+  /// In en, this message translates to:
+  /// **'Saved views, digests and reports that pick only {name} show nothing until you pick again.'**
+  String categoryDeleteConsequences(String name);
+
+  /// Delete sheet: the caption's sentence shown only when the category has alerts, which are removed with it
+  ///
+  /// In en, this message translates to:
+  /// **'Its alerts are removed.'**
+  String get categoryDeleteAlertsRemoved;
+
+  /// Delete sheet: the sentence before the consequences caption when the category has templates, which move to the same category as its events
+  ///
+  /// In en, this message translates to:
+  /// **'Its templates move with the events.'**
+  String get categoryDeleteTemplatesMove;
 
   /// Snackbar after saving an event whose alerts changed: how long until the next one, under a day away
   ///

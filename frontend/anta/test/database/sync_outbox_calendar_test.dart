@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/calendar_event.dart' show kFallbackCategoryId;
 import 'package:anta/services/event_presence_service.dart';
 
 import 'support/db_test_support.dart';
@@ -297,6 +298,51 @@ void main() {
       expect(rows.map((r) => r.hlc).toSet(), {
         (await idRow(db.calendarCategories, 'climb')).hlc,
       });
+    });
+
+    test('a target tombstoned before the cascade sends the events and '
+        'templates to Other', () async {
+      final at = DateTime.utc(2026, 10, 1);
+      for (final id in ['climb', 'swim']) {
+        await db.calendarCategoryDao.insertCategory(
+          CalendarCategoriesCompanion(
+            id: Value(id),
+            name: Value(id),
+            colorValue: const Value(0xFF00FF00),
+            iconKey: const Value('event'),
+            createdAt: Value(at),
+            updatedAt: Value(at),
+          ),
+        );
+      }
+      await db.calendarEventDao.upsert(event('e1', category: 'climb'));
+      await db.eventTemplateDao.upsertTemplate(
+        EventTemplatesCompanion(
+          id: const Value('t1'),
+          name: const Value('Template'),
+          category: const Value('climb'),
+          sortOrder: const Value(0),
+          createdAt: Value(at),
+          updatedAt: Value(at),
+        ),
+      );
+      // A pull tombstoned the target the caller's catalogue still lists.
+      expect(await db.calendarCategoryDao.softDeleteById('swim'), isTrue);
+
+      final deleted = await db.calendarCategoryDao.tombstoneCascade(
+        'climb',
+        reassignTo: 'swim',
+      );
+
+      expect(deleted, isTrue);
+      expect(
+        (await db.calendarEventDao.getAll()).single.category,
+        kFallbackCategoryId,
+      );
+      expect(
+        (await db.eventTemplateDao.getAll()).single.category,
+        kFallbackCategoryId,
+      );
     });
 
     test('a refused delete moves no event and queues nothing', () async {

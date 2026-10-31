@@ -394,11 +394,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deleteCategory => 'Delete category';
 
   @override
-  String deleteCategoryConfirm(String name) {
-    return 'Delete \"$name\"? Events using it will move to Other.';
-  }
-
-  @override
   String get categoryDeleted => 'Category deleted';
 
   @override
@@ -408,28 +403,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get categoryChangeFailed => 'Couldn\'t save the change';
 
   @override
-  String deleteCategoryConfirmWithEvents(int count, String name) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Move $count events to Other and delete \"$name\"?',
-      one: 'Move 1 event to Other and delete \"$name\"?',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String get deleteCategoryHideHint =>
-      'Hiding it instead keeps those events in their own color.';
-
-  @override
   String categoryEventCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count events',
-      one: '1 event',
-      zero: 'No events',
+      other: '$count events',
+      one: '1 event',
+      zero: 'No events',
     );
     return '$_temp0';
   }
@@ -486,6 +466,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sortCategoriesAlphabetically => 'Sort A–Z';
+
+  @override
+  String get categorySortConfirmTitle => 'Sort categories A–Z?';
+
+  @override
+  String get categorySortConfirmBody => 'Your own order is replaced.';
+
+  @override
+  String get sort => 'Sort';
 
   @override
   String get moveToTop => 'Move to top';
@@ -5622,6 +5611,43 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get categoryDeleteEllipsis => 'Delete…';
+
+  @override
+  String get categoryDeleteMoveTo => 'Move events to';
+
+  @override
+  String categoryDeleteImpactAlerts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count alerts',
+      one: '1 alert',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoryDeleteImpactTemplates(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count templates',
+      one: '1 template',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoryDeleteConsequences(String name) {
+    return 'Saved views, digests and reports that pick only $name show nothing until you pick again.';
+  }
+
+  @override
+  String get categoryDeleteAlertsRemoved => 'Its alerts are removed.';
+
+  @override
+  String get categoryDeleteTemplatesMove =>
+      'Its templates move with the events.';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

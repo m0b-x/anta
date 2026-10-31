@@ -399,11 +399,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get deleteCategory => 'Șterge categoria';
 
   @override
-  String deleteCategoryConfirm(String name) {
-    return 'Ștergi „$name”? Evenimentele care o folosesc vor trece la „Altele”.';
-  }
-
-  @override
   String get categoryDeleted => 'Categorie ștearsă';
 
   @override
@@ -413,30 +408,14 @@ class AppLocalizationsRo extends AppLocalizations {
   String get categoryChangeFailed => 'Modificarea nu a putut fi salvată';
 
   @override
-  String deleteCategoryConfirmWithEvents(int count, String name) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Muți $count de evenimente la „Altele” și ștergi „$name”?',
-      few: 'Muți $count evenimente la „Altele” și ștergi „$name”?',
-      one: 'Muți 1 eveniment la „Altele” și ștergi „$name”?',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String get deleteCategoryHideHint =>
-      'Ascunderea păstrează aceste evenimente în culoarea lor.';
-
-  @override
   String categoryEventCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count de evenimente',
-      few: '$count evenimente',
-      one: '1 eveniment',
-      zero: 'Niciun eveniment',
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: '1 eveniment',
+      zero: 'Niciun eveniment',
     );
     return '$_temp0';
   }
@@ -494,6 +473,15 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get sortCategoriesAlphabetically => 'Sortează A–Z';
+
+  @override
+  String get categorySortConfirmTitle => 'Sortezi categoriile A–Z?';
+
+  @override
+  String get categorySortConfirmBody => 'Ordinea ta este înlocuită.';
+
+  @override
+  String get sort => 'Sortează';
 
   @override
   String get moveToTop => 'Mută sus';
@@ -5713,6 +5701,45 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get categoryDeleteEllipsis => 'Șterge…';
+
+  @override
+  String get categoryDeleteMoveTo => 'Mută evenimentele în';
+
+  @override
+  String categoryDeleteImpactAlerts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de alerte',
+      few: '$count alerte',
+      one: '1 alertă',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoryDeleteImpactTemplates(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de șabloane',
+      few: '$count șabloane',
+      one: '1 șablon',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoryDeleteConsequences(String name) {
+    return 'Vizualizările salvate, rezumatele și rapoartele care aleg doar $name nu arată nimic până alegi din nou.';
+  }
+
+  @override
+  String get categoryDeleteAlertsRemoved => 'Alertele ei se șterg.';
+
+  @override
+  String get categoryDeleteTemplatesMove =>
+      'Șabloanele ei se mută odată cu evenimentele.';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

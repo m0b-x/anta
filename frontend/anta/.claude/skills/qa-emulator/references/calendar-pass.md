@@ -60,10 +60,14 @@ the page on content rows: Strength archived through its ⋮ and read under the
 `category-section-archived` header before the seeded Archive, restored through
 the same item, dragged onto Other by a 900 ms long press and back with the
 order asserted by `expect --ordered` — a drag never leaves In use, a drop
-across the sections is refused — deleted through its ⋮ and the confirm, a
-category created through the FAB and found by its typed name after the page's
-own scroll-and-flash) consumes the seed too: it deletes Strength, so a lone
-re-run needs `relaunch --fresh --seed` first.
+across the sections is refused — deleted through its ⋮ and the delete sheet
+(`category-delete-confirm`, its Move events to row `category-delete-target` on
+screen; S3), a category created through the FAB and found by its typed name
+after the page's own scroll-and-flash, then the bar's Sort A–Z opened and its
+confirm cancelled with Gym still above Cardio) consumes the seed too: it
+deletes Strength, so a lone re-run needs `relaunch --fresh --seed` first.
+`18_category_editor` discards its dirty create through `unsaved-discard` since
+the editor guards a draft (S3).
 
 Placeholders work in step files too: `tap "{{longdate+1}}"` taps tomorrow's
 day cell by the label the grid gives it.

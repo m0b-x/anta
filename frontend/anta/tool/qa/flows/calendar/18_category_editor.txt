@@ -8,7 +8,9 @@
 #   is waited for by the row that opened the Categories page.
 # - A built-in's name is a read row; Strength is custom, so its name is the
 #   text field id:category-editor-name.
-# - The editor is an unguarded sub-sheet: ✕ leaves without asking.
+# - The editor guards a dirty draft (categories record K11): ✕ on the
+#   untouched edit form leaves at once; on the create form with a typed name
+#   it asks, and the flow discards.
 # - The edit form ends with its Alerts group (v42); this seed gives no
 #   category an alert, so the group is Add alert alone.
 tap id:calendar-more
@@ -37,6 +39,8 @@ type "Strength"
 expect '"Strength" already exists'
 shot 18_category_create_duplicate
 tap id:category-editor-close
+wait id:unsaved-discard
+tap id:unsaved-discard
 wait id:category-add
 key back
 wait id:calendar-categories-open

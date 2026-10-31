@@ -12,6 +12,9 @@
 #   so its ✕ returns to the detail sheet without asking.
 # - The grid title's label is the month and year, which no placeholder
 #   renders; it is reached by id:calendar-month-title.
+# - The template picker is long-pressed open on today: `{{longdate+2}}` fell
+#   off the month's page on 31 October (2 November has no cell there) — today
+#   is the one day every month page shows, as flow 14 already does.
 tap id:event-row-qa-cal-lift
 wait id:event-detail-edit
 tap id:event-detail-edit
@@ -51,7 +54,7 @@ tap id:event-close
 wait id:event-detail-close
 tap id:event-detail-close
 wait id:calendar-add-event
-longpress "{{longdate+2}}"
+longpress "{{longdate}}"
 wait id:quick-alarm-row
 shot 11_template_picker
 tap id:template-pick-close

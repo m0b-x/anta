@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
+import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor, Value;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
@@ -11,6 +11,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart' show kFallbackCategoryId;
 import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/category_delete_impact.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_template.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -590,6 +591,168 @@ void main() {
             'events only reach the grid after a restart',
       );
       expect(fired, hasLength(1));
+    });
+  });
+
+  group('deleteCategory answers and takes a target (C1)', () {
+    Future<void> addEvent(String id, String categoryId) =>
+        db.calendarEventDao.upsert(
+          CalendarEventsCompanion.insert(
+            id: id,
+            title: id,
+            category: categoryId,
+            startDate: DateTime.utc(2026, 8, 1),
+            ruleKind: 'oneTime',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        );
+
+    Future<void> addTemplate(String id, String categoryId) =>
+        db.eventTemplateDao.upsertTemplate(
+          EventTemplatesCompanion(
+            id: Value(id),
+            name: Value(id),
+            category: Value(categoryId),
+            createdAt: Value(DateTime.now()),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+
+    Future<Map<String, String>> categoriesOf() async => {
+      for (final row in await db.calendarEventDao.getAll())
+        row.id: row.category,
+      for (final row in await db.eventTemplateDao.getAll())
+        row.id: row.category,
+    };
+
+    Future<CalendarCategory> dentist() => service.create(
+      name: 'Dentist',
+      colorValue: 0xFF00AAFF,
+      iconKey: 'event',
+    );
+
+    tearDown(EventAlertService.reset);
+
+    test('true for a custom, false for a built-in and a missing id', () async {
+      final custom = await dentist();
+
+      expect(await service.deleteCategory('gym'), isFalse);
+      expect(await service.deleteCategory('no-such-category'), isFalse);
+      expect(await service.deleteCategory(custom.id), isTrue);
+      expect(
+        await service.deleteCategory(custom.id),
+        isFalse,
+        reason: 'a second delete finds nothing live to tombstone',
+      );
+    });
+
+    test('false, moving nothing and signalling nothing, when the DAO finds '
+        'the row already tombstoned', () async {
+      final custom = await dentist();
+      await addEvent('e1', custom.id);
+      // A pull tombstoned it under the cached catalogue.
+      await db.calendarCategoryDao.softDeleteById(custom.id);
+      expect(CalendarCategories.byId(custom.id), isNotNull);
+      final before = CalendarEventService.externalRevision;
+
+      expect(
+        await service.deleteCategory(custom.id, reassignTo: 'gym'),
+        isFalse,
+      );
+
+      expect(await categoriesOf(), {'e1': custom.id});
+      expect(CalendarEventService.externalRevision, before);
+    });
+
+    test('moves the events and templates to the target', () async {
+      final custom = await dentist();
+      await addEvent('e1', custom.id);
+      await addTemplate('t1', custom.id);
+      await addEvent('e2', 'cardio');
+
+      await service.deleteCategory(custom.id, reassignTo: 'gym');
+
+      expect(await categoriesOf(), {'e1': 'gym', 't1': 'gym', 'e2': 'cardio'});
+    });
+
+    test('an unknown target falls back to Other', () async {
+      final custom = await dentist();
+      await addEvent('e1', custom.id);
+      await addTemplate('t1', custom.id);
+
+      await service.deleteCategory(custom.id, reassignTo: 'no-such-category');
+
+      expect(await categoriesOf(), {
+        'e1': kFallbackCategoryId,
+        't1': kFallbackCategoryId,
+      });
+    });
+
+    test('the category itself as its target falls back to Other', () async {
+      final custom = await dentist();
+      await addEvent('e1', custom.id);
+
+      expect(
+        await service.deleteCategory(custom.id, reassignTo: custom.id),
+        isTrue,
+      );
+
+      expect(await categoriesOf(), {'e1': kFallbackCategoryId});
+    });
+
+    test('a target deleted in an earlier turn falls back to Other', () async {
+      final custom = await dentist();
+      final gone = await service.create(
+        name: 'Gone',
+        colorValue: 0xFF00AAFF,
+        iconKey: 'event',
+      );
+      await addEvent('e1', custom.id);
+
+      // Both queued on the chain: the target is checked in the delete's own
+      // turn, after the first delete has landed.
+      final first = service.deleteCategory(gone.id);
+      final second = service.deleteCategory(custom.id, reassignTo: gone.id);
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+
+      expect(await categoriesOf(), {'e1': kFallbackCategoryId});
+    });
+
+    test('deleteImpact counts the live events, alerts and templates', () async {
+      final custom = await dentist();
+      await addEvent('e1', custom.id);
+      await addEvent('e2', custom.id);
+      await addEvent('e3', 'gym');
+      await db.calendarEventDao.softDeleteById('e2');
+      await addTemplate('t1', custom.id);
+      await addTemplate('t2', 'gym');
+      final alerts = await EventAlertService.forTesting(db);
+      await alerts.replaceForCategory(custom.id, [
+        CategoryAlert(id: 'c1', categoryId: custom.id),
+        CategoryAlert(id: 'c2', categoryId: custom.id, daysBefore: 1),
+      ]);
+      await alerts.replaceForCategory(custom.id, [
+        CategoryAlert(id: 'c1', categoryId: custom.id),
+      ]);
+      await alerts.replaceForCategory('gym', const [
+        CategoryAlert(id: 'g1', categoryId: 'gym'),
+      ]);
+
+      expect(
+        await service.deleteImpact(custom.id),
+        const CategoryDeleteImpact(events: 1, alerts: 1, templates: 1),
+      );
+    });
+
+    test('deleteImpact is all zeros for an empty category', () async {
+      final custom = await dentist();
+
+      expect(
+        await service.deleteImpact(custom.id),
+        const CategoryDeleteImpact(events: 0, alerts: 0, templates: 0),
+      );
     });
   });
 

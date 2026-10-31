@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
-import '../../models/calendar_event.dart' show CalendarEventCategory;
+import '../../models/calendar_event.dart'
+    show CalendarEventCategory, kFallbackCategoryId;
+import '../../models/category_delete_impact.dart';
 import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
 import '../crdt/merge_outcome.dart';
@@ -223,17 +225,46 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// [softDeleteById]'s refusals are checked before anything is written: a
   /// built-in, missing or already-tombstoned category moves no event and
   /// tombstones no alert. Returns whether the category was deleted.
+  ///
+  /// [reassignTo] is resolved here, inside the transaction, against the live
+  /// table: a target that is [id] itself or no longer live — a sync pull can
+  /// tombstone it while the caller's catalogue still lists it — becomes
+  /// [kFallbackCategoryId], so no event or template lands on a dead id.
   Future<bool> tombstoneCascade(String id, {required String reassignTo}) {
     return transaction(() async {
       final existing = await _deletable(id);
       if (existing == null) return false;
+      final target =
+          reassignTo == kFallbackCategoryId ||
+              (reassignTo != id && await _liveById(reassignTo) != null)
+          ? reassignTo
+          : kFallbackCategoryId;
       final stamp = db.newStamp();
-      await db.calendarEventDao.reassignCategory(id, reassignTo, stamp: stamp);
-      await db.eventTemplateDao.reassignCategory(id, reassignTo, stamp: stamp);
+      await db.calendarEventDao.reassignCategory(id, target, stamp: stamp);
+      await db.eventTemplateDao.reassignCategory(id, target, stamp: stamp);
       await db.categoryAlertDao.tombstoneForCategory(id, stamp: stamp);
       await _tombstone(existing, stamp);
       return true;
     });
+  }
+
+  /// What [tombstoneCascade] would touch for [id], counted here beside it so
+  /// the numbers the delete sheet shows are the cascade's own rows — live
+  /// events and templates in [id], and its live alerts — rather than three
+  /// caches that may each lag the table.
+  ///
+  /// Three plain reads, not a transaction: the sheet shows a picture of the
+  /// moment and the cascade recounts nothing, so a write landing between two
+  /// of them costs a stale number on screen and never a wrong delete.
+  Future<CategoryDeleteImpact> deleteImpact(String id) async {
+    final events = await db.calendarEventDao.countByCategory();
+    final templates = await db.eventTemplateDao.countByCategory();
+    final alerts = await db.categoryAlertDao.getAllActive();
+    return CategoryDeleteImpact(
+      events: events[id] ?? 0,
+      alerts: alerts.where((alert) => alert.categoryId == id).length,
+      templates: templates[id] ?? 0,
+    );
   }
 
   /// The live custom row [id], or null when it is missing, already a

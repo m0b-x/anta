@@ -25,6 +25,7 @@ import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
+import '../widgets/category_delete_sheet.dart';
 import '../widgets/category_editor_sheet.dart';
 import '../widgets/content_rows.dart';
 import '../widgets/event_avatar.dart';
@@ -334,35 +335,19 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     return _guarded(() => _service!.setHidden(category.id, hidden));
   }
 
+  /// The sheet writes before it pops and answers whether the DAO really
+  /// deleted: only `true` is reported. `false` (a pull removed the row
+  /// meanwhile) and a dismissal say nothing — the external-change signal
+  /// already re-reads the page after any delete that did land.
   Future<void> _delete(CalendarCategory category) async {
     final l10n = AppLocalizations.of(context)!;
-    final count = _counts[category.id] ?? 0;
-    // Named through `labelOf` like every other surface, not through the raw
-    // `name` column: only customs are deletable and the two agree for them,
-    // but a dialog that names a category differently from the row that opened
-    // it is one built-in away from reading in English.
-    final label = CalendarCategories.labelOf(category, l10n);
-    // A nonzero count makes the consequence concrete — and earns the sentence
-    // pointing at hiding, which keeps the events in their own colour instead
-    // of repainting that whole history grey.
-    final content = count > 0
-        ? '${l10n.deleteCategoryConfirmWithEvents(count, label)}'
-              '\n\n${l10n.deleteCategoryHideHint}'
-        : l10n.deleteCategoryConfirm(label);
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.deleteCategory,
-      content: content,
-      confirmText: l10n.delete,
-      icon: Icons.delete_rounded,
-      isDestructive: true,
-    );
-    if (!confirmed || !mounted) return;
-    final deleted = await _guarded(() => _service!.deleteCategory(category.id));
-    if (!mounted || !deleted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final deleted = await CategoryDeleteSheet.show(context, category: category);
+    if (deleted != true || !mounted) return;
+    _refresh();
     // The cascade tombstoned the category's alerts and moved its events onto
-    // Other's, which the calendar's badges and the Alerts hub draw. Nullable:
-    // a host without the app's bloc has nothing to redraw.
+    // the chosen category, which the calendar's badges and the Alerts hub
+    // draw. Nullable: a host without the app's bloc has nothing to redraw.
     context.read<CalendarBloc?>()?.add(const CategoryAlertsChanged());
     await _refreshCounts();
     if (!mounted) return;
@@ -519,6 +504,15 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       menuWidth: FormMetrics.menuWidth,
     );
     if (sort != true || !mounted) return;
+    // A manual order can take many drags to build and one tap to lose (H1).
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.categorySortConfirmTitle,
+      content: l10n.categorySortConfirmBody,
+      confirmText: l10n.sort,
+      icon: Icons.sort_by_alpha_rounded,
+    );
+    if (!confirmed || !mounted) return;
     unawaited(_sortAlphabetically());
   }
 

@@ -358,7 +358,10 @@ class FormSheetHandle extends StatelessWidget {
 class FormSheetHeader extends StatelessWidget {
   final IconData leadingIcon;
   final String leadingTooltip;
-  final VoidCallback onLeading;
+
+  /// Null disables the ✕ in place, never hides it: a sheet mid-write (the
+  /// delete sheet's Delete) refuses to be left until the write answers.
+  final VoidCallback? onLeading;
   final String title;
   final Widget trailing;
 
@@ -755,12 +758,18 @@ class FormHeaderTextButton extends StatelessWidget {
   /// in the node and draws nothing.
   final String? semanticsLabel;
 
+  /// The label's colour role while enabled — `error` for a destructive
+  /// commit (the delete sheet's Delete); `primary` when null. Disabled
+  /// draws the theme's disabled colour whatever this says.
+  final Color? color;
+
   const FormHeaderTextButton({
     super.key,
     required this.label,
     required this.onPressed,
     this.identifier,
     this.semanticsLabel,
+    this.color,
   });
 
   @override
@@ -775,7 +784,7 @@ class FormHeaderTextButton extends StatelessWidget {
     final button = TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        foregroundColor: theme.colorScheme.primary,
+        foregroundColor: color ?? theme.colorScheme.primary,
         minimumSize: const Size(0, FormMetrics.headerHeight),
         padding: FormMetrics.headerActionPadding,
         textStyle: theme.textTheme.labelLarge?.copyWith(
@@ -1695,15 +1704,23 @@ class FormReadTitleRow extends FormDividedRow {
   /// The line under the title, or null for a row that is the title alone.
   final String? caption;
 
+  /// The box [leading] is centred in: the avatar's [FormMetrics.rowLeadingSize]
+  /// by default, [FormMetrics.glyphSize] for a surface that trades the avatar
+  /// for its glyph at large text — the 18 dp it frees keeps a one-word name
+  /// whole at 2.0 on a small phone (the categories page's rule).
+  final double leadingSize;
+
   const FormReadTitleRow({
     super.key,
     required this.leading,
     required this.title,
     this.caption,
+    this.leadingSize = FormMetrics.rowLeadingSize,
   });
 
   @override
-  double get dividerIndent => FormMetrics.dividerIndentTitle;
+  double get dividerIndent =>
+      RowMetrics.groupInset + leadingSize + FormMetrics.gap;
 
   @override
   Widget build(BuildContext context) {
@@ -1727,7 +1744,7 @@ class FormReadTitleRow extends FormDividedRow {
             children: [
               ExcludeSemantics(
                 child: SizedBox.square(
-                  dimension: FormMetrics.rowLeadingSize,
+                  dimension: leadingSize,
                   child: Center(child: leading),
                 ),
               ),

@@ -811,6 +811,11 @@ abstract final class SemanticsIds {
   /// A category row's ⋮ item that deletes a custom category.
   static const String categoryMenuDelete = 'category-menu-delete';
 
+  /// The delete sheet's ✕, its Move events to row and its Delete.
+  static const String categoryDeleteClose = 'category-delete-close';
+  static const String categoryDeleteTarget = 'category-delete-target';
+  static const String categoryDeleteConfirm = 'category-delete-confirm';
+
   /// The colour strip wherever a sheet embeds it: the row as a container
   /// above the swatches' own nodes (the Look sheet's keeps [lookColor]), the
   /// three dots whose tooltips change with the locale, and the three items

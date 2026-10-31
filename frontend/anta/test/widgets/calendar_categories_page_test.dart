@@ -30,6 +30,8 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/category_delete_sheet.dart';
+import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_rows.dart' show FormTrailingButton;
@@ -336,8 +338,9 @@ void main() {
 
       final doomed = CalendarCategories.all.last;
       await pickRowItem(tester, doomed.id, SemanticsIds.categoryMenuDelete);
-      await tester.tap(byId(SemanticsIds.sheetConfirm));
+      await tester.tap(byId(SemanticsIds.categoryDeleteConfirm));
       await settleWrites(tester);
+      await tester.pumpAndSettle();
 
       expect(CalendarCategories.all, hasLength(12));
       expect(
@@ -842,9 +845,41 @@ void main() {
       );
       expect(enabledOf(tester, SemanticsIds.categorySortAz), Tristate.isFalse);
       await tester.tap(byId(SemanticsIds.categorySortAz));
+      await tester.pumpAndSettle();
+      expect(byId(SemanticsIds.sheetConfirm), findsNothing);
       await settleWrites(tester);
 
       expect(CalendarCategories.all.map((c) => c.id).toList(), before);
+    });
+
+    testWidgets('sort A–Z asks first, and cancel writes nothing', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final before = await stored(tester);
+      final order = CalendarCategories.all.map((c) => c.id).toList();
+
+      await openBarMenu(tester);
+      await tester.tap(byId(SemanticsIds.categorySortAz));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sort categories A–Z?'), findsOneWidget);
+      expect(find.text('Your own order is replaced.'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: byId(SemanticsIds.sheetConfirm),
+          matching: find.text('Sort'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(byId(SemanticsIds.sheetCancel));
+      await tester.pumpAndSettle();
+      await settleWrites(tester);
+
+      expect(byId(SemanticsIds.sheetConfirm), findsNothing);
+      expect(CalendarCategories.all.map((c) => c.id).toList(), order);
+      expect(await stored(tester), before);
     });
 
     testWidgets('sort A–Z orders by the localized label', (tester) async {
@@ -852,6 +887,8 @@ void main() {
 
       await openBarMenu(tester);
       await tester.tap(byId(SemanticsIds.categorySortAz));
+      await tester.pumpAndSettle();
+      await tester.tap(byId(SemanticsIds.sheetConfirm));
       await settleWrites(tester);
 
       expect(CalendarCategories.all.map((c) => c.id).toList(), [
@@ -1035,7 +1072,7 @@ void main() {
       await pumpPage(tester, bloc: bloc);
 
       await pickRowItem(tester, fitness.id, SemanticsIds.categoryMenuDelete);
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(byId(SemanticsIds.categoryDeleteConfirm));
       await tester.pump();
       await settleWrites(tester);
 
@@ -1099,8 +1136,8 @@ void main() {
       }
     });
 
-    testWidgets('a delete taken through moves the events to Other and says '
-        'so', (tester) async {
+    testWidgets('a delete taken through moves the events to the picked '
+        'category and says so', (tester) async {
       final fitness = await custom('Fitness');
       for (final id in ['fitness-1', 'fitness-2']) {
         await events.upsert(
@@ -1119,22 +1156,41 @@ void main() {
       ))!.single;
 
       await pickRowItem(tester, fitness.id, SemanticsIds.categoryMenuDelete);
+      final sheet = find.byType(CategoryDeleteSheet);
+      expect(sheet, findsOneWidget);
       expect(
-        find.textContaining(l10n.deleteCategoryConfirmWithEvents(2, 'Fitness')),
+        find.descendant(
+          of: sheet,
+          matching: find.text(l10n.categoryEventCount(2)),
+        ),
         findsOneWidget,
       );
-      expect(find.textContaining(l10n.deleteCategoryHideHint), findsOneWidget);
-      await tester.tap(byId(SemanticsIds.sheetConfirm));
+      await tester.tap(byId(SemanticsIds.categoryDeleteTarget));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(CategoryPickerSheet),
+          matching: find.text('Gym'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: sheet, matching: find.text('Gym')),
+        findsOneWidget,
+      );
+      await tester.tap(byId(SemanticsIds.categoryDeleteConfirm));
       await tester.pump();
       await settleWrites(tester);
+      await tester.pumpAndSettle();
 
+      expect(sheet, findsNothing);
       final stored = (await tester.runAsync(db.calendarEventDao.getAll))!;
       expect(
         {
           for (final row in stored)
             if (row.id.startsWith('fitness-')) row.id: row.category,
         },
-        {'fitness-1': kFallbackCategoryId, 'fitness-2': kFallbackCategoryId},
+        {'fitness-1': 'gym', 'fitness-2': 'gym'},
       );
       // A tombstone with a fresh stamp, never a hard delete: the stamp is
       // what carries the delete to another device.
@@ -1150,7 +1206,7 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
     });
 
-    testWidgets('a delete with no events asks without the hiding hint', (
+    testWidgets('a dismissed delete sheet writes nothing and says nothing', (
       tester,
     ) async {
       final fitness = await custom('Fitness');
@@ -1158,13 +1214,41 @@ void main() {
       final l10n = l10nOf(tester);
 
       await pickRowItem(tester, fitness.id, SemanticsIds.categoryMenuDelete);
+      expect(
+        find.descendant(
+          of: find.byType(CategoryDeleteSheet),
+          matching: find.text(l10n.categoryEventCount(0)),
+        ),
+        findsOneWidget,
+      );
 
-      expect(find.text(l10n.deleteCategoryConfirm('Fitness')), findsOneWidget);
-      expect(find.textContaining(l10n.deleteCategoryHideHint), findsNothing);
-
-      await tester.tap(byId(SemanticsIds.sheetCancel));
+      await tester.tap(byId(SemanticsIds.categoryDeleteClose));
       await tester.pumpAndSettle();
+
+      expect(find.byType(CategoryDeleteSheet), findsNothing);
       expect(byId(SemanticsIds.categoryRow(fitness.id)), findsOneWidget);
+      expect(CalendarCategories.byId(fitness.id), isNotNull);
+      expect(find.text(l10n.categoryDeleted), findsNothing);
+    });
+
+    testWidgets('a delete a pull already made reports nothing', (tester) async {
+      final fitness = await custom('Fitness');
+      await pumpPage(tester);
+      final l10n = l10nOf(tester);
+
+      await pickRowItem(tester, fitness.id, SemanticsIds.categoryMenuDelete);
+      // Tombstoned under the cached catalogue, as a merged page would: the
+      // DAO finds nothing live and the service answers false.
+      await tester.runAsync(
+        () => db.calendarCategoryDao.softDeleteById(fitness.id),
+      );
+      await tester.tap(byId(SemanticsIds.categoryDeleteConfirm));
+      await tester.pump();
+      await settleWrites(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CategoryDeleteSheet), findsNothing);
+      expect(find.text(l10n.categoryDeleted), findsNothing);
     });
 
     testWidgets('a long press drags a row one slot down, persisted densely '

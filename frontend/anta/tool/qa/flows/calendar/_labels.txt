@@ -15,6 +15,9 @@ Holiday restored
 Saved as
 Ninety days
 Saved view options
-# 29_categories_page: the delete's message, and the created category.
+# 29_categories_page: the delete's message, the created category, and the
+# delete sheet's counts, which open complete — the space in "1 event" is a
+# no-break space (U+00A0), as the caption draws it.
 Category deleted
 QA flow category
+1 event

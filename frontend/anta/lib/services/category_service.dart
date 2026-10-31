@@ -12,6 +12,7 @@ import '../database/daos/calendar_category_dao.dart';
 import '../database/daos/sync_dao.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import '../models/category_delete_impact.dart';
 import 'alert_scheduler.dart';
 import 'calendar_event_service.dart';
 import 'event_alert_service.dart';
@@ -446,10 +447,20 @@ class CategoryService {
     });
   }
 
-  /// Deletes a custom category and reassigns its events to the built-in
-  /// fallback ([kFallbackCategoryId]) in one transaction. Built-ins cannot be
-  /// deleted — by flag or by id, since an older archive could restore one as
-  /// custom — and neither can the DAO tombstone one. No-op for unknown ids.
+  /// Deletes a custom category and reassigns its events and templates to
+  /// [reassignTo] in one transaction. Built-ins cannot be deleted — by flag
+  /// or by id, since an older archive could restore one as custom — and
+  /// neither can the DAO tombstone one. Returns whether the category was
+  /// deleted: false for a built-in, an unknown id, or a row the DAO no longer
+  /// finds live (a pull removed it meanwhile), so a caller reports only a
+  /// delete that happened.
+  ///
+  /// [reassignTo] is checked inside the chain's turn, against the catalogue
+  /// the previous write left: a target that is the category itself or
+  /// unknown falls back to [kFallbackCategoryId]. That catalogue can trail a
+  /// pull's tombstone, so the guard that no event lands on a dead id is the
+  /// DAO's: [CalendarCategoryDao.tombstoneCascade] re-checks the target
+  /// against the live table inside its transaction.
   ///
   /// The category's alerts (**v42**) are tombstoned in the same transaction —
   /// the `CalendarEventService.deleteById` cascade's shape, so the category
@@ -471,13 +482,20 @@ class CategoryService {
   /// without being awaited, so no category write ever queues behind a
   /// platform pass: the moved events no longer inherit anything, and a fire
   /// armed for them must go. It plans from the cache the link just refreshed.
-  Future<void> deleteCategory(String id) async {
+  Future<bool> deleteCategory(
+    String id, {
+    String reassignTo = kFallbackCategoryId,
+  }) async {
     final deleted = await _serialize(() async {
       final category = CalendarCategories.byId(id);
       if (category == null || category.isBuiltIn || _builtInIds.contains(id)) {
         return false;
       }
-      await _dao.tombstoneCascade(id, reassignTo: kFallbackCategoryId);
+      final target =
+          reassignTo != id && CalendarCategories.byId(reassignTo) != null
+          ? reassignTo
+          : kFallbackCategoryId;
+      if (!await _dao.tombstoneCascade(id, reassignTo: target)) return false;
       await _load();
       await EventAlertService.refreshAfterCategoryRemoval();
       await CalendarEventService.refreshAfterCategoryRemoval();
@@ -490,7 +508,15 @@ class CategoryService {
         AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
       );
     }
+    return deleted;
   }
+
+  /// What [deleteCategory] would touch for [id] — its events, its alerts and
+  /// its templates — read from the table the cascade writes, for the delete
+  /// sheet to say before the user confirms. Outside the write chain: a read
+  /// that waited behind a pending write would only hold the sheet's Delete
+  /// disabled longer.
+  Future<CategoryDeleteImpact> deleteImpact(String id) => _dao.deleteImpact(id);
 
   // ── Backup export / import ───────────────────────────────────────────
 

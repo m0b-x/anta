@@ -438,6 +438,25 @@ class CategoryEditorRobot {
 
   Future<void> close() => _tap(_close);
 
+  /// Whether ✕ takes a tap — it is disabled, never hidden, while Save writes.
+  bool get closeEnabled =>
+      tester
+          .widget<IconButton>(
+            find.descendant(of: _close, matching: find.byType(IconButton)),
+          )
+          .onPressed !=
+      null;
+
+  /// A dismissing fling, then ✕ while the sheet is still snapping back from
+  /// it — the one way to ask the sheet to leave twice before the question
+  /// is up, since its barrier covers ✕ once it is.
+  Future<void> closeDuringSnapBack() async {
+    await tester.fling(_handle, const Offset(0, 400), 2000);
+    await tester.pump(FormMetrics.sheetSnapBackDuration ~/ 3);
+    await tester.tap(_close);
+    await tester.pumpAndSettle();
+  }
+
   Future<void> systemBack() async {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
@@ -449,4 +468,34 @@ class CategoryEditorRobot {
     await tester.tapAt(Offset(size.width / 2, 8));
     await tester.pumpAndSettle();
   }
+
+  Finder get _handle => _in(find.byType(FormSheetHandle));
+
+  /// A fast fling down on the sheet's handle — the frame's drag surface,
+  /// which pops a clean sheet and snaps a dirty one back to ask.
+  Future<void> flingDown() async {
+    await tester.fling(_handle, const Offset(0, 400), 2000);
+    await tester.pumpAndSettle();
+  }
+
+  /// Where the handle is drawn: the frame translates the sheet's content
+  /// under the finger, which the sheet's own box does not follow.
+  double get handleTop => tester.getTopLeft(_handle).dy;
+
+  /// Whether the leave guard's question is up, found by the id on its title.
+  bool get discardAsked =>
+      _shown(find.bySemanticsIdentifier(SemanticsIds.unsavedDialog));
+
+  /// How many of the guard's questions are up — one at most, however often
+  /// the sheet was asked to leave.
+  int get discardQuestions =>
+      find.bySemanticsIdentifier(SemanticsIds.unsavedDialog).evaluate().length;
+
+  /// Discard on the question: the sheet leaves with the draft.
+  Future<void> discard() =>
+      _tap(find.bySemanticsIdentifier(SemanticsIds.unsavedDiscard));
+
+  /// Keep editing on the question: the sheet stays as it was.
+  Future<void> keepEditing() =>
+      _tap(find.bySemanticsIdentifier(SemanticsIds.unsavedKeepEditing));
 }

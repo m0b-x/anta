@@ -33,8 +33,11 @@ import 'package:anta/widgets/bar_switcher_sheet.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
+import 'package:anta/services/category_service.dart';
+import 'package:anta/widgets/category_delete_sheet.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/form_rows.dart' show FormCaptionSlot;
 import 'package:anta/widgets/digest_editor_sheet.dart';
 import 'package:anta/widgets/filter_check_list_sheet.dart';
 import 'package:anta/widgets/filter_preset_sheet.dart';
@@ -490,6 +493,40 @@ void main() {
       tester.getRect(find.bySemanticsIdentifier(SemanticsIds.swatchRow)).bottom,
       lessThanOrEqualTo(surface.height - navBar),
       reason: 'the colour strip ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the category delete sheet clears the navigation bar', (
+    tester,
+  ) async {
+    CategoryService.reset();
+    addTearDown(CategoryService.reset);
+    final service = await CategoryService.forTesting(db);
+    final dentist = await service.create(
+      name: 'Dentist',
+      colorValue: 0xFF00AAFF,
+      iconKey: 'event',
+    );
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => CategoryDeleteSheet.show(context, category: dentist),
+    );
+
+    // The consequences caption is the last thing, and a sheet as tall as its
+    // rows ends right under it: exactly what a nav bar eats.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester
+          .getRect(
+            find.descendant(
+              of: find.byType(CategoryDeleteSheet),
+              matching: find.byType(FormCaptionSlot),
+            ),
+          )
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the caption ran under the gesture bar',
     );
   });
 
