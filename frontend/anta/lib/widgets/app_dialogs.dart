@@ -337,6 +337,81 @@ class AppDialogs {
     );
   }
 
+  /// The app's About: its mark, its name over its version, one line of what
+  /// it is, and the licences. Not Flutter's `showAboutDialog`, whose small
+  /// icon slot and Material-only close word sit outside the conventions
+  /// above; the caller passes the version from `kAppVersion`, so no literal
+  /// can drift at a release bump (S16). [icon] is the app's mark — the
+  /// launcher art, not a glyph (D10) — drawn in a 48 dp square and silent to
+  /// a screen reader, which hears the name beneath it.
+  static Future<void> about(
+    BuildContext context, {
+    required Widget icon,
+    required String name,
+    required String version,
+    required String description,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final materialL10n = MaterialLocalizations.of(context);
+
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        // Named, or Android announces the route as Flutter's generic "Alert".
+        semanticLabel: l10n.about,
+        // The two actions stack at the end rather than the start when German
+        // or Romanian at 2.0 leaves them no room side by side.
+        actionsOverflowAlignment: OverflowBarAlignment.end,
+        // Centred: the dialog stretches its icon slot to the dialog's width.
+        icon: ExcludeSemantics(
+          child: Center(child: SizedBox.square(dimension: 48, child: icon)),
+        ),
+        // The title merges into the dialog's own title node, so the id marks
+        // the dialog a flow waits for, and the version is read beside it.
+        title: Semantics(
+          identifier: SemanticsIds.aboutDialog,
+          header: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(name),
+              Text(
+                version,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: Text(description),
+        actions: [
+          TextButton(
+            onPressed: () => showLicensePage(
+              context: ctx,
+              applicationName: name,
+              applicationVersion: version,
+            ),
+            child: Text(materialL10n.viewLicensesButtonLabel),
+          ),
+          AutomationId(
+            identifier: SemanticsIds.sheetCancel,
+            child: TextButton(
+              onPressed: () => AppNavigator.pop(ctx),
+              child: Text(l10n.close),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _identifiedTitle(String title, String? identifier) {
+    if (identifier == null) return Text(title);
+    return Semantics(identifier: identifier, child: Text(title));
+  }
+
   // ---------------------------------------------------------------------------
   // 5) Single-choice selection
   // ---------------------------------------------------------------------------
@@ -345,12 +420,14 @@ class AppDialogs {
   /// of type [T] or `null` if cancelled.
   ///
   /// Each option is a `(T value, String label, [IconData? icon])` record.
+  /// [identifier] marks the title, as [about]'s, for a flow to wait on.
   static Future<T?> choose<T>(
     BuildContext context, {
     required String title,
     required List<({T value, String label, IconData? icon})> options,
     T? currentValue,
     String? cancelText,
+    String? identifier,
   }) async {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
@@ -358,7 +435,7 @@ class AppDialogs {
     return showDialog<T>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title),
+        title: _identifiedTitle(title, identifier),
         contentPadding: const EdgeInsets.only(top: 12, bottom: 8),
         content: SizedBox(
           width: double.maxFinite,
@@ -408,12 +485,14 @@ class AppDialogs {
 
   /// Like [choose] but renders radio indicators for the current value.
   /// Best for settings where users pick one option from a small set.
+  /// [identifier] marks the title, as [choose]'s.
   static Future<T?> radioSelect<T>(
     BuildContext context, {
     required String title,
     required List<({T value, String label, String? subtitle})> options,
     required T currentValue,
     String? cancelText,
+    String? identifier,
   }) async {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
@@ -421,7 +500,7 @@ class AppDialogs {
     return showDialog<T>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title),
+        title: _identifiedTitle(title, identifier),
         contentPadding: const EdgeInsets.only(top: 12, bottom: 8),
         content: SizedBox(
           width: double.maxFinite,

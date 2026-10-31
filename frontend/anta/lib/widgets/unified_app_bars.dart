@@ -397,15 +397,10 @@ class _SpinningIconState extends State<_SpinningIcon>
 class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
-  final bool showMenuButton;
 
-  /// Whether Back reports [SettingsResult.openDrawer] to whoever pushed this
-  /// page.
-  ///
-  /// Only the pages the drawer itself opens ask for it — everywhere else the
-  /// result is a promise to reopen a drawer nobody came from, which the
-  /// caller would either ignore or, worse, honour.
-  final bool popsToDrawer;
+  /// Off by default: a settings-family page carries no drawer and draws the
+  /// arrow alone, so back always lands on the route beneath (D3).
+  final bool showMenuButton;
 
   /// The page's own ground, for a page that paints one; null puts the bar
   /// on `pageGround`, the settings kit's ground ([UnifiedAppBar.settings]).
@@ -419,8 +414,7 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     required this.title,
     this.actions,
-    this.showMenuButton = true,
-    this.popsToDrawer = false,
+    this.showMenuButton = false,
     this.backgroundColor,
     this.identifier,
   });
@@ -481,10 +475,7 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// `Scaffold` without one — the per-note pages are the four — draws the
   /// arrow alone rather than a button that does nothing.
   Widget _buildLeading(BuildContext context, ScaffoldState? scaffold) {
-    void back() => AppNavigator.pop(
-      context,
-      popsToDrawer ? SettingsResult.openDrawer : null,
-    );
+    void back() => AppNavigator.pop(context);
     if (scaffold == null || !scaffold.hasDrawer) {
       return IconButton(
         icon: const BackButtonIcon(),

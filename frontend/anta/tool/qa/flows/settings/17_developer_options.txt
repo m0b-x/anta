@@ -1,0 +1,40 @@
+# Developer options through the unlock: five taps on the drawer header's
+# icon (drawer-header-icon) close the drawer and draw the page's hub row,
+# which opens the page; system back lands on the hub, and once more on the
+# folder root (D2, D3).
+# - The five taps must land within two seconds of each other
+#   (_AppDrawerState._tapTimeout); each `tap` is one dump and one tap, well
+#   inside it. The fifth closes the drawer, then shows the unlock snackbar
+#   after 100 ms; the flow waits for the folder root rather than reading
+#   the snackbar's words.
+# - The basic.json reseed before the flow starts the app locked; already
+#   unlocked, the taps do nothing and the drawer stays open.
+# - The hub row is the App section's last and may sit below the fold, so it
+#   is scrolled to before the tap, inside the hub's list (settings-hub-list):
+#   the first scrollable in the dump may be the search field.
+# - Locking is left to the widget suites: the page's Lock button carries no
+#   id.
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-header-icon
+tap id:drawer-header-icon
+tap id:drawer-header-icon
+tap id:drawer-header-icon
+tap id:drawer-header-icon
+wait id:create-folder
+expect --absent id:drawer-calendar
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+scroll-to id:settings-hub-row-developerOptions --in id:settings-hub-list
+tap id:settings-hub-row-developerOptions
+wait id:settings-bar-developer
+key back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-developer
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

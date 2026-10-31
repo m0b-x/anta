@@ -286,6 +286,7 @@ class GuideScreenDemo extends GuideCardDemo {
           moreSlot: CalendarOverflowMenu(
             identifier: SemanticsIds.calendarGuideTryControl(slug, 'more'),
             onAlerts: _more,
+            onCategories: _more,
             onExport: _more,
             onGuide: _more,
             onSettings: _more,

@@ -233,8 +233,10 @@ class CalendarViewMenu extends StatelessWidget {
   }
 }
 
-/// The ⋮ menu of the calendar and the overview: the Alerts hub and the `.ics`
-/// export, then below a divider the guide and the calendar's settings —
+/// The ⋮ menu of the calendar and the overview: the Alerts hub, the
+/// categories page (the categories record's A1 — the page is a place the
+/// calendar's user goes, not a setting) and the `.ics` export, then below a
+/// divider the guide and the calendar's settings —
 /// settings last, like the Settings row every other ⋮ in the app ends with.
 /// It is labelled "Calendar settings" because those rows open the app's
 /// settings. The guide lives here because neither page has a drawer.
@@ -242,6 +244,7 @@ class CalendarOverflowMenu extends StatelessWidget {
   const CalendarOverflowMenu({
     super.key,
     required this.onAlerts,
+    required this.onCategories,
     required this.onExport,
     required this.onGuide,
     required this.onSettings,
@@ -253,6 +256,8 @@ class CalendarOverflowMenu extends StatelessWidget {
   final String identifier;
 
   final VoidCallback onAlerts;
+
+  final VoidCallback onCategories;
 
   /// Null disables the row: there is nothing to export yet.
   final VoidCallback? onExport;
@@ -266,6 +271,8 @@ class CalendarOverflowMenu extends StatelessWidget {
     switch (action) {
       case _OverflowAction.alerts:
         onAlerts();
+      case _OverflowAction.categories:
+        onCategories();
       case _OverflowAction.export:
         onExport?.call();
       case _OverflowAction.guide:
@@ -294,6 +301,15 @@ class CalendarOverflowMenu extends StatelessWidget {
               identifier: SemanticsIds.calendarAlertsOpen,
               icon: Icons.notifications_active_rounded,
               label: l10n.alertsTitle,
+            ),
+          ),
+          PopupMenuItem<_OverflowAction>(
+            value: _OverflowAction.categories,
+            height: AppTheme.menuItemHeight,
+            child: FormMenuItemRow(
+              identifier: SemanticsIds.calendarMenuCategories,
+              icon: Icons.category_rounded,
+              label: l10n.calendarCategories,
             ),
           ),
           PopupMenuItem<_OverflowAction>(
@@ -332,7 +348,7 @@ class CalendarOverflowMenu extends StatelessWidget {
   }
 }
 
-enum _OverflowAction { alerts, export, guide, settings }
+enum _OverflowAction { alerts, categories, export, guide, settings }
 
 /// [AppTheme.menuWidth] as the floor, as in every menu of the app, but sized
 /// to the labels up to [AppTheme.menuMaxWidth]: the German export row does

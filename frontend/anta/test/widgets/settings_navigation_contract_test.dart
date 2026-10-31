@@ -12,31 +12,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/counter/counter_bloc.dart';
+import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/pairing/pairing_bloc.dart';
 import 'package:anta/bloc/permissions/permissions_bloc.dart';
 import 'package:anta/bloc/sync/sync_bloc.dart';
+import 'package:anta/constants/app_version.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/counter.dart';
 import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/alerts_page.dart';
 import 'package:anta/pages/calendar_appearance_page.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
 import 'package:anta/pages/calendar_guide_page.dart';
+import 'package:anta/pages/calendar_overview_page.dart';
+import 'package:anta/pages/calendar_page.dart';
+import 'package:anta/pages/calendar_report_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/counter_management_page.dart';
+import 'package:anta/pages/counter_per_note_page.dart';
 import 'package:anta/pages/database_settings_page.dart';
 import 'package:anta/pages/developer_options_page.dart';
 import 'package:anta/pages/event_templates_page.dart';
+import 'package:anta/pages/markdown_colors_page.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
+import 'package:anta/pages/note_bar_assignment_page.dart';
+import 'package:anta/pages/note_money_currency_page.dart';
 import 'package:anta/pages/permissions_page.dart';
+import 'package:anta/pages/settings_hub_page.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/pages/vocabularies_page.dart';
+import 'package:anta/repositories/folder_repository.dart';
+import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -44,8 +57,11 @@ import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/dev_options_service.dart';
 import 'package:anta/services/drawer_host_registry.dart';
+import 'package:anta/services/folder_storage_service.dart';
+import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/navigation_history_service.dart';
+import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/permission_gateway.dart';
 import 'package:anta/services/permission_service.dart';
@@ -56,15 +72,16 @@ import 'package:anta/widgets/app_drawer.dart';
 import '../services/pairing_support.dart';
 import '../services/permission_support.dart';
 
-/// The settings navigation contract **as the app keeps it today**, written
-/// in S0 of the settings rework (`docs/settings-rework-roadmap.md` §4.3) so
-/// that S2, which replaces the drawer's rows with a hub and retires the
-/// reopen-the-drawer mechanism (D1–D3), rewrites this file and the diff
-/// between the two is the proof of what changed. A case S2 changes says so
-/// in its name: `(today; S2 …)`.
+/// The settings navigation contract (`docs/settings-rework-roadmap.md`
+/// §4.3), written in S0 against the old drawer and rewritten in S2, so the
+/// diff between the two is the proof of what changed: the drawer lists
+/// places (D1), every settings page is chosen on the hub (D2), and back, by
+/// the arrow or the system gesture, returns to the route beneath — the host
+/// from a drawer row, the hub from a hub row (D3) — with the dedupe, the new
+/// kinds and the decoder each named for its rule (S15, S26, §4.3).
 ///
 /// The drawer flow drives the real rows over the real pages, so every page
-/// the drawer reaches is built: the suite runs over the file-backed
+/// the drawer and the hub reach is built: the suite runs over the file-backed
 /// database in a temporary documents directory, opened in real async, with
 /// each page's collaborators bound the way its own suite binds them. The
 /// restore half asserts routes and stamps only, and tears the app down
@@ -79,8 +96,16 @@ void main() {
   late FakeAuthService auth;
   late FakePairingGateway gateway;
   late MarkdownBarBloc markdownBloc;
+  late ImportExportBloc importExportBloc;
   late CounterBloc counterBloc;
   late CalendarBloc calendarBloc;
+
+  /// A live per-note counter, so a per-note counter page has something to
+  /// restore.
+  late String counterId;
+
+  /// A live global counter, which has no per-note page to restore.
+  late String globalCounterId;
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_settings_nav');
@@ -103,7 +128,24 @@ void main() {
     markdownBloc = MarkdownBarBloc(
       barService: await MarkdownBarService.getInstance(),
     );
-    counterBloc = CounterBloc(counterService: await CounterService.getInstance())
+    // The calendar's three pages listen for an export's outcome.
+    final notes = NoteRepository(database: db);
+    importExportBloc = ImportExportBloc(
+      service: ImportExportService(
+        noteStorage: NoteStorageService(repository: notes),
+        folderStorage: FolderStorageService(
+          repository: FolderRepository(database: db),
+        ),
+        noteRepository: notes,
+      ),
+    );
+    final counters = await CounterService.getInstance();
+    counterId = await counters.addCounter(
+      name: 'Sets',
+      scope: CounterScope.perNote,
+    );
+    globalCounterId = await counters.addCounter(name: 'Total');
+    counterBloc = CounterBloc(counterService: counters)
       ..add(const LoadCounters());
     // The Alerts hub builds its body under a loaded calendar; a service that
     // never arrives keeps the bloc from reading anything.
@@ -147,6 +189,7 @@ void main() {
 
   tearDownAll(() async {
     await markdownBloc.close();
+    await importExportBloc.close();
     await counterBloc.close();
     await calendarBloc.close();
     await GetIt.I.reset();
@@ -202,6 +245,7 @@ void main() {
           providers: [
             BlocProvider<AppSettingsBloc>.value(value: appSettingsBloc),
             BlocProvider<MarkdownBarBloc>.value(value: markdownBloc),
+            BlocProvider<ImportExportBloc>.value(value: importExportBloc),
             BlocProvider<CounterBloc>.value(value: counterBloc),
             BlocProvider<CalendarBloc>.value(value: calendarBloc),
           ],
@@ -236,9 +280,13 @@ void main() {
 
     /// The arrow the page draws, by the id a device flow taps: the pair's
     /// half on a page with a drawer, the bar's lone arrow on one drawn
-    /// without the menu button — one per screen either way.
+    /// without the menu button — one per screen either way. The calendar's
+    /// three pages draw `AppBar`'s implied arrow, which carries no id.
     Future<void> tapArrow(WidgetTester tester) async {
-      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.navBack));
+      final byId = find.bySemanticsIdentifier(SemanticsIds.navBack);
+      await tester.tap(
+        byId.evaluate().isNotEmpty ? byId : find.byType(BackButton),
+      );
       await settle(tester);
     }
 
@@ -248,89 +296,115 @@ void main() {
     }
 
     Future<void> openFromDrawer(WidgetTester tester, _Row row) async {
-      if (row.needsDeveloperMode) {
-        DevOptions.instance.developerModeUnlocked = true;
-      }
       await pumpHost(tester);
       await openDrawer(tester);
       observer.clear();
       await tapRow(tester, row.rowId);
     }
 
-    group('each settings row opens its page, stamped and anchored', () {
-      for (final row in _rows) {
-        testWidgets('${row.name}: ${row.pageType} with ${row.barId}, '
-            'stamped ${row.stamp?.kind.name ?? 'nothing'}', (tester) async {
+    /// The drawer's Settings row, then [row] on the hub: the way every
+    /// settings page is reached from the drawer since D1.
+    Future<void> openFromHub(WidgetTester tester, _Row row) async {
+      if (row.needsDeveloperMode) {
+        DevOptions.instance.developerModeUnlocked = true;
+      }
+      await pumpHost(tester);
+      await openDrawer(tester);
+      await tapRow(tester, SemanticsIds.drawerSettings);
+      expect(find.byType(SettingsHubPage), findsOneWidget);
+      observer.clear();
+      await tapRow(tester, row.rowId);
+    }
+
+    /// The page [row] opened is on top, carrying its stamp, and — where its
+    /// bar has an anchor — the anchor is the page's one labelled level-1
+    /// heading over level-2 section headers.
+    void expectLanded(WidgetTester tester, _Row row) {
+      expect(host().isDrawerOpen, isFalse);
+      expect(find.byType(row.pageType), findsOneWidget);
+      final pushed = observer.pageRoutes.single;
+      expect(pushed.settings.arguments, row.stamp);
+      final barId = row.barId;
+      if (barId != null) {
+        expect(find.bySemanticsIdentifier(barId), findsOneWidget);
+        // The id's node carries the title as the heading that names the
+        // route: a driver finds the bar, a screen reader still reads the
+        // page's name as a heading and announces it on arrival.
+        final title = tester
+            .getSemantics(find.bySemanticsIdentifier(barId))
+            .getSemanticsData();
+        expect(title.identifier, barId);
+        expect(title.label, row.title!(l10n));
+        expect(title.flagsCollection.isHeader, isTrue);
+        expect(title.headingLevel, 1);
+        expect(title.flagsCollection.namesRoute, isTrue);
+        // Android reads a heading from its level, VoiceOver from its flag,
+        // so a heading is either. None is unlabelled (`AppBar`'s own
+        // wrapper would be), the title is the page's one level-1 heading,
+        // and every other one, a section header, is level 2 under it.
+        final headings = find.semantics
+            .byPredicate((node) {
+              final data = node.getSemanticsData();
+              return data.flagsCollection.isHeader || data.headingLevel > 0;
+            })
+            .evaluate()
+            .map((node) => node.getSemanticsData())
+            .toList();
+        expect(headings.where((h) => h.label.isEmpty), isEmpty);
+        expect(
+          headings.where((h) => h.headingLevel == 1).map((h) => h.identifier),
+          [barId],
+        );
+        expect(
+          headings
+              .where((h) => h.identifier != barId)
+              .map((h) => h.headingLevel),
+          everyElement(2),
+        );
+      }
+      expect(tester.takeException(), isNull);
+    }
+
+    group('each drawer row opens its place, stamped (D1)', () {
+      for (final row in _drawerRows) {
+        testWidgets('${row.name}: ${row.pageType}, stamped '
+            '${row.stamp?.kind.name ?? 'nothing'}', (tester) async {
           await openFromDrawer(tester, row);
 
-          expect(host().isDrawerOpen, isFalse);
-          expect(find.byType(row.pageType), findsOneWidget);
-          final pushed = observer.pageRoutes.single;
-          expect(pushed.settings.arguments, row.stamp);
-          expect(find.bySemanticsIdentifier(row.barId), findsOneWidget);
-          // The id's node carries the title as the heading that names the
-          // route: a driver finds the bar, a screen reader still reads the
-          // page's name as a heading and announces it on arrival.
-          final title = tester
-              .getSemantics(find.bySemanticsIdentifier(row.barId))
-              .getSemanticsData();
-          expect(title.identifier, row.barId);
-          expect(title.label, row.title(l10n));
-          expect(title.flagsCollection.isHeader, isTrue);
-          expect(title.headingLevel, 1);
-          expect(title.flagsCollection.namesRoute, isTrue);
-          // Android reads a heading from its level, VoiceOver from its flag,
-          // so a heading is either. None is unlabelled (`AppBar`'s own
-          // wrapper would be), the title is the page's one level-1 heading,
-          // and every other one, a section header, is level 2 under it.
-          final headings = find.semantics
-              .byPredicate((node) {
-                final data = node.getSemanticsData();
-                return data.flagsCollection.isHeader || data.headingLevel > 0;
-              })
-              .evaluate()
-              .map((node) => node.getSemanticsData())
-              .toList();
-          expect(headings.where((h) => h.label.isEmpty), isEmpty);
-          expect(
-            headings.where((h) => h.headingLevel == 1).map((h) => h.identifier),
-            [row.barId],
-          );
-          expect(
-            headings
-                .where((h) => h.identifier != row.barId)
-                .map((h) => h.headingLevel),
-            everyElement(2),
-          );
-          expect(tester.takeException(), isNull);
+          expectLanded(tester, row);
 
           await teardownApp(tester);
         });
       }
     });
 
-    group('back by the arrow', () {
-      for (final row in _rows) {
-        final lands = row.arrowRaisesDrawer
-            ? 'raises the drawer again'
-            : 'lands on the host with the drawer closed';
-        final today = row.arrowRaisesDrawer ? ' (today; S2 lands beneath)' : '';
-        testWidgets('${row.name} $lands$today', (tester) async {
+    group('back from a drawer row by the arrow lands beneath, as system '
+        'back does (D3)', () {
+      for (final row in _drawerRows) {
+        testWidgets('${row.name} lands on the host with the drawer closed', (
+          tester,
+        ) async {
           await openFromDrawer(tester, row);
+          // The page carries no drawer: the arrow is the only leading
+          // control, and there is no edge drag to open one.
+          expect(Scaffold.of(tester.element(find.byType(AppBar))).hasDrawer,
+              isFalse);
+          expect(find.byIcon(Icons.menu_rounded), findsNothing);
 
           await tapArrow(tester);
 
           expect(find.byType(row.pageType), findsNothing);
           expect(find.text('host'), findsOneWidget);
-          expect(host().isDrawerOpen, row.arrowRaisesDrawer);
+          expect(host().isDrawerOpen, isFalse);
 
           await teardownApp(tester);
         });
       }
     });
 
-    group('back by system back never raises the drawer (S6)', () {
-      for (final row in _rows) {
+    group('back from a drawer row by system back never raises the drawer '
+        '(S6)', () {
+      for (final row in _drawerRows) {
         testWidgets('${row.name} lands on the host with the drawer closed', (
           tester,
         ) async {
@@ -347,15 +421,74 @@ void main() {
       }
     });
 
-    group('the dialog rows open their dialog and cancel cleanly', () {
-      testWidgets('Language closes the drawer, offers the languages, and '
-          'Close changes nothing', (tester) async {
+    group('each hub row opens its page, stamped and anchored (D2)', () {
+      for (final row in _hubRows) {
+        testWidgets('${row.name}: ${row.pageType} with '
+            '${row.barId ?? 'no bar anchor'}, stamped '
+            '${row.stamp?.kind.name ?? 'nothing'}', (tester) async {
+          await openFromHub(tester, row);
+
+          expectLanded(tester, row);
+
+          await teardownApp(tester);
+        });
+      }
+    });
+
+    group('back from a hub row lands on the hub, then on the host (D3)', () {
+      for (final row in _hubRows) {
+        testWidgets('${row.name} by the arrow', (tester) async {
+          await openFromHub(tester, row);
+
+          await tapArrow(tester);
+
+          expect(find.byType(row.pageType), findsNothing);
+          expect(find.byType(SettingsHubPage), findsOneWidget);
+          expect(host().isDrawerOpen, isFalse);
+
+          await tapArrow(tester);
+
+          expect(find.byType(SettingsHubPage), findsNothing);
+          expect(find.text('host'), findsOneWidget);
+          expect(host().isDrawerOpen, isFalse);
+
+          await teardownApp(tester);
+        });
+
+        testWidgets('${row.name} by system back', (tester) async {
+          await openFromHub(tester, row);
+
+          await systemBack(tester);
+
+          expect(find.byType(row.pageType), findsNothing);
+          expect(find.byType(SettingsHubPage), findsOneWidget);
+          expect(host().isDrawerOpen, isFalse);
+
+          await systemBack(tester);
+
+          expect(find.byType(SettingsHubPage), findsNothing);
+          expect(find.text('host'), findsOneWidget);
+          expect(host().isDrawerOpen, isFalse);
+
+          await teardownApp(tester);
+        });
+      }
+    });
+
+    group('the dialogs open and cancel cleanly', () {
+      Future<void> openHub(WidgetTester tester) async {
         await pumpHost(tester);
         await openDrawer(tester);
+        await tapRow(tester, SemanticsIds.drawerSettings);
+        expect(find.byType(SettingsHubPage), findsOneWidget);
+      }
 
-        await tapRow(tester, SemanticsIds.drawerLanguage);
+      testWidgets('the hub\'s Language offers the languages, and Close '
+          'changes nothing', (tester) async {
+        await openHub(tester);
 
-        expect(host().isDrawerOpen, isFalse);
+        await tapRow(tester, SemanticsIds.settingsHubRow('language'));
+
         expect(find.text(l10n.selectLanguage), findsOneWidget);
         await tester.tap(
           find.descendant(
@@ -367,19 +500,19 @@ void main() {
 
         expect(find.text(l10n.selectLanguage), findsNothing);
         expect(appSettingsBloc.events, isEmpty);
-        expect(host().isDrawerOpen, isFalse);
+        expect(find.byType(SettingsHubPage), findsOneWidget);
 
         await teardownApp(tester);
       });
 
-      testWidgets('Theme closes the drawer, offers the themes, and Close '
-          'changes nothing', (tester) async {
-        await pumpHost(tester);
-        await openDrawer(tester);
+      testWidgets('the hub\'s Theme, by the id it carried in the drawer '
+          '(D11), offers the themes, and Close changes nothing', (
+        tester,
+      ) async {
+        await openHub(tester);
 
         await tapRow(tester, SemanticsIds.settingsAppearance);
 
-        expect(host().isDrawerOpen, isFalse);
         expect(find.text(l10n.selectTheme), findsOneWidget);
         await tester.tap(
           find.descendant(
@@ -391,31 +524,33 @@ void main() {
 
         expect(find.text(l10n.selectTheme), findsNothing);
         expect(appSettingsBloc.events, isEmpty);
-        expect(host().isDrawerOpen, isFalse);
+        expect(find.byType(SettingsHubPage), findsOneWidget);
 
         await teardownApp(tester);
       });
 
-      testWidgets('About closes the drawer, shows the about dialog, and '
-          'Close leaves the host as it was', (tester) async {
+      testWidgets('About closes the drawer, shows the version, and system '
+          'back leaves the host as it was', (tester) async {
         await pumpHost(tester);
         await openDrawer(tester);
 
         await tapRow(tester, SemanticsIds.drawerAbout);
 
         expect(host().isDrawerOpen, isFalse);
-        expect(find.byType(AboutDialog), findsOneWidget);
-        await tester.tap(
-          find.descendant(
-            of: find.byType(AboutDialog),
-            matching: find.text(
-              const DefaultMaterialLocalizations().closeButtonLabel,
-            ),
-          ),
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.aboutDialog),
+          findsOneWidget,
         );
-        await settle(tester);
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(kAppVersion),
+          ),
+          findsOneWidget,
+        );
+        await systemBack(tester);
 
-        expect(find.byType(AboutDialog), findsNothing);
+        expect(find.byType(AlertDialog), findsNothing);
         expect(find.text('host'), findsOneWidget);
         expect(host().isDrawerOpen, isFalse);
 
@@ -423,11 +558,54 @@ void main() {
       });
     });
 
+    testWidgets('five taps on the header icon unlock developer mode, close '
+        'the drawer, and the hub then lists Developer options', (
+      tester,
+    ) async {
+      await pumpHost(tester);
+      await openDrawer(tester);
+      expect(DevOptions.instance.developerModeUnlocked, isFalse);
+
+      final icon = find.descendant(
+        of: find.byType(AppDrawer),
+        matching: find.byIcon(Icons.fitness_center_rounded),
+      );
+      for (var i = 0; i < 5; i++) {
+        await tester.tap(icon);
+        await tester.pump();
+      }
+      await settle(tester);
+
+      expect(DevOptions.instance.developerModeUnlocked, isTrue);
+      expect(host().isDrawerOpen, isFalse);
+      expect(find.text(l10n.developerModeUnlocked), findsOneWidget);
+
+      await openDrawer(tester);
+      await tapRow(tester, SemanticsIds.drawerSettings);
+      expect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.settingsHubRow('developerOptions'),
+        ),
+        findsOneWidget,
+      );
+
+      // The unlock was stored; put the stored flag back for the suites
+      // after this one.
+      DevOptions.instance.lockDeveloperMode();
+      await tester.runAsync(
+        () async => (await DevOptionsService.getInstance()).saveOptions(),
+      );
+      await teardownApp(tester);
+    });
+
     group('dedupe', () {
       testWidgets('toPermissions over Permissions pushes nothing', (
         tester,
       ) async {
-        await openFromDrawer(tester, _row(SemanticsIds.drawerPermissions));
+        await openFromHub(
+          tester,
+          _row(SemanticsIds.settingsHubRow('permissions')),
+        );
         observer.clear();
 
         await AppNavigator.toPermissions(
@@ -444,19 +622,21 @@ void main() {
         await teardownApp(tester);
       });
 
-      testWidgets('toSettings over App settings pushes a second page '
-          '(today, S15; S2 dedupes)', (tester) async {
-        await openFromDrawer(tester, _row(SemanticsIds.drawerSettings));
+      testWidgets('toSettings over App settings pushes nothing (S15, D3)', (
+        tester,
+      ) async {
+        await openFromHub(tester, _row(SemanticsIds.settingsHubRow('settings')));
         observer.clear();
 
-        // Not awaited: the push future completes when the page is popped.
-        AppNavigator.toSettings(tester.element(find.byType(SettingsPage)));
+        await AppNavigator.toSettings(
+          tester.element(find.byType(SettingsPage)),
+        );
         await settle(tester);
 
-        expect(observer.pageRoutes, hasLength(1));
+        expect(observer.pageRoutes, isEmpty);
         expect(
           find.byType(SettingsPage, skipOffstage: false),
-          findsNWidgets(2),
+          findsOneWidget,
         );
 
         await teardownApp(tester);
@@ -506,32 +686,31 @@ void main() {
         await teardownApp(tester);
       });
 
-      testWidgets('the editor\'s Counters: the arrow lands on the opener, no '
-          'drawer raised, though it still reports openDrawer (today; S2 '
-          'retires it)', (tester) async {
+      testWidgets('the editor\'s Counters: the arrow pops null to the '
+          'opener, no drawer raised (D3)', (tester) async {
         final opener = await pushOpener(tester);
-        SettingsResult? result;
         var returned = false;
         unawaited(
-          AppNavigator.toCounterManagement(opener, noteId: 'note-1').then((
-            value,
-          ) {
-            result = value;
-            returned = true;
-          }),
+          AppNavigator.toCounterManagement(
+            opener,
+            noteId: 'note-1',
+          ).then((_) => returned = true),
         );
         await settle(tester);
+        final pushed = observer.pageRoutes.single;
         expect(
-          observer.pageRoutes.single.settings.arguments,
+          pushed.settings.arguments,
           NavDestination.counterManagement(noteId: 'note-1'),
         );
+        Object? result = #unset;
+        unawaited(pushed.popped.then((Object? value) => result = value));
 
         await tapArrow(tester);
 
         expect(find.byType(CounterManagementPage), findsNothing);
         expect(find.text('opener'), findsOneWidget);
         expect(returned, isTrue);
-        expect(result, SettingsResult.openDrawer);
+        expect(result, isNull);
         expect(host().isDrawerOpen, isFalse);
 
         await teardownApp(tester);
@@ -631,19 +810,24 @@ void main() {
       );
     }
 
+    /// The destination a route of [kind] is stamped with; the per-note
+    /// counter page names the live counter.
+    NavDestination destinationOf(NavDestinationKind kind) =>
+        kind == NavDestinationKind.counterPerNote
+        ? NavDestination.counterPerNote(counterId: counterId)
+        : NavDestination(kind);
+
     testWidgets('every restorable settings-family kind replays, in order, to '
         'a route stamped with it and the page it names', (tester) async {
-      await saveStack(tester, [
-        for (final kind in _restorable.keys) NavDestination(kind),
-      ]);
+      DevOptions.instance.developerModeUnlocked = true;
+      final stack = [for (final kind in _restorable.keys) destinationOf(kind)];
+      await saveStack(tester, stack);
       await pumpApp(tester);
       observer.clear();
 
       await restore(tester);
 
-      expect(restoredDestinations(), [
-        for (final kind in _restorable.keys) NavDestination(kind),
-      ]);
+      expect(restoredDestinations(), stack);
       for (final route in observer.pageRoutes) {
         final kind = (route.settings.arguments! as NavDestination).kind;
         expect(
@@ -657,74 +841,114 @@ void main() {
     });
 
     for (final kind in _restorable.keys) {
-      final reopens = _reopenKinds.contains(kind);
-      final name = reopens
-          ? 'a restored ${kind.name} popped with openDrawer raises the top '
-                'drawer (today; S2 retires it)'
-          : 'a restored ${kind.name} popped with openDrawer raises nothing';
-      testWidgets(name, (tester) async {
-        expect(kind.reopensDrawerOnPop, reopens);
-        await saveStack(tester, [NavDestination(kind)]);
+      testWidgets('a restored ${kind.name} popped lands beneath with no '
+          'drawer raised (D3)', (tester) async {
+        expect(kind.reopensDrawerOnPop, isFalse);
+        DevOptions.instance.developerModeUnlocked = true;
+        await saveStack(tester, [destinationOf(kind)]);
         await pumpApp(tester);
         observer.clear();
         await restore(tester);
 
-        await popUnbuilt(
-          tester,
-          observer.pageRoutes.single,
-          SettingsResult.openDrawer,
-        );
+        await popUnbuilt(tester, observer.pageRoutes.single, null);
         await settleHost(tester);
 
-        expect(hostKey.currentState!.isDrawerOpen, reopens);
+        expect(find.text('root'), findsOneWidget);
+        expect(hostKey.currentState!.isDrawerOpen, isFalse);
 
         await teardownApp(tester);
       });
     }
 
-    testWidgets('a restored Permissions page does not ask for the drawer, '
-        'though the drawer row\'s does (today, S6)', (tester) async {
-      await saveStack(tester, const [
-        NavDestination(NavDestinationKind.permissions),
+    testWidgets('a page opened from the hub records [settingsHub, page], '
+        'Vocabularies records under Markdown shortcuts (S26), and the '
+        'recorded chain restores whole', (tester) async {
+      await pumpApp(tester);
+      // Pushed through the calls the pages make, from the navigator's own
+      // context and without a frame, so no page is built; a stand-in carries
+      // the hub's stamp.
+      final navigator = AppNavigator.navigatorKey.currentContext!;
+      unawaited(
+        AppNavigator.push<void>(
+          navigator,
+          const _Opener(),
+          destination: const NavDestination(NavDestinationKind.settingsHub),
+        ),
+      );
+      unawaited(AppNavigator.toMarkdownSettings(navigator, allShortcuts: []));
+      unawaited(AppNavigator.toVocabularies(navigator));
+
+      final recorded = history.stack;
+      expect(recorded, const [
+        NavDestination(NavDestinationKind.settingsHub),
+        NavDestination(NavDestinationKind.markdownSettings),
+        NavDestination(NavDestinationKind.vocabularies),
+      ]);
+      await teardownApp(tester);
+
+      await saveStack(tester, recorded);
+      await pumpApp(tester);
+      observer.clear();
+      await restore(tester);
+
+      expect(restoredDestinations(), recorded);
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('a per-note counter page whose counter is gone stops the '
+        'chain beneath it', (tester) async {
+      await saveStack(tester, [
+        NavDestination.counterManagement(),
+        NavDestination.counterPerNote(counterId: 'deleted-counter'),
       ]);
       await pumpApp(tester);
       observer.clear();
 
       await restore(tester);
 
-      final page = pageOf(observer.pageRoutes.single) as PermissionsPage;
-      expect(page.popsToDrawer, isFalse);
+      expect(restoredDestinations(), [NavDestination.counterManagement()]);
 
       await teardownApp(tester);
     });
 
-    testWidgets('only the bottom-most reopen kind carries the continuation '
-        '(today; S2 retires it)', (tester) async {
-      await saveStack(tester, const [
-        NavDestination(NavDestinationKind.settings),
-        NavDestination(NavDestinationKind.databaseSettings),
+    testWidgets('a per-note counter page whose counter is now global '
+        'restores the Counters page alone', (tester) async {
+      await saveStack(tester, [
+        NavDestination.counterManagement(),
+        NavDestination.counterPerNote(counterId: globalCounterId),
       ]);
       await pumpApp(tester);
       observer.clear();
+
       await restore(tester);
-      final [appSettings, databases] = observer.pageRoutes;
 
-      // Both leave before a frame, so neither page is ever built; the upper
-      // one asks for the drawer, the lower one does not. App settings alone
-      // raises it (the case above), so the lower route is the only one
-      // listened to.
-      await popUnbuilt(tester, databases, SettingsResult.openDrawer);
-      await popUnbuilt(tester, appSettings, null);
-      await settleHost(tester);
-
-      expect(hostKey.currentState!.isDrawerOpen, isFalse);
+      expect(restoredDestinations(), [NavDestination.counterManagement()]);
 
       await teardownApp(tester);
     });
 
-    testWidgets('an unknown kind in the stored stack truncates it there, '
-        'never throws (today; §4.3 asks S2 to drop the entry and keep the '
-        'rest)', (tester) async {
+    testWidgets('Developer options is not reopened once developer mode is '
+        'locked', (tester) async {
+      DevOptions.instance.lockDeveloperMode();
+      await saveStack(tester, const [
+        NavDestination(NavDestinationKind.settingsHub),
+        NavDestination(NavDestinationKind.developerOptions),
+      ]);
+      await pumpApp(tester);
+      observer.clear();
+
+      await restore(tester);
+
+      expect(restoredDestinations(), const [
+        NavDestination(NavDestinationKind.settingsHub),
+      ]);
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('an unknown kind in the stored stack is dropped and the rest '
+        'restored, never throws (§4.3)', (tester) async {
       final db = await tester.runAsync(AppDatabase.getInstance);
       await tester.runAsync(
         () => db!.userSettingsDao.setValue(
@@ -746,6 +970,7 @@ void main() {
 
       expect(restoredDestinations(), const [
         NavDestination(NavDestinationKind.settings),
+        NavDestination(NavDestinationKind.permissions),
       ]);
       expect(history.isRecording, isTrue);
 
@@ -754,48 +979,63 @@ void main() {
   });
 }
 
-/// A drawer row that opens a settings page, with what today's app does
-/// with it.
+/// A drawer or hub row that opens a page, with the page it lands on.
 class _Row {
   const _Row({
     required this.name,
     required this.rowId,
     required this.pageType,
-    required this.barId,
-    required this.title,
     required this.stamp,
-    required this.arrowRaisesDrawer,
+    this.barId,
+    this.title,
     this.needsDeveloperMode = false,
   });
 
   final String name;
   final String rowId;
   final Type pageType;
-  final String barId;
-  final String Function(AppLocalizations l10n) title;
+
+  /// The settings bar's anchor and the title it reads; null on a page whose
+  /// bar has none (the calendar's pages, the categories, appearance and
+  /// guide pages, which a flow anchors on a control of their own).
+  final String? barId;
+  final String Function(AppLocalizations l10n)? title;
 
   /// The `NavDestination` the pushed route carries; null for a page restore
   /// cannot rebuild.
   final NavDestination? stamp;
-
-  /// Whether the bar's arrow reports `SettingsResult.openDrawer` — the
-  /// pages that set `popsToDrawer`, which the row's awaiter honours.
-  final bool arrowRaisesDrawer;
 
   /// Developer options is drawn only once taps on the drawer header's icon
   /// have unlocked it.
   final bool needsDeveloperMode;
 }
 
-final _rows = <_Row>[
+/// The drawer's rows that open a page (D1), top to bottom; About opens a
+/// dialog and has its own case.
+final _drawerRows = <_Row>[
   _Row(
-    name: 'Calendar settings',
-    rowId: SemanticsIds.drawerCalendarSettings,
-    pageType: CalendarSettingsPage,
-    barId: SemanticsIds.settingsBarCalendar,
-    title: (l10n) => l10n.calendarSettings,
-    stamp: const NavDestination(NavDestinationKind.calendarSettings),
-    arrowRaisesDrawer: false,
+    name: 'Calendar',
+    rowId: SemanticsIds.drawerCalendar,
+    pageType: CalendarPage,
+    stamp: const NavDestination(NavDestinationKind.calendar),
+  ),
+  _Row(
+    name: 'Overview',
+    rowId: SemanticsIds.drawerCalendarOverview,
+    pageType: CalendarOverviewPage,
+    stamp: const NavDestination(NavDestinationKind.calendarOverview),
+  ),
+  _Row(
+    name: 'Report',
+    rowId: SemanticsIds.drawerCalendarReport,
+    pageType: CalendarReportPage,
+    stamp: const NavDestination(NavDestinationKind.calendarReport),
+  ),
+  _Row(
+    name: 'Categories',
+    rowId: SemanticsIds.drawerCalendarCategories,
+    pageType: CalendarCategoriesPage,
+    stamp: const NavDestination(NavDestinationKind.calendarCategories),
   ),
   _Row(
     name: 'Alerts',
@@ -804,18 +1044,6 @@ final _rows = <_Row>[
     barId: SemanticsIds.settingsBarAlerts,
     title: (l10n) => l10n.alertsTitle,
     stamp: const NavDestination(NavDestinationKind.alerts),
-    arrowRaisesDrawer: false,
-  ),
-  _Row(
-    name: 'Markdown shortcuts',
-    rowId: SemanticsIds.drawerMarkdownShortcuts,
-    pageType: MarkdownSettingsPage,
-    barId: SemanticsIds.settingsBarMarkdown,
-    title: (l10n) => l10n.markdownShortcuts,
-    // Unstamped, so nothing above it is recorded either: Vocabularies,
-    // opened from here, is never restored (S26).
-    stamp: null,
-    arrowRaisesDrawer: true,
   ),
   _Row(
     name: 'Counters',
@@ -824,57 +1052,112 @@ final _rows = <_Row>[
     barId: SemanticsIds.settingsBarCounters,
     title: (l10n) => l10n.counterSettings,
     stamp: NavDestination.counterManagement(),
-    arrowRaisesDrawer: true,
   ),
   _Row(
-    name: 'Sharing',
-    rowId: SemanticsIds.drawerSharing,
-    pageType: SyncSettingsPage,
-    barId: SemanticsIds.settingsBarSharing,
-    title: (l10n) => l10n.sharingSettings,
-    stamp: const NavDestination(NavDestinationKind.syncSettings),
-    arrowRaisesDrawer: true,
-  ),
-  _Row(
-    name: 'App settings',
+    name: 'Settings',
     rowId: SemanticsIds.drawerSettings,
+    pageType: SettingsHubPage,
+    barId: SemanticsIds.settingsBarHub,
+    title: (l10n) => l10n.settingsHubTitle,
+    stamp: const NavDestination(NavDestinationKind.settingsHub),
+  ),
+  _Row(
+    name: 'How to use ANTA',
+    rowId: SemanticsIds.drawerHowTo,
+    pageType: CalendarGuidePage,
+    stamp: const NavDestination(NavDestinationKind.calendarGuide),
+  ),
+];
+
+/// The hub's rows that open a page (D2); Language and Theme open dialogs
+/// and have their own cases.
+final _hubRows = <_Row>[
+  _Row(
+    name: 'Calendar settings',
+    rowId: SemanticsIds.settingsHubRow('calendarSettings'),
+    pageType: CalendarSettingsPage,
+    barId: SemanticsIds.settingsBarCalendar,
+    title: (l10n) => l10n.calendarSettings,
+    stamp: const NavDestination(NavDestinationKind.calendarSettings),
+  ),
+  _Row(
+    name: 'Appearance',
+    rowId: SemanticsIds.settingsHubRow('calendarAppearance'),
+    pageType: CalendarAppearancePage,
+    stamp: const NavDestination(NavDestinationKind.calendarAppearance),
+  ),
+  _Row(
+    name: 'Categories',
+    rowId: SemanticsIds.settingsHubRow('calendarCategories'),
+    pageType: CalendarCategoriesPage,
+    stamp: const NavDestination(NavDestinationKind.calendarCategories),
+  ),
+  _Row(
+    name: 'Editor and markdown',
+    rowId: SemanticsIds.settingsHubRow('markdownSettings'),
+    pageType: MarkdownSettingsPage,
+    barId: SemanticsIds.settingsBarMarkdown,
+    title: (l10n) => l10n.markdownShortcuts,
+    stamp: const NavDestination(NavDestinationKind.markdownSettings),
+  ),
+  _Row(
+    name: 'Counters',
+    rowId: SemanticsIds.settingsHubRow('counterManagement'),
+    pageType: CounterManagementPage,
+    barId: SemanticsIds.settingsBarCounters,
+    title: (l10n) => l10n.counterSettings,
+    stamp: NavDestination.counterManagement(),
+  ),
+  _Row(
+    name: 'General',
+    rowId: SemanticsIds.settingsHubRow('settings'),
     pageType: SettingsPage,
     barId: SemanticsIds.settingsBarApp,
     title: (l10n) => l10n.appSettings,
     stamp: const NavDestination(NavDestinationKind.settings),
-    arrowRaisesDrawer: true,
   ),
   _Row(
     name: 'Databases',
-    rowId: SemanticsIds.settingsDatabases,
+    rowId: SemanticsIds.settingsHubRow('databaseSettings'),
     pageType: DatabaseSettingsPage,
     barId: SemanticsIds.settingsBarDatabases,
     title: (l10n) => l10n.databaseSettings,
     stamp: const NavDestination(NavDestinationKind.databaseSettings),
-    arrowRaisesDrawer: true,
+  ),
+  _Row(
+    name: 'Sharing',
+    rowId: SemanticsIds.settingsHubRow('syncSettings'),
+    pageType: SyncSettingsPage,
+    barId: SemanticsIds.settingsBarSharing,
+    title: (l10n) => l10n.sharingSettings,
+    stamp: const NavDestination(NavDestinationKind.syncSettings),
   ),
   _Row(
     name: 'Permissions',
-    rowId: SemanticsIds.drawerPermissions,
+    rowId: SemanticsIds.settingsHubRow('permissions'),
     pageType: PermissionsPage,
     barId: SemanticsIds.settingsBarPermissions,
     title: (l10n) => l10n.permissionsTitle,
     stamp: const NavDestination(NavDestinationKind.permissions),
-    arrowRaisesDrawer: true,
   ),
   _Row(
     name: 'Developer options',
-    rowId: SemanticsIds.drawerDeveloperOptions,
+    rowId: SemanticsIds.settingsHubRow('developerOptions'),
     pageType: DeveloperOptionsPage,
     barId: SemanticsIds.settingsBarDeveloper,
     title: (l10n) => l10n.developerOptions,
-    stamp: null,
-    arrowRaisesDrawer: true,
+    stamp: const NavDestination(NavDestinationKind.developerOptions),
     needsDeveloperMode: true,
+  ),
+  _Row(
+    name: 'How the calendar works',
+    rowId: SemanticsIds.settingsHubRow('calendarGuide'),
+    pageType: CalendarGuidePage,
+    stamp: const NavDestination(NavDestinationKind.calendarGuide),
   ),
 ];
 
-_Row _row(String rowId) => _rows.singleWhere((row) => row.rowId == rowId);
+_Row _row(String rowId) => _hubRows.singleWhere((row) => row.rowId == rowId);
 
 /// Every settings-family kind `_pageFor` rebuilds, in the order a stack of
 /// all of them is saved, with the page each one names.
@@ -891,14 +1174,13 @@ const _restorable = <NavDestinationKind, Type>{
   NavDestinationKind.alerts: AlertsPage,
   NavDestinationKind.permissions: PermissionsPage,
   NavDestinationKind.calendarGuide: CalendarGuidePage,
-};
-
-/// The kinds whose restored page raises the drawer when its arrow pops it.
-const _reopenKinds = {
-  NavDestinationKind.databaseSettings,
-  NavDestinationKind.settings,
-  NavDestinationKind.syncSettings,
-  NavDestinationKind.counterManagement,
+  NavDestinationKind.settingsHub: SettingsHubPage,
+  NavDestinationKind.markdownSettings: MarkdownSettingsPage,
+  NavDestinationKind.markdownColors: MarkdownColorsPage,
+  NavDestinationKind.noteBarAssignment: NoteBarAssignmentPage,
+  NavDestinationKind.noteMoneyCurrency: NoteMoneyCurrencyPage,
+  NavDestinationKind.counterPerNote: CounterPerNotePage,
+  NavDestinationKind.developerOptions: DeveloperOptionsPage,
 };
 
 class _RecordingObserver extends NavigatorObserver {

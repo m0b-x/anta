@@ -6,16 +6,18 @@ import 'package:equatable/equatable.dart';
 ///
 /// This enum **is** the restore allowlist. A page earns a member here only if
 /// its identity is fully expressible as strings (no callbacks, no live model
-/// objects, no bloc-supplied arguments) and it is somewhere a user parks
-/// rather than passes through. That excludes `ShortcutEditorPage` (carries an
-/// `onSave` closure), `CounterPerNotePage` (carries a `Counter`),
-/// `MarkdownSettingsPage` (needs `allShortcuts` from `MarkdownBarBloc`),
-/// `SearchPage` (a query surface, not a place — restoring it empty is
-/// pointless and restoring a stale query is worse) and `DeveloperOptionsPage`
-/// (gated, and a cold launch into it is pure surprise).
+/// objects) and it is somewhere a user parks rather than passes through. That
+/// excludes `ShortcutEditorPage` (carries an `onSave` closure), the vocabulary
+/// editor and the guide's topic page (passed through on the way back to their
+/// parent) and `SearchPage` (a query surface, not a place — restoring it empty
+/// is pointless and restoring a stale query is worse). Every settings page
+/// has one (D3): `counterPerNote` names its counter by id and replay looks it
+/// up, `markdownSettings` re-reads its shortcuts from `MarkdownBarBloc`, and
+/// `developerOptions` is replayed only while developer mode is unlocked.
 ///
 /// Names are persisted, so they are load-bearing: rename a member and every
-/// existing install's stored stack truncates at that entry.
+/// existing install's stored stack loses that entry. New members are
+/// appended.
 enum NavDestinationKind {
   folder,
   note,
@@ -35,23 +37,19 @@ enum NavDestinationKind {
   permissions,
   calendarOverview,
   calendarGuide,
-  calendarReport;
+  calendarReport,
+  settingsHub,
+  markdownSettings,
+  markdownColors,
+  noteBarAssignment,
+  noteMoneyCurrency,
+  counterPerNote,
+  developerOptions;
 
-  /// Whether popping this page should raise the drawer beneath it.
-  ///
-  /// Mirrors how the page is reached in the running app: the drawer's
-  /// settings rows await their push and reopen the drawer on
-  /// `SettingsResult.openDrawer`, while Calendar deliberately does not — it
-  /// sits above the divider as a feature, not a setting. Restore has to
-  /// reproduce that distinction, because a restored page has no awaiting
-  /// drawer row to reproduce it for.
-  bool get reopensDrawerOnPop => switch (this) {
-    NavDestinationKind.databaseSettings ||
-    NavDestinationKind.settings ||
-    NavDestinationKind.syncSettings ||
-    NavDestinationKind.counterManagement => true,
-    _ => false,
-  };
+  /// Whether popping this page should raise the drawer beneath it — never,
+  /// since back always lands on the route beneath (D3). Nothing reads it any
+  /// more; it goes with the settings rework's S7 sweep.
+  bool get reopensDrawerOnPop => false;
 
   /// Whether this destination belongs to the folder/note substrate rather
   /// than to the calendar or settings layered on top. Backs the "folders and
@@ -69,7 +67,7 @@ enum NavDestinationKind {
   };
 
   /// Forward-compatible parsing: an unknown name (a kind written by a newer
-  /// build) yields `null` so the caller can truncate rather than throw.
+  /// build) yields `null` so the caller can skip it rather than throw.
   static NavDestinationKind? fromName(String? name) {
     for (final kind in values) {
       if (kind.name == name) return kind;
@@ -103,13 +101,18 @@ class NavDestination extends Equatable {
     : kind = NavDestinationKind.counterManagement,
       params = noteId == null || noteId.isEmpty ? const {} : {_noteIdKey: noteId};
 
+  NavDestination.counterPerNote({required String counterId})
+    : kind = NavDestinationKind.counterPerNote,
+      params = {_counterIdKey: counterId};
+
   static const String _folderIdKey = 'folderId';
   static const String _titleKey = 'title';
   static const String _noteIdKey = 'noteId';
+  static const String _counterIdKey = 'counterId';
 
   /// Bumped only if the *list* semantics change — a new kind alone does not
-  /// need it, since unknown kinds already truncate. A version this build does
-  /// not recognise means "restore nothing", never a crash.
+  /// need it, since unknown kinds are already skipped. A version this build
+  /// does not recognise means "restore nothing", never a crash.
   static const int stackVersion = 1;
 
   final NavDestinationKind kind;
@@ -117,6 +120,7 @@ class NavDestination extends Equatable {
 
   String? get folderId => params[_folderIdKey];
   String? get noteId => params[_noteIdKey];
+  String? get counterId => params[_counterIdKey];
   String get title => params[_titleKey] ?? '';
 
   /// A copy carrying a freshly resolved [title] — restore refreshes folder
@@ -139,9 +143,8 @@ class NavDestination extends Equatable {
   };
 
   /// Returns `null` for anything this build cannot rebuild — an unknown kind,
-  /// a malformed entry, or a kind whose required params are missing. Callers
-  /// treat `null` as "truncate here": every entry's parent precedes it, so a
-  /// prefix of the stack is always a coherent chain.
+  /// a malformed entry, or a kind whose required params are missing.
+  /// [decodeStack] says which of those it skips and which it truncates at.
   static NavDestination? fromJson(Object? json) {
     if (json is! Map) return null;
     final kind = NavDestinationKind.fromName(
@@ -168,6 +171,7 @@ class NavDestination extends Equatable {
       (folderId ?? '').isNotEmpty && params.containsKey(_titleKey),
     NavDestinationKind.note =>
       (noteId ?? '').isNotEmpty && (folderId ?? '').isNotEmpty,
+    NavDestinationKind.counterPerNote => (counterId ?? '').isNotEmpty,
     _ => true,
   };
 
@@ -180,9 +184,17 @@ class NavDestination extends Equatable {
   /// Decodes [encodeStack]'s output, degrading to an empty stack rather than
   /// throwing: a corrupt settings row must never keep the app from launching.
   ///
-  /// An entry this build cannot rebuild truncates the stack there, keeping
-  /// the surviving prefix — the user lands on the deepest ancestor we can
-  /// prove we can restore.
+  /// An entry whose kind this build has never heard of — a newer build's
+  /// page — is dropped and the rest kept (settings rework §4.3). That is
+  /// sound because no entry is rebuilt from the one beneath it: a folder
+  /// carries its own id, a note its own id (replay re-points it at the folder
+  /// it lives in now), a settings page nothing, and replay checks each
+  /// target's existence on its own, truncating at the first that is gone.
+  /// Dropping an entry only takes one page out of the way back.
+  ///
+  /// Anything else this build cannot rebuild — a malformed entry, a known
+  /// kind missing its params — is a damaged row, not a newer one, and still
+  /// truncates the stack there, keeping the surviving prefix.
   static List<NavDestination> decodeStack(String? raw) {
     final trimmed = raw?.trim();
     if (trimmed == null || !trimmed.startsWith('{')) return const [];
@@ -196,13 +208,24 @@ class NavDestination extends Equatable {
       final stack = <NavDestination>[];
       for (final entry in entries) {
         final destination = fromJson(entry);
-        if (destination == null) break;
-        stack.add(destination);
+        if (destination != null) {
+          stack.add(destination);
+        } else if (_isUnknownKind(entry)) {
+          continue;
+        } else {
+          break;
+        }
       }
       return stack;
     } on FormatException {
       return const [];
     }
+  }
+
+  static bool _isUnknownKind(Object? entry) {
+    if (entry is! Map) return false;
+    final name = entry['k'];
+    return name is String && NavDestinationKind.fromName(name) == null;
   }
 
   @override

@@ -2,9 +2,7 @@
 # content only, never a control's own words — a control gets a SemanticsIds
 # entry instead (test/qa/flows_lint_test.dart). A comment is "# " and its
 # text, so a label may start with "#".
-# Asserted only, never acted on: the Language and Theme dialogs
-# (AppDialogs.radioSelect / choose) and the About dialog carry no id, so
-# each is read by its title or its description.
-Select Language
-Select Theme
-An offline-first personal tracker
+# Asserted only, never acted on: the About dialog is waited for by its id
+# and its version (the pubspec's, through kAppVersion — content, not a
+# control's words) read beside it.
+1.0.0

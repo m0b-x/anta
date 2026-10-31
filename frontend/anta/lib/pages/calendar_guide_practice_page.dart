@@ -316,6 +316,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
           identifier: SemanticsIds.practiceMore,
           onAlerts: () =>
               _say((l10n) => l10n.calendarGuideWouldOpen(l10n.alertsTitle)),
+          onCategories: () => _say(
+            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarCategories),
+          ),
           onExport: demo == null || demo.events.isEmpty
               ? null
               : () => _say((l10n) => l10n.calendarGuideWouldShare),

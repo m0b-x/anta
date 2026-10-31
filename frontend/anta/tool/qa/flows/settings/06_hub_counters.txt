@@ -1,0 +1,30 @@
+# Counters through the hub, left by the bar's arrow and then by system back,
+# each landing on the hub and then on the folder root (D2, D3). The drawer's
+# own Counters row is 01_drawer_places.
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-counterManagement
+wait id:settings-bar-counters
+tap id:nav-back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-counters
+tap id:nav-back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-counterManagement
+wait id:settings-bar-counters
+key back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-counters
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

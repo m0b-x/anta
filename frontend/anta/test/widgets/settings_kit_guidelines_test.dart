@@ -5,10 +5,12 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/label_appearance.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -17,15 +19,18 @@ import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_permission.dart';
+import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/label_style.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/permissions_page.dart';
+import 'package:anta/pages/settings_hub_page.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/drawer_host_registry.dart';
 import 'package:anta/services/label_appearance_service.dart';
+import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
@@ -40,9 +45,10 @@ import '../services/permission_support.dart';
 
 /// The settings kit against Android's tap-target, labelled-tap and text
 /// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the two
-/// pages that use the most of it — App settings and Calendar settings — at
-/// 1.0 in light English and at 2.0 in dark German on the small phone, with
-/// Roboto loaded so text is measured as a phone draws it. The search field's
+/// pages that use the most of it — App settings and Calendar settings — and
+/// on the settings hub every page is opened from, at 1.0 in light English
+/// and at 2.0 in dark German on the small phone, with Roboto loaded so text
+/// is measured as a phone draws it. The search field's
 /// own contract — 48 dp, growing with the text, a labelled clear button with
 /// an id — is pinned beside it.
 void main() {
@@ -190,6 +196,77 @@ void main() {
 
       expect(tester.takeException(), isNull);
       await meetsAll(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    testWidgets('the settings hub meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final appSettings = AppSettingsBloc();
+      addTearDown(appSettings.close);
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(
+          cell,
+          home: BlocProvider<AppSettingsBloc>.value(
+            value: appSettings,
+            child: const SettingsHubPage(),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    // The hub at its fullest: the Permissions row's error-coloured attention
+    // line in place of its subtitle, and the Developer options row drawn.
+    testWidgets('the settings hub with the attention line and Developer '
+        'options meets the guidelines, ${cell.label}', (tester) async {
+      final handle = tester.ensureSemantics();
+      final appSettings = AppSettingsBloc();
+      addTearDown(appSettings.close);
+      DevOptions.instance.developerModeUnlocked = true;
+      addTearDown(DevOptions.instance.lockDeveloperMode);
+      final permissions = permissionServiceOver(
+        FakePermissionGateway(
+          statuses: {
+            ...allGranted,
+            AppPermission.notifications: PermissionStatus.denied,
+          },
+        ),
+      );
+      GetIt.I.registerSingleton<PermissionService>(permissions);
+      await tester.runAsync(permissions.refresh);
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(
+          cell,
+          home: BlocProvider<AppSettingsBloc>.value(
+            value: appSettings,
+            child: const SettingsHubPage(),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester);
+      // Read at the list's end, where [meetsAll] stopped: at 2.0 both rows
+      // sit below the first screen.
+      final l10n = lookupAppLocalizations(cell.locale);
+      expect(find.text(l10n.permissionsRowAttention(1)), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.settingsHubRow('developerOptions'),
+        ),
+        findsOneWidget,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       handle.dispose();
     });

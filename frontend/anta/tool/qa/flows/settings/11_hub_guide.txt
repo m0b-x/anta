@@ -1,0 +1,33 @@
+# The hub's How to row opens the calendar guide (D12), left by the bar's
+# arrow and then by system back, each landing on the hub and then on the
+# folder root (D2, D3). The drawer's How to use ANTA row is
+# 01_drawer_places.
+# - The guide's bar has no settings-bar anchor; the page is known by its
+#   list, calendar-guide, as in the calendar suite.
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-calendarGuide
+wait id:calendar-guide
+tap id:nav-back
+wait id:settings-bar-hub
+expect --absent id:calendar-guide
+tap id:nav-back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-calendarGuide
+wait id:calendar-guide
+key back
+wait id:settings-bar-hub
+expect --absent id:calendar-guide
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

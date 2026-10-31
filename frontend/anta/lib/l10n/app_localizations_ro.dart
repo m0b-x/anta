@@ -2754,7 +2754,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get themeSettings => 'Aspect';
 
   @override
-  String get themeSettingsDesc => 'Mod întunecat, culori și afișare';
+  String get themeSettingsDesc => 'Luminos, întunecat sau ca telefonul';
 
   @override
   String get selectTheme => 'Selectează Tema';
@@ -2898,10 +2898,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get calendarSettingsRow => 'Setări calendar';
-
-  @override
-  String get calendarSettingsRowDesc =>
-      'Început de săptămână, sărbători, aspect';
 
   @override
   String get appGroupLabel => 'Aplicație';
@@ -5823,6 +5819,72 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get settingsHubTitle => 'Setări';
+
+  @override
+  String get settingsHubRowDesc => 'Tot ce poți schimba';
+
+  @override
+  String get howToUseAnta => 'Cum folosești ANTA';
+
+  @override
+  String get calendarReportRowDesc => 'Cum a mers o săptămână sau o lună';
+
+  @override
+  String get settingsHubSearchHint => 'Caută în setări';
+
+  @override
+  String get settingsSectionCalendar => 'Calendar';
+
+  @override
+  String get settingsSectionNotes => 'Notițe';
+
+  @override
+  String get settingsSectionApp => 'Aplicație';
+
+  @override
+  String get settingsSectionHowTo => 'Ghiduri';
+
+  @override
+  String get settingsRowCalendarDesc => 'Sărbători, filtrare, evenimente';
+
+  @override
+  String get settingsRowAppearanceDesc =>
+      'Început de săptămână, celule, marcaje, culori';
+
+  @override
+  String get calendarCategoriesRowDesc => 'Creează, ordonează, arhivează';
+
+  @override
+  String get settingsRowEditor => 'Editor și markdown';
+
+  @override
+  String get settingsRowEditorDesc =>
+      'Scurtături, bară de instrumente, culori, vocabulare, bani';
+
+  @override
+  String get settingsRowCountersDesc => 'Contoare fixate și pe notiță';
+
+  @override
+  String get settingsRowGeneral => 'General';
+
+  @override
+  String get settingsRowGeneralDesc =>
+      'Pornire, navigare, editor, salvare automată';
+
+  @override
+  String get settingsRowTheme => 'Temă';
+
+  @override
+  String get settingsRowDatabases => 'Baze de date și copii de rezervă';
+
+  @override
+  String get settingsRowDatabasesDesc => 'Comutare, export, import, ștergere';
+
+  @override
+  String get settingsRowSharingDesc => 'Cont și dispozitive împerecheate';
+
+  @override
   String get permissionsCalendarRowDesc =>
       'Notificări, oră exactă, alarme pe tot ecranul, baterie';
 
@@ -6222,8 +6284,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuidePermissionsTitle => 'Lasă telefonul să sune';
 
   @override
-  String calendarGuidePermissionsBody(String battery, String permissions) {
-    return 'Prima dată, ANTA cere să afișeze notificări și să seteze alarme: acordă-le pe amândouă, altfel nimic nu sună. Pe un telefon Samsung pornește și „$battery”; dacă mai târziu ceva rămâne mut, „$permissions” din meniul principal arată ce lipsește.';
+  String calendarGuidePermissionsBody(
+    String battery,
+    String settings,
+    String permissions,
+  ) {
+    return 'Prima dată, ANTA cere să afișeze notificări și să seteze alarme: acordă-le pe amândouă, altfel nimic nu sună. Pe un telefon Samsung pornește și „$battery”; dacă mai târziu ceva rămâne mut, „$settings” din meniul principal, apoi „$permissions”, arată ce lipsește.';
   }
 
   @override
@@ -6270,8 +6336,12 @@ class AppLocalizationsRo extends AppLocalizations {
       'Limbă, mod întunecat și mărimea textului';
 
   @override
-  String calendarGuideLanguageBody(String language, String theme) {
-    return 'În meniul principal (trei linii, stânga sus): „$language” schimbă limba, iar „$theme” alege luminos sau întunecat. Mărimea textului urmează mărimea fontului din telefon.';
+  String calendarGuideLanguageBody(
+    String settings,
+    String language,
+    String theme,
+  ) {
+    return 'În meniul principal (trei linii, stânga sus), deschide „$settings”: „$language” schimbă limba, iar „$theme” alege luminos sau întunecat. Mărimea textului urmează mărimea fontului din telefon.';
   }
 
   @override

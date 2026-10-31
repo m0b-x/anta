@@ -1,0 +1,19 @@
+# Restore after a relaunch for the hub alone: opened from the drawer, the
+# app relaunched on the same database (a bare `relaunch`), the hub back on
+# screen ([settingsHub]), and system back lands on the folder root with the
+# drawer closed.
+# - The stack is written 400 ms after the push (NavigationHistoryService's
+#   debounce) and a relaunch force-stops the app with no pause to flush on,
+#   so the row's tap holds 2 s before the relaunch can run.
+# - A relaunch is a cold start: the restored hub is waited for 20 s.
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings --settle 2000
+wait id:settings-bar-hub
+relaunch
+wait id:settings-bar-hub --timeout 20
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

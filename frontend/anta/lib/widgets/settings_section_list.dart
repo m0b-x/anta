@@ -126,6 +126,11 @@ class SettingsSectionList extends StatelessWidget {
   /// asked for it rendering exactly as before.
   final ValueChanged<String>? onToggleSection;
 
+  /// A semantics id on the list's scrollable, for a device flow that swipes
+  /// inside it to reach a row past the cache extent — the page's first
+  /// scrollable may be its search field instead.
+  final String? listIdentifier;
+
   const SettingsSectionList({
     super.key,
     required this.sections,
@@ -136,6 +141,7 @@ class SettingsSectionList extends StatelessWidget {
     this.style = SettingsSectionStyle.standard,
     this.collapsedSections = const {},
     this.onToggleSection,
+    this.listIdentifier,
   });
 
   @override
@@ -261,7 +267,9 @@ class SettingsSectionList extends StatelessWidget {
               ?.merge(settingsCaptionStyle)
               .copyWith(color: colorScheme.onSurfaceVariant),
         ),
-        child: list,
+        child: listIdentifier == null
+            ? list
+            : Semantics(identifier: listIdentifier, child: list),
       ),
     );
   }

@@ -8,14 +8,12 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/counter.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_drawer.dart';
 import '../widgets/app_loading_bar.dart';
 import '../widgets/info_chip.dart';
 
 import '../widgets/unified_app_bars.dart';
 import '../utils/custom_snackbar.dart';
 import '../services/app_navigator.dart';
-import '../services/settings_service.dart';
 
 class CounterManagementPage extends StatefulWidget {
   final String? noteId;
@@ -26,19 +24,30 @@ class CounterManagementPage extends StatefulWidget {
   State<CounterManagementPage> createState() => _CounterManagementPageState();
 }
 
-class _CounterManagementPageState extends State<CounterManagementPage> {
-  bool _swipeEnabled = true;
-
+class _CounterManagementPageState extends State<CounterManagementPage>
+    with RouteAware {
   @override
-  void initState() {
-    super.initState();
-    _loadSwipeSetting();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
   }
 
-  Future<void> _loadSwipeSetting() async {
-    final settings = await SettingsService.getInstance();
-    final swipe = await settings.getFolderSwipeEnabled();
-    if (mounted) setState(() => _swipeEnabled = swipe);
+  /// A per-note counter page writes through the service, which does not
+  /// announce single value changes, and a restored chain pops that page with
+  /// no one awaiting the push — so the values are re-read whenever a page
+  /// above this one goes away, however it was opened.
+  @override
+  void didPopNext() {
+    context.read<CounterBloc>().add(RefreshCounters(noteId: widget.noteId));
+  }
+
+  @override
+  void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
+    super.dispose();
   }
 
   @override
@@ -49,11 +58,8 @@ class _CounterManagementPageState extends State<CounterManagementPage> {
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.counterSettings,
-        popsToDrawer: true,
         identifier: SemanticsIds.settingsBarCounters,
       ),
-      drawer: const AppDrawer(),
-      drawerEnableOpenDragGesture: _swipeEnabled,
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddCounterDialog(context),
         child: const Icon(Icons.add),
@@ -443,14 +449,10 @@ class _CounterCardState extends State<_CounterCard> {
     );
   }
 
-  Future<void> _openPerNotePage(BuildContext context) async {
-    await AppNavigator.toCounterPerNote(context, counter: counter);
-    if (context.mounted) {
-      context.read<CounterBloc>().add(
-        RefreshCounters(noteId: _effectiveNoteId),
-      );
-    }
-  }
+  /// The page beneath re-reads the values when this one pops (its
+  /// `didPopNext`), so nothing waits on the push here.
+  Future<void> _openPerNotePage(BuildContext context) =>
+      AppNavigator.toCounterPerNote(context, counter: counter);
 
   Widget _buildStepper(BuildContext context, ColorScheme colorScheme) {
     return Row(
@@ -528,12 +530,7 @@ class _CounterCardState extends State<_CounterCard> {
         break;
 
       case 'manage_notes':
-        await AppNavigator.toCounterPerNote(context, counter: counter);
-        if (context.mounted) {
-          context.read<CounterBloc>().add(
-            RefreshCounters(noteId: _effectiveNoteId),
-          );
-        }
+        await _openPerNotePage(context);
         break;
 
       case 'edit':

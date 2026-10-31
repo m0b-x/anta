@@ -1922,11 +1922,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// closed and reopened; and the note itself may have been edited above
   /// this page, which is what the second call covers.
   ///
+  /// The toolbar's bar is re-resolved for this note here rather than after
+  /// awaiting the Markdown settings push: a restored Markdown settings page
+  /// pops with no one awaiting it, and a linked editor above resolves the
+  /// shared bloc for its own note.
+  ///
   /// `RouteObserver<PageRoute>` only fires between page routes, so the
   /// toolbar, colour and money sheets do not reach here.
   @override
   void didPopNext() {
     unawaited(_reloadSettings());
+    context.read<MarkdownBarBloc>().add(
+      ResolveBarForNote(noteId: _saves.effectiveNoteId ?? widget.noteId),
+    );
     unawaited(_reloadContentIfChanged());
     _leaveIfDeletedWhileCovered();
     _showFilingNoticeOwed();
@@ -3545,20 +3553,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
   }
 
-  /// Opens the markdown settings page and re-resolves the toolbar's bar
-  /// profile on the way back.
+  /// Opens the markdown settings page.
   ///
-  /// Nothing else is re-read here: this is a page route, so [didPopNext]
-  /// has already fired [_reloadSettings] by the time the push returns —
-  /// re-reading the toolbar rows here would be a second round trip for
-  /// values that already landed.
-  Future<void> _openMarkdownSettings() async {
-    await AppNavigator.toMarkdownSettings(context, allShortcuts: _shortcuts);
-    if (!mounted) return;
-    context.read<MarkdownBarBloc>().add(
-      ResolveBarForNote(noteId: _saves.effectiveNoteId ?? widget.noteId),
-    );
-  }
+  /// Nothing is re-read after the push: this is a page route, so
+  /// [didPopNext] re-reads the settings and re-resolves the bar on the way
+  /// back — the same path a restored Markdown settings page pops through.
+  Future<void> _openMarkdownSettings() =>
+      AppNavigator.toMarkdownSettings(context, allShortcuts: _shortcuts);
 }
 
 /// One thing a remote change left the editor to file (record §3.9): a

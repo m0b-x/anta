@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../bloc/app_settings/app_settings_bloc.dart';
-import '../bloc/markdown_bar/markdown_bar_bloc.dart';
+import '../constants/app_version.dart';
+import '../constants/form_metrics.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import 'app_dialogs.dart';
 import '../models/app_user.dart';
-import '../models/custom_markdown_shortcut.dart';
 import '../models/dev_options.dart';
 import '../services/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../services/dev_options_service.dart';
-import '../services/drawer_host_registry.dart';
 import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
 import 'user_avatar.dart';
 
-/// Global navigation drawer for app-wide settings
+/// The app's places — the calendar's pages, counters, the settings hub, the
+/// how-to and About.
 class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
 
@@ -73,29 +72,40 @@ class _AppDrawerState extends State<AppDrawer> {
     }
   }
 
-  void _openSettingsPage(
-    BuildContext context,
-    Future<SettingsResult?> Function(BuildContext) push,
-  ) {
+  /// Closes the drawer, then pushes without awaiting: back lands on the page
+  /// the drawer was opened over (D3), so nothing waits for the push's result.
+  void _go(BuildContext context, Future<void> Function(BuildContext) push) {
     AppNavigator.pop(context);
-    push(context).then((result) {
-      if (result == SettingsResult.openDrawer) {
-        DrawerHostRegistry.openTopDrawer();
-      }
-    });
+    push(context);
   }
 
+  /// A heading as the settings kit's section headers are, so TalkBack can
+  /// jump between groups; it reads the label as written, never the capitals
+  /// it is drawn in, which a screen reader may spell out ("A-P-P").
   Widget _buildGroupLabel(BuildContext context, String label) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.9,
-          color: colorScheme.onSurfaceVariant,
+      padding: const EdgeInsets.fromLTRB(
+        RowMetrics.groupInset,
+        RowMetrics.groupGap,
+        RowMetrics.groupInset,
+        RowMetrics.sectionLabelBottomPadding,
+      ),
+      child: Semantics(
+        container: true,
+        header: true,
+        headingLevel: 2,
+        label: label,
+        child: ExcludeSemantics(
+          child: Text(
+            label.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontSize: RowMetrics.sectionLabelFontSize,
+              fontWeight: RowMetrics.sectionLabelFontWeight,
+              letterSpacing: RowMetrics.sectionLabelLetterSpacing,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
       ),
     );
@@ -107,6 +117,9 @@ class _AppDrawerState extends State<AppDrawer> {
     final colorScheme = theme.colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
+    // The drawer lists places, never settings (D1 of
+    // `docs/settings-rework-roadmap.md`): the hub behind the Settings row is
+    // where a setting is chosen, so no page is reached two ways from here.
     return Drawer(
       child: Column(
         children: [
@@ -121,10 +134,10 @@ class _AppDrawerState extends State<AppDrawer> {
             child: Semantics(
               identifier: SemanticsIds.drawerList,
               child: ListView(
-                padding: EdgeInsets.zero,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.paddingOf(context).bottom,
+                ),
                 children: [
-                  const SizedBox(height: 4),
-
                   _buildGroupLabel(context, l10n.calendar),
                   _buildMenuItem(
                     context: context,
@@ -132,10 +145,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     title: l10n.calendar,
                     subtitle: l10n.calendarDesc,
                     identifier: SemanticsIds.drawerCalendar,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      AppNavigator.toCalendar(context);
-                    },
+                    onTap: () => _go(context, AppNavigator.toCalendar),
                   ),
                   _buildMenuItem(
                     context: context,
@@ -143,21 +153,24 @@ class _AppDrawerState extends State<AppDrawer> {
                     title: l10n.calendarOverview,
                     subtitle: l10n.calendarOverviewDesc,
                     identifier: SemanticsIds.drawerCalendarOverview,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      AppNavigator.toCalendarOverview(context);
-                    },
+                    onTap: () => _go(context, AppNavigator.toCalendarOverview),
                   ),
                   _buildMenuItem(
                     context: context,
-                    icon: Icons.tune_rounded,
-                    title: l10n.calendarSettingsRow,
-                    subtitle: l10n.calendarSettingsRowDesc,
-                    identifier: SemanticsIds.drawerCalendarSettings,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      AppNavigator.toCalendarSettings(context);
-                    },
+                    icon: Icons.bar_chart_rounded,
+                    title: l10n.reportTitle,
+                    subtitle: l10n.calendarReportRowDesc,
+                    identifier: SemanticsIds.drawerCalendarReport,
+                    onTap: () => _go(context, AppNavigator.toCalendarReport),
+                  ),
+                  _buildMenuItem(
+                    context: context,
+                    icon: Icons.category_rounded,
+                    title: l10n.calendarCategories,
+                    subtitle: l10n.calendarCategoriesRowDesc,
+                    identifier: SemanticsIds.drawerCalendarCategories,
+                    onTap: () =>
+                        _go(context, AppNavigator.toCalendarCategories),
                   ),
                   _buildMenuItem(
                     context: context,
@@ -165,127 +178,36 @@ class _AppDrawerState extends State<AppDrawer> {
                     title: l10n.alertsTitle,
                     subtitle: l10n.alertsRowDesc,
                     identifier: SemanticsIds.drawerAlerts,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      AppNavigator.toAlerts(context);
-                    },
+                    onTap: () => _go(context, AppNavigator.toAlerts),
                   ),
 
                   _buildGroupLabel(context, l10n.notes),
                   _buildMenuItem(
                     context: context,
-                    icon: Icons.text_format_rounded,
-                    title: l10n.markdownShortcuts,
-                    subtitle: l10n.markdownShortcutsDesc,
-                    identifier: SemanticsIds.drawerMarkdownShortcuts,
-                    onTap: () {
-                      final blocState = context.read<MarkdownBarBloc>().state;
-                      final shortcuts = blocState is MarkdownBarLoaded
-                          ? blocState.currentShortcuts
-                          : <CustomMarkdownShortcut>[];
-                      _openSettingsPage(
-                        context,
-                        (ctx) => AppNavigator.toMarkdownSettings(
-                          ctx,
-                          allShortcuts: shortcuts,
-                        ),
-                      );
-                    },
-                  ),
-                  _buildMenuItem(
-                    context: context,
                     icon: Icons.pin_rounded,
                     title: l10n.counterSettings,
-                    subtitle: l10n.counterSettingsDesc,
+                    // The hub's one-line subtitle: the page's own wraps to an
+                    // 80 dp row and pushes About below the fold on 360 × 780.
+                    subtitle: l10n.settingsRowCountersDesc,
                     identifier: SemanticsIds.drawerCounters,
-                    onTap: () => _openSettingsPage(
-                      context,
-                      AppNavigator.toCounterManagement,
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.cloud_sync_rounded,
-                    title: l10n.sharingSettings,
-                    subtitle: l10n.sharingSettingsDesc,
-                    identifier: SemanticsIds.drawerSharing,
-                    onTap: () =>
-                        _openSettingsPage(context, AppNavigator.toSyncSettings),
+                    onTap: () => _go(context, AppNavigator.toCounterManagement),
                   ),
 
                   _buildGroupLabel(context, l10n.appGroupLabel),
+                  _buildSettingsItem(context, l10n),
                   _buildMenuItem(
                     context: context,
-                    icon: Icons.settings_rounded,
-                    title: l10n.appSettings,
-                    subtitle: l10n.appSettingsDesc,
-                    identifier: SemanticsIds.drawerSettings,
-                    onTap: () =>
-                        _openSettingsPage(context, AppNavigator.toSettings),
+                    icon: Icons.school_rounded,
+                    title: l10n.howToUseAnta,
+                    subtitle: l10n.calendarGuideTitle,
+                    identifier: SemanticsIds.drawerHowTo,
+                    onTap: () => _go(context, AppNavigator.toCalendarGuide),
                   ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.storage_rounded,
-                    title: l10n.databaseSettings,
-                    subtitle: l10n.databaseSettingsDesc,
-                    identifier: SemanticsIds.settingsDatabases,
-                    onTap: () => _openSettingsPage(
-                      context,
-                      AppNavigator.toDatabaseSettings,
-                    ),
-                  ),
-                  _buildPermissionsItem(context, l10n),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.language_rounded,
-                    title: l10n.languageSettings,
-                    subtitle: l10n.languageSettingsDesc,
-                    identifier: SemanticsIds.drawerLanguage,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      _showLanguageDialog(context);
-                    },
-                  ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.palette_rounded,
-                    title: l10n.themeSettings,
-                    subtitle: l10n.themeSettingsDesc,
-                    identifier: SemanticsIds.settingsAppearance,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      _showThemeDialog(context);
-                    },
-                  ),
-                  ListenableBuilder(
-                    listenable: DevOptions.instance,
-                    builder: (context, _) {
-                      if (!DevOptions.instance.developerModeUnlocked) {
-                        return const SizedBox.shrink();
-                      }
-                      return _buildMenuItem(
-                        context: context,
-                        icon: Icons.developer_mode_rounded,
-                        title: l10n.developerOptions,
-                        subtitle: l10n.developerOptionsDesc,
-                        identifier: SemanticsIds.drawerDeveloperOptions,
-                        onTap: () => _openSettingsPage(
-                          context,
-                          AppNavigator.toDeveloperOptions,
-                        ),
-                      );
-                    },
-                  ),
-
-                  const Divider(indent: 16, endIndent: 16),
-
                   _buildMenuItem(
                     context: context,
                     icon: Icons.info_outline_rounded,
                     title: l10n.about,
-                    subtitle: 'ANTA v1.0.0',
+                    subtitle: kAppVersion,
                     identifier: SemanticsIds.drawerAbout,
                     onTap: () {
                       AppNavigator.pop(context);
@@ -296,9 +218,6 @@ class _AppDrawerState extends State<AppDrawer> {
               ),
             ),
           ),
-
-          // Footer
-          _buildFooter(context, colorScheme),
         ],
       ),
     );
@@ -340,50 +259,60 @@ class _AppDrawerState extends State<AppDrawer> {
           Stack(
             clipBehavior: Clip.none,
             children: [
-              GestureDetector(
-                onTap: () => _handleIconTap(context),
-                onHorizontalDragEnd: (details) async {
-                  // Swipe left-to-right with sufficient velocity
-                  if (details.primaryVelocity != null &&
-                      details.primaryVelocity! > 200) {
-                    final devOptions = DevOptions.instance;
-                    if (!devOptions.developerModeUnlocked) {
-                      devOptions.developerModeUnlocked = true;
-                      final service = await DevOptionsService.getInstance();
-                      await service.saveOptions();
-                      HapticFeedback.mediumImpact();
-                      if (context.mounted) {
-                        AppNavigator.pop(context);
-                        await Future.delayed(const Duration(milliseconds: 100));
+              // Named after the app it shows, so the tappable is never an
+              // unlabelled node; what five taps do stays unsaid.
+              Semantics(
+                container: true,
+                identifier: SemanticsIds.drawerHeaderIcon,
+                label: l10n.appTitle,
+                button: true,
+                child: GestureDetector(
+                  onTap: () => _handleIconTap(context),
+                  onHorizontalDragEnd: (details) async {
+                    // Swipe left-to-right with sufficient velocity
+                    if (details.primaryVelocity != null &&
+                        details.primaryVelocity! > 200) {
+                      final devOptions = DevOptions.instance;
+                      if (!devOptions.developerModeUnlocked) {
+                        devOptions.developerModeUnlocked = true;
+                        final service = await DevOptionsService.getInstance();
+                        await service.saveOptions();
+                        HapticFeedback.mediumImpact();
                         if (context.mounted) {
-                          CustomSnackbar.showSuccess(
-                            context,
-                            l10n.developerModeUnlocked,
+                          AppNavigator.pop(context);
+                          await Future.delayed(
+                            const Duration(milliseconds: 100),
                           );
+                          if (context.mounted) {
+                            CustomSnackbar.showSuccess(
+                              context,
+                              l10n.developerModeUnlocked,
+                            );
+                          }
                         }
                       }
                     }
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: isDark
-                        ? null
-                        : [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                  ),
-                  child: Icon(
-                    Icons.fitness_center_rounded,
-                    size: 37,
-                    color: colorScheme.primary,
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: isDark
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.1),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                    ),
+                    child: Icon(
+                      Icons.fitness_center_rounded,
+                      size: 37,
+                      color: colorScheme.primary,
+                    ),
                   ),
                 ),
               ),
@@ -455,11 +384,7 @@ class _AppDrawerState extends State<AppDrawer> {
         return GestureDetector(
           onTap: () {
             AppNavigator.pop(context);
-            AppNavigator.toSyncSettings(context).then((result) {
-              if (result == SettingsResult.openDrawer) {
-                DrawerHostRegistry.openTopDrawer();
-              }
-            });
+            AppNavigator.toSyncSettings(context);
           },
           child: Container(
             padding: const EdgeInsets.all(2),
@@ -480,20 +405,21 @@ class _AppDrawerState extends State<AppDrawer> {
     );
   }
 
-  Widget _buildPermissionsItem(BuildContext context, AppLocalizations l10n) {
+  /// The Settings row wears the permissions attention line in place of its
+  /// subtitle while an essential permission is off (D2): Permissions left the
+  /// drawer for the hub, and a missing permission must still be seen from
+  /// the first menu the user opens.
+  Widget _buildSettingsItem(BuildContext context, AppLocalizations l10n) {
     Widget row(int missing) => _buildMenuItem(
       context: context,
-      icon: Icons.verified_user_rounded,
-      title: l10n.permissionsTitle,
+      icon: Icons.settings_rounded,
+      title: l10n.settingsHubTitle,
       subtitle: missing > 0
           ? l10n.permissionsRowAttention(missing)
-          : l10n.permissionsRowDesc,
+          : l10n.settingsHubRowDesc,
       subtitleColor: missing > 0 ? Theme.of(context).colorScheme.error : null,
-      identifier: SemanticsIds.drawerPermissions,
-      onTap: () => _openSettingsPage(
-        context,
-        (ctx) => AppNavigator.toPermissions(ctx, fromDrawer: true),
-      ),
+      identifier: SemanticsIds.drawerSettings,
+      onTap: () => _go(context, AppNavigator.toSettingsHub),
     );
     if (!getIt.isRegistered<PermissionService>()) return row(0);
     return ValueListenableBuilder(
@@ -532,26 +458,40 @@ class _AppDrawerState extends State<AppDrawer> {
     Color? subtitleColor,
     required VoidCallback onTap,
   }) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
+    // Plain rows on the settings kit's tile geometry (D10): no tinted chip,
+    // so a glyph names its place without competing with the header's mark.
     return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: colorScheme.primaryContainer.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, size: 22, color: colorScheme.primary),
+      contentPadding: FormMetrics.settingsRowPadding,
+      minVerticalPadding: FormMetrics.settingsRowVerticalPadding,
+      minTileHeight: RowMetrics.singleLineMinHeight,
+      minLeadingWidth: FormMetrics.settingsLeadingWidth,
+      horizontalTitleGap: FormMetrics.settingsTitleGap,
+      leading: Icon(
+        icon,
+        size: RowMetrics.drawerGlyphSize,
+        color: colorScheme.onSurfaceVariant,
       ),
       title: Text(
         title,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        style: theme.textTheme.bodyLarge?.copyWith(
+          fontSize: RowMetrics.titleFontSize,
+          height: FormMetrics.labelLineHeight / RowMetrics.titleFontSize,
+          fontWeight: FontWeight.w400,
+          color: colorScheme.onSurface,
+        ),
       ),
       subtitle: subtitle != null
           ? Text(
               subtitle,
-              style: TextStyle(
-                fontSize: 12,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: RowMetrics.secondLineFontSize,
+                height:
+                    FormMetrics.captionLineHeight /
+                    RowMetrics.secondLineFontSize,
+                fontWeight: FontWeight.w400,
                 color: subtitleColor ?? colorScheme.onSurfaceVariant,
               ),
             )
@@ -561,117 +501,17 @@ class _AppDrawerState extends State<AppDrawer> {
         color: colorScheme.onSurfaceVariant,
       ),
       onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    );
-  }
-
-  Widget _buildFooter(BuildContext context, ColorScheme colorScheme) {
-    return Container(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).padding.bottom + 16,
-        top: 16,
-        left: 20,
-        right: 20,
-      ),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.copyright_rounded,
-            size: 14,
-            color: colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '2026 ANTA',
-            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-          ),
-        ],
-      ),
     );
   }
 
   void _showAboutDialog(BuildContext context) {
-    showAboutDialog(
-      context: context,
-      applicationName: 'ANTA',
-      applicationVersion: '1.0.0',
-      applicationIcon: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          Icons.fitness_center_rounded,
-          size: 32,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-      ),
-      children: [
-        const SizedBox(height: 16),
-        Text(AppLocalizations.of(context)!.aboutDescription),
-      ],
-    );
-  }
-
-  void _showLanguageDialog(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    final settingsBloc = context.read<AppSettingsBloc>();
-    final currentLocale = settingsBloc.state.localeCode;
-
-    const systemDefault = '_system_';
-    final selected = await AppDialogs.radioSelect<String>(
+    AppDialogs.about(
       context,
-      title: l10n.selectLanguage,
-      options: [
-        (value: systemDefault, label: l10n.systemDefault, subtitle: null),
-        (value: 'en', label: l10n.english, subtitle: 'English'),
-        (value: 'de', label: l10n.german, subtitle: 'Deutsch'),
-        (value: 'ro', label: l10n.romanian, subtitle: 'Română'),
-      ],
-      currentValue: currentLocale ?? systemDefault,
-      cancelText: l10n.close,
+      icon: Image.asset(kAppIconAsset),
+      name: l10n.appTitle,
+      version: kAppVersion,
+      description: l10n.aboutDescription,
     );
-    if (selected == null) return; // cancelled
-    settingsBloc.add(ChangeLocale(selected == systemDefault ? null : selected));
-  }
-
-  void _showThemeDialog(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final settingsBloc = context.read<AppSettingsBloc>();
-    final currentTheme = settingsBloc.state.themeMode;
-
-    final selected = await AppDialogs.choose<ThemeMode>(
-      context,
-      title: l10n.selectTheme,
-      options: [
-        (
-          value: ThemeMode.system,
-          label: l10n.systemTheme,
-          icon: Icons.settings_brightness_rounded,
-        ),
-        (
-          value: ThemeMode.light,
-          label: l10n.lightTheme,
-          icon: Icons.light_mode_rounded,
-        ),
-        (
-          value: ThemeMode.dark,
-          label: l10n.darkTheme,
-          icon: Icons.dark_mode_rounded,
-        ),
-      ],
-      currentValue: currentTheme,
-      cancelText: l10n.close,
-    );
-    if (selected == null) return;
-    settingsBloc.add(ChangeThemeMode(selected));
   }
 }

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/dev_options.dart';
 import '../services/dev_options_service.dart';
-import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
-import '../widgets/app_drawer.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
@@ -29,19 +28,10 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
 
-  bool _swipeEnabled = true;
-
   @override
   void initState() {
     super.initState();
     _loadService();
-    _loadSwipeSetting();
-  }
-
-  Future<void> _loadSwipeSetting() async {
-    final settings = await SettingsService.getInstance();
-    final swipe = await settings.getFolderSwipeEnabled();
-    if (mounted) setState(() => _swipeEnabled = swipe);
   }
 
   @override
@@ -79,11 +69,8 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.developerOptions,
-        popsToDrawer: true,
         identifier: SemanticsIds.settingsBarDeveloper,
       ),
-      drawer: const AppDrawer(),
-      drawerEnableOpenDragGesture: _swipeEnabled,
       body: SafeArea(
         top: false,
         child: _isLoading
@@ -94,7 +81,7 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
                   return Column(
                     children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        padding: FormMetrics.settingsSearchPadding,
                         child: SettingsSearchField(
                           controller: _searchController,
                           hint: l10n.searchSettings,
@@ -140,10 +127,10 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
                                     context,
                                     l10n.developerModeLocked,
                                   );
-                                  AppNavigator.pop(
-                                    context,
-                                    SettingsResult.openDrawer,
-                                  );
+                                  // `true` tells an awaiting opener the mode
+                                  // was locked; the hub needs no answer, it
+                                  // hides its row through `DevOptions`.
+                                  AppNavigator.pop(context, true);
                                 }
                               },
                               icon: const Icon(Icons.lock_rounded),

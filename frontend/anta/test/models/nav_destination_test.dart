@@ -8,8 +8,9 @@ import 'package:anta/models/restore_location_mode.dart';
 /// The remembered stack is replayed on cold launch, which is the one moment
 /// nothing can be re-asked of the user. So what matters here is that decoding
 /// is *total*: every malformed, truncated or newer-than-this-build value has a
-/// defined, non-throwing answer, and the answer is always a coherent chain —
-/// a prefix in which every entry's parent precedes it.
+/// defined, non-throwing answer, and the answer is always a chain replay can
+/// rebuild entry by entry — a newer build's kind is skipped, a damaged entry
+/// truncates.
 void main() {
   group('round trip', () {
     test('a full chain survives encode/decode', () {
@@ -61,21 +62,85 @@ void main() {
       expect(NavDestination.counterManagement().noteId, isNull);
       expect(NavDestination.counterManagement(noteId: '').params, isEmpty);
     });
+
+    test('a counter\'s per-note page round-trips with its counter id', () {
+      final stack = [
+        NavDestination.counterManagement(),
+        NavDestination.counterPerNote(counterId: 'c1'),
+      ];
+
+      final decoded = NavDestination.decodeStack(
+        NavDestination.encodeStack(stack),
+      );
+
+      expect(decoded, stack);
+      expect(decoded.last.counterId, 'c1');
+    });
+
+    test('the settings kinds added for D3 carry no params and need none', () {
+      for (final kind in [
+        NavDestinationKind.markdownSettings,
+        NavDestinationKind.markdownColors,
+        NavDestinationKind.noteBarAssignment,
+        NavDestinationKind.noteMoneyCurrency,
+        NavDestinationKind.developerOptions,
+      ]) {
+        expect(
+          NavDestination.decodeStack(
+            NavDestination.encodeStack([NavDestination(kind)]),
+          ),
+          [NavDestination(kind)],
+        );
+      }
+    });
   });
 
   group('degradation', () {
-    test('a kind written by a newer build truncates the stack there', () {
+    test('a kind written by a newer build is dropped and the rest kept', () {
       final raw = jsonEncode({
         'v': NavDestination.stackVersion,
         'stack': [
           {'k': 'folder', 'p': {'folderId': 'f1', 'title': 'Training'}},
-          {'k': 'timeMachine'},
+          {'k': 'timeMachine', 'p': {'era': 'future'}},
+          {'k': 'note', 'p': {'noteId': 'n1', 'folderId': 'f1'}},
           {'k': 'calendar'},
         ],
       });
 
       expect(NavDestination.decodeStack(raw), [
         NavDestination.folder(folderId: 'f1', title: 'Training'),
+        NavDestination.note(noteId: 'n1', folderId: 'f1'),
+        const NavDestination(NavDestinationKind.calendar),
+      ]);
+    });
+
+    test('an entry with no kind name at all still truncates', () {
+      final raw = jsonEncode({
+        'v': NavDestination.stackVersion,
+        'stack': [
+          {'k': 'calendar'},
+          {'p': {'folderId': 'f1'}},
+          'not an entry',
+          {'k': 'alerts'},
+        ],
+      });
+
+      expect(NavDestination.decodeStack(raw), [
+        const NavDestination(NavDestinationKind.calendar),
+      ]);
+    });
+
+    test('a per-note counter page without its counter id truncates', () {
+      final raw = jsonEncode({
+        'v': NavDestination.stackVersion,
+        'stack': [
+          {'k': 'counterManagement'},
+          {'k': 'counterPerNote'},
+        ],
+      });
+
+      expect(NavDestination.decodeStack(raw), [
+        NavDestination.counterManagement(),
       ]);
     });
 
@@ -115,38 +180,26 @@ void main() {
   });
 
   group('kind properties', () {
-    test('only the drawer-owned settings pages reopen the drawer', () {
-      final reopening = NavDestinationKind.values
-          .where((kind) => kind.reopensDrawerOnPop)
-          .toSet();
-
-      expect(reopening, {
-        NavDestinationKind.databaseSettings,
-        NavDestinationKind.settings,
-        NavDestinationKind.syncSettings,
-        NavDestinationKind.counterManagement,
-      });
+    test('no kind reopens the drawer: back lands beneath (D3)', () {
+      expect(
+        NavDestinationKind.values.where((kind) => kind.reopensDrawerOnPop),
+        isEmpty,
+      );
     });
 
-    test('the calendar is a feature, not a setting, so it raises no drawer',
-        () {
-      expect(NavDestinationKind.calendar.reopensDrawerOnPop, isFalse);
-    });
-
-    test('the note lists are substrate, and raise no drawer either', () {
+    test('the note lists are substrate', () {
       for (final kind in [
         NavDestinationKind.allNotes,
         NavDestinationKind.recentNotes,
       ]) {
         expect(kind.isNoteSubstrate, isTrue);
-        expect(kind.reopensDrawerOnPop, isFalse);
       }
     });
 
     test('the persisted names of the kinds that already shipped are unchanged',
         () {
-      // Renaming any of these truncates every existing install's stored stack
-      // at that entry. *Position* is not persisted — the codec writes
+      // Renaming any of these drops that entry from every existing install's
+      // stored stack. *Position* is not persisted — the codec writes
       // `kind.name` and reads it back through `fromName` — so inserting a new
       // member beside its neighbours (`calendarAppearance`, 2026-09-07) is
       // safe and the list simply grows to match.
@@ -167,10 +220,29 @@ void main() {
           'counterManagement',
         ],
       );
+      expect(
+        NavDestinationKind.values.skip(12).map((kind) => kind.name),
+        [
+          'allNotes',
+          'recentNotes',
+          'alerts',
+          'permissions',
+          'calendarOverview',
+          'calendarGuide',
+          'calendarReport',
+          'settingsHub',
+          'markdownSettings',
+          'markdownColors',
+          'noteBarAssignment',
+          'noteMoneyCurrency',
+          'counterPerNote',
+          'developerOptions',
+        ],
+      );
     });
 
-    test('a new kind needs no envelope bump — unknown kinds already truncate',
-        () {
+    test('a new kind needs no envelope bump — unknown kinds are already '
+        'skipped', () {
       expect(NavDestination.stackVersion, 1);
     });
   });

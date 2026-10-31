@@ -1,0 +1,66 @@
+# Restore after a relaunch for the four App pages the hub opens — General,
+# Databases, Sharing, Permissions: each opened from the hub, the app
+# relaunched on the same database (a bare `relaunch`), the page back on
+# screen over the hub ([settingsHub, page], D3), and system back down
+# through the hub to the folder root with the drawer closed.
+# - The stack is written 400 ms after the push (NavigationHistoryService's
+#   debounce) and a relaunch force-stops the app with no pause to flush on,
+#   so the row's tap holds 2 s before the relaunch can run.
+# - A relaunch is a cold start: the restored page is waited for 20 s.
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-settings --settle 2000
+wait id:settings-bar-app
+relaunch
+wait id:settings-bar-app --timeout 20
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-databaseSettings --settle 2000
+wait id:settings-bar-databases
+relaunch
+wait id:settings-bar-databases --timeout 20
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-syncSettings --settle 2000
+wait id:settings-bar-sharing
+relaunch
+wait id:settings-bar-sharing --timeout 20
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-permissions --settle 2000
+wait id:settings-bar-permissions
+relaunch
+wait id:settings-bar-permissions --timeout 20
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

@@ -2728,7 +2728,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get themeSettings => 'Erscheinungsbild';
 
   @override
-  String get themeSettingsDesc => 'Dunkelmodus, Farben und Anzeige';
+  String get themeSettingsDesc => 'Hell, dunkel oder wie das Telefon';
 
   @override
   String get selectTheme => 'Design auswählen';
@@ -2870,10 +2870,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarSettings => 'Kalender';
 
   @override
-  String get calendarSettingsRow => 'Kalendereinstellungen';
-
-  @override
-  String get calendarSettingsRowDesc => 'Wochenbeginn, Feiertage, Darstellung';
+  String get calendarSettingsRow => 'Kalender-Einstellungen';
 
   @override
   String get appGroupLabel => 'App';
@@ -3355,7 +3352,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get afterAllRepeatsHint => 'z.B. \\n---';
 
   @override
-  String get developerOptions => 'Entwickleroptionen';
+  String get developerOptions => 'Entwickler-Optionen';
 
   @override
   String get developerOptionsDesc => 'Debug-Tools und Diagnose';
@@ -5764,6 +5761,74 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get settingsHubTitle => 'Einstellungen';
+
+  @override
+  String get settingsHubRowDesc => 'Alles, was du ändern kannst';
+
+  @override
+  String get howToUseAnta => 'So nutzt du ANTA';
+
+  @override
+  String get calendarReportRowDesc => 'Wie eine Woche oder ein Monat lief';
+
+  @override
+  String get settingsHubSearchHint => 'Einstellungen suchen';
+
+  @override
+  String get settingsSectionCalendar => 'Kalender';
+
+  @override
+  String get settingsSectionNotes => 'Notizen';
+
+  @override
+  String get settingsSectionApp => 'App';
+
+  @override
+  String get settingsSectionHowTo => 'Anleitungen';
+
+  @override
+  String get settingsRowCalendarDesc => 'Feiertage, Filterung, Ereignisse';
+
+  @override
+  String get settingsRowAppearanceDesc =>
+      'Wochenbeginn, Zellen, Markierungen, Farben';
+
+  @override
+  String get calendarCategoriesRowDesc => 'Erstellen, ordnen, archivieren';
+
+  @override
+  String get settingsRowEditor => 'Editor und Markdown';
+
+  @override
+  String get settingsRowEditorDesc =>
+      'Kurzbefehle, Symbolleiste, Farben, Wortlisten, Geld';
+
+  @override
+  String get settingsRowCountersDesc =>
+      'Angeheftete Zähler und Zähler pro Notiz';
+
+  @override
+  String get settingsRowGeneral => 'Allgemein';
+
+  @override
+  String get settingsRowGeneralDesc =>
+      'Start, Navigation, Editor, automatisches Speichern';
+
+  @override
+  String get settingsRowTheme => 'Design';
+
+  @override
+  String get settingsRowDatabases => 'Datenbanken und Sicherung';
+
+  @override
+  String get settingsRowDatabasesDesc =>
+      'Wechseln, exportieren, importieren, löschen';
+
+  @override
+  String get settingsRowSharingDesc => 'Konto und gekoppelte Geräte';
+
+  @override
   String get permissionsCalendarRowDesc =>
       'Benachrichtigungen, genaue Zeit, Vollbild-Alarme, Akku';
 
@@ -6162,8 +6227,12 @@ class AppLocalizationsDe extends AppLocalizations {
       'Dem Telefon das Klingeln erlauben';
 
   @override
-  String calendarGuidePermissionsBody(String battery, String permissions) {
-    return 'Beim ersten Mal bittet ANTA darum, Benachrichtigungen zu zeigen und Alarme zu stellen: Erlaube beides, sonst klingelt nichts. Auf einem Samsung-Telefon schalte auch „$battery“ ein; bleibt später etwas stumm, zeigt „$permissions“ im Hauptmenü, was fehlt.';
+  String calendarGuidePermissionsBody(
+    String battery,
+    String settings,
+    String permissions,
+  ) {
+    return 'Beim ersten Mal bittet ANTA darum, Benachrichtigungen zu zeigen und Alarme zu stellen: Erlaube beides, sonst klingelt nichts. Auf einem Samsung-Telefon schalte auch „$battery“ ein; bleibt später etwas stumm, zeigt „$settings“ im Hauptmenü, dann „$permissions“, was fehlt.';
   }
 
   @override
@@ -6211,8 +6280,12 @@ class AppLocalizationsDe extends AppLocalizations {
       'Sprache, dunkles Design und Schriftgröße';
 
   @override
-  String calendarGuideLanguageBody(String language, String theme) {
-    return 'Im Hauptmenü (drei Striche, oben links): „$language“ wechselt die Sprache und „$theme“ wählt hell oder dunkel. Die Schriftgröße folgt der deines Telefons.';
+  String calendarGuideLanguageBody(
+    String settings,
+    String language,
+    String theme,
+  ) {
+    return 'Im Hauptmenü (drei Striche, oben links) „$settings“ öffnen: „$language“ wechselt die Sprache und „$theme“ wählt hell oder dunkel. Die Schriftgröße folgt der deines Telefons.';
   }
 
   @override

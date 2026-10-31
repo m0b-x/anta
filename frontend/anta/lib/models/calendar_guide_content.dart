@@ -479,6 +479,7 @@ enum CalendarGuideTopic {
         l10n.calendarGuidePermissionsTitle,
         l10n.calendarGuidePermissionsBody(
           l10n.alertsBattery,
+          l10n.settingsHubTitle,
           l10n.permissionsTitle,
         ),
       ),
@@ -637,8 +638,9 @@ enum CalendarGuideTopic {
         Icons.translate_rounded,
         l10n.calendarGuideLanguageTitle,
         l10n.calendarGuideLanguageBody(
+          l10n.settingsHubTitle,
           l10n.languageSettings,
-          l10n.themeSettings,
+          l10n.settingsRowTheme,
         ),
       ),
     ],

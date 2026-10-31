@@ -3774,11 +3774,12 @@ void main() {
   }
 
   group('no word breaks across lines inside a stage on 360', () {
-    // The two words no stage can hold at de 2.0, even edge to edge in the
+    // The one word no stage can hold at de 2.0, even edge to edge in the
     // card, 328 dp on a 360 phone: "Wiederholungen" beside the count's
     // switch is wider than the 182 dp its label keeps (the editor's
-    // full-width sheet gives it 32 dp more), and "„Kalendereinstellungen“",
-    // the guide's own words, wider than the 256 dp of its row. The screen
+    // full-width sheet gives it 32 dp more). "Kalender-Einstellungen" breaks
+    // at its hyphen, so the setup card holds it since the settings rework's
+    // S2 review. The screen
     // page's cards are the card's cost too, not the widgets': edge to edge
     // in the card they are still 40 dp narrower than the screen, so the
     // weekday row's "Mon" needs 49.5 dp of its column and gets 45.7 ("Wed"
@@ -3788,7 +3789,6 @@ void main() {
     // Pinned per state where they differ, so any other break fails.
     const unavoidable = {
       'attendance de 2.0': ['Wiederholungen'],
-      'setup de 2.0': ['„Kalendereinstellungen“'],
       'screen en 2.0': ['Mon', 'Wed'],
       // The card opens on Month (D68); its change is Year's tiles.
       'overview en 2.0 idle': ['Mon', 'Wed'],

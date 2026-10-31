@@ -179,8 +179,8 @@ class NavigationHistoryObserver extends NavigatorObserver {
   /// page, not every stamped route on the navigator.
   ///
   /// Taking a prefix is what handles the pages restore cannot rebuild — a
-  /// shortcut editor carrying an `onSave` closure, a counter page carrying a
-  /// live `Counter`. They are unstamped, so anything pushed above them stops
+  /// shortcut editor carrying an `onSave` closure, a brand-new note with no
+  /// id yet. They are unstamped, so anything pushed above them stops
   /// being recorded, and restore lands the user on the deepest ancestor it
   /// can honestly rebuild instead of a chain with a hole in it.
   void _publish() {

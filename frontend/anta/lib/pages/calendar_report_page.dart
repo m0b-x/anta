@@ -693,6 +693,7 @@ class _ReportViewState extends State<_ReportView>
         CalendarOverflowMenu(
           identifier: SemanticsIds.reportMore,
           onAlerts: () => AppNavigator.toAlertsFromCalendar(context),
+          onCategories: () => AppNavigator.toCalendarCategories(context),
           onExport: hasEvents ? _exportEvents : null,
           onGuide: () => AppNavigator.toCalendarGuide(context),
           onSettings: _openSettings,

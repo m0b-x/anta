@@ -1,20 +1,24 @@
-# The settings suite for `qa pass settings` (settings rework D13): the
-# drawer's settings rows, each page left by the bar's arrow and by system
-# back, the three dialog rows, and restore after a relaunch, written in S0
-# against today's drawer and today's navigation so that S2 (the hub, the
-# new drawer, one back contract) changes these flows in the same slice and
-# the device pass proves the change. Every flow starts from a fresh
-# basic.json seed on the folder root, so it needs no prelude and shards.
-# - Today's S6 asymmetry, which S2 removes: the arrow raises the drawer
-#   again from Markdown shortcuts, Counters, Sharing, App settings,
-#   Databases and Permissions, and lands on the root from Calendar settings
-#   and Alerts; system back never raises it. `key back` is the agent's
-#   root `Navigator.maybePop()`, the pop the system gesture makes.
+# The settings suite for `qa pass settings` (settings rework D13), rewritten
+# in S2 for the new navigation: the drawer lists places (D1) and every
+# settings page is chosen on the hub (D2). The flows walk the drawer's nine
+# rows, each place and back, each hub page and back, the dialogs, and
+# restore after a relaunch. Every flow starts from a fresh basic.json seed
+# on the folder root, so it needs no prelude and shards.
+# - One back contract (D3): from a hub page, the bar's arrow and system back
+#   both land on the hub, and once more on the folder root with the drawer
+#   closed. `key back` is the agent's root `Navigator.maybePop()`, the pop
+#   the system gesture makes.
+# - A page whose bar has no `settings-bar-*` anchor (Appearance, Categories,
+#   the guide) is known by an id only it carries: `appearance-today-style`,
+#   `category-add`, `calendar-guide`, the anchors the calendar suite uses.
 # - Restore is proven by a bare `relaunch` step (no --fresh, no --seed): it
 #   stops the app and starts it again on the same QA database, so the
-#   stored stack is replayed as on a cold launch.
-# - Developer options is skipped: its row is drawn only after the unlock
-#   taps on the drawer header's icon, which carries no id.
+#   stored stack ([settingsHub, page]) is replayed as on a cold launch.
+# - Developer options is reached by the unlock: five taps on the drawer
+#   header's icon (drawer-header-icon) draw its hub row (17). Locking it is
+#   left to the widget suites: the page's Lock button carries no id. The
+#   shortcut editor (the one unstamped settings page) is skipped: no id
+#   reaches it inside Markdown settings.
 fixture=tool/qa/fixtures/basic.json
 reseed=flow
 shard=yes

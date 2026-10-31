@@ -168,6 +168,16 @@ abstract final class FormMetrics {
   /// motion, short enough that a fold never feels like waiting for the row
   /// you were reaching for.
   static const Duration settingsFoldDuration = Duration(milliseconds: 180);
+
+  /// Around a settings page's search field above its list: the group's
+  /// sides, air under the bar, and a short step down to the first header,
+  /// whose own height is the rest of the gap.
+  static const EdgeInsets settingsSearchPadding = EdgeInsets.fromLTRB(
+    RowMetrics.groupInset,
+    12,
+    RowMetrics.groupInset,
+    4,
+  );
   static const double counterSize = 12;
 
   /// The colour dot before a row's value — what Icon & color reads back —

@@ -62,6 +62,11 @@ class RowMetrics {
   /// The leading glyph on a folder or smart row.
   static const double glyphSize = 22.0;
 
+  /// A drawer row's leading glyph: the stock Material 3 tile's, which fills
+  /// the settings kit's leading slot, so the drawer's titles start where the
+  /// hub's do.
+  static const double drawerGlyphSize = 24.0;
+
   /// The chevron that says a row opens something.
   static const double chevronSize = 18.0;
 

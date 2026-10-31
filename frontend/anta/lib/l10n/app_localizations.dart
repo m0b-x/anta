@@ -4693,7 +4693,7 @@ abstract class AppLocalizations {
   /// Theme settings description
   ///
   /// In en, this message translates to:
-  /// **'Dark mode, colors and display'**
+  /// **'Light, dark or follow the phone'**
   String get themeSettingsDesc;
 
   /// Theme selection dialog title
@@ -4930,19 +4930,13 @@ abstract class AppLocalizations {
   /// **'Calendar'**
   String get calendarSettings;
 
-  /// Drawer row and calendar overflow-menu row that open the calendar settings page
+  /// Settings hub row and calendar overflow-menu row that open the calendar settings page, and that page's title
   ///
   /// In en, this message translates to:
   /// **'Calendar settings'**
   String get calendarSettingsRow;
 
-  /// Subtitle of the drawer row that opens the calendar settings page
-  ///
-  /// In en, this message translates to:
-  /// **'Week start, holidays, appearance'**
-  String get calendarSettingsRowDesc;
-
-  /// Drawer group label above the app-wide settings rows
+  /// Drawer group label above the Settings, how-to and About rows
   ///
   /// In en, this message translates to:
   /// **'App'**
@@ -5707,7 +5701,7 @@ abstract class AppLocalizations {
   /// Title for developer options page
   ///
   /// In en, this message translates to:
-  /// **'Developer Options'**
+  /// **'Developer options'**
   String get developerOptions;
 
   /// Description for developer options in drawer
@@ -9634,23 +9628,149 @@ abstract class AppLocalizations {
   /// **'\"{title}\" is removed after it rings, so cancelling the alarm removes the event.'**
   String alertsCancelAlarmConfirm(String title);
 
-  /// Title of the Permissions page, its drawer row and the calendar settings row that opens it
+  /// Title of the Permissions page, its settings hub row and the calendar settings row that opens it
   ///
   /// In en, this message translates to:
   /// **'Permissions'**
   String get permissionsTitle;
 
-  /// Subtitle of the Permissions drawer row while nothing essential is missing
+  /// Subtitle of the settings hub's Permissions row while nothing essential is missing
   ///
   /// In en, this message translates to:
   /// **'What ANTA may do on this device'**
   String get permissionsRowDesc;
 
-  /// How many essential permissions are missing: the Permissions drawer row subtitle and the body of the page's warning banner
+  /// How many essential permissions are missing: the subtitle of the settings hub's Permissions row and of the drawer's Settings row, and the body of the Permissions page's warning banner
   ///
   /// In en, this message translates to:
   /// **'{count, plural, =1{1 permission is off} other{{count} permissions are off}}'**
   String permissionsRowAttention(int count);
+
+  /// Title of the settings hub, the page every settings page is opened from
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsHubTitle;
+
+  /// Subtitle of the drawer's Settings row, which opens the settings hub
+  ///
+  /// In en, this message translates to:
+  /// **'Everything you can change'**
+  String get settingsHubRowDesc;
+
+  /// Title of the drawer's row that opens the app's guide
+  ///
+  /// In en, this message translates to:
+  /// **'How to use ANTA'**
+  String get howToUseAnta;
+
+  /// Subtitle of the drawer's Report row, which opens the calendar's report page
+  ///
+  /// In en, this message translates to:
+  /// **'How a week or a month went'**
+  String get calendarReportRowDesc;
+
+  /// Hint of the settings hub's search field, which filters its rows by title, subtitle and the sections of the page each row opens
+  ///
+  /// In en, this message translates to:
+  /// **'Search settings'**
+  String get settingsHubSearchHint;
+
+  /// Settings hub section holding the calendar's settings pages
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get settingsSectionCalendar;
+
+  /// Settings hub section holding the editor's and the counters' settings pages
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
+  String get settingsSectionNotes;
+
+  /// Settings hub section holding the app-wide settings: general, language, theme, databases, sharing, permissions
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get settingsSectionApp;
+
+  /// Settings hub section holding the guides that explain how the app works
+  ///
+  /// In en, this message translates to:
+  /// **'How to'**
+  String get settingsSectionHowTo;
+
+  /// Subtitle of the settings hub row that opens Calendar settings, naming what the page holds
+  ///
+  /// In en, this message translates to:
+  /// **'Holidays, filtering, events'**
+  String get settingsRowCalendarDesc;
+
+  /// Subtitle of the settings hub row that opens the calendar's Appearance page
+  ///
+  /// In en, this message translates to:
+  /// **'Week start, cells, markers, colors'**
+  String get settingsRowAppearanceDesc;
+
+  /// Subtitle of the row that opens the calendar's Categories page
+  ///
+  /// In en, this message translates to:
+  /// **'Create, order, archive'**
+  String get calendarCategoriesRowDesc;
+
+  /// Title of the settings hub row that opens the markdown shortcuts and editor page
+  ///
+  /// In en, this message translates to:
+  /// **'Editor and markdown'**
+  String get settingsRowEditor;
+
+  /// Subtitle of the settings hub row that opens the markdown shortcuts and editor page
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts, toolbar, colors, vocabularies, money'**
+  String get settingsRowEditorDesc;
+
+  /// Subtitle of the settings hub row that opens the Counters page
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned and per-note counters'**
+  String get settingsRowCountersDesc;
+
+  /// Title of the settings hub row that opens the app's general settings page
+  ///
+  /// In en, this message translates to:
+  /// **'General'**
+  String get settingsRowGeneral;
+
+  /// Subtitle of the settings hub row that opens the app's general settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Startup, browsing, editor, auto-save'**
+  String get settingsRowGeneralDesc;
+
+  /// Title of the settings hub row that opens the light, dark or system theme dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get settingsRowTheme;
+
+  /// Title of the settings hub row that opens the Databases page
+  ///
+  /// In en, this message translates to:
+  /// **'Databases and backup'**
+  String get settingsRowDatabases;
+
+  /// Subtitle of the settings hub row that opens the Databases page
+  ///
+  /// In en, this message translates to:
+  /// **'Switch, export, import, delete'**
+  String get settingsRowDatabasesDesc;
+
+  /// Subtitle of the settings hub row that opens the Sharing page
+  ///
+  /// In en, this message translates to:
+  /// **'Account and paired devices'**
+  String get settingsRowSharingDesc;
 
   /// Description of the calendar settings row that opens the Permissions page
   ///
@@ -10256,11 +10376,15 @@ abstract class AppLocalizations {
   /// **'Let the phone ring'**
   String get calendarGuidePermissionsTitle;
 
-  /// Calendar guide paragraph about permissions; battery is the alert permissions' battery row label, permissions is the drawer's Permissions label
+  /// Calendar guide paragraph about permissions; battery is the alert permissions' battery row label, settings is the drawer's Settings row label, permissions is the settings hub's Permissions row label
   ///
   /// In en, this message translates to:
-  /// **'The first time, ANTA asks to show notifications and set alarms: allow both, or nothing rings. On a Samsung phone also turn on “{battery}”; if something stays silent later, “{permissions}” in the main menu shows what is missing.'**
-  String calendarGuidePermissionsBody(String battery, String permissions);
+  /// **'The first time, ANTA asks to show notifications and set alarms: allow both, or nothing rings. On a Samsung phone also turn on “{battery}”; if something stays silent later, “{settings}” in the main menu, then “{permissions}”, shows what is missing.'**
+  String calendarGuidePermissionsBody(
+    String battery,
+    String settings,
+    String permissions,
+  );
 
   /// Calendar guide row title about a firing alert
   ///
@@ -10328,11 +10452,15 @@ abstract class AppLocalizations {
   /// **'Language, dark mode and text size'**
   String get calendarGuideLanguageTitle;
 
-  /// Calendar guide paragraph about language and theme; the placeholders are the drawer's labels
+  /// Calendar guide paragraph about language and theme; settings is the drawer's Settings row label, language and theme are the settings hub's row labels
   ///
   /// In en, this message translates to:
-  /// **'In the main menu (three lines, top left): “{language}” switches the language and “{theme}” chooses light or dark. The text size follows your phone\'s font size.'**
-  String calendarGuideLanguageBody(String language, String theme);
+  /// **'In the main menu (three lines, top left), open “{settings}”: “{language}” switches the language and “{theme}” chooses light or dark. The text size follows your phone\'s font size.'**
+  String calendarGuideLanguageBody(
+    String settings,
+    String language,
+    String theme,
+  );
 
   /// Calendar guide page title for general tips, on its hub row and its topic page
   ///

@@ -9,26 +9,21 @@ import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../models/app_permission.dart';
 import '../services/permission_service.dart';
-import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
-import '../widgets/app_drawer.dart';
 import '../widgets/permission_tile.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
 
 class PermissionsPage extends StatelessWidget {
-  const PermissionsPage({super.key, this.popsToDrawer = false})
-    : _service = null;
+  const PermissionsPage({super.key}) : _service = null;
 
   @visibleForTesting
   const PermissionsPage.forTesting({
     super.key,
     required PermissionService service,
-    this.popsToDrawer = false,
   }) : _service = service;
 
-  final bool popsToDrawer;
   final PermissionService? _service;
 
   @override
@@ -41,39 +36,19 @@ class PermissionsPage extends StatelessWidget {
                 : PermissionsBloc(service: service))
             ..add(const PermissionsStarted())
             ..add(const PermissionsRefreshRequested()),
-      child: _PermissionsView(popsToDrawer: popsToDrawer),
+      child: const _PermissionsView(),
     );
   }
 }
 
 class _PermissionsView extends StatefulWidget {
-  const _PermissionsView({required this.popsToDrawer});
-
-  final bool popsToDrawer;
+  const _PermissionsView();
 
   @override
   State<_PermissionsView> createState() => _PermissionsViewState();
 }
 
 class _PermissionsViewState extends State<_PermissionsView> {
-  bool _swipeEnabled = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSwipeSetting();
-  }
-
-  Future<void> _loadSwipeSetting() async {
-    try {
-      final settings = await SettingsService.getInstance();
-      final swipe = await settings.getFolderSwipeEnabled();
-      if (mounted) setState(() => _swipeEnabled = swipe);
-    } catch (e) {
-      debugPrint('[PermissionsPage] swipe setting unreadable: $e');
-    }
-  }
-
   void _onNotice(BuildContext context, PermissionsState state) {
     if (state is! PermissionsReady) return;
     final notice = state.notice;
@@ -90,11 +65,8 @@ class _PermissionsViewState extends State<_PermissionsView> {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      drawer: const AppDrawer(),
-      drawerEnableOpenDragGesture: _swipeEnabled,
       appBar: SettingsAppBar(
         title: l10n.permissionsTitle,
-        popsToDrawer: widget.popsToDrawer,
         identifier: SemanticsIds.settingsBarPermissions,
       ),
       body: SafeArea(

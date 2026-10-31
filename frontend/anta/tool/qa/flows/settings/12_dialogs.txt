@@ -1,0 +1,39 @@
+# The three dialogs: Language and Theme on the hub (D11 — Theme by the
+# settings-appearance id it carried in the drawer), each closed by system
+# back onto the hub, then About from the drawer, which shows the version
+# (S16) and closes by system back onto the folder root with the drawer
+# still closed.
+# - The Language and Theme dialogs are waited for by their titles' ids
+#   (language-dialog, theme-dialog), never by their words.
+# - About's title carries about-dialog; the version beside it is the
+#   pubspec's through kAppVersion, 1.0.0 until the next release bump, which
+#   updates this line with app_version_test.dart.
+# - About sits at the foot of the drawer's list, so it is scrolled to inside
+#   the list before the tap (--in id:drawer-list).
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-language
+wait id:language-dialog
+key back
+wait id:settings-bar-hub
+expect --absent id:language-dialog
+tap id:settings-appearance
+wait id:theme-dialog
+key back
+wait id:settings-bar-hub
+expect --absent id:theme-dialog
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-about --in id:drawer-list
+tap id:drawer-about
+wait id:about-dialog
+expect "1.0.0" --absent id:drawer-settings
+key back
+wait id:create-folder
+expect --absent id:about-dialog --absent id:drawer-settings
+errors

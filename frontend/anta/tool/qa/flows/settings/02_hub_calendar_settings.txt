@@ -1,0 +1,36 @@
+# Calendar settings through the hub, left twice (D2, D3): by the bar's arrow
+# — back on the hub, then on the folder root with the drawer closed — and
+# again by system back, which agrees at both steps.
+# - The hub's rows are all in the tree on a phone at 1.0 (the list is
+#   shorter than the viewport plus the cache extent), so a tap reveals a
+#   lower row without a scroll-to. That reveal is the in-app agent's
+#   (tool/qa/src/target.dart, resolveRevealing): on the adb path a bare
+#   `tap` finds an out-of-view row as it is, which is why a row that may sit
+#   below the fold is `scroll-to`'d inside settings-hub-list first (17).
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-calendarSettings
+wait id:settings-bar-calendar
+tap id:nav-back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-calendar
+tap id:nav-back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-calendarSettings
+wait id:settings-bar-calendar
+key back
+wait id:settings-bar-hub
+expect --absent id:settings-bar-calendar
+key back
+wait id:create-folder
+expect --absent id:settings-bar-hub --absent id:drawer-settings
+errors

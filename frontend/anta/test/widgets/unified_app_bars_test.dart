@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/auto_save_service.dart';
@@ -220,7 +221,7 @@ void main() {
     ) async {
       await tester.pumpWidget(
         host(
-          const SettingsAppBar(title: 'Settings'),
+          const SettingsAppBar(title: 'Settings', showMenuButton: true),
           drawer: const Drawer(child: SizedBox.shrink()),
         ),
       );
@@ -241,18 +242,19 @@ void main() {
     testWidgets('the menu half is not drawn over a Scaffold without a drawer', (
       tester,
     ) async {
-      await tester.pumpWidget(host(const SettingsAppBar(title: 'Counters')));
+      await tester.pumpWidget(
+        host(const SettingsAppBar(title: 'Counters', showMenuButton: true)),
+      );
 
       expect(find.byType(LeadingNavPair), findsNothing);
       expect(find.byIcon(Icons.menu_rounded), findsNothing);
       expect(find.byType(BackButtonIcon), findsOneWidget);
     });
 
-    testWidgets('only a drawer-owned page pops with openDrawer', (
-      tester,
-    ) async {
-      Future<Object?> pushAndPop({required bool popsToDrawer}) async {
-        Object? result;
+    testWidgets('the arrow pops null to the route beneath, with or without '
+        'the menu half (D3)', (tester) async {
+      Future<Object?> pushAndPop({required bool showMenuButton}) async {
+        Object? result = #unset;
         await tester.pumpWidget(
           MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -262,14 +264,16 @@ void main() {
                 body: Center(
                   child: ElevatedButton(
                     onPressed: () async {
-                      result = await AppNavigator.push<SettingsResult>(
+                      result = await AppNavigator.push<Object?>(
                         context,
                         Scaffold(
                           appBar: SettingsAppBar(
                             title: 'Settings',
-                            popsToDrawer: popsToDrawer,
+                            showMenuButton: showMenuButton,
                           ),
-                          drawer: const Drawer(child: SizedBox.shrink()),
+                          drawer: showMenuButton
+                              ? const Drawer(child: SizedBox.shrink())
+                              : null,
                           body: const SizedBox.shrink(),
                         ),
                       );
@@ -285,11 +289,41 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byType(BackButtonIcon));
         await tester.pumpAndSettle();
+        expect(find.text('open'), findsOneWidget);
         return result;
       }
 
-      expect(await pushAndPop(popsToDrawer: true), SettingsResult.openDrawer);
-      expect(await pushAndPop(popsToDrawer: false), isNull);
+      expect(await pushAndPop(showMenuButton: true), isNull);
+      expect(await pushAndPop(showMenuButton: false), isNull);
+    });
+
+    testWidgets('by default a page draws the identified arrow alone', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: l10n,
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => AppNavigator.push<void>(
+                context,
+                const Scaffold(
+                  appBar: SettingsAppBar(title: 'Settings'),
+                  body: SizedBox.shrink(),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LeadingNavPair), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsNothing);
+      expect(find.bySemanticsIdentifier(SemanticsIds.navBack), findsOneWidget);
     });
   });
 }

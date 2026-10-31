@@ -49,34 +49,32 @@ abstract final class SemanticsIds {
   /// A level in the markdown bar's heading menu, 1 to 6.
   static String editorHeadingLevel(int level) => 'editor-heading-$level';
 
-  /// Drawer destinations.
-  static const String drawerSettings = 'drawer-settings';
+  /// Drawer destinations (D1 of `docs/settings-rework-roadmap.md`): the
+  /// places, top to bottom. `drawerSettings` opens the settings hub.
   static const String drawerCalendar = 'drawer-calendar';
   static const String drawerCalendarOverview = 'drawer-calendar-overview';
+  static const String drawerCalendarReport = 'drawer-calendar-report';
+  static const String drawerCalendarCategories = 'drawer-calendar-categories';
   static const String drawerAlerts = 'drawer-alerts';
-  static const String drawerPermissions = 'drawer-permissions';
-
-  /// The drawer's Calendar settings row; the categories record names it.
-  static const String drawerCalendarSettings = 'drawer-calendar-settings';
-
-  /// The drawer's Markdown shortcuts row.
-  static const String drawerMarkdownShortcuts = 'drawer-markdown-shortcuts';
-
-  /// The drawer's Counters row.
   static const String drawerCounters = 'drawer-counters';
-
-  /// The drawer's Sharing row.
-  static const String drawerSharing = 'drawer-sharing';
-
-  /// The drawer's Language row, which opens the language dialog.
-  static const String drawerLanguage = 'drawer-language';
-
-  /// The drawer's Developer options row, drawn only once taps on the drawer
-  /// header's icon have unlocked it.
-  static const String drawerDeveloperOptions = 'drawer-developer-options';
+  static const String drawerSettings = 'drawer-settings';
+  static const String drawerHowTo = 'drawer-how-to';
 
   /// The drawer's About row, which opens the about dialog.
   static const String drawerAbout = 'drawer-about';
+
+  /// The About dialog's title, which a flow waits for before reading the
+  /// version beside it.
+  static const String aboutDialog = 'about-dialog';
+
+  /// The settings hub's Language and Theme dialogs, by their titles: a flow
+  /// waits for each without spelling the title's words.
+  static const String languageDialog = 'language-dialog';
+  static const String themeDialog = 'theme-dialog';
+
+  /// The drawer header's app icon, whose five taps unlock Developer options:
+  /// the one way a flow reaches that page's hub row.
+  static const String drawerHeaderIcon = 'drawer-header-icon';
 
   /// The drawer's scrolling list of rows. A flow reaching a row past the
   /// list's cache extent swipes inside it (`scroll-to … --in id:drawer-list`):
@@ -105,9 +103,9 @@ abstract final class SemanticsIds {
   /// message stays an assertion, its action word is translated.
   static const String snackbarUndo = 'snackbar-undo';
 
-  /// Settings entry points, which live as drawer rows.
+  /// The settings hub's Theme row, which opens the theme dialog (D11: the
+  /// id moved with the row from the drawer).
   static const String settingsAppearance = 'settings-appearance';
-  static const String settingsDatabases = 'settings-databases';
 
   /// The search field of every settings page that has one; its hint says
   /// which list it filters, so a flow tells the pages apart by their rows.
@@ -146,6 +144,25 @@ abstract final class SemanticsIds {
   /// The Permissions page's bar title.
   static const String settingsBarPermissions = 'settings-bar-permissions';
 
+  /// The settings hub's bar title.
+  static const String settingsBarHub = 'settings-bar-hub';
+
+  /// The settings hub's search field — its own, so a flow typing into the
+  /// hub never lands in a page's field left beneath it.
+  static const String settingsHubSearch = 'settings-hub-search';
+
+  /// The settings hub's list: a flow reaching a lower row swipes inside it
+  /// (`scroll-to --in`), never in the search field above.
+  static const String settingsHubList = 'settings-hub-list';
+
+  /// One row of the settings hub, by the name of the page or dialog it
+  /// opens: `calendarSettings`, `calendarAppearance`, `calendarCategories`,
+  /// `markdownSettings`, `counterManagement`, `settings` (General),
+  /// `language`, `databaseSettings`, `syncSettings`, `permissions`,
+  /// `developerOptions`, `calendarGuide`. The Theme row carries
+  /// [settingsAppearance] instead, the id it had in the drawer.
+  static String settingsHubRow(String kind) => 'settings-hub-row-$kind';
+
   /// The calendar's controls that are not a day cell. The month title opens
   /// the month/year picker; its label is the month itself.
   static const String calendarToday = 'calendar-today';
@@ -171,6 +188,7 @@ abstract final class SemanticsIds {
   /// The ⋮ menu of the calendar and the overview, and its rows.
   static const String calendarMore = 'calendar-more';
   static const String calendarAlertsOpen = 'calendar-alerts-open';
+  static const String calendarMenuCategories = 'calendar-menu-categories';
   static const String calendarExport = 'calendar-export';
   static const String calendarGuideOpen = 'calendar-guide-open';
   static const String calendarSettingsOpen = 'calendar-settings-open';

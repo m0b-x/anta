@@ -1076,6 +1076,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
             builder: (context, state) {
               return CalendarOverflowMenu(
                 onAlerts: () => AppNavigator.toAlertsFromCalendar(context),
+                onCategories: () => AppNavigator.toCalendarCategories(context),
                 onExport: !_hasEvents(state)
                     ? null
                     : () {

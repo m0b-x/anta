@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/counter.dart';
 import 'package:anta/pages/counter_management_page.dart';
+import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/settings_service.dart';
 
@@ -77,6 +80,7 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: locale,
+        navigatorObservers: [AppNavigator.routeObserver],
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
             context,
@@ -247,6 +251,41 @@ void main() {
       final live = await tester.runAsync(db.counterDao.getAllCounters);
       expect(live!.map((r) => r.id), containsAll([laps, sets]));
       expect(await tester.runAsync(() => db.counterDao.getValue(laps, '')), 7);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('Return', () {
+    // The per-note counter page writes through the service, which announces
+    // no single value change: only the re-read on return can show it, and a
+    // restored chain pops that page with no one awaiting its push.
+    testWidgets('a value changed while another route is on top is shown '
+        'once that route pops', (tester) async {
+      await pumpPage(tester);
+      expect(
+        find.descendant(of: card(laps), matching: find.text('7')),
+        findsOneWidget,
+      );
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(builder: (_) => const Text('above')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => service.setGlobalValue(laps, 11));
+      await settle(tester);
+
+      navigator.pop();
+      await settle(tester);
+
+      expect(shownValues()[laps], 11);
+      expect(
+        find.descendant(of: card(laps), matching: find.text('11')),
+        findsOneWidget,
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

@@ -2713,7 +2713,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get themeSettings => 'Appearance';
 
   @override
-  String get themeSettingsDesc => 'Dark mode, colors and display';
+  String get themeSettingsDesc => 'Light, dark or follow the phone';
 
   @override
   String get selectTheme => 'Select Theme';
@@ -2854,9 +2854,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calendarSettingsRow => 'Calendar settings';
-
-  @override
-  String get calendarSettingsRowDesc => 'Week start, holidays, appearance';
 
   @override
   String get appGroupLabel => 'App';
@@ -3337,7 +3334,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get afterAllRepeatsHint => 'e.g., \\n---';
 
   @override
-  String get developerOptions => 'Developer Options';
+  String get developerOptions => 'Developer options';
 
   @override
   String get developerOptionsDesc => 'Debug tools and diagnostics';
@@ -5727,6 +5724,70 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsHubTitle => 'Settings';
+
+  @override
+  String get settingsHubRowDesc => 'Everything you can change';
+
+  @override
+  String get howToUseAnta => 'How to use ANTA';
+
+  @override
+  String get calendarReportRowDesc => 'How a week or a month went';
+
+  @override
+  String get settingsHubSearchHint => 'Search settings';
+
+  @override
+  String get settingsSectionCalendar => 'Calendar';
+
+  @override
+  String get settingsSectionNotes => 'Notes';
+
+  @override
+  String get settingsSectionApp => 'App';
+
+  @override
+  String get settingsSectionHowTo => 'How to';
+
+  @override
+  String get settingsRowCalendarDesc => 'Holidays, filtering, events';
+
+  @override
+  String get settingsRowAppearanceDesc => 'Week start, cells, markers, colors';
+
+  @override
+  String get calendarCategoriesRowDesc => 'Create, order, archive';
+
+  @override
+  String get settingsRowEditor => 'Editor and markdown';
+
+  @override
+  String get settingsRowEditorDesc =>
+      'Shortcuts, toolbar, colors, vocabularies, money';
+
+  @override
+  String get settingsRowCountersDesc => 'Pinned and per-note counters';
+
+  @override
+  String get settingsRowGeneral => 'General';
+
+  @override
+  String get settingsRowGeneralDesc => 'Startup, browsing, editor, auto-save';
+
+  @override
+  String get settingsRowTheme => 'Theme';
+
+  @override
+  String get settingsRowDatabases => 'Databases and backup';
+
+  @override
+  String get settingsRowDatabasesDesc => 'Switch, export, import, delete';
+
+  @override
+  String get settingsRowSharingDesc => 'Account and paired devices';
+
+  @override
   String get permissionsCalendarRowDesc =>
       'Notifications, exact timing, full-screen alarms, battery';
 
@@ -6120,8 +6181,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuidePermissionsTitle => 'Let the phone ring';
 
   @override
-  String calendarGuidePermissionsBody(String battery, String permissions) {
-    return 'The first time, ANTA asks to show notifications and set alarms: allow both, or nothing rings. On a Samsung phone also turn on “$battery”; if something stays silent later, “$permissions” in the main menu shows what is missing.';
+  String calendarGuidePermissionsBody(
+    String battery,
+    String settings,
+    String permissions,
+  ) {
+    return 'The first time, ANTA asks to show notifications and set alarms: allow both, or nothing rings. On a Samsung phone also turn on “$battery”; if something stays silent later, “$settings” in the main menu, then “$permissions”, shows what is missing.';
   }
 
   @override
@@ -6167,8 +6232,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideLanguageTitle => 'Language, dark mode and text size';
 
   @override
-  String calendarGuideLanguageBody(String language, String theme) {
-    return 'In the main menu (three lines, top left): “$language” switches the language and “$theme” chooses light or dark. The text size follows your phone\'s font size.';
+  String calendarGuideLanguageBody(
+    String settings,
+    String language,
+    String theme,
+  ) {
+    return 'In the main menu (three lines, top left), open “$settings”: “$language” switches the language and “$theme” chooses light or dark. The text size follows your phone\'s font size.';
   }
 
   @override

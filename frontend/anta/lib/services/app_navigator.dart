@@ -5,17 +5,20 @@ import '../models/alert_payload.dart';
 import '../models/counter.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/date_range.dart';
+import '../models/dev_options.dart';
 import '../models/nav_destination.dart';
 import '../models/note_metadata.dart';
 import '../models/overview_period.dart';
 import '../models/report_look.dart';
 import '../models/restore_location_mode.dart';
 import '../repositories/note_repository.dart';
-import '../services/drawer_host_registry.dart';
+import '../services/counter_service.dart';
+import '../services/dev_options_service.dart';
 import '../services/folder_storage_service.dart';
 import '../services/navigation_history_service.dart';
 import '../services/quick_alarm_request.dart';
 import '../services/settings_service.dart';
+import '../pages/settings_hub_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/alerts_page.dart';
 import '../pages/all_notes_page.dart';
@@ -42,8 +45,6 @@ import '../pages/permissions_page.dart';
 import '../pages/search_page.dart';
 import '../pages/shortcut_editor_page.dart';
 import '../pages/sync_settings_page.dart';
-
-enum SettingsResult { openDrawer }
 
 /// What a digest's tap asks the overview to show: the list on [start]..[end]
 /// (date-only UTC, inclusive) over the [categoryIds] allowlist — empty for
@@ -419,45 +420,70 @@ abstract final class AppNavigator {
     );
   }
 
-  static Future<SettingsResult?> toDatabaseSettings(BuildContext context) {
-    return push<SettingsResult>(
+  /// Whether the top live page route on [context]'s navigator is the [kind]
+  /// a settings `toX` is about to push. Every settings `toX` then pushes
+  /// nothing (D3): a double tap, or a row that names the page it sits on,
+  /// never stacks a copy that back would land on.
+  static bool _isOnTop(BuildContext context, NavDestinationKind kind) {
+    final routes = _livePageRoutes(Navigator.of(context));
+    return routes.isNotEmpty && _isStamped(routes.last, kind);
+  }
+
+  static Future<void> toDatabaseSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.databaseSettings)) {
+      return Future<void>.value();
+    }
+    return push(
       context,
       const DatabaseSettingsPage(),
       destination: const NavDestination(NavDestinationKind.databaseSettings),
     );
   }
 
-  static Future<SettingsResult?> toSettings(BuildContext context) {
-    return push<SettingsResult>(
+  static Future<void> toSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.settings)) {
+      return Future<void>.value();
+    }
+    return push(
       context,
       const SettingsPage(),
       destination: const NavDestination(NavDestinationKind.settings),
     );
   }
 
-  static Future<SettingsResult?> toSyncSettings(BuildContext context) {
-    return push<SettingsResult>(
+  static Future<void> toSyncSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.syncSettings)) {
+      return Future<void>.value();
+    }
+    return push(
       context,
       const SyncSettingsPage(),
       destination: const NavDestination(NavDestinationKind.syncSettings),
     );
   }
 
-  static Future<SettingsResult?> toMarkdownSettings(
+  static Future<void> toMarkdownSettings(
     BuildContext context, {
     required List<CustomMarkdownShortcut> allShortcuts,
   }) {
-    return push<SettingsResult>(
+    if (_isOnTop(context, NavDestinationKind.markdownSettings)) {
+      return Future<void>.value();
+    }
+    return push(
       context,
       MarkdownSettingsPage(allShortcuts: allShortcuts),
+      destination: const NavDestination(NavDestinationKind.markdownSettings),
     );
   }
 
-  static Future<SettingsResult?> toCounterManagement(
+  static Future<void> toCounterManagement(
     BuildContext context, {
     String? noteId,
   }) {
-    return push<SettingsResult>(
+    if (_isOnTop(context, NavDestinationKind.counterManagement)) {
+      return Future<void>.value();
+    }
+    return push(
       context,
       CounterManagementPage(noteId: noteId),
       destination: NavDestination.counterManagement(noteId: noteId),
@@ -587,6 +613,9 @@ abstract final class AppNavigator {
   }
 
   static Future<void> toCalendarSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.calendarSettings)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const CalendarSettingsPage(),
@@ -597,6 +626,9 @@ abstract final class AppNavigator {
   /// The guide reads nothing and writes nothing, so the calendar and the
   /// overview push it without awaiting a reload on return.
   static Future<void> toCalendarGuide(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.calendarGuide)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const CalendarGuidePage(),
@@ -619,6 +651,9 @@ abstract final class AppNavigator {
   }
 
   static Future<void> toAlerts(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.alerts)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const AlertsPage(),
@@ -946,23 +981,33 @@ abstract final class AppNavigator {
     );
   }
 
-  static Future<SettingsResult?> toPermissions(
-    BuildContext context, {
-    bool fromDrawer = false,
-  }) {
-    final routes = _livePageRoutes(Navigator.of(context));
-    final top = routes.isEmpty ? null : routes.last.settings.arguments;
-    if (top is NavDestination && top.kind == NavDestinationKind.permissions) {
-      return Future<SettingsResult?>.value();
+  static Future<void> toPermissions(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.permissions)) {
+      return Future<void>.value();
     }
-    return push<SettingsResult>(
+    return push(
       context,
-      PermissionsPage(popsToDrawer: fromDrawer),
+      const PermissionsPage(),
       destination: const NavDestination(NavDestinationKind.permissions),
     );
   }
 
+  /// The one place a settings page is chosen from (D2).
+  static Future<void> toSettingsHub(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.settingsHub)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const SettingsHubPage(),
+      destination: const NavDestination(NavDestinationKind.settingsHub),
+    );
+  }
+
   static Future<void> toCalendarCategories(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.calendarCategories)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const CalendarCategoriesPage(),
@@ -971,6 +1016,9 @@ abstract final class AppNavigator {
   }
 
   static Future<void> toCalendarAppearance(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.calendarAppearance)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const CalendarAppearancePage(),
@@ -979,6 +1027,9 @@ abstract final class AppNavigator {
   }
 
   static Future<void> toEventTemplates(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.eventTemplates)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const EventTemplatesPage(),
@@ -987,6 +1038,9 @@ abstract final class AppNavigator {
   }
 
   static Future<void> toVocabularies(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.vocabularies)) {
+      return Future<void>.value();
+    }
     return push(
       context,
       const VocabulariesPage(),
@@ -994,15 +1048,31 @@ abstract final class AppNavigator {
     );
   }
 
+  /// Stamped with the counter's id alone: replay looks the counter up again,
+  /// so a counter deleted or made global since is not reopened.
   static Future<void> toCounterPerNote(
     BuildContext context, {
     required Counter counter,
   }) {
-    return push(context, CounterPerNotePage(counter: counter));
+    if (_isOnTop(context, NavDestinationKind.counterPerNote)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      CounterPerNotePage(counter: counter),
+      destination: NavDestination.counterPerNote(counterId: counter.id),
+    );
   }
 
-  static Future<SettingsResult?> toDeveloperOptions(BuildContext context) {
-    return push<SettingsResult>(context, const DeveloperOptionsPage());
+  static Future<void> toDeveloperOptions(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.developerOptions)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const DeveloperOptionsPage(),
+      destination: const NavDestination(NavDestinationKind.developerOptions),
+    );
   }
 
   static Future<void> toShortcutEditor(
@@ -1017,22 +1087,43 @@ abstract final class AppNavigator {
   }
 
   static Future<void> toNoteBarAssignment(BuildContext context) {
-    return push(context, const NoteBarAssignmentPage());
+    if (_isOnTop(context, NavDestinationKind.noteBarAssignment)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const NoteBarAssignmentPage(),
+      destination: const NavDestination(NavDestinationKind.noteBarAssignment),
+    );
   }
 
   static Future<void> toNoteMoneyCurrency(BuildContext context) {
-    return push(context, const NoteMoneyCurrencyPage());
+    if (_isOnTop(context, NavDestinationKind.noteMoneyCurrency)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const NoteMoneyCurrencyPage(),
+      destination: const NavDestination(NavDestinationKind.noteMoneyCurrency),
+    );
   }
 
   static Future<void> toMarkdownColors(BuildContext context) {
-    return push(context, const MarkdownColorsPage());
+    if (_isOnTop(context, NavDestinationKind.markdownColors)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const MarkdownColorsPage(),
+      destination: const NavDestination(NavDestinationKind.markdownColors),
+    );
   }
 
   // --- Last-location restore ---
 
   /// Reopens the chain of pages the user was looking at when the app last
   /// went away — folders, notes, the calendar and its sub-pages, and the
-  /// drawer's settings pages alike.
+  /// settings pages alike.
   ///
   /// Recording is not done here: [NavigationHistoryService] owns it, driven by
   /// a navigator observer. This method only replays, and it does so in two
@@ -1084,32 +1175,13 @@ abstract final class AppNavigator {
     // what gets remembered.
     if (_navigationFingerprint() != before) return;
 
-    // Only the bottom-most drawer-owned page needs the continuation: popping
-    // a page above it lands on another restored page, and the Navigator
-    // handles that. Popping out of the settings layer entirely is the only
-    // moment the drawer would otherwise have been reopened by the row that
-    // pushed it — and under restore there was no row.
-    final drawerIndex = resolved.indexWhere(
-      (entry) => entry.destination.kind.reopensDrawerOnPop,
-    );
-
-    for (var i = 0; i < resolved.length; i++) {
-      final entry = resolved[i];
-      final push = rootPushInstant<Object?>(
-        _pageFor(entry),
-        destination: entry.destination,
+    for (final entry in resolved) {
+      unawaited(
+        rootPushInstant<Object?>(
+          _pageFor(entry),
+          destination: entry.destination,
+        ),
       );
-      if (i == drawerIndex) {
-        unawaited(
-          push.then((result) {
-            if (result == SettingsResult.openDrawer) {
-              DrawerHostRegistry.openTopDrawer();
-            }
-          }),
-        );
-      } else {
-        unawaited(push);
-      }
     }
   }
 
@@ -1162,6 +1234,24 @@ abstract final class AppNavigator {
           if (noteId != null && await _resolveNote(noteId) == null) {
             return resolved;
           }
+          resolved.add(_RestoredEntry(destination: destination));
+
+        case NavDestinationKind.counterPerNote:
+          final counterService = await CounterService.getInstance();
+          final counter = counterService.getCounterById(destination.counterId!);
+          // A counter switched to global since has no per-note page to show.
+          if (counter == null || counter.scope != CounterScope.perNote) {
+            return resolved;
+          }
+          resolved.add(
+            _RestoredEntry(destination: destination, counter: counter),
+          );
+
+        // Developer options is a place only while the mode is unlocked: a
+        // relaunch after Lock must not reopen the page the lock hid.
+        case NavDestinationKind.developerOptions:
+          await DevOptionsService.getInstance();
+          if (!DevOptions.instance.developerModeUnlocked) return resolved;
           resolved.add(_RestoredEntry(destination: destination));
 
         default:
@@ -1217,6 +1307,19 @@ abstract final class AppNavigator {
       NavDestinationKind.calendarOverview => const CalendarOverviewPage(),
       NavDestinationKind.calendarGuide => const CalendarGuidePage(),
       NavDestinationKind.calendarReport => const CalendarReportPage(),
+      NavDestinationKind.settingsHub => const SettingsHubPage(),
+      // The page takes its shortcuts from `MarkdownBarBloc` at init and on
+      // every load after, so a replay need not have them in hand.
+      NavDestinationKind.markdownSettings => const MarkdownSettingsPage(
+        allShortcuts: [],
+      ),
+      NavDestinationKind.markdownColors => const MarkdownColorsPage(),
+      NavDestinationKind.noteBarAssignment => const NoteBarAssignmentPage(),
+      NavDestinationKind.noteMoneyCurrency => const NoteMoneyCurrencyPage(),
+      NavDestinationKind.counterPerNote => CounterPerNotePage(
+        counter: entry.counter!,
+      ),
+      NavDestinationKind.developerOptions => const DeveloperOptionsPage(),
     };
   }
 }
@@ -1224,10 +1327,15 @@ abstract final class AppNavigator {
 /// A stack entry that phase 1 proved still exists, carrying anything it had
 /// to load along the way so phase 2 does not have to load it again.
 class _RestoredEntry {
-  const _RestoredEntry({required this.destination, this.metadata});
+  const _RestoredEntry({
+    required this.destination,
+    this.metadata,
+    this.counter,
+  });
 
   final NavDestination destination;
   final NoteMetadata? metadata;
+  final Counter? counter;
 }
 
 /// The app's [RouteObserver], which additionally keeps the page routes it

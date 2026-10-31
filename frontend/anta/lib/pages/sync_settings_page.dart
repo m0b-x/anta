@@ -4,17 +4,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/pairing/pairing_bloc.dart';
 import '../bloc/sync/sync_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
-import '../services/settings_service.dart';
 import '../utils/auth_error.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_drawer.dart';
 import '../widgets/pairing_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
@@ -57,24 +56,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// state (a rebuild, a reconcile) before the user acknowledges it.
   bool _endedNoticeShown = false;
 
-  bool _swipeEnabled = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSwipeSetting();
-  }
-
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadSwipeSetting() async {
-    final settings = await SettingsService.getInstance();
-    final swipe = await settings.getFolderSwipeEnabled();
-    if (mounted) setState(() => _swipeEnabled = swipe);
   }
 
   List<String> _keywords(String csv) =>
@@ -86,11 +71,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      drawer: const AppDrawer(),
-      drawerEnableOpenDragGesture: _swipeEnabled,
       appBar: SettingsAppBar(
         title: l10n.sharingSettings,
-        popsToDrawer: true,
         identifier: SemanticsIds.settingsBarSharing,
       ),
       body: SafeArea(
@@ -129,7 +111,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               return Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    padding: FormMetrics.settingsSearchPadding,
                     child: SettingsSearchField(
                       controller: _searchController,
                       hint: l10n.searchSettings,

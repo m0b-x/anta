@@ -14,7 +14,6 @@ import '../models/utility_button_definition.dart';
 import '../services/settings_service.dart';
 import '../utils/markdown_settings_utils.dart';
 import '../utils/settings_search.dart';
-import '../widgets/app_drawer.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/app_loading_bar.dart';
 import '../widgets/markdown_bar.dart';
@@ -89,8 +88,6 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   static const String _sectionVocabulary = 'vocabulary';
   static const String _sectionUtility = 'utility';
   static const String _sectionShortcuts = 'shortcuts';
-
-  bool _swipeEnabled = true;
 
   @override
   void initState() {
@@ -300,10 +297,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     final vocabularyEnabled = await settings.getVocabularySuggestionsEnabled();
     final vocabularyTrigger = await settings.getVocabularyTriggerChar();
     final collapsedSections = await settings.getCollapsedMarkdownSections();
-    final swipe = await settings.getFolderSwipeEnabled();
     if (mounted) {
       setState(() {
-        _swipeEnabled = swipe;
         _toolbarRatio = ratio;
         _toolbarSplitEnabled = splitEnabled;
         _toolbarUndoRedoPinned = undoRedoPinned;
@@ -2299,11 +2294,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
       },
       child: LoadingScaffold(
         backgroundColor: Theme.of(context).colorScheme.pageGround,
-        drawer: const AppDrawer(),
-        drawerEnableOpenDragGesture: _swipeEnabled,
         appBar: SettingsAppBar(
           title: AppLocalizations.of(context)!.markdownShortcuts,
-          popsToDrawer: true,
           identifier: SemanticsIds.settingsBarMarkdown,
           actions: [
             IconButton(

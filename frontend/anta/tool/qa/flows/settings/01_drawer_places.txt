@@ -1,0 +1,61 @@
+# Every place the drawer opens, and back to the folder root with the drawer
+# closed (D1, D3): Calendar, Overview and Report by system back — their bars
+# draw AppBar's implied arrow, which carries no id — and Categories, Alerts,
+# Counters and How to use ANTA by the bar's arrow (nav-back). The Settings
+# row is the hub flows' way in; About is 12_dialogs.
+# - Each page is known by an id only it carries: the calendar's add button,
+#   the overview's title, the report's body, the categories page's add
+#   button, the two settings bars, the guide's list.
+# - How to use ANTA sits low in the list, so it is scrolled to inside the
+#   list before the tap (--in id:drawer-list).
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+key back
+wait id:create-folder
+expect --absent id:calendar-add-event --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar-overview
+wait id:overview-nav-title
+key back
+wait id:create-folder
+expect --absent id:overview-nav-title --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar-report
+wait id:report-body
+key back
+wait id:create-folder
+expect --absent id:report-body --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar-categories
+wait id:category-add
+tap id:nav-back
+wait id:create-folder
+expect --absent id:category-add --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-alerts
+wait id:settings-bar-alerts
+tap id:nav-back
+wait id:create-folder
+expect --absent id:settings-bar-alerts --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-counters
+wait id:settings-bar-counters
+tap id:nav-back
+wait id:create-folder
+expect --absent id:settings-bar-counters --absent id:drawer-settings
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-how-to --in id:drawer-list
+tap id:drawer-how-to
+wait id:calendar-guide
+tap id:nav-back
+wait id:create-folder
+expect --absent id:calendar-guide --absent id:drawer-settings
+errors

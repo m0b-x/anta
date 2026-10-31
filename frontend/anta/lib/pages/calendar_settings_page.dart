@@ -9,6 +9,7 @@ import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/event_alerts.dart';
 import '../constants/fasting_calendar.dart';
+import '../constants/form_metrics.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
@@ -334,7 +335,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             : Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    padding: FormMetrics.settingsSearchPadding,
                     child: SettingsSearchField(
                       controller: _searchController,
                       hint: l10n.searchSettings,

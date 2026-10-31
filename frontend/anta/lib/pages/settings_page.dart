@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
@@ -11,7 +12,6 @@ import '../services/label_appearance_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
-import '../widgets/app_drawer.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
@@ -169,11 +169,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
     return Scaffold(
       backgroundColor: colorScheme.pageGround,
-      drawer: const AppDrawer(),
-      drawerEnableOpenDragGesture: _folderSwipeEnabled,
       appBar: SettingsAppBar(
         title: l10n.appSettings,
-        popsToDrawer: true,
         identifier: SemanticsIds.settingsBarApp,
       ),
       body: SafeArea(
@@ -183,7 +180,7 @@ class _SettingsPageState extends State<SettingsPage> {
             : Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    padding: FormMetrics.settingsSearchPadding,
                     child: SettingsSearchField(
                       controller: _searchController,
                       hint: l10n.searchSettings,

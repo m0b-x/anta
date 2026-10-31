@@ -100,7 +100,7 @@ void main() {
   late _TestExportService exportService;
   late ImportExportBloc exportBloc;
   late _TestNoteBloc noteBloc;
-  late MarkdownBarBloc barBloc;
+  late _RecordingBarBloc barBloc;
   late _FlakyCounterBloc counterBloc;
 
   final metadata = NoteMetadata(
@@ -177,7 +177,7 @@ void main() {
       storageService: storageService,
       searchService: searchService,
     );
-    barBloc = MarkdownBarBloc(
+    barBloc = _RecordingBarBloc(
       barService: await MarkdownBarService.getInstance(),
     );
     counterBloc = _FlakyCounterBloc(
@@ -1422,6 +1422,37 @@ void main() {
       await settleUntil(tester, () => editorOf(tester).showLineNumbers);
 
       expect(editorOf(tester).showLineNumbers, isTrue);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a route pushed over the editor and popped re-resolves the '
+        'bar for the note once — a restored Markdown settings page has no '
+        'awaiter to do it', (tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settle(tester);
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('settings stand-in')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      barBloc.events.clear();
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+
+      expect(
+        barBloc.events.whereType<ResolveBarForNote>().toList(),
+        const [ResolveBarForNote(noteId: noteId)],
+      );
       await teardownPage(tester);
     });
 
@@ -5243,6 +5274,20 @@ class _FlakyCounterBloc extends CounterBloc {
       failNoteContexts--;
       throw StateError('SetNoteContext failed');
     }
+    super.add(event);
+  }
+}
+
+/// The real [MarkdownBarBloc], keeping every event it was handed so a case
+/// can count the page's dispatches.
+class _RecordingBarBloc extends MarkdownBarBloc {
+  _RecordingBarBloc({required super.barService});
+
+  final events = <MarkdownBarEvent>[];
+
+  @override
+  void add(MarkdownBarEvent event) {
+    events.add(event);
     super.add(event);
   }
 }

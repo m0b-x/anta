@@ -1,20 +1,12 @@
 import 'package:flutter/material.dart';
 
-/// Tracks the mounted pages that host the app drawer, so a page can be told
-/// to reopen it without a `BuildContext` from inside that page's `Scaffold`.
+/// Tracks the mounted pages that host the app drawer.
 ///
-/// This exists for one case: a settings page rebuilt by restore. In normal use
-/// the drawer row that pushed a settings page awaits its result and reopens
-/// the drawer on `SettingsResult.openDrawer` — an arrangement that only works
-/// because there is a live awaiter holding a context inside the host scaffold.
-/// A restored page has no such awaiter, so the "reopen the drawer beneath me"
-/// intent needs a home that does not depend on who pushed the route.
-///
-/// Deliberately dumb: [openTopDrawer] targets the most recently registered
-/// host still mounted, which under a restored chain is the folder page or note
-/// editor directly beneath the settings page. The drawer rows keep their
-/// existing await-pattern; this is the designated replacement for it if the
-/// two ever need to be unified.
+/// It existed so a settings page could reopen the drawer beneath it without
+/// a `BuildContext` inside the host's `Scaffold`. Back now always lands on
+/// the route beneath (settings rework D3), so nothing asks for a host any
+/// more; the registrations stay until the rework's S7 sweep removes the
+/// registry with the hosts that call it.
 abstract final class DrawerHostRegistry {
   static final List<GlobalKey<ScaffoldState>> _hosts = [];
 
@@ -27,31 +19,6 @@ abstract final class DrawerHostRegistry {
   /// Call from `dispose`.
   static void unregister(GlobalKey<ScaffoldState> key) {
     _hosts.remove(key);
-  }
-
-  /// Opens the drawer on the innermost mounted host, if there is one. Hosts
-  /// whose state has gone away are dropped on the way past rather than in a
-  /// separate sweep — nothing else would ever notice them.
-  ///
-  /// Two conditions stop the walk without opening anything, and they are
-  /// separate on purpose. A host whose `Scaffold` currently has **no drawer**
-  /// is in selection or search mode, where the drawer is deliberately off:
-  /// falling through to the host beneath it would raise a drawer on a page
-  /// that is not on screen. A host whose drawer is **already open** needs
-  /// nothing done. Both are no-ops; neither is a reason to keep looking.
-  static void openTopDrawer() {
-    while (_hosts.isNotEmpty) {
-      final host = _hosts.last;
-      final state = host.currentState;
-      if (state == null) {
-        _hosts.removeLast();
-        continue;
-      }
-      if (!state.hasDrawer) return;
-      if (state.isDrawerOpen) return;
-      state.openDrawer();
-      return;
-    }
   }
 
   @visibleForTesting
