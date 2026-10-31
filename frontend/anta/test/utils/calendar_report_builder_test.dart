@@ -1293,6 +1293,51 @@ void main() {
       expect(rowsOf(report.categories.last), ['gym 0/4 0m']);
     });
 
+    test('a routine aggregate opens on its latest attended day, else on its '
+        'latest counted day', () {
+      final report = fold(
+        [
+          gymDaily(),
+          ev('yoga', 'mobility', day(2026, 9, 1), rule: daily, tracked: true),
+        ],
+        span(day(2026, 9, 1), day(2026, 9, 5)),
+        day(2026, 10, 30),
+        missed: {
+          'gym': [day(2026, 9, 2), day(2026, 9, 4), day(2026, 9, 5)],
+          'yoga': [for (var d = 1; d <= 5; d++) day(2026, 9, d)],
+        },
+      );
+      ReportRoutineRow routineOf(String id) => report.categories
+          .expand((g) => g.rows)
+          .whereType<ReportRoutineRow>()
+          .singleWhere((r) => r.eventId == id);
+      expect(routineOf('gym').latestDay, day(2026, 9, 3));
+      expect(
+        routineOf('yoga').latestDay,
+        day(2026, 9, 5),
+        reason: 'every day missed: the latest counted one',
+      );
+
+      final sparse = fold(
+        [
+          ev(
+            'gym',
+            'gym',
+            day(2026, 9, 1),
+            rule: weekly({1, 3, 5}),
+            tracked: true,
+          ),
+        ],
+        span(day(2026, 9, 7), day(2026, 9, 11)),
+        day(2026, 10, 30),
+        missed: {
+          'gym': [day(2026, 9, 9), day(2026, 9, 11)],
+        },
+      );
+      final row = sparse.categories.single.rows.single as ReportRoutineRow;
+      expect(row.latestDay, day(2026, 9, 7), reason: 'days 9 and 11 missed');
+    });
+
     test('an empty override blanks its day\'s tasks', () {
       final report = fold(
         [

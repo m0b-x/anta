@@ -199,19 +199,34 @@ class GuideScreenDemo extends GuideCardDemo {
   static String _wouldOpenOverview(AppLocalizations l10n) =>
       l10n.calendarGuideWouldOpen(l10n.calendarOverview);
 
+  static String _wouldOpenReport(AppLocalizations l10n) =>
+      l10n.calendarGuideWouldOpen(l10n.reportTitle);
+
   @override
-  List<String> reports(AppLocalizations l10n) => [_wouldOpenOverview(l10n)];
+  List<String> reports(AppLocalizations l10n) => [
+    _wouldOpenOverview(l10n),
+    _wouldOpenReport(l10n),
+  ];
 
   void _setFormat(CalendarFormat format) {
     world.calendar!.format = format;
     did('title');
   }
 
-  /// The title menu's other page: she used the menu, and the overview card
-  /// further down is where it would lead.
-  void _openOverview() {
-    did('title');
-    say(_wouldOpenOverview);
+  /// The title menu's other pages: she used the menu, and the line names
+  /// where it would lead — the overview card further down, or the Report.
+  /// The menu never hands back the calendar, the page the card is.
+  void _openPage(CalendarViewPage page) {
+    switch (page) {
+      case CalendarViewPage.calendar:
+        return;
+      case CalendarViewPage.overview:
+        did('title');
+        say(_wouldOpenOverview);
+      case CalendarViewPage.report:
+        did('title');
+        say(_wouldOpenReport);
+    }
   }
 
   /// Any row of the ⋮: none opens anything here.
@@ -246,7 +261,7 @@ class GuideScreenDemo extends GuideCardDemo {
           automaticallyImplyLeading: false,
           format: calendar.format,
           onFormatSelected: _setFormat,
-          onPageSelected: (_) => _openOverview(),
+          onPageSelected: _openPage,
           // The calendar's saved filters and funnel, disabled, never
           // hidden: the card shows where they live; the filtering lesson
           // is where they work.

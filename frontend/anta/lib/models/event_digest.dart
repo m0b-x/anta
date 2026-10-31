@@ -7,10 +7,23 @@ import '../constants/event_alerts.dart';
 
 /// How often a digest fires. Persisted by [name] inside the payload; an
 /// unknown value decodes to [monthly], the cadence the feature exists for.
+///
+/// The two report cadences look back instead of ahead: they fire on the
+/// weekly or monthly schedule and list the week or month that just ended.
+/// They are new names rather than a flag so that an older build, which does
+/// not know them, decodes the digest disabled instead of firing it as an
+/// upcoming monthly one.
 enum DigestCadence {
   daily,
   weekly,
-  monthly;
+  monthly,
+  weeklyReport,
+  monthlyReport;
+
+  /// Whether the digest lists the span that just ended; its `leadDays` is
+  /// kept in the payload and never read.
+  bool get isReport =>
+      this == DigestCadence.weeklyReport || this == DigestCadence.monthlyReport;
 
   static DigestCadence fromName(String? raw) {
     for (final cadence in DigestCadence.values) {
@@ -41,8 +54,9 @@ class EventDigest extends Equatable {
 
   final DigestCadence cadence;
 
-  /// The day the digest fires on: weekly `1..7` ([DateTime.monday] ..
-  /// [DateTime.sunday]), monthly `1..28` (every month has the day), daily `0`.
+  /// The day the digest fires on: weekly (and weekly report) `1..7`
+  /// ([DateTime.monday] .. [DateTime.sunday]), monthly (and monthly report)
+  /// `1..28` (every month has the day), daily `0`.
   final int anchor;
 
   /// Minute of day it fires at, `0..1439`.
@@ -100,11 +114,13 @@ class EventDigest extends Equatable {
   }) : assert(minute >= 0 && minute <= lastMinute),
        assert(leadDays >= 0 && leadDays <= maxLeadDays),
        assert(
-         cadence != DigestCadence.weekly ||
+         (cadence != DigestCadence.weekly &&
+                 cadence != DigestCadence.weeklyReport) ||
              (anchor >= DateTime.monday && anchor <= DateTime.sunday),
        ),
        assert(
-         cadence != DigestCadence.monthly ||
+         (cadence != DigestCadence.monthly &&
+                 cadence != DigestCadence.monthlyReport) ||
              (anchor >= 1 && anchor <= lastMonthAnchor),
        );
 
@@ -214,11 +230,10 @@ class EventDigest extends Equatable {
   static int clampAnchor(DigestCadence cadence, int? raw) {
     return switch (cadence) {
       DigestCadence.daily => 0,
-      DigestCadence.weekly => (raw ?? DateTime.monday).clamp(
-        DateTime.monday,
-        DateTime.sunday,
-      ),
-      DigestCadence.monthly => (raw ?? 1).clamp(1, lastMonthAnchor),
+      DigestCadence.weekly || DigestCadence.weeklyReport =>
+        (raw ?? DateTime.monday).clamp(DateTime.monday, DateTime.sunday),
+      DigestCadence.monthly ||
+      DigestCadence.monthlyReport => (raw ?? 1).clamp(1, lastMonthAnchor),
     };
   }
 

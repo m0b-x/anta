@@ -1,14 +1,16 @@
 # Calendar report — design record (2026-10-30)
 
-**Status: IN PROGRESS (S3 building in three runs — S3a the group widget, S3b
-the page wiring with the sheets flow and the presence button, S3c the
-sub-sheet, the QA flow, the device pass and the design review; S0, S1 and S2
-built, reviewed and fixed; the designer's spec is §4.8, the as-built notes
-§7.1)** — proposed 2026-10-30; the same day the owner
-delegated every lettered decision ("you have free will … the focus on this
-feature is quality"), so the recommended option stands for each — D1–D24 in
-§3; the build runs on Fable 5.1 as the lead with Opus 5.5 implementers and
-reviewers per slice. Nothing committed. The mock:
+**Status: IMPLEMENTED 2026-10-31 — S0–S2 committed `08470643`, S3–S5
+committed and pushed by the lead in one change on the owner's word (the
+next session that opens this record writes that hash here); the designer's
+spec is §4.8, the as-built notes per slice §7.1, the verification §8, what
+was left §9** — proposed 2026-10-30; the same day the owner delegated every
+lettered decision ("you have free will … the focus on this feature is
+quality"), so the recommended option stands for each — D1–D24 in §3, the
+lead's own D25–D47 as the build taught them; the build ran overnight on
+Fable 5.1 as the lead with one Opus 5.5 implementer and one reviewer per
+slice, a designer before the page, a design reviewer and two device
+passes after. The mock:
 https://claude.ai/artifact/Gk9fwraARua1r8hDecTWHe — the Report page for
 October 2026 in light and dark, the lower cards scrolled in, the digest editor
 with its one new row, the two notification states, the decisions and the
@@ -295,6 +297,263 @@ with seven of twelve months); the spoken peak takes one phrase per unit;
 vanishes under the 2 dp gap; axis labels are measured with the bold-text
 setting and sit in a shrink box like the meter row's caption; column edges
 and hairlines snap to device pixels.
+
+**D38 — the S3a review's rulings (lead, 2026-10-30, after the Opus review
+of the group rows).** The spoken hours are the shown figure read back
+(`hoursFigure`, the whole-hours plural when it parses as an integer):
+`(hours × 10).round()` disagreed with `NumberFormat('0.#')` at .x5 values —
+537 min showed "8.9 h" and spoke "9 hours", 123 min showed "2 h" and went
+through the decimal key ("20 ore" for ro's "20 de ore"). A dated row's day
+is an ARB template over `DateFormat.E` / `.d` / `.MMM` (`reportRowDay`,
+`reportRowDayMonth`): the raw pattern `E d` gave de "Do. 8" where German
+writes "Do., 8."; no year — the one-day overlap of a 366-day span is
+deferred (§9). A dated row's subtitle is composed by the report — day ·
+start time · duration · count label · "n of m tasks" — never the day panel's
+tail, which carries a time range, "All day", the recurrence word, the count
+label first and the removed-after-alert note; `EventSummaryProvider`
+supplies the icon, the colour and the title only. `reportAttendedOf` is a
+plural on `total` (ro "din 25 de prezențe"). `ReportRoutineRow.latestDay`
+(the latest attended day, else the latest counted occurrence) is where a
+routine aggregate's tap opens the detail sheet (V). The in-group "Show as
+list" row gets `report-group-list-<card>-<id>` and a spoken label. Every
+row carries a `ValueKey`, so a group's `SliverList` (its own since S3b) maps
+rows across a fold through `findChildIndexCallback` and a later header never
+inherits an earlier one's rotation state. A missing event (impossible — the builder
+dereferences `events[id]!`) is asserted and skipped the same way for both
+row kinds. A category whose counted occurrences were all missed keeps its
+Categories group ("0 · 2 missed", one "0 of 2 attended" row): the group
+tells the story and D26's sums hold. §4.3's "rows faded 0.35" on Missed is
+superseded by §4.8 G (unfaded — 0.35 measured 2.17:1), and the widget ships
+as `ReportGroupRows` because the model already owns the name
+`ReportCategoryGroup`.
+
+**D39 — the S3b review's rulings (lead, 2026-10-31, after the Opus review
+of the cards on the page; no blocker, two defects, twelve nits).** *Nothing
+moves under the finger at the end of the page*: a shrink of the content near
+`maxScrollExtent` — a Missed row marked, a whole group or the MISSED card
+leaving, a long group closed by its header — made the viewport clamp the
+offset and slide everything down; the page ends in a **slack sliver** that,
+when armed before such a frame, takes exactly the extent the clamp would
+have taken (`scrollOffset + remainingPaintExtent` at its layout) and only
+ever shrinks afterwards, so scrolling up drains it and scrolling down stays
+bounded; armed on a header close, on "Show less" and on a refold the page's
+own mark caused (as built: the same look only; D40 narrows it further to a
+pending mark). The two child-row kinds are pinned to one exact
+height, so the "Show less" jump may read any built child row. The in-group
+Show as list on the Ahead card hands the days after the counted end
+(`countedTo + 1` to the span's end); Categories and Missed hand the folded
+span (the overview's Missed only narrows it there — `OverviewLook` stays
+`(start, end, categoryIds)`, §5). The presence mark clicks like the
+overview's and ignores a second tap on a row whose mark has not folded yet.
+The recording bloc in the page suite emits what production emits (the same
+list, both revisions bumped). The clamp test, the "nothing above moves"
+test and the presence test were tautological at offset 0 and are now asked
+at a scrolled offset, after `pumpAndSettle`, and against a rect above the
+tapped row. Recorded, not changed: a disclosure row's element is kept only
+when the old index 5 was built, positions hold either way.
+
+**D40 — the S3c review's rulings (lead, 2026-10-31; two medium findings,
+both on the slack).** The slack is armed only for a shrink the page itself
+caused at or below the viewport: a header close, "Show less", and a refold
+while one of the page's own marks is pending — never for another same-look
+refold (an event deleted or re-categorised in the detail-sheet trip's
+editor, a category deleted in settings), where the removed extent may lie
+*above* the leading edge and an armed slack would lift every visible row by
+it and open blank ground below; the clamp's small slide on return from such
+a trip is accepted. A look change (a step, a pick) *releases* the slack
+(`remembered = 0`), so a shorter period never inherits blank ground under
+its footer. A shrinking bottom clearance (the keyboard closing under a
+sheet's editor, which had drained slack through the min rule) arms, because
+that shrink is below the viewport by construction. The bookkeeping lives in
+the bloc listener, never in `build`. Recorded, not changed: while the slack
+drains, `maxScrollExtent` moves each frame and a fling restarts its
+simulation per frame (bounded by the slack; a device check); a failed
+presence write leaves the row quiet until the next Ready; an unrelated
+Ready may clear the in-flight set early (the write is idempotent). The page
+and the sub-sheet share one group-stack implementation
+(`report_group_stack.dart`: the folds, the per-group slivers, "Show less",
+the slack sliver), lifted from the page in S3d.
+
+**D41 — report digests (lead, 2026-10-31, S4a/S4b).** `DigestCadence.weeklyReport`
+/ `monthlyReport` are appended (the names are the stored value; `fromName`
+keeps falling back to monthly, so an older build reads them as
+monthly-but-disabled-and-unreadable, §3.4 of the digests record); they fire
+on the weekly / monthly schedule and `spanFor` gives the last whole week
+(from the user's week start) or the calendar month that ended *before* the
+fire day, never containing it; `leadDays` is kept in the payload and never
+read. At arm time the scheduler folds the report through one
+`CalendarReportService` per reconcile pass (D30) only when date-only now is
+past the span's end, else the body is the one line "Last week's / month's
+report is ready" and the next reconcile rewrites it (the arm signature
+hashes the text); a presence or skip write requests `reconcileAllQuietly`
+unawaited after its chain, gated on an enabled report digest existing, so a
+user without one pays nothing. The words (P): the summary line "{categories}
+— {attended} of {total} attended · {hours} · {missed} missed" (or "{n}
+happened" without routines), then one line per category in the report's
+order worded by its dominant shape — routine "{attended} of {total} · {hours}",
+repeat "{count} · {titles}", one-off "{count} · {ticked} of {total} tasks" —
+`kDigestMaxLines` kept, every number through `ReportLabels` (U). The payload
+gains the additive `pg` key (`page: report`); `OpenOverviewIntent` routes it
+to `AppNavigator.toCalendarReportLook` (a week span → `OverviewWeekPeriod`, a
+calendar month → `OverviewMonthPeriod`, else custom) published on
+`pendingReportLook`, the overview-look twin, which the report page serves
+through `ReportLookArrived`; an absent key lands on the List as today. The
+editor's Shows row (Upcoming · The week just ended · The month just ended)
+drives the cadence; under a report Shows the Every row reads the implied
+cadence disabled and Covers is disabled, On and At stay (S4b).
+
+**D42 — the S3d review's rulings (lead, 2026-10-31; one medium).** The
+keyboard arm re-measured the slack's whole reach, which lifts the visible
+rows when the content above the viewport shrank in the same layout (an
+offstage report under Settings hears a keyboard and a deletion, then comes
+back; an editor saved while the keyboard is still closing): the slack now
+takes the clearance as an input and *credits* only the clearance's shrink
+(`remembered = min(remembered + max(0, laid − clearance), reach)`), no arm
+on a clearance change. A mark's arm is keyed, not counted: a same-look
+report arms when a pending `(eventId, day)` was among the previous report's
+Missed rows and is absent from the new one, and only those keys are cleared
+— a failed write or an unrelated Ready no longer arms or disarms the wrong
+refold. A release wins over an arm in the same update. The sub-sheet shares
+the page's `ReportGroupFolds` (the state is per visit, X, and the sheet's
+ids never overlap the page's seven). A sheet row's second tap in one frame
+is dropped (`Navigator.pop` twice would pop the report page — the day list
+sheet has the same exposure; the owner's call). The slack's counts ride a
+`ValueNotifier` under a `ValueListenableBuilder`, so a fold rebuilds the
+slack, not every card. Tests for each, plus the sheet's own slack and its
+`largest` meter.
+
+**D43 — the S4a review's rulings (lead, 2026-10-31; two medium).** The
+numbers are folded from the span's *last day* on (date-only now ≥
+`span.end` — I's "now >= spanEnd" read literally), not only after it: with
+"after" a Sunday-evening mark never produced Monday's words unless a pass
+ran between midnight and the fire minute, which only a launch, a resume or
+an edit starts; on the last day a marked occurrence counts and an unmarked
+one is pending (D31), and the next pass — a mark, a launch — rewrites the
+words through the signature. No midnight timer (the scheduler has none;
+§9). The summary says "{attended} of {total} attended" only when the
+Attended tile counts something, else "{n} events" (the builder emits the
+tile for any routine in the *selection*, so a paused routine beside three
+birthdays read "0 of 0 attended" and never named the three); a routine
+line's hours are its routine rows' minutes, not the group's; the summary's
+"{categories} — {facts}" is an ARB template; counts go through
+`ReportLabels`' number formatting. `digestEntries` (the hub) and the
+editor's caption plan read the week start too, so a Sunday-start user's
+row describes the span that is armed. The arm-time words are inside the
+scheduler's try with the fold (a throwing `ReportLabels` must not abort the
+pass and strand the entries after it); `page` joins `digestArmSignature`.
+Recorded as built: "{n} events" for "{n} happened"; the repeat line lists
+each title once and drops the count labels (P's "Ana 32" — the title
+already names whose day it is and a notification line is short); the title
+says "3 categories" past two names as every digest does; `reportPeriodOf`
+makes any seven-day span a week period whatever the week start (harmless
+after a week-start change between arm and tap). The editor's On row and
+anchors cover the report cadences (S4b). Tests: the page's served look end
+to end, a second reconcile after a mark re-arming new words, the fold
+fallback, a Sunday week start and a monthly report through the scheduler,
+the seven-day alignment of every planned week.
+
+**D44 — the design review's rulings (lead, 2026-10-31; Opus
+design-reviewer over ~130 real-font renders, 24 cells of Period 1 and seven
+more states; every §4.8 number confirmed except those noted).** Fix: a
+route pushed in the frame right after an unsettled scroll jump at de 2.0 on
+412 wide drops one semantics frame (`flushSemantics` → `geometry!` null on
+a sliver of the page) — bisect the page's slivers (the slack sliver first)
+and pin it with a no-settle tap in the page suite at that cell; the Hours
+tile speaks "45 h" — its spoken value and delta go through `hoursSpoken`
+like the headers; de says "Ereignisse" on the tile and "Termine" everywhere
+else — "Termine"; a group whose facts are a bare count ("1") says "1 event";
+"6 less than" for a count is "fewer" (hours keep "less"); the Send rows'
+de / ro labels are shortened so de 2.0 on 360 stays at two lines ("Bericht
+wöchentlich senden"); the disclosure row's trailing glyph is a named part,
+not a raw `Icon`. Accepted and recorded: rows wrap at 2.0 and grow (the
+disclosure and cap rows 92 at 2.0, the Send row 92–132) — constant per
+state, never at runtime; the chart card's height follows its caption's
+wrap (304 at en 2.0 with a 12-hour range, 196 at de 1.0 single-series) —
+constant per state, §4.8's 268 is one caption's number; the chart's missed
+part in dark at 1.74:1 (the legend, the Missed tile and the Missed card
+carry it — a device look); the band's two-line de 2.0 title with its ▾ at
+the edge (the overview's nav); "To October 30" beside today's pending
+occurrence under Ahead as "Fri 30" (D31 — the row's time says the rest);
+the 38 % rows failing the text-contrast matcher (inactive controls are
+exempt). The device bucket (TalkBack phrasing, ink clipping at the card
+radius, ro, the AOSP 200 % curve, gesture-bar clearance, the refold's feel,
+the fling after "Show less") goes to the final device check.
+
+**D45 — the S4b review's rulings (lead, 2026-10-31; two medium).** A
+report folded on the span's last day folds *as of the day after it*
+(`today: spanEnd + 1`): on the last day itself an unmarked assume-present
+session is pending (D31) and most users never mark the sessions they went
+to, so a Sunday pass would have armed Monday's words one session short with
+nothing to refold them; folded from the fire's side, the event's own
+default decides the last day exactly as a pass after midnight would, and a
+later mark still rewrites the words. The report's period words sit
+mid-sentence on the hub's fire rows and in the editor's caption ("{count}
+events {period}"), so they are lowercase with their prepositions — en "last
+week" / "last month", de "in der letzten Woche" / "im letzten Monat", ro
+"săptămâna trecută" / "luna trecută" — and join the caption's height
+templates. Entering "The week just ended" from an upcoming cadence seeds
+the anchor to the week's first day (a Sunday anchor kept from an upcoming
+weekly digest would report the week that ended seven days earlier). The
+summary of an every-category report drops the "{categories} — " prefix
+("Events — 12 events" read twice); a named selection keeps
+`digestCategoriesLabel`'s rule (names up to two, a count past that — D43's
+"past two" corrected). Count placeholders of the report's plural keys take
+`decimalPattern`. The footer's Send row is disabled at the ten-digest cap
+(the hub hides its Add row there) and its default time is
+`kDefaultAlertDayMinute`, not a literal 08:00; `_sendReport` respects the
+page's picker guard too. de "Der abgelaufene Monat". Tests: a literal
+upcoming signature pinned byte for byte, the fold-throw fallback, the
+disabled Every / Covers rows' 38 % and semantics and height, de 2.0 with a
+report Shows, a fixed clock in the caption test, a hub fire row for a
+report digest; the alerts flow scrolls the sheet back up to the Shows row
+before tapping it.
+
+**D46 — the S5a review's rulings (lead, 2026-10-31; one medium).** Share
+and the ⋮'s export share one in-flight slot and refuse a second start
+while one is pending (`CalendarExportController.isPending`) — share_plus
+completes a pending share as unavailable when a second one starts and
+clears its cache on every share, so two taps stacked two choosers and
+wiped the first copy. The browser page's export listener ignores the
+calendar's and the report's operations (their controllers own the words;
+it opened its loading dialog over the report and queued a second failure
+bar — the `.ics` export suffered the same). Event titles and category
+names are Markdown-escaped in the share (``\ ` * _ [ ] # < >`` and a
+leading list marker — "# Plan" became a heading, "*Leg* day" emphasis, "1.
+Squats" a nested list); the share asserts a missing event as the page does
+(D38) and skips it in release; `exportText` asserts its file-name contract
+(a bare name with the format's extension) and removes a half-written file
+on failure. Counts in `tileValue` and `groupFacts` go through
+`ReportLabels.count` (the subtitle already grouped "1,234 events"). Count
+deltas take plural keys (`reportDeltaMoreCount` / `reportDeltaFewerCount`)
+so ro agrees ("cu 2 mai multe / mai puține", "cu 1 mai mult / mai puțin")
+and the hours keep the mass forms. de Send labels "Wöchentlich zusenden" /
+"Monatlich zusenden" — two lines at 2.0 on 360 and the subscription sense
+kept (S5a's "Wochenbericht senden" read as a one-off). The group header's
+fold glyph is `FormTrailingGlyph` too. Tests: the Ahead section, a
+cross-month row, a 12-hour clock and a caption-less trend in the Markdown;
+a failing write; the browser page's ignored operations; the page's share
+text equal to `ReportMarkdown.render` of the shown report with its
+comparison; a double tap; Markdown characters; the semantics pin with no
+pump between the jump and the push. Recorded as built: "Report exported"
+also shows when the share sheet is dismissed (the `.ics` path too);
+`anta-context`'s import-export reference gains the text export (the lead).
+
+**D47 — the S5b review's rulings (lead, 2026-10-31; the guide topic).**
+The guide's own rules win over the lead's draft: a page's lead is one
+sentence of at most 75 characters ("“Report” counts a week, a month or a
+year, category by category."); a sentence never retypes a label — the
+Categories tooltip, the Custom row, "Mark as present", both Send labels,
+Shows and its week entry, Share go in as quoted placeholders; the preview
+count and the category cap come from `ReportMetrics`, never a literal; the
+digest row says the tap *opens* a digest to save (nothing exists until
+Save) and names the month label too, since the page opens on This month;
+"the numbers update", not "refold"; the keys follow the sibling pattern
+(`calendarGuidePageReport`, `…Caption`); the caption no longer repeats the
+lead. The Report page is the one task page without a "Try it" card — its
+practice is the real page and the guide's demos hold no report — and the
+`calendar-events` rule line now says so. Tests gain the 412 size loop, the
+lead in de and ro, the view-menu lines in the practice page's walk, and a
+Report-first pick on the screen card.
 
 ## 4. The spec
 
@@ -1144,6 +1403,402 @@ beyond §5.
   296; de 1.0 stage 2 two columns, value "30", detail "von 31 · …", 296; en
   1.3 stage 2; de 1.3 stage 3 one column 594 — the hours template is wider
   than half the card there; 2.0 stage 3, 844). Suite `+11531`. S2 closed.
+- **S3a — built and reviewed; the fix pass is below.**
+  `lib/widgets/report_category_group.dart` holds `ReportGroupRows`, a row
+  builder in `AgendaDayListRowBuilder`'s shape (`rowCount`, `build(context,
+  index)`, each row in its own `FormRowShell`) so the page lays every card's
+  groups into one `SliverList`, builds only the rows on screen and never
+  scrolls inside a group (X). The header is a `FormMeterRow` — `EventAvatar`,
+  the facts caption per card (`groupFacts`: "14 · 13.2 h · 2 missed" /
+  "2 missed" / "1 · 1 h"), the meter on Categories only, an
+  `AnimatedRotation` fold glyph, one node with `expanded` and the spoken
+  facts; routine aggregates are `FormPickerRow`s with a blank leading slot
+  and the attended count as the value (K, D26); dated rows go through the
+  builder's `entryRow`, made public and unshelled, with the additive
+  `avatars: false` and `fadeMissed: false` flags; "n more" / "Show less" /
+  "Show as list" are `FormActionRow.disclosure` rows (the label at
+  `dividerIndentTitle`, a trailing glyph, one node carrying `expanded` and
+  "2 more in Gym" / "Show less of Gym", one id both ways). `ReportLabels`
+  gained `ReportCard`, `groupFacts`, `groupSpoken`, `routineCaption`,
+  `rowSubtitle` and `hoursSpoken`; five id helpers; nine ARB keys. The suite
+  pins the header at 66 / 77.4 / 104 and the child rows at 62 / 67 / 94 —
+  the designer's numbers — and de 2.0 on 360 in both themes. Suite `+11553`
+  from the lead (the implementer's own run hung on the editor save test's
+  ten-minute timeout, the known runner hang). The review found no blocker,
+  seven defects and eight nits — the spoken hours disagreeing with the shown
+  figure, the German day label, the borrowed day-panel subtitle, the ro
+  plural, the aggregate's missing tap day, the unaddressable in-group "Show
+  as list", a test asserting nothing — ruled in D38 and fixed in one pass
+  with the review's missing-coverage list added to the suite. The fix pass
+  (suite `+11582`) found two more things on the way: `FormRowShell` wraps
+  only a *last* row in its gap `Padding`, so a header going from closed
+  (last) to open changed widget shape, lost its `AnimatedRotation` state and
+  never animated — the report's rows carry the gap in a keyed `Padding` of
+  their own around `FormRowShell(trailingGap: false)`, and the shared shell
+  is a §9 item; and intl's `E` / `MMM` skeletons are `ccc` / `LLL`, German's
+  standalone "Do" / "Okt", so the day and month names come from the date
+  symbols' format forms ("Do., 8. Okt."). 1203 minutes draws "20.1 h" (intl
+  rounds 0.05000…0711 up) and is pinned as drawn. The pinned subtitles:
+  "Thu 8 · 17:00 · 1 h", "Thu 29 · 32 years", "Fri 30 · 5 of 8 tasks",
+  "Thu 8 · 18:00 · 1 h · Week 3", "Thu 29 Oct · 32 years" across months.
+- **S3b — built (review below).** The page's body is now Totals · caption ·
+  CATEGORIES · OVER TIME · MISSED · AHEAD · footer, a card drawn only with
+  content — a plan gets Categories alone because the builder leaves `missed`
+  and `ahead` empty in the future tense, no tense switch on the page (H, T).
+  The fold state is the page State's, per visit, keyed by card and category
+  (`_open`, absent = open; `_expanded`), kept across steps and refolds. The
+  Categories card shows `maxCategoryRows` groups and then one "n more
+  categories" disclosure row in its own shell, disabled until S3c opens the
+  sub-sheet from it (V); the meter's fraction is the group's count over the
+  card's largest (0 over 0 is 0); the month joins a row's day when the span
+  crosses a month (U); a group's Show as list hands the overview the folded
+  span and that one category; the Missed card's presence button writes the
+  static `EventSheetsFlow.setOccurrencePresence` and the report bloc refolds
+  on the calendar bloc's next state by itself; the row taps wait for S3c.
+  **One deviation from the brief: each group is its own `SliverList`** under
+  a `GlobalKey` per (card, category), not one list per card — after a fold
+  the sliver re-anchors its built children by index, and with one list per
+  card a later group's rows took the offsets of the rows folded away ("n
+  more" landed 7 px off above another long open group); a group's own list
+  either keeps exact offsets or re-lays out from its own index 0. Rule S:
+  "Show less" reads the height of a built child row (and of the "Show as
+  list" row when the group is capped) from the group's
+  `RenderSliverMultiBoxAdaptor`, computes the removed extent, and jumps the
+  one `ScrollController` *before* `setState`, so the folded frame is laid
+  out once at the corrected offset — no second-frame jump, no jump when
+  nothing is built. New keys `reportSectionCategories` and
+  `reportMoreCategories` (plural, ro one / few / other); id
+  `report-categories-more`. Twelve page tests pin the order on a 360 × 2400
+  surface, four rows + "8 more" → twelve + "Show less" with the header and
+  the rows above unchanged, "Show less" at y 500 → "26 more" at 500 ± 1 after
+  one frame (and a clamp to 0), seven headers + "2 more categories" disabled
+  for nine categories, fractions 1.0 / 0.5, a Missed mark recorded exactly
+  once with one more fold and the offset held, a group's Show as list
+  handing `{rest}`, de 2.0 and dark; the suite's bloc is a recording
+  subclass that drops the real presence write (a `BlocObserver` is read at
+  construction, and the write reached the database and hung FakeAsync).
+  Suite `+11594`. The review found no blocker, two defects (the end-of-page
+  clamp after a mark or a header close; the "Show less" jump reading one
+  row kind's height for both) and twelve nits, ruled in D39 and built into
+  S3c together with the sheets flow.
+- **S3c — built (review below).** D39 applied: the page ends in
+  `_EndSlack` / `_RenderEndSlack`, a childless, paintless sliver placed
+  *after* the body's `SliverPadding` (inside the group it would overshoot by
+  `bodyBottom` and the clearance) — armed by `_toggleOpen` on a close, by
+  `_keepMoreInPlace` before its `setState`, and by `build` when the shown
+  report instance changes under the *same* look (a step or a pick never
+  arms: at the end of a long month a step to a short week would otherwise
+  leave the viewport on blank ground, since the band, not the content, was
+  pressed); its first armed layout remembers `scrollOffset +
+  remainingPaintExtent` and every layout after keeps the minimum, so the
+  room only drains. The pins: a mark on the last Missed row at the page end
+  keeps the MISSED label, the header and the offset (`maxScrollExtent ==
+  offset`); a drag back of 100 / 200 moves the header by exactly that, and
+  `maxScrollExtent` then equals a fresh page's; a mark that empties Missed
+  and a long Ahead group closed by its header at the end hold too. The two
+  child-row kinds are pinned to one height with tolerance 0 (they were
+  equal). The clamp test asks offset 40 with E > 40 → 0 and "2 more" at
+  tapY − (E − 40); "nothing above moves" is asked with the header off
+  screen; the "Show less" pins are re-checked after `pumpAndSettle`; the
+  recording bloc's `landMark()` emits what production emits. The presence
+  mark clicks behind the haptics setting and drops a repeat tap until the
+  next `ReportReady`; Ahead's in-group Show as list starts at `countedTo +
+  1`. The behaviour: `getCalendarReportSettings` carries `palette` and
+  `hapticFeedback` (one statement, two more keys) and `ReportShown` holds
+  them; the page owns a `SheetGuard`, `_keepsHeard` and an `EventSheetsFlow`
+  reading appearance and palette from the bloc's state at call time;
+  `AlertKeepNotice` is counted and answered with a reload while pending,
+  never taken; a dated row opens the detail sheet on its day and a routine
+  aggregate on `latestDay`, the event read from the `CalendarBloc`'s loaded
+  list (the overview's rule — `report.events` still holds a deleted event
+  during a held refold); nothing is parked, the bloc coalesces. Eighteen
+  tests (page 61 → 76, settings + 2, bloc + 1). Suite `+11608 ~11 -5`: the
+  known Windows failure and four failures in files the slice never touched
+  (`calendar_alert_countdown_test`, `calendar_guide_practice_page_test`,
+  `calendar_guide_try_cards_test` × 2 — a Saturday-after-midnight run; an
+  explorer traced all four to `DateTime.now()` in those tests: the guide's
+  events try card seeds Yoga on today's weekday and the ro Saturday caption
+  "Săptămânal · sâm. · 18:00 – 19:00" clips at 2.0, the practice demo's
+  weekly events hang off today's weekday, and the countdown test leaves the
+  calendar page's prewarm `scheduleTask` pending — the owner's call, outside
+  this feature). Noticed: a group list estimates its extent from the
+  rows built, so `maxScrollExtent` wobbles by about 1 px with the scroll
+  position — no pin may rely on an exact end. The review found two medium
+  findings (an armed slack lifting the visible rows when a same-look refold
+  removed extent above the viewport; held slack surviving a step) and four
+  low ones, ruled in D40 and built into S3d with the sub-sheet.
+- **S3d — built (review below).** D40 as built: a same-look report arms
+  the slack only while one of the page's own marks is pending; a look
+  change *releases* it; a shrinking bottom clearance arms (checked in
+  `didChangeDependencies`, which runs before the rebuild); all of it lives
+  in the bloc listener and `_buildBody` only reads. The slack sliver takes
+  counts (`EndSlackSliver(arms:, releases:)`) rather than flags, because a
+  one-shot flag would have to be reset in `build`. The group-stack
+  machinery is lifted into `lib/widgets/report_group_stack.dart`
+  (`ReportGroupFolds`, `ReportGroupStack` — one keyed `SliverList` per
+  group inside a `SliverMainAxisGroup`, the lazy key map, the header toggle,
+  "n more" / "Show less" with its jump, `onShrink` — and
+  `EndSlackSliver`), one stack per card on the page, the 76 page tests
+  green through the lift with renames only (the cap row's pin flipped from
+  disabled to enabled). `ReportMoreCategoriesSheet` (V) is the filler the
+  day list sheet is: the fixed box on `pageGround`, ✕ `report-more-close`
+  and the title "More categories", one `CustomScrollView`
+  (`report-more-list`) of the groups past the seventh through the same
+  stack with its own slack, bottom padding `bodyBottom + max(viewInsets,
+  viewPadding)`; it answers with a sealed `ReportSheetResult` — a dated row
+  `ReportSheetPick(eventId, day)`, a routine aggregate its `latestDay`, a
+  group's Show as list `ReportSheetShowList(categoryId)` — and the page,
+  which opened it through its one `SheetGuard` slot, opens the detail sheet
+  or hands the overview the span and that category; the sheet takes the
+  card's largest count so its meters compare with the page's. Eighteen
+  tests (page 9, sheet 8, the clearance entry); the three D40 pins fail
+  with their mechanism disabled (610 vs 225, 330 vs 267, 640 vs 577). Suite
+  `+11626 ~11 -5`, the same five. The QA flow `28_report.txt` (the lead):
+  the view menu's third entry, Last 90 days, the Strength group closed and
+  reopened, the Lifting aggregate's detail sheet, the Missed Other group's
+  "n more" and "Show less", the footer's rows, back through the view menu.
+  The review found one medium finding (the keyboard arm re-measuring the
+  whole reach) and four low ones, ruled in D42 and built in a fix pass
+  after S4a (the two shared the page file). **Device pass 2026-10-31
+  01:37** (`qa pass calendar -d emulator-5558` — the owner's Pixel 9 Pro XL
+  held the default port, so the second fleet guest ran it): 27 of 29 green;
+  `11_tier1_sheets` red on the `{{longdate+2}}` month-page trap (31 October
+  + 2 has no cell — the flow's, not the app's); `28_report` red twice on its
+  own `expect`s of ids below the fold (`expect` never scrolls, and even This
+  month fills a phone with the seed's groups) — the checks moved behind the
+  `scroll-to`s that reach them and the flow went green on a rerun; `qa
+  errors` clean. The screenshots match the mock: the four tiles with their
+  deltas against May 5 – Aug 2, the caption "To October 31 · against … · 1
+  ahead", Strength and Gym groups with meters and the Lifting aggregate "7
+  of 8 attended · 10.5 h", the weekly chart with its missed part and "Most
+  on Monday · usually 6:00 PM – 7:30 PM", the Missed Other group's Standup
+  rows with their presence buttons. **The D42 fix pass** (suite `+11665`):
+  the slack credits the clearance's shrink per layout (`EndSlackSliver`
+  takes `clearance`), the mark's arm is keyed on a pending `(eventId, day)`
+  leaving the Missed rows, a release clears a pending arm and the clearance
+  credit, the sheet shares `_folds`, a sheet row's second activation is
+  dropped (red before the fix only through `SemanticsAction.tap` twice — a
+  pointer pair is absorbed by the popping route), the counts ride a
+  `ValueNotifier`. Two premises did not hold in the harness: an offstage
+  page's viewport is still laid out (a relayout boundary), so the old arm
+  was spent harmlessly offstage; and a refold cannot be made to land in the
+  frame of a keyboard close through the robot — forced by hand, a 300 px
+  one-frame close still lifts the footer by that frame's whole credit (a
+  real close animates over ~250 ms, so the residual is one frame's slice; a
+  signed slack that also debits growth would zero it at the price of giving
+  up the hold after a scroll into the keyboard's padding — not taken, §9).
+  A mark whose write fails keeps its row quiet until a later report drops
+  the row (the existing test now pins that instead of a second tap).
+- **S4a — built (review below).** `DigestCadence.weeklyReport` /
+  `monthlyReport` after `monthly` with `isReport`; `fromName` and the decode
+  seam untouched (both names pinned readable and enabled on this build, an
+  unknown name still disabled); `clampAnchor` like the twins. `_fireDays`
+  shares the weekly / monthly branches; `spanFor(digest, fireDay, {weekStart})`
+  — a weekly report is the week holding the fire day stepped back seven
+  days, a monthly report `utc(y, m − 1, 1)`..`utc(y, m, 0)`, `leadDays`
+  never read; the scheduler's `_reconcile` passes the week start, the hub
+  and the editor keep the Monday default (an S4b item: a Sunday week start
+  would show the hub a span other than the armed one).
+  `digestNotificationContent(…, {CalendarReport? report})` sends report
+  cadences to `_reportContent`: title "Weekly report · {categories}", the
+  summary line as the text and the first line, one line per category after
+  it (P), `kDigestMaxLines` and "+n more" kept; without a report the one
+  ready line; `digestPeriodOf` "Last week" / "Last month"; `digestDescribe`
+  two cases ("Weekly report on {weekday}, {time}"). The scheduler folds
+  through one lazily created `CalendarReportService` per pass only when
+  date-only now is past the span's end (no previous span, the digest's
+  categories, the pass's events; a throwing fold logs and falls back to the
+  ready line), resolves `EventPresenceService` quietly when an enabled
+  report digest exists (the fold reads the presence facade), and stamps
+  `page: report` (`AlertPayloadKeys.page = 'pg'`, `AlertPayload.reportPage`,
+  written only when set, a wrong type reads as absent). Routing:
+  `AppNavigator.toDigestTarget({payload, span})` — `main.dart` calls it —
+  sends `page == report` to `toCalendarReportLook`, which publishes
+  `pendingReportLook` and collapses onto a live stamped report or pushes
+  `CalendarReportPage(look:)`; `reportPeriodOf` (seven days → week, a
+  calendar month → month, else custom); `servesReportLook`. The bloc's
+  `ReportLookArrived(look)` sets period and home, the allowlist and folds,
+  persisting the allowlist when it changed and never the period — what the
+  overview's `_listLook` persists for a served look; the pushed path goes
+  through `ReportOpened(look)` (the period persists only as a kept kind,
+  which a closed week or month never is). `CalendarBloc` requests
+  `reconcileAllQuietly` after a presence write, gated on an enabled report
+  digest; skips already run `_reconcileAlerts`, a full re-plan, so no
+  second pass. The words pinned (en): "Events — 2 of 3 attended · 4.5 h · 1
+  missed", "Birthday — 2 events", "Gym · 2 of 3 · 2.5 h", "Birthday · 2 ·
+  Ana, Mihai" (each title once), "To do · 2 · 2 of 3 tasks", "Mobility · 1
+  · 2 h", "Last week's report is ready"; eight categories fold to five and
+  "+3 more". `digest_editor_sheet.dart` got a compile-only mapping (the
+  Shows row is S4b's). Twenty-nine tests; suite `+11655 ~11 -5`, the same
+  five. The review found two medium findings (the fold gate one day late;
+  "0 of 0 attended" beside three birthdays) and six low ones, ruled in D43
+  and built into S4b with the Shows row.
+- **S4b — built (review below).** The editor's **Shows** row before Every
+  (`digest-shows`; `digest-shows-upcoming` / `-week-report` /
+  `-month-report`), read from the cadence: a report Shows sets the cadence
+  to `weeklyReport` / `monthlyReport`, Upcoming restores the last upcoming
+  cadence (weekly when the sheet opened on a report); under a report Every
+  reads "Week" / "Month" disabled and Covers is disabled, On / At / Also
+  when empty stay; the anchors are seeded for the report cadences and the
+  On branches gated on both twins (D43); the caption plan takes the week
+  start. The hub's `digestEntries()` reads the week start (Monday on a
+  failed read), so a Sunday-start row describes the armed span. The
+  footer's Send row opens the editor through the page's `SheetGuard` with
+  a draft (`id: ''`, the cadence by the period's kind — a custom or year
+  period is monthly —, the anchor the week start's weekday or the 1st,
+  08:00, the folded allowlist) and dispatches `SaveEventDigest` +
+  `AlertPermissionCheck.afterSave` as the hub does; the sheet now treats an
+  id-less `initial:` as a new digest (title, no Delete, Save returns it,
+  the cap applies) — before, any `initial:` was an edit. D43 in the
+  scheduler: the fold from the span's last day; the words inside the try
+  with a retry on `report: null`; `page` in the arm signature only when set
+  (upcoming digests keep their hash — §5); the summary through
+  `digestReportSummary` with `reportAttendedOf` only when the tile counts;
+  a routine line's hours from its rows; `ReportLabels.count`. The alerts
+  flow walks the Shows row (three items, a week report leaves every row in
+  place, Upcoming back, On "1st") and saves nothing. Twenty-three tests;
+  suite `+11689 ~11 -5`, the same five. The review found two medium
+  findings (a last-day fold leaving that day's unmarked assume-present
+  sessions out with nothing to refold them; "5 events Last week"
+  mid-sentence) and ten low ones, ruled in D45 and built in the S4c fix
+  pass. **S4c** (suite `+11717`): `_closedReport` folds as of the day
+  after the span (a Sunday 20:00 pass over a Mon / Wed / Fri / Sun tracked
+  hour reads "4 of 4 attended · 4 h" unmarked and "3 of 4 · 1 missed" with
+  Sunday marked); the period words lowercase with prepositions ("5 events
+  last week", "5 Termine im letzten Monat") and in the caption's
+  templates; the week report's weekday is held apart (`_reportWeekday`,
+  seeded to the week's first day, an edited week report keeps its own) so
+  the Upcoming weekday survives a round trip; the every-category summary
+  is the facts alone and a named selection keeps the prefix
+  (`digestCategoriesLabel` names one category and counts from two — D45's
+  "names up to two" corrected to what every digest title does);
+  `decimalPattern` on the seven report plural keys ("1.200 von 1.234
+  anwesend"); the Send row null-tapped at the cap, its default minute
+  `kDefaultAlertDayMinute` (09:00, `event_alerts.dart`), `_sendReport`
+  respecting `_pickerOpen` and the pickers `_sheetGuard.isOpen`; de "Der
+  abgelaufene Monat"; the arm signature of an upcoming payload pinned byte
+  for byte (`'ctx~d#617d4234'`, a null `page` adds no element); the
+  fold-throw fallback (`AlertScheduler.forTesting(reportService:)`); the
+  disabled Every / Covers rows at 38 % with disabled semantics and their
+  height; de and en 2.0 with the long Shows values; fixed clocks
+  (`DigestEditorSheet(now:)`); a hub fire row "5 events last week"; the
+  alerts flow scrolls the sheet body (`digest-sheet-body`) back up to the
+  Shows row.
+- **S5a — built.** Share report as Markdown (K): `ReportMarkdown.render`
+  (`lib/utils/report_markdown.dart`; every word through `ReportLabels`,
+  every group and row, no cap; a plan stops after Categories; Over time
+  only with a caption) and `ReportMarkdown.fileName(span)`
+  (`anta_report_<yyyyMMdd>-<yyyyMMdd>.md`); `ImportExportService.exportText`
+  beside the `.ics` writer; `ExportTextRequested({fileName, text, format,
+  share})` and `ImportExportOperation.exportText` with their own
+  "Report exported" / "Could not export the report" words
+  (`exportingReport`, `reportExported`, `reportExportError`);
+  `CalendarExportController.startText` remembers which operation it
+  started so one `onState` answers either export; the footer's Share row is
+  disabled on an empty report and otherwise blurs and starts the export
+  with the page's labels, 24-hour setting, period name and comparison. The
+  golden (en, 24-hour): `# Report · September 2026` / `31 events · 3
+  missed` / `*To September 30 · against August 2026 · 2 skipped*` / `##
+  Totals` with `- Attended: 21 of 24 · 88 % · +2` … / `## Categories` with
+  `### Gym · 14 · 13.2 h · 2 missed` and `- Gym · 8 of 10 attended · 8 h`,
+  `- PT session · Thu 10 · 17:00 · 1 h` … / `## Over time` / `## Missed`.
+  D44: the Hours tile speaks "45 hours, 3 hours more than …"; de "Termine"
+  on the tile; a bare count says "1 event"; `reportDeltaFewer` for counts
+  (de the same words, ro "mai puține" against the mass "mai puțin"); the
+  Send labels de "Wochenbericht senden" / "Monatsbericht senden" (the
+  briefed "Bericht wöchentlich senden" measured three lines at 2.0 on 360)
+  and ro "Trimite raportul săptămânal" / "lunar", pinned at two lines;
+  `FormTrailingGlyph` (`trailingIconSize`, `onSurfaceVariant` default) is
+  the disclosure row's glyph part. **The dropped semantics frame (D44) was
+  not reproduced** in about seventy variations of the page suite (de 2.0,
+  412 × 915, three pixel ratios, every route, the slack armed, semantics on
+  before / after the jump); reading the SDK, the null at
+  `_buildSemanticsSubtree` is a semantics *node's* geometry, which the
+  childless slack sliver never forms — the Flutter 3.44 class behind
+  `FormSheetSemanticsRefresh` (a node's geometry cleared while its nearest
+  clean ancestor is blocked); one dropped frame that recovers, pinned as a
+  no-throw case and left in §9 with the design reviewer's harness to
+  recover. Sixteen tests; suite `+11705 ~11 -5`, the same five. Noticed:
+  `OptimizedFolderContentPage` listens to the app-wide `ImportExportBloc`
+  with no route guard, so an export under a calendar page shows its
+  loading dialog and failure snackbar twice (the `.ics` export already
+  did; §9). The review found one medium finding (no in-flight guard on
+  Share) and eleven low ones, ruled in D46 and built in the S5c fix pass.
+  **S5c**: Share and the ⋮'s export return while one is pending (two taps →
+  one request; a Share during a pending `.ics` export adds nothing); the
+  browser page's listener returns for `exportCalendar` and `exportText`
+  before its dialog, bar and reset (a control pins `exportNote` still
+  heard); `ReportMarkdown.escapeMarkdown` on titles and category names
+  (``\ ` * _ [ ] # < >`` anywhere, a leading `+` / `-` / `digits.` /
+  `digits)`; a marker mid-text left alone; a `*Lifts*` category and a
+  `# Plan` title pinned); a missing event asserted with the page's wording
+  and skipped in release; `exportText` asserts a bare name with the
+  format's extension and cleans a half-written file up itself (the bloc
+  has no path when the write throws; a `writeExportText` seam fails a
+  write mid-file in the test); `tileValue`, `detail`'s "of N" and
+  `groupFacts` through `count()` ("1,234 of 2,345", de "1.234");
+  `reportDeltaMoreCount` / `reportDeltaFewerCount` (`decimalPattern`) for
+  every non-hours tile — ro one "cu 1 mai mult / mai puțin", few and other
+  "cu {n} mai multe / mai puține" with no "de" (the number qualifies the
+  comparative, "cu 25 mai mulți") —, the hours keep the mass forms,
+  `reportDeltaFewer` removed; de "Wöchentlich zusenden" / "Monatlich
+  zusenden" at two lines; the header's fold glyph a `FormTrailingGlyph`;
+  the Markdown's Ahead section with "Thu 8 Oct" / "Sun 1 Nov" and a
+  12-hour clock, a caption-less trend left out, the page's share text
+  equal to `ReportMarkdown.render` of the shown report with its
+  comparison, the D44 pin with no pump between the jump and the push. Suite
+  `+11751 ~11 -6` with one test of its own red (a listener test pumped
+  once; fixed with a two-pump `hear()`, the three files re-run green —
+  the lead's final run confirms). Noticed: `ReportLabels.delta` prints
+  "+1234" ungrouped and `_figure` would split "1,234,567" into two runs;
+  the browser's `_progressMessage` / `_failureMessage` keep two
+  unreachable arms; `exportCalendar` still has the half-written-file gap.
+- **S5b — built (review below).** `CalendarGuideTopic.report` (slug
+  `report`, `bar_chart_rounded`, after `attendance` so the hub's "How do I"
+  lists it right after "did I go"; no "Try it" card, like `good`): title
+  "See what happened", caption "A week, a month or a year, by category", a
+  lead quoting the page's name through a placeholder, and **four** read
+  rows — the guide's own rule caps a page at four, so the lead's seven
+  lines were merged: `report-open` "Opening it" (the title's three pages,
+  the period between the arrows), `report-categories` "Which categories"
+  (the filter button, one group per category with a meter against the
+  biggest, four rows then "3 more" in place, a header tap folds),
+  `report-missed` "What you missed" (marked or assumed absent; the button
+  beside a row marks it present and the numbers refold), `report-digest`
+  "Every week by itself" ("Send me this report weekly" → last week's
+  numbers on the first day of each week, a digest with Shows = The week
+  just ended; "Share report" writes the page as Markdown) — every app label
+  in them an existing key through a placeholder (`reportGroupMore(3)`,
+  `reportSendWeekly`, `reportShare`, the period names). Eleven
+  `calendarGuideReport*` keys; §7.5's keep list gains the four slugs; the
+  hub counts thirteen rows. The two sandboxed view menus now say what the
+  picked page would open (`_openPage(CalendarViewPage)` on the practice
+  page and the try screen; the Report line sized into the band and the
+  slot). Guide suites `+429 −3` (the three Saturday cases). The review
+  found three medium findings (the lead at 176 characters against the
+  guide's one-sentence 75; the digest row quoting only the week label the
+  page does not show on its default month; the one task page without a
+  "Try it" card — accepted: its practice is the real page, the skill's rule
+  amended) and eleven low ones (labels retyped against D5, "four rows" as a
+  literal, "refold", a ro antecedent, key names off the sibling pattern,
+  the 412 size loop, the skills' "ten topic pages"), ruled in D47 and built
+  in the S5d pass: the lead "“Report” counts a week, a month or a year,
+  category by category." (64 characters); every label a quoted placeholder
+  (`calendarCategories`, `upcomingPeriodCustom`, `eventMarkPresent`, both
+  Send labels, `digestShows`, both Shows values, `reportShare`); the
+  preview count and the category cap from `ReportMetrics` with
+  `decimalPattern`; the digest row names both labels and the save; "the
+  numbers update"; `calendarGuidePageReport` / `…Caption` ("Totals, missed
+  days and what is ahead" — the lead's last edit, so the hub row's title
+  and caption do not both say "what happened"); `swap_horiz_rounded` and
+  `notifications_rounded` glyphs; the 412 size loop, the lead in de and ro,
+  the view-menu lines in the practice page's walk, a Report-first pick on
+  the screen card. Guide suites `+436 −3`.
+- **The final gate (the lead, 2026-10-31 03:50):** `dart analyze lib test`
+  clean; `flutter gen-l10n` with `untranslated.txt` = `{}`; the whole suite
+  `+11759 ~11 -5` — the Windows-only `host_devices_test` and the four
+  Saturday clock-dependent guide and alert tests (the S3c note), nothing
+  else; 83 uncommitted files, every one the report's.
 
 ## 8. Definition of done
 
@@ -1178,6 +1833,30 @@ beyond §5.
 - `OverviewPeriod` stored as `thisWeek` (D25) decodes on this build and falls
   back to This year on the previous one.
 
+**Verified 2026-10-31 (the lead).** Every line above holds in the suites
+except as noted: the gate (analyze clean, `untranslated.txt` empty, the
+whole suite `+11759 ~11 -5` with the five known failures only); the three
+worked periods, the plan, the empty period and the Missed card rendered in
+the page suite and by the design reviewer across the matrix (D44); "n
+ahead" and the Ahead card on a period ending after today; ◄ ► between Last
+and Next week changing the tense once; the memo on a step back (the fold
+counter), one fold per presence mark, no fold in `build`; the 366-day,
+50-event fixture within budget; nine categories → seven groups and a cap
+row (the 40-category and 300-row shapes are approximated by nine and 273);
+four rows and "8 more", in place, "Show less", the header tap, one
+`Scrollable`; a mark re-folding with the offset held, at the page's end
+too (D39–D42); the report digest's generic line before the span's last
+day and the numbers from it on (D43/D45), the tap landing on the Report
+page for the span and categories, an older payload on the List;
+`thisWeek` decoding. The passes, on `emulator-5558` because the owner's
+Pixel 9 Pro XL held 5556: `qa pass calendar` 28 / 29 (`11_tier1_sheets`
+red on the `{{longdate+2}}` month-page trap of 31 October, the flow's
+problem, not the app's), `qa pass alerts` 5 / 5 with the Shows walk, `qa
+errors` clean; screenshots of the Report page in de · dark · 200 % and in
+ro under `build/qa/shots/20261031_0351*`. Not verified on a device:
+TalkBack phrasing, ink clipping, the AOSP 200 % curve, the refold's feel,
+the fling after "Show less" (D44's device bucket, for the owner's phone).
+
 ## 9. Deferred
 
 - **Alarm-tier report digests** — digests have no tier (`AlertMode.notify`
@@ -1202,3 +1881,50 @@ beyond §5.
 - **Year-over-year and two-selection comparison, saved reports, a home-screen
   glance** — each a second fold or a stored `(period, categoryIds)`, no
   schema change (§4.7).
+- **`FormRowShell`'s conditional gap `Padding`** (S3a fix pass) — the shell
+  wraps only a last row in `Padding(bottom: groupGap)`, so any stateful row
+  that flips between last and not-last (a header whose group opens) loses
+  its `State`. The report works around it locally (a keyed `Padding` of its
+  own); the shared fix is an always-present `Padding` with a zero bottom in
+  `form_rows.dart`, checked against the overview's exact extents and the
+  `form_rows_test.dart` pins — an app-wide change for the `ui-language`
+  master record, not this feature's.
+- **A dated row's year** — the row's day is "Thu 8 Oct" at most (D38); only a
+  366-day span can show the same day-and-month twice (its first and last
+  day). Add the year to `reportRowDayMonth` only if a reader is ever misled.
+- **A signed slack** — the end-of-page slack credits a clearance's shrink
+  per layout (D42); a refold landing in the very frame of a large one-frame
+  keyboard close still lifts the footer by that frame's credit. A signed
+  `remembered` that also debits growth would zero it, at the price of
+  giving up the hold once the reader has scrolled into the keyboard's
+  padding and then closes it. Real closes animate, so the residual is one
+  frame's slice; revisit only if a device shows it.
+- **A midnight re-plan for report digests** — the words are folded from
+  the span's last day on (D43) and rewritten by the next pass (a mark, a
+  launch, a resume); a report armed on Saturday with the app untouched all
+  Sunday fires Monday with Saturday's numbers. A day-change
+  `reconcileAllQuietly` gated on an enabled report digest belongs to the
+  scheduler, after S4 shows how often it happens.
+- **The day list sheet's double activation** — a sheet row activated twice
+  in one frame through semantics pops twice, the second pop taking the page
+  beneath (`agenda_day_list_sheet.dart`); the report's sheet drops the
+  second (D42), the day list sheet is the owner's call.
+- **The dropped semantics frame** (D44) — the design reviewer saw
+  `flushSemantics` throw `geometry!` null once (then recover) when a route
+  was pushed in the frame right after an unsettled scroll jump at de 2.0 on
+  412 wide; S5a could not reproduce it in about seventy variations and the
+  SDK read points at a semantics node's geometry cleared under a blocked
+  ancestor (the class `FormSheetSemanticsRefresh` works around for sheets),
+  not at the slack sliver. Recover it with the reviewer's exact harness
+  (the nine-category fixture, offset 3065, the sheet or a plain dialog
+  pushed with no settle, `transientCallbackCount` 3) before changing code.
+- **The browser page's unguarded export listener** —
+  `OptimizedFolderContentPage` listens to the app-wide `ImportExportBloc`
+  with no route guard, so an export started under a calendar page shows
+  the browser's loading dialog and failure snackbar as well (the `.ics`
+  export already did; the report's share inherits it). A route-aware guard
+  on that listener is an app-wide change for `anta-context`'s owner.
+- **One spoken separator** — `tileSemantics` and `trendWords` still join
+  their spoken lists with a literal `', '`; `groupSpoken` uses
+  `ReportLabels.spokenSeparator`. Move the other two when either is next
+  touched.

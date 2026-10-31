@@ -57,6 +57,25 @@ void main() {
       expect(describe(monthly), 'Monthly on the 1st, 09:00');
     });
 
+    test('a report says so, on the schedule it fires on', () {
+      const weeklyReport = EventDigest(
+        id: 'wr',
+        cadence: DigestCadence.weeklyReport,
+        anchor: DateTime.monday,
+        minute: 8 * 60,
+      );
+      const monthlyReport = EventDigest(
+        id: 'mr',
+        cadence: DigestCadence.monthlyReport,
+        anchor: 1,
+        minute: 9 * 60,
+      );
+
+      expect(describe(weeklyReport), 'Weekly report on Monday, 08:00');
+      expect(describe(monthlyReport), 'Monthly report on the 1st, 09:00');
+      expect(describe(monthlyReport, l10n: de), 'Monatsbericht am 1., 09:00');
+    });
+
     test('on the 12-hour clock', () {
       expect(describe(daily, use24Hour: false), 'Daily at 7:30 AM');
       expect(describe(weekly, use24Hour: false), 'Weekly on Sunday, 8:00 PM');

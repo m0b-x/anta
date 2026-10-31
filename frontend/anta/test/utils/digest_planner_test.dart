@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/alert_constants.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -223,6 +224,183 @@ void main() {
 
       expect(fire.spanStart, DateTime.utc(2026, 10, 2));
       expect(fire.spanEnd, DateTime.utc(2026, 11, 1));
+    });
+  });
+
+  group('the report span', () {
+    final weekly = digestOf(
+      cadence: DigestCadence.weeklyReport,
+      anchor: DateTime.monday,
+    );
+    final monthly = digestOf(cadence: DigestCadence.monthlyReport);
+
+    test('a Monday fire with a Monday week start is the previous Mon–Sun', () {
+      expect(DigestPlanner.spanFor(weekly, DateTime.utc(2026, 10, 26)), (
+        start: DateTime.utc(2026, 10, 19),
+        end: DateTime.utc(2026, 10, 25),
+      ));
+    });
+
+    test('a Wednesday fire is the whole week that ended before it', () {
+      expect(DigestPlanner.spanFor(weekly, DateTime.utc(2026, 10, 28)), (
+        start: DateTime.utc(2026, 10, 19),
+        end: DateTime.utc(2026, 10, 25),
+      ));
+    });
+
+    test('a Sunday week start is the Sun–Sat that ended before the fire', () {
+      for (final fire in [
+        DateTime.utc(2026, 10, 25), // Sunday
+        DateTime.utc(2026, 10, 26), // Monday
+        DateTime.utc(2026, 10, 31), // Saturday
+      ]) {
+        expect(
+          DigestPlanner.spanFor(
+            weekly,
+            fire,
+            weekStart: CalendarWeekStart.sunday,
+          ),
+          (start: DateTime.utc(2026, 10, 18), end: DateTime.utc(2026, 10, 24)),
+          reason: '$fire',
+        );
+      }
+    });
+
+    test('a fire on the 1st or the 15th is the previous calendar month', () {
+      for (final fire in [
+        DateTime.utc(2026, 11, 1),
+        DateTime.utc(2026, 11, 15),
+      ]) {
+        expect(DigestPlanner.spanFor(monthly, fire), (
+          start: DateTime.utc(2026, 10, 1),
+          end: DateTime.utc(2026, 10, 31),
+        ));
+      }
+      expect(DigestPlanner.spanFor(monthly, DateTime.utc(2027, 1, 1)), (
+        start: DateTime.utc(2026, 12, 1),
+        end: DateTime.utc(2026, 12, 31),
+      ));
+    });
+
+    test('February is its own length, a leap one included', () {
+      expect(DigestPlanner.spanFor(monthly, DateTime.utc(2027, 3, 1)), (
+        start: DateTime.utc(2027, 2, 1),
+        end: DateTime.utc(2027, 2, 28),
+      ));
+      expect(DigestPlanner.spanFor(monthly, DateTime.utc(2028, 3, 10)), (
+        start: DateTime.utc(2028, 2, 1),
+        end: DateTime.utc(2028, 2, 29),
+      ));
+    });
+
+    test('the lead is never read', () {
+      final day = DateTime.utc(2026, 10, 28);
+      expect(
+        DigestPlanner.spanFor(weekly.copyWith(leadDays: 3), day),
+        DigestPlanner.spanFor(weekly, day),
+      );
+      expect(
+        DigestPlanner.spanFor(monthly.copyWith(leadDays: 7), day),
+        DigestPlanner.spanFor(monthly, day),
+      );
+    });
+
+    test('a span never holds its fire day', () {
+      for (var offset = 0; offset < 400; offset++) {
+        final fire = DateTime.utc(2026, 1, 1 + offset);
+        for (final weekStart in CalendarWeekStart.values) {
+          for (final digest in [weekly, monthly]) {
+            final span = DigestPlanner.spanFor(
+              digest,
+              fire,
+              weekStart: weekStart,
+            );
+            expect(span.end.isBefore(fire), isTrue, reason: '$fire');
+            expect(span.start.isAfter(span.end), isFalse, reason: '$fire');
+          }
+        }
+      }
+    });
+
+    test('a weekly report fires on its weekday, a monthly on its day', () {
+      expect(planOf([weekly]).map((fire) => fire.fireAt), [
+        DateTime(2026, 9, 21, 9),
+        DateTime(2026, 9, 28, 9),
+      ]);
+      expect(planOf([monthly]).map((fire) => fire.fireAt), [
+        DateTime(2026, 10, 1, 9),
+        DateTime(2026, 11, 1, 9),
+      ]);
+    });
+
+    test('the plan reads the week start it is given', () {
+      final fires = DigestPlanner.plan(
+        digests: [weekly],
+        events: const [],
+        horizon: horizon,
+        now: now,
+        weekStart: CalendarWeekStart.sunday,
+      );
+
+      expect(fires.first.spanStart, DateTime.utc(2026, 9, 13));
+      expect(fires.first.spanEnd, DateTime.utc(2026, 9, 19));
+    });
+
+    test('every planned week is seven days from the week start, the one '
+        'before its fire, for every start and anchor (D43)', () {
+      for (final weekStart in [
+        CalendarWeekStart.monday,
+        CalendarWeekStart.saturday,
+        CalendarWeekStart.sunday,
+      ]) {
+        for (
+          var anchor = DateTime.monday;
+          anchor <= DateTime.sunday;
+          anchor++
+        ) {
+          // A year of fires, across both daylight-saving changes.
+          final fires = DigestPlanner.plan(
+            digests: [
+              digestOf(cadence: DigestCadence.weeklyReport, anchor: anchor),
+            ],
+            events: const [],
+            horizon: const DigestHorizon(perDigest: 53, maxDigests: 1),
+            now: now,
+            weekStart: weekStart,
+          );
+          expect(fires, hasLength(53));
+          for (final fire in fires) {
+            final reason = '$weekStart, anchor $anchor, ${fire.fireAt}';
+            final fireDay = DateTime.utc(
+              fire.fireAt.year,
+              fire.fireAt.month,
+              fire.fireAt.day,
+            );
+            expect(fire.fireAt.weekday, anchor, reason: reason);
+            expect(fire.spanStart.weekday, weekStart.weekday, reason: reason);
+            expect(
+              fire.spanEnd,
+              DateTime.utc(
+                fire.spanStart.year,
+                fire.spanStart.month,
+                fire.spanStart.day + 6,
+              ),
+              reason: reason,
+            );
+            expect(fire.spanEnd.isBefore(fireDay), isTrue, reason: reason);
+            // The week that ended last: the next one would hold the fire day.
+            expect(
+              DateTime.utc(
+                fire.spanEnd.year,
+                fire.spanEnd.month,
+                fire.spanEnd.day + 7,
+              ).isBefore(fireDay),
+              isFalse,
+              reason: reason,
+            );
+          }
+        }
+      }
     });
   });
 

@@ -70,7 +70,7 @@ Map<String, GuideCardDemo> _demosFor(
   CalendarGuideTopic.finding => {topic.slug: GuideFindingDemo(now: now)},
   CalendarGuideTopic.setup => {topic.slug: GuideSetupDemo(now: now)},
   CalendarGuideTopic.fasting => {topic.slug: GuideFastingDemo(now: now)},
-  CalendarGuideTopic.good => const {},
+  CalendarGuideTopic.report || CalendarGuideTopic.good => const {},
 };
 
 class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {

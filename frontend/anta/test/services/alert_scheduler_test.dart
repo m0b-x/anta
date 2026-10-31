@@ -11,21 +11,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/alert_hub_entry.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/alert_sound.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
+import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
@@ -39,8 +45,28 @@ import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/alert_os_id.dart';
 import 'package:anta/utils/alert_planner.dart';
 import 'package:anta/utils/digest_planner.dart';
+import 'package:anta/utils/report_labels.dart';
 
 import '../database/support/db_test_support.dart';
+
+/// English whose report counts throw, as words a bad locale breaks would:
+/// every other string, and every date, is the fixed labels' own.
+class _ThrowingReportStrings extends AppLocalizationsEn {
+  _ThrowingReportStrings() : super('en_US');
+
+  @override
+  String reportEventCount(int count) => throw StateError('no words');
+
+  @override
+  String reportAttendedOf(int total, int attended) =>
+      throw StateError('no words');
+}
+
+/// A report service whose every fold throws, as a builder bug would.
+class _ThrowingReportService extends CalendarReportService {
+  @override
+  CalendarReport report(ReportRequest request) => throw StateError('no fold');
+}
 
 /// Records everything the scheduler asks a platform to do, and answers for a
 /// platform that can be asked back.
@@ -308,12 +334,14 @@ void main() {
     String database = 'gym_notes',
     FakeAlertGateway? withGateway,
     AlertHorizon horizon = kAlertHorizon,
+    CalendarReportService Function()? reportService,
   }) => AlertScheduler.forTesting(
     db: db,
     gateway: withGateway ?? gateway,
     databaseName: database,
     clock: () => now,
     horizon: horizon,
+    reportService: reportService,
   );
 
   CalendarEvent eventOf({
@@ -3570,6 +3598,7 @@ void main() {
         '2 events this month · Oct 4 · Ana, Oct 12 · Mihai',
       );
       expect(payload.digestSummary, isNull);
+      expect(payload.page, isNull);
       expect(payload.categoryId, 'gym');
       expect(payload.tintValue, gym.colorValue);
       expect(payload.glyphKey, gym.iconKey);
@@ -3650,6 +3679,389 @@ void main() {
         'No events this month',
         reason: 'Also when empty arms the November digest over nothing',
       );
+    });
+
+    test('a weekly report counts a week that has ended and waits on one that '
+        'has not; both open the report', () async {
+      // A report's words go through `ReportLabels`, which formats in the
+      // binding's locale; `main` loads the date symbols before any pass.
+      await initializeDateFormatting();
+      // Monday 21 September, before the 09:00 fire: last week has ended.
+      now = DateTime(2026, 9, 21, 8);
+      EventPresenceService.reset();
+      await EventPresenceService.forTesting(db);
+      addTearDown(EventPresenceService.reset);
+      await events.upsert(
+        eventOf(id: 'w1', startDate: DateTime.utc(2026, 9, 16), time: null),
+      );
+      await events.upsert(
+        eventOf(id: 'w2', startDate: DateTime.utc(2026, 9, 23), time: null),
+      );
+      await (await EventDigestService.getInstance()).create(
+        const EventDigest(
+          id: '',
+          cadence: DigestCadence.weeklyReport,
+          anchor: DateTime.monday,
+          categoryIds: {'gym'},
+        ),
+      );
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduledDigests.map((fire) => fire.fireAt), [
+        DateTime(2026, 9, 21, 9),
+        DateTime(2026, 9, 28, 9),
+      ]);
+      AlertPayload spanFrom(DateTime start) => gateway.platform.values
+          .firstWhere(
+            (payload) => payload.spanStartMs == start.millisecondsSinceEpoch,
+          );
+      final gym = CalendarCategories.labelOf(
+        CalendarCategories.resolve('gym'),
+        lookupAppLocalizations(const Locale('en')),
+      );
+      const sep = ReportLabels.separator;
+
+      final ended = spanFrom(DateTime.utc(2026, 9, 14));
+      expect(ended.spanEndMs, DateTime.utc(2026, 9, 20).millisecondsSinceEpoch);
+      expect(ended.page, AlertPayload.reportPage);
+      expect(ended.title, 'Weekly report$sep$gym');
+      expect(ended.digestText, '$gym — 1 event');
+      expect(ended.digestLines, ['$gym — 1 event', '$gym${sep}1']);
+
+      final open = spanFrom(DateTime.utc(2026, 9, 21));
+      expect(open.page, AlertPayload.reportPage);
+      expect(open.digestText, "Last week's report is ready");
+      expect(open.digestLines, isEmpty);
+    });
+
+    group('report digests (D43)', () {
+      const sep = ReportLabels.separator;
+      late String gym;
+
+      /// A tracked Monday and Wednesday hour of gym since September.
+      final routine = eventOf(
+        id: 'r1',
+        title: 'Gym',
+        rule: const WeeklyRecurrence(
+          weekdays: {DateTime.monday, DateTime.wednesday},
+        ),
+        startDate: DateTime.utc(2026, 9, 1),
+        time: const EventTime(startMinute: 18 * 60, durationMinutes: 60),
+      ).copyWith(tracksPresence: true);
+
+      Future<void> reportsAt(DateTime at) async {
+        await initializeDateFormatting();
+        now = at;
+        EventPresenceService.reset();
+        await EventPresenceService.forTesting(db);
+        addTearDown(EventPresenceService.reset);
+        gym = CalendarCategories.labelOf(
+          CalendarCategories.resolve('gym'),
+          lookupAppLocalizations(const Locale('en')),
+        );
+      }
+
+      Future<EventDigest> reportOf(
+        DigestCadence cadence, {
+        int anchor = DateTime.monday,
+      }) async => (await (await EventDigestService.getInstance()).create(
+        EventDigest(
+          id: '',
+          cadence: cadence,
+          anchor: anchor,
+          categoryIds: const {'gym'},
+        ),
+      ))!;
+
+      AlertPayload spanFrom(DateTime start) =>
+          gateway.platform.values.firstWhere(
+            (payload) => payload.spanStartMs == start.millisecondsSinceEpoch,
+          );
+
+      test('a Sunday week start arms the Sun–Sat week before the fire, and '
+          'the hub lists that same span', () async {
+        // Sunday 20 September, before the 09:00 fire.
+        await reportsAt(DateTime(2026, 9, 20, 8));
+        await (await SettingsService.getInstance()).setCalendarWeekStart(
+          CalendarWeekStart.sunday,
+        );
+        await events.upsert(routine);
+        await reportOf(DigestCadence.weeklyReport, anchor: DateTime.sunday);
+        final scheduler = schedulerOf();
+
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+        expect(gateway.scheduledDigests.map((fire) => fire.fireAt), [
+          DateTime(2026, 9, 20, 9),
+          DateTime(2026, 9, 27, 9),
+        ]);
+        final ended = spanFrom(DateTime.utc(2026, 9, 13));
+        expect(
+          ended.spanEndMs,
+          DateTime.utc(2026, 9, 19).millisecondsSinceEpoch,
+        );
+        // Mon 14 and Wed 16, both kept by default.
+        expect(ended.digestText, '$gym — 2 of 2 attended${sep}2 h');
+        final entries = await scheduler.digestEntries();
+        expect(
+          [for (final entry in entries) (entry.spanStart, entry.spanEnd)],
+          [
+            (DateTime.utc(2026, 9, 13), DateTime.utc(2026, 9, 19)),
+            (DateTime.utc(2026, 9, 20), DateTime.utc(2026, 9, 26)),
+          ],
+        );
+      });
+
+      test('a monthly report counts the month that ended and waits on the '
+          'one under way', () async {
+        await reportsAt(DateTime(2026, 10, 1, 8));
+        await events.upsert(routine);
+        await reportOf(DigestCadence.monthlyReport, anchor: 1);
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(gateway.scheduledDigests.map((fire) => fire.fireAt), [
+          DateTime(2026, 10, 1, 9),
+          DateTime(2026, 11, 1, 9),
+        ]);
+        final september = spanFrom(DateTime.utc(2026, 9, 1));
+        expect(september.title, 'Monthly report$sep$gym');
+        expect(september.page, AlertPayload.reportPage);
+        // Nine Mondays and Wednesdays in September 2026.
+        expect(september.digestText, '$gym — 9 of 9 attended${sep}9 h');
+        expect(
+          spanFrom(DateTime.utc(2026, 10, 1)).digestText,
+          "Last month's report is ready",
+        );
+      });
+
+      test("the span's last day already folds the words", () async {
+        // Sunday 20 September: the Mon–Sun week of the 14th ends today.
+        await reportsAt(DateTime(2026, 9, 20, 20));
+        await events.upsert(routine);
+        await reportOf(DigestCadence.weeklyReport);
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(
+          spanFrom(DateTime.utc(2026, 9, 14)).digestText,
+          '$gym — 2 of 2 attended${sep}2 h',
+        );
+      });
+
+      test('a mark after the fold re-arms with new words', () async {
+        await reportsAt(DateTime(2026, 9, 20, 20));
+        await events.upsert(routine);
+        await reportOf(DigestCadence.weeklyReport);
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final before = (await registrations()).firstWhere(
+          (row) => row.day == DateTime.utc(2026, 9, 14).millisecondsSinceEpoch,
+        );
+        gateway.resetCalls();
+
+        await (await EventPresenceService.getInstance()).setStatus(
+          routine.id,
+          DateTime.utc(2026, 9, 16),
+          PresenceStatus.missed,
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+        expect(gateway.scheduledDigests, hasLength(1));
+        final after = (await registrations()).firstWhere(
+          (row) => row.day == before.day,
+        );
+        expect(after.osId, before.osId);
+        expect(after.backend, isNot(before.backend));
+        expect(
+          gateway.platform[after.osId]!.digestText,
+          '$gym — 1 of 2 attended${sep}1 h${sep}1 missed',
+        );
+      });
+
+      group("the last day folds as of the day after it (D45)", () {
+        /// A tracked hour on Monday, Wednesday, Friday and Sunday: the
+        /// Mon–Sun week of the 14th ends on a session.
+        final fourDays = routine.copyWith(
+          rule: const WeeklyRecurrence(
+            weekdays: {
+              DateTime.monday,
+              DateTime.wednesday,
+              DateTime.friday,
+              DateTime.sunday,
+            },
+          ),
+        );
+
+        test('an unmarked Sunday session counts as its default says', () async {
+          // Sunday 20 September, evening: the session was today.
+          await reportsAt(DateTime(2026, 9, 20, 20));
+          await events.upsert(fourDays);
+          await reportOf(DigestCadence.weeklyReport);
+
+          await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+          expect(
+            spanFrom(DateTime.utc(2026, 9, 14)).digestText,
+            '$gym — 4 of 4 attended${sep}4 h',
+          );
+        });
+
+        test('a Sunday session marked missed is one missed', () async {
+          await reportsAt(DateTime(2026, 9, 20, 20));
+          await events.upsert(fourDays);
+          await reportOf(DigestCadence.weeklyReport);
+          await (await EventPresenceService.getInstance()).setStatus(
+            fourDays.id,
+            DateTime.utc(2026, 9, 20),
+            PresenceStatus.missed,
+          );
+
+          await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+          expect(
+            spanFrom(DateTime.utc(2026, 9, 14)).digestText,
+            '$gym — 3 of 4 attended${sep}3 h${sep}1 missed',
+          );
+        });
+      });
+
+      test('a fold that throws arms the ready line and the pass arms what '
+          'follows', () async {
+        await reportsAt(DateTime(2026, 9, 21, 8));
+        await events.upsert(routine);
+        await reportOf(DigestCadence.weeklyReport);
+        await (await EventDigestService.getInstance()).create(
+          const EventDigest(
+            id: '',
+            categoryIds: {'gym'},
+            includeEmpty: true,
+            sortOrder: 1,
+          ),
+        );
+
+        await schedulerOf(
+          reportService: _ThrowingReportService.new,
+        ).reconcileAll(AlertReconcileReason.launch);
+
+        final ended = spanFrom(DateTime.utc(2026, 9, 14));
+        expect(ended.digestText, "Last week's report is ready");
+        expect(ended.digestLines, isEmpty);
+        expect(ended.page, AlertPayload.reportPage);
+        // The monthly digest after it: October's fire, still armed.
+        expect(
+          gateway.platform.values.where(
+            (payload) =>
+                payload.spanStartMs ==
+                DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+          ),
+          hasLength(1),
+        );
+      });
+
+      test('words that throw fall back to the ready line and the pass arms '
+          'what follows', () async {
+        await reportsAt(DateTime(2026, 9, 21, 8));
+        await events.upsert(routine);
+        await reportOf(DigestCadence.weeklyReport);
+        await (await EventDigestService.getInstance()).create(
+          const EventDigest(
+            id: '',
+            categoryIds: {'gym'},
+            includeEmpty: true,
+            sortOrder: 1,
+          ),
+        );
+        gateway.labels = AlertLabels(
+          strings: _ThrowingReportStrings(),
+          use24Hour: true,
+        );
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(
+          spanFrom(DateTime.utc(2026, 9, 14)).digestText,
+          "Last week's report is ready",
+        );
+        // The monthly digest after it: October's fire, still armed.
+        expect(
+          gateway.platform.values.where(
+            (payload) =>
+                payload.spanStartMs ==
+                DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+          ),
+          hasLength(1),
+        );
+      });
+
+      test('the page joins the signature only when set', () {
+        final base = AlertPayload(
+          database: 'gym_notes',
+          eventId: '',
+          alertId: 'd1',
+          dayUtcMs: 0,
+          osId: 1,
+          mode: AlertMode.notify,
+          title: 'Weekly report',
+          timeLabel: '09:00',
+          categoryId: '',
+          isDigest: true,
+          digestId: 'd1',
+          spanStartMs: 0,
+          spanEndMs: 0,
+          digestText: "Last week's report is ready",
+        );
+        final json = base.toJson()..['pg'] = AlertPayload.reportPage;
+        final withPage = AlertPayload.fromJson(json)!;
+
+        expect(
+          digestArmSignature(context: 'c', payload: withPage),
+          isNot(digestArmSignature(context: 'c', payload: base)),
+        );
+      });
+
+      test("an upcoming digest's signature is the one it was armed under, "
+          'byte for byte', () {
+        // The hash of "d1|birthday|<start>|<end>|Birthday|2 events this
+        // month|Sat, Oct 3 · Ana\nWed, Oct 21 · Mihai||4292352864|cake" —
+        // no trailing "|": an absent page adds no element.
+        final upcoming = AlertPayload(
+          database: 'gym_notes',
+          eventId: '',
+          alertId: 'd1',
+          dayUtcMs: DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+          osId: 1,
+          mode: AlertMode.notify,
+          title: 'Birthday',
+          timeLabel: '09:00',
+          categoryId: 'birthday',
+          tintValue: 0xFFD81B60,
+          glyphKey: 'cake',
+          isDigest: true,
+          digestId: 'd1',
+          spanStartMs: DateTime.utc(2026, 10, 1).millisecondsSinceEpoch,
+          spanEndMs: DateTime.utc(2026, 10, 31).millisecondsSinceEpoch,
+          categoryIdsCsv: 'birthday',
+          digestText: '2 events this month',
+          digestLines: const ['Sat, Oct 3 · Ana', 'Wed, Oct 21 · Mihai'],
+        );
+        expect(upcoming.page, isNull);
+
+        expect(
+          digestArmSignature(context: 'ctx', payload: upcoming),
+          'ctx~d#617d4234',
+        );
+        final start = upcoming.spanStartMs;
+        final end = upcoming.spanEndMs;
+        expect(
+          fnv1a32(
+            'd1|birthday|$start|$end|Birthday|2 events this month|'
+            'Sat, Oct 3 · Ana\nWed, Oct 21 · Mihai||4292352864|cake',
+          ).toRadixString(16),
+          '617d4234',
+        );
+      });
     });
 
     test('the OS-truth pass re-arms a digest the platform forgot', () async {

@@ -5394,6 +5394,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get digestEdit => 'Zusammenfassung bearbeiten';
 
   @override
+  String get digestShows => 'Zeigt';
+
+  @override
+  String get digestShowsUpcoming => 'Bevorstehendes';
+
+  @override
+  String get digestShowsWeekReport => 'Die abgelaufene Woche';
+
+  @override
+  String get digestShowsMonthReport => 'Der abgelaufene Monat';
+
+  @override
   String get digestEvery => 'Rhythmus';
 
   @override
@@ -5469,6 +5481,41 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String digestDescribeMonthly(String day, String time) {
     return 'Monatlich am $day, $time';
+  }
+
+  @override
+  String digestDescribeWeeklyReport(String weekday, String time) {
+    return 'Wochenbericht am $weekday, $time';
+  }
+
+  @override
+  String digestDescribeMonthlyReport(String day, String time) {
+    return 'Monatsbericht am $day, $time';
+  }
+
+  @override
+  String get digestReportWeeklyTitle => 'Wochenbericht';
+
+  @override
+  String get digestReportMonthlyTitle => 'Monatsbericht';
+
+  @override
+  String get digestPeriodLastWeek => 'in der letzten Woche';
+
+  @override
+  String get digestPeriodLastMonth => 'im letzten Monat';
+
+  @override
+  String get digestReportReadyWeek =>
+      'Der Bericht der letzten Woche ist fertig';
+
+  @override
+  String get digestReportReadyMonth =>
+      'Der Bericht des letzten Monats ist fertig';
+
+  @override
+  String digestReportSummary(String categories, String facts) {
+    return '$categories — $facts';
   }
 
   @override
@@ -6778,6 +6825,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get reportSectionTotals => 'Summen';
 
   @override
+  String get reportSectionCategories => 'Kategorien';
+
+  @override
   String get reportSectionOverTime => 'Im Zeitverlauf';
 
   @override
@@ -6787,7 +6837,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get reportSectionAhead => 'Anstehend';
 
   @override
-  String get reportTileEvents => 'Ereignisse';
+  String get reportTileEvents => 'Termine';
 
   @override
   String get reportTileAttended => 'Anwesend';
@@ -6869,10 +6919,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String reportEventCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count Termine',
+      other: '$countString Termine',
       one: '1 Termin',
     );
     return '$_temp0';
@@ -6903,6 +6957,36 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String reportDeltaMoreCount(int delta, String period) {
+    final intl.NumberFormat deltaNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String deltaString = deltaNumberFormat.format(delta);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      delta,
+      locale: localeName,
+      other: '$deltaString mehr als $period',
+      one: '$deltaString mehr als $period',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDeltaFewerCount(int delta, String period) {
+    final intl.NumberFormat deltaNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String deltaString = deltaNumberFormat.format(delta);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      delta,
+      locale: localeName,
+      other: '$deltaString weniger als $period',
+      one: '$deltaString weniger als $period',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String reportDeltaSame(String period) {
     return 'gleich wie $period';
   }
@@ -6929,10 +7013,19 @@ class AppLocalizationsDe extends AppLocalizations {
   String get reportShare => 'Bericht teilen';
 
   @override
-  String get reportSendWeekly => 'Diesen Bericht wöchentlich senden';
+  String get exportingReport => 'Bericht wird exportiert...';
 
   @override
-  String get reportSendMonthly => 'Diesen Bericht monatlich senden';
+  String get reportExported => 'Bericht exportiert';
+
+  @override
+  String get reportExportError => 'Bericht konnte nicht exportiert werden';
+
+  @override
+  String get reportSendWeekly => 'Wöchentlich zusenden';
+
+  @override
+  String get reportSendMonthly => 'Monatlich zusenden';
 
   @override
   String get reportLegendHappened => 'Stattgefunden';
@@ -6975,5 +7068,217 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String reportOfTotalOnly(String total) {
     return 'von $total';
+  }
+
+  @override
+  String reportGroupMore(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString weitere',
+      one: '1 weiterer',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportMoreCategories(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString weitere Kategorien',
+      one: '1 weitere Kategorie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportMoreCategoriesTitle => 'Weitere Kategorien';
+
+  @override
+  String reportGroupMoreSpoken(int count, String category) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count weitere in $category',
+      one: '1 weiterer in $category',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportGroupLess => 'Weniger anzeigen';
+
+  @override
+  String reportGroupLessSpoken(String category) {
+    return 'Weniger von $category anzeigen';
+  }
+
+  @override
+  String reportAttendedOf(int total, int attended) {
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+    final intl.NumberFormat attendedNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String attendedString = attendedNumberFormat.format(attended);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$attendedString von $totalString anwesend',
+      one: '$attendedString von 1 anwesend',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportTasksOf(int total, int ticked) {
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+    final intl.NumberFormat tickedNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String tickedString = tickedNumberFormat.format(ticked);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$tickedString von $totalString Aufgaben',
+      one: '$tickedString von 1 Aufgabe',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportHoursSpoken(String hours) {
+    return '$hours Stunden';
+  }
+
+  @override
+  String reportWholeHoursSpoken(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString Stunden',
+      one: '1 Stunde',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportMinutesSpoken(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString Minuten',
+      one: '1 Minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportRowDay(String weekday, String day) {
+    return '$weekday, $day.';
+  }
+
+  @override
+  String reportRowDayMonth(String weekday, String day, String month) {
+    return '$weekday, $day. $month';
+  }
+
+  @override
+  String reportGroupListSpoken(String category) {
+    return '$category als Liste zeigen';
+  }
+
+  @override
+  String get calendarGuidePageReport => 'Sehen, was war';
+
+  @override
+  String get calendarGuidePageReportCaption =>
+      'Summen, verpasste Tage und was noch kommt';
+
+  @override
+  String calendarGuideReportLead(String report) {
+    return '„$report“ zählt eine Woche, einen Monat oder ein Jahr, Kategorie für Kategorie.';
+  }
+
+  @override
+  String get calendarGuideReportOpenTitle => 'Öffnen';
+
+  @override
+  String calendarGuideReportOpenBody(
+    String calendar,
+    String overview,
+    String report,
+    String thisWeek,
+    String lastMonth,
+    String custom,
+  ) {
+    return 'Öffne die Seite über den Titel: „$calendar“ · „$overview“ · „$report“. Der Titel zwischen den Pfeilen wählt den Zeitraum – „$thisWeek“, „$lastMonth“, „$custom“; die Pfeile gehen um die Länge des Zeitraums weiter.';
+  }
+
+  @override
+  String get calendarGuideReportCategoriesTitle => 'Welche Kategorien';
+
+  @override
+  String calendarGuideReportCategoriesBody(
+    String categories,
+    int max,
+    String moreCategories,
+    int rows,
+    String more,
+  ) {
+    final intl.NumberFormat maxNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String maxString = maxNumberFormat.format(max);
+    final intl.NumberFormat rowsNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String rowsString = rowsNumberFormat.format(rows);
+
+    return 'Die Taste „$categories“ beschränkt die Seite auf die, die du wählst; darunter steht eine Gruppe je Kategorie, mit einem Balken im Vergleich zur größten – bei mehr als $maxString Kategorien stehen die übrigen hinter „$moreCategories“, das ein Blatt öffnet. Eine Gruppe öffnet mit $rowsString Zeilen; „$more“ zeigt den Rest an Ort und Stelle, ein Tippen auf ihre Überschrift klappt sie zu.';
+  }
+
+  @override
+  String get calendarGuideReportMissedTitle => 'Was du verpasst hast';
+
+  @override
+  String calendarGuideReportMissedBody(String missed, String markPresent) {
+    return '„$missed“ listet die Termine, die du als abwesend markiert hast oder die als abwesend gelten; tippe neben einer Zeile auf „$markPresent“, und die Zahlen rechnen sich neu.';
+  }
+
+  @override
+  String get calendarGuideReportDigestTitle =>
+      'Jede Woche oder jeden Monat von selbst';
+
+  @override
+  String calendarGuideReportDigestBody(
+    String weekly,
+    String monthly,
+    String shows,
+    String weekReport,
+    String monthReport,
+    String share,
+  ) {
+    return 'Bei einer Woche öffnet „$weekly“, bei einem Monat „$monthly“ eine Zusammenfassung des gerade abgelaufenen Zeitraums – speichere sie, und sie kommt am ersten Tag der nächsten Woche oder des nächsten Monats: eine Zusammenfassung, bei der „$shows“ auf „$weekReport“ oder „$monthReport“ steht. „$share“ schreibt die Seite als Markdown.';
   }
 }

@@ -47,6 +47,7 @@ abstract final class AlertPayloadKeys {
   static const String digestLines = 'dln';
   static const String digestSummary = 'dsm';
   static const String inherited = 'inh';
+  static const String page = 'pg';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -237,6 +238,14 @@ class AlertPayload extends Equatable {
   /// because one category alert is shared by every event in the category.
   final bool inherited;
 
+  /// Where a digest's tap lands: [reportPage] for a report digest, null for
+  /// the overview's List — the absence an older build's entry carries, so
+  /// it keeps landing where it always did.
+  final String? page;
+
+  /// [page] for a report digest: the tap opens the report on its span.
+  static const String reportPage = 'report';
+
   const AlertPayload({
     required this.database,
     required this.eventId,
@@ -272,6 +281,7 @@ class AlertPayload extends Equatable {
     this.digestLines = const <String>[],
     this.digestSummary,
     this.inherited = false,
+    this.page,
   });
 
   /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
@@ -359,6 +369,7 @@ class AlertPayload extends Equatable {
       digestLines: digestLines,
       digestSummary: digestSummary,
       inherited: inherited ?? this.inherited,
+      page: page,
     );
   }
 
@@ -397,6 +408,7 @@ class AlertPayload extends Equatable {
     if (digestLines.isNotEmpty) AlertPayloadKeys.digestLines: digestLines,
     if (digestSummary != null) AlertPayloadKeys.digestSummary: digestSummary,
     if (inherited) AlertPayloadKeys.inherited: true,
+    if (page != null) AlertPayloadKeys.page: page,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -502,6 +514,9 @@ class AlertPayload extends Equatable {
           ? map[AlertPayloadKeys.digestSummary] as String
           : null,
       inherited: map[AlertPayloadKeys.inherited] == true,
+      page: map[AlertPayloadKeys.page] is String
+          ? map[AlertPayloadKeys.page] as String
+          : null,
     );
   }
 
@@ -558,5 +573,6 @@ class AlertPayload extends Equatable {
     digestLines,
     digestSummary,
     inherited,
+    page,
   ];
 }

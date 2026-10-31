@@ -1,14 +1,22 @@
+import 'package:intl/date_symbols.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../models/calendar_event.dart';
 import '../models/calendar_report.dart';
 import '../models/overview_period.dart';
 import '../services/event_time_formatter.dart';
+import '../services/recurrence_formatter.dart';
 import 'date_span_label.dart';
 
 /// One run of a tile's value line: a figure ("21", "18.5", "—"), drawn large,
 /// or the words around it ("of", " h"), drawn at the label's size (§4.8, D).
 typedef ReportValueRun = ({String text, bool figure});
+
+/// The three cards drawn from category groups (W). A group's facts depend
+/// on its card — Missed counts only what was missed — and its ids carry the
+/// card, because one category heads a group in each.
+enum ReportCard { categories, missed, ahead }
 
 /// Every word the report says about its numbers — tiles, deltas, the
 /// caption, the band's subtitle, the spoken tile labels — in one place, so
@@ -27,6 +35,7 @@ class ReportLabels {
   final AppLocalizations l10n;
   final NumberFormat _hours;
   final DateFormat _countedTo;
+  late final NumberFormat _count = NumberFormat.decimalPattern(l10n.localeName);
 
   // The Over time card's formatters, built on first use: most labels a page
   // builds never word a trend.
@@ -34,6 +43,14 @@ class ReportLabels {
   late final DateFormat _peakDay = DateFormat.MMMMEEEEd(l10n.localeName);
   late final DateFormat _peakWeek = DateFormat.MMMMd(l10n.localeName);
   late final DateFormat _peakMonth = DateFormat.yMMMM(l10n.localeName);
+
+  // A group row's day, with the month only for a period across months (U),
+  // composed by the `reportRowDay` templates: German writes "Do., 8. Okt.",
+  // which no raw pattern spells in all three languages. The names come from
+  // the date symbols' format forms, because the `E` and `MMM` skeletons give
+  // the standalone ones ("Do", "Okt") that German never writes in a date.
+  late final DateFormat _rowDayOfMonth = DateFormat.d(l10n.localeName);
+  late final DateSymbols _rowSymbols = _rowDayOfMonth.dateSymbols;
 
   /// The names already worded by this instance: a build names the shown
   /// period three times and each `menuValue` builds a `DateFormat`.
@@ -54,6 +71,9 @@ class ReportLabels {
 
   /// [hours] with the locale's decimal mark, a trailing ".0" dropped.
   String hoursFigure(num hours) => _hours.format(hours);
+
+  /// A count with the locale's grouping, for the words that print one bare.
+  String count(int n) => _count.format(n);
 
   /// [minutes] as decimal hours ("18.5 h"), or under an hour in minutes
   /// ("40 min") through the duration grammar the event rows use.
@@ -85,9 +105,9 @@ class ReportLabels {
     if (value.tile == ReportTile.hours) return hours(value.value);
     final of = value.of;
     if (of != null && !ofInDetail) {
-      return l10n.reportOfTotal('${value.value}', '$of');
+      return l10n.reportOfTotal(count(value.value), count(of));
     }
-    return '${value.value}';
+    return count(value.value);
   }
 
   /// [text] split into figure and unit runs.
@@ -145,7 +165,7 @@ class ReportLabels {
     final of = value.of;
     return [
       if (ofInDetail && of != null && value.tile != ReportTile.hours)
-        l10n.reportOfTotalOnly('$of'),
+        l10n.reportOfTotalOnly(count(of)),
       if (percent != null) l10n.reportPercent('$percent'),
       if (open != null && open > 0) l10n.reportTasksOpen(open),
       ?delta(value),
@@ -154,26 +174,32 @@ class ReportLabels {
 
   /// What a screen reader hears for a tile ("Attended, 21 of 24, 88
   /// percent, 2 more than September 2026"); [against] names the period the
-  /// delta compares with.
+  /// delta compares with. Hours are spoken with their unit spelled out
+  /// ("45 hours, 3 hours less than …", D44), and a count shrinks by
+  /// "fewer" where hours shrink by "less".
   String tileSemantics(ReportTileValue value, {String? against}) {
     final label = tileLabel(value.tile);
     if (isNothing(value)) return '$label, ${l10n.reportTileNone}';
+    final isHours = value.tile == ReportTile.hours;
     final percent = _percent(value);
     final open = _open(value);
     final previous = value.previous;
     String? change;
     if (previous != null && against != null) {
       final size = (value.value - previous).abs();
-      final amount = value.tile == ReportTile.hours ? hours(size) : '$size';
-      change = value.value > previous
-          ? l10n.reportDeltaMore(amount, against)
-          : value.value < previous
-          ? l10n.reportDeltaLess(amount, against)
-          : l10n.reportDeltaSame(against);
+      change = value.value == previous
+          ? l10n.reportDeltaSame(against)
+          : isHours
+          ? value.value > previous
+                ? l10n.reportDeltaMore(hoursSpoken(size), against)
+                : l10n.reportDeltaLess(hoursSpoken(size), against)
+          : value.value > previous
+          ? l10n.reportDeltaMoreCount(size, against)
+          : l10n.reportDeltaFewerCount(size, against);
     }
     return [
       label,
-      tileValue(value),
+      if (isHours) hoursSpoken(value.value) else tileValue(value),
       if (percent != null) l10n.reportPercentSpoken('$percent'),
       if (open != null && open > 0) l10n.reportTasksOpen(open),
       ?change,
@@ -332,6 +358,110 @@ class ReportLabels {
     return [
       l10n.reportEventCount(valueOf(ReportTile.events) ?? 0),
       if (missed > 0) l10n.dayListMissedCount(missed),
+    ].join(separator);
+  }
+
+  /// [minutes] as a screen reader says them: "13.2 hours", "1 hour", "40
+  /// minutes" — the figure [hours] draws, with the unit spelled out. The
+  /// figure is formatted once and read back, so what is heard is what is
+  /// shown, and a whole figure takes the plural grammar ("1 hour", ro "20
+  /// de ore").
+  String hoursSpoken(int minutes) {
+    if (minutes < Duration.minutesPerHour) {
+      return l10n.reportMinutesSpoken(minutes);
+    }
+    final figure = hoursFigure(minutes / Duration.minutesPerHour);
+    final whole = int.tryParse(figure);
+    return whole != null
+        ? l10n.reportWholeHoursSpoken(whole)
+        : l10n.reportHoursSpoken(figure);
+  }
+
+  /// A group header's caption: "14 · 13.2 h · 2 missed" in Categories,
+  /// "2 missed" in Missed (nothing was spent on a missed day), "1 · 1 h" in
+  /// Ahead (nothing ahead can be missed yet). A count with nothing to join
+  /// says its noun ("1 event", D44): a bare "1" reads as no fact at all.
+  String groupFacts(ReportCard card, ReportCategoryGroup group) {
+    if (card == ReportCard.missed) return l10n.dayListMissedCount(group.missed);
+    if (group.minutes <= 0 && group.missed <= 0) {
+      return l10n.reportEventCount(group.count);
+    }
+    return [
+      count(group.count),
+      if (group.minutes > 0) hours(group.minutes),
+      if (group.missed > 0) l10n.dayListMissedCount(group.missed),
+    ].join(separator);
+  }
+
+  /// What a screen reader hears for a group header ("Gym, 14 events, 13.2
+  /// hours, 2 missed"): the caption's figures read badly aloud.
+  String groupSpoken(
+    ReportCard card,
+    ReportCategoryGroup group, {
+    required String category,
+  }) {
+    final counts = card != ReportCard.missed;
+    return [
+      category,
+      if (counts) l10n.reportEventCount(group.count),
+      if (counts && group.minutes > 0) hoursSpoken(group.minutes),
+      if (group.missed > 0) l10n.dayListMissedCount(group.missed),
+    ].join(spokenSeparator);
+  }
+
+  /// Joins the facts a screen reader hears: a comma is a pause, where the
+  /// drawn [separator]'s dot would be read out as a word or skipped.
+  static const String spokenSeparator = ', ';
+
+  /// A routine aggregate's caption: "8 of 10 attended · 8 h".
+  String routineCaption(ReportRoutineRow row) => [
+    l10n.reportAttendedOf(row.total, row.attended),
+    if (row.minutes > 0) hours(row.minutes),
+  ].join(separator);
+
+  /// [day]'s label on a row: "Thu 8", or "Thu 8 Oct" when the period spans
+  /// months (U). No year: a span reaches a second year's same day only in
+  /// its 366th day.
+  String _rowDay(DateTime day, {required bool spansMonths}) {
+    // The symbols run from Sunday; `DateTime.weekday` from Monday as 1.
+    final weekday =
+        _rowSymbols.SHORTWEEKDAYS[day.weekday % DateTime.daysPerWeek];
+    final ofMonth = _rowDayOfMonth.format(day);
+    return spansMonths
+        ? l10n.reportRowDayMonth(
+            weekday,
+            ofMonth,
+            _rowSymbols.SHORTMONTHS[day.month - 1],
+          )
+        : l10n.reportRowDay(weekday, ofMonth);
+  }
+
+  /// A dated row's subtitle, composed by the report (§4.3): the day, the
+  /// start time of a timed [event] on the phone's clock, its duration, the
+  /// count label the day panel shows for that day ("32 years", "Week 3"),
+  /// then "5 of 8 tasks" — "Thu 8 · 17:00 · 1 h". Not the day panel's tail:
+  /// a report row is one fact per occurrence, so no end time, no "All day",
+  /// no recurrence word and no alert note.
+  String rowSubtitle(
+    ReportDatedRow row, {
+    required CalendarEvent event,
+    required bool use24Hour,
+    required bool spansMonths,
+  }) {
+    final time = event.time;
+    final duration = time?.durationMinutes ?? 0;
+    final tasks = row.tasks;
+    return [
+      _rowDay(row.day, spansMonths: spansMonths),
+      if (time != null)
+        EventTimeFormatter.formatMinuteFor(
+          time.startMinute,
+          localeName: l10n.localeName,
+          use24Hour: use24Hour,
+        ),
+      if (duration > 0) hours(duration),
+      ?RecurrenceFormatter.countLabel(event, row.day, l10n),
+      if (tasks != null) l10n.reportTasksOf(tasks.total, tasks.ticked),
     ].join(separator);
   }
 }

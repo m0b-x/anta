@@ -208,15 +208,21 @@ final class ReportRoutineRow extends ReportRow {
   /// Minutes of the kept occurrences.
   final int minutes;
 
+  /// The date-only UTC day the row's tap opens (V): the latest attended day
+  /// of the counted range, or the latest counted one when none was — the
+  /// aggregate stands for many days, and the sheet needs one.
+  final DateTime latestDay;
+
   const ReportRoutineRow({
     required String eventId,
     required this.attended,
     required this.total,
     required this.minutes,
+    required this.latestDay,
   }) : super(eventId);
 
   @override
-  List<Object?> get props => [eventId, attended, total, minutes];
+  List<Object?> get props => [eventId, attended, total, minutes, latestDay];
 }
 
 /// One occurrence on one day — a repeat or one-off in the counted range, any

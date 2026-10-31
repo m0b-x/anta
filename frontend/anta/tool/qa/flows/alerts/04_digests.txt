@@ -5,7 +5,9 @@
 # "Next days" (qa-alert-digest-soon: daily nine minutes after the seed, two
 # days ahead, Birthday only) — and each one's next fire among the day
 # groups; the monthly one's sheet, every row by id; Every turned to Week,
-# which turns On into a weekday, and back to Month, so the draft is as it
+# which turns On into a weekday, and back to Month; Shows turned to The week
+# just ended, which keeps Every and Covers in place (dimmed) and On as a
+# weekday, and back to Upcoming, which restores Month — so the draft is as it
 # came and ✕ leaves without the discard question. Nothing is written.
 # - Starts on the calendar, where 03_category_alerts leaves it.
 # - The hub loads behind a spinner; the Digests group heads the list once it
@@ -34,7 +36,8 @@
 #   takes the sheet out of the tree, so the menu is waited out by its own
 #   item going before the sheet is read again. Week's On row shows a weekday
 #   that depends on the run, so it is read by its id and by the month's
-#   "1st" being gone; Month brings "1st" back.
+#   "1st" being gone; Month brings "1st" back. The sheet may still stand
+#   scrolled to Delete, so the Shows row is scrolled back into view first.
 #
 # The ring is the qa-runner's, by hand after this flow: the shade is
 # SystemUI's window, driven by `look --all` and `#N`, which a step file
@@ -86,6 +89,19 @@ tap id:digest-cadence
 wait id:digest-cadence-monthly
 tap id:digest-cadence-monthly
 wait id:digest-cadence-monthly --gone
+expect id:digest-anchor "1st"
+scroll-to id:digest-shows --in id:digest-sheet-body --up --max 10
+tap id:digest-shows
+wait id:digest-shows-week-report
+expect id:digest-shows-upcoming id:digest-shows-month-report
+tap id:digest-shows-week-report
+wait id:digest-shows-week-report --gone
+expect id:digest-shows id:digest-cadence id:digest-anchor id:digest-time id:digest-lead id:digest-include-empty
+shot 04_digest_sheet_week_report
+tap id:digest-shows
+wait id:digest-shows-upcoming
+tap id:digest-shows-upcoming
+wait id:digest-shows-upcoming --gone
 expect id:digest-anchor "1st"
 tap id:digest-sheet-close
 wait id:digest-sheet-close --gone

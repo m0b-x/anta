@@ -9,6 +9,7 @@ import 'package:anta/bloc/calendar/alert_skip_action.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/event_digests.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/constants/calendar_categories.dart';
@@ -23,6 +24,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/event_digest_service.dart';
+import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/utils/quick_alarm.dart';
 
@@ -945,6 +947,67 @@ void main() {
       expect(emitted, isEmpty);
       expect(fullCalls, isEmpty);
       expect(revision(), before);
+    });
+  });
+
+  // S4: presence arms nothing, but a report digest's words count it, so a
+  // mark asks the whole horizon once — and only while such a digest is on.
+  group('a presence mark', () {
+    setUp(() async {
+      EventPresenceService.reset();
+      await EventPresenceService.forTesting(db);
+    });
+
+    tearDown(() {
+      EventDigests.resetCache();
+      EventPresenceService.reset();
+    });
+
+    /// Marks a day with [digests] on. The facade is seeded after the load,
+    /// which reads the (empty) digests table into it.
+    Future<void> mark(List<EventDigest> digests) async {
+      await dispatch(const LoadCalendarEvents());
+      EventDigests.updateCache(List.unmodifiable(digests));
+      calls.clear();
+      fullCalls.clear();
+      await dispatch(
+        SetOccurrencePresence(
+          eventId: 'e1',
+          day: DateTime.utc(2026, 9, 20),
+          status: PresenceStatus.missed,
+        ),
+      );
+    }
+
+    test('with a report digest on reconciles all, once', () async {
+      await mark(const [
+        EventDigest(
+          id: 'r1',
+          cadence: DigestCadence.weeklyReport,
+          anchor: DateTime.monday,
+        ),
+      ]);
+
+      expect(fullCalls, [AlertReconcileReason.eventChanged]);
+      expect(calls, isEmpty);
+    });
+
+    test('with none, or only a switched-off one or an upcoming one, asks '
+        'nothing', () async {
+      await mark(const []);
+      expect(fullCalls, isEmpty);
+
+      await mark(const [
+        EventDigest(id: 'm1'),
+        EventDigest(
+          id: 'r1',
+          cadence: DigestCadence.monthlyReport,
+          enabled: false,
+        ),
+      ]);
+
+      expect(fullCalls, isEmpty);
+      expect(calls, isEmpty);
     });
   });
 }

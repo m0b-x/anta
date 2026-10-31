@@ -76,6 +76,20 @@ final class ReportCategoriesPicked extends ReportEvent {
   List<Object?> get props => [categoryIds];
 }
 
+/// A report digest's tap published a look (`AppNavigator.pendingReportLook`)
+/// for the page already open or just pushed: its period becomes the period
+/// and the home, its categories the allowlist. Served as the overview serves
+/// a digest's look — the allowlist persists as a pick would, the period is a
+/// look and writes nothing, so a period the user kept survives the tap.
+final class ReportLookArrived extends ReportEvent {
+  final ReportLook look;
+
+  const ReportLookArrived(this.look);
+
+  @override
+  List<Object?> get props => [look.period, look.categoryIds];
+}
+
 /// The wall clock moved to another day while the page was open: the periods
 /// holding today move on, and the rest of [ReportResumed] is asked too.
 final class ReportDayChanged extends ReportEvent {

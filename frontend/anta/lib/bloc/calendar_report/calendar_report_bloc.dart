@@ -16,6 +16,7 @@ import '../../models/report_period_choice.dart';
 import '../../services/calendar_report_service.dart';
 import '../../services/settings_service.dart';
 import '../../utils/event_agenda.dart';
+import '../../utils/markdown_color_syntax.dart';
 import '../calendar/calendar_bloc.dart';
 import 'calendar_report_event.dart';
 import 'calendar_report_state.dart';
@@ -73,6 +74,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   OverviewPeriod? _home;
   Set<String> _categoryIds = const {};
   CalendarAppearance _appearance = const CalendarAppearance();
+  MarkdownColorPalette _palette = MarkdownColorPalette.presets;
+  bool _hapticFeedback = false;
 
   /// The years of the last events and allowlist they were computed for —
   /// a scan of every event, so it is redone only when either moves.
@@ -128,6 +131,15 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         if (await _fold(emit)) {
           await _persist((s) => s.setCalendarReportCategories(categoryIds));
         }
+      case ReportLookArrived(:final look):
+        final categoriesChanged = !setEquals(look.categoryIds, _categoryIds);
+        _period = _home = _clamped(_reportable(look.period));
+        _categoryIds = look.categoryIds;
+        if (await _fold(emit) && categoriesChanged) {
+          await _persist(
+            (s) => s.setCalendarReportCategories(look.categoryIds),
+          );
+        }
       case ReportDayChanged(:final today):
         _moveTo(_dayOf(today));
         await _reread();
@@ -142,6 +154,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       final settings = _settings = await _settingsSeed;
       final loaded = await settings.getCalendarReportSettings(today: _today);
       _appearance = loaded.appearance;
+      _palette = loaded.palette;
+      _hapticFeedback = loaded.hapticFeedback;
       _period = _home = loaded.period;
       _categoryIds = loaded.categoryIds;
     } catch (e, st) {
@@ -202,7 +216,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   }
 
   /// Re-reads the calendar's appearance, whose week start may have moved in
-  /// the settings while the page was covered or the app away.
+  /// the settings while the page was covered or the app away, with the
+  /// palette and the haptic switch, which the settings move too.
   Future<void> _reread() async {
     final settings = _settings;
     if (!_settingsLoaded || settings == null) return;
@@ -212,6 +227,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         _followWeekStart(loaded.appearance.weekStart);
       }
       _appearance = loaded.appearance;
+      _palette = loaded.palette;
+      _hapticFeedback = loaded.hapticFeedback;
     } catch (e, st) {
       debugPrint('[CalendarReportBloc] settings re-read failed: $e\n$st');
     }
@@ -316,6 +333,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         home: _home!,
         categoryIds: _categoryIds,
         appearance: _appearance,
+        palette: _palette,
+        hapticFeedback: _hapticFeedback,
         today: _today,
         years: request.years,
       ),
@@ -357,6 +376,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       home: _home!,
       categoryIds: _categoryIds,
       appearance: _appearance,
+      palette: _palette,
+      hapticFeedback: _hapticFeedback,
       today: _today,
       years: years,
     );

@@ -458,6 +458,26 @@ void main() {
       expect(decoded.digestSummary, isNull);
     });
 
+    test("a report digest's page rides under its own key; absent is the "
+        'overview', () {
+      final report = AlertPayload.fromJson(
+        digestOf().toJson()..['pg'] = AlertPayload.reportPage,
+      )!;
+
+      expect(report.page, 'report');
+      expect(report.toJson()['pg'], 'report');
+      expect(AlertPayload.decode(report.encode()), report);
+      expect(report.copyWith(osId: 9).page, 'report');
+      expect(report, isNot(digestOf()));
+
+      // Without it — every entry armed before it existed — nothing changes.
+      expect(digestOf().toJson().containsKey('pg'), isFalse);
+      expect(AlertPayload.decode(digestOf().encode())!.page, isNull);
+      expect(AlertPayload.decode(digestOf().encode()), digestOf());
+      final wrongKind = digestOf().toJson()..['pg'] = 3;
+      expect(AlertPayload.fromJson(wrongKind)!.page, isNull);
+    });
+
     test('an empty event id is an identity only for a digest', () {
       expect(AlertPayload.decode(digestOf().encode()), isNotNull);
       final alert = digestOf().toJson()..remove('dg');

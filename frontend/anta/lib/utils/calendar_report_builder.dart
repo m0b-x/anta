@@ -281,9 +281,11 @@ abstract final class CalendarReportBuilder {
       if (graded && _isRoutine(event)) {
         final routine = tally.routines.putIfAbsent(event.id, _RoutineTally.new);
         routine.total++;
+        routine.latest = sample.day;
         if (!missed) {
           routine.attended++;
           routine.minutes += minutes;
+          routine.latestAttended = sample.day;
         }
       } else {
         tally.dated.add(_datedRow(input, sample, event));
@@ -319,6 +321,7 @@ abstract final class CalendarReportBuilder {
           attended: tally.attended,
           total: tally.total,
           minutes: tally.minutes,
+          latestDay: tally.latestAttended ?? tally.latest!,
         ),
     ];
     rows.sort((a, b) {
@@ -607,4 +610,8 @@ class _RoutineTally {
   int attended = 0;
   int total = 0;
   int minutes = 0;
+
+  // The samples arrive sorted by day, so the last one seen is the latest.
+  DateTime? latestAttended;
+  DateTime? latest;
 }

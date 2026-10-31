@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'dart:async';
+import '../models/alert_payload.dart';
 import '../models/counter.dart';
 import '../models/custom_markdown_shortcut.dart';
+import '../models/date_range.dart';
 import '../models/nav_destination.dart';
 import '../models/note_metadata.dart';
+import '../models/overview_period.dart';
 import '../models/report_look.dart';
 import '../models/restore_location_mode.dart';
 import '../repositories/note_repository.dart';
@@ -811,6 +814,98 @@ abstract final class AppNavigator {
     final routes = _livePageRoutes(navigator);
     final index = routes.lastIndexWhere(
       (candidate) => _isStamped(candidate, NavDestinationKind.calendarOverview),
+    );
+    return index < 0 || identical(routes[index], route);
+  }
+
+  /// Where a digest's tap lands: the report for a report digest
+  /// ([AlertPayload.page]), else the overview's List — which is also where
+  /// an entry an older build armed, carrying no page, keeps landing.
+  static Future<void> toDigestTarget({
+    required AlertPayload payload,
+    required DateRange span,
+  }) {
+    if (payload.page == AlertPayload.reportPage) {
+      return toCalendarReportLook(
+        start: span.start,
+        end: span.end,
+        categoryIds: payload.categoryIdSet,
+      );
+    }
+    return toCalendarOverviewLook(
+      start: span.start,
+      end: span.end,
+      categoryIds: payload.categoryIdSet,
+    );
+  }
+
+  /// The look a report digest's tap asked a live report page for (S4): the
+  /// [pendingOverviewLook] twin, served and cleared by the page the
+  /// navigator collapsed onto. A pushed page takes the look as its
+  /// constructor argument instead, so nothing is left here to replay.
+  static final ValueNotifier<ReportLook?> pendingReportLook = ValueNotifier(
+    null,
+  );
+
+  /// The report on [start]..[end] with [categoryIds] — where a report
+  /// digest's tap lands — asked for by the platform with no `BuildContext`
+  /// of its own: collapsed onto a live report route, which hears the look
+  /// through [pendingReportLook], else root-pushed under the
+  /// `calendarReport` stamp with the look in hand.
+  static Future<void> toCalendarReportLook({
+    required DateTime start,
+    required DateTime end,
+    required Set<String> categoryIds,
+  }) {
+    final ReportLook look = (
+      period: reportPeriodOf(start: start, end: end),
+      categoryIds: categoryIds,
+    );
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere(
+        (route) => _isStamped(route, NavDestinationKind.calendarReport),
+      );
+      if (index >= 0) {
+        pendingReportLook.value = look;
+        _collapseOnto(navigator, routes, index);
+        return Future<void>.value();
+      }
+    }
+    return rootPush<void>(
+      CalendarReportPage(look: look),
+      destination: const NavDestination(NavDestinationKind.calendarReport),
+    );
+  }
+
+  /// The period a report digest's span reads as on the report: the week or
+  /// the calendar month when it is exactly one — so the band names it and
+  /// ◄ / ► step by it — else the span as picked dates. Both days date-only
+  /// UTC and inclusive.
+  static OverviewPeriod reportPeriodOf({
+    required DateTime start,
+    required DateTime end,
+  }) {
+    if (end == DateTime.utc(start.year, start.month, start.day + 6)) {
+      return OverviewWeekPeriod(start);
+    }
+    if (start.day == 1 && end == DateTime.utc(start.year, start.month + 1, 0)) {
+      return OverviewMonthPeriod(start.year, start.month);
+    }
+    return OverviewCustomPeriod(start, end);
+  }
+
+  /// Whether the report on [route] is the one a published
+  /// [pendingReportLook] is for: the last live report route, the one
+  /// [toCalendarReportLook] collapsed onto. Any route serves while none is
+  /// known, as [servesOverviewLook] answers.
+  static bool servesReportLook(Route<dynamic> route) {
+    final navigator = route.navigator;
+    if (navigator == null) return true;
+    final routes = _livePageRoutes(navigator);
+    final index = routes.lastIndexWhere(
+      (candidate) => _isStamped(candidate, NavDestinationKind.calendarReport),
     );
     return index < 0 || identical(routes[index], route);
   }

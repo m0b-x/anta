@@ -9,6 +9,7 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
+import 'package:anta/bloc/import_export/import_export_state.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_event.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_state.dart';
@@ -3114,6 +3115,62 @@ void main() {
 
       await teardownPage(tester);
       handle.dispose();
+    });
+  });
+
+  group('the import/export listener (D46)', () {
+    /// Hands the page [state] as the bloc would, then lets a dialog's or a
+    /// bar's route build in.
+    Future<void> hear(WidgetTester tester, ImportExportState state) async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      exportBloc.emit(state);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    for (final operation in [
+      ImportExportOperation.exportCalendar,
+      ImportExportOperation.exportText,
+    ]) {
+      testWidgets('leaves ${operation.name} to the page that started it', (
+        tester,
+      ) async {
+        await pumpPage(tester);
+        await hear(tester, ImportExportInProgress(operation));
+        expect(find.byType(AlertDialog), findsNothing);
+
+        await hear(
+          tester,
+          ImportExportFailure(operation: operation, message: 'disk full'),
+        );
+        expect(find.textContaining('disk full'), findsNothing);
+        // Not reset either: the reset is the starting page's too.
+        expect(exportBloc.state, isA<ImportExportFailure>());
+
+        await teardownPage(tester);
+      });
+    }
+
+    testWidgets('still answers the browser\'s own exports', (tester) async {
+      await pumpPage(tester);
+      await hear(
+        tester,
+        const ImportExportInProgress(ImportExportOperation.exportNote),
+      );
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text(l10n.exportingNote), findsOneWidget);
+
+      await hear(
+        tester,
+        const ImportExportFailure(
+          operation: ImportExportOperation.exportNote,
+          message: 'disk full',
+        ),
+      );
+      expect(find.text(l10n.exportingNote), findsNothing);
+      expect(find.textContaining('disk full'), findsOneWidget);
+
+      await teardownPage(tester);
     });
   });
 }

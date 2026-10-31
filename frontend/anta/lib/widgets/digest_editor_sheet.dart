@@ -57,6 +57,8 @@ final class DigestEditorDeleted extends DigestEditorResult {
 /// [FormSheetFrame]: leaving asks first once anything differs from what the
 /// form opened with.
 class DigestEditorSheet extends StatefulWidget {
+  /// The digest to edit, or with an empty id the draft a new one starts
+  /// from; null starts from the defaults.
   final EventDigest? initial;
 
   /// What the caption counts over — the calendar's events as the bloc holds
@@ -67,11 +69,16 @@ class DigestEditorSheet extends StatefulWidget {
   /// span is "this week" — the calendar never reads the locale's first day.
   final CalendarWeekStart weekStart;
 
+  /// The clock the caption is planned from — a seam, so a test can name the
+  /// fire it expects instead of reading the wall clock it races.
+  final DateTime Function() now;
+
   const DigestEditorSheet({
     super.key,
     this.initial,
     this.events = const [],
     this.weekStart = CalendarWeekStart.monday,
+    this.now = DateTime.now,
   });
 
   static Future<DigestEditorResult?> show(
@@ -79,6 +86,7 @@ class DigestEditorSheet extends StatefulWidget {
     EventDigest? initial,
     List<CalendarEvent> events = const [],
     CalendarWeekStart weekStart = CalendarWeekStart.monday,
+    DateTime Function() now = DateTime.now,
   }) {
     return showModalBottomSheet<DigestEditorResult>(
       context: context,
@@ -89,7 +97,7 @@ class DigestEditorSheet extends StatefulWidget {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       elevation: 0,
-      // The On row comes and goes on the Every menu's answer.
+      // The On row comes and goes on the Shows and Every menus' answers.
       builder: (_) => FormSheetSemanticsRefresh(
         child: FractionallySizedBox(
           heightFactor: FormMetrics.sheetHeightFactor,
@@ -97,6 +105,7 @@ class DigestEditorSheet extends StatefulWidget {
             initial: initial,
             events: events,
             weekStart: weekStart,
+            now: now,
           ),
         ),
       ),
@@ -105,6 +114,27 @@ class DigestEditorSheet extends StatefulWidget {
 
   @override
   State<DigestEditorSheet> createState() => _DigestEditorSheetState();
+}
+
+/// What the Shows row offers. Not stored: it is read from the cadence, whose
+/// two report values are what a report digest saves.
+enum _DigestShows {
+  upcoming('upcoming'),
+  weekReport('week-report'),
+  monthReport('month-report');
+
+  const _DigestShows(this.slug);
+
+  /// The item's id suffix.
+  final String slug;
+
+  static _DigestShows of(DigestCadence cadence) => switch (cadence) {
+    DigestCadence.weeklyReport => weekReport,
+    DigestCadence.monthlyReport => monthReport,
+    DigestCadence.daily ||
+    DigestCadence.weekly ||
+    DigestCadence.monthly => upcoming,
+  };
 }
 
 class _DigestEditorSheetState extends State<DigestEditorSheet> {
@@ -129,8 +159,18 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   late Set<String> _categoryIds;
   late DigestCadence _cadence;
 
+  /// The upcoming cadence Upcoming restores after a report Shows: what the
+  /// draft last had, weekly for a digest opened as a report.
+  late DigestCadence _upcomingCadence;
+
   /// Both anchors are held, so Week → Day → Week finds Monday again.
   late int _weekday;
+
+  /// The week report's weekday, held apart from [_weekday] (D45): entered
+  /// from an upcoming cadence it is the week's first day — a Sunday kept
+  /// from an upcoming weekly digest would report the week that ended seven
+  /// days before it — and a week report opened for an edit keeps its own.
+  late int _reportWeekday;
   late int _dayOfMonth;
   late int _minute;
   late int _leadDays;
@@ -158,7 +198,9 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   /// animation cannot stack a second one.
   bool _pickerOpen = false;
 
-  bool get _isEditing => widget.initial != null;
+  /// A digest without an id is a new one pre-filled by its caller — the
+  /// report's Send row — and saves, and meets the cap, as a new one does.
+  bool get _isEditing => widget.initial?.id.isNotEmpty ?? false;
 
   @override
   void initState() {
@@ -167,16 +209,26 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
     _nameController = TextEditingController(text: initial.name);
     _categoryIds = initial.categoryIds;
     _cadence = initial.cadence;
-    _weekday = initial.cadence == DigestCadence.weekly
-        ? EventDigest.clampAnchor(DigestCadence.weekly, initial.anchor)
-        : DateTime.monday;
-    _dayOfMonth = initial.cadence == DigestCadence.monthly
-        ? EventDigest.clampAnchor(DigestCadence.monthly, initial.anchor)
-        : 1;
+    _upcomingCadence = initial.cadence.isReport
+        ? DigestCadence.weekly
+        : initial.cadence;
+    _weekday = switch (initial.cadence) {
+      DigestCadence.weekly || DigestCadence.weeklyReport =>
+        EventDigest.clampAnchor(initial.cadence, initial.anchor),
+      _ => DateTime.monday,
+    };
+    _reportWeekday = initial.cadence == DigestCadence.weeklyReport
+        ? _weekday
+        : firstWeekdayOf(widget.weekStart);
+    _dayOfMonth = switch (initial.cadence) {
+      DigestCadence.monthly || DigestCadence.monthlyReport =>
+        EventDigest.clampAnchor(initial.cadence, initial.anchor),
+      _ => 1,
+    };
     _minute = initial.minute;
     _leadDays = initial.leadDays;
     _includeEmpty = initial.includeEmpty;
-    _now = DateTime.now();
+    _now = widget.now();
     _initialDraft = _buildDraft();
     _next = _plan();
   }
@@ -191,7 +243,8 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   int get _anchor => switch (_cadence) {
     DigestCadence.daily => 0,
     DigestCadence.weekly => _weekday,
-    DigestCadence.monthly => _dayOfMonth,
+    DigestCadence.weeklyReport => _reportWeekday,
+    DigestCadence.monthly || DigestCadence.monthlyReport => _dayOfMonth,
   };
 
   /// Everything the form edits, as the digest it would save; the identity —
@@ -220,7 +273,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   void _update(VoidCallback change) {
     setState(() {
       change();
-      _now = DateTime.now();
+      _now = widget.now();
       _next = _plan();
     });
   }
@@ -235,6 +288,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
       events: widget.events,
       horizon: const DigestHorizon(perDigest: _captionLookahead, maxDigests: 1),
       now: _now,
+      weekStart: widget.weekStart,
     );
     return plan.isEmpty ? null : plan.first;
   }
@@ -356,8 +410,10 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   String _cadenceLabel(DigestCadence cadence, AppLocalizations l10n) =>
       switch (cadence) {
         DigestCadence.daily => l10n.panelModeDay,
-        DigestCadence.weekly => l10n.calendarFormatWeek,
-        DigestCadence.monthly => l10n.calendarFormatMonth,
+        DigestCadence.weekly ||
+        DigestCadence.weeklyReport => l10n.calendarFormatWeek,
+        DigestCadence.monthly ||
+        DigestCadence.monthlyReport => l10n.calendarFormatMonth,
       };
 
   /// A weekday as a menu value: the name `intl` writes, sentence-cased the
@@ -366,6 +422,13 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
     final name = digestWeekdayName(weekday, localeName);
     return toBeginningOfSentenceCase(name, localeName) ?? name;
   }
+
+  String _showsLabel(_DigestShows shows, AppLocalizations l10n) =>
+      switch (shows) {
+        _DigestShows.upcoming => l10n.digestShowsUpcoming,
+        _DigestShows.weekReport => l10n.digestShowsWeekReport,
+        _DigestShows.monthReport => l10n.digestShowsMonthReport,
+      };
 
   String _leadLabel(int lead, AppLocalizations l10n) =>
       lead == 0 ? l10n.digestCoversSameDay : l10n.digestCoversNextDay;
@@ -486,6 +549,8 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
         l10n.digestPeriodNextWeek,
         l10n.digestPeriodThisMonth,
         l10n.digestPeriodNextMonth,
+        l10n.digestPeriodLastWeek,
+        l10n.digestPeriodLastMonth,
         l10n.digestPeriodSpan(dates.first, dates[1]),
       ])
         l10n.digestNext(when, l10n.digestCountPeriod(_widestCount, phrase)),
@@ -494,8 +559,25 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
 
   // --- Rows ---------------------------------------------------------------
 
+  /// A report Shows *is* the cadence it saves; Upcoming takes back the
+  /// upcoming cadence the draft last had.
+  void _pickShows(_DigestShows shows) {
+    if (shows == _DigestShows.of(_cadence)) return;
+    _update(
+      () => _cadence = switch (shows) {
+        _DigestShows.upcoming => _upcomingCadence,
+        _DigestShows.weekReport => DigestCadence.weeklyReport,
+        _DigestShows.monthReport => DigestCadence.monthlyReport,
+      },
+    );
+  }
+
   List<Widget> _buildRows(AppLocalizations l10n) {
     final localeName = l10n.localeName;
+    final shows = _DigestShows.of(_cadence);
+    // A report's schedule is implied by what it shows, and its span is the
+    // period that ended, so Every and Covers dim where they stand.
+    final isReport = _cadence.isReport;
     return [
       FormPickerRow(
         glyph: Icons.category_outlined,
@@ -508,6 +590,23 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
         ),
         onTap: _pickCategories,
       ),
+      FormMenuRow<_DigestShows>(
+        glyph: Icons.summarize_outlined,
+        identifier: SemanticsIds.digestShows,
+        label: l10n.digestShows,
+        value: _showsLabel(shows, l10n),
+        selected: shows,
+        menuWidth: FormMetrics.menuWidth,
+        items: [
+          for (final item in _DigestShows.values)
+            FormMenuItem(
+              value: item,
+              label: _showsLabel(item, l10n),
+              identifier: SemanticsIds.digestShowsItem(item.slug),
+            ),
+        ],
+        onSelected: _pickShows,
+      ),
       FormMenuRow<DigestCadence>(
         glyph: Icons.repeat_rounded,
         identifier: SemanticsIds.digestCadence,
@@ -517,24 +616,31 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
         menuWidth: FormMetrics.menuWidth,
         items: [
           for (final cadence in DigestCadence.values)
-            FormMenuItem(
-              value: cadence,
-              label: _cadenceLabel(cadence, l10n),
-              identifier: SemanticsIds.digestCadenceItem(cadence.name),
-            ),
+            if (!cadence.isReport)
+              FormMenuItem(
+                value: cadence,
+                label: _cadenceLabel(cadence, l10n),
+                identifier: SemanticsIds.digestCadenceItem(cadence.name),
+              ),
         ],
-        onSelected: (cadence) => _update(() => _cadence = cadence),
+        onSelected: isReport
+            ? null
+            : (cadence) => _update(() {
+                _cadence = cadence;
+                _upcomingCadence = cadence;
+              }),
       ),
       // A daily digest fires every day: there is no day to pick, so the row
       // goes rather than dims. It goes on the Every menu's answer, never under
       // the finger.
-      if (_cadence == DigestCadence.weekly)
+      if (_cadence == DigestCadence.weekly ||
+          _cadence == DigestCadence.weeklyReport)
         FormMenuRow<int>(
           glyph: Icons.calendar_month_outlined,
           identifier: SemanticsIds.digestAnchor,
           label: l10n.digestOn,
-          value: _weekdayLabel(_weekday, localeName),
-          selected: _weekday,
+          value: _weekdayLabel(_anchor, localeName),
+          selected: _anchor,
           menuWidth: FormMetrics.menuWidth,
           items: [
             for (final weekday in _weekdaysInOrder)
@@ -544,9 +650,16 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
                 identifier: SemanticsIds.digestAnchorItem(weekday),
               ),
           ],
-          onSelected: (weekday) => _update(() => _weekday = weekday),
+          onSelected: (weekday) => _update(() {
+            if (_cadence.isReport) {
+              _reportWeekday = weekday;
+            } else {
+              _weekday = weekday;
+            }
+          }),
         )
-      else if (_cadence == DigestCadence.monthly)
+      else if (_cadence == DigestCadence.monthly ||
+          _cadence == DigestCadence.monthlyReport)
         FormMenuRow<int>(
           glyph: Icons.calendar_month_outlined,
           identifier: SemanticsIds.digestAnchor,
@@ -586,7 +699,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
               identifier: SemanticsIds.digestLeadItem(lead),
             ),
         ],
-        onSelected: (lead) => _update(() => _leadDays = lead),
+        onSelected: isReport ? null : (lead) => _update(() => _leadDays = lead),
       ),
       FormSwitchRow(
         glyph: Icons.inbox_outlined,
@@ -635,69 +748,75 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
       body: [
         Expanded(
           child: _hairline.watch(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                RowMetrics.groupInset,
-                FormMetrics.bodyTop,
-                RowMetrics.groupInset,
-                FormMetrics.bodyBottom + clearance,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FormRowGroup(
-                    children: [
-                      FormTitleRow(
-                        // A field's glyph, not an avatar: the kit keeps the
-                        // title row's avatar for previewing an event.
-                        leading: const FormGlyph(
-                          icon: Icons.drive_file_rename_outline_rounded,
-                        ),
-                        controller: _nameController,
-                        // The title the digest takes while it has no name.
-                        hint: digestCategoriesLabel(
-                          _categoryIds,
-                          l10n,
-                          categoryLabel: (id) => _categoryLabel(id, l10n),
-                        ),
-                        maxLength: _nameMaxLength,
-                        counterFrom: _nameCounterFrom,
-                        counterLabel: l10n.eventTitleCount,
-                        textCapitalization: TextCapitalization.sentences,
-                        identifier: SemanticsIds.digestName,
-                      ),
-                    ],
-                  ),
-                  FormRowGroup(trailingGap: false, children: _buildRows(l10n)),
-                  FormCaptionSlot(
-                    candidates: [
-                      for (final text in _captionCandidates(l10n))
-                        FormCaption(
-                          text: text,
-                          padding: FormMetrics.groupCaptionPadding,
-                        ),
-                    ],
-                    child: FormCaption(
-                      text: _caption(l10n),
-                      padding: FormMetrics.groupCaptionPadding,
-                    ),
-                  ),
-                  if (_isEditing) ...[
-                    const SizedBox(height: RowMetrics.groupGap),
+            child: Semantics(
+              identifier: SemanticsIds.digestSheetBody,
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  RowMetrics.groupInset,
+                  FormMetrics.bodyTop,
+                  RowMetrics.groupInset,
+                  FormMetrics.bodyBottom + clearance,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     FormRowGroup(
-                      trailingGap: false,
                       children: [
-                        FormActionRow(
-                          glyph: Icons.delete_outline_rounded,
-                          label: l10n.digestDelete,
-                          destructive: true,
-                          identifier: SemanticsIds.digestDelete,
-                          onTap: _delete,
+                        FormTitleRow(
+                          // A field's glyph, not an avatar: the kit keeps the
+                          // title row's avatar for previewing an event.
+                          leading: const FormGlyph(
+                            icon: Icons.drive_file_rename_outline_rounded,
+                          ),
+                          controller: _nameController,
+                          // The title the digest takes while it has no name.
+                          hint: digestCategoriesLabel(
+                            _categoryIds,
+                            l10n,
+                            categoryLabel: (id) => _categoryLabel(id, l10n),
+                          ),
+                          maxLength: _nameMaxLength,
+                          counterFrom: _nameCounterFrom,
+                          counterLabel: l10n.eventTitleCount,
+                          textCapitalization: TextCapitalization.sentences,
+                          identifier: SemanticsIds.digestName,
                         ),
                       ],
                     ),
+                    FormRowGroup(
+                      trailingGap: false,
+                      children: _buildRows(l10n),
+                    ),
+                    FormCaptionSlot(
+                      candidates: [
+                        for (final text in _captionCandidates(l10n))
+                          FormCaption(
+                            text: text,
+                            padding: FormMetrics.groupCaptionPadding,
+                          ),
+                      ],
+                      child: FormCaption(
+                        text: _caption(l10n),
+                        padding: FormMetrics.groupCaptionPadding,
+                      ),
+                    ),
+                    if (_isEditing) ...[
+                      const SizedBox(height: RowMetrics.groupGap),
+                      FormRowGroup(
+                        trailingGap: false,
+                        children: [
+                          FormActionRow(
+                            glyph: Icons.delete_outline_rounded,
+                            label: l10n.digestDelete,
+                            destructive: true,
+                            identifier: SemanticsIds.digestDelete,
+                            onTap: _delete,
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

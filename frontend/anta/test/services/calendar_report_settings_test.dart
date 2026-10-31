@@ -6,6 +6,7 @@ import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/markdown_color_syntax.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -141,6 +142,40 @@ void main() {
     expect(
       (await settings.getCalendarReportSettings(today: today)).categoryIds,
       isEmpty,
+    );
+  });
+
+  test('the palette is the presets until custom colours are stored, then '
+      'the stored ones', () async {
+    var loaded = await settings.getCalendarReportSettings(today: today);
+    expect(loaded.palette, MarkdownColorPalette.presets);
+
+    await db.userSettingsDao.setValue(
+      SettingsKeys.markdownCustomColors,
+      'brand=ff112233',
+    );
+    loaded = await settings.getCalendarReportSettings(today: today);
+    expect(loaded.palette.source, 'brand=ff112233');
+    expect(loaded.palette.contains('brand'), isTrue);
+    expect(loaded.palette.contains('red'), isTrue);
+  });
+
+  test('haptics follow the app-wide switch, on by default', () async {
+    expect(
+      (await settings.getCalendarReportSettings(today: today)).hapticFeedback,
+      SettingsKeys.defaultHapticFeedback,
+    );
+
+    await settings.setHapticFeedback(false);
+    expect(
+      (await settings.getCalendarReportSettings(today: today)).hapticFeedback,
+      isFalse,
+    );
+
+    await settings.setHapticFeedback(true);
+    expect(
+      (await settings.getCalendarReportSettings(today: today)).hapticFeedback,
+      isTrue,
     );
   });
 }

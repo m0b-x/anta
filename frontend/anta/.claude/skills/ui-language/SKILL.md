@@ -52,7 +52,7 @@ Around them: a bar reads `AppBarMetrics` (48 dp toolbar, 22 px glyphs, a 17 / 50
 All in `form_rows.dart`; read a primitive's row in `references/row-primitives.md` before you use or extend it.
 
 - Groups: `FormRowGroup`; `FormRowShell`, one row drawn alone (a sliver, a reorderable list); `FormSectionLabel`; `FormIndentedRow`, a wrapper's divider indent.
-- Rows: `FormPickerRow` `label … value ›`; `FormMenuRow<T>`, opening a menu; `FormSwitchRow` `label ⟷`; `FormActionRow` `+ Add alert`; `FormRadioRow` `label ✓`; `FormCheckRow` `label ☐`; `FormStepperRow` `[−] value [+]`; `FormSearchRow`; `FormSwatchRow`, the colour strip; `FormChip` / `FormChipRow`.
+- Rows: `FormPickerRow` `label … value ›`; `FormMenuRow<T>`, opening a menu; `FormSwitchRow` `label ⟷`; `FormActionRow` `+ Add alert` and `FormActionRow.disclosure` `2 more ▾` (the row that grows or folds the group it ends); `FormMeterRow` `[avatar] label / facts ▬▬▬▭` (a header with a 4 dp meter, the report's category groups); `FormRadioRow` `label ✓`; `FormCheckRow` `label ☐`; `FormStepperRow` `[−] value [+]`; `FormSearchRow`; `FormSwatchRow`, the colour strip; `FormChip` / `FormChipRow`.
 - Titles: `FormTitleRow`, the title field; `FormReadTitleRow`, its read-only twin; `FormHeroRow`, a sheet's one large value.
 - Text: `FormLabelValue`; `FormCaption`; `FormCaptionSlot`, a caption that never changes the height; `FormValueDot`.
 - Parts: `FormGlyph`, `FormChevron`, `FormTrailingButton` — never a raw `Icon` with a size; `FormDragHandle` `≡`.

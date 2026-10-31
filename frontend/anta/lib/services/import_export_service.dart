@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -436,6 +437,41 @@ class ImportExportService {
     await file.writeAsString(body);
     return ExportResult(filePath: file.path, eventsExported: events.length);
   }
+
+  /// Write [text] — already composed by its caller, the report's Markdown —
+  /// to [fileName] in the system temp directory, beside the `.ics` export,
+  /// for [shareExport]. [fileName] carries [format]'s extension, so
+  /// [sweepStaleExports] knows the file. A write that fails takes its
+  /// half-written file with it, so no partial report waits for the sweep.
+  Future<ExportResult> exportText({
+    required String fileName,
+    required String text,
+    required ExportFormat format,
+  }) async {
+    assert(
+      p.basename(fileName) == fileName &&
+          p.extension(fileName) == '.${format.extension}',
+      'exportText takes a bare file name with the format\'s extension: '
+      '$fileName',
+    );
+    final tempDir = await getTemporaryDirectory();
+    final result = ExportResult(
+      filePath: p.join(tempDir.path, fileName),
+      format: format,
+    );
+    try {
+      await writeExportText(File(result.filePath), text);
+    } catch (_) {
+      await cleanupExport(result);
+      rethrow;
+    }
+    return result;
+  }
+
+  /// The write behind [exportText]; a test overrides it to fail mid-file.
+  @visibleForTesting
+  Future<void> writeExportText(File file, String text) =>
+      file.writeAsString(text);
 
   /// Convenience: hand the exported file to the OS share sheet, then
   /// delete it from the temp directory. The OS copies/streams the bytes

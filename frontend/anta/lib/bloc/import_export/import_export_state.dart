@@ -9,6 +9,9 @@ enum ImportExportOperation {
   exportFolder,
   exportItems,
   exportCalendar,
+
+  /// A page's composed text — the report's Markdown share, its one caller.
+  exportText,
   importFile,
   importArchive,
 }

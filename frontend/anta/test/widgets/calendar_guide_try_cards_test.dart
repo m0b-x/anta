@@ -576,8 +576,8 @@ void main() {
     });
 
     testWidgets('the grid card: the title menu reshapes the grid in one '
-        'height, the Overview row reports, the ⋮ moves the line on; nothing '
-        'opens', (tester) async {
+        'height, the Overview and Report rows report, the ⋮ moves the line '
+        'on; nothing opens', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
       final stage = robot.stageSize;
       expect(robot.line, steps[0]);
@@ -594,6 +594,11 @@ void main() {
         expect(robot.stageSize, stage, reason: format.name);
         expect(robot.line, steps[1]);
       }
+      note(robot);
+
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarReportOpen);
+      expect(robot.line, en.calendarGuideWouldOpen(en.reportTitle));
       note(robot);
 
       await robot.tapId(SemanticsIds.calendarViewMenu);
@@ -630,6 +635,24 @@ void main() {
       await robot.tapId(SemanticsIds.calendarFormatWeek);
       expect(robot.line, en.calendarGuideCoachDone);
       expect(robot.canSkip, isFalse);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the grid card: Report as the first pick does the title step; '
+        'once its report clears, the line moves on', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      final format = _gridOf(tester, 'screen').calendarFormat;
+      expect(robot.line, steps[0]);
+
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarReportOpen);
+      expect(robot.line, en.calendarGuideWouldOpen(en.reportTitle));
+      expect(_gridOf(tester, 'screen').calendarFormat, format);
+
+      // The skip under a standing report only clears it (D46).
+      await robot.skip();
+      expect(robot.line, steps[1]);
+      expect(pushes.pushed, isEmpty);
       await expectNothingSaved();
     });
 

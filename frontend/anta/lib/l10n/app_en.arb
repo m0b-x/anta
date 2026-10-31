@@ -6759,6 +6759,22 @@
   "@digestEdit": {
     "description": "Title of the digest sheet when it edits an existing digest"
   },
+  "digestShows": "Shows",
+  "@digestShows": {
+    "description": "Digest sheet row label for what a digest lists: what is coming up, or the report of the week or month that just ended (Shows · Upcoming)"
+  },
+  "digestShowsUpcoming": "Upcoming",
+  "@digestShowsUpcoming": {
+    "description": "Shows row value: the digest lists the events coming up in its span, from the day it fires"
+  },
+  "digestShowsWeekReport": "The week just ended",
+  "@digestShowsWeekReport": {
+    "description": "Shows row value: the digest is the report of the calendar week that ended before it fires"
+  },
+  "digestShowsMonthReport": "The month just ended",
+  "@digestShowsMonthReport": {
+    "description": "Shows row value: the digest is the report of the calendar month that ended before it fires"
+  },
   "digestEvery": "Every",
   "@digestEvery": {
     "description": "Digest sheet row label for the cadence; its value is Day, Week or Month (Every · Month)"
@@ -6895,6 +6911,72 @@
       "time": {
         "type": "String",
         "example": "09:00"
+      }
+    }
+  },
+  "digestDescribeWeeklyReport": "Weekly report on {weekday}, {time}",
+  "@digestDescribeWeeklyReport": {
+    "description": "How a weekly report digest fires (it sums up the week that just ended). weekday is a full weekday name as intl writes it inside a sentence",
+    "placeholders": {
+      "weekday": {
+        "type": "String",
+        "example": "Monday"
+      },
+      "time": {
+        "type": "String",
+        "example": "08:00"
+      }
+    }
+  },
+  "digestDescribeMonthlyReport": "Monthly report on the {day}, {time}",
+  "@digestDescribeMonthlyReport": {
+    "description": "How a monthly report digest fires (it sums up the month that just ended). day is digestOnDayOfMonth (1st)",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "1st"
+      },
+      "time": {
+        "type": "String",
+        "example": "09:00"
+      }
+    }
+  },
+  "digestReportWeeklyTitle": "Weekly report",
+  "@digestReportWeeklyTitle": {
+    "description": "Opens the title of a weekly report notification, before the categories it covers (Weekly report · Gym)"
+  },
+  "digestReportMonthlyTitle": "Monthly report",
+  "@digestReportMonthlyTitle": {
+    "description": "Opens the title of a monthly report notification, before the categories it covers (Monthly report · Birthday)"
+  },
+  "digestPeriodLastWeek": "last week",
+  "@digestPeriodLastWeek": {
+    "description": "The span of a weekly report digest: the calendar week that ended before it fires, inside digestCountPeriod (5 events last week) — lowercase, mid-sentence"
+  },
+  "digestPeriodLastMonth": "last month",
+  "@digestPeriodLastMonth": {
+    "description": "The span of a monthly report digest: the calendar month that ended before it fires, inside digestCountPeriod (5 events last month) — lowercase, mid-sentence"
+  },
+  "digestReportReadyWeek": "Last week's report is ready",
+  "@digestReportReadyWeek": {
+    "description": "The whole body of a weekly report notification armed before the week had ended, so its numbers were not known yet"
+  },
+  "digestReportReadyMonth": "Last month's report is ready",
+  "@digestReportReadyMonth": {
+    "description": "The whole body of a monthly report notification armed before the month had ended, so its numbers were not known yet"
+  },
+  "digestReportSummary": "{categories} — {facts}",
+  "@digestReportSummary": {
+    "description": "The first line of a report notification: the categories it covers, then its facts joined by middle dots (Gym, Cardio — 5 of 6 attended · 6 h · 1 missed)",
+    "placeholders": {
+      "categories": {
+        "type": "String",
+        "example": "Gym, Cardio"
+      },
+      "facts": {
+        "type": "String",
+        "example": "5 of 6 attended · 6 h · 1 missed"
       }
     }
   },
@@ -8756,6 +8838,10 @@
   "@reportSectionTotals": {
     "description": "Section label above the report's stat tiles"
   },
+  "reportSectionCategories": "Categories",
+  "@reportSectionCategories": {
+    "description": "Section label above the report's card of category groups: each chosen category with what happened in it over the period"
+  },
   "reportSectionOverTime": "Over time",
   "@reportSectionOverTime": {
     "description": "Section label above the report's column chart of occurrences per day, week or month"
@@ -8881,7 +8967,8 @@
     "description": "Report band subtitle: occurrences that happened in the period",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
       }
     }
   },
@@ -8916,6 +9003,32 @@
     "placeholders": {
       "delta": {
         "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportDeltaMoreCount": "{delta, plural, one {{delta} more than {period}} other {{delta} more than {period}}}",
+  "@reportDeltaMoreCount": {
+    "description": "Screen reader wording of a report count tile's change against the previous period, when it grew (events, planned, attended, missed, tasks; hours use reportDeltaMore)",
+    "placeholders": {
+      "delta": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportDeltaFewerCount": "{delta, plural, one {{delta} fewer than {period}} other {{delta} fewer than {period}}}",
+  "@reportDeltaFewerCount": {
+    "description": "Screen reader wording of a report count tile's change against the previous period, when it shrank (events, planned, attended, missed, tasks; hours use reportDeltaLess)",
+    "placeholders": {
+      "delta": {
+        "type": "int",
+        "format": "decimalPattern"
       },
       "period": {
         "type": "String"
@@ -8958,6 +9071,18 @@
   "reportShare": "Share report",
   "@reportShare": {
     "description": "Report footer row sharing the report as text"
+  },
+  "exportingReport": "Exporting report...",
+  "@exportingReport": {
+    "description": "Progress message while the report is written as a Markdown file for sharing"
+  },
+  "reportExported": "Report exported",
+  "@reportExported": {
+    "description": "Snackbar after the report was handed to the share sheet as a Markdown file"
+  },
+  "reportExportError": "Could not export the report",
+  "@reportExportError": {
+    "description": "Snackbar prefix when the report could not be written or shared; the error message follows after a colon"
   },
   "reportSendWeekly": "Send me this report weekly",
   "@reportSendWeekly": {
@@ -9051,6 +9176,264 @@
     "description": "Start of a report stat tile's detail line when the tiles are too narrow for '21 of 24' in the value: the whole the large figure is a part of, e.g. of 24 · 88 %",
     "placeholders": {
       "total": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGroupMore": "{count, plural, one {1 more} other {{count} more}}",
+  "@reportGroupMore": {
+    "description": "Row at the end of a report category group that shows the group's remaining events in place",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "reportMoreCategories": "{count, plural, one {1 more category} other {{count} more categories}}",
+  "@reportMoreCategories": {
+    "description": "Row under the report's Categories card when more categories have events than the card shows; opens the rest",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "reportMoreCategoriesTitle": "More categories",
+  "@reportMoreCategoriesTitle": {
+    "description": "Title of the sheet listing the report's categories past the ones the Categories card shows"
+  },
+  "reportGroupMoreSpoken": "{count, plural, one {1 more in {category}} other {{count} more in {category}}}",
+  "@reportGroupMoreSpoken": {
+    "description": "What a screen reader says for the report group's 'n more' row; category is the group's category name",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGroupLess": "Show less",
+  "@reportGroupLess": {
+    "description": "Row at the end of an expanded report category group that folds it back to its first rows"
+  },
+  "reportGroupLessSpoken": "Show less of {category}",
+  "@reportGroupLessSpoken": {
+    "description": "What a screen reader says for the report group's 'Show less' row; category is the group's category name",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "reportAttendedOf": "{total, plural, one {{attended} of 1 attended} other {{attended} of {total} attended}}",
+  "@reportAttendedOf": {
+    "description": "Caption of a routine's row in the report: attended days of the days it ran, e.g. 8 of 10 attended",
+    "placeholders": {
+      "total": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "attended": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "reportTasksOf": "{total, plural, one {{ticked} of 1 task} other {{ticked} of {total} tasks}}",
+  "@reportTasksOf": {
+    "description": "Part of a report row's subtitle: ticked task items of the items in the event's description, e.g. 5 of 8 tasks",
+    "placeholders": {
+      "total": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "ticked": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "reportHoursSpoken": "{hours} hours",
+  "@reportHoursSpoken": {
+    "description": "Decimal hours as a screen reader says them in the report, e.g. 13.2 hours; hours is already formatted with the locale's decimal separator",
+    "placeholders": {
+      "hours": {
+        "type": "String"
+      }
+    }
+  },
+  "reportWholeHoursSpoken": "{count, plural, one {1 hour} other {{count} hours}}",
+  "@reportWholeHoursSpoken": {
+    "description": "A whole number of hours as a screen reader says them in the report",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "reportMinutesSpoken": "{count, plural, one {1 minute} other {{count} minutes}}",
+  "@reportMinutesSpoken": {
+    "description": "Minutes under an hour as a screen reader says them in the report",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "reportRowDay": "{weekday} {day}",
+  "@reportRowDay": {
+    "description": "The day that opens a report row's subtitle, e.g. Thu 8; weekday is the short weekday name, day the day of the month",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "reportRowDayMonth": "{weekday} {day} {month}",
+  "@reportRowDayMonth": {
+    "description": "The day that opens a report row's subtitle when the period spans several months, e.g. Thu 8 Oct; month is the short month name",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      },
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGroupListSpoken": "Show {category} as a list",
+  "@reportGroupListSpoken": {
+    "description": "What a screen reader says for the 'Show as list' row under a long report category group; category is the group's category name",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuidePageReport": "See what happened",
+  "@calendarGuidePageReport": {
+    "description": "Calendar guide hub row and page title: the Report page"
+  },
+  "calendarGuidePageReportCaption": "Totals, missed days and what is ahead",
+  "@calendarGuidePageReportCaption": {
+    "description": "Calendar guide hub row caption under the Report page's title"
+  },
+  "calendarGuideReportLead": "“{report}” counts a week, a month or a year, category by category.",
+  "@calendarGuideReportLead": {
+    "description": "Calendar guide: the line under the Report page's heading; report is the Report page's name",
+    "placeholders": {
+      "report": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideReportOpenTitle": "Opening it",
+  "@calendarGuideReportOpenTitle": {
+    "description": "Calendar guide row title on the Report page: where the Report is opened"
+  },
+  "calendarGuideReportOpenBody": "Open it from the title: “{calendar}” · “{overview}” · “{report}”. The title between the arrows picks the period — “{thisWeek}”, “{lastMonth}”, “{custom}”; the arrows step by the period's own length.",
+  "@calendarGuideReportOpenBody": {
+    "description": "Calendar guide paragraph: the title menu's three pages, then the Report's period; calendar, overview and report are the pages' names, thisWeek, lastMonth and custom three of the period menu's rows",
+    "placeholders": {
+      "calendar": {
+        "type": "String"
+      },
+      "overview": {
+        "type": "String"
+      },
+      "report": {
+        "type": "String"
+      },
+      "thisWeek": {
+        "type": "String"
+      },
+      "lastMonth": {
+        "type": "String"
+      },
+      "custom": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideReportCategoriesTitle": "Which categories",
+  "@calendarGuideReportCategoriesTitle": {
+    "description": "Calendar guide row title on the Report page: choosing the categories"
+  },
+  "calendarGuideReportCategoriesBody": "The “{categories}” button narrows the page to the ones you choose; below, one group per category, with a meter against the biggest — past {max} categories the rest sit behind “{moreCategories}”, which opens a sheet. A group opens at {rows} rows; “{more}” shows the rest in place, a tap on its header folds it.",
+  "@calendarGuideReportCategoriesBody": {
+    "description": "Calendar guide paragraph about the Report's category filter and its groups; categories is the filter button's tooltip, max the most groups the card shows, moreCategories the card's 'n more categories' row label with a sample count, rows the rows a group opens at, more a group's 'n more' row label with a sample count",
+    "placeholders": {
+      "categories": {
+        "type": "String"
+      },
+      "max": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "moreCategories": {
+        "type": "String"
+      },
+      "rows": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "more": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideReportMissedTitle": "What you missed",
+  "@calendarGuideReportMissedTitle": {
+    "description": "Calendar guide row title on the Report page: the Missed card"
+  },
+  "calendarGuideReportMissedBody": "“{missed}” lists the sessions you marked or assumed absent; tap “{markPresent}” beside a row and the numbers update.",
+  "@calendarGuideReportMissedBody": {
+    "description": "Calendar guide paragraph about the Report's Missed card; missed is the card's title, markPresent the presence button's tooltip on a missed row",
+    "placeholders": {
+      "missed": {
+        "type": "String"
+      },
+      "markPresent": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideReportDigestTitle": "Every week or month by itself",
+  "@calendarGuideReportDigestTitle": {
+    "description": "Calendar guide row title on the Report page: the weekly or monthly report notification"
+  },
+  "calendarGuideReportDigestBody": "On a week “{weekly}”, on a month “{monthly}”, opens a digest of the period just ended — save it and it arrives on the first day of the next week or month: a digest with “{shows}” set to “{weekReport}” or “{monthReport}”. “{share}” writes the page as Markdown.",
+  "@calendarGuideReportDigestBody": {
+    "description": "Calendar guide paragraph about the report digest and sharing; weekly and monthly are the Report footer's row on a week and on a month, shows the digest editor's Shows row and weekReport and monthReport its two report values, share the share row's label",
+    "placeholders": {
+      "weekly": {
+        "type": "String"
+      },
+      "monthly": {
+        "type": "String"
+      },
+      "shows": {
+        "type": "String"
+      },
+      "weekReport": {
+        "type": "String"
+      },
+      "monthReport": {
+        "type": "String"
+      },
+      "share": {
         "type": "String"
       }
     }

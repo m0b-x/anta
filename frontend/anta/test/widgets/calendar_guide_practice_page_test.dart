@@ -464,7 +464,7 @@ void main() {
   });
 
   testWidgets("the view menu's formats reshape the grid, and its Overview "
-      'only says what it would open', (tester) async {
+      'and Report only say what they would open', (tester) async {
     final robot = await open(tester);
 
     await robot.pickFormat(SemanticsIds.calendarFormatWeek);
@@ -475,6 +475,11 @@ void main() {
     await robot.pickFormat(SemanticsIds.calendarFormatTwoWeeks);
     expect(robot.format, CalendarFormat.twoWeeks);
     expect(robot.cellCount, 14);
+
+    await robot.tapId(SemanticsIds.calendarViewMenu);
+    await robot.tapId(SemanticsIds.calendarReportOpen);
+    expect(robot.caption, en.calendarGuideWouldOpen(en.reportTitle));
+    expect(find.byType(CalendarGuidePracticePage), findsOneWidget);
 
     await robot.tapId(SemanticsIds.calendarViewMenu);
     await robot.tapId(SemanticsIds.calendarOverviewOpen);
@@ -646,8 +651,8 @@ void main() {
   });
 
   /// Walks the band through every line it can show — the idle step, the
-  /// ⋮'s reports, then each step skipped to the closing line — and checks
-  /// its height against the idle band's after each one.
+  /// view menu's and the ⋮'s reports, then each step skipped to the closing
+  /// line — and checks its height against the idle band's after each one.
   Future<void> walkEveryLine(
     PracticeCalendarRobot robot,
     AppLocalizations l10n, {
@@ -655,6 +660,15 @@ void main() {
   }) async {
     final idle = robot.bandSize;
     final seen = {robot.caption};
+    for (final row in [
+      SemanticsIds.calendarOverviewOpen,
+      SemanticsIds.calendarReportOpen,
+    ]) {
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(row);
+      seen.add(robot.caption);
+      expect(robot.bandSize, idle, reason: robot.caption);
+    }
     for (final row in [
       SemanticsIds.calendarAlertsOpen,
       SemanticsIds.calendarExport,
@@ -673,6 +687,8 @@ void main() {
     expect(seen, {
       for (final step in lesson.steps) step.line(l10n),
       lesson.closing(l10n),
+      l10n.calendarGuideWouldOpen(l10n.calendarOverview),
+      l10n.calendarGuideWouldOpen(l10n.reportTitle),
       l10n.calendarGuideWouldOpen(l10n.alertsTitle),
       l10n.calendarGuideWouldShare,
       l10n.calendarGuideYouAreHere,

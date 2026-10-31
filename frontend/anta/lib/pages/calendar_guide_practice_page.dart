@@ -169,6 +169,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   static List<String> _reports(AppLocalizations l10n) => [
     for (final what in [
       l10n.calendarOverview,
+      l10n.reportTitle,
       l10n.alertsTitle,
       l10n.calendarSettingsRow,
       l10n.quickAlarmTitle,
@@ -203,6 +204,20 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   void _say(GuideLine report) {
     _coach.say(report);
     _coachRevision.value++;
+  }
+
+  /// The title menu's other pages: each says the page it would open. The
+  /// menu never hands back the page it is on, and this page is the
+  /// calendar.
+  void _openPage(CalendarViewPage page) {
+    switch (page) {
+      case CalendarViewPage.calendar:
+        return;
+      case CalendarViewPage.overview:
+        _say((l10n) => l10n.calendarGuideWouldOpen(l10n.calendarOverview));
+      case CalendarViewPage.report:
+        _say((l10n) => l10n.calendarGuideWouldOpen(l10n.reportTitle));
+    }
   }
 
   /// An action that is no tour step: a standing report belonged to the one
@@ -273,8 +288,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       appBar: GuideCalendarBar(
         format: demo?.format ?? CalendarFormat.month,
         onFormatSelected: demo == null ? null : (format) => _setFormat(format),
-        onPageSelected: (_) =>
-            _say((l10n) => l10n.calendarGuideWouldOpen(l10n.calendarOverview)),
+        onPageSelected: _openPage,
         // In the saved filters' slot, which the demo has no use for;
         // disabled, never hidden, until there is something to undo — a
         // change to the demo or a step of the tour.

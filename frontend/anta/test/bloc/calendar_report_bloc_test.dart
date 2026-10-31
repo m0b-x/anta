@@ -16,6 +16,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/markdown_color_syntax.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -581,6 +582,34 @@ void main() {
     },
   );
 
+  test('a report digest\'s look on an open report sets the period, the home '
+      'and the categories; the categories persist, the period never', () async {
+    await settings.setCalendarReportPeriod(
+      const OverviewRollingPeriod(OverviewRollingPreset.last90Days),
+      today: today,
+    );
+    final service = _FakeReportService();
+    final bloc = build(service);
+    addTearDown(bloc.close);
+    await openReady(bloc);
+    final lastWeek = OverviewWeekPeriod(DateTime.utc(2026, 10, 19));
+
+    bloc.add(ReportLookArrived((period: lastWeek, categoryIds: {'gym'})));
+    await pumpEventQueue();
+
+    final ready = bloc.state as ReportReady;
+    expect(ready.period, lastWeek);
+    expect(ready.home, lastWeek);
+    expect(ready.categoryIds, {'gym'});
+    expect(service.requests.last.span, (
+      start: DateTime.utc(2026, 10, 19),
+      end: DateTime.utc(2026, 10, 25),
+    ));
+    expect(service.requests.last.categoryIds, {'gym'});
+    expect(await stored(SettingsKeys.reportCategoryIds), 'gym');
+    expect(await stored(SettingsKeys.reportPeriod), 'preset:last90Days');
+  });
+
   test(
     'the stored period and categories are what a plain open shows',
     () async {
@@ -657,6 +686,32 @@ void main() {
       (bloc.state as ReportReady).period,
       const OverviewMonthPeriod(2026, 10),
     );
+  });
+
+  test('every shown state carries the palette and the haptic switch, and a '
+      'resume re-reads both', () async {
+    await settings.setHapticFeedback(false);
+    await db.userSettingsDao.setValue(
+      SettingsKeys.markdownCustomColors,
+      'brand=ff112233',
+    );
+    final bloc = build(_FakeReportService());
+    addTearDown(bloc.close);
+    final states = await openReady(bloc);
+    final shown = states.whereType<ReportShown>().toList();
+    expect(shown.whereType<ReportFolding>(), isNotEmpty);
+    for (final state in shown) {
+      expect(state.palette.source, 'brand=ff112233');
+      expect(state.hapticFeedback, isFalse);
+    }
+
+    await settings.setHapticFeedback(true);
+    await db.userSettingsDao.deleteValue(SettingsKeys.markdownCustomColors);
+    bloc.add(const ReportResumed());
+    await pumpEventQueue();
+    final ready = bloc.state as ReportReady;
+    expect(ready.palette, MarkdownColorPalette.presets);
+    expect(ready.hapticFeedback, isTrue);
   });
 
   test('a resume with nothing moved emits nothing', () async {

@@ -9,6 +9,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/l10n/app_localizations_ro.dart';
 import 'package:anta/models/calendar_guide_content.dart';
 import 'package:anta/pages/calendar_guide_topic_page.dart';
 import 'package:anta/services/settings_service.dart';
@@ -123,6 +124,12 @@ const Map<CalendarGuideTopic, List<String>> _slugs = {
     'open-often',
   ],
   CalendarGuideTopic.attendance: ['assume', 'rail', 'per-day'],
+  CalendarGuideTopic.report: [
+    'report-open',
+    'report-categories',
+    'report-missed',
+    'report-digest',
+  ],
   CalendarGuideTopic.categories: ['category', 'cat-change', 'cat-alerts'],
   CalendarGuideTopic.finding: ['filters', 'overview'],
   CalendarGuideTopic.setup: ['settings', 'language'],
@@ -310,6 +317,19 @@ void main() {
           contains(contains('$open${l10n.upcomingShowFasting}$close')),
         );
       });
+
+      testWidgets('${locale.languageCode}: report', (tester) async {
+        await tester.pumpWidget(
+          _host(CalendarGuideTopic.report, locale: locale),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollTo(tester, _row('report-digest'));
+        expect(
+          _textsUnder(tester, _row('report-digest')),
+          contains(contains('$open${l10n.reportSendWeekly}$close')),
+        );
+      });
     }
   });
 
@@ -388,4 +408,63 @@ void main() {
       }
     },
   );
+
+  // The report page has no card, so the stage groups never reach it: its
+  // lead and four two-sentence rows are checked here.
+  group(
+    'the report page: no overflow and no clipped label at text scale 2.0',
+    () {
+      for (final locale in const [Locale('de'), Locale('ro')]) {
+        for (final size in const [Size(360, 780), Size(412, 915)]) {
+          for (final brightness in Brightness.values) {
+            testWidgets('${locale.languageCode} ${size.width.toInt()}×'
+                '${size.height.toInt()} ${brightness.name}', (tester) async {
+              tester.view.physicalSize = size;
+              tester.view.devicePixelRatio = 1;
+              addTearDown(tester.view.reset);
+
+              await tester.pumpWidget(
+                _host(
+                  CalendarGuideTopic.report,
+                  locale: locale,
+                  brightness: brightness,
+                  textScaler: const TextScaler.linear(2.0),
+                ),
+              );
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              _expectNoClippedText(tester);
+
+              for (final slug in _slugs[CalendarGuideTopic.report]!) {
+                await _scrollTo(tester, _row(slug));
+                await tester.pumpAndSettle();
+                expect(_row(slug), findsOneWidget, reason: slug);
+                expect(tester.takeException(), isNull);
+                _expectNoClippedText(tester);
+              }
+            });
+          }
+        }
+      }
+    },
+  );
+
+  // The lead names the page through its placeholder: each language's own
+  // word, in its own quotes.
+  for (final (locale, l10n, open, close) in [
+    (const Locale('de'), AppLocalizationsDe() as AppLocalizations, '„', '“'),
+    (const Locale('ro'), AppLocalizationsRo() as AppLocalizations, '„', '”'),
+  ]) {
+    testWidgets('${locale.languageCode}: the report lead quotes the page\'s '
+        'name', (tester) async {
+      await tester.pumpWidget(
+        _host(CalendarGuideTopic.report, locale: locale),
+      );
+      await tester.pumpAndSettle();
+
+      final lead = CalendarGuideTopic.report.lead(l10n)!;
+      expect(lead, startsWith('$open${l10n.reportTitle}$close'));
+      expect(find.text(lead), findsOneWidget);
+    });
+  }
 }

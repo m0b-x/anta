@@ -1,0 +1,57 @@
+# The Report page (docs/calendar-report-roadmap.md §4.2–§4.3, slices S2–S3):
+# the view menu's third entry, the band's Period menu moved to Last 90 days
+# (the seed's routines started 28 and 10 days ago, so a run on the first of
+# a month would find This month thin), the Strength group closed and
+# reopened by its header, the Lifting aggregate opening its detail sheet in
+# place, the Missed card's Other group grown by its "n more" row and folded
+# back, the footer's three rows, then back to the calendar through the view
+# menu.
+# - Group and row ids carry the seed's category and event ids. The Missed
+#   rows are Standup's assumed-absent workdays and carry dates a flow cannot
+#   pin to a weekday, so the flow drives the group's disclosure row, which
+#   is there whenever more than four workdays passed — the seed's ten days
+#   hold at least six.
+# - "n more" and "Show less" share one id (D38), so the same tap grows and
+#   folds the group; the row is waited on after the fold so a second tap
+#   never lands mid-animation.
+# - The footer sits below the fold on a phone even for This month (the
+#   seed's groups fill the screen), and `expect` never scrolls: the footer's
+#   rows are checked only after the scroll-to that reaches them.
+tap id:calendar-view-menu
+wait id:calendar-report-open
+tap id:calendar-report-open
+wait id:report-body
+wait id:report-nav-title
+expect id:report-tile-events
+shot 28_report_this_month
+tap id:report-nav-title
+wait id:report-period-last-90-days
+tap id:report-period-last-90-days
+wait id:report-period-last-90-days --gone
+wait id:report-group-categories-qa-cal-strength
+expect id:report-routine-qa-cal-lift
+shot 28_report_last_90_days
+tap id:report-group-categories-qa-cal-strength
+wait id:report-routine-qa-cal-lift --gone
+tap id:report-group-categories-qa-cal-strength
+wait id:report-routine-qa-cal-lift
+tap id:report-routine-qa-cal-lift
+wait id:event-detail-close
+expect "Lifting session"
+shot 28_report_detail
+tap id:event-detail-close
+wait id:event-detail-close --gone
+scroll-to id:report-group-more-missed-other --in id:report-body --max 20
+tap id:report-group-more-missed-other
+wait id:report-group-more-missed-other
+shot 28_report_missed_expanded
+tap id:report-group-more-missed-other
+wait id:report-group-more-missed-other
+scroll-to id:report-show-list --in id:report-body --max 30
+expect id:report-show-list id:report-share id:report-send
+shot 28_report_footer
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+errors

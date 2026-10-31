@@ -509,8 +509,17 @@ abstract final class SemanticsIds {
   /// month (1–28), the lead in days — because its label is the locale's.
   static const String digestSheetClose = 'digest-sheet-close';
   static const String digestSheetSave = 'digest-sheet-save';
+
+  /// The sheet's scrolling body — a container, so `scroll-to … --in
+  /// id:digest-sheet-body` swipes the rows and not the header above them.
+  static const String digestSheetBody = 'digest-sheet-body';
   static const String digestName = 'digest-name';
   static const String digestCategories = 'digest-categories';
+
+  /// The Shows row and its items, keyed `upcoming`, `week-report` and
+  /// `month-report`.
+  static const String digestShows = 'digest-shows';
+  static String digestShowsItem(String name) => 'digest-shows-$name';
   static const String digestCadence = 'digest-cadence';
   static String digestCadenceItem(String name) => 'digest-cadence-$name';
   static const String digestAnchor = 'digest-anchor';
@@ -826,6 +835,45 @@ abstract final class SemanticsIds {
   static const String reportShowList = 'report-show-list';
   static const String reportShare = 'report-share';
   static const String reportSend = 'report-send';
+
+  /// A category group's header, by its card's `ReportCard` name:
+  /// `report-group-categories-<categoryId>`, `-missed-…`, `-ahead-…` — one
+  /// category heads a group in each card, so the card is part of the id.
+  static String reportGroup(String card, String categoryId) =>
+      'report-group-$card-$categoryId';
+
+  /// A group's disclosure row, one id whether it reads "n more" or "Show
+  /// less", so a flow taps the same target both ways.
+  static String reportGroupMore(String card, String categoryId) =>
+      'report-group-more-$card-$categoryId';
+
+  /// A group's "Show as list" row, under an expansion capped at
+  /// `ReportMetrics.maxListRows`; its own id beside [reportGroupMore], since
+  /// both rows stand under one capped group.
+  static String reportGroupList(String card, String categoryId) =>
+      'report-group-list-$card-$categoryId';
+
+  /// The "n more categories" row under the Categories card, past
+  /// `ReportMetrics.maxCategoryRows` groups; one per page.
+  static const String reportCategoriesMore = 'report-categories-more';
+
+  /// The "n more categories" sheet's ✕, which closes it with nothing picked.
+  static const String reportMoreClose = 'report-more-close';
+
+  /// The "n more categories" sheet's one scroll of the remaining groups;
+  /// its groups carry the page's [reportGroup] ids.
+  static const String reportMoreList = 'report-more-list';
+
+  /// A routine's aggregate row; one per event in a card.
+  static String reportRoutine(String eventId) => 'report-routine-$eventId';
+
+  /// A dated row, the [overviewRow] shape.
+  static String reportRow(String eventId, DateTime day) =>
+      'report-row-$eventId-${_isoDate(day)}';
+
+  /// A Missed row's presence button, a node beside the [reportRow].
+  static String reportRowPresence(String eventId, DateTime day) =>
+      'report-row-presence-$eventId-${_isoDate(day)}';
 
   static const String permissionsPromptContinue = 'permissions-prompt-continue';
   static const String permissionsPromptNotNow = 'permissions-prompt-not-now';

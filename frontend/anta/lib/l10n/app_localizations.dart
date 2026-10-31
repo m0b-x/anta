@@ -9070,6 +9070,30 @@ abstract class AppLocalizations {
   /// **'Edit digest'**
   String get digestEdit;
 
+  /// Digest sheet row label for what a digest lists: what is coming up, or the report of the week or month that just ended (Shows · Upcoming)
+  ///
+  /// In en, this message translates to:
+  /// **'Shows'**
+  String get digestShows;
+
+  /// Shows row value: the digest lists the events coming up in its span, from the day it fires
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming'**
+  String get digestShowsUpcoming;
+
+  /// Shows row value: the digest is the report of the calendar week that ended before it fires
+  ///
+  /// In en, this message translates to:
+  /// **'The week just ended'**
+  String get digestShowsWeekReport;
+
+  /// Shows row value: the digest is the report of the calendar month that ended before it fires
+  ///
+  /// In en, this message translates to:
+  /// **'The month just ended'**
+  String get digestShowsMonthReport;
+
   /// Digest sheet row label for the cadence; its value is Day, Week or Month (Every · Month)
   ///
   /// In en, this message translates to:
@@ -9189,6 +9213,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Monthly on the {day}, {time}'**
   String digestDescribeMonthly(String day, String time);
+
+  /// How a weekly report digest fires (it sums up the week that just ended). weekday is a full weekday name as intl writes it inside a sentence
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly report on {weekday}, {time}'**
+  String digestDescribeWeeklyReport(String weekday, String time);
+
+  /// How a monthly report digest fires (it sums up the month that just ended). day is digestOnDayOfMonth (1st)
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly report on the {day}, {time}'**
+  String digestDescribeMonthlyReport(String day, String time);
+
+  /// Opens the title of a weekly report notification, before the categories it covers (Weekly report · Gym)
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly report'**
+  String get digestReportWeeklyTitle;
+
+  /// Opens the title of a monthly report notification, before the categories it covers (Monthly report · Birthday)
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly report'**
+  String get digestReportMonthlyTitle;
+
+  /// The span of a weekly report digest: the calendar week that ended before it fires, inside digestCountPeriod (5 events last week) — lowercase, mid-sentence
+  ///
+  /// In en, this message translates to:
+  /// **'last week'**
+  String get digestPeriodLastWeek;
+
+  /// The span of a monthly report digest: the calendar month that ended before it fires, inside digestCountPeriod (5 events last month) — lowercase, mid-sentence
+  ///
+  /// In en, this message translates to:
+  /// **'last month'**
+  String get digestPeriodLastMonth;
+
+  /// The whole body of a weekly report notification armed before the week had ended, so its numbers were not known yet
+  ///
+  /// In en, this message translates to:
+  /// **'Last week\'s report is ready'**
+  String get digestReportReadyWeek;
+
+  /// The whole body of a monthly report notification armed before the month had ended, so its numbers were not known yet
+  ///
+  /// In en, this message translates to:
+  /// **'Last month\'s report is ready'**
+  String get digestReportReadyMonth;
+
+  /// The first line of a report notification: the categories it covers, then its facts joined by middle dots (Gym, Cardio — 5 of 6 attended · 6 h · 1 missed)
+  ///
+  /// In en, this message translates to:
+  /// **'{categories} — {facts}'**
+  String digestReportSummary(String categories, String facts);
 
   /// First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it
   ///
@@ -11131,6 +11209,12 @@ abstract class AppLocalizations {
   /// **'Totals'**
   String get reportSectionTotals;
 
+  /// Section label above the report's card of category groups: each chosen category with what happened in it over the period
+  ///
+  /// In en, this message translates to:
+  /// **'Categories'**
+  String get reportSectionCategories;
+
   /// Section label above the report's column chart of occurrences per day, week or month
   ///
   /// In en, this message translates to:
@@ -11269,6 +11353,18 @@ abstract class AppLocalizations {
   /// **'{delta} less than {period}'**
   String reportDeltaLess(String delta, String period);
 
+  /// Screen reader wording of a report count tile's change against the previous period, when it grew (events, planned, attended, missed, tasks; hours use reportDeltaMore)
+  ///
+  /// In en, this message translates to:
+  /// **'{delta, plural, one {{delta} more than {period}} other {{delta} more than {period}}}'**
+  String reportDeltaMoreCount(int delta, String period);
+
+  /// Screen reader wording of a report count tile's change against the previous period, when it shrank (events, planned, attended, missed, tasks; hours use reportDeltaLess)
+  ///
+  /// In en, this message translates to:
+  /// **'{delta, plural, one {{delta} fewer than {period}} other {{delta} fewer than {period}}}'**
+  String reportDeltaFewerCount(int delta, String period);
+
   /// Screen reader wording of a report tile that did not change against the previous period
   ///
   /// In en, this message translates to:
@@ -11316,6 +11412,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Share report'**
   String get reportShare;
+
+  /// Progress message while the report is written as a Markdown file for sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Exporting report...'**
+  String get exportingReport;
+
+  /// Snackbar after the report was handed to the share sheet as a Markdown file
+  ///
+  /// In en, this message translates to:
+  /// **'Report exported'**
+  String get reportExported;
+
+  /// Snackbar prefix when the report could not be written or shared; the error message follows after a colon
+  ///
+  /// In en, this message translates to:
+  /// **'Could not export the report'**
+  String get reportExportError;
 
   /// Report footer row on a week period, setting up a weekly notification with this report
   ///
@@ -11382,6 +11496,176 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'of {total}'**
   String reportOfTotalOnly(String total);
+
+  /// Row at the end of a report category group that shows the group's remaining events in place
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 more} other {{count} more}}'**
+  String reportGroupMore(int count);
+
+  /// Row under the report's Categories card when more categories have events than the card shows; opens the rest
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 more category} other {{count} more categories}}'**
+  String reportMoreCategories(int count);
+
+  /// Title of the sheet listing the report's categories past the ones the Categories card shows
+  ///
+  /// In en, this message translates to:
+  /// **'More categories'**
+  String get reportMoreCategoriesTitle;
+
+  /// What a screen reader says for the report group's 'n more' row; category is the group's category name
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 more in {category}} other {{count} more in {category}}}'**
+  String reportGroupMoreSpoken(int count, String category);
+
+  /// Row at the end of an expanded report category group that folds it back to its first rows
+  ///
+  /// In en, this message translates to:
+  /// **'Show less'**
+  String get reportGroupLess;
+
+  /// What a screen reader says for the report group's 'Show less' row; category is the group's category name
+  ///
+  /// In en, this message translates to:
+  /// **'Show less of {category}'**
+  String reportGroupLessSpoken(String category);
+
+  /// Caption of a routine's row in the report: attended days of the days it ran, e.g. 8 of 10 attended
+  ///
+  /// In en, this message translates to:
+  /// **'{total, plural, one {{attended} of 1 attended} other {{attended} of {total} attended}}'**
+  String reportAttendedOf(int total, int attended);
+
+  /// Part of a report row's subtitle: ticked task items of the items in the event's description, e.g. 5 of 8 tasks
+  ///
+  /// In en, this message translates to:
+  /// **'{total, plural, one {{ticked} of 1 task} other {{ticked} of {total} tasks}}'**
+  String reportTasksOf(int total, int ticked);
+
+  /// Decimal hours as a screen reader says them in the report, e.g. 13.2 hours; hours is already formatted with the locale's decimal separator
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} hours'**
+  String reportHoursSpoken(String hours);
+
+  /// A whole number of hours as a screen reader says them in the report
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 hour} other {{count} hours}}'**
+  String reportWholeHoursSpoken(int count);
+
+  /// Minutes under an hour as a screen reader says them in the report
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 minute} other {{count} minutes}}'**
+  String reportMinutesSpoken(int count);
+
+  /// The day that opens a report row's subtitle, e.g. Thu 8; weekday is the short weekday name, day the day of the month
+  ///
+  /// In en, this message translates to:
+  /// **'{weekday} {day}'**
+  String reportRowDay(String weekday, String day);
+
+  /// The day that opens a report row's subtitle when the period spans several months, e.g. Thu 8 Oct; month is the short month name
+  ///
+  /// In en, this message translates to:
+  /// **'{weekday} {day} {month}'**
+  String reportRowDayMonth(String weekday, String day, String month);
+
+  /// What a screen reader says for the 'Show as list' row under a long report category group; category is the group's category name
+  ///
+  /// In en, this message translates to:
+  /// **'Show {category} as a list'**
+  String reportGroupListSpoken(String category);
+
+  /// Calendar guide hub row and page title: the Report page
+  ///
+  /// In en, this message translates to:
+  /// **'See what happened'**
+  String get calendarGuidePageReport;
+
+  /// Calendar guide hub row caption under the Report page's title
+  ///
+  /// In en, this message translates to:
+  /// **'Totals, missed days and what is ahead'**
+  String get calendarGuidePageReportCaption;
+
+  /// Calendar guide: the line under the Report page's heading; report is the Report page's name
+  ///
+  /// In en, this message translates to:
+  /// **'“{report}” counts a week, a month or a year, category by category.'**
+  String calendarGuideReportLead(String report);
+
+  /// Calendar guide row title on the Report page: where the Report is opened
+  ///
+  /// In en, this message translates to:
+  /// **'Opening it'**
+  String get calendarGuideReportOpenTitle;
+
+  /// Calendar guide paragraph: the title menu's three pages, then the Report's period; calendar, overview and report are the pages' names, thisWeek, lastMonth and custom three of the period menu's rows
+  ///
+  /// In en, this message translates to:
+  /// **'Open it from the title: “{calendar}” · “{overview}” · “{report}”. The title between the arrows picks the period — “{thisWeek}”, “{lastMonth}”, “{custom}”; the arrows step by the period\'s own length.'**
+  String calendarGuideReportOpenBody(
+    String calendar,
+    String overview,
+    String report,
+    String thisWeek,
+    String lastMonth,
+    String custom,
+  );
+
+  /// Calendar guide row title on the Report page: choosing the categories
+  ///
+  /// In en, this message translates to:
+  /// **'Which categories'**
+  String get calendarGuideReportCategoriesTitle;
+
+  /// Calendar guide paragraph about the Report's category filter and its groups; categories is the filter button's tooltip, max the most groups the card shows, moreCategories the card's 'n more categories' row label with a sample count, rows the rows a group opens at, more a group's 'n more' row label with a sample count
+  ///
+  /// In en, this message translates to:
+  /// **'The “{categories}” button narrows the page to the ones you choose; below, one group per category, with a meter against the biggest — past {max} categories the rest sit behind “{moreCategories}”, which opens a sheet. A group opens at {rows} rows; “{more}” shows the rest in place, a tap on its header folds it.'**
+  String calendarGuideReportCategoriesBody(
+    String categories,
+    int max,
+    String moreCategories,
+    int rows,
+    String more,
+  );
+
+  /// Calendar guide row title on the Report page: the Missed card
+  ///
+  /// In en, this message translates to:
+  /// **'What you missed'**
+  String get calendarGuideReportMissedTitle;
+
+  /// Calendar guide paragraph about the Report's Missed card; missed is the card's title, markPresent the presence button's tooltip on a missed row
+  ///
+  /// In en, this message translates to:
+  /// **'“{missed}” lists the sessions you marked or assumed absent; tap “{markPresent}” beside a row and the numbers update.'**
+  String calendarGuideReportMissedBody(String missed, String markPresent);
+
+  /// Calendar guide row title on the Report page: the weekly or monthly report notification
+  ///
+  /// In en, this message translates to:
+  /// **'Every week or month by itself'**
+  String get calendarGuideReportDigestTitle;
+
+  /// Calendar guide paragraph about the report digest and sharing; weekly and monthly are the Report footer's row on a week and on a month, shows the digest editor's Shows row and weekReport and monthReport its two report values, share the share row's label
+  ///
+  /// In en, this message translates to:
+  /// **'On a week “{weekly}”, on a month “{monthly}”, opens a digest of the period just ended — save it and it arrives on the first day of the next week or month: a digest with “{shows}” set to “{weekReport}” or “{monthReport}”. “{share}” writes the page as Markdown.'**
+  String calendarGuideReportDigestBody(
+    String weekly,
+    String monthly,
+    String shows,
+    String weekReport,
+    String monthReport,
+    String share,
+  );
 }
 
 class _AppLocalizationsDelegate

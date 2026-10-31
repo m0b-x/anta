@@ -1374,6 +1374,20 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   }
 
   void _onImportExportState(BuildContext context, ImportExportState state) {
+    final operation = switch (state) {
+      ImportExportInitial() => null,
+      ImportExportInProgress() => state.operation,
+      ImportExportExportSuccess() => state.operation,
+      ImportExportImportSuccess() => state.operation,
+      ImportExportFailure() => state.operation,
+    };
+    // The calendar's and the report's exports are answered by the page that
+    // started them (`CalendarExportController`, D46): this page stays under
+    // them on the stack, and its dialog and bar would stack over theirs.
+    if (operation == ImportExportOperation.exportCalendar ||
+        operation == ImportExportOperation.exportText) {
+      return;
+    }
     final l10n = AppLocalizations.of(context)!;
     if (state is ImportExportInProgress) {
       if (_ioLoadingDialogOpen) return;
@@ -1425,6 +1439,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         return l10n.exportingSelection;
       case ImportExportOperation.exportCalendar:
         return l10n.exportingEvents;
+      case ImportExportOperation.exportText:
+        return l10n.exportingReport;
       case ImportExportOperation.importFile:
       case ImportExportOperation.importArchive:
         return l10n.importingFile;
@@ -1441,6 +1457,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         return l10n.selectionExportError;
       case ImportExportOperation.exportCalendar:
         return l10n.eventsExportError;
+      case ImportExportOperation.exportText:
+        return l10n.reportExportError;
       case ImportExportOperation.importFile:
       case ImportExportOperation.importArchive:
         return l10n.importFileError;

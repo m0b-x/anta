@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../constants/alert_constants.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/date_range.dart';
 import '../models/event_digest.dart';
@@ -76,12 +77,14 @@ abstract final class DigestPlanner {
   /// order, each at its next [DigestHorizon.perDigest] instants strictly after
   /// [now], soonest first. An instant whose span lists nothing is left out
   /// unless the digest says [EventDigest.includeEmpty]; the instant after it
-  /// is not looked for in its place.
+  /// is not looked for in its place. [weekStart] is the calendar's, read by
+  /// a weekly report's span alone.
   static List<PlannedDigest> plan({
     required List<EventDigest> digests,
     required List<CalendarEvent> events,
     required DigestHorizon horizon,
     required DateTime now,
+    CalendarWeekStart weekStart = CalendarWeekStart.monday,
   }) {
     final enabled = [
       for (final digest in digests)
@@ -90,7 +93,7 @@ abstract final class DigestPlanner {
     final planned = <PlannedDigest>[];
     for (final digest in enabled.take(horizon.maxDigests)) {
       for (final fire in _fires(digest, now).take(horizon.perDigest)) {
-        final span = spanFor(digest, fire.day);
+        final span = spanFor(digest, fire.day, weekStart: weekStart);
         final entries = EventAgenda.occurrencesInRange(
           events: events,
           from: span.start,
@@ -125,26 +128,55 @@ abstract final class DigestPlanner {
   /// `fireDay + leadDays`, one day, seven days, or up to the day before the
   /// same day next month — so monthly on the 1st is the calendar month.
   /// Date-only UTC arithmetic throughout, which no DST can move.
-  static DateRange spanFor(EventDigest digest, DateTime fireDayUtc) {
+  ///
+  /// A report cadence looks back instead and ignores `leadDays`: the last
+  /// whole week starting on [weekStart], or the calendar month, that ended
+  /// before the fire day — never a span holding the fire day, so the numbers
+  /// are final by the time they are read.
+  static DateRange spanFor(
+    EventDigest digest,
+    DateTime fireDayUtc, {
+    CalendarWeekStart weekStart = CalendarWeekStart.monday,
+  }) {
     final start = DateTime.utc(
       fireDayUtc.year,
       fireDayUtc.month,
       fireDayUtc.day + _leadOf(digest),
     );
-    final end = switch (digest.cadence) {
-      DigestCadence.daily => start,
-      DigestCadence.weekly => DateTime.utc(
-        start.year,
-        start.month,
-        start.day + 6,
+    return switch (digest.cadence) {
+      DigestCadence.daily => (start: start, end: start),
+      DigestCadence.weekly => (
+        start: start,
+        end: DateTime.utc(start.year, start.month, start.day + 6),
       ),
-      DigestCadence.monthly => DateTime.utc(
-        start.year,
-        start.month + 1,
-        start.day - 1,
+      DigestCadence.monthly => (
+        start: start,
+        end: DateTime.utc(start.year, start.month + 1, start.day - 1),
+      ),
+      DigestCadence.weeklyReport => _weekEndedBefore(fireDayUtc, weekStart),
+      DigestCadence.monthlyReport => (
+        start: DateTime.utc(fireDayUtc.year, fireDayUtc.month - 1, 1),
+        end: DateTime.utc(fireDayUtc.year, fireDayUtc.month, 0),
       ),
     };
-    return (start: start, end: end);
+  }
+
+  /// The last whole week starting on [weekStart] that ends before [dayUtc]:
+  /// the week holding [dayUtc], stepped back seven days.
+  static DateRange _weekEndedBefore(
+    DateTime dayUtc,
+    CalendarWeekStart weekStart,
+  ) {
+    final back = (dayUtc.weekday - weekStart.weekday) % DateTime.daysPerWeek;
+    final weekOfDay = dayUtc.day - back;
+    return (
+      start: DateTime.utc(
+        dayUtc.year,
+        dayUtc.month,
+        weekOfDay - DateTime.daysPerWeek,
+      ),
+      end: DateTime.utc(dayUtc.year, dayUtc.month, weekOfDay - 1),
+    );
   }
 
   /// [digest]'s next [count] fire instants strictly after [now], soonest
@@ -186,11 +218,13 @@ abstract final class DigestPlanner {
           yield DateTime.utc(today.year, today.month, today.day + offset);
         }
       case DigestCadence.weekly:
+      case DigestCadence.weeklyReport:
         final first = (anchor - today.weekday) % DateTime.daysPerWeek;
         for (var offset = first; ; offset += DateTime.daysPerWeek) {
           yield DateTime.utc(today.year, today.month, today.day + offset);
         }
       case DigestCadence.monthly:
+      case DigestCadence.monthlyReport:
         // The anchor is at most 28, so every month has the day.
         final skip = today.day > anchor ? 1 : 0;
         for (var month = today.month + skip; ; month++) {

@@ -4,10 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:anta/constants/calendar_colors.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/widgets/agenda_day_list_rows.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
+import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 AgendaDayListEntry _entry(DateTime day, String title, {bool missed = false}) {
@@ -388,6 +390,60 @@ void main() {
             .dividerIndent,
         FormMetrics.dividerIndentTitle,
       );
+    });
+
+    testWidgets('avatars and fadeMissed default to the avatar and the fade; '
+        'off, the leading slot is empty and a missed entry is whole', (
+      tester,
+    ) async {
+      final rows = build([jan5]);
+      await pumpBuilder(tester, plain, rows);
+      expect(find.byType(EventAvatar), findsNWidgets(2));
+      expect(
+        find.ancestor(of: find.text('Row'), matching: find.byType(Opacity)),
+        findsOneWidget,
+      );
+
+      await pumpBuilder(
+        tester,
+        (r) => AgendaDayListRowBuilder(
+          rows: r,
+          today: today,
+          avatars: false,
+          fadeMissed: false,
+        ),
+        rows,
+      );
+      expect(find.byType(EventAvatar), findsNothing);
+      expect(
+        find.ancestor(of: find.text('Row'), matching: find.byType(Opacity)),
+        findsNothing,
+      );
+      // The 40 dp slot stays, so the title keeps the avatar row's column.
+      final title = tester.getTopLeft(find.text('Squat'));
+      expect(
+        title.dx,
+        RowMetrics.groupInset + FormMetrics.rowLeadingSize + FormMetrics.gap,
+      );
+    });
+
+    testWidgets('entryRow draws an entry unshelled', (tester) async {
+      final builder = AgendaDayListRowBuilder(rows: const [], today: today);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) =>
+                  builder.entryRow(context, _entry(jan5, 'Squat')),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Squat'), findsOneWidget);
+      expect(find.byType(FormRowShell), findsNothing);
     });
 
     testWidgets('an entry tap hands back its entry; the pencil shows only '

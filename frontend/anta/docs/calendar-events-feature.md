@@ -7527,3 +7527,90 @@ three cards. Gate: analyze clean, suite +11264 ~10 −1 (the Windows-only
 `qa errors` empty. No data semantics changed; nothing a demo does
 writes. The strings are `calendarGuide*` keys in the three ARBs (§8.4 of
 the record).
+
+## Addendum (2026-10-31): the Report page and report digests
+
+The owner asked on 2026-10-30 for an "analytics mode" of the calendar — pick
+a week, a month or a year, pick categories, see what happened — that could
+also arrive as a scheduled weekly report, and then for the same report to
+serve birthdays, to-dos and "nice events" as well as training. The design
+record is `docs/calendar-report-roadmap.md`: the owner delegated every
+lettered decision ("free will … the focus on this feature is quality"), the
+lead D-numbered them (D1–D24), added its own as the build taught them
+(D25–D44), and ran one Opus designer before the page, one implementer and
+one reviewer per slice, a design reviewer and the device pass after S3.
+Built overnight 2026-10-30 → 31; S0–S2 are `08470643`, the rest one commit.
+
+**Placement.** A third page under the title's view menu — Calendar ·
+Overview · Report (`CalendarViewPage.report`, a stamped
+`NavDestinationKind.calendarReport`) — not a fourth overview mode:
+`AgendaDayListMode` is shared with the day-list sheet and the guide's
+practice card, and the coach copy says "three ways to see the same events".
+`AppNavigator.switchCalendarView` collapses between the three views with one
+transition; the overview's menu hands the report its period and categories.
+
+**Periods.** `OverviewWeekPeriod` / `OverviewMonthPeriod` joined the year in
+`OverviewPeriod` (D25): a stepped week or month is the true neighbour, never
+a length-stepped rolling preset (which would land Last month on 31 Aug –
+30 Sep); `thisWeek` / `thisMonth` encode only while they hold today, and a
+saved view re-resolves through `OverviewView.periodOn`. The report's Period
+menu has ten rows (This week / month / year, Last 12 months, Last 90 days,
+Last / Next week / month, Custom) and no All time; a custom span over 366
+days keeps its last 366 days (D33); the stored period and allowlist are
+`calendar_report_period` / `calendar_report_categories`.
+
+**Counting.** Events = what happened; missed is never inside it, so the
+group headers sum to the tile (D26). Today's unmarked tracked occurrence is
+pending — out of every tile, listed under Ahead (D31, because
+`assumesAbsentOn` treats today like a past day). Tasks are counted per the
+text the user sees (`countTasks` over `MarkdownListSyntax`, D27). Deltas
+compare like with like (D28). The allowlist matches the stored category id,
+as the overview and the planner do; grouping resolves (D32). A wholly
+future period is a plan: Planned · Hours · Tasks and Categories only.
+
+**The page.** Page → `CalendarReportBloc` → `CalendarReportService` (owned,
+one memo of whole folds keyed on every input the fold reads) → the pure
+`CalendarReportBuilder` → one `CalendarReport` read by the page, the digest
+words and the share. Totals (D37's three-stage column rule measured on
+templates), Categories (one foldable group per category, a `FormMeterRow`
+header, four rows then "n more ▾" in place and "Show less ▴", the groups
+past the seventh in the "More categories" filler sheet), Over time (one
+accent series, the routines' missed part in `outlineVariant`), Missed (the
+presence button on every row, unfaded — 0.35 measured 2.17:1), Ahead, and
+the footer (Show as list · Share report · Send me this report weekly /
+monthly). One `Scrollable`; one `SliverList` per group (`ReportGroupStack` —
+a list per card re-anchored a later group's rows by index after a fold);
+"Show less" jumps the scroll by the removed rows' extent before the frame
+so "n more" stays under the finger; the page ends in `EndSlackSliver`
+(D39–D42) so a mark, a header close or "Show less" near the end never
+slides the content under the finger, a look change releases it and a
+keyboard's shrink is credited per layout. Row taps open the detail sheet in
+place through `EventSheetsFlow`; `AlertKeepNotice` is counted, never taken.
+
+**Report digests.** `DigestCadence.weeklyReport` / `monthlyReport` (D41),
+appended so an older build reads them as monthly-but-disabled (the digests
+record's seam). The span is the last whole week (from the user's week
+start) or the calendar month that ended before the fire day; the words are
+folded through one `CalendarReportService` per reconcile pass from the
+span's last day on (D43), else "Last week's report is ready", and the next
+pass — a presence mark requests `reconcileAllQuietly` only when an enabled
+report digest exists — rewrites them through the arm signature. The
+payload's additive `pg` key routes the tap to the report for that span and
+those categories; an older payload lands on the overview's List. The
+editor's Shows row (Upcoming · The week just ended · The month just ended)
+drives the cadence; the report's footer opens the editor pre-filled.
+
+**Share.** Markdown through `ReportMarkdown.render` — every word and number
+from `ReportLabels` — written as `anta_report_<from>-<to>.md` by
+`ImportExportBloc`'s `ExportTextRequested` and shared through `shareExport`.
+
+**Verified.** Analyze clean; the whole suite green but for the Windows-only
+`host_devices_test` and four clock-dependent guide and alert tests that read
+`DateTime.now()` and fail on a Saturday (recorded, outside this feature);
+`qa pass calendar -d emulator-5558` with the new `28_report` flow (the
+owner's own emulator held the default port); the design review confirmed
+every number of the designer's spec (§4.8) with real-font renders across
+the matrix. Deferred (§9 of the record): a midnight re-plan for report
+digests, a signed slack, `FormRowShell`'s conditional gap padding (an
+app-wide primitive change), the day list sheet's double activation, and
+the four Saturday tests.

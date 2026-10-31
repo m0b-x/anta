@@ -19,6 +19,7 @@ import '../models/alert_payload.dart';
 import '../models/alert_sound.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_report.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../utils/alert_excerpt.dart';
@@ -29,11 +30,13 @@ import '../utils/digest_planner.dart';
 import '../utils/quick_alarm.dart';
 import 'alert_gateway.dart';
 import 'calendar_event_service.dart';
+import 'calendar_report_service.dart';
 import 'category_service.dart';
 import 'database_manager.dart';
 import 'event_alert_service.dart';
 import 'event_digest_service.dart';
 import 'event_occurrence_service.dart';
+import 'event_presence_service.dart';
 import 'event_skip_service.dart';
 import 'public_holiday_service.dart';
 import 'settings_service.dart';
@@ -114,7 +117,7 @@ String alertArmSignature({
 
 /// What a digest entry is armed **under**: the pass's [context] and a hash of
 /// every word and the avatar its notification shows, and of what its tap
-/// opens — the digest, its allowlist and its span.
+/// opens — the digest, its allowlist, its span and its page.
 ///
 /// A digest's payload is frozen into its platform entry when it is armed and
 /// its instant rarely moves, so the instant alone would never see an event
@@ -136,6 +139,8 @@ String digestArmSignature({
     payload.digestSummary ?? '',
     '${payload.tintValue}',
     payload.glyphKey ?? '',
+    // Only when set, so an upcoming digest keeps the hash it was armed under.
+    ?payload.page,
   ].join('|');
   return '$context~d#${fnv1a32(shown).toRadixString(16)}';
 }
@@ -193,6 +198,11 @@ class AlertScheduler {
   late final DateTime Function() _clock;
 
   late final AlertHorizon _horizon;
+
+  /// Makes the one [CalendarReportService] a pass folds its report digests
+  /// through — a seam so a test can prove a fold that throws costs one
+  /// digest its numbers, never the pass.
+  late final CalendarReportService Function() _reportService;
 
   /// Tail of the serialized write chain, or null when nothing is in flight.
   ///
@@ -267,6 +277,7 @@ class AlertScheduler {
     required String databaseName,
     DateTime Function()? clock,
     AlertHorizon horizon = kAlertHorizon,
+    CalendarReportService Function()? reportService,
   }) {
     return _create(
       dao: db.alertRegistrationDao,
@@ -274,6 +285,7 @@ class AlertScheduler {
       databaseName: databaseName,
       clock: clock ?? DateTime.now,
       horizon: horizon,
+      reportService: reportService ?? CalendarReportService.new,
     );
   }
 
@@ -283,6 +295,7 @@ class AlertScheduler {
     required String databaseName,
     required DateTime Function() clock,
     required AlertHorizon horizon,
+    CalendarReportService Function() reportService = CalendarReportService.new,
   }) {
     final scheduler = AlertScheduler._();
     scheduler._dao = dao;
@@ -290,6 +303,7 @@ class AlertScheduler {
     scheduler._databaseName = databaseName;
     scheduler._clock = clock;
     scheduler._horizon = horizon;
+    scheduler._reportService = reportService;
     _instance = scheduler;
     DatabaseLifecycle.registerResetHandler(reset);
     return scheduler;
@@ -723,6 +737,14 @@ class AlertScheduler {
       debugPrint('[AlertScheduler] digest entries setup failed: $e');
       return const [];
     }
+    // The pass's week start, so a report row names the span that is armed.
+    var weekStart = CalendarWeekStart.monday;
+    try {
+      weekStart = await (await SettingsService.getInstance())
+          .getCalendarWeekStart();
+    } catch (e) {
+      debugPrint('[AlertScheduler] digest entries week start failed: $e');
+    }
     final digests = EventDigests.all;
     final events = eventService.events;
     final now = _clock();
@@ -731,6 +753,7 @@ class AlertScheduler {
       events: events,
       horizon: kDigestHorizon,
       now: now,
+      weekStart: weekStart,
     );
     final disabled = [
       for (final digest in digests)
@@ -748,6 +771,7 @@ class AlertScheduler {
               maxDigests: disabled.length,
             ),
             now: now,
+            weekStart: weekStart,
           );
     final disabledById = {for (final digest in disabled) digest.id: digest};
     final entries = [
@@ -1048,6 +1072,11 @@ class AlertScheduler {
     // The digests' own facade: a pass after a cold start runs before any
     // calendar page has loaded it.
     await _resolveQuietly(EventDigestService.getInstance(), 'digests');
+    // A report digest's words count attendance through the presence facade,
+    // which nothing else here reads — resolved only when one would fold.
+    if (EventDigests.all.any((d) => d.enabled && d.cadence.isReport)) {
+      await _resolveQuietly(EventPresenceService.getInstance(), 'presence');
+    }
 
     final CalendarEventService eventService;
     final AlertSettings settings;
@@ -1136,7 +1165,11 @@ class AlertScheduler {
       events: events,
       horizon: kDigestHorizon,
       now: now,
+      weekStart: weekStart,
     );
+    // One per pass (D30): the report digests' folds share its memo, and it
+    // dies with the pass, so no fold outlives the data it was read from.
+    CalendarReportService? reports;
 
     // The ids of the `fired` rows, read once a pass at most and only when
     // something needs them: a planned fire with no registration of its own
@@ -1193,7 +1226,20 @@ class AlertScheduler {
             ),
           );
         case PlannedDigest():
-          final payload = _payloadForDigest(planned, osId, weekStart);
+          final payload = _payloadForDigest(
+            planned,
+            osId,
+            weekStart,
+            report: planned.digest.cadence.isReport
+                ? _closedReport(
+                    planned,
+                    events: events,
+                    now: now,
+                    weekStart: weekStart,
+                    service: reports ??= _reportService(),
+                  )
+                : null,
+          );
           signature = digestArmSignature(context: armContext, payload: payload);
           arm = () => _gateway.scheduleDigest(planned, payload);
         default:
@@ -1979,21 +2025,39 @@ class AlertScheduler {
   /// the background never formats a day — and the avatar of the one category
   /// it lists. A digest over several categories, or over all, wears none:
   /// no one category's colour speaks for it.
+  ///
+  /// [report] is a report digest's fold of its span, null until the span
+  /// has reached its last day. Wording it shares the fold's fallback: words
+  /// that throw degrade to the ready line, never to a pass aborted with the
+  /// entries after this one unarmed.
   AlertPayload _payloadForDigest(
     PlannedDigest fire,
     int osId,
-    CalendarWeekStart weekStart,
-  ) {
+    CalendarWeekStart weekStart, {
+    CalendarReport? report,
+  }) {
     final labels = _gateway.labels;
     final strings = labels.strings;
-    final content = digestNotificationContent(
-      fire,
-      strings,
-      labels,
-      categoryLabel: (id) =>
-          CalendarCategories.labelOf(CalendarCategories.resolve(id), strings),
-      weekStart: weekStart,
-    );
+    DigestNotificationContent wordsOf(CalendarReport? report) =>
+        digestNotificationContent(
+          fire,
+          strings,
+          labels,
+          categoryLabel: (id) => CalendarCategories.labelOf(
+            CalendarCategories.resolve(id),
+            strings,
+          ),
+          weekStart: weekStart,
+          report: report,
+        );
+    DigestNotificationContent content;
+    try {
+      content = wordsOf(report);
+    } catch (e, st) {
+      if (report == null) rethrow;
+      debugPrint('[AlertScheduler] report words failed: $e\n$st');
+      content = wordsOf(null);
+    }
     final categoryIds = fire.digest.categoryIds.toList()..sort();
     final single = categoryIds.length == 1
         ? CalendarCategories.resolve(categoryIds.single)
@@ -2020,7 +2084,46 @@ class AlertScheduler {
       digestText: content.text,
       digestLines: content.lines,
       digestSummary: content.summary,
+      page: fire.digest.cadence.isReport ? AlertPayload.reportPage : null,
     );
+  }
+
+  /// The report of [fire]'s span from its last day on (date-only [now] on
+  /// or after `spanEnd`, D43), else null — the two-fires-ahead arm runs
+  /// before next week has happened, and its words wait for a later pass.
+  ///
+  /// Folded **as of the day after the span** (D45), whenever the pass runs:
+  /// on the last day itself an unmarked assume-present session would still
+  /// be pending (D31), and most users never mark the sessions they went to,
+  /// so a Sunday pass would arm Monday's words one session short with
+  /// nothing to refold them. From the fire's side the event's own default
+  /// decides the last day exactly as a pass after midnight would, and a
+  /// later mark still rewrites the words through the signature. A fold that
+  /// throws degrades to the generic line rather than the whole pass.
+  static CalendarReport? _closedReport(
+    PlannedDigest fire, {
+    required List<CalendarEvent> events,
+    required DateTime now,
+    required CalendarWeekStart weekStart,
+    required CalendarReportService service,
+  }) {
+    final today = DateTime.utc(now.year, now.month, now.day);
+    if (today.isBefore(fire.spanEnd)) return null;
+    final end = fire.spanEnd;
+    try {
+      return service.report(
+        ReportRequest(
+          span: (start: fire.spanStart, end: end),
+          categoryIds: fire.digest.categoryIds,
+          events: events,
+          today: DateTime.utc(end.year, end.month, end.day + 1),
+          weekStart: weekStart,
+        ),
+      );
+    } catch (e, st) {
+      debugPrint('[AlertScheduler] report fold failed: $e\n$st');
+      return null;
+    }
   }
 
   /// One alert of one event by id, or null once it has been removed. A plain

@@ -9,6 +9,7 @@ import 'package:anta/controllers/calendar_export_controller.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/export_format.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -170,6 +171,62 @@ void main() {
     expect(calendar.isPending, isTrue);
     expect(resets(), 0);
     expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('a text export answers its own operation with the report\'s '
+      'words, never a calendar export\'s', (tester) async {
+    final report = CalendarExportController();
+    final overview = CalendarExportController();
+    await pumpPages(tester, calendar: report, overview: overview);
+
+    report.startText(
+      contexts['calendar']!,
+      fileName: 'anta_report_20260301-20260331.md',
+      text: '# Report',
+      format: ExportFormat.markdown,
+    );
+    final request = bloc.recorded.single as ExportTextRequested;
+    expect(request.fileName, 'anta_report_20260301-20260331.md');
+    expect(request.text, '# Report');
+    expect(request.share, isTrue);
+
+    emit(
+      const ImportExportExportSuccess(
+        operation: ImportExportOperation.exportCalendar,
+        result: ExportResult(filePath: 'events.ics', eventsExported: 2),
+      ),
+    );
+    await tester.pump();
+    expect(report.isPending, isTrue);
+    expect(resets(), 0);
+
+    emit(
+      const ImportExportFailure(
+        operation: ImportExportOperation.exportText,
+        message: 'disk full',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Could not export the report: disk full'), findsOneWidget);
+    expect(report.isPending, isFalse);
+    expect(resets(), 1);
+
+    report.startText(
+      contexts['calendar']!,
+      fileName: 'a.md',
+      text: '# Report',
+      format: ExportFormat.markdown,
+    );
+    emit(
+      const ImportExportExportSuccess(
+        operation: ImportExportOperation.exportText,
+        result: ExportResult(filePath: 'a.md', format: ExportFormat.markdown),
+      ),
+    );
+    // The failure's bar leaves first.
+    await tester.pumpAndSettle();
+    expect(find.text('Report exported'), findsOneWidget);
+    expect(resets(), 2);
   });
 
   testWidgets('an export nobody here started is not answered', (tester) async {

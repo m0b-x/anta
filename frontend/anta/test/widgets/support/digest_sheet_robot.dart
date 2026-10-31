@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
@@ -119,8 +120,29 @@ class DigestSheetRobot {
     await tester.pumpAndSettle();
   }
 
+  String get showsValue =>
+      tester.widget<FormMenuRow>(_menuRow(SemanticsIds.digestShows)).value;
+
+  /// The Shows menu's labels in its order; the menu is closed again.
+  Future<List<String>> showsChoices() => _menuChoices(SemanticsIds.digestShows);
+
+  /// [slug] is `upcoming`, `week-report` or `month-report`.
+  Future<void> pickShows(String slug) => _pickFromMenu(
+    SemanticsIds.digestShows,
+    SemanticsIds.digestShowsItem(slug),
+  );
+
   String get cadenceValue =>
       tester.widget<FormMenuRow>(_menuRow(SemanticsIds.digestCadence)).value;
+
+  /// Whether the Every row opens its menu — a report's is implied.
+  bool get cadenceEnabled =>
+      tester
+          .widget<FormMenuRow<DigestCadence>>(
+            _menuRow(SemanticsIds.digestCadence),
+          )
+          .onSelected !=
+      null;
 
   Future<void> pickCadence(DigestCadence cadence) => _pickFromMenu(
     SemanticsIds.digestCadence,
@@ -136,8 +158,11 @@ class DigestSheetRobot {
 
   /// The On menu's labels in the order it lists them; the menu is closed
   /// again without a pick.
-  Future<List<String>> anchorChoices() async {
-    await _tap(SemanticsIds.digestAnchor);
+  Future<List<String>> anchorChoices() =>
+      _menuChoices(SemanticsIds.digestAnchor);
+
+  Future<List<String>> _menuChoices(String rowId) async {
+    await _tap(rowId);
     final labels = [
       for (final row in tester.widgetList<FormMenuItemRow>(
         find.byType(FormMenuItemRow, skipOffstage: false),
@@ -167,8 +192,31 @@ class DigestSheetRobot {
   String get leadValue =>
       tester.widget<FormMenuRow>(_menuRow(SemanticsIds.digestLead)).value;
 
+  /// Whether the Covers row opens its menu — a report's span is the period
+  /// that ended.
+  bool get leadEnabled =>
+      tester
+          .widget<FormMenuRow<int>>(_menuRow(SemanticsIds.digestLead))
+          .onSelected !=
+      null;
+
   Future<void> pickLead(int days) =>
       _pickFromMenu(SemanticsIds.digestLead, SemanticsIds.digestLeadItem(days));
+
+  /// What dims the row [id] — `FormMetrics.disabledOpacity` on a disabled
+  /// row — or null when nothing does.
+  double? rowOpacity(String id) {
+    final opacities = tester.widgetList<Opacity>(
+      find.descendant(of: _byId(id), matching: find.byType(Opacity)),
+    );
+    return opacities.isEmpty ? null : opacities.first.opacity;
+  }
+
+  /// The row [id]'s semantics node, as a screen reader meets it.
+  SemanticsData rowSemantics(String id) =>
+      tester.getSemantics(_byId(id)).getSemanticsData();
+
+  double rowHeight(String id) => tester.getSize(_carrier(id)).height;
 
   bool get includeEmpty => tester
       .widget<FormSwitchRow>(_switchRow(SemanticsIds.digestIncludeEmpty))

@@ -789,6 +789,35 @@ void main() {
       expect(byId(SemanticsIds.alertsDigestAdd), findsOneWidget);
     });
 
+    testWidgets('a report digest reads as a report and is titled as every '
+        'digest is (D43)', (tester) async {
+      tallSurface(tester);
+      const weekly = EventDigest(
+        id: 'r1',
+        cadence: DigestCadence.weeklyReport,
+        anchor: DateTime.monday,
+        minute: 8 * 60,
+      );
+      const monthly = EventDigest(
+        id: 'r2',
+        cadence: DigestCadence.monthlyReport,
+        minute: 8 * 60,
+        sortOrder: 1,
+      );
+      EventDigests.updateCache(List.unmodifiable(const [weekly, monthly]));
+      await pumpHub(tester, () => const [], use24HourFormat: true);
+
+      Finder inRow(String id, String text) => find.descendant(
+        of: find.byKey(ValueKey('digest-row|$id')),
+        matching: find.text(text),
+      );
+      expect(inRow('r1', 'Weekly report on Monday, 08:00'), findsOneWidget);
+      expect(inRow('r2', 'Monthly report on the 1st, 08:00'), findsOneWidget);
+      // No name and every category: "Events", as an upcoming digest's.
+      expect(inRow('r1', 'Events'), findsOneWidget);
+      expect(inRow('r2', 'Events'), findsOneWidget);
+    });
+
     testWidgets('a digest with no fire ahead reads how it fires alone', (
       tester,
     ) async {
@@ -1238,6 +1267,42 @@ void main() {
       await tester.tap(find.text('3 events today'));
       await tester.pumpAndSettle();
       expect(find.byType(DigestEditorSheet), findsOneWidget);
+    });
+
+    testWidgets("a report digest's fire row says its count over the week "
+        'that ended, mid-sentence (D45)', (tester) async {
+      const report = EventDigest(
+        id: 'r1',
+        name: 'Gym week',
+        cadence: DigestCadence.weeklyReport,
+        anchor: DateTime.monday,
+        sortOrder: 1,
+      );
+      EventDigests.updateCache(List.unmodifiable(const [birthdays, report]));
+      tallSurface(tester);
+      final at = DateTime(fireDay.year, fireDay.month, fireDay.day, 9);
+      // The Monday-start week before the fire's.
+      final monday = DateTime.utc(
+        fireDay.year,
+        fireDay.month,
+        fireDay.day - (fireDay.weekday - DateTime.monday) - 7,
+      );
+      await pumpHub(
+        tester,
+        () => const [],
+        loadDigests: () async => [
+          DigestHubEntry(
+            digest: report,
+            fireAt: at,
+            spanStart: monday,
+            spanEnd: DateTime.utc(monday.year, monday.month, monday.day + 6),
+            count: 5,
+          ),
+        ],
+      );
+
+      expect(byId(SemanticsIds.alertsDigestFire('r1', at)), findsOneWidget);
+      expect(find.text('5 events last week'), findsOneWidget);
     });
 
     testWidgets('Recent lists a digest delivery by how it fires', (

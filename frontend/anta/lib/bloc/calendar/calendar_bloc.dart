@@ -1148,6 +1148,13 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Presence write error: $e');
       return;
     }
+    // Presence arms nothing, but a report digest's words count attendance:
+    // a Sunday-night mark must reach Monday's notification. Asked only when
+    // such a digest is on, so a mark costs no pass otherwise. (A skip needs
+    // no such line: its event-scoped reconcile is already a full re-plan.)
+    if (EventDigests.all.any((d) => d.enabled && d.cadence.isReport)) {
+      unawaited(_reconcileAllAlerts(AlertReconcileReason.eventChanged));
+    }
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
     _invalidateIfPresenceIsMembership(latest);

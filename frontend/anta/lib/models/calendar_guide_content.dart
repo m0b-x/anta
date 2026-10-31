@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/report_metrics.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import 'calendar_guide_coach.dart';
@@ -136,6 +137,10 @@ enum CalendarGuideTopic {
   kinds('kinds', Icons.event_repeat_rounded),
   alerts('alerts', Icons.notifications_active_rounded),
   attendance('attendance', Icons.how_to_reg_rounded),
+
+  /// Right after attendance: the report answers "what did I do" once "did I
+  /// go" is understood.
+  report('report', Icons.bar_chart_rounded),
   categories('categories', Icons.category_rounded),
   finding('finding', Icons.search_rounded),
   setup('setup', Icons.tune_rounded),
@@ -154,6 +159,7 @@ enum CalendarGuideTopic {
     kinds => l10n.calendarGuidePageKinds,
     alerts => l10n.calendarGuidePageAlerts,
     attendance => l10n.calendarGuidePageAttendance,
+    report => l10n.calendarGuidePageReport,
     categories => l10n.calendarGuidePageCategories,
     finding => l10n.calendarGuidePageFinding,
     setup => l10n.calendarGuidePageSetup,
@@ -171,6 +177,7 @@ enum CalendarGuideTopic {
       l10n.eventPresenceMissed,
       l10n.eventShowInDayRail,
     ),
+    report => l10n.calendarGuidePageReportCaption,
     categories => l10n.calendarGuidePageCategoriesCaption,
     finding => l10n.calendarGuidePageFindingCaption(l10n.calendarOverview),
     setup => l10n.calendarGuidePageSetupCaption,
@@ -186,6 +193,7 @@ enum CalendarGuideTopic {
     kinds => l10n.calendarGuideKindsLead,
     alerts => l10n.calendarGuideAlertsLead,
     attendance => l10n.calendarGuideAttendanceLead,
+    report => l10n.calendarGuideReportLead(l10n.reportTitle),
     categories => l10n.calendarGuideCategoriesLead,
     finding => l10n.calendarGuideFindingLead,
     setup => l10n.calendarGuideSetupLead,
@@ -237,7 +245,9 @@ enum CalendarGuideTopic {
         ),
       ], (l10n) => l10n.calendarGuideCardOverview),
     ],
-    good => const [],
+    // The report has no stage: a fold over her own calendar is what it
+    // shows, and a demo calendar's numbers would teach nothing.
+    report || good => const [],
     _ => [
       GuideCardSpec(slug, _soleCardSteps, (l10n) => l10n.calendarGuideTryIt),
     ],
@@ -246,7 +256,7 @@ enum CalendarGuideTopic {
   /// The single card's steps of a page that has one, in the order she is
   /// asked for them.
   List<GuideCoachStep> get _soleCardSteps => switch (this) {
-    screen || good => const [],
+    screen || report || good => const [],
     events => [
       GuideCoachStep(
         'added',
@@ -521,6 +531,56 @@ enum CalendarGuideTopic {
         l10n.calendarGuidePerDayBody(
           l10n.eventPerOccurrenceDescriptions,
           l10n.eventDescriptionScopeThisDay,
+        ),
+      ),
+    ],
+    report => [
+      CalendarGuideRow(
+        'report-open',
+        Icons.swap_horiz_rounded,
+        l10n.calendarGuideReportOpenTitle,
+        l10n.calendarGuideReportOpenBody(
+          l10n.calendar,
+          l10n.calendarOverview,
+          l10n.reportTitle,
+          l10n.overviewPeriodThisWeek,
+          l10n.reportPeriodLastMonth,
+          l10n.upcomingPeriodCustom,
+        ),
+      ),
+      CalendarGuideRow(
+        'report-categories',
+        Icons.filter_alt_outlined,
+        l10n.calendarGuideReportCategoriesTitle,
+        // Real counts: the "more" rows' labels carry their numbers.
+        l10n.calendarGuideReportCategoriesBody(
+          l10n.calendarCategories,
+          ReportMetrics.maxCategoryRows,
+          l10n.reportMoreCategories(3),
+          ReportMetrics.groupPreviewRows,
+          l10n.reportGroupMore(3),
+        ),
+      ),
+      CalendarGuideRow(
+        'report-missed',
+        Icons.event_busy_outlined,
+        l10n.calendarGuideReportMissedTitle,
+        l10n.calendarGuideReportMissedBody(
+          l10n.reportSectionMissed,
+          l10n.eventMarkPresent,
+        ),
+      ),
+      CalendarGuideRow(
+        'report-digest',
+        Icons.notifications_rounded,
+        l10n.calendarGuideReportDigestTitle,
+        l10n.calendarGuideReportDigestBody(
+          l10n.reportSendWeekly,
+          l10n.reportSendMonthly,
+          l10n.digestShows,
+          l10n.digestShowsWeekReport,
+          l10n.digestShowsMonthReport,
+          l10n.reportShare,
         ),
       ),
     ],

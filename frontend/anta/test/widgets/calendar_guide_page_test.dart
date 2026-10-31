@@ -42,7 +42,7 @@ Finder _list() => find
     .first;
 
 /// The hub's rows top to bottom: "Start here" holds the screen and Good to
-/// know, "How do I…" the eight tasks.
+/// know, "How do I…" the nine tasks.
 final List<CalendarGuideTopic> _hubOrder = [
   CalendarGuideTopic.screen,
   CalendarGuideTopic.good,
@@ -103,14 +103,14 @@ void _expectNoClippedText(WidgetTester tester) {
 void main() {
   final en = AppLocalizationsEn();
 
-  testWidgets('the hub lists its twelve rows under its two cards', (
+  testWidgets('the hub lists its thirteen rows under its two cards', (
     tester,
   ) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
     // The two lessons and every page, Fasting days the last task (D60).
-    expect(GuidePracticeLesson.values.length + _hubOrder.length, 12);
+    expect(GuidePracticeLesson.values.length + _hubOrder.length, 13);
 
     expect(find.text(en.calendarGuideIntro), findsOneWidget);
     expect(
@@ -165,7 +165,7 @@ void main() {
   });
 
   testWidgets('"Start here" holds the two practice lessons, the screen and '
-      'Good to know, "How do I…" the eight tasks in order', (tester) async {
+      'Good to know, "How do I…" the nine tasks in order', (tester) async {
     // Tall enough that the list builds every row at once.
     tester.view.physicalSize = const Size(412, 3000);
     tester.view.devicePixelRatio = 1;
@@ -180,6 +180,7 @@ void main() {
       CalendarGuideTopic.kinds,
       CalendarGuideTopic.alerts,
       CalendarGuideTopic.attendance,
+      CalendarGuideTopic.report,
       CalendarGuideTopic.categories,
       CalendarGuideTopic.finding,
       CalendarGuideTopic.setup,
@@ -221,6 +222,11 @@ void main() {
         reason: 'row ${i - 1} before row $i',
       );
     }
+    // The Report's row by its frozen id, spelled out rather than built.
+    expect(
+      find.bySemanticsIdentifier('calendar-guide-page-report'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a hub title is drawn in the style the glyph rule measures', (

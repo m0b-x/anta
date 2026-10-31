@@ -4,6 +4,7 @@ import '../../models/agenda_day_list.dart';
 import '../../models/calendar_appearance.dart';
 import '../../models/calendar_report.dart';
 import '../../models/overview_period.dart';
+import '../../utils/markdown_color_syntax.dart';
 
 sealed class ReportState extends Equatable {
   const ReportState();
@@ -26,8 +27,9 @@ final class ReportLoading extends ReportState {
 }
 
 /// What every state past loading knows besides its report: the period shown
-/// and the one picked, the allowlist, the calendar's appearance, the day of
-/// the fold and the years a step may reach.
+/// and the one picked, the allowlist, the calendar's appearance, the
+/// palette and the haptic switch, the day of the fold and the years a step
+/// may reach.
 sealed class ReportShown extends ReportState {
   /// The period the report is on — the home, or a step away from it.
   final OverviewPeriod period;
@@ -42,6 +44,12 @@ sealed class ReportShown extends ReportState {
   /// trend's columns, and the range picker draws its grid in it.
   final CalendarAppearance appearance;
 
+  /// The markdown palette a row's detail sheet renders the description in.
+  final MarkdownColorPalette palette;
+
+  /// Whether a presence mark clicks.
+  final bool hapticFeedback;
+
   /// The day the report was asked for, date-only UTC.
   final DateTime today;
 
@@ -54,6 +62,8 @@ sealed class ReportShown extends ReportState {
     required this.home,
     required this.categoryIds,
     required this.appearance,
+    required this.palette,
+    required this.hapticFeedback,
     required this.today,
     required this.years,
   });
@@ -71,6 +81,8 @@ sealed class ReportShown extends ReportState {
     home,
     categoryIds,
     appearance,
+    palette,
+    hapticFeedback,
     today,
     years,
   ];
@@ -100,6 +112,8 @@ final class ReportFolding extends ReportShown {
     required super.home,
     required super.categoryIds,
     required super.appearance,
+    required super.palette,
+    required super.hapticFeedback,
     required super.today,
     required super.years,
   });
@@ -126,6 +140,8 @@ final class ReportReady extends ReportShown {
     required super.home,
     required super.categoryIds,
     required super.appearance,
+    required super.palette,
+    required super.hapticFeedback,
     required super.today,
     required super.years,
   });

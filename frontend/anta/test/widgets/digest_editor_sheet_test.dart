@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart' show DateFormat;
@@ -8,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_digests.dart';
+import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
@@ -109,6 +113,8 @@ void main() {
     Locale locale = const Locale('en'),
     TextScaler textScaler = TextScaler.noScaling,
     Size size = surface,
+    // The sheet's own default; a caption case passes a fixed clock.
+    DateTime Function() now = DateTime.now,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
@@ -132,6 +138,7 @@ void main() {
                   initial: initial,
                   events: events,
                   weekStart: weekStart,
+                  now: now,
                 );
                 outcome.returned = true;
               },
@@ -257,6 +264,322 @@ void main() {
     });
   });
 
+  group('the Shows row', () {
+    testWidgets('offers upcoming and the two reports, Upcoming on a new '
+        'digest', (tester) async {
+      await open(tester);
+      final robot = DigestSheetRobot(tester);
+
+      expect(robot.showsValue, 'Upcoming');
+      expect(await robot.showsChoices(), [
+        'Upcoming',
+        'The week just ended',
+        'The month just ended',
+      ]);
+      expect(robot.cadenceEnabled, isTrue);
+      expect(robot.leadEnabled, isTrue);
+    });
+
+    testWidgets('a report dims Every at its implied cadence and Covers, in '
+        'place; Upcoming brings back the cadence it had', (tester) async {
+      await open(tester);
+      final robot = DigestSheetRobot(tester);
+      await robot.pickCadence(DigestCadence.daily);
+
+      await robot.pickShows('week-report');
+      expect(robot.showsValue, 'The week just ended');
+      expect(robot.cadenceValue, 'Week');
+      expect(robot.cadenceEnabled, isFalse);
+      expect(robot.leadEnabled, isFalse);
+      expect(robot.hasAnchor, isTrue);
+
+      await robot.pickShows('month-report');
+      expect(robot.cadenceValue, 'Month');
+      expect(robot.cadenceEnabled, isFalse);
+      expect(robot.leadEnabled, isFalse);
+
+      await robot.pickShows('upcoming');
+      expect(robot.showsValue, 'Upcoming');
+      expect(robot.cadenceValue, 'Day');
+      expect(robot.cadenceEnabled, isTrue);
+      expect(robot.leadEnabled, isTrue);
+      expect(robot.hasAnchor, isFalse);
+    });
+
+    testWidgets('a week report fires on a weekday from the week start, a '
+        'month report on a day of the month', (tester) async {
+      await open(tester, weekStart: CalendarWeekStart.sunday);
+      final robot = DigestSheetRobot(tester);
+
+      await robot.pickShows('week-report');
+      // Entered from Upcoming: the week's first day (D45).
+      expect(robot.anchorValue, 'Sunday');
+      expect(await robot.anchorChoices(), [
+        'Sunday',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+      ]);
+
+      await robot.pickShows('month-report');
+      expect(robot.anchorValue, '1st');
+      final days = await robot.anchorChoices();
+      expect(days, hasLength(EventDigest.lastMonthAnchor));
+      expect(days.first, '1st');
+    });
+
+    testWidgets('Save hands back a week report with its weekday and time', (
+      tester,
+    ) async {
+      final outcome = await open(tester);
+      final robot = DigestSheetRobot(tester);
+
+      await robot.pickShows('week-report');
+      await robot.pickAnchor(DateTime.sunday);
+      await robot.pickTime(const TimeOfDay(hour: 8, minute: 0));
+      await robot.save();
+
+      final saved = savedFrom(outcome);
+      expect(saved.cadence, DigestCadence.weeklyReport);
+      expect(saved.anchor, DateTime.sunday);
+      expect(saved.minute, 8 * 60);
+    });
+
+    testWidgets('entered from an upcoming weekly digest, the week report '
+        "fires on the week's first day, and Upcoming keeps its own weekday "
+        '(D45)', (tester) async {
+      final outcome = await open(
+        tester,
+        initial: const EventDigest(
+          id: 'd1',
+          cadence: DigestCadence.weekly,
+          anchor: DateTime.sunday,
+        ),
+      );
+      final robot = DigestSheetRobot(tester);
+      expect(robot.anchorValue, 'Sunday');
+
+      await robot.pickShows('week-report');
+      expect(robot.anchorValue, 'Monday');
+
+      await robot.pickShows('upcoming');
+      expect(robot.cadenceValue, 'Week');
+      expect(robot.anchorValue, 'Sunday');
+
+      await robot.pickShows('week-report');
+      await robot.save();
+      final saved = savedFrom(outcome);
+      expect(saved.cadence, DigestCadence.weeklyReport);
+      expect(saved.anchor, DateTime.monday);
+    });
+
+    testWidgets('an edited week report keeps its weekday through the other '
+        'Shows (D45)', (tester) async {
+      final outcome = await open(
+        tester,
+        initial: const EventDigest(
+          id: 'r1',
+          cadence: DigestCadence.weeklyReport,
+          anchor: DateTime.saturday,
+        ),
+      );
+      final robot = DigestSheetRobot(tester);
+
+      await robot.pickShows('month-report');
+      await robot.pickShows('week-report');
+      expect(robot.anchorValue, 'Saturday');
+      await robot.pickShows('upcoming');
+      await robot.pickShows('week-report');
+      expect(robot.anchorValue, 'Saturday');
+
+      await robot.save();
+      expect(outcome.returned, isTrue);
+      expect(outcome.result, isNull, reason: 'the draft is as it came');
+    });
+
+    testWidgets('under a report Every and Covers are disabled where they '
+        'stand: 38 %, marked so, no tap, the same height', (tester) async {
+      await open(tester);
+      final robot = DigestSheetRobot(tester);
+      const rows = [SemanticsIds.digestCadence, SemanticsIds.digestLead];
+      final heights = {for (final id in rows) id: robot.rowHeight(id)};
+      for (final id in rows) {
+        expect(robot.rowOpacity(id), isNot(FormMetrics.disabledOpacity));
+        final data = robot.rowSemantics(id);
+        expect(
+          data.flagsCollection.isEnabled,
+          isNot(Tristate.isFalse),
+          reason: id,
+        );
+        expect(data.hasAction(SemanticsAction.tap), isTrue, reason: id);
+      }
+
+      await robot.pickShows('week-report');
+
+      for (final id in rows) {
+        expect(robot.rowOpacity(id), FormMetrics.disabledOpacity, reason: id);
+        final data = robot.rowSemantics(id);
+        expect(data.flagsCollection.isEnabled, Tristate.isFalse, reason: id);
+        expect(data.hasAction(SemanticsAction.tap), isFalse, reason: id);
+        expect(robot.rowHeight(id), heights[id], reason: id);
+      }
+      // A tap opens no menu.
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.digestCadence));
+      await tester.pumpAndSettle();
+      expect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.digestCadenceItem(DigestCadence.daily.name),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a report opened from the caller keeps its anchor; an '
+        'unchanged Save hands back nothing (D43)', (tester) async {
+      for (final (initial, shows, anchor) in const [
+        (
+          EventDigest(
+            id: 'r1',
+            cadence: DigestCadence.weeklyReport,
+            anchor: DateTime.saturday,
+            minute: 8 * 60,
+          ),
+          'The week just ended',
+          'Saturday',
+        ),
+        (
+          EventDigest(
+            id: 'r2',
+            cadence: DigestCadence.monthlyReport,
+            anchor: 15,
+            minute: 8 * 60,
+          ),
+          'The month just ended',
+          '15th',
+        ),
+      ]) {
+        final outcome = await open(tester, initial: initial);
+        final robot = DigestSheetRobot(tester);
+
+        expect(robot.showsValue, shows);
+        expect(robot.anchorValue, anchor);
+        expect(robot.cadenceEnabled, isFalse);
+
+        await robot.save();
+        expect(outcome.returned, isTrue);
+        expect(outcome.result, isNull);
+      }
+    });
+
+    testWidgets('a draft without an id is a new digest: Save hands it back '
+        'unchanged', (tester) async {
+      const draft = EventDigest(
+        id: '',
+        cadence: DigestCadence.weeklyReport,
+        anchor: DateTime.monday,
+        minute: 8 * 60,
+        categoryIds: {'gym'},
+      );
+      final outcome = await open(tester, initial: draft);
+      final robot = DigestSheetRobot(tester);
+
+      expect(find.text('New digest'), findsOneWidget);
+      expect(robot.hasDelete, isFalse);
+      expect(robot.showsValue, 'The week just ended');
+      expect(robot.categoriesValue, 'Gym');
+
+      await robot.save();
+      expect(savedFrom(outcome), draft);
+    });
+
+    testWidgets('Upcoming from a report opened by the caller is weekly', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        initial: const EventDigest(
+          id: 'r1',
+          cadence: DigestCadence.monthlyReport,
+        ),
+      );
+      final robot = DigestSheetRobot(tester);
+
+      await robot.pickShows('upcoming');
+      expect(robot.cadenceValue, 'Week');
+    });
+
+    testWidgets("the caption plans the report's span from the week start", (
+      tester,
+    ) async {
+      const report = EventDigest(
+        id: 'r1',
+        cadence: DigestCadence.weeklyReport,
+        anchor: DateTime.sunday,
+        categoryIds: {'birthday'},
+      );
+      // Wednesday 14 October 2026, noon: the fires are Sunday the 18th and
+      // the 25th at 09:00.
+      DateTime clock() => DateTime(2026, 10, 14, 12);
+      // Saturday the 17th: in the Sunday-start week the 18th reports on,
+      // in the Monday-start week of the 25th only.
+      final saturday = CalendarEvent(
+        id: 'e2',
+        title: 'Ana',
+        categoryId: 'birthday',
+        startDate: DateTime.utc(2026, 10, 17),
+        rule: const OneTimeRecurrence(),
+      );
+
+      await open(
+        tester,
+        initial: report,
+        events: [saturday],
+        weekStart: CalendarWeekStart.sunday,
+        now: clock,
+      );
+      expect(
+        DigestSheetRobot(tester).caption,
+        'Next: Sun, Oct 18 9:00 AM · 1 event last week',
+      );
+      await DigestSheetRobot(tester).close();
+
+      await open(tester, initial: report, events: [saturday], now: clock);
+      expect(
+        DigestSheetRobot(tester).caption,
+        'Next: Sun, Oct 25 9:00 AM · 1 event last week',
+      );
+    });
+
+    for (final (locale, monthReport) in const [
+      ('de', 'Der abgelaufene Monat'),
+      ('en', 'The month just ended'),
+    ]) {
+      testWidgets('$locale at 200 % on 360 with a report Shows lays out '
+          'clean; the caption slot holds its height (D45)', (tester) async {
+        await open(
+          tester,
+          initial: birthdays,
+          events: [daily],
+          locale: Locale(locale),
+          textScaler: const TextScaler.linear(2.0),
+          size: const Size(360, 780),
+        );
+        final robot = DigestSheetRobot(tester);
+        final height = robot.captionHeight;
+
+        await robot.pickShows('month-report');
+        expect(robot.showsValue, monthReport);
+        expect(robot.captionHeight, height);
+        await robot.pickShows('week-report');
+        expect(robot.captionHeight, height);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
+
   testWidgets('the time, the lead and the empty switch reach the draft', (
     tester,
   ) async {
@@ -307,9 +630,10 @@ void main() {
   testWidgets('the caption skips a fire that would send nothing, as the '
       'planner does with Also when empty off', (tester) async {
     const monthly = EventDigest(id: 'd1', categoryIds: {'birthday'});
+    DateTime clock() => DateTime(2026, 10, 14, 12);
     final fires = DigestPlanner.nextFireInstants(
       monthly,
-      now: DateTime.now(),
+      now: clock(),
       count: 2,
     );
     final second = fires[1];
@@ -321,7 +645,7 @@ void main() {
       startDate: DateTime.utc(second.year, second.month, 10),
       rule: const OneTimeRecurrence(),
     );
-    await open(tester, initial: monthly, events: [event]);
+    await open(tester, initial: monthly, events: [event], now: clock);
     final robot = DigestSheetRobot(tester);
 
     expect(

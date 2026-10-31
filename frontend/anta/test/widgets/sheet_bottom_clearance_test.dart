@@ -19,6 +19,7 @@ import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/markdown_bar_profile.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -68,6 +69,8 @@ import 'package:anta/widgets/overview_options_sheet.dart';
 import 'package:anta/widgets/overview_view_sheet.dart';
 import 'package:anta/widgets/pairing_sheet.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
+import 'package:anta/utils/report_labels.dart';
+import 'package:anta/widgets/report_more_categories_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
 
 import '../database/support/db_test_support.dart';
@@ -332,6 +335,53 @@ void main() {
     final padding = tester
         .widget<GridView>(find.byType(GridView))
         .padding!
+        .resolve(TextDirection.ltr)
+        .bottom;
+    expect(padding, greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the report\'s more-categories sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final day = DateTime.utc(2026, 3, 12);
+    final event = CalendarEvent(
+      id: 'e1',
+      title: 'Party',
+      categoryId: 'birthday',
+      startDate: day,
+      rule: const OneTimeRecurrence(),
+    );
+    await openFrom(
+      tester,
+      (context) => ReportMoreCategoriesSheet.show(
+        context,
+        groups: [
+          ReportCategoryGroup(
+            categoryId: 'birthday',
+            count: 1,
+            minutes: 0,
+            missed: 0,
+            rows: [ReportDatedRow(eventId: event.id, day: day)],
+          ),
+        ],
+        events: {event.id: event},
+        labels: ReportLabels(AppLocalizations.of(context)!),
+        today: DateTime.utc(2026, 10, 30),
+        spansMonths: false,
+        use24Hour: true,
+      ),
+    );
+
+    // A `CustomScrollView`, so its clearance is the sliver padding's.
+    final padding = tester
+        .widget<SliverPadding>(
+          find.descendant(
+            of: find.bySemanticsIdentifier(SemanticsIds.reportMoreList),
+            matching: find.byType(SliverPadding),
+          ),
+        )
+        .padding
         .resolve(TextDirection.ltr)
         .bottom;
     expect(padding, greaterThanOrEqualTo(navBar));

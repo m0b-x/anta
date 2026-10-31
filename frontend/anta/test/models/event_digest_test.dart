@@ -162,6 +162,50 @@ void main() {
     });
   });
 
+  group('the report cadences', () {
+    test('round-trip by their frozen names, enabled and readable', () {
+      for (final (cadence, name, anchor) in [
+        (DigestCadence.weeklyReport, 'weeklyReport', DateTime.monday),
+        (DigestCadence.monthlyReport, 'monthlyReport', 1),
+      ]) {
+        final digest = EventDigest(id: 'd1', cadence: cadence, anchor: anchor);
+        final json = jsonDecode(digest.encodePayload()) as Map;
+        expect(json['cadence'], name);
+        final read = EventDigest.fromRow(
+          id: 'd1',
+          name: '',
+          payload: digest.encodePayload(),
+        );
+        expect(read, digest);
+        expect(read.enabled, isTrue);
+        expect(read.isReadable, isTrue);
+        expect(read.cadence.isReport, isTrue);
+      }
+      for (final cadence in [
+        DigestCadence.daily,
+        DigestCadence.weekly,
+        DigestCadence.monthly,
+      ]) {
+        expect(cadence.isReport, isFalse, reason: cadence.name);
+      }
+    });
+
+    test('clamp their anchors as weekly and monthly do', () {
+      expect(
+        decode({'cadence': 'weeklyReport', 'anchor': 9}).anchor,
+        DateTime.sunday,
+      );
+      expect(decode({'cadence': 'weeklyReport'}).anchor, DateTime.monday);
+      expect(decode({'cadence': 'monthlyReport', 'anchor': 31}).anchor, 28);
+      expect(decode({'cadence': 'monthlyReport', 'anchor': 0}).anchor, 1);
+      expect(
+        EventDigest.clampAnchor(DigestCadence.weeklyReport, 0),
+        DateTime.monday,
+      );
+      expect(EventDigest.clampAnchor(DigestCadence.monthlyReport, null), 1);
+    });
+  });
+
   test('DigestCadence.fromName reads every name and nothing else', () {
     for (final cadence in DigestCadence.values) {
       expect(DigestCadence.fromName(cadence.name), cadence);

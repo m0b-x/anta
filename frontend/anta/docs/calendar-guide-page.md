@@ -1655,6 +1655,7 @@ row of the page is deleted from the catalogue, its keys retired):
 | kinds | `kinds-one-change`, `kinds-tricky`, `kinds-birthday`, `kinds-only-repeat` (now also carries the untick fact of `skipped`) | `repeat`, `kinds-one`, `kinds-dates`, `kinds-only-one`, `skipped` |
 | alerts | `alert-kinds`, `permissions`, `ring`, `open-often` | `add-alert`, `quick-alarm`, `hub` |
 | attendance | `assume`, `rail`, `per-day` | `attendance`, `count` |
+| report | `report-open`, `report-categories`, `report-missed`, `report-digest` (added 2026-10-31 with the Report page; no card: its practice is the real page) | — |
 | categories | `category`, `cat-change`, `cat-alerts` | `cat-create`, `cat-hide`, `cat-delete` |
 | finding | `filters`, `overview` | `search` |
 | setup | `settings`, `language` | `holidays`, `week-start` |

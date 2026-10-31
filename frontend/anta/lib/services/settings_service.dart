@@ -1358,18 +1358,23 @@ class SettingsService {
     ..._calendarAppearanceKeys,
     SettingsKeys.reportPeriod,
     SettingsKeys.reportCategoryIds,
+    SettingsKeys.hapticFeedback,
+    SettingsKeys.markdownCustomColors,
   ];
 
   /// What the calendar report remembers (D35), in one statement: its period,
   /// its allowlist and the calendar's appearance — whose week start This
   /// week and the trend's columns follow, and which the range picker draws
-  /// its grid in. [today] (date-only) is what a stored `thisWeek` or
-  /// `thisMonth` means.
+  /// its grid in — with the palette a row's detail sheet renders the
+  /// description in and the haptic switch a presence mark obeys. [today]
+  /// (date-only) is what a stored `thisWeek` or `thisMonth` means.
   Future<
     ({
       OverviewPeriod period,
       Set<String> categoryIds,
       CalendarAppearance appearance,
+      MarkdownColorPalette palette,
+      bool hapticFeedback,
     })
   >
   getCalendarReportSettings({required DateTime today}) async {
@@ -1385,6 +1390,11 @@ class SettingsService {
         values[SettingsKeys.reportCategoryIds] ?? '',
       ),
       appearance: appearance,
+      palette: _decodeColorPalette(values[SettingsKeys.markdownCustomColors]),
+      hapticFeedback: _decodeBool(
+        values[SettingsKeys.hapticFeedback],
+        SettingsKeys.defaultHapticFeedback,
+      ),
     );
   }
 

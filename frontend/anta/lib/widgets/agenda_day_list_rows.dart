@@ -377,6 +377,16 @@ class AgendaDayListRowBuilder {
   /// The same for a per-event row.
   final String? Function(AgendaDayListEventRow row)? eventRowIdentifier;
 
+  /// Whether an entry row draws its `EventAvatar`; false keeps the 40 dp
+  /// leading slot empty — the report's rows sit inset under a category
+  /// header that already carries the look.
+  final bool avatars;
+
+  /// Whether a missed entry fades to `CalendarColors.missedEventAlpha`;
+  /// false draws it whole — the report's Missed card, where every row is
+  /// missed, so a fade separates nothing and measured 2.17:1.
+  final bool fadeMissed;
+
   const AgendaDayListRowBuilder({
     required this.rows,
     required this.today,
@@ -392,6 +402,8 @@ class AgendaDayListRowBuilder {
     this.singleLineTitles = false,
     this.rowIdentifier,
     this.eventRowIdentifier,
+    this.avatars = true,
+    this.fadeMissed = true,
   });
 
   static bool _isItem(AgendaDayListRow row) =>
@@ -451,7 +463,7 @@ class AgendaDayListRowBuilder {
           first: false,
           last: closesGroupOf(index),
           trailingGap: index < rows.length - 1,
-          child: _entryRow(l10n, entry),
+          child: entryRow(context, entry),
         );
       case AgendaDayListEventRow():
         // A category's label sits on the ground above its group, so the
@@ -529,7 +541,11 @@ class AgendaDayListRowBuilder {
   /// that changes what a tap does). No chevron in any case — a tap selects or
   /// opens the entry's day, never a form. The button fades with a missed row,
   /// as the day panel's does.
-  Widget _entryRow(AppLocalizations l10n, AgendaDayListEntry entry) {
+  ///
+  /// Public and unshelled for a surface that draws an entry inside a group
+  /// of its own — the report's category groups — and wraps it in its shell.
+  Widget entryRow(BuildContext context, AgendaDayListEntry entry) {
+    final l10n = AppLocalizations.of(context)!;
     final onEdit = onEntryEdit;
     final onPresence = onEntryPresence;
     final onTap = onEntryTap;
@@ -553,9 +569,11 @@ class AgendaDayListRowBuilder {
       trailing = null;
     }
     return _faded(
-      entry.missed,
+      fadeMissed && entry.missed,
       FormPickerRow(
-        leading: EventAvatar(icon: entry.icon, color: entry.color),
+        leading: avatars
+            ? EventAvatar(icon: entry.icon, color: entry.color)
+            : const SizedBox.shrink(),
         label: entry.title,
         caption: entry.subtitle,
         captionMaxLines: captionMaxLines,

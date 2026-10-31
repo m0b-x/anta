@@ -4367,6 +4367,126 @@ void main() {
       expect(meterRow().dividerIndent, FormMetrics.dividerIndentTitle);
     });
   });
+
+  group('disclosure action row', () {
+    Future<void> pump(WidgetTester tester, Widget row) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: [
+                FormRowGroup(trailingGap: false, children: [row]),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    }
+
+    testWidgets('the label at the title column, the glyph at the row end in '
+        'primary, one node with the spoken label and the fold state', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      var taps = 0;
+      for (final expanded in [false, true]) {
+        await pump(
+          tester,
+          FormActionRow.disclosure(
+            glyph: Icons.expand_more_rounded,
+            label: '2 more',
+            onTap: () => taps++,
+            expanded: expanded,
+            semanticsLabel: '2 more in Gym',
+            identifier: 'more-row',
+          ),
+        );
+        final row = find.byType(FormActionRow);
+        expect(
+          tester.getTopLeft(find.text('2 more')).dx,
+          FormMetrics.dividerIndentTitle,
+        );
+        final glyph = find.byIcon(Icons.expand_more_rounded);
+        expect(tester.getSize(glyph).width, FormMetrics.trailingIconSize);
+        expect(
+          tester.getTopRight(glyph).dx,
+          tester.getTopRight(row).dx - FormMetrics.rowEndPadding,
+        );
+        final scheme = Theme.of(tester.element(row)).colorScheme;
+        expect(tester.widget<Icon>(glyph).color, scheme.primary);
+        expect(
+          tester.getSize(row).height,
+          greaterThanOrEqualTo(FormMetrics.rowMinHeight),
+        );
+        final node = tester.getSemantics(
+          find.bySemanticsIdentifier('more-row'),
+        );
+        final data = node.getSemanticsData();
+        expect(node.childrenCount, 0, reason: 'the row is one node');
+        expect(data.label, '2 more in Gym');
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(
+          data.flagsCollection.isExpanded,
+          expanded ? Tristate.isTrue : Tristate.isFalse,
+        );
+      }
+      await tester.tap(find.bySemanticsIdentifier('more-row'));
+      expect(taps, 1);
+      handle.dispose();
+    });
+
+    test('a disclosure row indents to the title; an action keeps its '
+        'glyph indent', () {
+      expect(
+        const FormActionRow.disclosure(
+          glyph: Icons.expand_more_rounded,
+          label: '2 more',
+          onTap: null,
+        ).dividerIndent,
+        FormMetrics.dividerIndentTitle,
+      );
+      expect(
+        const FormActionRow(
+          glyph: Icons.add,
+          label: 'Add',
+          onTap: null,
+        ).dividerIndent,
+        FormMetrics.dividerIndentGlyph,
+      );
+    });
+
+    testWidgets('the trailing glyph is the named part: trailingIconSize, '
+        'onSurfaceVariant unless told (D44)', (tester) async {
+      await pump(
+        tester,
+        const FormActionRow.disclosure(
+          glyph: Icons.expand_more_rounded,
+          label: '2 more',
+          onTap: null,
+        ),
+      );
+      final part = find.byType(FormTrailingGlyph);
+      expect(part, findsOneWidget);
+      expect(tester.getSize(part).width, FormMetrics.trailingIconSize);
+      expect(tester.getSize(part).height, FormMetrics.trailingIconSize);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Center(child: FormTrailingGlyph(icon: Icons.expand_less)),
+        ),
+      );
+      final scheme = Theme.of(
+        tester.element(find.byType(FormTrailingGlyph)),
+      ).colorScheme;
+      final icon = tester.widget<Icon>(find.byIcon(Icons.expand_less));
+      expect(icon.size, FormMetrics.trailingIconSize);
+      expect(icon.color, scheme.onSurfaceVariant);
+    });
+  });
 }
 
 /// A sub-sheet's shape around a [FormHeaderHairline]: the header over a

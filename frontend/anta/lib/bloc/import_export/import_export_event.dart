@@ -75,6 +75,26 @@ final class ExportCalendarRequested extends ImportExportEvent {
   List<Object?> get props => [events, share];
 }
 
+/// Export [text] a page has composed — the report's Markdown — as one file
+/// named [fileName]. The text travels on the event for the calendar
+/// export's reason: it must be exactly what the page shows.
+final class ExportTextRequested extends ImportExportEvent {
+  final String fileName;
+  final String text;
+  final ExportFormat format;
+  final bool share;
+
+  const ExportTextRequested({
+    required this.fileName,
+    required this.text,
+    required this.format,
+    this.share = true,
+  });
+
+  @override
+  List<Object?> get props => [fileName, text, format, share];
+}
+
 /// Import a single file (json/md/txt). Detects format from extension.
 final class ImportFileRequested extends ImportExportEvent {
   final String filePath;

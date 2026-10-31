@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,11 +12,14 @@ import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/report_look.dart';
 import 'package:anta/pages/calendar_report_page.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/calendar_report_service.dart';
+import 'package:anta/utils/report_labels.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
+import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/report_totals_card.dart';
@@ -44,7 +50,16 @@ class ReportRobot {
     Size? surface,
     Brightness brightness = Brightness.light,
     EdgeInsets viewPadding = EdgeInsets.zero,
+    ValueListenable<EdgeInsets>? viewInsets,
+    bool? alwaysUse24HourFormat,
+    bool stamped = false,
   }) async {
+    final page = CalendarReportPage.forTesting(
+      look: look,
+      service: service,
+      clock: clock,
+      nextFrame: nextFrame,
+    );
     if (surface != null) {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
@@ -67,24 +82,46 @@ class ReportRobot {
           navigatorKey: AppNavigator.navigatorKey,
           navigatorObservers: [AppNavigator.routeObserver],
           builder: (context, child) {
-            final media = MediaQuery.of(context);
-            return MediaQuery(
-              data: media.copyWith(
-                textScaler: textScale == null
-                    ? media.textScaler
-                    : TextScaler.linear(textScale),
-                viewPadding: media.viewPadding + viewPadding,
-                padding: media.padding + viewPadding,
-              ),
-              child: child!,
+            Widget framed(EdgeInsets keyboard) {
+              final media = MediaQuery.of(context);
+              return MediaQuery(
+                data: media.copyWith(
+                  textScaler: textScale == null
+                      ? media.textScaler
+                      : TextScaler.linear(textScale),
+                  viewPadding: media.viewPadding + viewPadding,
+                  padding: media.padding + viewPadding,
+                  viewInsets: media.viewInsets + keyboard,
+                  alwaysUse24HourFormat:
+                      alwaysUse24HourFormat ?? media.alwaysUse24HourFormat,
+                ),
+                child: child!,
+              );
+            }
+
+            // [viewInsets] is a keyboard a case raises and lowers while the
+            // page is up.
+            final keyboard = viewInsets;
+            if (keyboard == null) return framed(EdgeInsets.zero);
+            return ValueListenableBuilder<EdgeInsets>(
+              valueListenable: keyboard,
+              builder: (_, insets, _) => framed(insets),
             );
           },
-          home: CalendarReportPage.forTesting(
-            look: look,
-            service: service,
-            clock: clock,
-            nextFrame: nextFrame,
-          ),
+          // [stamped] puts the page on a route stamped as the real push
+          // stamps it, which a digest's tap collapses onto.
+          home: stamped ? null : page,
+          onGenerateRoute: stamped
+              ? (settings) => MaterialPageRoute<void>(
+                  settings: RouteSettings(
+                    name: settings.name,
+                    arguments: const NavDestination(
+                      NavDestinationKind.calendarReport,
+                    ),
+                  ),
+                  builder: (_) => page,
+                )
+              : null,
         ),
       ),
     );
@@ -105,8 +142,9 @@ class ReportRobot {
   AppLocalizations get l10n =>
       AppLocalizations.of(tester.element(find.byType(ReportTotalsCard)))!;
 
+  /// Read through the body, which is there however far it is scrolled.
   ReportState get state => tester
-      .element(find.byType(ReportTotalsCard))
+      .element(byId(SemanticsIds.reportBody))
       .read<CalendarReportBloc>()
       .state;
 
@@ -153,14 +191,18 @@ class ReportRobot {
 
   Rect get totalsRect => tester.getRect(find.byType(ReportTotalsCard));
 
-  /// The caption under the Totals card, or null when there is none.
+  /// The caption under the Totals card, or null when there is none — the
+  /// body's one caption of its own; the group rows carry theirs inside.
   String? get caption {
     final captions = find.descendant(
       of: byId(SemanticsIds.reportBody),
-      matching: find.byType(FormCaption),
+      matching: find.byWidgetPredicate(
+        (w) => w is SliverToBoxAdapter && w.child is FormCaption,
+      ),
     );
     if (captions.evaluate().isEmpty) return null;
-    return tester.widget<FormCaption>(captions).text;
+    final adapter = tester.widget<SliverToBoxAdapter>(captions);
+    return (adapter.child! as FormCaption).text;
   }
 
   Future<void> openPeriodMenu() async {
@@ -198,18 +240,88 @@ class ReportRobot {
     ),
   );
 
-  /// Taps Show as list and returns the look it handed the overview, then
-  /// takes the app down before the overview it pushed is ever built: what
-  /// this suite checks is the hand-over, the overview suite the landing.
-  Future<OverviewLook?> showAsListAndLeave() async {
-    final row = byId(SemanticsIds.reportShowList);
-    await tester.ensureVisible(row);
+  /// A category group's header in [card].
+  Finder group(ReportCard card, String categoryId) =>
+      byId(SemanticsIds.reportGroup(card.name, categoryId));
+
+  /// A group's "n more" / "Show less" row.
+  Finder groupMore(ReportCard card, String categoryId) =>
+      byId(SemanticsIds.reportGroupMore(card.name, categoryId));
+
+  /// A dated row.
+  Finder row(String eventId, DateTime day) =>
+      byId(SemanticsIds.reportRow(eventId, day));
+
+  /// The detail sheet a row tap opened, or null while none is up.
+  EventDetailSheet? get detailSheet {
+    final sheet = find.byType(EventDetailSheet);
+    if (sheet.evaluate().isEmpty) return null;
+    return tester.widget<EventDetailSheet>(sheet);
+  }
+
+  /// Taps [finder] and runs the sheet it opens in.
+  Future<void> openSheet(Finder finder) async {
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
+  /// The detail sheet's ✕, and the sheet run out.
+  Future<void> closeSheet() async {
+    await tester.tap(byId(SemanticsIds.eventDetailClose));
+    await tester.pumpAndSettle();
+  }
+
+  /// The body's one scroll.
+  ScrollController get scroll => tester
+      .widget<CustomScrollView>(
+        find.descendant(
+          of: byId(SemanticsIds.reportBody),
+          matching: find.byType(CustomScrollView),
+        ),
+      )
+      .controller!;
+
+  /// Brings [finder] into view, jumping the body half a screen at a time
+  /// until it is built: below the cards it is not built at first, and a
+  /// jump, unlike a drag, lets no time pass for a held refold's dim.
+  Future<void> reveal(Finder finder) async {
+    final position = scroll.position;
+    while (finder.evaluate().isEmpty &&
+        position.pixels < position.maxScrollExtent) {
+      scroll.jumpTo(
+        math.min(
+          position.pixels + position.viewportDimension / 2,
+          position.maxScrollExtent,
+        ),
+      );
+      await tester.pump();
+    }
+    await tester.ensureVisible(finder);
     await tester.pump();
+  }
+
+  /// Taps Show as list — the footer's, or the row [id] — and returns the
+  /// look it handed the overview, then takes the app down before the
+  /// overview it pushed is ever built: what this suite checks is the
+  /// hand-over, the overview suite the landing.
+  Future<OverviewLook?> showAsListAndLeave({
+    String id = SemanticsIds.reportShowList,
+  }) async {
+    final row = byId(id);
+    await reveal(row);
     await tester.tap(row);
     final look = AppNavigator.pendingOverviewLook.value;
     AppNavigator.pendingOverviewLook.value = null;
     await tester.pumpWidget(const SizedBox.shrink());
     return look;
+  }
+
+  /// Taps Send me this report, which opens the digest sheet.
+  Future<void> send() async {
+    final row = byId(SemanticsIds.reportSend);
+    await reveal(row);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
   }
 
   FormActionRow footerRow(String id) => tester.widget<FormActionRow>(

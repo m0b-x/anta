@@ -31,6 +31,14 @@ String digestDescribe(
       digestDayOfMonth(anchor, l10n),
       time,
     ),
+    DigestCadence.weeklyReport => l10n.digestDescribeWeeklyReport(
+      weekdayName(anchor),
+      time,
+    ),
+    DigestCadence.monthlyReport => l10n.digestDescribeMonthlyReport(
+      digestDayOfMonth(anchor, l10n),
+      time,
+    ),
   };
 }
 

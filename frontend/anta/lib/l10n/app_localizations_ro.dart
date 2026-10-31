@@ -5453,6 +5453,18 @@ class AppLocalizationsRo extends AppLocalizations {
   String get digestEdit => 'Editează rezumatul';
 
   @override
+  String get digestShows => 'Arată';
+
+  @override
+  String get digestShowsUpcoming => 'Ce urmează';
+
+  @override
+  String get digestShowsWeekReport => 'Săptămâna încheiată';
+
+  @override
+  String get digestShowsMonthReport => 'Luna încheiată';
+
+  @override
   String get digestEvery => 'Frecvență';
 
   @override
@@ -5527,6 +5539,39 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String digestDescribeMonthly(String day, String time) {
     return 'Lunar, pe $day, la $time';
+  }
+
+  @override
+  String digestDescribeWeeklyReport(String weekday, String time) {
+    return 'Raport săptămânal, $weekday, la $time';
+  }
+
+  @override
+  String digestDescribeMonthlyReport(String day, String time) {
+    return 'Raport lunar, pe $day, la $time';
+  }
+
+  @override
+  String get digestReportWeeklyTitle => 'Raport săptămânal';
+
+  @override
+  String get digestReportMonthlyTitle => 'Raport lunar';
+
+  @override
+  String get digestPeriodLastWeek => 'săptămâna trecută';
+
+  @override
+  String get digestPeriodLastMonth => 'luna trecută';
+
+  @override
+  String get digestReportReadyWeek => 'Raportul săptămânii trecute este gata';
+
+  @override
+  String get digestReportReadyMonth => 'Raportul lunii trecute este gata';
+
+  @override
+  String digestReportSummary(String categories, String facts) {
+    return '$categories — $facts';
   }
 
   @override
@@ -6839,6 +6884,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get reportSectionTotals => 'Totaluri';
 
   @override
+  String get reportSectionCategories => 'Categorii';
+
+  @override
   String get reportSectionOverTime => 'În timp';
 
   @override
@@ -6933,11 +6981,15 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String reportEventCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count de evenimente',
-      few: '$count evenimente',
+      other: '$countString de evenimente',
+      few: '$countString evenimente',
       one: '1 eveniment',
     );
     return '$_temp0';
@@ -6969,6 +7021,38 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String reportDeltaMoreCount(int delta, String period) {
+    final intl.NumberFormat deltaNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String deltaString = deltaNumberFormat.format(delta);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      delta,
+      locale: localeName,
+      other: 'cu $deltaString mai multe decât $period',
+      few: 'cu $deltaString mai multe decât $period',
+      one: 'cu $deltaString mai mult decât $period',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDeltaFewerCount(int delta, String period) {
+    final intl.NumberFormat deltaNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String deltaString = deltaNumberFormat.format(delta);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      delta,
+      locale: localeName,
+      other: 'cu $deltaString mai puține decât $period',
+      few: 'cu $deltaString mai puține decât $period',
+      one: 'cu $deltaString mai puțin decât $period',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String reportDeltaSame(String period) {
     return 'la fel ca $period';
   }
@@ -6995,10 +7079,19 @@ class AppLocalizationsRo extends AppLocalizations {
   String get reportShare => 'Distribuie raportul';
 
   @override
-  String get reportSendWeekly => 'Trimite-mi raportul săptămânal';
+  String get exportingReport => 'Se exportă raportul...';
 
   @override
-  String get reportSendMonthly => 'Trimite-mi raportul lunar';
+  String get reportExported => 'Raport exportat';
+
+  @override
+  String get reportExportError => 'Raportul nu a putut fi exportat';
+
+  @override
+  String get reportSendWeekly => 'Trimite raportul săptămânal';
+
+  @override
+  String get reportSendMonthly => 'Trimite raportul lunar';
 
   @override
   String get reportLegendHappened => 'Au avut loc';
@@ -7041,5 +7134,224 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String reportOfTotalOnly(String total) {
     return 'din $total';
+  }
+
+  @override
+  String reportGroupMore(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Încă $countString',
+      few: 'Încă $countString',
+      one: 'Încă 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportMoreCategories(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString de categorii în plus',
+      few: '$countString categorii în plus',
+      one: '1 categorie în plus',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportMoreCategoriesTitle => 'Mai multe categorii';
+
+  @override
+  String reportGroupMoreSpoken(int count, String category) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Încă $count în $category',
+      few: 'Încă $count în $category',
+      one: 'Încă 1 în $category',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportGroupLess => 'Arată mai puțin';
+
+  @override
+  String reportGroupLessSpoken(String category) {
+    return 'Arată mai puțin din $category';
+  }
+
+  @override
+  String reportAttendedOf(int total, int attended) {
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+    final intl.NumberFormat attendedNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String attendedString = attendedNumberFormat.format(attended);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$attendedString din $totalString de prezențe',
+      few: '$attendedString din $totalString prezențe',
+      one: '$attendedString din 1 prezență',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportTasksOf(int total, int ticked) {
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+    final intl.NumberFormat tickedNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String tickedString = tickedNumberFormat.format(ticked);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$tickedString din $totalString de sarcini',
+      few: '$tickedString din $totalString sarcini',
+      one: '$tickedString din 1 sarcină',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportHoursSpoken(String hours) {
+    return '$hours ore';
+  }
+
+  @override
+  String reportWholeHoursSpoken(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString de ore',
+      few: '$countString ore',
+      one: '1 oră',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportMinutesSpoken(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString de minute',
+      few: '$countString minute',
+      one: '1 minut',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportRowDay(String weekday, String day) {
+    return '$weekday $day';
+  }
+
+  @override
+  String reportRowDayMonth(String weekday, String day, String month) {
+    return '$weekday $day $month';
+  }
+
+  @override
+  String reportGroupListSpoken(String category) {
+    return 'Arată $category ca listă';
+  }
+
+  @override
+  String get calendarGuidePageReport => 'Vezi ce s-a întâmplat';
+
+  @override
+  String get calendarGuidePageReportCaption =>
+      'Totaluri, zile ratate și ce urmează';
+
+  @override
+  String calendarGuideReportLead(String report) {
+    return '„$report” numără o săptămână, o lună sau un an, categorie cu categorie.';
+  }
+
+  @override
+  String get calendarGuideReportOpenTitle => 'Cum o deschizi';
+
+  @override
+  String calendarGuideReportOpenBody(
+    String calendar,
+    String overview,
+    String report,
+    String thisWeek,
+    String lastMonth,
+    String custom,
+  ) {
+    return 'Deschide pagina din titlu: „$calendar” · „$overview” · „$report”. Titlul dintre săgeți alege perioada — „$thisWeek”, „$lastMonth”, „$custom”; săgețile avansează cu lungimea perioadei.';
+  }
+
+  @override
+  String get calendarGuideReportCategoriesTitle => 'Ce categorii';
+
+  @override
+  String calendarGuideReportCategoriesBody(
+    String categories,
+    int max,
+    String moreCategories,
+    int rows,
+    String more,
+  ) {
+    final intl.NumberFormat maxNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String maxString = maxNumberFormat.format(max);
+    final intl.NumberFormat rowsNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String rowsString = rowsNumberFormat.format(rows);
+
+    return 'Butonul „$categories” restrânge pagina la cele pe care le alegi; dedesubt e câte un grup pentru fiecare categorie, cu o bară față de cea mai mare — peste $maxString categorii, restul stau sub „$moreCategories”, care deschide o foaie. Un grup se deschide cu $rowsString rânduri; „$more” arată restul pe loc, o atingere pe antetul lui îl strânge.';
+  }
+
+  @override
+  String get calendarGuideReportMissedTitle => 'Ce ai ratat';
+
+  @override
+  String calendarGuideReportMissedBody(String missed, String markPresent) {
+    return '„$missed” arată ședințele pe care le-ai marcat absente sau care se consideră absente; atinge „$markPresent” lângă o ședință, iar cifrele se actualizează.';
+  }
+
+  @override
+  String get calendarGuideReportDigestTitle =>
+      'În fiecare săptămână sau lună, de la sine';
+
+  @override
+  String calendarGuideReportDigestBody(
+    String weekly,
+    String monthly,
+    String shows,
+    String weekReport,
+    String monthReport,
+    String share,
+  ) {
+    return 'Pe o săptămână „$weekly”, pe o lună „$monthly” deschide un rezumat al perioadei tocmai încheiate — salvează-l și îl primești în prima zi a săptămânii sau a lunii următoare: un rezumat cu „$shows” setat pe „$weekReport” sau „$monthReport”. „$share” scrie pagina ca Markdown.';
   }
 }
