@@ -70,8 +70,42 @@ MaterialApp goldenApp(
   GoldenCell cell, {
   required Widget home,
   List<NavigatorObserver> navigatorObservers = const [],
+}) => _goldenApp(cell, home: home, navigatorObservers: navigatorObservers);
+
+/// [goldenApp] with [page] pushed onto a stand-in home, as `AppNavigator`
+/// pushes it: a settings page draws its back arrow only over a route beneath
+/// it (D3), so pumped as `home` it showed a bar no user sees. Both routes are
+/// initial routes, so the page is on screen from the first frame with no
+/// transition to settle.
+MaterialApp goldenPushedApp(
+  GoldenCell cell, {
+  required Widget page,
+  List<NavigatorObserver> navigatorObservers = const [],
+}) => _goldenApp(
+  cell,
+  navigatorObservers: navigatorObservers,
+  // `MaterialApp` takes initial routes only without a `home`, and then wants
+  // a route factory to stand for one.
+  onGenerateRoute: (settings) => MaterialPageRoute<void>(
+    settings: settings,
+    builder: (_) => const SizedBox.shrink(),
+  ),
+  onGenerateInitialRoutes: (_) => [
+    MaterialPageRoute<void>(builder: (_) => const SizedBox.shrink()),
+    MaterialPageRoute<void>(builder: (_) => page),
+  ],
+);
+
+MaterialApp _goldenApp(
+  GoldenCell cell, {
+  Widget? home,
+  required List<NavigatorObserver> navigatorObservers,
+  RouteFactory? onGenerateRoute,
+  InitialRouteListFactory? onGenerateInitialRoutes,
 }) {
   return MaterialApp(
+    onGenerateRoute: onGenerateRoute,
+    onGenerateInitialRoutes: onGenerateInitialRoutes,
     debugShowCheckedModeBanner: false,
     theme: cell.theme,
     localizationsDelegates: AppLocalizations.localizationsDelegates,

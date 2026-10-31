@@ -46,8 +46,8 @@ void expectBreaksBetweenWords(RenderParagraph paragraph) {
 /// one `ListView`.
 ///
 /// [within] narrows the paragraphs checked to one row's, the page still
-/// scrolled to its end for overflow: Calendar settings cuts two texts on
-/// purpose at de/ro 2.0 — its search hint and the holiday set's shown name.
+/// scrolled to its end for overflow: Calendar settings cuts one text on
+/// purpose at de/ro 2.0 — its search hint.
 Future<void> expectPageWhole(WidgetTester tester, {Finder? within}) async {
   final list = find.byType(ListView);
   final paragraphs = within == null

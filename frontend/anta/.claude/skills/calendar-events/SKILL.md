@@ -77,7 +77,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - Calendar settings load in **one statement** (`getCalendarPageSettings()`), one pure decoder per setting; keys in `_calendarAppearanceKeys` / `_calendarPageKeys`; never `getAllSettings()`.
 - Keep absent-vs-empty in `getFastingSchedule` / `getFastingAppearance`. Enums parse forward-compatibly (`fromName`).
 - `CalendarAppearance` and the palette are **passed down from `CalendarPage`**, never re-read in a leaf. Weekday labels from `intl`, never an ARB matrix.
-- New setting: `CalendarSettingsPage` row + `SettingsService` getter/setter + `SettingsKeys` + reset-to-defaults; count sliders bare, time with `s`.
+- New setting: a `SettingsEntry` on the page that owns the subject — `CalendarSettingsPage` (Holidays · More settings · Filtering · Events), `AlertSettingsPage`, `FastingSettingsPage` or `CalendarAppearancePage` (the only one with a reset since S5, 2026-11-01) — + `SettingsService` getter/setter + `SettingsKeys`; count sliders bare, time with the unit through an ARB key, never `'${v}s'`.
 
 ## Grid and cells
 

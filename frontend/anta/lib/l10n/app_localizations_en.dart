@@ -2296,12 +2296,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get moveDown => 'Move Down';
 
   @override
-  String get appSettings => 'Settings';
-
-  @override
-  String get appSettingsDesc => 'Startup, browsing, editor and auto-save';
-
-  @override
   String get folderSwipeGesture => 'Swipe to open menu in folders';
 
   @override
@@ -2347,6 +2341,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String autoSaveIntervalDesc(int seconds) {
     return 'Save every $seconds seconds';
+  }
+
+  @override
+  String autoSaveSeconds(int count) {
+    return '$count s';
   }
 
   @override
@@ -2397,6 +2396,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsReset => 'Settings have been reset to defaults';
+
+  @override
+  String get settingsResetFailed => 'Couldn\'t reset the settings';
 
   @override
   String get shareNote => 'Share note';
@@ -2827,13 +2829,20 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get calendarSection => 'Calendar';
+  String get calendarSection => 'Holidays';
 
   @override
-  String get calendarSettings => 'Calendar';
+  String get calendarSettings => 'Calendar settings';
 
   @override
-  String get calendarSettingsRow => 'Calendar settings';
+  String get holidayProfileDesc =>
+      'Public holidays shown on the calendar; also used by Workdays repeats';
+
+  @override
+  String get calendarSettingsPagesSection => 'More settings';
+
+  @override
+  String get deleteAllEventsFailed => 'Couldn\'t delete the events';
 
   @override
   String get appGroupLabel => 'App';

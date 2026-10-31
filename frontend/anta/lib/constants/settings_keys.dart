@@ -367,6 +367,7 @@ class SettingsKeys {
   /// Filters at replay only — recording never stops, so turning restore back
   /// on takes effect immediately rather than after the next navigation.
   static const String restoreLocationMode = 'restore_location_mode';
+  static const String defaultRestoreLocationMode = 'everything';
 
   /// Retired in favour of [lastLocationStack], which can express a chain of
   /// any depth instead of one folder plus one note. Kept only so

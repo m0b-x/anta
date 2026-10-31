@@ -8,9 +8,11 @@
 #   both land on the hub, and once more on the folder root with the drawer
 #   closed. `key back` is the agent's root `Navigator.maybePop()`, the pop
 #   the system gesture makes.
-# - A page whose bar has no `settings-bar-*` anchor (Appearance, Categories,
-#   the guide) is known by an id only it carries: `appearance-today-style`,
-#   `category-add`, `calendar-guide`, the anchors the calendar suite uses.
+# - A page whose bar has no `settings-bar-*` anchor (Categories, the guide)
+#   is known by an id only it carries: `category-add`, `calendar-guide`, the
+#   anchors the calendar suite uses. Appearance kept `appearance-today-style`
+#   as its anchor in the flows written before its bar gained
+#   `settings-bar-appearance` (settings S5, 2026-11-01); both work.
 # - Restore is proven by a bare `relaunch` step (no --fresh, no --seed): it
 #   stops the app and starts it again on the same QA database, so the
 #   stored stack ([settingsHub, page]) is replayed as on a cold launch.

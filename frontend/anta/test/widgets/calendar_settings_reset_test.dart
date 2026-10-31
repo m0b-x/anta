@@ -1,4 +1,7 @@
+import 'package:drift/drift.dart'
+    show BatchedStatements, QueryExecutor, QueryInterceptor;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_alerts.dart';
@@ -9,7 +12,6 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
-import 'package:anta/models/alert_sound.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/fasting_appearance.dart';
@@ -19,20 +21,24 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
 
-/// Calendar settings' Reset to defaults, pinned against today's behaviour
-/// before S5 of the settings rework (`docs/settings-rework-roadmap.md`, D7)
-/// removes it. Today it reaches past the page's own rows into user-entered
-/// fasting data (S1) and the holiday set, and stops short of the appearance
-/// page's keys; each of those is read back from the store. The cancel
-/// writes nothing.
+/// Calendar settings has no Reset to defaults (D7 of
+/// `docs/settings-rework-roadmap.md`): the reset it had wiped hand-picked
+/// fasting dates, the traditions and their looks, the holiday set and the
+/// removed holidays (S1). These pin that nothing on the page can reach them
+/// — no reset control, and the page's own controls write only what they
+/// show. A fold toggle edits the stored set it read, so the appearance
+/// page's `appearance_` folds survive it.
 void main() {
   late AppDatabase db;
   late SettingsService settings;
   late PublicHolidayService holidays;
+  late _Writes writes;
 
   final l10n = AppLocalizationsEn();
   const defaults = CalendarAppearance();
@@ -58,7 +64,6 @@ void main() {
     dayMinute: 9 * 60,
   );
   const movedSound = 'content://media/internal/audio/media/42';
-  final shipped = SettingsService.shippedAlertSettings;
 
   setUp(() async {
     DatabaseLifecycle.notifyDatabaseSwitching();
@@ -66,24 +71,21 @@ void main() {
     CalendarPaletteService.reset();
     CalendarEventService.reset();
     PublicHolidayService.reset();
-    db = await openTestDatabase();
+    writes = _Writes();
+    db = await openTestDatabase(interceptor: writes);
     settings = SettingsService.forTesting(db);
     await CalendarEventService.forTesting(db);
     holidays = await PublicHolidayService.forTesting(db);
 
     await settings.setFastingTraditions({FastingTradition.orthodox});
     await settings.setFastingSchedule(picked);
+    await settings.setFastingOrthodoxGreatFasts(false);
+    await settings.setFastingAppearance(movedFastingLook);
     await settings.setAlertSnoozeMinutes(
       SettingsKeys.defaultAlertSnoozeMinutes + 5,
     );
     await settings.setAlertNoticeLeadMinutes(
       SettingsKeys.defaultAlertNoticeLeadMinutes + 60,
-    );
-    await settings.setCalendarShowFilterChips(!defaults.showFilterChips);
-    await settings.setFastingOrthodoxGreatFasts(false);
-    await settings.setFastingAppearance(movedFastingLook);
-    await settings.setEventDescriptionLimit(
-      SettingsKeys.defaultEventDescriptionLimit + 500,
     );
     await settings.setAlertSilenceAfterMinutes(
       SettingsKeys.defaultAlertSilenceAfterMinutes + 5,
@@ -91,13 +93,17 @@ void main() {
     await settings.setAlertDefaultTimed(movedTimed);
     await settings.setAlertDefaultAllDay(movedAllDay);
     await settings.setAlertSound(movedSound);
-    // Owned by the appearance page, which has its own reset.
+    await settings.setEventDescriptionLimit(
+      SettingsKeys.defaultEventDescriptionLimit + 500,
+    );
     await settings.setCalendarShowWeekNumbers(!defaults.showWeekNumbers);
+    // A retired section id beside one of the appearance page's.
     await settings.setCalendarSettingsCollapsedSections(const {
       'fasting',
       'appearance_week',
     });
-    // The generic profile's New Year, removed for this one date.
+    await holidays.setProfile(HolidayProfile.romania, reconcile: false);
+    // The Romanian profile's New Year, removed for this one date.
     await holidays.removeOn(newYear);
   });
 
@@ -138,127 +144,76 @@ void main() {
     await settle(tester);
   }
 
-  /// Scrolls to the footer's reset button — built only while the search box
-  /// is empty — and answers its confirm with [answer].
-  Future<void> resetAndAnswer(WidgetTester tester, String answer) async {
-    await tester.scrollUntilVisible(
-      find.text(l10n.resetToDefaults),
-      600,
-      scrollable: find
-          .descendant(
-            of: find.byType(SettingsSectionList),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    await settle(tester);
-    await tester.tap(find.text(l10n.resetToDefaults));
-    await tester.pumpAndSettle();
-    expect(find.text(l10n.resetToDefaultsConfirm), findsOneWidget);
-    await tester.tap(find.bySemanticsIdentifier(answer));
-    await settle(tester);
-  }
-
   Future<T> read<T>(WidgetTester tester, Future<T> Function() body) async =>
       (await tester.runAsync(body)) as T;
 
-  testWidgets('confirmed wipes the hand-picked fasting dates (today\'s data '
-      'loss, S1; S5 removes the reset) and restores the removed holiday, and '
-      'leaves the appearance page\'s keys alone', (tester) async {
+  Finder scrollable() => find
+      .descendant(
+        of: find.byType(SettingsSectionList),
+        matching: find.byType(Scrollable),
+      )
+      .first;
+
+  testWidgets('the page ends at Delete all events, with no reset control '
+      'under it', (tester) async {
     await pumpPage(tester);
 
-    await resetAndAnswer(tester, SemanticsIds.sheetConfirm);
-
-    expect(find.text(l10n.settingsReset), findsOneWidget);
-    expect(
-      await read(tester, settings.getFastingSchedule),
-      const FastingSchedule(),
-      reason: 'the two forced dates are gone',
-    );
-    expect(await read(tester, settings.getFastingTraditions), isEmpty);
-    expect(
-      await read(tester, settings.getFastingAppearance),
-      const FastingAppearance(),
-    );
-    expect(await read(tester, settings.getFastingOrthodoxGreatFasts), isTrue);
-    expect(
-      await read(tester, settings.getEventDescriptionLimit),
-      SettingsKeys.defaultEventDescriptionLimit,
-    );
-    final alerts = await read(tester, settings.getAlertSettings);
-    expect(alerts.snoozeMinutes, SettingsKeys.defaultAlertSnoozeMinutes);
-    expect(
-      alerts.noticeLeadMinutes,
-      SettingsKeys.defaultAlertNoticeLeadMinutes,
-    );
-    expect(
-      alerts.silenceAfterMinutes,
-      SettingsKeys.defaultAlertSilenceAfterMinutes,
-    );
-    // Alerts are opt-in: the shipped defaults carry none.
-    expect(alerts.timedDefault, shipped.timedDefault);
-    expect(alerts.allDayDefault, shipped.allDayDefault);
-    // Decoded: the store writes the phone's default as its literal, where an
-    // untouched install reads the absent key as ''; both name the same sound.
-    expect(AlertSound.decode(alerts.sound), AlertSound.decode(shipped.sound));
-    expect(
-      await read(tester, settings.getCalendarShowFilterChips),
-      defaults.showFilterChips,
-    );
-    expect(holidays.profile, HolidayProfile.generic);
-    expect(await read(tester, holidays.suppressedHolidays), isEmpty);
-    expect(
-      await read(tester, settings.getCalendarShowWeekNumbers),
-      !defaults.showWeekNumbers,
-      reason: 'the appearance page owns it and is not reset from here',
-    );
-    expect(
-      await read(tester, settings.getCalendarSettingsCollapsedSections),
-      {'appearance_week'},
-      reason: 'this page\'s folds open; the appearance page\'s stay',
-    );
-    // The page shows what it wrote: the Fasting row, unfolded with its
-    // section, reads the traditions back as none.
-    final fastingRow = find.bySemanticsIdentifier(
-      SemanticsIds.calendarSettingsFastingOpen,
-    );
     await tester.scrollUntilVisible(
-      fastingRow,
-      -300,
-      scrollable: find
-          .descendant(
-            of: find.byType(SettingsSectionList),
-            matching: find.byType(Scrollable),
-          )
-          .first,
+      find.bySemanticsIdentifier(SemanticsIds.calendarDeleteAllEvents),
+      300,
+      scrollable: scrollable(),
     );
+    final position = tester.state<ScrollableState>(scrollable()).position;
+    position.jumpTo(position.maxScrollExtent);
+    await settle(tester, rounds: 2);
+
+    expect(find.text(l10n.resetToDefaults), findsNothing);
+    expect(find.byIcon(Icons.refresh_rounded), findsNothing);
     expect(
       find.descendant(
-        of: fastingRow,
-        matching: find.text(l10n.fastingTraditionsOff),
+        of: find.byType(SettingsSectionList),
+        matching: find.byType(TextButton),
       ),
-      findsOneWidget,
+      findsNothing,
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('cancelled keeps all of it', (tester) async {
+  testWidgets('a fold toggled and the filter switch flipped leave the '
+      'fasting data, the holidays and the alert values as they were; the '
+      'appearance page\'s fold survives', (tester) async {
     await pumpPage(tester);
 
-    await resetAndAnswer(tester, SemanticsIds.sheetCancel);
+    await tester.tap(
+      find.text(l10n.calendarSettingsPagesSection.toUpperCase()),
+    );
+    await settle(tester);
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.calendarShowFilterChips),
+    );
+    await settle(tester);
 
-    expect(find.text(l10n.settingsReset), findsNothing);
+    expect(await read(tester, settings.getCalendarSettingsCollapsedSections), {
+      'fasting',
+      'appearance_week',
+      'pages',
+    });
+    expect(
+      await read(tester, settings.getCalendarShowFilterChips),
+      !defaults.showFilterChips,
+      reason: 'the switch writes what it shows',
+    );
+
     expect(await read(tester, settings.getFastingSchedule), picked);
     expect(await read(tester, settings.getFastingTraditions), {
       FastingTradition.orthodox,
     });
     expect(await read(tester, settings.getFastingOrthodoxGreatFasts), isFalse);
     expect(await read(tester, settings.getFastingAppearance), movedFastingLook);
-    expect(
-      await read(tester, settings.getEventDescriptionLimit),
-      SettingsKeys.defaultEventDescriptionLimit + 500,
-    );
+    expect(holidays.profile, HolidayProfile.romania);
+    final removed = await read(tester, holidays.suppressedHolidays);
+    expect(removed.map((h) => h.date), [newYear]);
     final alerts = await read(tester, settings.getAlertSettings);
     expect(alerts.snoozeMinutes, SettingsKeys.defaultAlertSnoozeMinutes + 5);
     expect(
@@ -273,20 +228,155 @@ void main() {
     expect(alerts.allDayDefault, movedAllDay);
     expect(alerts.sound, movedSound);
     expect(
-      await read(tester, settings.getCalendarShowFilterChips),
-      !defaults.showFilterChips,
+      await read(tester, settings.getEventDescriptionLimit),
+      SettingsKeys.defaultEventDescriptionLimit + 500,
     );
-    final removed = await read(tester, holidays.suppressedHolidays);
-    expect(removed.map((h) => h.date), [newYear]);
     expect(
       await read(tester, settings.getCalendarShowWeekNumbers),
       !defaults.showWeekNumbers,
     );
-    expect(await read(tester, settings.getCalendarSettingsCollapsedSections), {
-      'fasting',
-      'appearance_week',
-    });
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('the holiday set is a value with a menu of every set, the '
+      'current one checked; a pick switches the set through the service and '
+      'the row reads it', (tester) async {
+    await pumpPage(tester);
+    final row = find.bySemanticsIdentifier(SemanticsIds.calendarHolidayProfile);
+    final romania = PublicHolidays.profileNameOf(HolidayProfile.romania, l10n);
+    final germany = PublicHolidays.profileNameOf(HolidayProfile.germany, l10n);
+    expect(find.descendant(of: row, matching: find.text(romania)), findsOne);
+
+    await tester.tap(row);
+    await settle(tester);
+    for (final profile in HolidayProfile.values) {
+      expect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.calendarHolidayProfileItem(profile.name),
+        ),
+        findsOneWidget,
+        reason: profile.name,
+      );
+    }
+    expect(
+      tester
+          .widgetList<FormMenuChoiceItem<HolidayProfile>>(
+            find.byType(FormMenuChoiceItem<HolidayProfile>),
+          )
+          .where((item) => item.checked)
+          .map((item) => item.value),
+      [HolidayProfile.romania],
+    );
+
+    await tester.tap(
+      find.bySemanticsIdentifier(
+        SemanticsIds.calendarHolidayProfileItem(HolidayProfile.germany.name),
+      ),
+    );
+    await settle(tester);
+
+    expect(holidays.profile, HolidayProfile.germany);
+    expect(find.descendant(of: row, matching: find.text(germany)), findsOne);
+    expect(find.byType(FormMenuChoiceItem<HolidayProfile>), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('picking the set already chosen writes nothing, buzzes '
+      'nothing and flashes nothing', (tester) async {
+    await pumpPage(tester);
+    final row = find.bySemanticsIdentifier(SemanticsIds.calendarHolidayProfile);
+    final haptics = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') haptics.add(call.method);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.tap(row);
+    await settle(tester);
+    writes.count = 0;
+    await tester.tap(
+      find.bySemanticsIdentifier(
+        SemanticsIds.calendarHolidayProfileItem(HolidayProfile.romania.name),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final wash = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.descendant(
+              of: row,
+              matching: find.byType(ValueChangeHighlight),
+            ),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    expect((wash.decoration as BoxDecoration).color, isNull);
+    await settle(tester);
+    // The service no-ops on its own set too, so the guard on the page is
+    // what the missing haptic pins; the write count pins the store.
+    expect(haptics, isEmpty);
+    expect(writes.count, 0);
+    expect(holidays.profile, HolidayProfile.romania);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+}
+
+/// Counts every write the database runs, so a case can pin that a pick
+/// wrote nothing.
+class _Writes extends QueryInterceptor {
+  int count = 0;
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    count++;
+    return super.runInsert(executor, statement, args);
+  }
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    count++;
+    return super.runUpdate(executor, statement, args);
+  }
+
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    count++;
+    return super.runDelete(executor, statement, args);
+  }
+
+  @override
+  Future<void> runBatched(
+    QueryExecutor executor,
+    BatchedStatements statements,
+  ) {
+    count++;
+    return super.runBatched(executor, statements);
+  }
 }

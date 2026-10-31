@@ -2331,12 +2331,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get moveDown => 'Mută Jos';
 
   @override
-  String get appSettings => 'Setări';
-
-  @override
-  String get appSettingsDesc => 'Pornire, navigare, editor și salvare automată';
-
-  @override
   String get folderSwipeGesture =>
       'Glisare pentru a deschide meniul în foldere';
 
@@ -2383,6 +2377,11 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String autoSaveIntervalDesc(int seconds) {
     return 'Salvează la fiecare $seconds secunde';
+  }
+
+  @override
+  String autoSaveSeconds(int count) {
+    return '$count s';
   }
 
   @override
@@ -2433,6 +2432,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get settingsReset => 'Setările au fost resetate la valorile implicite';
+
+  @override
+  String get settingsResetFailed => 'Setările nu au putut fi resetate';
 
   @override
   String get shareNote => 'Partajează notița';
@@ -2870,13 +2872,20 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get calendarSection => 'Calendar';
+  String get calendarSection => 'Sărbători';
 
   @override
-  String get calendarSettings => 'Calendar';
+  String get calendarSettings => 'Setări calendar';
 
   @override
-  String get calendarSettingsRow => 'Setări calendar';
+  String get holidayProfileDesc =>
+      'Sărbătorile legale afișate în calendar; folosite și de repetările în zile lucrătoare';
+
+  @override
+  String get calendarSettingsPagesSection => 'Alte setări';
+
+  @override
+  String get deleteAllEventsFailed => 'Evenimentele nu au putut fi șterse';
 
   @override
   String get appGroupLabel => 'Aplicație';

@@ -1420,7 +1420,7 @@ final _hubRows = <_Row>[
     rowId: SemanticsIds.settingsHubRow('settings'),
     pageType: SettingsPage,
     barId: SemanticsIds.settingsBarApp,
-    title: (l10n) => l10n.appSettings,
+    title: (l10n) => l10n.settingsRowGeneral,
     stamp: const NavDestination(NavDestinationKind.settings),
   ),
   _Row(

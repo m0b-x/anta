@@ -114,14 +114,19 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
         title: l10n.settingsSectionCalendar,
         entries: [
           SettingsEntry(
-            title: l10n.calendarSettingsRow,
+            title: l10n.calendarSettings,
             description: l10n.settingsRowCalendarDesc,
             keywords: [
               l10n.calendarSection,
-              l10n.calendarAppearanceSection,
+              l10n.calendarSettingsPagesSection,
               l10n.calendarFilteringSection,
-              l10n.calendarCategories,
               l10n.calendarEventsSection,
+              l10n.holidayProfileTitle,
+              l10n.removedHolidays,
+              l10n.calendarShowFilterChips,
+              l10n.eventTemplates,
+              l10n.eventDescriptionLimit,
+              l10n.deleteAllEvents,
             ],
             identifier: SemanticsIds.settingsHubRow('calendarSettings'),
             builder: (_, title, description) => _pageRow(

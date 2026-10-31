@@ -2817,14 +2817,6 @@
   "@moveDown": {
     "description": "Move item down action"
   },
-  "appSettings": "Settings",
-  "@appSettings": {
-    "description": "App settings menu item and page title"
-  },
-  "appSettingsDesc": "Startup, browsing, editor and auto-save",
-  "@appSettingsDesc": {
-    "description": "App settings description"
-  },
   "folderSwipeGesture": "Swipe to open menu in folders",
   "@folderSwipeGesture": {
     "description": "Folder swipe gesture setting"
@@ -2882,6 +2874,15 @@
     "description": "Auto-save interval description",
     "placeholders": {
       "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "autoSaveSeconds": "{count} s",
+  "@autoSaveSeconds": {
+    "description": "The auto-save interval slider's value label: a number of seconds with the unit's symbol",
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }
@@ -2945,6 +2946,10 @@
   "settingsReset": "Settings have been reset to defaults",
   "@settingsReset": {
     "description": "Settings reset confirmation message"
+  },
+  "settingsResetFailed": "Couldn't reset the settings",
+  "@settingsResetFailed": {
+    "description": "Error shown when App settings' Reset to defaults fails part-way"
   },
   "shareNote": "Share note",
   "@shareNote": {
@@ -3494,17 +3499,25 @@
       }
     }
   },
-  "calendarSection": "Calendar",
+  "calendarSection": "Holidays",
   "@calendarSection": {
-    "description": "Calendar settings section title"
+    "description": "Calendar settings: the first section's title, over the holiday set and the removed holidays"
   },
-  "calendarSettings": "Calendar",
+  "calendarSettings": "Calendar settings",
   "@calendarSettings": {
-    "description": "Title of the calendar settings page"
+    "description": "Title of the calendar settings page, and the settings hub row, the calendar overflow-menu row and the guide's quotes that open it"
   },
-  "calendarSettingsRow": "Calendar settings",
-  "@calendarSettingsRow": {
-    "description": "Settings hub row and calendar overflow-menu row that open the calendar settings page, and that page's title"
+  "holidayProfileDesc": "Public holidays shown on the calendar; also used by Workdays repeats",
+  "@holidayProfileDesc": {
+    "description": "Calendar settings: the holiday set row's description; the chosen set's name is the row's value, which opens a menu of the sets"
+  },
+  "calendarSettingsPagesSection": "More settings",
+  "@calendarSettingsPagesSection": {
+    "description": "Calendar settings: the section that groups the rows opening Appearance, Categories, Fasting and Alert settings"
+  },
+  "deleteAllEventsFailed": "Couldn't delete the events",
+  "@deleteAllEventsFailed": {
+    "description": "Error snackbar when Calendar settings' Delete all events fails"
   },
   "appGroupLabel": "App",
   "@appGroupLabel": {
@@ -3970,7 +3983,7 @@
   },
   "calendarWeekStartTitle": "Week starts on",
   "@calendarWeekStartTitle": {
-    "description": "Label for the first-day-of-week dropdown"
+    "description": "Label for the first-day-of-week row, whose value opens a menu of the days"
   },
   "daySummaryEntryCount": "{count, plural, one {1 entry} other {{count} entries}}",
   "@daySummaryEntryCount": {

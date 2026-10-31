@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/label_appearance.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -191,6 +192,129 @@ void main() {
       find.byType(SegmentedButton<LabelStyle>),
     );
     expect(segmented.selected, {LabelStyle.stripe});
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('the auto-save interval', () {
+    // Built inside each test: a semantics finder needs semantics on.
+    Finder rowFinder() =>
+        find.bySemanticsIdentifier(SemanticsIds.appSettingsAutoSaveInterval);
+    Finder switchFinder() => find.descendant(
+      of: find.bySemanticsIdentifier(SemanticsIds.appSettingsAutoSave),
+      matching: find.byType(SwitchListTile),
+    );
+    Slider slider(WidgetTester tester) => tester.widget<Slider>(
+      find.descendant(of: rowFinder(), matching: find.byType(Slider)),
+    );
+    Color? titleColor(WidgetTester tester) => tester
+        .widget<HighlightedText>(
+          find.byWidgetPredicate(
+            (w) => w is HighlightedText && w.text == l10n.autoSaveInterval,
+          ),
+        )
+        .style
+        ?.color;
+
+    testWidgets('is disabled, not hidden, while auto-save is off, and '
+        'nothing moves when the switch flips', (tester) async {
+      final handle = tester.ensureSemantics();
+      final intervalRow = rowFinder();
+      final autoSaveSwitch = switchFinder();
+      await pumpPage(tester);
+      // The section's title: a match on it lists the whole section.
+      await search(tester, l10n.autoSaveSection);
+
+      expect(intervalRow, findsOneWidget);
+      expect(slider(tester).onChanged, isNotNull);
+      final switchRect = tester.getRect(autoSaveSwitch);
+      final rowRect = tester.getRect(intervalRow);
+
+      await tester.tap(autoSaveSwitch);
+      await settle(tester);
+
+      expect(await settings.getAutoSaveEnabled(), isFalse);
+      expect(intervalRow, findsOneWidget);
+      expect(slider(tester).onChanged, isNull);
+      expect(
+        tester.getSemantics(find.byType(Slider)),
+        isSemantics(hasEnabledState: true, isEnabled: false),
+      );
+      expect(titleColor(tester)?.a, closeTo(0.38, 0.01));
+      expect(tester.getRect(autoSaveSwitch), switchRect);
+      expect(tester.getRect(intervalRow), rowRect);
+
+      await tester.tap(autoSaveSwitch);
+      await settle(tester);
+
+      expect(slider(tester).onChanged, isNotNull);
+      expect(titleColor(tester), isNull);
+      expect(tester.getRect(autoSaveSwitch), switchRect);
+
+      handle.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('reads its value with the unit through the ARB key: the '
+        'short form on the thumb, the sentence to a screen reader', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await settings.setAutoSaveInterval(12);
+      await pumpPage(tester);
+      await search(tester, l10n.autoSaveSection);
+
+      expect(slider(tester).label, l10n.autoSaveSeconds(12));
+      expect(
+        tester.getSemantics(find.byType(Slider)),
+        isSemantics(value: l10n.autoSaveIntervalDesc(12)),
+      );
+
+      handle.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  testWidgets('every row and the reset carry an id, under the hub row\'s '
+      'name', (tester) async {
+    await pumpPage(tester, size: const Size(1000, 6000));
+
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text(l10n.settingsRowGeneral),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.appSettingsList),
+      findsOneWidget,
+    );
+    for (final id in const [
+      SemanticsIds.appSettingsRestoreLocation,
+      SemanticsIds.appSettingsNotePreview,
+      SemanticsIds.appSettingsLabelStyle,
+      SemanticsIds.appSettingsStatsBar,
+      SemanticsIds.appSettingsFolderSwipe,
+      SemanticsIds.appSettingsLiveMarkdown,
+      SemanticsIds.appSettingsWordWrap,
+      SemanticsIds.appSettingsAutoBreak,
+      SemanticsIds.appSettingsLineNumbers,
+      SemanticsIds.appSettingsCursorLine,
+      SemanticsIds.appSettingsScrollCursor,
+      SemanticsIds.appSettingsNoteSwipe,
+      SemanticsIds.appSettingsAutoSave,
+      SemanticsIds.appSettingsAutoSaveInterval,
+      SemanticsIds.appSettingsHaptics,
+      SemanticsIds.appSettingsConfirmDelete,
+      SemanticsIds.appSettingsPreviewMode,
+      SemanticsIds.appSettingsPreviewWhenHidden,
+      SemanticsIds.appSettingsPreviewScrollbar,
+      SemanticsIds.appSettingsPreviewChunk,
+      SemanticsIds.appSettingsReset,
+    ]) {
+      expect(find.bySemanticsIdentifier(id), findsOneWidget, reason: id);
+    }
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

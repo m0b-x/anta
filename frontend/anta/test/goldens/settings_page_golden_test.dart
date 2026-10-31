@@ -58,7 +58,9 @@ void main() {
     testWidgets('settings page, ${cell.label}', (tester) async {
       setGoldenSurface(tester, cell);
       final errors = await layoutErrorsDuring(() async {
-        await tester.pumpWidget(goldenApp(cell, home: const SettingsPage()));
+        await tester.pumpWidget(
+          goldenPushedApp(cell, page: const SettingsPage()),
+        );
         await settle(tester);
       });
 

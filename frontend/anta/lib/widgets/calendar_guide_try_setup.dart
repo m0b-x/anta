@@ -397,7 +397,7 @@ class GuideSetupDemo extends GuideCardDemo {
           children: [
             FormActionRow(
               glyph: Icons.open_in_new_rounded,
-              label: l10n.calendarGuideOpenSettings(l10n.calendarSettingsRow),
+              label: l10n.calendarGuideOpenSettings(l10n.calendarSettings),
               identifier: control('settings'),
               onTap: () => AppNavigator.toCalendarSettings(context),
             ),

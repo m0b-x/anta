@@ -2176,7 +2176,8 @@ class SettingsService {
 
   Future<RestoreLocationMode> getRestoreLocationMode() async {
     return RestoreLocationMode.fromName(
-      await _db.userSettingsDao.getValue(SettingsKeys.restoreLocationMode),
+      await _db.userSettingsDao.getValue(SettingsKeys.restoreLocationMode) ??
+          SettingsKeys.defaultRestoreLocationMode,
     );
   }
 

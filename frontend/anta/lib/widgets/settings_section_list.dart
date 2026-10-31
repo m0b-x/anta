@@ -638,7 +638,9 @@ class SettingsYieldingTile extends StatelessWidget {
 
   /// The text [trailing] shows, when it shows one — measured for the height
   /// it would take beside the title. Null for a trailing that is one line
-  /// whatever its room (the holiday set's dropdown).
+  /// whatever its room; a trailing that holds text and passes none here is
+  /// never measured, and crushed the holiday set's description beside its
+  /// dropdown.
   final String? value;
 
   /// Builds the trailing for the width it may take: what is left beside the
@@ -755,10 +757,13 @@ class SettingsYieldingTile extends StatelessWidget {
 
   /// The box [value] takes laid out in [width] beside the title, in the
   /// style the tile gives a trailing — as wide as its longest line, or the
-  /// whole [width] once it wraps; nothing for a trailing with no text.
+  /// whole [width] once it wraps; nothing for a trailing with no text, or
+  /// with no room beside the title at all — a title run as wide as the
+  /// column ("Feiertags-Kalender" at 200 %) left a negative width, which a
+  /// layout asserts on; the value goes under the description then anyway.
   Size _valueSize(BuildContext context, double width) {
     final value = this.value;
-    if (value == null) return Size.zero;
+    if (value == null || width <= 0) return Size.zero;
     final painter = _painter(
       context,
       value,
@@ -774,8 +779,17 @@ class SettingsYieldingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _ValueSlotKey(builder: (valueKey) => _buildTile(context, valueKey));
+  }
+
+  Widget _buildTile(BuildContext context, GlobalKey valueKey) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        // One subtree wherever the trailing goes: a pick whose new value
+        // moves it beside the title or under it keeps its state — the
+        // `ValueChangeHighlight` inside flashes rather than starting over.
+        Widget valueSlot(double maxWidth) =>
+            KeyedSubtree(key: valueKey, child: trailing(maxWidth));
         final column =
             constraints.maxWidth -
             _contentPadding.horizontal -
@@ -809,7 +823,7 @@ class SettingsYieldingTile extends StatelessWidget {
             leading: leading,
             title: title,
             subtitle: subtitle,
-            trailing: trailing(beside),
+            trailing: valueSlot(beside),
             onTap: onTap,
           );
         }
@@ -832,10 +846,10 @@ class SettingsYieldingTile extends StatelessWidget {
                   top: FormMetrics.settingsValueUnderGap,
                 ),
                 child: trailingStyle == null
-                    ? trailing(column)
+                    ? valueSlot(column)
                     : DefaultTextStyle.merge(
                         style: trailingStyle,
-                        child: trailing(column),
+                        child: valueSlot(column),
                       ),
               ),
             ],
@@ -845,6 +859,25 @@ class SettingsYieldingTile extends StatelessWidget {
       },
     );
   }
+}
+
+/// Holds [SettingsYieldingTile]'s value-slot key for as long as the tile
+/// stays: a `GlobalKey`'d subtree moved within one frame keeps its state,
+/// and the tile itself is stateless.
+class _ValueSlotKey extends StatefulWidget {
+  final Widget Function(GlobalKey valueKey) builder;
+
+  const _ValueSlotKey({required this.builder});
+
+  @override
+  State<_ValueSlotKey> createState() => _ValueSlotKeyState();
+}
+
+class _ValueSlotKeyState extends State<_ValueSlotKey> {
+  final GlobalKey _valueKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_valueKey);
 }
 
 /// The tallest `ListTile` lets a trailing be: the one-line tile's height —
@@ -871,12 +904,18 @@ const double _denseTileHeight = 48;
 /// beside it so three labels still fit on a narrow phone without the row
 /// reflowing as the locale changes; side by side while every word fits its
 /// segment, stacked otherwise.
+///
+/// [enabled] false makes the segments inert at Material's disabled 38 %,
+/// announced disabled, where hiding the row would move everything under it
+/// and take it out of search; the caller dims the title and description
+/// through the entry's styles, as for a disabled slider row.
 Widget settingsChoiceRow<T extends Enum>({
   required Widget title,
   required Widget? description,
   required T value,
   required Map<T, String> labels,
   required ValueChanged<T> onChanged,
+  bool enabled = true,
 }) {
   return Padding(
     padding: FormMetrics.settingsControlRowPadding,
@@ -903,17 +942,16 @@ Widget settingsChoiceRow<T extends Enum>({
                 direction: horizontal ? Axis.horizontal : Axis.vertical,
                 // A stadium as tall as three stacked choices reads as one
                 // big pill; stacked, the group takes the menu's corners.
-                style: horizontal
-                    ? null
-                    : const ButtonStyle(
-                        shape: WidgetStatePropertyAll(
-                          RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(
-                              Radius.circular(FormMetrics.menuRadius),
-                            ),
+                style: settingsSegmentedStyle(
+                  Theme.of(context).colorScheme,
+                  shape: horizontal
+                      ? null
+                      : const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.all(
+                            Radius.circular(FormMetrics.menuRadius),
                           ),
                         ),
-                      ),
+                ),
                 showSelectedIcon: false,
                 segments: [
                   for (final entry in labels.entries)
@@ -923,13 +961,48 @@ Widget settingsChoiceRow<T extends Enum>({
                     ),
                 ],
                 selected: {value},
-                onSelectionChanged: (selection) => onChanged(selection.first),
+                onSelectionChanged: enabled
+                    ? (selection) => onChanged(selection.first)
+                    : null,
               ),
             );
           },
         ),
       ],
     ),
+  );
+}
+
+/// The style of a settings row's `SegmentedButton`. Material paints a
+/// disabled selected segment with no background, so a row disabled by the
+/// switch it depends on showed its segments all alike and hid the value the
+/// user would get back; here that segment keeps the selected wash and its
+/// label colour, dimmed to [FormMetrics.disabledOpacity]. Background only,
+/// never the check icon: an icon that came and went with the switch would
+/// narrow the label's room and could rewrap it, moving the rows below.
+ButtonStyle settingsSegmentedStyle(
+  ColorScheme colors, {
+  OutlinedBorder? shape,
+}) {
+  bool disabledSelected(Set<WidgetState> states) =>
+      states.contains(WidgetState.disabled) &&
+      states.contains(WidgetState.selected);
+  return ButtonStyle(
+    backgroundColor: WidgetStateProperty.resolveWith(
+      (states) => disabledSelected(states)
+          ? colors.secondaryContainer.withValues(
+              alpha: FormMetrics.disabledOpacity,
+            )
+          : null,
+    ),
+    foregroundColor: WidgetStateProperty.resolveWith(
+      (states) => disabledSelected(states)
+          ? colors.onSecondaryContainer.withValues(
+              alpha: FormMetrics.disabledOpacity,
+            )
+          : null,
+    ),
+    shape: shape == null ? null : WidgetStatePropertyAll(shape),
   );
 }
 

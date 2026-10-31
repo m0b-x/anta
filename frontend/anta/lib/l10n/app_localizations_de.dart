@@ -291,7 +291,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get publicHolidayEuropeDay => 'Europatag';
 
   @override
-  String get holidayProfileTitle => 'Feiertage';
+  String get holidayProfileTitle => 'Feiertags-Kalender';
 
   @override
   String get holidayProfileGeneric => 'Christlich (West)';
@@ -2309,13 +2309,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get moveDown => 'Nach unten';
 
   @override
-  String get appSettings => 'Einstellungen';
-
-  @override
-  String get appSettingsDesc =>
-      'Start, Navigation, Editor und automatisches Speichern';
-
-  @override
   String get folderSwipeGesture => 'Wischen zum Öffnen des Menüs in Ordnern';
 
   @override
@@ -2361,6 +2354,11 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String autoSaveIntervalDesc(int seconds) {
     return 'Alle $seconds Sekunden speichern';
+  }
+
+  @override
+  String autoSaveSeconds(int count) {
+    return '$count s';
   }
 
   @override
@@ -2411,6 +2409,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsReset => 'Einstellungen wurden auf Standard zurückgesetzt';
+
+  @override
+  String get settingsResetFailed =>
+      'Die Einstellungen konnten nicht zurückgesetzt werden';
 
   @override
   String get shareNote => 'Notiz teilen';
@@ -2844,13 +2846,21 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get calendarSection => 'Kalender';
+  String get calendarSection => 'Feiertage';
 
   @override
-  String get calendarSettings => 'Kalender';
+  String get calendarSettings => 'Kalender-Einstellungen';
 
   @override
-  String get calendarSettingsRow => 'Kalender-Einstellungen';
+  String get holidayProfileDesc =>
+      'Gesetzliche Feiertage im Kalender; auch für Werktags-Wiederholungen';
+
+  @override
+  String get calendarSettingsPagesSection => 'Weitere Einstellungen';
+
+  @override
+  String get deleteAllEventsFailed =>
+      'Die Ereignisse konnten nicht gelöscht werden';
 
   @override
   String get appGroupLabel => 'App';
@@ -3097,7 +3107,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventTemplatesDesc =>
-      'Wiederverwendbare Vorlagen — Kategorie, Zeitplan, Farbe und Details vorausgefüllt';
+      'Gespeicherte Vorlagen — Kategorie, Zeitplan, Farbe und Details vorausgefüllt';
 
   @override
   String get createTemplate => 'Neue Vorlage';

@@ -3830,9 +3830,12 @@ Persistence is `SettingsKeys.calendarSettingsCollapsedSections`
 `set…`. It is deliberately **not** in `_calendarPageKeys` or
 `_calendarAppearanceKeys`: it changes nothing the calendar draws, and the
 grid's pre-first-frame bulk read should not carry a settings-page view
-preference. `_resetToDefaults` clears it — the page ships open, and leaving a
-card shut after a reset hides rows the user just asked to see restored. Ids:
-`calendar`, `categories`, `appearance`, `fasting`, `events`.
+preference. `_resetToDefaults` cleared it — the page ships open, and leaving a
+card shut after a reset hid rows the user just asked to see restored. Ids
+today (the settings rework's S5, 2026-11-01): `calendar`, `pages`, `filtering`,
+`events`; the page has no reset any more (D7), the alerts and fasting
+sections moved to their own pages, and a saved set still holding the old
+`categories` / `appearance` / `fasting` / `alerts` ids keeps them harmlessly.
 
 ### Rows moved to the section they belong to
 
@@ -4342,7 +4345,7 @@ dismissing is never a discard. Reached from any picker's palette dot and from
 the **Colors** row under the accent picker in calendar settings, whose subtitle
 counts the user's own swatches off the same facade.
 
-The calendar settings page's own *Reset to defaults* deliberately leaves the
+Until the settings rework's S5 removed it (2026-11-01, D7), the calendar settings page's own *Reset to defaults* deliberately left the
 palette alone: those swatches are shared with categories, templates and events,
 so a page-scoped reset must not delete them. The palette has its own reset,
 next to the colours it removes.

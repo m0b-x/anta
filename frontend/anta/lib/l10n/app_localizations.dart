@@ -3994,18 +3994,6 @@ abstract class AppLocalizations {
   /// **'Move Down'**
   String get moveDown;
 
-  /// App settings menu item and page title
-  ///
-  /// In en, this message translates to:
-  /// **'Settings'**
-  String get appSettings;
-
-  /// App settings description
-  ///
-  /// In en, this message translates to:
-  /// **'Startup, browsing, editor and auto-save'**
-  String get appSettingsDesc;
-
   /// Folder swipe gesture setting
   ///
   /// In en, this message translates to:
@@ -4089,6 +4077,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save every {seconds} seconds'**
   String autoSaveIntervalDesc(int seconds);
+
+  /// The auto-save interval slider's value label: a number of seconds with the unit's symbol
+  ///
+  /// In en, this message translates to:
+  /// **'{count} s'**
+  String autoSaveSeconds(int count);
 
   /// Startup section title on the controls settings page
   ///
@@ -4179,6 +4173,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings have been reset to defaults'**
   String get settingsReset;
+
+  /// Error shown when App settings' Reset to defaults fails part-way
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t reset the settings'**
+  String get settingsResetFailed;
 
   /// Share note option
   ///
@@ -4900,23 +4900,35 @@ abstract class AppLocalizations {
   /// **'{count} lines per chunk (higher = better performance, lower = more precise search scroll)'**
   String previewLinesPerChunkDesc(int count);
 
-  /// Calendar settings section title
+  /// Calendar settings: the first section's title, over the holiday set and the removed holidays
   ///
   /// In en, this message translates to:
-  /// **'Calendar'**
+  /// **'Holidays'**
   String get calendarSection;
 
-  /// Title of the calendar settings page
-  ///
-  /// In en, this message translates to:
-  /// **'Calendar'**
-  String get calendarSettings;
-
-  /// Settings hub row and calendar overflow-menu row that open the calendar settings page, and that page's title
+  /// Title of the calendar settings page, and the settings hub row, the calendar overflow-menu row and the guide's quotes that open it
   ///
   /// In en, this message translates to:
   /// **'Calendar settings'**
-  String get calendarSettingsRow;
+  String get calendarSettings;
+
+  /// Calendar settings: the holiday set row's description; the chosen set's name is the row's value, which opens a menu of the sets
+  ///
+  /// In en, this message translates to:
+  /// **'Public holidays shown on the calendar; also used by Workdays repeats'**
+  String get holidayProfileDesc;
+
+  /// Calendar settings: the section that groups the rows opening Appearance, Categories, Fasting and Alert settings
+  ///
+  /// In en, this message translates to:
+  /// **'More settings'**
+  String get calendarSettingsPagesSection;
+
+  /// Error snackbar when Calendar settings' Delete all events fails
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t delete the events'**
+  String get deleteAllEventsFailed;
 
   /// Drawer group label above the Settings, how-to and About rows
   ///
@@ -5512,7 +5524,7 @@ abstract class AppLocalizations {
   /// **'Outline'**
   String get calendarCellStyleOutline;
 
-  /// Label for the first-day-of-week dropdown
+  /// Label for the first-day-of-week row, whose value opens a menu of the days
   ///
   /// In en, this message translates to:
   /// **'Week starts on'**

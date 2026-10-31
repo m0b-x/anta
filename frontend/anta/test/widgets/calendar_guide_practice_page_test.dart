@@ -504,7 +504,7 @@ void main() {
     await robot.pickMore(SemanticsIds.calendarGuideOpen);
     expect(robot.caption, en.calendarGuideYouAreHere);
     await robot.pickMore(SemanticsIds.calendarSettingsOpen);
-    expect(robot.caption, en.calendarGuideWouldOpen(en.calendarSettingsRow));
+    expect(robot.caption, en.calendarGuideWouldOpen(en.calendarSettings));
     expect(find.byType(CalendarGuidePracticePage), findsOneWidget);
     expect(robot.canReset, isFalse, reason: 'a report is no step');
 
@@ -692,7 +692,7 @@ void main() {
       l10n.calendarGuideWouldOpen(l10n.alertsTitle),
       l10n.calendarGuideWouldShare,
       l10n.calendarGuideYouAreHere,
-      l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow),
+      l10n.calendarGuideWouldOpen(l10n.calendarSettings),
     });
   }
 

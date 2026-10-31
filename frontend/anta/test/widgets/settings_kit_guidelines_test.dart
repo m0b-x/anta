@@ -41,6 +41,7 @@ import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/permission_tile.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
@@ -528,14 +529,20 @@ void main() {
 
   group('the yielding tile', () {
     /// One yielding tile on a kit page, as Alert settings draws its
-    /// defaults: [value] in a box no wider than the room it is given.
+    /// defaults: [value] in a box no wider than the room it is given, inside
+    /// a [ValueChangeHighlight] with [flash], as the holiday set's row is.
     Future<void> pumpTile(
       WidgetTester tester,
       GoldenCell cell, {
       required String title,
       required String description,
       required String value,
+      bool flash = false,
     }) async {
+      Widget box(double maxWidth) => ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Text(value),
+      );
       setGoldenSurface(tester, cell);
       await tester.pumpWidget(
         goldenApp(
@@ -556,10 +563,12 @@ void main() {
                             title: title,
                             subtitle: description,
                             value: value,
-                            trailing: (maxWidth) => ConstrainedBox(
-                              constraints: BoxConstraints(maxWidth: maxWidth),
-                              child: Text(value),
-                            ),
+                            trailing: (maxWidth) => flash
+                                ? ValueChangeHighlight(
+                                    value: value,
+                                    child: box(maxWidth),
+                                  )
+                                : box(maxWidth),
                           ),
                     ),
                   ],
@@ -679,8 +688,125 @@ void main() {
         greaterThanOrEqualTo(tester.getRect(find.text(caption)).bottom),
       );
     });
+
+    testWidgets('a pick whose new value moves it from beside the title to '
+        'under the description still flashes', (tester) async {
+      const title = 'All-day events';
+      const caption = 'The alert a new all-day event starts with';
+      const short = 'No alert';
+      const long = 'Reminder · The day before, 9:00 AM';
+
+      /// The flash's wash, or null while the highlight paints none.
+      Color? wash() {
+        final box = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byType(ValueChangeHighlight),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        return (box.decoration as BoxDecoration).color;
+      }
+
+      await pumpTile(
+        tester,
+        phoneEn,
+        title: title,
+        description: caption,
+        value: short,
+        flash: true,
+      );
+      expect(tile(tester).trailing, isNotNull);
+      expect(wash(), isNull);
+
+      await pumpTile(
+        tester,
+        phoneEn,
+        title: title,
+        description: caption,
+        value: long,
+        flash: true,
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(tile(tester).trailing, isNull, reason: 'the value moved under');
+      expect(wash(), isNotNull);
+      await tester.pumpAndSettle();
+      expect(wash(), isNull);
+    });
+  });
+
+  group('the choice row', () {
+    testWidgets('disabled, its selected segment keeps a dimmed wash the '
+        'others lack, and every segment reads disabled', (tester) async {
+      final handle = tester.ensureSemantics();
+      const cell = GoldenCell(
+        dark: false,
+        locale: Locale('en'),
+        textScale: 1.0,
+        size: Size(360, 780),
+      );
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(
+          cell,
+          home: Scaffold(
+            body: settingsChoiceRow<_Choice>(
+              title: const Text('On fasting days'),
+              description: null,
+              value: _Choice.second,
+              labels: const {
+                _Choice.first: 'Event',
+                _Choice.second: 'Fasting',
+                _Choice.third: 'Both',
+              },
+              onChanged: (_) {},
+              enabled: false,
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+
+      Color? background(String label) => tester
+          .widget<Material>(
+            find.descendant(
+              of: find.widgetWithText(TextButton, label),
+              matching: find.byType(Material),
+            ),
+          )
+          .color;
+      final colors = cell.theme.colorScheme;
+      expect(
+        background('Fasting'),
+        colors.secondaryContainer.withValues(
+          alpha: FormMetrics.disabledOpacity,
+        ),
+      );
+      for (final label in ['Event', 'Both']) {
+        expect(background(label), isNot(background('Fasting')), reason: label);
+        expect(
+          tester.getSemantics(find.widgetWithText(TextButton, label)),
+          isSemantics(label: label, hasEnabledState: true, isEnabled: false),
+        );
+      }
+      expect(
+        tester.getSemantics(find.widgetWithText(TextButton, 'Fasting')),
+        isSemantics(
+          label: 'Fasting',
+          isSelected: true,
+          hasEnabledState: true,
+          isEnabled: false,
+        ),
+      );
+
+      handle.dispose();
+    });
   });
 }
+
+enum _Choice { first, second, third }
 
 /// Android's 48 dp tap-target guideline with one accepted exception taken out
 /// by name rather than the check skipped: the bar's [LeadingNavPair], whose

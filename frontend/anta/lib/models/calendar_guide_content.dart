@@ -517,7 +517,7 @@ enum CalendarGuideTopic {
         l10n.calendarGuideRailTitle(l10n.eventShowInDayRail),
         l10n.calendarGuideRailBody(
           l10n.eventShowInDayRail,
-          l10n.calendarSettingsRow,
+          l10n.calendarSettings,
           l10n.calendarAppearanceSection,
           l10n.eventShowInDayRailAuto,
           l10n.eventShowInDayRailAlways,
@@ -630,7 +630,7 @@ enum CalendarGuideTopic {
         'settings',
         Icons.settings_outlined,
         l10n.calendarGuideSettingsTitle,
-        l10n.calendarGuideSettingsBody(l10n.calendarSettingsRow, l10n.save),
+        l10n.calendarGuideSettingsBody(l10n.calendarSettings, l10n.save),
       ),
       CalendarGuideRow(
         'language',
@@ -649,7 +649,7 @@ enum CalendarGuideTopic {
         Icons.settings_outlined,
         l10n.calendarGuideFastingWhereTitle,
         l10n.calendarGuideFastingWhereBody(
-          l10n.calendarSettingsRow,
+          l10n.calendarSettings,
           l10n.fastingSettingsTitle,
         ),
       ),

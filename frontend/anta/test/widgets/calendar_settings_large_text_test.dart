@@ -22,6 +22,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
@@ -221,32 +222,31 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('Feiertage'), findsOneWidget);
-    expectTitleWhole(tester, 'Feiertage');
+    expect(find.text('Feiertags-Kalender'), findsOneWidget);
+    expectTitleWhole(tester, 'Feiertags-Kalender');
 
-    // The dropdown, bounded: under its title, inside the tile, its menu
-    // sized for its names and the shown name cut rather than the tile.
-    final dropdown = find.byType(DropdownButton<HolidayProfile>);
-    expect(dropdown, findsOneWidget);
-    final holidayTile = tester.getRect(tileOf('Feiertage'));
-    final dropdownRect = tester.getRect(dropdown);
+    // The set's name, a value the tile measures: under the description,
+    // inside the tile, whole.
+    const name = 'Christlich (West)';
+    final description = lookupAppLocalizations(
+      const Locale('de'),
+    ).holidayProfileDesc;
+    final holidayTile = tester.getRect(tileOf('Feiertags-Kalender'));
+    final nameRect = tester.getRect(find.text(name));
     expect(
-      dropdownRect.right,
+      nameRect.right,
       lessThanOrEqualTo(holidayTile.right - FormMetrics.rowEndPadding),
     );
     expect(
-      dropdownRect.top,
-      greaterThanOrEqualTo(tester.getRect(find.text('Feiertage')).bottom),
+      nameRect.top,
+      greaterThanOrEqualTo(tester.getRect(find.text(description)).bottom),
     );
-    expect(dropdownRect.height, kMinInteractiveDimension);
-    final button = tester.widget<DropdownButton<HolidayProfile>>(dropdown);
-    expect(button.selectedItemBuilder, isNotNull);
-    expect(button.menuWidth, columnOf(tester, 'Feiertage'));
-    expect(button.itemHeight, isNull);
+    expectWholeWords(tester, name, title: 'Feiertags-Kalender');
+    expectUnclipped(tester, name);
 
-    // The one row left of the alerts section (D5), at the page's foot: its
-    // value line is both defaults read back, and the page lays out down to
-    // it. The rows themselves are `alert_settings_page_test.dart`'s.
+    // The one row left of the alerts section (D5), last in More settings:
+    // its value line is both defaults read back, and the page lays out down
+    // to it. The rows themselves are `alert_settings_page_test.dart`'s.
     await scrollTo(tester, 'Einstellungen für Erinnerungen');
     expect(tester.takeException(), isNull);
     expectTitleWhole(tester, 'Einstellungen für Erinnerungen');
@@ -268,18 +268,119 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull);
-    // The profile's name is the subtitle and the dropdown's shown item alike;
-    // the subtitle is the kit's highlighted text.
-    expectWholeWords(
-      tester,
-      'Christlich (West)',
-      title: 'Feiertage',
-      finder: find.descendant(
+    // What the set is for (N99); the set's name is the row's value alone.
+    final description = lookupAppLocalizations(
+      const Locale('de'),
+    ).holidayProfileDesc;
+    expectWholeWords(tester, description, title: 'Feiertags-Kalender');
+    expectUnclipped(tester, description);
+    expect(
+      find.descendant(
         of: find.byType(HighlightedText),
         matching: find.text('Christlich (West)'),
       ),
+      findsNothing,
     );
   });
+
+  testWidgets('the page reads Holidays · More settings · Filtering · Events, '
+      'More settings holding Appearance · Categories · Fasting · Alert '
+      'settings, and ends with no reset', (tester) async {
+    await pumpPage(
+      tester,
+      surface: const Size(900, 2000),
+      locale: const Locale('en'),
+    );
+    expect(tester.takeException(), isNull);
+
+    final cards = tester
+        .widgetList<SettingsSectionCard>(find.byType(SettingsSectionCard))
+        .map((card) => (card.section.id, card.section.title))
+        .toList();
+    expect(cards, const [
+      ('calendar', 'Holidays'),
+      ('pages', 'More settings'),
+      ('filtering', 'Filtering'),
+      ('events', 'Events'),
+    ]);
+
+    double topOf(String id) =>
+        tester.getTopLeft(find.bySemanticsIdentifier(id)).dy;
+    Finder inCard(String section, String id) => find.descendant(
+      of: find.byWidgetPredicate(
+        (w) => w is SettingsSectionCard && w.section.id == section,
+      ),
+      matching: find.bySemanticsIdentifier(id),
+    );
+    const pages = [
+      SemanticsIds.calendarAppearanceOpen,
+      SemanticsIds.calendarCategoriesOpen,
+      SemanticsIds.calendarSettingsFastingOpen,
+      SemanticsIds.calendarSettingsAlertsOpen,
+    ];
+    for (final id in pages) {
+      expect(inCard('pages', id), findsOneWidget, reason: id);
+    }
+    for (var i = 1; i < pages.length; i++) {
+      expect(topOf(pages[i]), greaterThan(topOf(pages[i - 1])));
+    }
+    expect(
+      inCard('calendar', SemanticsIds.calendarHolidayProfile),
+      findsOneWidget,
+    );
+    expect(
+      inCard('calendar', SemanticsIds.calendarRemovedHolidaysOpen),
+      findsOneWidget,
+    );
+    expect(
+      inCard('filtering', SemanticsIds.calendarShowFilterChips),
+      findsOneWidget,
+    );
+    for (final id in const [
+      SemanticsIds.calendarEventTemplatesOpen,
+      SemanticsIds.calendarDescriptionLimit,
+      SemanticsIds.calendarDeleteAllEvents,
+    ]) {
+      expect(inCard('events', id), findsOneWidget, reason: id);
+    }
+    expect(find.text('Reset to defaults'), findsNothing);
+  });
+
+  // The holiday set's name was cut with an ellipsis in its dropdown at 2.0
+  // ("Creștin (occidental)"); as the row's value it is whole like the rest.
+  for (final locale in const [Locale('de'), Locale('ro')]) {
+    testWidgets('${locale.languageCode} at text scale 2.0 on a 360 × 780 '
+        'phone: every text the section list lays out is whole, top to '
+        'bottom, the holiday set\'s name included', (tester) async {
+      await pumpPage(
+        tester,
+        surface: phone,
+        locale: locale,
+        textScale: 2.0,
+        density: VisualDensity.standard,
+      );
+      final name = PublicHolidays.profileNameOf(
+        HolidayProfile.generic,
+        lookupAppLocalizations(locale),
+      );
+      expect(find.text(name), findsOneWidget);
+      expectUnclipped(tester, name);
+      // The search hint, the one text cut on purpose, sits above the list.
+      final listed = find.byElementPredicate((element) {
+        if (element.widget is! Text) return false;
+        var inList = false;
+        element.visitAncestorElements((ancestor) {
+          if (ancestor.widget is SettingsSectionList) {
+            inList = true;
+            return false;
+          }
+          return true;
+        });
+        return inList;
+      });
+      await expectPageWhole(tester, within: listed);
+    });
+  }
 
   // Three traditions on, so the Fasting row's value is the longest it gets
   // short of all four: each name whole, each dot held to the name after it.
@@ -363,8 +464,7 @@ void main() {
   });
 
   testWidgets('where everything fits the holiday row is the stock tile: the '
-      'dropdown beside the title, untouched', (tester) async {
-    // Wide enough for the test font's names to fit beside their titles.
+      'set\'s name beside the title', (tester) async {
     await pumpPage(
       tester,
       surface: const Size(900, 2000),
@@ -372,14 +472,63 @@ void main() {
     );
     expect(tester.takeException(), isNull);
 
-    final dropdown = find.byType(DropdownButton<HolidayProfile>);
+    const name = 'Christian (Western)';
+    final trailing = tester.widget<ListTile>(tileOf('Holiday set')).trailing;
+    expect(trailing, isNotNull);
     expect(
-      tester.widget<ListTile>(tileOf('Holiday set')).trailing,
-      tester.widget(dropdown),
+      find.descendant(of: find.byWidget(trailing!), matching: find.text(name)),
+      findsOneWidget,
     );
-    final button = tester.widget<DropdownButton<HolidayProfile>>(dropdown);
-    expect(button.selectedItemBuilder, isNull);
-    expect(button.menuWidth, isNull);
-    expect(button.itemHeight, kMinInteractiveDimension);
+    expect(
+      tester.getRect(find.text(name)).left,
+      greaterThan(tester.getRect(find.text('Holiday set')).right),
+    );
+  });
+
+  testWidgets('German at text scale 2.0 on a 360 × 780 phone: the holiday '
+      'set\'s menu lists every set whole, the current one checked', (
+    tester,
+  ) async {
+    await pumpPage(
+      tester,
+      surface: phone,
+      locale: const Locale('de'),
+      textScale: 2.0,
+      density: VisualDensity.standard,
+    );
+    await tester.tap(find.text('Christlich (West)'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final l10n = lookupAppLocalizations(const Locale('de'));
+    for (final profile in HolidayProfile.values) {
+      final item = find.bySemanticsIdentifier(
+        SemanticsIds.calendarHolidayProfileItem(profile.name),
+      );
+      expect(item, findsOneWidget, reason: profile.name);
+      final label = find.descendant(
+        of: find.byType(FormMenuChoiceItem<HolidayProfile>),
+        matching: find.text(PublicHolidays.profileNameOf(profile, l10n)),
+      );
+      expect(label, findsOneWidget, reason: profile.name);
+      final paragraph = tester.renderObject<RenderParagraph>(label);
+      expect(
+        paragraph.size.height,
+        greaterThanOrEqualTo(paragraph.textSize.height - 0.01),
+        reason: '${profile.name} is cut short',
+      );
+      expect(
+        paragraph.size.width,
+        greaterThanOrEqualTo(paragraph.textSize.width - 0.01),
+        reason: '${profile.name} is cut at the side',
+      );
+    }
+    final checked = tester
+        .widgetList<FormMenuChoiceItem<HolidayProfile>>(
+          find.byType(FormMenuChoiceItem<HolidayProfile>),
+        )
+        .where((item) => item.checked)
+        .map((item) => item.value);
+    expect(checked, [HolidayProfile.generic]);
   });
 }

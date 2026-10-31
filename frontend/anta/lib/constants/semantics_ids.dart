@@ -120,6 +120,35 @@ abstract final class SemanticsIds {
   /// translated.
   static const String settingsBarApp = 'settings-bar-app';
 
+  /// App settings' list, every row on it and its Reset to defaults (S17,
+  /// D13), in the page's order; the four deprecated preview rows last.
+  static const String appSettingsList = 'app-settings-list';
+  static const String appSettingsRestoreLocation =
+      'app-settings-restore-location';
+  static const String appSettingsNotePreview = 'app-settings-note-preview';
+  static const String appSettingsLabelStyle = 'app-settings-label-style';
+  static const String appSettingsStatsBar = 'app-settings-stats-bar';
+  static const String appSettingsFolderSwipe = 'app-settings-folder-swipe';
+  static const String appSettingsLiveMarkdown = 'app-settings-live-markdown';
+  static const String appSettingsWordWrap = 'app-settings-word-wrap';
+  static const String appSettingsAutoBreak = 'app-settings-auto-break';
+  static const String appSettingsLineNumbers = 'app-settings-line-numbers';
+  static const String appSettingsCursorLine = 'app-settings-cursor-line';
+  static const String appSettingsScrollCursor = 'app-settings-scroll-cursor';
+  static const String appSettingsNoteSwipe = 'app-settings-note-swipe';
+  static const String appSettingsAutoSave = 'app-settings-auto-save';
+  static const String appSettingsAutoSaveInterval =
+      'app-settings-auto-save-interval';
+  static const String appSettingsHaptics = 'app-settings-haptics';
+  static const String appSettingsConfirmDelete = 'app-settings-confirm-delete';
+  static const String appSettingsPreviewMode = 'app-settings-preview-mode';
+  static const String appSettingsPreviewWhenHidden =
+      'app-settings-preview-when-hidden';
+  static const String appSettingsPreviewScrollbar =
+      'app-settings-preview-scrollbar';
+  static const String appSettingsPreviewChunk = 'app-settings-preview-chunk';
+  static const String appSettingsReset = 'app-settings-reset';
+
   /// Calendar settings' bar title.
   static const String settingsBarCalendar = 'settings-bar-calendar';
 
@@ -155,6 +184,9 @@ abstract final class SemanticsIds {
 
   /// The settings hub's bar title.
   static const String settingsBarHub = 'settings-bar-hub';
+
+  /// The Appearance page's bar title.
+  static const String settingsBarAppearance = 'settings-bar-appearance';
 
   /// The settings hub's search field — its own, so a flow typing into the
   /// hub never lands in a page's field left beneath it.
@@ -306,6 +338,18 @@ abstract final class SemanticsIds {
   static const String calendarSettingsFastingOpen =
       'calendar-settings-fasting-open';
 
+  /// Calendar settings' rows that had no id (D13): the holiday set's
+  /// row, the filter chips switch, the description-limit slider and
+  /// Delete all events.
+  static const String calendarHolidayProfile = 'calendar-holiday-profile';
+  static const String calendarShowFilterChips = 'calendar-show-filter-chips';
+  static const String calendarDescriptionLimit = 'calendar-description-limit';
+  static const String calendarDeleteAllEvents = 'calendar-delete-all-events';
+
+  /// One profile in the holiday set's menu, keyed by `HolidayProfile.name`.
+  static String calendarHolidayProfileItem(String profile) =>
+      'calendar-holiday-profile-$profile';
+
   /// The Fasting settings page's list and its rows that had no id while they
   /// lived on Calendar settings — the look and practice rows keep theirs
   /// (`calendarFastingStyleOpen`, `calendarFastingScheduleOpen`). A tradition
@@ -322,6 +366,13 @@ abstract final class SemanticsIds {
   /// segments.
   static const String appearanceTodayStyle = 'appearance-today-style';
   static const String appearanceAccentColor = 'appearance-accent-color';
+
+  /// The appearance page's Week starts on row, one day in its menu (keyed by
+  /// `CalendarWeekStart.name`), and the On fasting days row.
+  static const String appearanceWeekStart = 'appearance-week-start';
+  static String appearanceWeekStartItem(String start) =>
+      'appearance-week-start-$start';
+  static const String appearanceTintConflict = 'appearance-tint-conflict';
   static const String missedDisplayFaded = 'missed-display-faded';
   static const String missedDisplayHidden = 'missed-display-hidden';
 

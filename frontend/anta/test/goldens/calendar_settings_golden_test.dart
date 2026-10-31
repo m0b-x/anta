@@ -88,7 +88,7 @@ void main() {
       setGoldenSurface(tester, cell);
       final errors = await layoutErrorsDuring(() async {
         await tester.pumpWidget(
-          goldenApp(cell, home: const CalendarSettingsPage()),
+          goldenPushedApp(cell, page: const CalendarSettingsPage()),
         );
         // The page spins a progress indicator while it loads, which never
         // settles; pump until it is gone.

@@ -339,7 +339,7 @@ class CalendarOverflowMenu extends StatelessWidget {
             child: FormMenuItemRow(
               identifier: SemanticsIds.calendarSettingsOpen,
               icon: Icons.settings_outlined,
-              label: l10n.calendarSettingsRow,
+              label: l10n.calendarSettings,
             ),
           ),
         ],

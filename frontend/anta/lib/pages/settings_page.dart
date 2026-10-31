@@ -59,7 +59,9 @@ class _SettingsPageState extends State<SettingsPage> {
   LabelStyle _labelStyle = LabelStyle.dot;
   bool _showStatsBar = SettingsKeys.defaultShowStatsBar;
   bool _hapticFeedback = true;
-  RestoreLocationMode _restoreLocationMode = RestoreLocationMode.everything;
+  RestoreLocationMode _restoreLocationMode = RestoreLocationMode.fromName(
+    SettingsKeys.defaultRestoreLocationMode,
+  );
   // Editor settings
   bool _liveMarkdownRendering = true;
   bool _showLineNumbers = false;
@@ -170,7 +172,9 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       backgroundColor: colorScheme.pageGround,
       appBar: SettingsAppBar(
-        title: l10n.appSettings,
+        // The hub's row name: a page titled "Settings" under the hub's
+        // "Settings" told the user nothing about where they were (N98).
+        title: l10n.settingsRowGeneral,
         identifier: SemanticsIds.settingsBarApp,
       ),
       body: SafeArea(
@@ -194,14 +198,19 @@ class _SettingsPageState extends State<SettingsPage> {
                       sections: _buildSections(l10n),
                       collapsedSections: _collapsedSections,
                       onToggleSection: _toggleSection,
+                      listIdentifier: SemanticsIds.appSettingsList,
                       footer: [
                         Center(
-                          child: TextButton.icon(
-                            onPressed: _showResetConfirmation,
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: Text(l10n.resetToDefaults),
-                            style: TextButton.styleFrom(
-                              foregroundColor: colorScheme.error,
+                          child: Semantics(
+                            container: true,
+                            identifier: SemanticsIds.appSettingsReset,
+                            child: TextButton.icon(
+                              onPressed: _showResetConfirmation,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(l10n.resetToDefaults),
+                              style: TextButton.styleFrom(
+                                foregroundColor: colorScheme.error,
+                              ),
                             ),
                           ),
                         ),
@@ -237,6 +246,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.restoreLocation,
           description: l10n.restoreLocationDesc,
           keywords: _keywords(l10n.restoreLocationKeywords),
+          identifier: SemanticsIds.appSettingsRestoreLocation,
           builder: (context, title, description) => settingsChoiceRow(
             title: title,
             description: description,
@@ -269,6 +279,7 @@ class _SettingsPageState extends State<SettingsPage> {
         SettingsEntry(
           title: l10n.showNotePreview,
           description: l10n.showNotePreviewDesc,
+          identifier: SemanticsIds.appSettingsNotePreview,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -284,6 +295,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.labelStyle,
           description: l10n.labelStyleDesc,
           keywords: _keywords(l10n.labelStyleKeywords),
+          identifier: SemanticsIds.appSettingsLabelStyle,
           builder: (context, title, description) => settingsChoiceRow(
             title: title,
             description: description,
@@ -307,6 +319,7 @@ class _SettingsPageState extends State<SettingsPage> {
         SettingsEntry(
           title: l10n.showStatsBar,
           description: l10n.showStatsBarDesc,
+          identifier: SemanticsIds.appSettingsStatsBar,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -322,6 +335,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.folderSwipeGesture,
           description: l10n.folderSwipeGestureDesc,
           keywords: _keywords(l10n.swipeKeywords),
+          identifier: SemanticsIds.appSettingsFolderSwipe,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -347,6 +361,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.liveMarkdownRendering,
           description: l10n.liveMarkdownRenderingDesc,
           keywords: _keywords(l10n.liveMarkdownKeywords),
+          identifier: SemanticsIds.appSettingsLiveMarkdown,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -362,6 +377,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.wordWrap,
           description: l10n.wordWrapDesc,
           keywords: _keywords(l10n.wordWrapKeywords),
+          identifier: SemanticsIds.appSettingsWordWrap,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -377,6 +393,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.autoBreakLongLines,
           description: l10n.autoBreakLongLinesDesc,
           keywords: _keywords(l10n.wordWrapKeywords),
+          identifier: SemanticsIds.appSettingsAutoBreak,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -392,6 +409,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.showLineNumbers,
           description: l10n.showLineNumbersDesc,
           keywords: _keywords(l10n.lineNumbersKeywords),
+          identifier: SemanticsIds.appSettingsLineNumbers,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -407,6 +425,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.showCursorLine,
           description: l10n.showCursorLineDesc,
           keywords: _keywords(l10n.cursorKeywords),
+          identifier: SemanticsIds.appSettingsCursorLine,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -425,6 +444,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ..._keywords(l10n.keyboardKeywords),
             ..._keywords(l10n.cursorKeywords),
           ],
+          identifier: SemanticsIds.appSettingsScrollCursor,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -440,6 +460,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.noteSwipeGesture,
           description: l10n.noteSwipeGestureDesc,
           keywords: _keywords(l10n.swipeKeywords),
+          identifier: SemanticsIds.appSettingsNoteSwipe,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -456,6 +477,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   SettingsSectionData _autoSaveSection(AppLocalizations l10n) {
+    final intervalStyle = _autoSaveEnabled
+        ? null
+        : TextStyle(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.38),
+          );
     return SettingsSectionData(
       id: _sectionAutoSave,
       icon: Icons.save_rounded,
@@ -465,6 +493,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.autoSave,
           description: l10n.autoSaveDesc,
           keywords: _keywords(l10n.autoSaveKeywords),
+          identifier: SemanticsIds.appSettingsAutoSave,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -476,29 +505,35 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
         ),
-        // Only meaningful while auto-save is on; hidden otherwise, exactly
-        // as before.
-        if (_autoSaveEnabled)
-          SettingsEntry(
-            title: l10n.autoSaveInterval,
-            description: l10n.autoSaveIntervalDesc(_autoSaveInterval),
-            keywords: _keywords(l10n.autoSaveKeywords),
-            builder: (context, title, description) => settingsSliderRow(
-              title: title,
-              description: description,
-              value: _autoSaveInterval.toDouble(),
-              min: 1,
-              max: 30,
-              divisions: 29,
-              labelBuilder: (v) => '${v}s',
-              semanticValue: l10n.autoSaveIntervalDesc,
-              onChanged: (value) async {
-                _onHapticFeedback();
-                setState(() => _autoSaveInterval = value.round());
-                await _settings?.setAutoSaveInterval(value.round());
-              },
-            ),
+        // Only meaningful while auto-save is on, so disabled rather than
+        // hidden while it is off (S14): the row stays where it is when the
+        // switch above it flips, and search still finds it.
+        SettingsEntry(
+          title: l10n.autoSaveInterval,
+          description: l10n.autoSaveIntervalDesc(_autoSaveInterval),
+          keywords: _keywords(l10n.autoSaveKeywords),
+          identifier: SemanticsIds.appSettingsAutoSaveInterval,
+          titleStyle: intervalStyle,
+          descriptionStyle: intervalStyle,
+          builder: (context, title, description) => settingsSliderRow(
+            title: title,
+            description: description,
+            value: _autoSaveInterval.toDouble(),
+            min: 1,
+            max: 30,
+            divisions: 29,
+            labelBuilder: l10n.autoSaveSeconds,
+            // The sentence, not the thumb's "12 s": the row's description is
+            // out of semantics, so this is all TalkBack says of the value.
+            semanticValue: l10n.autoSaveIntervalDesc,
+            enabled: _autoSaveEnabled,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _autoSaveInterval = value.round());
+              await _settings?.setAutoSaveInterval(value.round());
+            },
           ),
+        ),
       ],
     );
   }
@@ -516,6 +551,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.hapticFeedback,
           description: l10n.hapticFeedbackDesc,
           keywords: _keywords(l10n.hapticFeedbackKeywords),
+          identifier: SemanticsIds.appSettingsHaptics,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -531,6 +567,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.confirmDelete,
           description: l10n.confirmDeleteDesc,
           keywords: _keywords(l10n.confirmDeleteKeywords),
+          identifier: SemanticsIds.appSettingsConfirmDelete,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -571,6 +608,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.previewModeEnabled,
           description: l10n.previewModeEnabledDesc,
           keywords: _keywords(l10n.previewModeKeywords),
+          identifier: SemanticsIds.appSettingsPreviewMode,
           builder: (context, title, description) => _switchRow(
             title: title,
             description: description,
@@ -586,6 +624,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.previewWhenKeyboardHidden,
           description: l10n.previewWhenKeyboardHiddenDesc,
           keywords: _keywords(l10n.keyboardKeywords),
+          identifier: SemanticsIds.appSettingsPreviewWhenHidden,
           titleStyle: disabledStyle,
           descriptionStyle: disabledStyle,
           builder: (context, title, description) => _switchRow(
@@ -603,6 +642,7 @@ class _SettingsPageState extends State<SettingsPage> {
         SettingsEntry(
           title: l10n.showPreviewScrollbar,
           description: l10n.showPreviewScrollbarDesc,
+          identifier: SemanticsIds.appSettingsPreviewScrollbar,
           titleStyle: disabledStyle,
           descriptionStyle: disabledStyle,
           builder: (context, title, description) => _switchRow(
@@ -621,6 +661,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: l10n.previewLinesPerChunk,
           description: l10n.previewLinesPerChunkDesc(_previewLinesPerChunk),
           keywords: _keywords(l10n.performanceKeywords),
+          identifier: SemanticsIds.appSettingsPreviewChunk,
           titleStyle: disabledStyle,
           descriptionStyle: disabledStyle,
           builder: (context, title, description) => settingsSliderRow(
@@ -668,7 +709,9 @@ class _SettingsPageState extends State<SettingsPage> {
       confirmText: l10n.reset,
       icon: Icons.refresh_rounded,
     );
-    if (!confirmed) return;
+    // The page may have gone while the dialog was up: the reset reads its
+    // context and writes nothing for a page that is no longer there.
+    if (!confirmed || !mounted) return;
     await _resetToDefaults();
   }
 
@@ -677,7 +720,64 @@ class _SettingsPageState extends State<SettingsPage> {
   /// chunk) included, since a reset that quietly skips rows is worse than no
   /// reset at all. Values come from `SettingsKeys.default*` so this cannot
   /// drift away from what an untouched install actually reads.
+  ///
+  /// A write that throws stops the chain where it is (S13): the rows before
+  /// it already hold their defaults, so the page re-reads the store rather
+  /// than showing either the old values or the defaults it never reached.
   Future<void> _resetToDefaults() async {
+    final l10n = AppLocalizations.of(context)!;
+    final restoreDefault = RestoreLocationMode.fromName(
+      SettingsKeys.defaultRestoreLocationMode,
+    );
+    try {
+      await _writeDefaults(restoreDefault);
+    } catch (e, st) {
+      debugPrint('[SettingsPage] reset to defaults failed: $e\n$st');
+      if (!mounted) return;
+      CustomSnackbar.showError(context, l10n.settingsResetFailed);
+      // A store that just threw may throw again on the read; nothing may
+      // escape a `void async` handler.
+      try {
+        await _loadSettings();
+      } catch (e, st) {
+        debugPrint(
+          '[SettingsPage] re-read after a failed reset failed: $e\n$st',
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _collapsedSections = const {};
+      _folderSwipeEnabled = SettingsKeys.defaultFolderSwipeEnabled;
+      _noteSwipeEnabled = SettingsKeys.defaultNoteSwipeEnabled;
+      _confirmDelete = SettingsKeys.defaultConfirmDelete;
+      _autoSaveEnabled = SettingsKeys.defaultAutoSaveEnabled;
+      _autoSaveInterval = SettingsKeys.defaultAutoSaveInterval;
+      _showNotePreview = SettingsKeys.defaultShowNotePreview;
+      _labelStyle = LabelStyle.fromName(SettingsKeys.defaultLabelStyle);
+      _showStatsBar = SettingsKeys.defaultShowStatsBar;
+      _hapticFeedback = SettingsKeys.defaultHapticFeedback;
+      _restoreLocationMode = restoreDefault;
+      _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
+      _showLineNumbers = SettingsKeys.defaultShowLineNumbers;
+      _wordWrap = SettingsKeys.defaultWordWrap;
+      _showCursorLine = SettingsKeys.defaultShowCursorLine;
+      _autoBreakLongLines = SettingsKeys.defaultAutoBreakLongLines;
+      _previewWhenKeyboardHidden =
+          SettingsKeys.defaultPreviewWhenKeyboardHidden;
+      _scrollCursorOnKeyboard = SettingsKeys.defaultScrollCursorOnKeyboard;
+      _previewModeEnabled = SettingsKeys.defaultPreviewModeEnabled;
+      _showPreviewScrollbar = SettingsKeys.defaultShowPreviewScrollbar;
+      _previewLinesPerChunk = SettingsKeys.defaultPreviewLinesPerChunk;
+    });
+
+    CustomSnackbar.showSuccess(context, l10n.settingsReset);
+  }
+
+  /// The reset's writes, in the order they have always run.
+  Future<void> _writeDefaults(RestoreLocationMode restoreDefault) async {
     await _settings?.setFolderSwipeEnabled(
       SettingsKeys.defaultFolderSwipeEnabled,
     );
@@ -688,7 +788,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await _settings?.setShowNotePreview(SettingsKeys.defaultShowNotePreview);
     await _settings?.setShowStatsBar(SettingsKeys.defaultShowStatsBar);
     await _settings?.setHapticFeedback(SettingsKeys.defaultHapticFeedback);
-    await _settings?.setRestoreLocationMode(RestoreLocationMode.everything);
+    await _settings?.setRestoreLocationMode(restoreDefault);
     await _settings?.setLiveMarkdownRendering(
       SettingsKeys.defaultLiveMarkdownRendering,
     );
@@ -721,37 +821,6 @@ class _SettingsPageState extends State<SettingsPage> {
     // chain that can throw, and nothing after it should be skipped if it does.
     await (await LabelAppearanceService.getInstance()).setStyle(
       LabelStyle.fromName(SettingsKeys.defaultLabelStyle),
-    );
-
-    setState(() {
-      _collapsedSections = const {};
-      _folderSwipeEnabled = SettingsKeys.defaultFolderSwipeEnabled;
-      _noteSwipeEnabled = SettingsKeys.defaultNoteSwipeEnabled;
-      _confirmDelete = SettingsKeys.defaultConfirmDelete;
-      _autoSaveEnabled = SettingsKeys.defaultAutoSaveEnabled;
-      _autoSaveInterval = SettingsKeys.defaultAutoSaveInterval;
-      _showNotePreview = SettingsKeys.defaultShowNotePreview;
-      _labelStyle = LabelStyle.fromName(SettingsKeys.defaultLabelStyle);
-      _showStatsBar = SettingsKeys.defaultShowStatsBar;
-      _hapticFeedback = SettingsKeys.defaultHapticFeedback;
-      _restoreLocationMode = RestoreLocationMode.everything;
-      _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
-      _showLineNumbers = SettingsKeys.defaultShowLineNumbers;
-      _wordWrap = SettingsKeys.defaultWordWrap;
-      _showCursorLine = SettingsKeys.defaultShowCursorLine;
-      _autoBreakLongLines = SettingsKeys.defaultAutoBreakLongLines;
-      _previewWhenKeyboardHidden =
-          SettingsKeys.defaultPreviewWhenKeyboardHidden;
-      _scrollCursorOnKeyboard = SettingsKeys.defaultScrollCursorOnKeyboard;
-      _previewModeEnabled = SettingsKeys.defaultPreviewModeEnabled;
-      _showPreviewScrollbar = SettingsKeys.defaultShowPreviewScrollbar;
-      _previewLinesPerChunk = SettingsKeys.defaultPreviewLinesPerChunk;
-    });
-
-    if (!mounted) return;
-    CustomSnackbar.showSuccess(
-      context,
-      AppLocalizations.of(context)!.settingsReset,
     );
   }
 }

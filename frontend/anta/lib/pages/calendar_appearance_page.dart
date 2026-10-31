@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/calendar_palette.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
@@ -16,10 +17,12 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_appearance_preview.dart';
 import '../widgets/color_palette_sheet.dart';
 import '../widgets/color_swatch_picker.dart';
+import '../widgets/form_menu_item.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/slider_setting_row.dart';
 import '../widgets/unified_app_bars.dart';
+import '../widgets/value_change_highlight.dart';
 
 /// Every calendar look & feel option, on its own route with the live preview
 /// **pinned** above the scroll view.
@@ -122,6 +125,30 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
     return toBeginningOfSentenceCase(name, localeName) ?? name;
   }
 
+  Future<void> _pickWeekStart(
+    BuildContext anchor,
+    AppLocalizations l10n,
+  ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final next = await showFormMenu<CalendarWeekStart>(
+      anchor,
+      items: [
+        for (final start in CalendarWeekStart.values)
+          FormMenuItem(
+            value: start,
+            label: _weekStartLabel(start, l10n.localeName),
+            identifier: SemanticsIds.appearanceWeekStartItem(start.name),
+          ),
+      ],
+      selected: _appearance.weekStart,
+      menuWidth: FormMetrics.menuWidth,
+    );
+    if (next == null || !mounted || next == _appearance.weekStart) return;
+    _onHapticFeedback();
+    setState(() => _appearance = _appearance.copyWith(weekStart: next));
+    await _settings?.setCalendarWeekStart(next);
+  }
+
   /// One handler for every dot in the accent row: a swatch, a colour just
   /// mixed on the wheel, and "follow the theme" all land here, because
   /// [ColorSwatchPicker] reports the *result* rather than which affordance
@@ -146,6 +173,7 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.calendarAppearanceSection,
+        identifier: SemanticsIds.settingsBarAppearance,
         showMenuButton: false,
       ),
       body: SafeArea(
@@ -218,6 +246,9 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
     ColorScheme colorScheme,
     AppLocalizations l10n,
   ) {
+    final tintOffStyle = _appearance.eventTint
+        ? null
+        : TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38));
     return SettingsSectionData(
       id: _sectionCell,
       icon: Icons.calendar_view_day_rounded,
@@ -306,142 +337,136 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
             },
           ),
         ),
-        // Gated like the conflict entry below, and for the same shape of
-        // reason: with the tint off there is no event wash to style, so this
-        // row would change nothing the user can see.
-        if (_appearance.eventTint)
-          SettingsEntry(
-            title: l10n.calendarCellStyleTitle,
-            description: l10n.calendarCellStyleDesc,
-            // Neither word appears in the visible copy, but the setting exists
-            // because the same priority alpha reads differently on the two
-            // grounds — so both are what someone would search for.
-            keywords: [l10n.eventPriority, l10n.themeSettings],
-            builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  title,
-                  const SizedBox(height: 4),
-                  ?description,
-                  const SizedBox(height: 8),
-                  Text(
-                    l10n.calendarCellStyleLight,
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  SegmentedButton<CalendarCellStyle>(
-                    segments: [
-                      ButtonSegment(
-                        value: CalendarCellStyle.solid,
-                        label: Text(l10n.calendarCellStyleSolid),
-                      ),
-                      ButtonSegment(
-                        value: CalendarCellStyle.fade,
-                        label: Text(l10n.calendarCellStyleFade),
-                      ),
-                      ButtonSegment(
-                        value: CalendarCellStyle.outline,
-                        label: Text(l10n.calendarCellStyleOutline),
-                      ),
-                    ],
-                    selected: {_appearance.cellStyleLight},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) async {
-                      _onHapticFeedback();
-                      setState(
-                        () => _appearance = _appearance.copyWith(
-                          cellStyleLight: sel.first,
-                        ),
-                      );
-                      await _settings?.setCalendarCellStyleLight(sel.first);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    l10n.calendarCellStyleDark,
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  SegmentedButton<CalendarCellStyle>(
-                    segments: [
-                      ButtonSegment(
-                        value: CalendarCellStyle.solid,
-                        label: Text(l10n.calendarCellStyleSolid),
-                      ),
-                      ButtonSegment(
-                        value: CalendarCellStyle.fade,
-                        label: Text(l10n.calendarCellStyleFade),
-                      ),
-                      ButtonSegment(
-                        value: CalendarCellStyle.outline,
-                        label: Text(l10n.calendarCellStyleOutline),
-                      ),
-                    ],
-                    selected: {_appearance.cellStyleDark},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) async {
-                      _onHapticFeedback();
-                      setState(
-                        () => _appearance = _appearance.copyWith(
-                          cellStyleDark: sel.first,
-                        ),
-                      );
-                      await _settings?.setCalendarCellStyleDark(sel.first);
-                    },
-                  ),
-                ],
-              ),
+        // Only meaningful with the tint on — with it off there is no event
+        // wash to style — and disabled rather than hidden then (S14), like
+        // the tint conflict under it.
+        SettingsEntry(
+          title: l10n.calendarCellStyleTitle,
+          description: l10n.calendarCellStyleDesc,
+          // Neither word appears in the visible copy, but the setting exists
+          // because the same priority alpha reads differently on the two
+          // grounds — so both are what someone would search for.
+          keywords: [l10n.eventPriority, l10n.themeSettings],
+          titleStyle: tintOffStyle,
+          descriptionStyle: tintOffStyle,
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 4),
+                ?description,
+                const SizedBox(height: 8),
+                Text(
+                  l10n.calendarCellStyleLight,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelMedium?.merge(tintOffStyle),
+                ),
+                const SizedBox(height: 4),
+                SegmentedButton<CalendarCellStyle>(
+                  segments: [
+                    ButtonSegment(
+                      value: CalendarCellStyle.solid,
+                      label: Text(l10n.calendarCellStyleSolid),
+                    ),
+                    ButtonSegment(
+                      value: CalendarCellStyle.fade,
+                      label: Text(l10n.calendarCellStyleFade),
+                    ),
+                    ButtonSegment(
+                      value: CalendarCellStyle.outline,
+                      label: Text(l10n.calendarCellStyleOutline),
+                    ),
+                  ],
+                  selected: {_appearance.cellStyleLight},
+                  style: settingsSegmentedStyle(colorScheme),
+                  showSelectedIcon: false,
+                  onSelectionChanged: _appearance.eventTint
+                      ? (sel) async {
+                          _onHapticFeedback();
+                          setState(
+                            () => _appearance = _appearance.copyWith(
+                              cellStyleLight: sel.first,
+                            ),
+                          );
+                          await _settings?.setCalendarCellStyleLight(sel.first);
+                        }
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.calendarCellStyleDark,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelMedium?.merge(tintOffStyle),
+                ),
+                const SizedBox(height: 4),
+                SegmentedButton<CalendarCellStyle>(
+                  segments: [
+                    ButtonSegment(
+                      value: CalendarCellStyle.solid,
+                      label: Text(l10n.calendarCellStyleSolid),
+                    ),
+                    ButtonSegment(
+                      value: CalendarCellStyle.fade,
+                      label: Text(l10n.calendarCellStyleFade),
+                    ),
+                    ButtonSegment(
+                      value: CalendarCellStyle.outline,
+                      label: Text(l10n.calendarCellStyleOutline),
+                    ),
+                  ],
+                  selected: {_appearance.cellStyleDark},
+                  style: settingsSegmentedStyle(colorScheme),
+                  showSelectedIcon: false,
+                  onSelectionChanged: _appearance.eventTint
+                      ? (sel) async {
+                          _onHapticFeedback();
+                          setState(
+                            () => _appearance = _appearance.copyWith(
+                              cellStyleDark: sel.first,
+                            ),
+                          );
+                          await _settings?.setCalendarCellStyleDark(sel.first);
+                        }
+                      : null,
+                ),
+              ],
             ),
           ),
-        // Only reachable with the tint on: with it off there is exactly one
-        // wash source, so there is nothing to resolve.
-        if (_appearance.eventTint)
-          SettingsEntry(
-            title: l10n.calendarTintConflictTitle,
-            description: l10n.calendarTintConflictDesc,
-            keywords: [l10n.fastingSectionTitle],
-            builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  title,
-                  const SizedBox(height: 4),
-                  ?description,
-                  const SizedBox(height: 8),
-                  SegmentedButton<CalendarTintConflict>(
-                    segments: [
-                      ButtonSegment(
-                        value: CalendarTintConflict.eventWins,
-                        label: Text(l10n.calendarTintConflictEvent),
-                      ),
-                      ButtonSegment(
-                        value: CalendarTintConflict.fastingWins,
-                        label: Text(l10n.calendarTintConflictFasting),
-                      ),
-                      ButtonSegment(
-                        value: CalendarTintConflict.both,
-                        label: Text(l10n.calendarTintConflictBoth),
-                      ),
-                    ],
-                    selected: {_appearance.tintConflict},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) async {
-                      _onHapticFeedback();
-                      setState(
-                        () => _appearance = _appearance.copyWith(
-                          tintConflict: sel.first,
-                        ),
-                      );
-                      await _settings?.setCalendarTintConflict(sel.first);
-                    },
-                  ),
-                ],
-              ),
-            ),
+        ),
+        // Only meaningful with the tint on — with it off there is exactly one
+        // wash source, so nothing to resolve — and disabled rather than
+        // hidden then (S14), so the switch above never moves the page.
+        SettingsEntry(
+          title: l10n.calendarTintConflictTitle,
+          description: l10n.calendarTintConflictDesc,
+          keywords: [l10n.fastingSectionTitle],
+          identifier: SemanticsIds.appearanceTintConflict,
+          titleStyle: tintOffStyle,
+          descriptionStyle: tintOffStyle,
+          builder: (context, title, description) => settingsChoiceRow(
+            title: title,
+            description: description,
+            value: _appearance.tintConflict,
+            labels: {
+              CalendarTintConflict.eventWins: l10n.calendarTintConflictEvent,
+              CalendarTintConflict.fastingWins:
+                  l10n.calendarTintConflictFasting,
+              CalendarTintConflict.both: l10n.calendarTintConflictBoth,
+            },
+            enabled: _appearance.eventTint,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(tintConflict: value),
+              );
+              await _settings?.setCalendarTintConflict(value);
+            },
           ),
+        ),
       ],
     );
   }
@@ -735,33 +760,40 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
       icon: Icons.view_week_rounded,
       title: l10n.calendarAppearanceWeekSection,
       entries: [
+        // A value row with a menu, not a dropdown in the trailing (S5): the
+        // tile measures the day's name, so at a large scale it goes under
+        // the title instead of crushing it.
         SettingsEntry(
           title: l10n.calendarWeekStartTitle,
-          builder: (context, title, description) => ListTile(
-            leading: Icon(Icons.view_week_outlined, color: colorScheme.primary),
-            title: title,
-            trailing: DropdownButton<CalendarWeekStart>(
-              value: _appearance.weekStart,
-              underline: const SizedBox.shrink(),
-              onChanged: (next) async {
-                if (next == null || next == _appearance.weekStart) {
-                  return;
-                }
-                _onHapticFeedback();
-                setState(
-                  () => _appearance = _appearance.copyWith(weekStart: next),
-                );
-                await _settings?.setCalendarWeekStart(next);
-              },
-              items: [
-                for (final start in CalendarWeekStart.values)
-                  DropdownMenuItem(
-                    value: start,
-                    child: Text(_weekStartLabel(start, l10n.localeName)),
+          identifier: SemanticsIds.appearanceWeekStart,
+          builder: (context, title, description) {
+            final value = _weekStartLabel(
+              _appearance.weekStart,
+              l10n.localeName,
+            );
+            // A `Builder` so the menu hangs from the row's own box.
+            return Builder(
+              builder: (rowContext) => SettingsYieldingTile(
+                leading: Icon(
+                  Icons.view_week_outlined,
+                  color: colorScheme.primary,
+                ),
+                title: title,
+                value: value,
+                trailing: (maxWidth) => ValueChangeHighlight(
+                  value: _appearance.weekStart,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    child: Text(
+                      value,
+                      style: TextStyle(color: colorScheme.onSurfaceVariant),
+                    ),
                   ),
-              ],
-            ),
-          ),
+                ),
+                onTap: () => _pickWeekStart(rowContext, l10n),
+              ),
+            );
+          },
         ),
         SettingsEntry(
           title: l10n.calendarShowWeekNumbers,

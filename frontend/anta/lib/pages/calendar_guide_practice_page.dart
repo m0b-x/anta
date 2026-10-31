@@ -171,7 +171,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
       l10n.calendarOverview,
       l10n.reportTitle,
       l10n.alertsTitle,
-      l10n.calendarSettingsRow,
+      l10n.calendarSettings,
       l10n.quickAlarmTitle,
     ])
       l10n.calendarGuideWouldOpen(what),
@@ -324,7 +324,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
               : () => _say((l10n) => l10n.calendarGuideWouldShare),
           onGuide: () => _say((l10n) => l10n.calendarGuideYouAreHere),
           onSettings: () => _say(
-            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettingsRow),
+            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettings),
           ),
         ),
       ),

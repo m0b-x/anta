@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -25,10 +28,12 @@ import '../database/support/db_test_support.dart';
 /// S13) touches it: every row it owns is read back from the store as its
 /// `SettingsKeys.default*`, a row it does not own survives, and the dialog's
 /// cancel writes nothing. The label style's repaint is pinned in
-/// `settings_page_test.dart`.
+/// `settings_page_test.dart`. Since S5 a write that throws stops the chain
+/// with an error and the page re-reads the store.
 void main() {
   late AppDatabase db;
   late SettingsService settings;
+  late _FailingWrites writes;
 
   final l10n = AppLocalizationsEn();
 
@@ -67,8 +72,9 @@ void main() {
     'notePreview': SettingsKeys.defaultShowNotePreview,
     'statsBar': SettingsKeys.defaultShowStatsBar,
     'haptics': SettingsKeys.defaultHapticFeedback,
-    // A literal in the page, not a `SettingsKeys` default (S13).
-    'restoreMode': RestoreLocationMode.everything,
+    'restoreMode': RestoreLocationMode.fromName(
+      SettingsKeys.defaultRestoreLocationMode,
+    ),
     'liveMarkdown': SettingsKeys.defaultLiveMarkdownRendering,
     'lineNumbers': SettingsKeys.defaultShowLineNumbers,
     'wordWrap': SettingsKeys.defaultWordWrap,
@@ -87,7 +93,8 @@ void main() {
     LabelAppearanceService.reset();
     SettingsService.reset();
     LabelAppearance.style.value = LabelStyle.dot;
-    db = await openTestDatabase();
+    writes = _FailingWrites();
+    db = await openTestDatabase(interceptor: writes);
     settings = SettingsService.forTesting(db);
     DrawerHostRegistry.clear();
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
@@ -259,4 +266,118 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('a write that throws reports the failure, claims no success '
+      'and leaves the page showing what the store holds', (tester) async {
+    await pumpPage(tester);
+    // The label style goes last, through `LabelAppearanceService` — the
+    // write S13 found could fail with the page left on stale values.
+    writes.failOnKey = SettingsKeys.labelStyle;
+
+    await resetAndAnswer(tester, SemanticsIds.sheetConfirm);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(SettingsPage), findsOneWidget);
+    expect(find.text(l10n.settingsResetFailed), findsOneWidget);
+    expect(find.text(l10n.settingsReset), findsNothing);
+    // Every write before the failing one landed; the order never changed.
+    expect(await stored(tester), {
+      ...defaults,
+      'labelStyle': LabelStyle.stripe,
+    });
+    // Re-read, not left on the old values: the preview chunk row, folded
+    // shut before the reset, is open again and reads its default.
+    final chunk = tester.widget<Slider>(
+      find.descendant(
+        of: find.bySemanticsIdentifier(SemanticsIds.appSettingsPreviewChunk),
+        matching: find.byType(Slider),
+      ),
+    );
+    expect(chunk.value, SettingsKeys.defaultPreviewLinesPerChunk.toDouble());
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('confirmed after the page is gone writes nothing and throws '
+      'nothing', (tester) async {
+    tester.view.physicalSize = const Size(1000, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final navigator = GlobalKey<NavigatorState>();
+    final page = MaterialPageRoute<void>(builder: (_) => const SettingsPage());
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: const SizedBox.shrink(),
+      ),
+    );
+    unawaited(navigator.currentState!.push(page));
+    await tester.pumpAndSettle();
+    await settle(tester);
+    final before = await stored(tester);
+
+    await tester.scrollUntilVisible(
+      find.text(l10n.resetToDefaults),
+      600,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsSectionList),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await settle(tester);
+    await tester.tap(find.text(l10n.resetToDefaults));
+    await tester.pumpAndSettle();
+    // The page leaves from under its own dialog, as a pop from elsewhere
+    // would take it.
+    navigator.currentState!.removeRoute(page);
+    await tester.pump();
+    expect(find.byType(SettingsPage), findsNothing);
+
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sheetConfirm));
+    await settle(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.text(l10n.settingsReset), findsNothing);
+    expect(await stored(tester), before);
+    expect(before, moved);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  test('the restore default is the SettingsKeys constant, and it is the '
+      'whole chain as before', () async {
+    expect(
+      RestoreLocationMode.fromName(SettingsKeys.defaultRestoreLocationMode),
+      RestoreLocationMode.everything,
+    );
+    await db.userSettingsDao.deleteValue(SettingsKeys.restoreLocationMode);
+    expect(
+      await settings.getRestoreLocationMode(),
+      RestoreLocationMode.fromName(SettingsKeys.defaultRestoreLocationMode),
+    );
+  });
+}
+
+/// Throws on any insert that writes [failOnKey], so one setter of the reset's
+/// chain fails the way a closed or locked database would.
+class _FailingWrites extends QueryInterceptor {
+  String? failOnKey;
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    final key = failOnKey;
+    if (key != null && args.contains(key)) {
+      return Future.error(StateError('write of $key refused'));
+    }
+    return super.runInsert(executor, statement, args);
+  }
 }

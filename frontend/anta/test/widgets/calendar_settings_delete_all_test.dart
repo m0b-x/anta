@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show QueryExecutor, QueryInterceptor, driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +29,7 @@ import '../database/support/db_test_support.dart';
 /// app-wide `CalendarBloc`, so unless the store says it moved, the bloc keeps
 /// serving the deleted events for the rest of the session — and saving one of
 /// them hits the DAO's update branch, which clears `is_deleted` and pushes the
-/// event back to every device.
+/// event back to every device. A wipe that fails says so and claims nothing.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -39,6 +40,7 @@ void main() {
   late AppDatabase db;
   late SettingsService settings;
   late Directory tempDir;
+  late _FailingWipe wipe;
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_delete_all');
@@ -63,7 +65,8 @@ void main() {
     CalendarPaletteService.reset();
     CalendarEventService.reset();
     SyncBindingService.reset();
-    db = await openTestDatabase();
+    wipe = _FailingWipe();
+    db = await openTestDatabase(interceptor: wipe);
     settings = SettingsService.forTesting(db);
     SyncBindingService.forTesting(db, settings);
     // The wipe refreshes all four facades; bound to the same database, or
@@ -174,6 +177,7 @@ void main() {
     expect(rows.map((r) => r.id), unorderedEquals(['e1', 'e2']));
     expect(rows.every((r) => r.isDeleted), isTrue);
     expect(await tester.runAsync(db.calendarEventDao.getAll), isEmpty);
+    expect(find.text('All events deleted'), findsOneWidget);
 
     // The page's own count went to zero: the row says so and stops offering
     // a second wipe.
@@ -220,4 +224,53 @@ void main() {
     expect(CalendarEventService.externalRevision, greaterThan(revision));
     expect(heard, hasLength(1));
   });
+
+  testWidgets('a wipe that fails keeps every event, says so, and claims no '
+      'success', (tester) async {
+    final revision = CalendarEventService.externalRevision;
+
+    await pumpPage(tester);
+    await openConfirm(tester);
+    wipe.armed = true;
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    final rows = await seededRows(tester);
+    expect(rows.any((r) => r.isDeleted), isFalse, reason: 'rolled back');
+    expect(find.text("Couldn't delete the events"), findsOneWidget);
+    expect(find.text('All events deleted'), findsNothing);
+    // The count was re-read and still holds both, so the row still offers
+    // the wipe.
+    expect(find.text('No events to delete'), findsNothing);
+    final row = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('Delete all events'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(row.enabled, isTrue);
+    // Told whatever happened: a failure may come once the transaction
+    // committed, and a reload over an untouched store costs nothing.
+    expect(CalendarEventService.externalRevision, greaterThan(revision));
+  });
+}
+
+/// Fails the wipe's statement while [armed], as a locked or full database
+/// would; its transaction rolls back with every event kept. The statement
+/// carries `RETURNING`, so drift sends it as a select.
+class _FailingWipe extends QueryInterceptor {
+  bool armed = false;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (armed &&
+        statement.startsWith('UPDATE calendar_events SET is_deleted = 1')) {
+      return Future.error(StateError('database is locked'));
+    }
+    return super.runSelect(executor, statement, args);
+  }
 }

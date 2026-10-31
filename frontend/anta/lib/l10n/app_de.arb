@@ -97,7 +97,7 @@
   "publicHolidaySummerBankHoliday": "Summer Bank Holiday",
   "publicHolidayGermanUnityDay": "Tag der Deutschen Einheit",
   "publicHolidayEuropeDay": "Europatag",
-  "holidayProfileTitle": "Feiertage",
+  "holidayProfileTitle": "Feiertags-Kalender",
   "holidayProfileGeneric": "Christlich (West)",
   "holidayProfileRomania": "Rumänien",
   "holidayProfileUnitedStates": "Vereinigte Staaten",
@@ -1168,14 +1168,6 @@
       "notes": { "type": "String" }
     }
   },
-  "appSettings": "Einstellungen",
-  "@appSettings": {
-    "description": "App settings menu item and page title"
-  },
-  "appSettingsDesc": "Start, Navigation, Editor und automatisches Speichern",
-  "@appSettingsDesc": {
-    "description": "App settings description"
-  },
   "folderSwipeGesture": "Wischen zum Öffnen des Menüs in Ordnern",
   "@folderSwipeGesture": {
     "description": "Folder swipe gesture setting"
@@ -1233,6 +1225,15 @@
     "description": "Auto-save interval description",
     "placeholders": {
       "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "autoSaveSeconds": "{count} s",
+  "@autoSaveSeconds": {
+    "description": "The auto-save interval slider's value label: a number of seconds with the unit's symbol",
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }
@@ -1296,6 +1297,10 @@
   "settingsReset": "Einstellungen wurden auf Standard zurückgesetzt",
   "@settingsReset": {
     "description": "Settings reset confirmation message"
+  },
+  "settingsResetFailed": "Die Einstellungen konnten nicht zurückgesetzt werden",
+  "@settingsResetFailed": {
+    "description": "Error shown when App settings' Reset to defaults fails part-way"
   },
   "databaseSettings": "Datenbank",
   "@databaseSettings": {
@@ -1895,9 +1900,11 @@
       }
     }
   },
-  "calendarSection": "Kalender",
-  "calendarSettings": "Kalender",
-  "calendarSettingsRow": "Kalender-Einstellungen",
+  "calendarSection": "Feiertage",
+  "calendarSettings": "Kalender-Einstellungen",
+  "holidayProfileDesc": "Gesetzliche Feiertage im Kalender; auch für Werktags-Wiederholungen",
+  "calendarSettingsPagesSection": "Weitere Einstellungen",
+  "deleteAllEventsFailed": "Die Ereignisse konnten nicht gelöscht werden",
   "appGroupLabel": "App",
   "calendarMaxDayBars": "Maximale Balken pro Tag",
   "calendarMaxDayBarsDesc": "Zeige bis zu {count} Balken pro Tag. Weitere Kategorien werden als +N angezeigt.",
@@ -1976,7 +1983,7 @@
   "eventAlertAllDayDayBefore": "Am Vortag, {time}",
   "eventAlertAllDayDaysBefore": "{count, plural, one{1 Tag vorher, {time}} other{{count} Tage vorher, {time}}}",
   "eventTemplates": "Terminvorlagen",
-  "eventTemplatesDesc": "Wiederverwendbare Vorlagen — Kategorie, Zeitplan, Farbe und Details vorausgefüllt",
+  "eventTemplatesDesc": "Gespeicherte Vorlagen — Kategorie, Zeitplan, Farbe und Details vorausgefüllt",
   "createTemplate": "Neue Vorlage",
   "editTemplate": "Vorlage bearbeiten",
   "templateName": "Vorlagenname",

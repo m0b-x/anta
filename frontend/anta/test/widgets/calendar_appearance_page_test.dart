@@ -1,12 +1,14 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -20,8 +22,10 @@ import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/calendar_appearance_preview.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -43,6 +47,7 @@ void main() {
 
   late AppDatabase db;
   late SettingsService settings;
+  late _SettingWrites writes;
 
   /// Distinguishes successive pumps of the same page so a re-pump rebuilds
   /// from scratch. Without it the element tree reuses the existing `State` and
@@ -53,7 +58,8 @@ void main() {
     DatabaseLifecycle.notifyDatabaseSwitching();
     SettingsService.reset();
     CalendarPaletteService.reset();
-    db = await openTestDatabase();
+    writes = _SettingWrites();
+    db = await openTestDatabase(interceptor: writes);
     settings = SettingsService.forTesting(db);
     pumps = 0;
   });
@@ -97,6 +103,8 @@ void main() {
   Future<void> pumpAppearancePage(
     WidgetTester tester, {
     Size size = const Size(900, 2000),
+    Locale locale = const Locale('en'),
+    double textScale = 1.0,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -105,7 +113,13 @@ void main() {
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
+        locale: locale,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: CalendarAppearancePage(key: ValueKey(pumps++)),
       ),
     );
@@ -286,6 +300,296 @@ void main() {
     });
   });
 
+  testWidgets('the bar carries its own id', (tester) async {
+    await pumpAppearancePage(tester);
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.settingsBarAppearance),
+      findsOneWidget,
+    );
+  });
+
+  group('the week start', () {
+    String dayName(CalendarWeekStart start, String locale) {
+      final name = DateFormat.EEEE(
+        locale,
+      ).format(DateTime.utc(2024, 1, start.weekday));
+      return toBeginningOfSentenceCase(name, locale) ?? name;
+    }
+
+    testWidgets('reads the chosen day as its value and opens a menu of every '
+        'start, the current one checked; a pick writes it, the value '
+        'follows and the header rotates', (tester) async {
+      await settings.setCalendarWeekStart(CalendarWeekStart.monday);
+      await pumpAppearancePage(tester);
+      final row = find.bySemanticsIdentifier(SemanticsIds.appearanceWeekStart);
+      final monday = dayName(CalendarWeekStart.monday, 'en');
+      final sunday = dayName(CalendarWeekStart.sunday, 'en');
+      expect(find.descendant(of: row, matching: find.text(monday)), findsOne);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      final items = tester
+          .widgetList<FormMenuChoiceItem<CalendarWeekStart>>(
+            find.byType(FormMenuChoiceItem<CalendarWeekStart>),
+          )
+          .toList();
+      expect(items.map((item) => item.value), CalendarWeekStart.values);
+      expect(items.where((item) => item.checked).map((item) => item.value), [
+        CalendarWeekStart.monday,
+      ]);
+      for (final start in CalendarWeekStart.values) {
+        expect(
+          find.bySemanticsIdentifier(
+            SemanticsIds.appearanceWeekStartItem(start.name),
+          ),
+          findsOneWidget,
+          reason: start.name,
+        );
+      }
+
+      await tester.tap(
+        find.bySemanticsIdentifier(
+          SemanticsIds.appearanceWeekStartItem(CalendarWeekStart.sunday.name),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await settleWrites(tester);
+
+      expect(
+        await tester.runAsync(settings.getCalendarWeekStart),
+        CalendarWeekStart.sunday,
+      );
+      expect(find.descendant(of: row, matching: find.text(sunday)), findsOne);
+      expect(
+        headerLabels(tester).first,
+        DateFormat.E('en').format(DateTime(2024, 1, 7)),
+      );
+    });
+
+    testWidgets('German at 2.0 on a 360 × 780 phone puts the day under the '
+        'title rather than crushing it', (tester) async {
+      await settings.setCalendarWeekStart(CalendarWeekStart.saturday);
+      await pumpAppearancePage(
+        tester,
+        size: const Size(360, 780),
+        locale: const Locale('de'),
+        textScale: 2.0,
+      );
+      final row = find.bySemanticsIdentifier(SemanticsIds.appearanceWeekStart);
+      await tester.scrollUntilVisible(
+        row,
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final title = lookupAppLocalizations(
+        const Locale('de'),
+      ).calendarWeekStartTitle;
+      final value = find.descendant(
+        of: row,
+        matching: find.text(dayName(CalendarWeekStart.saturday, 'de')),
+      );
+      expect(value, findsOneWidget);
+      expect(
+        tester.getRect(value).top,
+        greaterThanOrEqualTo(tester.getRect(find.text(title)).bottom),
+      );
+    });
+
+    testWidgets('picking the day already chosen writes nothing and flashes '
+        'nothing', (tester) async {
+      await settings.setCalendarWeekStart(CalendarWeekStart.monday);
+      await pumpAppearancePage(tester);
+      final row = find.bySemanticsIdentifier(SemanticsIds.appearanceWeekStart);
+      writes.keys.clear();
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.bySemanticsIdentifier(
+          SemanticsIds.appearanceWeekStartItem(CalendarWeekStart.monday.name),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final highlight = find.descendant(
+        of: row,
+        matching: find.byType(ValueChangeHighlight),
+      );
+      final wash = tester.widget<DecoratedBox>(
+        find.descendant(of: highlight, matching: find.byType(DecoratedBox)).first,
+      );
+      expect((wash.decoration as BoxDecoration).color, isNull);
+      await tester.pumpAndSettle();
+      await settleWrites(tester);
+      expect(writes.keys, isNot(contains(SettingsKeys.calendarWeekStart)));
+      expect(
+        await tester.runAsync(settings.getCalendarWeekStart),
+        CalendarWeekStart.monday,
+      );
+    });
+  });
+
+  group('the tint conflict', () {
+    Finder segments() => find.byType(SegmentedButton<CalendarTintConflict>);
+
+    testWidgets('is disabled, not hidden, while the event tint is off, and '
+        'offers its three choices once it is on', (tester) async {
+      await settings.setCalendarEventTint(false);
+      await pumpAppearancePage(tester);
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.appearanceTintConflict),
+        findsOneWidget,
+      );
+      var button = tester.widget<SegmentedButton<CalendarTintConflict>>(
+        segments(),
+      );
+      expect(button.onSelectionChanged, isNull);
+      expect(button.segments.map((s) => s.value), CalendarTintConflict.values);
+      final title = tester.widget<HighlightedText>(
+        find.byWidgetPredicate(
+          (w) => w is HighlightedText && w.text == 'On fasting days',
+        ),
+      );
+      expect(title.style?.color?.a, closeTo(0.38, 0.01));
+
+      await settings.setCalendarEventTint(true);
+      await pumpAppearancePage(tester);
+
+      button = tester.widget<SegmentedButton<CalendarTintConflict>>(segments());
+      expect(button.onSelectionChanged, isNotNull);
+      await tester.tap(find.text('Both'));
+      await tester.pump();
+      await settleWrites(tester);
+      expect(
+        await tester.runAsync(settings.getCalendarTintConflict),
+        CalendarTintConflict.both,
+      );
+    });
+
+    testWidgets('flipping the tint switch moves no row: the cell style above '
+        'and the conflict row are disabled with the tint off and enabled with '
+        'it on, in place', (tester) async {
+      final handle = tester.ensureSemantics();
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      await settings.setCalendarEventTint(false);
+      await pumpAppearancePage(tester);
+      final tintSwitch = find.widgetWithText(
+        SwitchListTile,
+        l10n.calendarEventTintTitle,
+      );
+      final conflictRow = find.bySemanticsIdentifier(
+        SemanticsIds.appearanceTintConflict,
+      );
+      final cellStyles = find.byType(SegmentedButton<CalendarCellStyle>);
+      // The header of the section under the day cell's.
+      final below = find.text(
+        l10n.calendarAppearanceMarkersSection.toUpperCase(),
+      );
+      expect(tintSwitch, findsOneWidget);
+      expect(below, findsOneWidget);
+
+      void expectRows({required bool enabled}) {
+        for (final button
+            in tester.widgetList<SegmentedButton<CalendarCellStyle>>(
+              cellStyles,
+            )) {
+          expect(button.onSelectionChanged != null, enabled);
+        }
+        final conflict = tester.widget<SegmentedButton<CalendarTintConflict>>(
+          segments(),
+        );
+        expect(conflict.onSelectionChanged != null, enabled);
+        for (final label in [
+          l10n.calendarCellStyleSolid,
+          l10n.calendarTintConflictBoth,
+        ]) {
+          expect(
+            tester.getSemantics(find.widgetWithText(TextButton, label).first),
+            isSemantics(hasEnabledState: true, isEnabled: enabled),
+            reason: label,
+          );
+        }
+      }
+
+      expect(cellStyles, findsNWidgets(2));
+      expectRows(enabled: false);
+      final conflictRect = tester.getRect(conflictRow);
+      final belowRect = tester.getRect(below);
+      final cellRect = tester.getRect(cellStyles.first);
+
+      await tester.tap(tintSwitch);
+      await tester.pump();
+      await settleWrites(tester);
+
+      expect(await tester.runAsync(settings.getCalendarEventTint), isTrue);
+      expectRows(enabled: true);
+      expect(tester.getRect(conflictRow), conflictRect);
+      expect(tester.getRect(below), belowRect);
+      expect(tester.getRect(cellStyles.first), cellRect);
+
+      await tester.tap(tintSwitch);
+      await tester.pump();
+      await settleWrites(tester);
+
+      expectRows(enabled: false);
+      expect(tester.getRect(conflictRow), conflictRect);
+      expect(tester.getRect(below), belowRect);
+
+      handle.dispose();
+    });
+
+    testWidgets('German at 2.0 on a 360 × 780 phone breaks no choice inside '
+        'a word', (tester) async {
+      await settings.setCalendarEventTint(true);
+      await pumpAppearancePage(
+        tester,
+        size: const Size(360, 780),
+        locale: const Locale('de'),
+        textScale: 2.0,
+      );
+      await tester.scrollUntilVisible(
+        segments(),
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final labels = find.descendant(
+        of: segments(),
+        matching: find.byType(RichText),
+      );
+      expect(labels, findsNWidgets(CalendarTintConflict.values.length));
+      for (final element in labels.evaluate()) {
+        final paragraph = element.renderObject! as RenderParagraph;
+        expect(
+          paragraph.size.width,
+          greaterThanOrEqualTo(
+            paragraph.getMinIntrinsicWidth(double.infinity) - 0.01,
+          ),
+          reason: '"${paragraph.text.toPlainText()}" breaks inside a word',
+        );
+      }
+    });
+  });
+
   group('reset', () {
     testWidgets('never touches the filter-chips key, whose row stayed behind', (
       tester,
@@ -297,7 +601,18 @@ void main() {
 
       await pumpAppearancePage(tester);
 
-      await tester.ensureVisible(find.text('Reset to defaults'));
+      // The cell-style row is built with the tint off too, so the reset sits
+      // past the tall viewport's built rows.
+      await tester.scrollUntilVisible(
+        find.text('Reset to defaults'),
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       await tester.pump();
       await tester.tap(find.text('Reset to defaults'));
       await tester.pumpAndSettle();
@@ -379,12 +694,22 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('shows one Appearance row and none of the moved controls', (
-      tester,
-    ) async {
+    testWidgets('shows one Appearance row, in More settings, and none of the '
+        'moved controls', (tester) async {
       await pumpSettingsPage(tester);
 
       expect(find.text('Preview and tune how the grid looks'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (w) => w is SettingsSectionCard && w.section.id == 'pages',
+          ),
+          matching: find.bySemanticsIdentifier(
+            SemanticsIds.calendarAppearanceOpen,
+          ),
+        ),
+        findsOneWidget,
+      );
       expect(find.byType(CalendarAppearancePreview), findsNothing);
       for (final movedRow in const [
         'Today highlight',
@@ -414,66 +739,47 @@ void main() {
       expect(find.text('Holiday set'), findsNothing);
     });
 
-    group('its reset to defaults', () {
-      /// Scrolls the footer into view, presses Reset and confirms.
-      Future<void> tapReset(WidgetTester tester) async {
-        for (var i = 0; i < 60; i++) {
-          if (find.text('Reset to defaults').evaluate().isNotEmpty) break;
-          await tester.drag(find.byType(ListView), const Offset(0, -400));
-          await tester.pumpAndSettle();
-        }
-        await tester.ensureVisible(find.text('Reset to defaults'));
-        await tester.pump();
-        await tester.tap(find.text('Reset to defaults'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(FilledButton, 'Reset'));
-        await settleWrites(tester);
-      }
-
-      testWidgets("leaves the appearance page's folds alone", (tester) async {
-        // Both pages keep their folds in the one stored set, and the
-        // appearance page has its own reset, which deliberately leaves them
-        // folded. `'appearance'` is this page's own section id — the
-        // underscore is the whole difference.
-        await settings.setCalendarSettingsCollapsedSections({
-          'calendar',
-          'appearance',
-          'appearance_cell',
-          'appearance_rail',
-        });
-
-        await pumpSettingsPage(tester);
-        await tapReset(tester);
-
-        expect(await settings.getCalendarSettingsCollapsedSections(), {
-          'appearance_cell',
-          'appearance_rail',
-        });
+    testWidgets("a fold toggled there leaves the appearance page's folds", (
+      tester,
+    ) async {
+      // Both pages keep their folds in the one stored set. `'appearance'` is
+      // the id of the section the Appearance row had before More settings —
+      // the underscore is the whole difference — and stays in the set,
+      // harmless.
+      await settings.setCalendarSettingsCollapsedSections({
+        'appearance',
+        'appearance_cell',
+        'appearance_rail',
       });
 
-      testWidgets('clears the holidays removed from this profile', (
-        tester,
-      ) async {
-        final holidays = await PublicHolidayService.getInstance();
-        expect(
-          holidays.profile,
-          HolidayProfile.generic,
-          reason: 'the reset switches to Generic, so this is the no-op case',
-        );
-        await tester.runAsync(() => holidays.removeOn(DateTime.utc(2026, 1, 1)));
-        expect(await tester.runAsync(holidays.suppressedHolidays), hasLength(1));
+      await pumpSettingsPage(tester);
+      await tester.tap(find.text('HOLIDAYS'));
+      await settleWrites(tester);
 
-        await pumpSettingsPage(tester);
-        await tapReset(tester);
-
-        expect(
-          await tester.runAsync(holidays.suppressedHolidays),
-          isEmpty,
-          reason: '`setProfile` no-ops when the profile is already the one '
-              'being reset to, so the suppressions were the one state this '
-              'reset left standing',
-        );
+      expect(await settings.getCalendarSettingsCollapsedSections(), {
+        'appearance',
+        'appearance_cell',
+        'appearance_rail',
+        'calendar',
       });
     });
   });
+}
+
+/// Records the arguments of every settings write, so a case can pin that a
+/// pick wrote nothing.
+class _SettingWrites extends QueryInterceptor {
+  final List<String> keys = [];
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (statement.contains('user_settings')) {
+      keys.addAll(args.whereType<String>());
+    }
+    return super.runInsert(executor, statement, args);
+  }
 }
