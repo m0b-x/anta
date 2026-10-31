@@ -636,9 +636,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get allEventsDeleted => 'All events deleted';
 
   @override
-  String get eventType => 'Type';
-
-  @override
   String get recurrence => 'Repeats';
 
   @override
@@ -5586,7 +5583,45 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get categoryHasAlerts => 'Has alerts';
+  String get categorySectionInUse => 'In use';
+
+  @override
+  String get categorySectionArchived => 'Archived';
+
+  @override
+  String get categoryRowArchived => 'Archived';
+
+  @override
+  String get categoryCaptionBuiltIn => 'Built in';
+
+  @override
+  String get categoryCaptionAlertsOn => 'Alerts on';
+
+  @override
+  String get categoryActions => 'Category options';
+
+  @override
+  String categoryReorderLabel(String name) {
+    return 'Reorder $name';
+  }
+
+  @override
+  String get categoryMoveUp => 'Move up';
+
+  @override
+  String get categoryMoveDown => 'Move down';
+
+  @override
+  String get categoryReorderLockedHint => 'Clear the search to reorder';
+
+  @override
+  String get categoryArchive => 'Archive';
+
+  @override
+  String get categoryRestore => 'Restore';
+
+  @override
+  String get categoryDeleteEllipsis => 'Delete…';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

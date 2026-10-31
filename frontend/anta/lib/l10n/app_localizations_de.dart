@@ -642,9 +642,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get allEventsDeleted => 'Alle Ereignisse gelöscht';
 
   @override
-  String get eventType => 'Typ';
-
-  @override
   String get recurrence => 'Wiederholung';
 
   @override
@@ -5622,7 +5619,45 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get categoryHasAlerts => 'Hat Erinnerungen';
+  String get categorySectionInUse => 'In Verwendung';
+
+  @override
+  String get categorySectionArchived => 'Archiviert';
+
+  @override
+  String get categoryRowArchived => 'Archiviert';
+
+  @override
+  String get categoryCaptionBuiltIn => 'Integriert';
+
+  @override
+  String get categoryCaptionAlertsOn => 'Erinnerungen an';
+
+  @override
+  String get categoryActions => 'Kategorieoptionen';
+
+  @override
+  String categoryReorderLabel(String name) {
+    return '$name verschieben';
+  }
+
+  @override
+  String get categoryMoveUp => 'Nach oben';
+
+  @override
+  String get categoryMoveDown => 'Nach unten';
+
+  @override
+  String get categoryReorderLockedHint => 'Suche leeren, um neu zu ordnen';
+
+  @override
+  String get categoryArchive => 'Archivieren';
+
+  @override
+  String get categoryRestore => 'Wiederherstellen';
+
+  @override
+  String get categoryDeleteEllipsis => 'Löschen…';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

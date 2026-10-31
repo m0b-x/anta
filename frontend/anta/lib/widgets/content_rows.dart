@@ -175,12 +175,16 @@ class ContentRowShell extends StatelessWidget {
 class ContentSectionHeader extends StatelessWidget {
   final String label;
 
-  const ContentSectionHeader({super.key, required this.label});
+  /// A `SemanticsIds` value for a header a device flow orders rows against —
+  /// the categories page's In use and Archived, whose words are translated.
+  final String? identifier;
+
+  const ContentSectionHeader({super.key, required this.label, this.identifier});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
+    final header = Padding(
       padding: const EdgeInsets.fromLTRB(
         RowMetrics.groupInset + RowMetrics.sectionLabelInset,
         0,
@@ -196,6 +200,15 @@ class ContentSectionHeader extends StatelessWidget {
           fontWeight: RowMetrics.sectionLabelFontWeight,
         ),
       ),
+    );
+    // A heading with a level, as the settings kit's section labels are: the
+    // level is what reaches TalkBack's heading navigation.
+    return Semantics(
+      container: true,
+      header: true,
+      headingLevel: 2,
+      identifier: identifier,
+      child: header,
     );
   }
 }

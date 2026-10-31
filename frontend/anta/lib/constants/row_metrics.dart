@@ -67,6 +67,29 @@ class RowMetrics {
   /// hub's do.
   static const double drawerGlyphSize = 24.0;
 
+  /// Before the 48 dp drag handle of a reorderable content row (the
+  /// categories page): the handle's own target carries the rest of the
+  /// optical margin, so a full [groupInset] would push the name past the
+  /// column that keeps every built-in name whole at 2.0 on a 360 screen.
+  static const double reorderHandleLead = 4.0;
+
+  /// Where a reorderable row's text and hairline start beside an avatar:
+  /// [reorderHandleLead] + the 48 dp handle + the 40 dp avatar + [gap].
+  static const double reorderAvatarTextInset = 106.0;
+
+  /// The same start beside a [glyphSize] glyph, the leading a large text
+  /// scale takes instead of the avatar: [reorderHandleLead] + 48 + 22 +
+  /// [gap].
+  static const double reorderGlyphTextInset = 88.0;
+
+  /// The text-scale factor from which a reorderable row's leading drops the
+  /// 40 dp avatar for a [glyphSize] glyph: the 18 dp it frees keeps every
+  /// built-in category's name on one line at 2.0 in all three languages
+  /// (linear 1.3 keeps the avatar; linear 2.0 and Android's 200 %, a factor
+  /// of 1.8, take the glyph). Decided by the scale, never by measuring
+  /// names, so a row never changes shape with its data.
+  static const double compactLeadingTextScale = 1.6;
+
   /// The chevron that says a row opens something.
   static const double chevronSize = 18.0;
 

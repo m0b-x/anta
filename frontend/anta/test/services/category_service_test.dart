@@ -123,6 +123,43 @@ void main() {
       expect(CalendarCategories.revision, revision);
     });
 
+    test('the last visible category cannot be archived', () async {
+      for (final category in CalendarCategories.all) {
+        if (category.id != 'other') {
+          await service.setHidden(category.id, true);
+        }
+      }
+      expect(CalendarCategories.visible.map((c) => c.id), ['other']);
+      CalendarCategoryRow rowOf(List<CalendarCategoryRow> rows) =>
+          rows.firstWhere((r) => r.id == 'other');
+      final before = rowOf(await db.calendarCategoryDao.getAll());
+      final revision = CalendarCategories.revision;
+
+      await service.setHidden('other', true);
+
+      final after = rowOf(await db.calendarCategoryDao.getAll());
+      expect(CalendarCategories.byId('other')!.isHidden, isFalse);
+      expect(after.isHidden, isFalse);
+      expect(after.updatedAt, before.updatedAt);
+      expect(after.hlcTimestamp, before.hlcTimestamp);
+      expect(after.version, before.version);
+      expect(CalendarCategories.revision, revision);
+    });
+
+    test('archiving with two visible archives the one asked for', () async {
+      for (final category in CalendarCategories.all) {
+        if (category.id != 'other' && category.id != 'gym') {
+          await service.setHidden(category.id, true);
+        }
+      }
+      expect(CalendarCategories.visible, hasLength(2));
+
+      await service.setHidden('gym', true);
+
+      expect(CalendarCategories.byId('gym')!.isHidden, isTrue);
+      expect(CalendarCategories.visible.map((c) => c.id), ['other']);
+    });
+
     test('hiding bumps the revision the grid memo keys on', () async {
       final revision = CalendarCategories.revision;
       await service.setHidden('gym', true);

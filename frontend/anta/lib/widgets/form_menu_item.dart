@@ -17,11 +17,22 @@ class FormMenuItem<T> {
   /// A `SemanticsIds` value for an item a device script picks by id.
   final String? identifier;
 
+  /// False dims the item to 38 % in place and makes it inert, never hidden:
+  /// a menu whose rows come and go with the state moves every row under the
+  /// finger (the categories page's Move to top under a live query).
+  final bool enabled;
+
+  /// Glyph and label together — `error` on a destructive item. A disabled
+  /// item draws without it: it reads as off, not as dangerous.
+  final Color? color;
+
   const FormMenuItem({
     required this.value,
     required this.label,
     this.icon,
     this.identifier,
+    this.enabled = true,
+    this.color,
   });
 }
 
@@ -238,11 +249,14 @@ Future<T?> showFormMenu<T>(
         FormMenuChoiceItem<T>(
           value: item.value,
           checked: item.value == selected,
+          enabled: item.enabled,
           child: FormMenuItemRow(
             identifier: item.identifier,
             icon: item.icon,
             label: item.label,
             checked: item.value == selected,
+            enabled: item.enabled,
+            color: item.enabled ? item.color : null,
           ),
         ),
     ],

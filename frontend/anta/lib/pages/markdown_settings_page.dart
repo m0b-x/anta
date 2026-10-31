@@ -1633,7 +1633,6 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                 // drag handles, so the icon is decoration that only has to
                 // read as active or greyed.
                 ReorderHandle(enabled: !_isFilteringUtilities),
-                const SizedBox(width: 8),
                 Icon(
                   _utilityIcon(config.id),
                   size: 24,
@@ -2071,7 +2070,6 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                 index: reorderable ? renderIndex : null,
                 enabled: reorderable,
               ),
-              const SizedBox(width: 8),
               MarkdownSettingsUtils.buildShortcutIcon(context, shortcut),
             ],
           ),

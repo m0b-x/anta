@@ -425,10 +425,16 @@ class CategoryService {
   /// menu against a model captured when that menu was built, and a rename or
   /// a drag that lands in between is not this call's to undo. The read of the
   /// current state happens inside the serialized turn for the same reason.
+  ///
+  /// Archiving the last visible category is a no-op too: with nothing
+  /// visible every picker would open empty and a new event would land in an
+  /// archived category. The page disables the item; this is the guard
+  /// behind it for a menu built before the second-to-last one was archived.
   Future<void> setHidden(String id, bool hidden) {
     return _serialize(() async {
       final category = CalendarCategories.byId(id);
       if (category == null || category.isHidden == hidden) return;
+      if (hidden && CalendarCategories.visible.length <= 1) return;
       await _dao.updateCategory(
         CalendarCategoriesCompanion(
           id: Value(id),

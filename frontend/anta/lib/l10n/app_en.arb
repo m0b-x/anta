@@ -825,10 +825,6 @@
   "@allEventsDeleted": {
     "description": "Snackbar shown after all custom events are deleted"
   },
-  "eventType": "Type",
-  "@eventType": {
-    "description": "Section label in the calendar event editor for selecting the category"
-  },
   "recurrence": "Repeats",
   "@recurrence": {
     "description": "Section label in the calendar event editor for the recurrence rule"
@@ -7124,9 +7120,63 @@
       }
     }
   },
-  "categoryHasAlerts": "Has alerts",
-  "@categoryHasAlerts": {
-    "description": "Tooltip of the bell on a categories page row whose category carries an enabled alert"
+  "categorySectionInUse": "In use",
+  "@categorySectionInUse": {
+    "description": "Section header on the categories page above the categories that are not archived"
+  },
+  "categorySectionArchived": "Archived",
+  "@categorySectionArchived": {
+    "description": "Section header on the categories page above the archived categories (plural where the language inflects)"
+  },
+  "categoryRowArchived": "Archived",
+  "@categoryRowArchived": {
+    "description": "The state a screen reader hears on one archived category's row (singular, agreeing with 'category' where the language inflects)"
+  },
+  "categoryCaptionBuiltIn": "Built in",
+  "@categoryCaptionBuiltIn": {
+    "description": "Caption segment on a categories page row marking a built-in category. Keep the no-break space between two words so the segment never splits across lines"
+  },
+  "categoryCaptionAlertsOn": "Alerts on",
+  "@categoryCaptionAlertsOn": {
+    "description": "Caption segment on a categories page row whose category carries an enabled alert. Keep the no-break space between two words so the segment never splits across lines"
+  },
+  "categoryActions": "Category options",
+  "@categoryActions": {
+    "description": "Tooltip of the ⋮ button on a categories page row that opens the row's menu"
+  },
+  "categoryReorderLabel": "Reorder {name}",
+  "@categoryReorderLabel": {
+    "description": "Accessible name of a category row's drag handle",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Gym"
+      }
+    }
+  },
+  "categoryMoveUp": "Move up",
+  "@categoryMoveUp": {
+    "description": "Screen-reader action on a categories page row that moves the category one place up within its section"
+  },
+  "categoryMoveDown": "Move down",
+  "@categoryMoveDown": {
+    "description": "Screen-reader action on a categories page row that moves the category one place down within its section"
+  },
+  "categoryReorderLockedHint": "Clear the search to reorder",
+  "@categoryReorderLockedHint": {
+    "description": "Line under the categories page's search field while a query is live, saying why the drag handles are off"
+  },
+  "categoryArchive": "Archive",
+  "@categoryArchive": {
+    "description": "Row menu item on the categories page that archives a category (hides it from pickers, keeps its events)"
+  },
+  "categoryRestore": "Restore",
+  "@categoryRestore": {
+    "description": "Row menu item on the categories page that brings an archived category back into use"
+  },
+  "categoryDeleteEllipsis": "Delete…",
+  "@categoryDeleteEllipsis": {
+    "description": "Row menu item on the categories page that opens the delete confirmation; the ellipsis says a question follows"
   },
   "eventAlertCountdown": "{kind} in {duration}",
   "@eventAlertCountdown": {

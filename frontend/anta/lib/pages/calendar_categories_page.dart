@@ -1,14 +1,19 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
+import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_alerts.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
@@ -21,16 +26,49 @@ import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/category_editor_sheet.dart';
+import '../widgets/content_rows.dart';
+import '../widgets/event_avatar.dart';
+import '../widgets/form_menu_item.dart';
+import '../widgets/form_rows.dart';
 import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
+import '../widgets/value_change_highlight.dart';
 
 /// One entry of the per-row "category options" menu.
-enum _CategoryAction { moveToTop, toggleHidden, edit, delete }
+enum _CategoryAction { moveToTop, edit, archive, delete }
 
-/// Management page for event categories. Lists every category — hidden ones
-/// included, dimmed — and lets the user search, reorder, hide, edit, create
-/// and delete them.
+/// The page's one list: a section's header or a category's row. The headers
+/// are entries of the same reorderable sliver as the rows, as the browser's
+/// Folders and Notes are, so a drag can never leave one sliver for another.
+sealed class _Entry {
+  const _Entry();
+
+  Key get key;
+}
+
+class _HeaderEntry extends _Entry {
+  final bool archived;
+
+  const _HeaderEntry({required this.archived});
+
+  @override
+  Key get key => ValueKey('section:$archived');
+}
+
+class _RowEntry extends _Entry {
+  final CalendarCategory category;
+  final RowGroupPosition position;
+
+  const _RowEntry(this.category, this.position);
+
+  @override
+  Key get key => ValueKey(category.id);
+}
+
+/// Management page for event categories: the browser's content rows in two
+/// sections, In use over Archived, where the user searches, reorders,
+/// archives, edits, creates and deletes them.
 ///
 /// Mutations go directly through [CategoryService] (the same service-direct
 /// pattern the holiday settings and the vocabularies page use); the in-memory
@@ -48,6 +86,7 @@ class CalendarCategoriesPage extends StatefulWidget {
 
 class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   CategoryService? _service;
   CalendarEventService? _eventService;
@@ -60,6 +99,10 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// pre-drag values it still sees would snap the dragged row back.
   List<CalendarCategory> _categories = const [];
 
+  /// The entries the list was last built from, which the reorder callback's
+  /// render indices refer to.
+  List<_Entry> _entries = const [];
+
   /// Advisory event counts, loaded once per page entry and after a delete.
   /// Never live state — one `GROUP BY` for the whole page, never a count per
   /// row.
@@ -71,6 +114,17 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// The facade revision [_categories] was read at, so a catalogue change that
   /// came from this page is not refreshed a second time.
   int _categoryRevision = -1;
+
+  /// How many times each row has been flashed: a row's highlight fires when
+  /// its own count changes, so a row flashed once never flashes again when
+  /// another one is.
+  final Map<String, int> _flashes = {};
+
+  /// The row a create last revealed, and the key that finds it on screen.
+  /// Kept after the reveal: dropping the key would rebuild that row's subtree
+  /// from scratch, and a fresh highlight never flashes.
+  String? _revealId;
+  GlobalKey? _revealKey;
 
   StreamSubscription<void>? _externalChanges;
 
@@ -98,6 +152,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   void dispose() {
     _externalChanges?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -163,11 +218,6 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     setState(() => _query = SettingsQuery.parse(raw));
   }
 
-  void _clearQuery() {
-    _searchController.clear();
-    _onQueryChanged('');
-  }
-
   // ── Mutations ────────────────────────────────────────────────────────
 
   /// Runs [write] and reconciles with the service afterwards, whether it
@@ -177,9 +227,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// an escaping error would surface as an unhandled async error rather than
   /// anything the user can act on. Reconciling on failure says half of it —
   /// an optimistic order visibly springs back to what is actually stored —
-  /// but only half: the eye renders the stored flag, so a failed `setHidden`
-  /// springs back to nothing at all, and a failed delete leaves the row
-  /// exactly where the user left it. Hence the message.
+  /// but only half: the sections render the stored flag, so a failed
+  /// `setHidden` springs back to nothing at all, and a failed delete leaves
+  /// the row exactly where the user left it. Hence the message.
   Future<bool> _guarded(Future<void> Function() write) async {
     try {
       await write();
@@ -198,7 +248,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     }
   }
 
-  /// Refreshes whatever the sheet answers.
+  /// Refreshes whatever the sheet answers, then brings a created row into
+  /// view and flashes it (K20): a new category lands at the end of In use,
+  /// below the fold of any list long enough to need it.
   ///
   /// The sheet returns `null` when it was dismissed rather than saved — but a
   /// drag-close after a failed alert write pops past its `PopScope` and
@@ -206,9 +258,70 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// be listed only after the page was reopened. One `setState` is cheaper
   /// than trusting the answer.
   Future<void> _create() async {
-    await CategoryEditorSheet.show(context);
+    final created = await CategoryEditorSheet.show(context);
     if (!mounted) return;
+    if (created != null) {
+      _revealId = created.id;
+      _revealKey = GlobalKey();
+    }
     _refresh();
+    if (created != null) await _reveal(created.id);
+  }
+
+  /// Scrolls the row of [id] into view, then flashes it.
+  ///
+  /// The list is a lazy sliver, so a row past the built range has no context
+  /// to ensure visible: the position first moves to an estimate in proportion
+  /// to the row's place in the list, which builds it, and only then is the
+  /// row brought to the top of the viewport — `ensureVisible`'s own
+  /// alignment, and the end away from the FAB over the bottom right; a row at
+  /// the list's end stops short of the top and still clears the FAB through
+  /// the `fabClearance` under the list.
+  ///
+  /// The extent past the built rows is itself an estimate the sliver refines
+  /// as it lays them out, so the estimate can land past the true end for a
+  /// few frames; the position is pulled back inside before the row is
+  /// ensured, which would otherwise start from out of range.
+  Future<void> _reveal(String id) async {
+    final key = _revealKey;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || key == null) return;
+    final index = _entries.indexWhere(
+      (entry) => entry is _RowEntry && entry.category.id == id,
+    );
+    // A live query the new name does not match: nothing to show.
+    if (index < 0) return;
+    final animate = !MediaQuery.disableAnimationsOf(context);
+    final duration = animate ? Durations.medium2 : Duration.zero;
+    if (key.currentContext == null && _scrollController.hasClients) {
+      final position = _scrollController.position;
+      final estimate =
+          position.maxScrollExtent * index / math.max(1, _entries.length - 1);
+      if (animate) {
+        await position.animateTo(
+          estimate,
+          duration: duration,
+          curve: Curves.easeInOut,
+        );
+      } else {
+        position.jumpTo(estimate);
+      }
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      if (position.pixels > position.maxScrollExtent) {
+        position.jumpTo(position.maxScrollExtent);
+      }
+    }
+    final target = key.currentContext;
+    if (target != null && target.mounted) {
+      await Scrollable.ensureVisible(
+        target,
+        duration: duration,
+        curve: Curves.easeInOut,
+      );
+    }
+    if (!mounted) return;
+    setState(() => _flashes[id] = (_flashes[id] ?? 0) + 1);
   }
 
   Future<void> _edit(CalendarCategory category) async {
@@ -269,21 +382,101 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     return _guarded(() => _service!.reorder([for (final c in ordered) c.id]));
   }
 
-  Future<void> _reorder(int oldIndex, int newIndex) {
-    final ordered = List<CalendarCategory>.from(_categories);
-    final moved = ordered.removeAt(oldIndex);
-    ordered.insert(newIndex, moved);
+  /// Persists a new order of one section, [section], as the full list
+  /// `reorder` numbers densely: the section's categories fill the slots its
+  /// categories held, in their new order, and every row of the other section
+  /// keeps its slot — so an archived category still comes back where it was
+  /// when it is restored.
+  ///
+  /// [section] comes from the entries of the last build, and a pull can
+  /// refresh [_categories] between that build and the drop: a section that no
+  /// longer fills its slots one for one writes nothing, and the next build
+  /// lists what is stored.
+  Future<void> _persistSection(bool archived, List<CalendarCategory> section) {
+    final slots = [
+      for (final category in _categories)
+        if (category.isHidden == archived) category.id,
+    ];
+    final held = {...slots};
+    if (section.length != slots.length ||
+        section.any((category) => !held.contains(category.id))) {
+      return Future.value();
+    }
+    final next = section.iterator;
+    final ordered = [
+      for (final category in _categories)
+        if (category.isHidden == archived)
+          (next..moveNext()).current
+        else
+          category,
+    ];
     return _persistOrder(ordered);
+  }
+
+  /// Turns a drop on the flat entry list into a reorder of the dragged row's
+  /// own section.
+  ///
+  /// `onReorderItem` reports [newIndex] against the list with the dragged row
+  /// already removed, so the section's bounds are measured there too. A drop
+  /// past the other section's rows is refused — the row snaps back, nothing
+  /// is written, since moving a category between sections is archiving and
+  /// that has its own menu item; a drop on a header beside the row's own
+  /// section lands at that section's nearest edge (the browser's rule).
+  void _onReorderEntry(int oldIndex, int newIndex) {
+    final entries = _entries;
+    if (oldIndex < 0 || oldIndex >= entries.length) return;
+    final moved = entries[oldIndex];
+    if (moved is! _RowEntry) return;
+    final archived = moved.category.isHidden;
+
+    final remaining = [...entries]..removeAt(oldIndex);
+    bool ownRow(_Entry entry) =>
+        entry is _RowEntry && entry.category.isHidden == archived;
+    final lower = remaining.indexWhere(ownRow);
+    // Alone in its section: a drop anywhere leaves the order as it was, and
+    // the write would only tick the clock and republish the catalogue.
+    if (lower < 0) return;
+    final upper = remaining.lastIndexWhere(ownRow);
+    var target = newIndex;
+    if (target < lower || target > upper + 1) {
+      final between = target < lower
+          ? remaining.sublist(target, lower)
+          : remaining.sublist(upper + 1, math.min(target, remaining.length));
+      if (between.any((entry) => entry is _RowEntry)) return;
+      target = target.clamp(lower, upper + 1);
+    }
+    remaining.insert(target, moved);
+    _persistSection(archived, [
+      for (final entry in remaining)
+        if (ownRow(entry)) (entry as _RowEntry).category,
+    ]);
   }
 
   /// One tap for the case a long drag exists to serve: promoting a category
   /// you have started using a lot. Dragging row forty to the top is miserable
-  /// at any auto-scroll velocity.
+  /// at any auto-scroll velocity. The top of the row's own section, as a
+  /// drag would.
   Future<void> _moveToTop(CalendarCategory category) {
-    final ordered = List<CalendarCategory>.from(_categories)
-      ..removeWhere((c) => c.id == category.id)
-      ..insert(0, category);
-    return _persistOrder(ordered);
+    final archived = category.isHidden;
+    return _persistSection(archived, [
+      category,
+      for (final c in _categories)
+        if (c.isHidden == archived && c.id != category.id) c,
+    ]);
+  }
+
+  /// One slot up ([delta] -1) or down (+1) inside the row's own section: the
+  /// screen reader's way to do what the handle does, written as a drop is.
+  Future<void> _moveBy(CalendarCategory category, int delta) {
+    final section = [
+      for (final c in _categories)
+        if (c.isHidden == category.isHidden) c,
+    ];
+    final from = section.indexWhere((c) => c.id == category.id);
+    final to = from + delta;
+    if (from < 0 || to < 0 || to >= section.length) return Future.value();
+    section.insert(to, section.removeAt(from));
+    return _persistSection(category.isHidden, section);
   }
 
   /// The escape hatch for anyone who reaches forty categories before caring
@@ -303,16 +496,99 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     return _persistOrder(ordered);
   }
 
-  void _onCategoryAction(_CategoryAction action, CalendarCategory category) {
+  // ── Menus ────────────────────────────────────────────────────────────
+
+  Future<void> _openBarMenu(BuildContext anchor) async {
+    final l10n = AppLocalizations.of(context)!;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final sort = await showFormMenu<bool>(
+      anchor,
+      items: [
+        // Disabled, not hidden, while a query is live: it rewrites the whole
+        // order, which the ranked list cannot show — the same reason the
+        // handles go dead.
+        FormMenuItem(
+          value: true,
+          label: l10n.sortCategoriesAlphabetically,
+          icon: Icons.sort_by_alpha_rounded,
+          identifier: SemanticsIds.categorySortAz,
+          enabled: !_isFiltering,
+        ),
+      ],
+      selected: null,
+      menuWidth: FormMetrics.menuWidth,
+    );
+    if (sort != true || !mounted) return;
+    unawaited(_sortAlphabetically());
+  }
+
+  /// The row's ⋮. Every item is always listed and disabled in place where it
+  /// would do nothing or must not happen, so the menu never changes shape
+  /// under the finger.
+  Future<void> _openRowMenu(
+    BuildContext anchor,
+    CalendarCategory category, {
+    required bool firstInSection,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final inUse = _categories.where((c) => !c.isHidden).length;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final action = await showFormMenu<_CategoryAction>(
+      anchor,
+      items: [
+        // Reorder and filtering are mutually exclusive, and this writes the
+        // whole order: offered while the handles are dead it would persist a
+        // promotion the ranked list never shows.
+        FormMenuItem(
+          value: _CategoryAction.moveToTop,
+          label: l10n.moveToTop,
+          icon: Icons.vertical_align_top_rounded,
+          identifier: SemanticsIds.categoryMenuMoveToTop,
+          enabled: !_isFiltering && !firstInSection,
+        ),
+        FormMenuItem(
+          value: _CategoryAction.edit,
+          label: l10n.edit,
+          icon: Icons.edit_rounded,
+          identifier: SemanticsIds.categoryMenuEdit,
+        ),
+        // The last visible category stays: with nothing in use every picker
+        // would open empty. The service refuses it too.
+        FormMenuItem(
+          value: _CategoryAction.archive,
+          label: category.isHidden
+              ? l10n.categoryRestore
+              : l10n.categoryArchive,
+          icon: category.isHidden
+              ? Icons.unarchive_rounded
+              : Icons.archive_rounded,
+          identifier: SemanticsIds.categoryMenuArchive,
+          enabled: category.isHidden || inUse > 1,
+        ),
+        // Built-ins can be archived; they still cannot be deleted.
+        FormMenuItem(
+          value: _CategoryAction.delete,
+          label: l10n.categoryDeleteEllipsis,
+          icon: Icons.delete_rounded,
+          identifier: SemanticsIds.categoryMenuDelete,
+          enabled: !category.isBuiltIn,
+          color: colorScheme.error,
+        ),
+      ],
+      selected: null,
+      menuWidth: FormMetrics.menuWidth,
+    );
+    if (action == null || !mounted) return;
     switch (action) {
       case _CategoryAction.moveToTop:
-        _moveToTop(category);
-      case _CategoryAction.toggleHidden:
-        _setHidden(category, !category.isHidden);
+        unawaited(_moveToTop(category));
       case _CategoryAction.edit:
-        _edit(category);
+        unawaited(_edit(category));
+      case _CategoryAction.archive:
+        unawaited(_setHidden(category, !category.isHidden));
       case _CategoryAction.delete:
-        _delete(category);
+        unawaited(_delete(category));
     }
   }
 
@@ -321,50 +597,39 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // While the keyboard is up the list is a few rows tall and the FAB would
+    // sit on them; it floats, so leaving it out moves no row.
+    final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.calendarCategories,
-        showMenuButton: false,
         actions: [
-          // A filled *icon* button rather than a labelled one: the localized
-          // page title plus a text action overflows the bar. The bar is
-          // pinned, so unlike the FAB this never scrolls away.
-          AutomationId(
-            identifier: SemanticsIds.categoryAdd,
-            child: IconButton.filledTonal(
-              onPressed: _create,
-              icon: const Icon(Icons.add_rounded),
-              tooltip: l10n.createCategory,
+          Builder(
+            builder: (anchor) => AutomationId(
+              identifier: SemanticsIds.categoryBarMenu,
+              child: IconButton(
+                icon: const Icon(Icons.more_vert),
+                iconSize: AppBarMetrics.glyphSize,
+                tooltip: MaterialLocalizations.of(anchor).showMenuTooltip,
+                onPressed: () => _openBarMenu(anchor),
+              ),
             ),
           ),
-          PopupMenuButton<void>(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (ctx) => [
-              PopupMenuItem<void>(
-                // Disabled, not hidden, while a query is live: it rewrites the
-                // whole order, which the ranked list cannot show — the same
-                // reason the handles go dead.
-                enabled: !_isFiltering,
-                onTap: _sortAlphabetically,
-                // The item merges its subtree, so the id lands on its node.
-                child: Semantics(
-                  identifier: SemanticsIds.categorySortAz,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.sort_by_alpha_rounded, size: 18),
-                      const SizedBox(width: 8),
-                      Text(l10n.sortCategoriesAlphabetically),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 4),
         ],
       ),
+      floatingActionButton: keyboardUp
+          ? null
+          : AutomationId(
+              identifier: SemanticsIds.categoryAdd,
+              child: FloatingActionButton(
+                heroTag: null,
+                tooltip: l10n.createCategory,
+                onPressed: _create,
+                child: const Icon(Icons.add_rounded),
+              ),
+            ),
       body: SafeArea(
         top: false,
         child: _isLoading
@@ -389,116 +654,203 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
               ranked.category,
           ]
         : _categories;
+    final entries = _entriesFor(rows);
+    _entries = entries;
 
     return Column(
       children: [
         if (showSearch)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            padding: FormMetrics.settingsSearchPadding,
             child: SettingsSearchField(
               controller: _searchController,
               hint: l10n.searchCategories,
               onChanged: _onQueryChanged,
+              identifier: SemanticsIds.categorySearch,
             ),
           ),
-        if (showSearch && _isFiltering) const ReorderLockedHint(),
+        if (_isFiltering)
+          ReorderLockedHint(text: l10n.categoryReorderLockedHint),
         // The list owns the nearest enclosing `Scrollable`, which is what
-        // binds `ReorderableListView`'s edge auto-scroller to the thing that
+        // binds the reorderable sliver's edge auto-scroller to the thing that
         // actually scrolls. Nesting it in an outer scroll view with
         // `shrinkWrap: true` silently kills dragging past the fold.
         Expanded(
-          child: _isFiltering
-              ? (rows.isEmpty
-                    ? _buildNoMatchesState(context)
-                    : _buildFilteredList(rows))
-              : _buildReorderableList(rows),
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              const SliverPadding(
+                padding: EdgeInsets.only(top: FormMetrics.bodyTop),
+              ),
+              if (entries.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: RowMetrics.groupInset,
+                    ),
+                    child: FormCaption(
+                      text: l10n.noCategoriesMatch,
+                      padding: FormMetrics.groupCaptionPadding,
+                    ),
+                  ),
+                )
+              else if (_isFiltering)
+                SliverList.builder(
+                  itemCount: entries.length,
+                  itemBuilder: (context, index) => _buildEntry(entries[index]),
+                )
+              else
+                SliverReorderableList(
+                  itemCount: entries.length,
+                  // An open keyboard halves the viewport, which halves the
+                  // usable drag region. A query cannot be active during a
+                  // drag, but focus with an empty field can.
+                  onReorderStart: (_) => FocusScope.of(context).unfocus(),
+                  onReorderItem: _onReorderEntry,
+                  proxyDecorator: _liftedRow,
+                  itemBuilder: (context, index) =>
+                      _buildEntry(entries[index], dragIndex: index),
+                ),
+              // The FAB floats over the list's end: the last row scrolls
+              // clear of it.
+              const SliverPadding(
+                padding: EdgeInsets.only(bottom: AppSpacing.fabClearance),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildFilteredList(List<CalendarCategory> rows) {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-      itemCount: rows.length,
-      itemBuilder: (context, index) => _rowFor(rows[index], dragIndex: null),
-    );
-  }
-
-  Widget _buildReorderableList(List<CalendarCategory> rows) {
-    return ReorderableListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-      buildDefaultDragHandles: false,
-      itemCount: rows.length,
-      // An open keyboard halves the viewport, which halves the usable drag
-      // region. A query cannot be active during a drag (reorder is off while
-      // filtering), but focus with an empty field can.
-      onReorderStart: (_) => FocusScope.of(context).unfocus(),
-      onReorderItem: _reorder,
-      proxyDecorator: reorderDragProxy,
-      itemBuilder: (context, index) => ReorderableDelayedDragStartListener(
-        key: ValueKey(rows[index].id),
-        index: index,
-        child: _rowFor(rows[index], dragIndex: index),
-      ),
-    );
-  }
-
-  Widget _rowFor(CalendarCategory category, {required int? dragIndex}) {
-    // A container, not a merge: the row's eye and ⋮ stay nodes of their own.
-    final row = Semantics(
-      container: true,
-      identifier: SemanticsIds.categoryRow(category.id),
-      child: _CategoryRow(
-        category: category,
-        eventCount: _counts[category.id] ?? 0,
-        // Read per build from the facade, which the editor republishes before
-        // it pops — and [_refresh] rebuilds the rows when it does.
-        hasAlerts: EventAlerts.categoryAlertsFor(
-          category.id,
-        ).any((alert) => alert.enabled),
-        dragIndex: dragIndex,
-        onToggleHidden: () => _setHidden(category, !category.isHidden),
-        onAction: (action) => _onCategoryAction(action, category),
-        onTap: () => _edit(category),
-      ),
-    );
-    // The reorderable list keys its own wrapper; the filtered one has to.
-    return dragIndex == null
-        ? KeyedSubtree(key: ValueKey(category.id), child: row)
-        : row;
-  }
-
-  Widget _buildNoMatchesState(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.search_off_rounded,
-            size: 48,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            l10n.noCategoriesMatch,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 4),
-          TextButton(onPressed: _clearQuery, child: Text(l10n.clearSearch)),
+  /// [rows] split into In use over Archived, each in [rows]' own order (the
+  /// stored one, or the query's ranking), with a header over a section only
+  /// while it holds a row.
+  List<_Entry> _entriesFor(List<CalendarCategory> rows) {
+    final inUse = [
+      for (final c in rows)
+        if (!c.isHidden) c,
+    ];
+    final archived = [
+      for (final c in rows)
+        if (c.isHidden) c,
+    ];
+    return [
+      for (final (isArchived, section) in [(false, inUse), (true, archived)])
+        if (section.isNotEmpty) ...[
+          _HeaderEntry(archived: isArchived),
+          for (var i = 0; i < section.length; i++)
+            _RowEntry(section[i], _positionIn(i, section.length)),
         ],
+    ];
+  }
+
+  static RowGroupPosition _positionIn(int index, int length) {
+    if (length == 1) return RowGroupPosition.single;
+    if (index == 0) return RowGroupPosition.first;
+    if (index == length - 1) return RowGroupPosition.last;
+    return RowGroupPosition.middle;
+  }
+
+  /// One entry of the list; [dragIndex] is the entry's index in the
+  /// reorderable sliver, null while a query is live.
+  Widget _buildEntry(_Entry entry, {int? dragIndex}) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (entry) {
+      _HeaderEntry(:final archived) => KeyedSubtree(
+        key: entry.key,
+        child: ContentSectionHeader(
+          label: archived
+              ? l10n.categorySectionArchived
+              : l10n.categorySectionInUse,
+          identifier: archived
+              ? SemanticsIds.categorySectionArchivedHeader
+              : SemanticsIds.categorySectionInUseHeader,
+        ),
+      ),
+      _RowEntry() => KeyedSubtree(
+        key: entry.key,
+        child: _rowFor(entry, dragIndex: dragIndex),
+      ),
+    };
+  }
+
+  Widget _rowFor(_RowEntry entry, {int? dragIndex, bool lifted = false}) {
+    final category = entry.category;
+    return _CategoryRow(
+      key: !lifted && category.id == _revealId ? _revealKey : null,
+      category: category,
+      caption: _captionFor(category),
+      position: entry.position,
+      dragIndex: dragIndex,
+      reorderLocked: _isFiltering,
+      flash: _flashes[category.id] ?? 0,
+      lifted: lifted,
+      onTap: () => _edit(category),
+      // Where the handle could drag, as far as the section goes.
+      onMoveUp: lifted || _isFiltering || entry.position.isFirst
+          ? null
+          : () => unawaited(_moveBy(category, -1)),
+      onMoveDown: lifted || _isFiltering || entry.position.isLast
+          ? null
+          : () => unawaited(_moveBy(category, 1)),
+      onMenu: (anchor) => _openRowMenu(
+        anchor,
+        category,
+        firstInSection: entry.position.isFirst,
+      ),
+    );
+  }
+
+  /// The row's second line: its use, then what sets it apart. A segment's
+  /// own words are held together by the no-break space the strings carry,
+  /// and the space before each dot is one too, so a wrapped line never
+  /// starts with the dot.
+  String _captionFor(CalendarCategory category) {
+    final l10n = AppLocalizations.of(context)!;
+    // Read per build from the facade, which the editor republishes before it
+    // pops — and [_refresh] rebuilds the rows when it does.
+    final hasAlerts = EventAlerts.categoryAlertsFor(
+      category.id,
+    ).any((alert) => alert.enabled);
+    return [
+      l10n.categoryEventCount(_counts[category.id] ?? 0),
+      if (category.isBuiltIn) l10n.categoryCaptionBuiltIn,
+      if (hasAlerts) l10n.categoryCaptionAlertsOn,
+    ].join(' · ');
+  }
+
+  /// The lifted row: one card of its own, whatever its place in its group,
+  /// under the shared proxy (a hair of scale, a shadow). Inset and
+  /// top-aligned by hand rather than drawn in a single-position shell: the
+  /// proxy's box is the dragged item's own, and a shell's group gap under a
+  /// row that had none would squeeze the card inside it.
+  Widget _liftedRow(Widget child, int index, Animation<double> animation) {
+    final entry = index < _entries.length ? _entries[index] : null;
+    if (entry is! _RowEntry) return child;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: RowMetrics.groupInset),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: reorderDragProxy(
+          _rowFor(
+            _RowEntry(entry.category, RowGroupPosition.single),
+            lifted: true,
+          ),
+          index,
+          animation,
+          // The card's own corner, so the shadow follows it.
+          borderRadius: const BorderRadius.all(
+            Radius.circular(RowMetrics.groupRadius),
+          ),
+        ),
       ),
     );
   }
 }
 
-/// One category row: colour/icon avatar, localized label, the built-in badge
-/// and usage count, a visibility toggle and the options menu.
+/// One category row on the browser's two-line content row: the handle, the
+/// category's avatar, its name over its caption, and the ⋮.
 ///
 /// A widget rather than a method on the page so a keystroke in the search
 /// field rebuilds the rows without rebuilding their subtrees wholesale, and so
@@ -506,198 +858,211 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 /// worth of behaviour.
 class _CategoryRow extends StatelessWidget {
   final CalendarCategory category;
-  final int eventCount;
-
-  /// Whether the category carries an enabled alert its events inherit
-  /// (**v42**, D19): a bell answers "which categories remind me" at a glance.
-  final bool hasAlerts;
+  final String caption;
+  final RowGroupPosition position;
 
   /// Index in the enclosing reorderable list, or `null` while a query is
   /// active and reorder is therefore off.
   final int? dragIndex;
 
-  final VoidCallback onToggleHidden;
-  final ValueChanged<_CategoryAction> onAction;
+  /// A live query: the handle greys in place and the row says nothing about
+  /// reordering.
+  final bool reorderLocked;
+
+  /// The row's flash count; a change flashes the row.
+  final int flash;
+
+  /// Drawn as the drag proxy's card rather than inside its group.
+  final bool lifted;
+
   final VoidCallback onTap;
 
-  /// The bell's slot, the trailing icons' own size: it never sets the row's
-  /// height.
-  static const double _bellSize = 24;
+  /// The row's "Move up" / "Move down" semantics actions; null where the row
+  /// cannot move that way, which leaves the action off the node.
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+  final void Function(BuildContext anchor) onMenu;
 
   const _CategoryRow({
+    super.key,
     required this.category,
-    required this.eventCount,
-    required this.hasAlerts,
+    required this.caption,
+    required this.position,
     required this.dragIndex,
-    required this.onToggleHidden,
-    required this.onAction,
+    required this.reorderLocked,
+    required this.flash,
+    required this.lifted,
     required this.onTap,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.onMenu,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final subtitle = [
-      if (category.isBuiltIn) l10n.categoryDefault,
-      l10n.categoryEventCount(eventCount),
-    ].join(' · ');
+    final colorScheme = Theme.of(context).colorScheme;
+    final name = CalendarCategories.labelOf(category, l10n);
+    final archived = category.isHidden;
+    // Decided by the text scale, never by the names: the 18 dp the glyph
+    // frees is what keeps every built-in name whole at 2.0 on a small phone.
+    final scaler = MediaQuery.textScalerOf(context);
+    final compact =
+        scaler.scale(RowMetrics.titleFontSize) / RowMetrics.titleFontSize >=
+        RowMetrics.compactLeadingTextScale;
+    final icon = CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Opacity(
-        opacity: category.isHidden ? 0.5 : 1.0,
-        child: Card(
-          margin: EdgeInsets.zero,
-          elevation: 0,
-          color: theme.colorScheme.surfaceContainer,
-          child: ListTile(
-            minLeadingWidth: 0,
-            leading: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ReorderHandle(index: dragIndex, enabled: dragIndex != null),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: category.color.withValues(alpha: 0.18),
-                  foregroundColor: category.color,
-                  child: Icon(
-                    CalendarIcons.forKey(category.iconKey) ??
-                        Icons.event_rounded,
-                  ),
-                ),
-              ],
+    // The handle sits inside the row's ink well: a short tap on it, meant as
+    // the start of a drag, is taken here and does nothing rather than open
+    // the editor. Its drag listeners are below this and untouched. Never
+    // dimmed on an archived row — it is still a control to hold, and
+    // `outline` at the disabled opacity measured 1.60:1.
+    final handle = GestureDetector(
+      onTap: () {},
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      child: ReorderHandle(
+        index: dragIndex,
+        enabled: !reorderLocked,
+        label: l10n.categoryReorderLabel(name),
+      ),
+    );
+    Widget leading = compact
+        ? ExcludeSemantics(
+            child: Icon(
+              icon,
+              size: RowMetrics.glyphSize,
+              color: category.color,
             ),
-            title: Text(CalendarCategories.labelOf(category, l10n)),
-            subtitle: Text(subtitle),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // A fixed box on every row, empty where there is no bell: a
-                // bell that took its width only where it is drawn would wrap
-                // that row's text a line sooner and make it taller at large
-                // text. Spoken as a label of its own — a tooltip is not read
-                // on Android 9+.
-                SizedBox.square(
-                  dimension: _bellSize,
-                  child: hasAlerts
-                      ? Semantics(
-                          label: l10n.categoryHasAlerts,
-                          child: Tooltip(
-                            message: l10n.categoryHasAlerts,
-                            excludeFromSemantics: true,
-                            child: Icon(
-                              Icons.notifications_outlined,
-                              size: _bellSize,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        )
-                      : null,
-                ),
-                AutomationId(
-                  identifier: SemanticsIds.categoryRowVisibility(category.id),
-                  child: IconButton(
-                    icon: Icon(
-                      category.isHidden
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                    ),
-                    tooltip: category.isHidden ? l10n.show : l10n.hide,
-                    onPressed: onToggleHidden,
-                  ),
-                ),
-                AutomationId(
-                  identifier: SemanticsIds.categoryRowMenu(category.id),
-                  child: PopupMenuButton<_CategoryAction>(
-                    icon: const Icon(Icons.more_vert),
-                    onSelected: onAction,
-                    itemBuilder: (ctx) => [
-                      // Reorder and filtering are mutually exclusive, and this
-                      // writes the whole order: offered while the handles are
-                      // dead it would persist a promotion the ranked list never
-                      // shows, so there is nothing on screen to undo it by.
-                      if (dragIndex != null)
-                        PopupMenuItem(
-                          value: _CategoryAction.moveToTop,
-                          child: Semantics(
-                            identifier: SemanticsIds.categoryMenuMoveToTop,
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.vertical_align_top_rounded,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(l10n.moveToTop),
-                              ],
-                            ),
-                          ),
-                        ),
-                      PopupMenuItem(
-                        value: _CategoryAction.toggleHidden,
-                        child: Semantics(
-                          identifier: SemanticsIds.categoryMenuArchive,
-                          child: Row(
-                            children: [
-                              Icon(
-                                category.isHidden
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(category.isHidden ? l10n.show : l10n.hide),
-                            ],
-                          ),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _CategoryAction.edit,
-                        child: Semantics(
-                          identifier: SemanticsIds.categoryMenuEdit,
-                          child: Row(
-                            children: [
-                              const Icon(Icons.edit, size: 18),
-                              const SizedBox(width: 8),
-                              Text(l10n.edit),
-                            ],
-                          ),
-                        ),
-                      ),
-                      // Built-ins can be hidden; they still cannot be deleted.
-                      if (!category.isBuiltIn)
-                        PopupMenuItem(
-                          value: _CategoryAction.delete,
-                          child: Semantics(
-                            identifier: SemanticsIds.categoryMenuDelete,
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.delete,
-                                  size: 18,
-                                  color: theme.colorScheme.error,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  l10n.delete,
-                                  style: TextStyle(
-                                    color: theme.colorScheme.error,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+          )
+        : EventAvatar(icon: icon, color: category.color);
+    // Only the leading dims on an archived row: the section header already
+    // says Archived, and dimmed text on an operable row would fail contrast.
+    if (archived) {
+      leading = Opacity(opacity: FormMetrics.disabledOpacity, child: leading);
+    }
+
+    final texts = Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: RowMetrics.twoLinePadding.vertical / 2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            name,
+            style: TextStyle(
+              fontSize: RowMetrics.titleFontSize,
+              fontWeight: FontWeight.w400,
+              height: FormMetrics.labelLineHeight / RowMetrics.titleFontSize,
+              color: colorScheme.onSurface,
             ),
-            onTap: onTap,
+          ),
+          const SizedBox(height: RowMetrics.lineGap),
+          Text(
+            caption,
+            style: TextStyle(
+              fontSize: RowMetrics.secondLineFontSize,
+              height:
+                  FormMetrics.captionLineHeight / RowMetrics.secondLineFontSize,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Widget body = InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: RowMetrics.twoLineMinHeight,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.only(left: RowMetrics.reorderHandleLead),
+          child: Row(
+            children: [
+              handle,
+              leading,
+              const SizedBox(width: RowMetrics.gap),
+              Expanded(child: texts),
+            ],
           ),
         ),
       ),
+    );
+    // A long press anywhere on the row lifts it, as the handle does at once.
+    final at = dragIndex;
+    if (at != null && !lifted) {
+      body = ReorderableDelayedDragStartListener(index: at, child: body);
+    }
+
+    // One node with the name, the caption, the state and the handle's name,
+    // in that order; the ⋮ is a sibling node, which a merged row could keep
+    // neither ordered nor operable. The handle's name promises a reorder, and
+    // a screen reader cannot drag: the node carries it as two actions.
+    final row = Row(
+      children: [
+        Expanded(
+          child: Semantics(
+            container: true,
+            identifier: lifted ? null : SemanticsIds.categoryRow(category.id),
+            button: true,
+            excludeSemantics: true,
+            label: [
+              name,
+              caption,
+              if (archived) l10n.categoryRowArchived,
+              if (!reorderLocked) l10n.categoryReorderLabel(name),
+            ].join('\n'),
+            onTap: onTap,
+            customSemanticsActions: {
+              CustomSemanticsAction(label: l10n.categoryMoveUp): ?onMoveUp,
+              CustomSemanticsAction(label: l10n.categoryMoveDown): ?onMoveDown,
+            },
+            child: body,
+          ),
+        ),
+        Builder(
+          builder: (anchor) => FormTrailingButton(
+            icon: Icons.more_vert_rounded,
+            tooltip: l10n.categoryActions,
+            identifier: lifted
+                ? null
+                : SemanticsIds.categoryRowMenu(category.id),
+            onPressed: () => onMenu(anchor),
+          ),
+        ),
+      ],
+    );
+
+    final radius = Radius.circular(RowMetrics.groupRadius);
+    final corners = BorderRadius.vertical(
+      top: position.isFirst ? radius : Radius.zero,
+      bottom: position.isLast ? radius : Radius.zero,
+    );
+    final content = ValueChangeHighlight(
+      value: flash,
+      borderRadius: corners,
+      child: row,
+    );
+
+    if (lifted) {
+      return Material(
+        type: MaterialType.card,
+        clipBehavior: Clip.antiAlias,
+        color: colorScheme.rowGroup,
+        borderRadius: corners,
+        child: content,
+      );
+    }
+    return ContentRowShell(
+      position: position,
+      dividerIndent: compact
+          ? RowMetrics.reorderGlyphTextInset
+          : RowMetrics.reorderAvatarTextInset,
+      child: content,
     );
   }
 }

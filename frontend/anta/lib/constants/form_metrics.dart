@@ -194,6 +194,18 @@ abstract final class FormMetrics {
   /// and the action row above and below line up with the names.
   static const double dragHandleSlot = trailingButtonSize;
 
+  /// The handle's ≡ inside [dragHandleSlot]: Material's default icon size,
+  /// a step above [trailingIconSize] so the grip reads as something to hold
+  /// rather than one more button.
+  static const double dragHandleGlyphSize = 24;
+
+  /// The "clear the search to reorder" line under a reorderable list's search
+  /// field: its lock glyph, the gap to the words and the air under them —
+  /// a caption's scale, so the line reads as a note on the field above.
+  static const double reorderHintGlyphSize = 14;
+  static const double reorderHintGlyphGap = 6;
+  static const double reorderHintBottomPadding = 8;
+
   /// A colour dot's painted circle (`ColorSwatchDot`), inside the trailing
   /// button's 48 dp target: 44, so the circles read as dots while a field of
   /// them still keeps Material's target floor.

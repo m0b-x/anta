@@ -780,16 +780,22 @@ abstract final class SemanticsIds {
   static const String categoryAdd = 'category-add';
   static String categoryRow(String id) => 'category-row-$id';
 
-  /// The Categories page bar's ⋮ item that sorts every category A–Z.
+  /// The Categories page bar's ⋮, and its item that sorts every category A–Z.
+  static const String categoryBarMenu = 'category-bar-menu';
   static const String categorySortAz = 'category-sort-az';
+
+  /// The Categories page's search field, drawn above 12 categories.
+  static const String categorySearch = 'category-search';
+
+  /// The Categories page's two section headers: a flow reads which section a
+  /// row landed in from the order of the dump (`expect --ordered`).
+  static const String categorySectionInUseHeader = 'category-section-in-use';
+  static const String categorySectionArchivedHeader =
+      'category-section-archived';
 
   /// A category row's ⋮, keyed by the category's id: every row's button wears
   /// the same tooltip.
   static String categoryRowMenu(String id) => 'category-menu-$id';
-
-  /// A category row's eye, keyed by the category's id; it retires with the
-  /// eye when the page moves archiving into the ⋮.
-  static String categoryRowVisibility(String id) => 'category-visibility-$id';
 
   /// A category row's ⋮ item that moves the category to the top of the order.
   static const String categoryMenuMoveToTop = 'category-menu-move-to-top';

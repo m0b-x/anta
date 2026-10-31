@@ -234,6 +234,28 @@ void main() {
       expect(tester.getTopLeft(find.byType(Text)).dx, 20);
     });
 
+    testWidgets('a section label is one level-2 heading node with its words, '
+        'carrying its id when it has one', (tester) async {
+      await pump(
+        tester,
+        ContentSectionHeader(label: l10n.folders, identifier: 'section-x'),
+      );
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier('section-x'))
+          .getSemanticsData();
+      expect(data.label, l10n.folders.toUpperCase());
+      expect(data.flagsCollection.isHeader, isTrue);
+      expect(data.headingLevel, 2);
+
+      await pump(tester, ContentSectionHeader(label: l10n.folders));
+      final plain = tester
+          .getSemantics(find.text(l10n.folders.toUpperCase()))
+          .getSemanticsData();
+      expect(plain.label, l10n.folders.toUpperCase());
+      expect(plain.flagsCollection.isHeader, isTrue);
+      expect(plain.headingLevel, 2);
+    });
+
     testWidgets('a shell without a stripe builds no Stack at all', (
       tester,
     ) async {

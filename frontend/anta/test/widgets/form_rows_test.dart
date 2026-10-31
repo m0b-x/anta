@@ -10,6 +10,7 @@ import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/settings_reorder.dart';
 import 'package:anta/widgets/value_change_highlight.dart';
 
 /// The grouped-row primitives every calendar sheet is built from. These pin
@@ -1698,6 +1699,60 @@ void main() {
       );
     });
 
+    group('the shared reorder handle', () {
+      Future<void> pumpHandle(WidgetTester tester, ReorderHandle handle) =>
+          tester.pumpWidget(host(Row(children: [handle])));
+
+      Color outlineOf(WidgetTester tester) => Theme.of(
+        tester.element(find.byType(ReorderHandle)),
+      ).colorScheme.outline;
+
+      Finder dimmer() => find.ancestor(
+        of: find.byIcon(Icons.drag_handle),
+        matching: find.byType(Opacity),
+      );
+
+      testWidgets('is a 48 dp target around an outline glyph, named by its '
+          'label', (tester) async {
+        await pumpHandle(
+          tester,
+          const ReorderHandle(index: 0, label: 'Reorder Gym'),
+        );
+        expect(
+          tester.getSize(find.byType(ReorderHandle)),
+          const Size(FormMetrics.dragHandleSlot, FormMetrics.dragHandleSlot),
+        );
+        expect(
+          tester.getSize(find.byType(ReorderableDragStartListener)),
+          const Size(FormMetrics.dragHandleSlot, FormMetrics.dragHandleSlot),
+          reason: 'the whole target lifts the row, not only the glyph',
+        );
+        final glyph = tester.widget<Icon>(find.byIcon(Icons.drag_handle));
+        expect(glyph.color, outlineOf(tester));
+        expect(glyph.size, 24);
+        expect(dimmer(), findsNothing);
+        expect(find.bySemanticsLabel('Reorder Gym'), findsOneWidget);
+      });
+
+      testWidgets('disabled, it keeps its slot and dims the same glyph to '
+          '38 %', (tester) async {
+        await pumpHandle(tester, const ReorderHandle(enabled: false));
+        expect(
+          tester.getSize(find.byType(ReorderHandle)),
+          const Size(FormMetrics.dragHandleSlot, FormMetrics.dragHandleSlot),
+        );
+        expect(find.byType(ReorderableDragStartListener), findsNothing);
+        expect(
+          tester.widget<Icon>(find.byIcon(Icons.drag_handle)).color,
+          outlineOf(tester),
+        );
+        expect(
+          tester.widget<Opacity>(dimmer()).opacity,
+          FormMetrics.disabledOpacity,
+        );
+      });
+    });
+
     testWidgets('a row shell rounds the ends only and draws a hairline under '
         'every row but the last', (tester) async {
       Widget shells({required bool trailingGap}) => MaterialApp(
@@ -2010,6 +2065,131 @@ void main() {
 
       expect(picked, 1);
       expect(find.byType(FormMenuChoiceItem<int>), findsNothing);
+    });
+
+    group('showFormMenu items', () {
+      const error = Color(0xFFB3261E);
+      String? picked;
+      var closed = false;
+
+      Future<void> openActions(WidgetTester tester) async {
+        picked = null;
+        closed = false;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async {
+                    picked = await showFormMenu<String>(
+                      context,
+                      selected: null,
+                      menuWidth: FormMetrics.menuWidth,
+                      items: const [
+                        FormMenuItem(
+                          value: 'edit',
+                          label: 'Edit',
+                          icon: Icons.edit_outlined,
+                          identifier: 'menu-edit',
+                        ),
+                        FormMenuItem(
+                          value: 'top',
+                          label: 'Move to top',
+                          icon: Icons.vertical_align_top_rounded,
+                          identifier: 'menu-top',
+                          enabled: false,
+                          color: error,
+                        ),
+                        FormMenuItem(
+                          value: 'delete',
+                          label: 'Delete…',
+                          icon: Icons.delete_outline_rounded,
+                          identifier: 'menu-delete',
+                          color: error,
+                        ),
+                      ],
+                    );
+                    closed = true;
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+      }
+
+      Color? labelColor(WidgetTester tester, String label) =>
+          tester.widget<Text>(find.text(label)).style?.color;
+
+      Color? glyphColor(WidgetTester tester, IconData glyph) =>
+          tester.widget<Icon>(find.byIcon(glyph)).color;
+
+      testWidgets('a disabled item stays a radio node with its id, announced '
+          'disabled, and a tap on it picks nothing', (tester) async {
+        await openActions(tester);
+
+        final off = dataOf(tester, 'menu-top');
+        expect(off.role, SemanticsRole.menuItemRadio);
+        expect(off.label, contains('Move to top'));
+        expect(off.flagsCollection.isEnabled, Tristate.isFalse);
+        expect(off.hasAction(SemanticsAction.tap), isFalse);
+
+        await tester.tap(find.text('Move to top'));
+        await tester.pumpAndSettle();
+        expect(closed, isFalse, reason: 'the menu stays open');
+        expect(find.byType(FormMenuChoiceItem<String>), findsNWidgets(3));
+
+        await tester.tap(find.text('Edit'));
+        await tester.pumpAndSettle();
+        expect((closed, picked), (true, 'edit'));
+      });
+
+      testWidgets('a disabled item dims its label to 38 % and drops its '
+          'colour', (tester) async {
+        await openActions(tester);
+        final onSurface = Theme.of(
+          tester.element(find.text('Move to top')),
+        ).colorScheme.onSurface;
+        expect(
+          labelColor(tester, 'Move to top'),
+          onSurface.withValues(alpha: FormMetrics.disabledOpacity),
+        );
+        expect(
+          glyphColor(tester, Icons.vertical_align_top_rounded),
+          isNot(error),
+        );
+      });
+
+      testWidgets('a coloured item draws its glyph and label in the colour', (
+        tester,
+      ) async {
+        await openActions(tester);
+        final on = dataOf(tester, 'menu-delete');
+        expect(on.flagsCollection.isEnabled, Tristate.isTrue);
+        expect(labelColor(tester, 'Delete…'), error);
+        expect(glyphColor(tester, Icons.delete_outline_rounded), error);
+      });
+
+      testWidgets('an item that sets neither keeps the anatomy every existing '
+          'caller sees', (tester) async {
+        await openActions(tester);
+        final plain = dataOf(tester, 'menu-edit');
+        expect(plain.role, SemanticsRole.menuItemRadio);
+        expect(plain.flagsCollection.isEnabled, Tristate.isTrue);
+        expect(plain.hasAction(SemanticsAction.tap), isTrue);
+        expect(labelColor(tester, 'Edit'), isNull);
+        expect(
+          glyphColor(tester, Icons.edit_outlined),
+          Theme.of(
+            tester.element(find.text('Edit')),
+          ).colorScheme.onSurfaceVariant,
+        );
+        const defaults = FormMenuItem(value: 1, label: 'A');
+        expect((defaults.enabled, defaults.color), (true, null));
+      });
     });
 
     testWidgets('the menu opens right-aligned with the group, under the row '

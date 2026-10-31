@@ -1,60 +1,55 @@
-# The Categories page end to end, as it stands before its rework
-# (docs/calendar-categories-roadmap.md §7 S0): the seeded Strength is
-# archived through its eye and stays listed, its ⋮ then offers Show, and the
-# ⋮'s archive item restores it, after which the ⋮ offers Hide again; it is
-# dragged below Archive by a long press and put back, the order asserted both
-# ways; deleted through its ⋮ with the confirm, which names its one seeded
-# event, the message waited for and the row gone; then a category is created
-# through + and listed.
-# - Reached as flow 18 reaches it. Strength is the tenth row, so it is
-#   scrolled to before its eye is tapped.
-# - Both rows stay listed whether the archive landed or not, so the archive
-#   and the restore are read from the row's ⋮: its archive item says Show on
-#   an archived category and Hide on a listed one. The eye's tap and the
-#   restore hold 500 ms, because the menu builds its items when it opens and
-#   would show the flag from before an unfinished write.
-# - `expect "Show" --absent "Hide"` relies on the popup's barrier keeping the
-#   page's nodes out of the tree: Archive's eye also says "Show" and every
-#   listed row's eye says "Hide". If the barrier let them through, the
-#   --absent would fail.
+# The Categories page end to end, on its content rows
+# (docs/calendar-categories-roadmap.md §7 S2): the seeded Strength is
+# archived through its ⋮ and lands under the Archived header, before the
+# seeded Archive (its slot is kept), then restored through the same item and
+# back above the header; it is dragged onto Other, the built-in above it, by
+# a long press and put back, the order asserted both ways — the drag stays
+# inside In use; deleted through its ⋮ with the confirm, which names its one
+# seeded event, the message waited for and the row gone; then a category is
+# created through the FAB, and the page scrolls to it by itself.
+# - Reached as flow 18 reaches it. At 1.0 the nine built-ins, Strength, the
+#   Archived header and Archive do not all fit one screen, and `expect` never
+#   scrolls: the header's row is scrolled to before each ordered check.
+# - The sections are read from the dump's order (`expect --ordered`) against
+#   the headers' ids, never from their words.
+# - The menu items are always listed and the archive item's id stays the
+#   same whether it reads Archive or Restore; each tap holds 500 ms so the
+#   write and the refresh land before the order is read.
 # - The drag lifts the row by a long press anywhere on it (the delayed drag
-#   listener lifts at 500 ms), so each drag holds 900 ms. Archive, the last
-#   row, is scrolled to first so both rows are on screen for the drag. The
-#   first drag holds 500 ms afterwards so its reorder write and refresh land
-#   before the second drag starts.
-# - The order is asserted by `expect --ordered` on the rows' ids, the dump's
-#   traversal order: Strength before Archive, Archive first after the drag,
-#   Strength first again once it is dragged back.
+#   listener lifts at 500 ms), so each drag holds 900 ms. Strength is
+#   scrolled to first so it and Other are both on screen.
 # - The delete's confirm is the shared dialog's id:sheet-confirm.
-# - The new category is appended after every other row: it is scrolled to
-#   before it is expected.
+# - The new category is appended to In use; the create scrolls it into view
+#   and flashes it, so the flow waits for its typed name without scrolling.
 tap id:calendar-more
 wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
 tap id:calendar-categories-open
 wait id:category-add
-scroll-to id:category-row-qa-cal-strength
-tap id:category-visibility-qa-cal-strength --settle 500
-expect id:category-row-qa-cal-strength id:category-row-qa-cal-hidden
+expect id:category-section-in-use
+scroll-to id:category-row-qa-cal-hidden
+expect --ordered id:category-row-qa-cal-strength id:category-section-archived id:category-row-qa-cal-hidden
+tap id:category-menu-qa-cal-strength
+wait id:category-menu-archive
+tap id:category-menu-archive --settle 500
+wait id:category-menu-archive --gone
+scroll-to id:category-row-qa-cal-hidden
+expect --ordered id:category-section-archived id:category-row-qa-cal-strength id:category-row-qa-cal-hidden
 shot 29_categories_archived
 tap id:category-menu-qa-cal-strength
 wait id:category-menu-archive
-expect "Show" --absent "Hide"
 tap id:category-menu-archive --settle 500
 wait id:category-menu-archive --gone
-tap id:category-menu-qa-cal-strength
-wait id:category-menu-archive
-expect "Hide" --absent "Show"
-key back
-wait id:category-menu-archive --gone
 scroll-to id:category-row-qa-cal-hidden
-expect --ordered id:category-row-qa-cal-strength id:category-row-qa-cal-hidden
-drag id:category-row-qa-cal-strength id:category-row-qa-cal-hidden --hold 900 --settle 500
-expect --ordered id:category-row-qa-cal-hidden id:category-row-qa-cal-strength
+expect --ordered id:category-row-qa-cal-strength id:category-section-archived id:category-row-qa-cal-hidden
+scroll-to id:category-row-qa-cal-strength
+expect --ordered id:category-row-other id:category-row-qa-cal-strength
+drag id:category-row-qa-cal-strength id:category-row-other --hold 900 --settle 500
+expect --ordered id:category-row-qa-cal-strength id:category-row-other
 shot 29_categories_reordered
-drag id:category-row-qa-cal-strength id:category-row-qa-cal-hidden --hold 900
-expect --ordered id:category-row-qa-cal-strength id:category-row-qa-cal-hidden
+drag id:category-row-qa-cal-strength id:category-row-other --hold 900 --settle 500
+expect --ordered id:category-row-other id:category-row-qa-cal-strength
 tap id:category-menu-qa-cal-strength
 wait id:category-menu-delete
 tap id:category-menu-delete
@@ -63,14 +58,13 @@ expect 'Move 1 event to Other and delete "Strength"?'
 shot 29_categories_delete_confirm
 tap id:sheet-confirm
 wait "Category deleted"
-expect id:category-row-qa-cal-hidden --absent id:category-row-qa-cal-strength
+expect id:category-row-other --absent id:category-row-qa-cal-strength
 tap id:category-add
 wait id:category-editor-name
 type "QA flow category"
 tap id:category-editor-save
 wait id:category-editor-save --gone
-scroll-to "QA flow category"
-expect "QA flow category"
+wait "QA flow category"
 shot 29_categories_created
 key back
 wait id:calendar-categories-open

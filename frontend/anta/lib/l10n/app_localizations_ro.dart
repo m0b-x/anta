@@ -645,9 +645,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get allEventsDeleted => 'Toate evenimentele au fost șterse';
 
   @override
-  String get eventType => 'Tip';
-
-  @override
   String get recurrence => 'Repetare';
 
   @override
@@ -5677,7 +5674,45 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get categoryHasAlerts => 'Are alerte';
+  String get categorySectionInUse => 'În uz';
+
+  @override
+  String get categorySectionArchived => 'Arhivate';
+
+  @override
+  String get categoryRowArchived => 'Arhivată';
+
+  @override
+  String get categoryCaptionBuiltIn => 'Integrată';
+
+  @override
+  String get categoryCaptionAlertsOn => 'Alerte active';
+
+  @override
+  String get categoryActions => 'Opțiunile categoriei';
+
+  @override
+  String categoryReorderLabel(String name) {
+    return 'Reordonează $name';
+  }
+
+  @override
+  String get categoryMoveUp => 'Mută în sus';
+
+  @override
+  String get categoryMoveDown => 'Mută în jos';
+
+  @override
+  String get categoryReorderLockedHint => 'Golește căutarea pentru a reordona';
+
+  @override
+  String get categoryArchive => 'Arhivează';
+
+  @override
+  String get categoryRestore => 'Restaurează';
+
+  @override
+  String get categoryDeleteEllipsis => 'Șterge…';
 
   @override
   String eventAlertCountdown(String kind, String duration) {

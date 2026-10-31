@@ -1198,12 +1198,6 @@ abstract class AppLocalizations {
   /// **'All events deleted'**
   String get allEventsDeleted;
 
-  /// Section label in the calendar event editor for selecting the category
-  ///
-  /// In en, this message translates to:
-  /// **'Type'**
-  String get eventType;
-
   /// Section label in the calendar event editor for the recurrence rule
   ///
   /// In en, this message translates to:
@@ -9448,11 +9442,83 @@ abstract class AppLocalizations {
   /// **'Timed events: {when}'**
   String categoryAlertTimedCaption(String when);
 
-  /// Tooltip of the bell on a categories page row whose category carries an enabled alert
+  /// Section header on the categories page above the categories that are not archived
   ///
   /// In en, this message translates to:
-  /// **'Has alerts'**
-  String get categoryHasAlerts;
+  /// **'In use'**
+  String get categorySectionInUse;
+
+  /// Section header on the categories page above the archived categories (plural where the language inflects)
+  ///
+  /// In en, this message translates to:
+  /// **'Archived'**
+  String get categorySectionArchived;
+
+  /// The state a screen reader hears on one archived category's row (singular, agreeing with 'category' where the language inflects)
+  ///
+  /// In en, this message translates to:
+  /// **'Archived'**
+  String get categoryRowArchived;
+
+  /// Caption segment on a categories page row marking a built-in category. Keep the no-break space between two words so the segment never splits across lines
+  ///
+  /// In en, this message translates to:
+  /// **'Built in'**
+  String get categoryCaptionBuiltIn;
+
+  /// Caption segment on a categories page row whose category carries an enabled alert. Keep the no-break space between two words so the segment never splits across lines
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts on'**
+  String get categoryCaptionAlertsOn;
+
+  /// Tooltip of the ⋮ button on a categories page row that opens the row's menu
+  ///
+  /// In en, this message translates to:
+  /// **'Category options'**
+  String get categoryActions;
+
+  /// Accessible name of a category row's drag handle
+  ///
+  /// In en, this message translates to:
+  /// **'Reorder {name}'**
+  String categoryReorderLabel(String name);
+
+  /// Screen-reader action on a categories page row that moves the category one place up within its section
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get categoryMoveUp;
+
+  /// Screen-reader action on a categories page row that moves the category one place down within its section
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get categoryMoveDown;
+
+  /// Line under the categories page's search field while a query is live, saying why the drag handles are off
+  ///
+  /// In en, this message translates to:
+  /// **'Clear the search to reorder'**
+  String get categoryReorderLockedHint;
+
+  /// Row menu item on the categories page that archives a category (hides it from pickers, keeps its events)
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get categoryArchive;
+
+  /// Row menu item on the categories page that brings an archived category back into use
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get categoryRestore;
+
+  /// Row menu item on the categories page that opens the delete confirmation; the ellipsis says a question follows
+  ///
+  /// In en, this message translates to:
+  /// **'Delete…'**
+  String get categoryDeleteEllipsis;
 
   /// Snackbar after saving an event whose alerts changed: how long until the next one, under a day away
   ///
