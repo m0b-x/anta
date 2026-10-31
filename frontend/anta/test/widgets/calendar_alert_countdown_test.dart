@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'package:anta/widgets/overlay_snackbar.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -200,6 +201,38 @@ void main() {
     return tester.element(find.byType(EventEditorSheet));
   }
 
+  /// Runs [body] under real time, then settles what the fake clock will meet
+  /// afterwards.
+  ///
+  /// Real time is when the bloc's answers land: it was built in `setUp`, a
+  /// real zone, so its event pipeline runs on real microtasks the fake clock
+  /// never flushes. When an answer moves the focused month — `legDay` is
+  /// tomorrow, so on a month's last day the page's initial target and a save
+  /// on it do — the page queues its month prewarm as idle tasks and arms the
+  /// scheduler's zero-timer. Flutter 3.44's `handleEventLoopCallback` reports
+  /// true when it refuses a task for its priority and `_runTasks` then
+  /// re-arms the timer, so while an animation is pending a timed pump's
+  /// elapse spins on that chain for ever (no frame runs inside an elapse to
+  /// end the animation), and a test that ends instead meets the armed timer
+  /// as pending. So after every real-time section the queued tasks are run
+  /// under a strategy that lets them, and one microsecond is elapsed to
+  /// consume the timer over the empty queue.
+  Future<T?> realTime<T>(WidgetTester tester, Future<T> Function() body) async {
+    final result = await tester.runAsync(body);
+    await tester.pump();
+    final binding = tester.binding;
+    final strategy = binding.schedulingStrategy;
+    binding.schedulingStrategy =
+        ({required int priority, required SchedulerBinding scheduler}) => true;
+    try {
+      while (binding.handleEventLoopCallback()) {}
+    } finally {
+      binding.schedulingStrategy = strategy;
+    }
+    await tester.pump(const Duration(microseconds: 1));
+    return result;
+  }
+
   /// Lets what follows a save run under real time — the alert settings are a
   /// database read — pumping each turn, for as long as [until] is false.
   Future<void> letTheSaveLand(
@@ -207,14 +240,13 @@ void main() {
     required bool Function() until,
     required Duration within,
   }) async {
-    await tester.runAsync(() async {
+    await realTime(tester, () async {
       final deadline = DateTime.now().add(within);
       while (!until() && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
         await tester.pump();
       }
     });
-    await tester.pump();
   }
 
   testWidgets('a new event saved with an alert says when it is next due, in '
@@ -314,7 +346,8 @@ void main() {
       WidgetTester tester,
       List<CategoryAlert> alerts,
     ) async {
-      await tester.runAsync(
+      await realTime(
+        tester,
         () async => (await EventAlertService.getInstance()).replaceForCategory(
           'other',
           alerts,
@@ -386,7 +419,7 @@ void main() {
       expect(blocked, findsOneWidget);
       expect(countdown, findsNothing);
       await GetIt.I.unregister<PermissionService>();
-      await tester.runAsync(permissions.dispose);
+      await realTime(tester, permissions.dispose);
       await setCategoryAlerts(tester, const []);
     });
   });

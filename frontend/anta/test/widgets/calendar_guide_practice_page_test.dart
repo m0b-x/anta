@@ -1512,7 +1512,13 @@ void main() {
       await robot.add();
       await robot.typeTitle('Swim');
       await robot.saveEditor();
-      expect(robot.barLabels, isNot(seeded));
+      // The bars are no signal that anything changed: the new event takes the
+      // default category, which this filter has just hidden, so it draws no
+      // bar; and whether the hidden category's seeded event is on the shown
+      // page at all depends on the date (on 2026-10-31 it was not, and the
+      // bars read the same as the seed). What always changes is the filter
+      // badge and the reset becoming available.
+      expect(robot.filterBadge, 1);
       expect(robot.canReset, isTrue);
 
       await robot.reset();

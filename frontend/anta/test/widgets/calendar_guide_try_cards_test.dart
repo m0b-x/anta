@@ -76,6 +76,7 @@ import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/calendar_appearance_preview.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
+import 'package:anta/widgets/calendar_guide_demo_panel.dart';
 import 'package:anta/widgets/calendar_guide_stage_slot.dart';
 import 'package:anta/widgets/calendar_guide_try_card.dart';
 import 'package:anta/widgets/calendar_guide_try_screen.dart';
@@ -3606,10 +3607,32 @@ void main() {
                         }.contains(paragraph.text.toPlainText()))
                           paragraph,
                 };
+                // The Upcoming body's rows are the overview's row builder on
+                // `FormPickerRow`, whose caption is capped (two lines by the
+                // row's default) and ellipsised past the cap by design, as on
+                // the real Upcoming panel; a row's height never follows its
+                // text. At ro 2.0 on 360 the weekly schedule caption needs a
+                // third line on the days whose abbreviation is widest
+                // ("Săptămânal · sâm. · 18:00 – 19:00" on a Saturday), so the
+                // exceed there reports the cap, not a clipped label.
+                final rowCaptions = <RenderParagraph>{
+                  for (final paragraph
+                      in tester.renderObjectList<RenderParagraph>(
+                        find.descendant(
+                          of: find.descendant(
+                            of: find.byType(GuideDemoPanel),
+                            matching: find.byType(FormPickerRow),
+                          ),
+                          matching: find.byType(RichText),
+                        ),
+                      ))
+                    if (paragraph.maxLines != null) paragraph,
+                };
                 for (final paragraph in paragraphs) {
                   if (unseen(paragraph) ||
                       tileLabels.contains(paragraph) ||
-                      panelLabels.contains(paragraph)) {
+                      panelLabels.contains(paragraph) ||
+                      rowCaptions.contains(paragraph)) {
                     continue;
                   }
                   expect(
