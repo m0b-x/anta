@@ -1501,6 +1501,34 @@ class AppLocalizationsRo extends AppLocalizations {
   String get backupContains => 'Acest backup conține:';
 
   @override
+  String onboardingBackupFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de foldere',
+      few: '$count foldere',
+      one: '1 folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String onboardingBackupNotes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de notițe',
+      few: '$count notițe',
+      one: '1 notiță',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get onboardingHowToHint =>
+      'Poți deschide „Cum folosești ANTA” oricând din meniu';
+
+  @override
   String exportedOn(String date) {
     return 'Exportat la: $date';
   }
@@ -2581,6 +2609,32 @@ class AppLocalizationsRo extends AppLocalizations {
   String get switchTo => 'Comută la această bază de date';
 
   @override
+  String databaseSwitchConfirm(String name) {
+    return 'Treci la $name? ANTA repornește pe ea.';
+  }
+
+  @override
+  String databaseSizeBytes(String size) {
+    return '$size B';
+  }
+
+  @override
+  String databaseSizeKilobytes(String size) {
+    return '$size KB';
+  }
+
+  @override
+  String databaseSizeMegabytes(String size) {
+    return '$size MB';
+  }
+
+  @override
+  String get unknownValue => 'Necunoscut';
+
+  @override
+  String get databasePathError => 'Calea de stocare nu a putut fi citită';
+
+  @override
   String deleteDatabaseConfirm(String name) {
     return 'Ești sigur că vrei să ștergi baza de date \"$name\"? Această acțiune nu poate fi anulată.';
   }
@@ -3387,6 +3441,10 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get developerOptionsReset =>
       'Opțiunile de dezvoltator au fost resetate la valorile implicite';
+
+  @override
+  String get developerOptionsResetConfirm =>
+      'Resetezi toate opțiunile pentru dezvoltatori? Asta blochează și modul dezvoltator.';
 
   @override
   String get developerModeUnlocked => 'Mod dezvoltator deblocat!';
@@ -4658,6 +4716,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String pairingSignOutConfirm(String name) {
     return 'Te deconectezi? Partajarea cu $name se oprește până te conectezi din nou.';
   }
+
+  @override
+  String get signOutConfirm => 'Te deconectezi de la acest cont?';
 
   @override
   String get pairingErrorOffline =>

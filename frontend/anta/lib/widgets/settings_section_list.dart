@@ -632,7 +632,10 @@ class HighlightedText extends StatelessWidget {
 /// it was. A raw `trailing:` wider than a third of the row is the defect this
 /// row exists to replace.
 class SettingsYieldingTile extends StatelessWidget {
-  final Widget leading;
+  /// Null on a page still off the kit whose rows carry no glyph (Markdown
+  /// settings): the title then starts at [contentPadding] and the text
+  /// column is measured without a leading slot.
+  final Widget? leading;
   final Widget title;
   final Widget? subtitle;
 
@@ -648,23 +651,31 @@ class SettingsYieldingTile extends StatelessWidget {
   final Widget Function(double maxWidth) trailing;
   final VoidCallback? onTap;
 
+  /// False greys the row in place and announces it disabled — a row whose
+  /// tap is its action (Sharing's Unpair while a request runs) stays where
+  /// it is rather than vanishing under the finger. [trailing] keeps its own
+  /// colour, so a value drawn in one passes the disabled one itself.
+  final bool enabled;
+
   /// `ListTile`'s own geometry, passed to it explicitly so the arithmetic
   /// below reads off the numbers the tile lays out with — the kit's row
   /// padding and its tile theme's leading slot, so this row's edges and
-  /// title line up with its neighbours'.
-  static const EdgeInsetsDirectional _contentPadding =
-      FormMetrics.settingsRowPadding;
+  /// title line up with its neighbours'. A page off the kit passes the
+  /// padding its own rows have.
+  final EdgeInsetsDirectional contentPadding;
   static const double _minLeadingWidth = FormMetrics.settingsLeadingWidth;
   static const double _titleGap = FormMetrics.settingsTitleGap;
 
   const SettingsYieldingTile({
     super.key,
-    required this.leading,
+    this.leading,
     required this.title,
     this.subtitle,
     this.value,
     required this.trailing,
     this.onTap,
+    this.enabled = true,
+    this.contentPadding = FormMetrics.settingsRowPadding,
   });
 
   /// [text] as the tile lays it out in [style]: the bold-text setting, the
@@ -792,9 +803,8 @@ class SettingsYieldingTile extends StatelessWidget {
             KeyedSubtree(key: valueKey, child: trailing(maxWidth));
         final column =
             constraints.maxWidth -
-            _contentPadding.horizontal -
-            _minLeadingWidth -
-            _titleGap;
+            contentPadding.horizontal -
+            (leading == null ? 0 : _minLeadingWidth + _titleGap);
         final beside = column - _columnWordWidth(context) - _titleGap;
         // Beside the title only while the value fits the height the tile
         // gives a trailing: a taller one is cut there, and a line's
@@ -817,7 +827,7 @@ class SettingsYieldingTile extends StatelessWidget {
                         column * RowMetrics.settingsValueMinTextShare &&
                     _titleLineWidth(context) <= textColumn))) {
           return ListTile(
-            contentPadding: _contentPadding,
+            contentPadding: contentPadding,
             minLeadingWidth: _minLeadingWidth,
             horizontalTitleGap: _titleGap,
             leading: leading,
@@ -825,13 +835,14 @@ class SettingsYieldingTile extends StatelessWidget {
             subtitle: subtitle,
             trailing: valueSlot(beside),
             onTap: onTap,
+            enabled: enabled,
           );
         }
         // The style the tile gives a trailing, so the value reads the same
         // under the description as it does beside the title.
         final trailingStyle = _trailingStyle(context);
         return ListTile(
-          contentPadding: _contentPadding,
+          contentPadding: contentPadding,
           minLeadingWidth: _minLeadingWidth,
           horizontalTitleGap: _titleGap,
           leading: leading,
@@ -855,6 +866,7 @@ class SettingsYieldingTile extends StatelessWidget {
             ],
           ),
           onTap: onTap,
+          enabled: enabled,
         );
       },
     );
@@ -909,16 +921,21 @@ const double _denseTileHeight = 48;
 /// announced disabled, where hiding the row would move everything under it
 /// and take it out of search; the caller dims the title and description
 /// through the entry's styles, as for a disabled slider row.
-Widget settingsChoiceRow<T extends Enum>({
+///
+/// [T] is any value with equality, not only an enum: Markdown settings'
+/// vocabulary trigger chooses among characters. [padding] is for a page
+/// still off the kit whose own section already insets its rows.
+Widget settingsChoiceRow<T extends Object>({
   required Widget title,
   required Widget? description,
   required T value,
   required Map<T, String> labels,
   required ValueChanged<T> onChanged,
   bool enabled = true,
+  EdgeInsetsGeometry padding = FormMetrics.settingsControlRowPadding,
 }) {
   return Padding(
-    padding: FormMetrics.settingsControlRowPadding,
+    padding: padding,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

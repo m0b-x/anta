@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/vocabulary.dart';
 import '../services/app_navigator.dart';
 import '../services/vocabulary_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/unified_app_bars.dart';
 import 'vocabulary_editor_page.dart';
 
@@ -137,10 +139,13 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(title: l10n.vocabularies, showMenuButton: false),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add_rounded),
-        label: Text(l10n.createVocabulary),
+      floatingActionButton: AutomationId(
+        identifier: SemanticsIds.vocabulariesAdd,
+        child: FloatingActionButton.extended(
+          onPressed: _create,
+          icon: const Icon(Icons.add_rounded),
+          label: Text(l10n.createVocabulary),
+        ),
       ),
       body: SafeArea(
         top: false,
@@ -148,51 +153,68 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
             ? const Center(child: CircularProgressIndicator())
             : _vocabularies.isEmpty
             ? _EmptyState(message: l10n.vocabulariesEmpty)
-            : ReorderableListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-                itemCount: _vocabularies.length,
-                onReorderItem: _reorder,
-                itemBuilder: (context, index) {
-                  final vocabulary = _vocabularies[index];
-                  return Padding(
-                    key: ValueKey(vocabulary.id),
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Card(
-                      margin: EdgeInsets.zero,
-                      elevation: 0,
-                      color: theme.colorScheme.surfaceContainer,
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: theme.colorScheme.primaryContainer,
-                          foregroundColor: theme.colorScheme.onPrimaryContainer,
-                          child: const Icon(Icons.format_list_bulleted_rounded),
-                        ),
-                        title: Text(vocabulary.name),
-                        subtitle: Text(
-                          l10n.vocabularyTermCount(vocabulary.termCount),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Switch(
-                              value: vocabulary.isEnabled,
-                              onChanged: (value) => _toggle(vocabulary, value),
-                            ),
-                            IconButton(
-                              tooltip: l10n.deleteVocabulary,
-                              icon: Icon(
-                                Icons.delete_outline_rounded,
-                                color: theme.colorScheme.error,
+            : Semantics(
+                identifier: SemanticsIds.vocabulariesList,
+                child: ReorderableListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+                  itemCount: _vocabularies.length,
+                  onReorderItem: _reorder,
+                  itemBuilder: (context, index) {
+                    final vocabulary = _vocabularies[index];
+                    return Padding(
+                      key: ValueKey(vocabulary.id),
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Semantics(
+                        container: true,
+                        identifier: SemanticsIds.vocabularyRow(vocabulary.id),
+                        child: Card(
+                          margin: EdgeInsets.zero,
+                          elevation: 0,
+                          color: theme.colorScheme.surfaceContainer,
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor:
+                                  theme.colorScheme.primaryContainer,
+                              foregroundColor:
+                                  theme.colorScheme.onPrimaryContainer,
+                              child: const Icon(
+                                Icons.format_list_bulleted_rounded,
                               ),
-                              onPressed: () => _delete(vocabulary),
                             ),
-                          ],
+                            title: Text(vocabulary.name),
+                            subtitle: Text(
+                              l10n.vocabularyTermCount(vocabulary.termCount),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AutomationId(
+                                  identifier: SemanticsIds.vocabularyEnabled(
+                                    vocabulary.id,
+                                  ),
+                                  child: Switch(
+                                    value: vocabulary.isEnabled,
+                                    onChanged: (value) =>
+                                        _toggle(vocabulary, value),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: l10n.deleteVocabulary,
+                                  icon: Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                  onPressed: () => _delete(vocabulary),
+                                ),
+                              ],
+                            ),
+                            onTap: () => _edit(vocabulary),
+                          ),
                         ),
-                        onTap: () => _edit(vocabulary),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
       ),
     );

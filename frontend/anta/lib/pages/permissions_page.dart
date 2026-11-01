@@ -91,6 +91,7 @@ class _PermissionsViewState extends State<_PermissionsView> {
             return SettingsSectionList(
               query: SettingsQuery.empty,
               header: [_SummaryBanner(snapshot: state.snapshot)],
+              listIdentifier: SemanticsIds.permissionsList,
               sections: _buildSections(context, l10n, state),
             );
           },
@@ -136,6 +137,7 @@ class _PermissionsViewState extends State<_PermissionsView> {
           SettingsEntry(
             title: l10n.permissionsLaunchCheck,
             description: l10n.permissionsLaunchCheckDesc,
+            identifier: SemanticsIds.permissionsLaunchCheck,
             builder: (context, title, description) => SwitchListTile(
               title: title,
               subtitle: description,
@@ -149,6 +151,7 @@ class _PermissionsViewState extends State<_PermissionsView> {
             SettingsEntry(
               title: l10n.permissionsSystemSettings,
               description: l10n.permissionsSystemSettingsDesc,
+              identifier: SemanticsIds.permissionsSystemSettings,
               builder: (context, title, description) => ListTile(
                 title: title,
                 subtitle: description,
@@ -172,6 +175,7 @@ class _PermissionsViewState extends State<_PermissionsView> {
     return SettingsEntry(
       title: PermissionPresentation.titleOf(l10n, entry.permission),
       description: PermissionPresentation.descriptionOf(l10n, entry.permission),
+      identifier: SemanticsIds.permissionTile(entry.permission.name),
       builder: (context, title, description) => PermissionTile(
         entry: entry,
         title: title,

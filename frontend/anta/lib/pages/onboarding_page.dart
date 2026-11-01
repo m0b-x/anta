@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import '../constants/public_holidays.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../services/backup_service.dart';
 import '../services/database_manager.dart';
 import '../services/public_holiday_service.dart';
@@ -30,55 +32,94 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
+    const padding = EdgeInsets.all(24.0);
+
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Spacer(),
-              Icon(Icons.auto_stories, size: 80, color: colorScheme.primary),
-              const SizedBox(height: 24),
-              Text(
-                l10n.welcomeToApp,
-                style: textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                l10n.onboardingDescription,
-                style: textTheme.bodyLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const Spacer(),
-              if (_isImporting)
-                const CircularProgressIndicator()
-              else ...[
-                FilledButton.icon(
-                  onPressed: _startFresh,
-                  icon: const Icon(Icons.add),
-                  label: Text(l10n.startFresh),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 56),
+        // Centred while it fits; at German 200 % on a small phone the column
+        // is taller than the screen and Restore from backup sat below it
+        // (S3), so the page scrolls then. The minimum height keeps the
+        // spacers' centring, which a scroll view alone would collapse.
+        child: LayoutBuilder(
+          builder: (context, constraints) => Semantics(
+            identifier: SemanticsIds.onboardingList,
+            child: SingleChildScrollView(
+              padding: padding,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: (constraints.maxHeight - padding.vertical).clamp(
+                    0.0,
+                    double.infinity,
                   ),
                 ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: _importBackup,
-                  icon: const Icon(Icons.restore),
-                  label: Text(l10n.restoreFromBackup),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 56),
+                child: IntrinsicHeight(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Spacer(),
+                      Icon(
+                        Icons.auto_stories,
+                        size: 80,
+                        color: colorScheme.primary,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        l10n.welcomeToApp,
+                        style: textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        l10n.onboardingDescription,
+                        style: textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const Spacer(),
+                      if (_isImporting)
+                        const CircularProgressIndicator()
+                      else ...[
+                        AutomationId(
+                          identifier: SemanticsIds.onboardingStartFresh,
+                          child: FilledButton.icon(
+                            onPressed: _startFresh,
+                            icon: const Icon(Icons.add),
+                            label: Text(l10n.startFresh),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 56),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        AutomationId(
+                          identifier: SemanticsIds.onboardingRestore,
+                          child: OutlinedButton.icon(
+                            onPressed: _importBackup,
+                            icon: const Icon(Icons.restore),
+                            label: Text(l10n.restoreFromBackup),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 56),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      Text(
+                        l10n.onboardingHowToHint,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                   ),
                 ),
-              ],
-              const SizedBox(height: 48),
-            ],
+              ),
+            ),
           ),
         ),
       ),
@@ -227,8 +268,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
         children: [
           Text(l10n.backupContains),
           const SizedBox(height: 8),
-          Text('• ${validation.folderCount} ${l10n.folders}'),
-          Text('• ${validation.noteCount} ${l10n.notes}'),
+          Text('• ${l10n.onboardingBackupFolders(validation.folderCount)}'),
+          Text('• ${l10n.onboardingBackupNotes(validation.noteCount)}'),
           if (validation.exportedAt != null) ...[
             const SizedBox(height: 8),
             Text(

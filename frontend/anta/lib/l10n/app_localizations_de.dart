@@ -1484,6 +1484,32 @@ class AppLocalizationsDe extends AppLocalizations {
   String get backupContains => 'Dieses Backup enthält:';
 
   @override
+  String onboardingBackupFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ordner',
+      one: '1 Ordner',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String onboardingBackupNotes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Notizen',
+      one: '1 Notiz',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get onboardingHowToHint =>
+      '„So nutzt du ANTA“ findest du jederzeit im Menü';
+
+  @override
   String exportedOn(String date) {
     return 'Exportiert am: $date';
   }
@@ -2557,6 +2583,33 @@ class AppLocalizationsDe extends AppLocalizations {
   String get switchTo => 'Zu dieser Datenbank wechseln';
 
   @override
+  String databaseSwitchConfirm(String name) {
+    return 'Zu $name wechseln? ANTA startet damit neu.';
+  }
+
+  @override
+  String databaseSizeBytes(String size) {
+    return '$size B';
+  }
+
+  @override
+  String databaseSizeKilobytes(String size) {
+    return '$size KB';
+  }
+
+  @override
+  String databaseSizeMegabytes(String size) {
+    return '$size MB';
+  }
+
+  @override
+  String get unknownValue => 'Unbekannt';
+
+  @override
+  String get databasePathError =>
+      'Der Speicherpfad konnte nicht gelesen werden';
+
+  @override
   String deleteDatabaseConfirm(String name) {
     return 'Möchten Sie die Datenbank \"$name\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.';
   }
@@ -3354,6 +3407,10 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get developerOptionsReset =>
       'Entwickleroptionen auf Standard zurückgesetzt';
+
+  @override
+  String get developerOptionsResetConfirm =>
+      'Alle Entwickleroptionen zurücksetzen? Das sperrt auch den Entwicklermodus.';
 
   @override
   String get developerModeUnlocked => 'Entwicklermodus freigeschaltet!';
@@ -4614,6 +4671,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String pairingSignOutConfirm(String name) {
     return 'Abmelden? Das Teilen mit $name pausiert, bis du dich wieder anmeldest.';
   }
+
+  @override
+  String get signOutConfirm => 'Von diesem Konto abmelden?';
 
   @override
   String get pairingErrorOffline =>

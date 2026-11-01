@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -21,7 +22,7 @@ import 'support/layout_errors.dart';
 /// The developer options page's smoke suite (D14 of
 /// `docs/settings-rework-roadmap.md`), pinned before a slice of the settings
 /// rework relocates it: it opens, measures at de 2.0 on the small phone, and
-/// its one destructive control is pinned as it is today.
+/// its one destructive control asks before it acts (S6).
 ///
 /// The page reaches `DevOptionsService` through its singleton, which opens
 /// `AppDatabase.getInstance()`, so the suite runs over the file-backed
@@ -147,18 +148,33 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  // Today's state: the reset has no confirmation, so there is no dialog to
-  // cancel. It deletes the stored row, which also holds the unlock — the
-  // page stays open on an unlocked session, and the next launch starts
-  // locked.
-  testWidgets('Reset to defaults acts at once with no confirmation and '
-      'deletes the stored row, unlock included (known; S24, deferred to §9)', (
-    tester,
-  ) async {
+  // Pinned at S0 as acting at once. The reset still deletes the stored row,
+  // which also holds the unlock — the page stays open on an unlocked
+  // session and the next launch starts locked (moving the unlock out of the
+  // row is S24, §9) — but it asks first, and the question says so.
+  testWidgets('Reset to defaults asks first; cancel keeps the row; yes '
+      'deletes it, unlock included', (tester) async {
     await pumpPage(tester);
+    final before = await stored(tester);
+    final reset = find.bySemanticsIdentifier(
+      SemanticsIds.developerOptionsReset,
+    );
 
-    await scrollTo(tester, find.text(l10n.resetToDefaults));
-    await tester.tap(find.text(l10n.resetToDefaults));
+    await scrollTo(tester, reset);
+    await tester.tap(reset);
+    await settle(tester);
+    expect(find.text(l10n.developerOptionsResetConfirm), findsOneWidget);
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sheetCancel));
+    await settle(tester);
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text(l10n.developerOptionsReset), findsNothing);
+    expect(DevOptions.instance.showWhitespace, isTrue);
+    expect(await stored(tester), before);
+
+    await tester.tap(reset);
+    await settle(tester);
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sheetConfirm));
     await settle(tester);
 
     expect(find.byType(AlertDialog), findsNothing);
@@ -166,6 +182,41 @@ void main() {
     expect(DevOptions.instance.showWhitespace, isFalse);
     expect(DevOptions.instance.developerModeUnlocked, isTrue);
     expect(await stored(tester), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the list, every switch row and both footer buttons carry '
+      'their ids', (tester) async {
+    await pumpPage(tester);
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.developerOptionsList),
+      findsOneWidget,
+    );
+    for (final id in [
+      for (final key in const [
+        'colorMarkdownBlocks',
+        'showBlockBoundaries',
+        'showWhitespace',
+        'showAddButtonTrace',
+        'showRenderTime',
+        'showFpsCounter',
+        'showChunkIndicators',
+        'showRepaintRainbow',
+        'showCursorInfo',
+        'showSelectionDetails',
+        'logParserEvents',
+        'showNoteSize',
+        'showDatabaseStats',
+      ])
+        SemanticsIds.developerOption(key),
+      SemanticsIds.developerOptionsReset,
+      SemanticsIds.developerOptionsLock,
+    ]) {
+      await scrollTo(tester, find.bySemanticsIdentifier(id));
+      expect(find.bySemanticsIdentifier(id), findsOneWidget, reason: id);
+    }
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

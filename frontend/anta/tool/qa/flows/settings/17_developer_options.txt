@@ -15,8 +15,10 @@
 #   node and nothing opened; a 3 s pause or a native touch pressed it). So
 #   the row is reached through the hub's search instead: "Developer" leaves
 #   it alone at the top of the list, with no scroll at all.
-# - Locking is left to the widget suites: the page's Lock button carries no
-#   id.
+# - The page's Reset sits in the list's footer, below every switch: it is
+#   scrolled to inside the page's list and read, never tapped — a tap there
+#   is the bottom-edge case above (S6). Locking is left to the widget
+#   suites; the Lock button beside it carries developer-options-lock.
 tap id:nav-menu
 wait id:drawer-calendar
 tap id:drawer-header-icon
@@ -37,6 +39,9 @@ wait id:settings-hub-row-developerOptions
 expect --absent id:settings-hub-row-permissions
 tap id:settings-hub-row-developerOptions
 wait id:settings-bar-developer
+expect id:developer-options-list
+scroll-to id:developer-options-reset --in id:developer-options-list
+expect id:developer-options-reset
 key back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-developer

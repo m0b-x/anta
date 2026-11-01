@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../database/database.dart';
 import '../l10n/app_localizations.dart';
 import '../services/settings_service.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/app_loading_bar.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// Page that lets users assign (or clear) a specific money currency
@@ -112,7 +114,10 @@ class _NoteMoneyCurrencyPageState extends State<NoteMoneyCurrencyPage> {
 
     return LoadingScaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      appBar: SettingsAppBar(title: l10n.moneyPerNoteCurrency),
+      appBar: SettingsAppBar(
+        title: l10n.moneyPerNoteCurrency,
+        identifier: SemanticsIds.settingsBarNoteCurrencies,
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -155,122 +160,162 @@ class _NoteMoneyCurrencyPageState extends State<NoteMoneyCurrencyPage> {
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          itemCount: filtered.length,
-                          itemBuilder: (context, index) {
-                            final entry = filtered[index];
-                            // Find the real index in _entries for mutations.
-                            final realIndex = _entries.indexWhere(
-                              (e) => e.noteId == entry.noteId,
-                            );
-                            final hasOverride = entry.override != null;
+                      : Semantics(
+                          identifier: SemanticsIds.noteCurrenciesList,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final entry = filtered[index];
+                              // Find the real index in _entries for mutations.
+                              final realIndex = _entries.indexWhere(
+                                (e) => e.noteId == entry.noteId,
+                              );
+                              final hasOverride = entry.override != null;
 
-                            return Card(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              child: ListTile(
-                                leading: Icon(
-                                  hasOverride
-                                      ? Icons.payments
-                                      : Icons.payments_outlined,
-                                  color: hasOverride
-                                      ? theme.colorScheme.primary
-                                      : theme.colorScheme.onSurface.withValues(
-                                          alpha: 0.3,
-                                        ),
+                              return Semantics(
+                                container: true,
+                                identifier: SemanticsIds.noteCurrencyRow(
+                                  entry.noteId,
                                 ),
-                                title: Text(
-                                  entry.noteTitle.isNotEmpty
-                                      ? entry.noteTitle
-                                      : l10n.untitledNote,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  hasOverride
-                                      ? entry.override!.symbol
-                                      : l10n.useGlobalCurrency,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: hasOverride
-                                        ? theme.colorScheme.primary
-                                        : theme.colorScheme.onSurface
-                                              .withValues(alpha: 0.5),
+                                child: Card(
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  child: ListTile(
+                                    leading: Icon(
+                                      hasOverride
+                                          ? Icons.payments
+                                          : Icons.payments_outlined,
+                                      color: hasOverride
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurface
+                                                .withValues(alpha: 0.3),
+                                    ),
+                                    title: Text(
+                                      entry.noteTitle.isNotEmpty
+                                          ? entry.noteTitle
+                                          : l10n.untitledNote,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      hasOverride
+                                          ? entry.override!.symbol
+                                          : l10n.useGlobalCurrency,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: hasOverride
+                                                ? theme.colorScheme.primary
+                                                : theme.colorScheme.onSurface
+                                                      .withValues(alpha: 0.5),
+                                          ),
+                                    ),
+                                    trailing: AutomationId(
+                                      identifier: SemanticsIds.noteCurrencyMenu(
+                                        entry.noteId,
+                                      ),
+                                      child: PopupMenuButton<int>(
+                                        tooltip: MaterialLocalizations.of(
+                                          context,
+                                        ).showMenuTooltip,
+                                        onSelected: (value) {
+                                          if (value < 0) {
+                                            _setOverride(realIndex, null);
+                                          } else if (value < _presets.length) {
+                                            _setOverride(
+                                              realIndex,
+                                              _presets[value],
+                                            );
+                                          } else {
+                                            _editCustomSymbol(realIndex);
+                                          }
+                                        },
+                                        itemBuilder: (ctx) => [
+                                          // "Use Global Currency" option
+                                          PopupMenuItem<int>(
+                                            value: -1,
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.public,
+                                                  size: 18,
+                                                  color: entry.override == null
+                                                      ? theme
+                                                            .colorScheme
+                                                            .primary
+                                                      : null,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                // Flexible: "Globale Währung
+                                                // verwenden" at 2.0 is wider than
+                                                // the menu and wraps instead.
+                                                Flexible(
+                                                  child: Text(
+                                                    l10n.useGlobalCurrency,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuDivider(),
+                                          // Each preset currency
+                                          ...List.generate(_presets.length, (
+                                            i,
+                                          ) {
+                                            final preset = _presets[i];
+                                            final isSelected =
+                                                entry.override?.symbol ==
+                                                    preset.symbol &&
+                                                entry.override?.suffix ==
+                                                    preset.suffix;
+                                            return PopupMenuItem<int>(
+                                              value: i,
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    isSelected
+                                                        ? Icons.check_circle
+                                                        : Icons
+                                                              .payments_outlined,
+                                                    size: 18,
+                                                    color: isSelected
+                                                        ? theme
+                                                              .colorScheme
+                                                              .primary
+                                                        : null,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(preset.symbol),
+                                                ],
+                                              ),
+                                            );
+                                          }),
+                                          PopupMenuItem<int>(
+                                            value: _presets.length,
+                                            child: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.edit,
+                                                  size: 18,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Flexible(
+                                                  child: Text(
+                                                    l10n.moneyCustomSymbol,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                trailing: PopupMenuButton<int>(
-                                  tooltip: '',
-                                  onSelected: (value) {
-                                    if (value < 0) {
-                                      _setOverride(realIndex, null);
-                                    } else if (value < _presets.length) {
-                                      _setOverride(realIndex, _presets[value]);
-                                    } else {
-                                      _editCustomSymbol(realIndex);
-                                    }
-                                  },
-                                  itemBuilder: (ctx) => [
-                                    // "Use Global Currency" option
-                                    PopupMenuItem<int>(
-                                      value: -1,
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.public,
-                                            size: 18,
-                                            color: entry.override == null
-                                                ? theme.colorScheme.primary
-                                                : null,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(l10n.useGlobalCurrency),
-                                        ],
-                                      ),
-                                    ),
-                                    const PopupMenuDivider(),
-                                    // Each preset currency
-                                    ...List.generate(_presets.length, (i) {
-                                      final preset = _presets[i];
-                                      final isSelected =
-                                          entry.override?.symbol ==
-                                              preset.symbol &&
-                                          entry.override?.suffix ==
-                                              preset.suffix;
-                                      return PopupMenuItem<int>(
-                                        value: i,
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              isSelected
-                                                  ? Icons.check_circle
-                                                  : Icons.payments_outlined,
-                                              size: 18,
-                                              color: isSelected
-                                                  ? theme.colorScheme.primary
-                                                  : null,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(preset.symbol),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                    PopupMenuItem<int>(
-                                      value: _presets.length,
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.edit, size: 18),
-                                          const SizedBox(width: 8),
-                                          Text(l10n.moneyCustomSymbol),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                 ),
               ],

@@ -2,15 +2,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
-import 'package:share_plus/share_plus.dart';
 import '../constants/app_colors.dart';
 import '../constants/semantics_ids.dart';
+import '../core/di/injection.dart';
 import '../database/database.dart';
 import '../services/database_manager.dart';
+import '../services/import_export_service.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
 
@@ -59,6 +62,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         final walBytes = await walFile.exists()
             ? (await walFile.stat()).size
             : 0;
+        if (!mounted) return;
         setState(() {
           _databasePath = dbPath;
           _databaseSizeBytes = stats.size + walBytes;
@@ -66,6 +70,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
           _isLoading = false;
         });
       } else {
+        if (!mounted) return;
         setState(() {
           _databasePath = dbPath;
           _databaseSizeBytes = null;
@@ -74,25 +79,33 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _databasePath = 'Error loading path';
+        _databasePath = AppLocalizations.of(context)!.databasePathError;
         _isLoading = false;
       });
     }
   }
 
   String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+    final l10n = AppLocalizations.of(context)!;
+    final locale = l10n.localeName;
+    if (bytes < 1024) {
+      return l10n.databaseSizeBytes(NumberFormat('0', locale).format(bytes));
+    }
+    if (bytes < 1024 * 1024) {
+      return l10n.databaseSizeKilobytes(
+        NumberFormat('0.0', locale).format(bytes / 1024),
+      );
+    }
+    return l10n.databaseSizeMegabytes(
+      NumberFormat('0.00', locale).format(bytes / (1024 * 1024)),
+    );
   }
 
   String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')}/'
-        '${date.month.toString().padLeft(2, '0')}/'
-        '${date.year} '
-        '${date.hour.toString().padLeft(2, '0')}:'
-        '${date.minute.toString().padLeft(2, '0')}';
+    final locale = AppLocalizations.of(context)!.localeName;
+    return DateFormat.yMd(locale).add_Hm().format(date);
   }
 
   @override
@@ -112,27 +125,30 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
                 onRefresh: _loadDatabaseInfo,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    // Database Selection (combines active + available)
-                    _buildDatabaseSelectionCard(context, colorScheme),
+                child: Semantics(
+                  identifier: SemanticsIds.databasesPage,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      // Database Selection (combines active + available)
+                      _buildDatabaseSelectionCard(context, colorScheme),
 
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
-                    // Database Details (location + stats combined)
-                    _buildDatabaseDetailsCard(context, colorScheme),
+                      // Database Details (location + stats combined)
+                      _buildDatabaseDetailsCard(context, colorScheme),
 
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
-                    // Actions section (Maintenance + Share)
-                    _buildActionsCard(context, colorScheme),
+                      // Actions section (Maintenance + Share)
+                      _buildActionsCard(context, colorScheme),
 
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
-                    // Danger zone card
-                    _buildDangerCard(context, colorScheme),
-                  ],
+                      // Danger zone card
+                      _buildDangerCard(context, colorScheme),
+                    ],
+                  ),
                 ),
               ),
       ),
@@ -212,13 +228,16 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
                 constraints: const BoxConstraints(
                   maxHeight: 240, // ~3 items (80px each with margin)
                 ),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: _availableDatabases.length,
-                  itemBuilder: (context, index) => _buildDatabaseItem(
-                    context,
-                    colorScheme,
-                    _availableDatabases[index],
+                child: Semantics(
+                  identifier: SemanticsIds.databasesList,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _availableDatabases.length,
+                    itemBuilder: (context, index) => _buildDatabaseItem(
+                      context,
+                      colorScheme,
+                      _availableDatabases[index],
+                    ),
                   ),
                 ),
               ),
@@ -228,10 +247,13 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             // Create new database button
             SizedBox(
               width: double.infinity,
-              child: FilledButton.tonalIcon(
-                onPressed: () => _showCreateDatabaseDialog(context),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: Text(AppLocalizations.of(context)!.createNewDatabase),
+              child: AutomationId(
+                identifier: SemanticsIds.databaseCreate,
+                child: FilledButton.tonalIcon(
+                  onPressed: () => _showCreateDatabaseDialog(context),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(AppLocalizations.of(context)!.createNewDatabase),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -239,10 +261,13 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             // Import database file button
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _importDatabase(context),
-                icon: const Icon(Icons.file_download_rounded, size: 18),
-                label: Text(AppLocalizations.of(context)!.importDatabase),
+              child: AutomationId(
+                identifier: SemanticsIds.databaseImport,
+                child: OutlinedButton.icon(
+                  onPressed: () => _importDatabase(context),
+                  icon: const Icon(Icons.file_download_rounded, size: 18),
+                  label: Text(AppLocalizations.of(context)!.importDatabase),
+                ),
               ),
             ),
           ],
@@ -300,7 +325,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
               label: AppLocalizations.of(context)!.size,
               value: _databaseSizeBytes != null
                   ? _formatFileSize(_databaseSizeBytes!)
-                  : 'N/A',
+                  : AppLocalizations.of(context)!.unknownValue,
             ),
             const Divider(height: 24),
             _buildStatRow(
@@ -310,7 +335,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
               label: AppLocalizations.of(context)!.lastModified,
               value: _lastModified != null
                   ? _formatDate(_lastModified!)
-                  : 'N/A',
+                  : AppLocalizations.of(context)!.unknownValue,
             ),
             const Divider(height: 24),
 
@@ -331,12 +356,15 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
                 color: colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: SelectableText(
-                _databasePath ?? 'Unknown',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  color: colorScheme.onSurfaceVariant,
+              child: Semantics(
+                identifier: SemanticsIds.databasePath,
+                child: SelectableText(
+                  _databasePath ?? AppLocalizations.of(context)!.unknownValue,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ),
@@ -417,10 +445,13 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             // Optimize button
             SizedBox(
               width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _optimizeDatabase(context),
-                icon: const Icon(Icons.speed_rounded, size: 18),
-                label: Text(AppLocalizations.of(context)!.optimizeDatabase),
+              child: AutomationId(
+                identifier: SemanticsIds.databaseOptimize,
+                child: FilledButton.icon(
+                  onPressed: () => _optimizeDatabase(context),
+                  icon: const Icon(Icons.speed_rounded, size: 18),
+                  label: Text(AppLocalizations.of(context)!.optimizeDatabase),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -428,10 +459,13 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             // Share button
             SizedBox(
               width: double.infinity,
-              child: FilledButton.tonalIcon(
-                onPressed: () => _shareDatabase(context),
-                icon: const Icon(Icons.share_rounded, size: 18),
-                label: Text(AppLocalizations.of(context)!.shareDatabase),
+              child: AutomationId(
+                identifier: SemanticsIds.databaseShare,
+                child: FilledButton.tonalIcon(
+                  onPressed: () => _shareDatabase(context),
+                  icon: const Icon(Icons.share_rounded, size: 18),
+                  label: Text(AppLocalizations.of(context)!.shareDatabase),
+                ),
               ),
             ),
           ],
@@ -447,7 +481,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
   ) {
     final isActive = db.name == _activeDatabaseName;
 
-    return Container(
+    final item = Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: isActive
@@ -474,64 +508,81 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
           '${_formatFileSize(db.size)} • ${_formatDate(db.lastModified)}',
           style: TextStyle(fontSize: 12),
         ),
-        trailing: PopupMenuButton<String>(
-          icon: Icon(Icons.more_vert, size: 20),
-          onSelected: (value) {
-            switch (value) {
-              case 'switch':
-                if (!isActive) _switchDatabase(context, db.name);
-                break;
-              case 'rename':
-                _showRenameDatabaseDialog(context, db.name);
-                break;
-              case 'delete':
-                if (isActive) {
-                  CustomSnackbar.showError(
-                    context,
-                    AppLocalizations.of(context)!.cannotDeleteActive,
-                  );
-                } else {
-                  _showDeleteDatabaseDialog(context, db.name);
-                }
-                break;
-            }
-          },
-          itemBuilder: (context) => [
-            if (!isActive)
-              PopupMenuItem(
-                value: 'switch',
-                child: Row(
-                  children: [
-                    Icon(Icons.swap_horiz_rounded, size: 20),
-                    SizedBox(width: 12),
-                    Text(AppLocalizations.of(context)!.switchTo),
-                  ],
-                ),
-              ),
-            PopupMenuItem(
-              value: 'rename',
-              child: Row(
-                children: [
-                  Icon(Icons.edit_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text(AppLocalizations.of(context)!.rename),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'delete',
-              enabled: !isActive,
-              child: Row(
-                children: [
-                  Icon(Icons.delete_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text(AppLocalizations.of(context)!.delete),
-                ],
-              ),
-            ),
-          ],
+        trailing: AutomationId(
+          identifier: SemanticsIds.databaseMore(db.name),
+          child: _buildDatabaseMenu(context, db.name, isActive),
         ),
       ),
+    );
+    return Semantics(
+      container: true,
+      identifier: SemanticsIds.databaseRow(db.name),
+      child: item,
+    );
+  }
+
+  Widget _buildDatabaseMenu(BuildContext context, String name, bool isActive) {
+    // The label is Flexible so a long one ("Zu dieser Datenbank wechseln" at
+    // 2.0) wraps inside the popup's width instead of overflowing it.
+    Widget entry(String identifier, IconData icon, String label) => Semantics(
+      identifier: identifier,
+      child: Row(
+        children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 12),
+          Flexible(child: Text(label)),
+        ],
+      ),
+    );
+
+    final l10n = AppLocalizations.of(context)!;
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, size: 20),
+      onSelected: (value) {
+        switch (value) {
+          case 'switch':
+            if (!isActive) _confirmSwitchDatabase(context, name);
+            break;
+          case 'rename':
+            _showRenameDatabaseDialog(context, name);
+            break;
+          case 'delete':
+            if (isActive) {
+              CustomSnackbar.showError(context, l10n.cannotDeleteActive);
+            } else {
+              _showDeleteDatabaseDialog(context, name);
+            }
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        if (!isActive)
+          PopupMenuItem(
+            value: 'switch',
+            child: entry(
+              SemanticsIds.databaseMenuSwitch,
+              Icons.swap_horiz_rounded,
+              l10n.switchTo,
+            ),
+          ),
+        PopupMenuItem(
+          value: 'rename',
+          child: entry(
+            SemanticsIds.databaseMenuRename,
+            Icons.edit_rounded,
+            l10n.rename,
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          enabled: !isActive,
+          child: entry(
+            SemanticsIds.databaseMenuDelete,
+            Icons.delete_rounded,
+            l10n.delete,
+          ),
+        ),
+      ],
     );
   }
 
@@ -774,6 +825,22 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     }
   }
 
+  /// The switch writes the active name before the restart dialog, which has
+  /// no way back, so the question comes first.
+  Future<void> _confirmSwitchDatabase(BuildContext context, String name) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.switchTo,
+      content: l10n.databaseSwitchConfirm(name),
+      confirmText: l10n.switchTo,
+      icon: Icons.swap_horiz_rounded,
+    );
+    if (!confirmed) return;
+    if (!context.mounted) return;
+    await _switchDatabase(context, name);
+  }
+
   Future<void> _switchDatabase(
     BuildContext context,
     String databaseName,
@@ -888,14 +955,17 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: colorScheme.error,
-                  side: BorderSide(color: colorScheme.error),
+              child: AutomationId(
+                identifier: SemanticsIds.databaseDeleteAll,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colorScheme.error,
+                    side: BorderSide(color: colorScheme.error),
+                  ),
+                  onPressed: () => _showDeleteConfirmation(context),
+                  icon: const Icon(Icons.delete_forever_rounded, size: 18),
+                  label: Text(AppLocalizations.of(context)!.deleteAllData),
                 ),
-                onPressed: () => _showDeleteConfirmation(context),
-                icon: const Icon(Icons.delete_forever_rounded, size: 18),
-                label: Text(AppLocalizations.of(context)!.deleteAllData),
               ),
             ),
           ],
@@ -951,24 +1021,23 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       return;
     }
 
+    final dbManager = await DatabaseManager.getInstance();
     if (!mounted) return;
 
-    AppDialogs.showLoading(
-      this.context,
-      message: AppLocalizations.of(this.context)!.preparingShare,
-    );
-
     try {
-      final xFile = XFile(_databasePath!);
-
-      if (!mounted) return;
-      AppNavigator.pop(this.context);
-
-      await SharePlus.instance.share(ShareParams(files: [xFile]));
+      // The helper pops its own dialog exactly once, on success or failure;
+      // the page itself is never popped. The share runs after the spinner is
+      // gone, as it did before, so it never sits behind the share sheet.
+      await AppDialogs.runWithLoading<void>(
+        this.context,
+        message: AppLocalizations.of(this.context)!.preparingShare,
+        work: () => dbManager.checkpoint(_activeDatabaseName),
+      );
+      await getIt<ImportExportService>().shareExport(
+        ExportResult.file(_databasePath!),
+      );
     } catch (e) {
       if (!mounted) return;
-      AppNavigator.pop(this.context);
-
       CustomSnackbar.showError(
         this.context,
         '${AppLocalizations.of(this.context)!.shareError}: $e',
@@ -1060,7 +1129,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         content: AppLocalizations.of(context)!.restartRequiredAfterDeletion,
         actionText: AppLocalizations.of(context)!.exitApp,
         icon: Icons.check_circle_rounded,
-        iconColor: Colors.green,
+        iconColor: Theme.of(context).colorScheme.primary,
         onAction: () => SystemNavigator.pop(),
       );
     } catch (e) {

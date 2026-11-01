@@ -4,12 +4,19 @@ import 'package:get_it/get_it.dart';
 
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../database/database.dart';
 import '../l10n/app_localizations.dart';
 import '../models/markdown_bar_profile.dart';
 import '../services/markdown_bar_service.dart';
 import '../widgets/app_loading_bar.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/unified_app_bars.dart';
+
+/// The menu's "Use global bar" value. A popup menu reads a `null` result as
+/// a cancel and never calls `onSelected`, so clearing an override needs a
+/// value of its own; profile ids are UUIDs, never empty.
+const _useGlobalBar = '';
 
 /// Page that lets users assign (or clear) a specific markdown bar profile
 /// for individual notes.
@@ -105,7 +112,10 @@ class _NoteBarAssignmentPageState extends State<NoteBarAssignmentPage> {
 
     return LoadingScaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      appBar: SettingsAppBar(title: l10n.perNoteBarAssignment),
+      appBar: SettingsAppBar(
+        title: l10n.perNoteBarAssignment,
+        identifier: SemanticsIds.settingsBarNoteBars,
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -159,104 +169,141 @@ class _NoteBarAssignmentPageState extends State<NoteBarAssignmentPage> {
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          itemCount: filtered.length,
-                          itemBuilder: (context, index) {
-                            final entry = filtered[index];
-                            // Find the real index in _entries for mutations.
-                            final realIndex = _entries.indexWhere(
-                              (e) => e.noteId == entry.noteId,
-                            );
-                            final hasOverride = entry.assignedProfileId != null;
+                      : Semantics(
+                          identifier: SemanticsIds.noteBarsList,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final entry = filtered[index];
+                              // Find the real index in _entries for mutations.
+                              final realIndex = _entries.indexWhere(
+                                (e) => e.noteId == entry.noteId,
+                              );
+                              final hasOverride =
+                                  entry.assignedProfileId != null;
 
-                            return Card(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              child: ListTile(
-                                leading: Icon(
-                                  hasOverride ? Icons.link : Icons.link_off,
-                                  color: hasOverride
-                                      ? theme.colorScheme.primary
-                                      : theme.colorScheme.onSurface.withValues(
-                                          alpha: 0.3,
-                                        ),
+                              return Semantics(
+                                container: true,
+                                identifier: SemanticsIds.noteBarRow(
+                                  entry.noteId,
                                 ),
-                                title: Text(
-                                  entry.noteTitle,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  hasOverride
-                                      ? _profileName(entry.assignedProfileId)
-                                      : l10n.useGlobalBar,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: hasOverride
-                                        ? theme.colorScheme.primary
-                                        : theme.colorScheme.onSurface
-                                              .withValues(alpha: 0.5),
+                                child: Card(
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
                                   ),
-                                ),
-                                trailing: PopupMenuButton<String?>(
-                                  tooltip: '',
-                                  onSelected: (profileId) {
-                                    _assignProfile(realIndex, profileId);
-                                  },
-                                  itemBuilder: (ctx) => [
-                                    // "Use Global Bar" option
-                                    PopupMenuItem<String?>(
-                                      value: null,
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.public,
-                                            size: 18,
-                                            color:
-                                                entry.assignedProfileId == null
+                                  child: ListTile(
+                                    leading: Icon(
+                                      hasOverride ? Icons.link : Icons.link_off,
+                                      color: hasOverride
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurface
+                                                .withValues(alpha: 0.3),
+                                    ),
+                                    title: Text(
+                                      entry.noteTitle,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      hasOverride
+                                          ? _profileName(
+                                              entry.assignedProfileId,
+                                            )
+                                          : l10n.useGlobalBar,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: hasOverride
                                                 ? theme.colorScheme.primary
-                                                : null,
+                                                : theme.colorScheme.onSurface
+                                                      .withValues(alpha: 0.5),
                                           ),
-                                          const SizedBox(width: 8),
-                                          Text(l10n.useGlobalBar),
+                                    ),
+                                    trailing: AutomationId(
+                                      identifier: SemanticsIds.noteBarMenu(
+                                        entry.noteId,
+                                      ),
+                                      child: PopupMenuButton<String>(
+                                        tooltip: MaterialLocalizations.of(
+                                          context,
+                                        ).showMenuTooltip,
+                                        onSelected: (profileId) {
+                                          _assignProfile(
+                                            realIndex,
+                                            profileId == _useGlobalBar
+                                                ? null
+                                                : profileId,
+                                          );
+                                        },
+                                        itemBuilder: (ctx) => [
+                                          PopupMenuItem<String>(
+                                            value: _useGlobalBar,
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.public,
+                                                  size: 18,
+                                                  color:
+                                                      entry.assignedProfileId ==
+                                                          null
+                                                      ? theme
+                                                            .colorScheme
+                                                            .primary
+                                                      : null,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                // Flexible: "Globale Leiste
+                                                // verwenden" at 2.0 is wider than
+                                                // the menu and wraps instead.
+                                                Flexible(
+                                                  child: Text(
+                                                    l10n.useGlobalBar,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuDivider(),
+                                          // Each profile
+                                          ..._profiles.map((p) {
+                                            final isSelected =
+                                                p.id == entry.assignedProfileId;
+                                            return PopupMenuItem<String>(
+                                              value: p.id,
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    isSelected
+                                                        ? Icons.check_circle
+                                                        : Icons
+                                                              .dashboard_customize,
+                                                    size: 18,
+                                                    color: isSelected
+                                                        ? theme
+                                                              .colorScheme
+                                                              .primary
+                                                        : null,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      p.name,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }),
                                         ],
                                       ),
                                     ),
-                                    const PopupMenuDivider(),
-                                    // Each profile
-                                    ..._profiles.map((p) {
-                                      final isSelected =
-                                          p.id == entry.assignedProfileId;
-                                      return PopupMenuItem<String?>(
-                                        value: p.id,
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              isSelected
-                                                  ? Icons.check_circle
-                                                  : Icons.dashboard_customize,
-                                              size: 18,
-                                              color: isSelected
-                                                  ? theme.colorScheme.primary
-                                                  : null,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                p.name,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  ],
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                 ),
               ],

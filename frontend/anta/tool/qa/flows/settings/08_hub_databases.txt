@@ -1,5 +1,10 @@
 # Databases through the hub, left by the bar's arrow and then by system
 # back, each landing on the hub and then on the folder root (D2, D3).
+# On the first visit the first card is read: the database list with its
+# Create and Import buttons (S6). Share sits in the maintenance card below
+# the details card, off the first screen: the flow swipes the page's own
+# scroll (databases-page, never the database list inside it) down to it and
+# reads the maintenance and danger cards' buttons.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -7,6 +12,9 @@ tap id:drawer-settings
 wait id:settings-bar-hub
 tap id:settings-hub-row-databaseSettings
 wait id:settings-bar-databases
+expect id:databases-list id:database-create id:database-import
+scroll-to id:database-share --in id:databases-page
+expect id:database-share id:database-optimize id:database-delete-all
 tap id:nav-back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-databases

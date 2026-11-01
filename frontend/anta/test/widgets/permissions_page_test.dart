@@ -1,15 +1,28 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/app_permission.dart';
 import 'package:anta/pages/permissions_page.dart';
 import 'package:anta/services/permission_gateway.dart';
 import 'package:anta/services/permission_service.dart';
+import 'package:anta/widgets/permission_tile.dart';
 
+import '../goldens/support/golden_fonts.dart';
 import '../services/permission_support.dart';
+import 'support/layout_errors.dart';
 
 void main() {
+  final notificationsRow = SemanticsIds.permissionTile(
+    AppPermission.notifications.name,
+  );
+
   Future<void> pumpPage(WidgetTester tester, PermissionService service) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -56,14 +69,18 @@ void main() {
       expect(find.text('Alarms & reminders'), findsNothing);
       expect(find.text('On'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Turn on'));
+      await tester.tap(find.bySemanticsIdentifier(notificationsRow));
       await tester.pumpAndSettle();
 
       expect(gateway.prompts, [AppPermission.notifications]);
       expect(find.text('Essentials are allowed'), findsOneWidget);
       expect(find.text('On'), findsNWidgets(2));
 
-      await tester.tap(find.widgetWithText(TextButton, 'Open settings'));
+      await tester.tap(
+        find.bySemanticsIdentifier(
+          SemanticsIds.permissionTile(AppPermission.batteryOptimization.name),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(gateway.settingsOpens, [AppPermission.batteryOptimization]);
@@ -92,14 +109,19 @@ void main() {
                 PermissionPromptResult.blocked;
       await pumpPage(tester, permissionServiceOver(gateway));
 
-      await tester.tap(find.text('Turn on'));
+      await tester.tap(find.bySemanticsIdentifier(notificationsRow));
       await tester.pumpAndSettle();
 
       expect(gateway.settingsOpens, [AppPermission.notifications]);
       expect(find.text('Turn on'), findsNothing);
+      // Still the essential that blocks alarms: its step reads in the error
+      // colour, as its glyph does.
+      final colorScheme = Theme.of(
+        tester.element(find.text('Open settings')),
+      ).colorScheme;
       expect(
-        find.widgetWithText(FilledButton, 'Open settings'),
-        findsOneWidget,
+        tester.widget<Text>(find.text('Open settings')).style!.color,
+        colorScheme.error,
       );
     },
   );
@@ -172,9 +194,159 @@ void main() {
 
     await tester.ensureVisible(find.text('System settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('System settings'));
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.permissionsSystemSettings),
+    );
     await tester.pumpAndSettle();
 
     expect(gateway.appSettingsOpens, 1);
+  });
+
+  testWidgets('every row a flow reaches carries its id', (tester) async {
+    await pumpPage(
+      tester,
+      permissionServiceOver(FakePermissionGateway(statuses: allGranted)),
+    );
+
+    expect(find.bySemanticsIdentifier(SemanticsIds.permissionsList), findsOne);
+    for (final permission in allGranted.keys) {
+      await tester.scrollUntilVisible(
+        find.bySemanticsIdentifier(
+          SemanticsIds.permissionTile(permission.name),
+        ),
+        200,
+      );
+      expect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.permissionTile(permission.name),
+        ),
+        findsOneWidget,
+      );
+    }
+    for (final id in [
+      SemanticsIds.permissionsLaunchCheck,
+      SemanticsIds.permissionsSystemSettings,
+    ]) {
+      await tester.scrollUntilVisible(find.bySemanticsIdentifier(id), 200);
+      expect(find.bySemanticsIdentifier(id), findsOneWidget);
+    }
+  });
+
+  testWidgets('while a request runs the other actionable rows wait, disabled '
+      'in place; a granted row has no tap at all', (tester) async {
+    final gateway = FakePermissionGateway(
+      statuses: {
+        AppPermission.notifications: PermissionStatus.denied,
+        AppPermission.fullScreenIntent: PermissionStatus.granted,
+        AppPermission.batteryOptimization: PermissionStatus.denied,
+      },
+    )..promptGate = Completer<void>();
+    await pumpPage(tester, permissionServiceOver(gateway));
+
+    ListTile tileOf(AppPermission permission) => tester.widget<ListTile>(
+      find.descendant(
+        of: find.bySemanticsIdentifier(
+          SemanticsIds.permissionTile(permission.name),
+        ),
+        matching: find.byType(ListTile),
+      ),
+    );
+
+    expect(tileOf(AppPermission.fullScreenIntent).onTap, isNull);
+    expect(tileOf(AppPermission.fullScreenIntent).enabled, isTrue);
+    expect(tileOf(AppPermission.batteryOptimization).enabled, isTrue);
+
+    await tester.tap(find.bySemanticsIdentifier(notificationsRow));
+    await tester.pump();
+
+    expect(tileOf(AppPermission.batteryOptimization).enabled, isFalse);
+    expect(tileOf(AppPermission.notifications).enabled, isFalse);
+    expect(tileOf(AppPermission.fullScreenIntent).enabled, isTrue);
+
+    gateway.promptGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(tileOf(AppPermission.batteryOptimization).enabled, isTrue);
+  });
+
+  group('German at 2.0 on 360 × 780', () {
+    // Measured with Roboto: the test font's square glyphs are about twice as
+    // wide, and would report overflows no device shows.
+    setUpAll(loadGoldenFonts);
+
+    // Before S6 the tile's trailing button was laid out first and left the
+    // title no width — one letter a line, a row taller than the phone.
+    testWidgets('every permission denied, no title is squeezed by its value', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final errors = await layoutErrorsDuring(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('de'),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2.0)),
+              child: child!,
+            ),
+            home: PermissionsPage.forTesting(
+              service: permissionServiceOver(
+                FakePermissionGateway(
+                  statuses: {
+                    for (final permission in AppPermission.values)
+                      permission: PermissionStatus.denied,
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      });
+
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+      expect(tester.takeException(), isNull);
+      final de = lookupAppLocalizations(const Locale('de'));
+      for (final permission in AppPermission.values) {
+        final row = find.bySemanticsIdentifier(
+          SemanticsIds.permissionTile(permission.name),
+        );
+        await tester.scrollUntilVisible(row, 200);
+        final title = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: row,
+            matching: find.text(
+              PermissionPresentation.titleOf(de, permission),
+              findRichText: true,
+            ),
+          ),
+        );
+        // The title holds its longest word, or — "Benachrichtigungen" at 2.0
+        // is wider than the phone's whole text column — the whole column,
+        // the value moved under it rather than beside.
+        final column =
+            tester
+                .getSize(
+                  find.descendant(of: row, matching: find.byType(ListTile)),
+                )
+                .width -
+            FormMetrics.settingsRowPadding.horizontal -
+            FormMetrics.settingsLeadingWidth -
+            FormMetrics.settingsTitleGap;
+        expect(
+          title.size.width + 0.5,
+          greaterThanOrEqualTo(
+            math.min(title.getMinIntrinsicWidth(double.infinity), column),
+          ),
+          reason: '${permission.name} is squeezed by its value',
+        );
+        expect(tester.getSize(row).height, lessThan(780));
+      }
+    });
   });
 }

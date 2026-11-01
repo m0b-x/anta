@@ -11,6 +11,10 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
+import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/bloc/pairing/pairing_bloc.dart';
+import 'package:anta/bloc/sync/sync_bloc.dart';
+import 'package:anta/config/default_markdown_shortcuts.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/label_appearance.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -19,23 +23,33 @@ import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_permission.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/label_style.dart';
+import 'package:anta/models/pair_record.dart';
 import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
+import 'package:anta/pages/database_settings_page.dart';
 import 'package:anta/pages/fasting_settings_page.dart';
+import 'package:anta/pages/markdown_settings_page.dart';
+import 'package:anta/pages/note_bar_assignment_page.dart';
+import 'package:anta/pages/note_money_currency_page.dart';
 import 'package:anta/pages/permissions_page.dart';
 import 'package:anta/pages/settings_hub_page.dart';
 import 'package:anta/pages/settings_page.dart';
+import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/drawer_host_registry.dart';
 import 'package:anta/services/label_appearance_service.dart';
+import 'package:anta/services/markdown_bar_service.dart';
+import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/auth_error.dart';
 import 'package:anta/utils/settings_search.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/permission_tile.dart';
@@ -46,14 +60,17 @@ import 'package:anta/widgets/value_change_highlight.dart';
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
 import '../goldens/support/golden_matrix.dart';
+import '../services/pairing_support.dart';
 import '../services/permission_support.dart';
 
 /// The settings kit against Android's tap-target, labelled-tap and text
 /// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the
 /// pages that use the most of it — App settings, Calendar settings, Alert
-/// settings and Fasting settings — and on the settings hub every page is
-/// opened from, at 1.0 in light English and at 2.0 in dark German on the
-/// small phone, with Roboto loaded so text is measured as a phone draws it.
+/// settings and Fasting settings — on the settings hub every page is opened
+/// from, on Sharing's action rows, and on the Databases page, Markdown
+/// settings and its two per-note pages, still off the kit, at 1.0 in light
+/// English and at 2.0 in dark German on the small phone, with Roboto loaded
+/// so text is measured as a phone draws it.
 /// The search field's own contract — 48 dp, growing with the text, a
 /// labelled clear button with an id — is pinned beside it.
 void main() {
@@ -137,8 +154,53 @@ void main() {
   /// finger could hit, so the first screen alone judged nothing below it, and
   /// a node cut by one edge in whole-viewport steps would be cut by the other
   /// at the next.
-  Future<void> meetsAll(WidgetTester tester) async {
-    final list = find
+  ///
+  /// [list] is the page's own scroll on a page off the kit (Databases).
+  ///
+  /// [offenders] are the nodes a page off the kit fails today on what §9 of
+  /// the record will restyle, not on what its slice touched: each is left out
+  /// of its own guideline only, so every other node is still judged, and is
+  /// pinned failing somewhere in the walk, so the slice that fixes one sees
+  /// that one pin flip.
+  Future<void> meetsAll(
+    WidgetTester tester, {
+    Finder? list,
+    List<_Offender> offenders = const [],
+  }) async {
+    // With [only], the guideline judges that offender's nodes and no other.
+    AccessibilityGuideline guideline(_Guideline which, {_Offender? only}) {
+      final named = only != null
+          ? [only]
+          : [
+              for (final offender in offenders)
+                if (offender.guideline == which) offender,
+            ];
+      final areas = [
+        for (final offender in named)
+          for (final element in offender.finder.evaluate()) ?_box(element),
+      ];
+      final texts = {
+        for (final offender in named)
+          for (final element in offender.finder.evaluate())
+            if (element.widget case Text(:final data?)) data,
+      };
+      final ratio = tester.view.devicePixelRatio;
+      bool skip(bool isNamed) => only == null ? isNamed : !isNamed;
+      bool skipNode(SemanticsNode node) =>
+          skip(_within(areas, _logicalRect(node, ratio)));
+      return switch (which) {
+        _Guideline.tapTargets => _KitTapTargetGuideline.of(tester, skipNode),
+        _Guideline.labels => _KitLabelGuideline(skipNode),
+        _Guideline.contrast => _KitContrastGuideline(
+          (data) => skip(
+            texts.contains(data.label.isEmpty ? data.value : data.label),
+          ),
+        ),
+      };
+    }
+
+    final seenFailing = <_Offender>{};
+    list ??= find
         .descendant(
           of: find.byType(SettingsSectionList),
           matching: find.byType(Scrollable),
@@ -149,21 +211,17 @@ void main() {
       final at =
           'at ${position.pixels.round()} of '
           '${position.maxScrollExtent.round()}';
-      await expectLater(
-        tester,
-        meetsGuideline(_KitTapTargetGuideline.of(tester)),
-        reason: at,
-      );
-      await expectLater(
-        tester,
-        meetsGuideline(labeledTapTargetGuideline),
-        reason: at,
-      );
-      await expectLater(
-        tester,
-        meetsGuideline(textContrastGuideline),
-        reason: at,
-      );
+      for (final which in _Guideline.values) {
+        await expectLater(tester, meetsGuideline(guideline(which)), reason: at);
+      }
+      for (final offender in offenders) {
+        if (seenFailing.contains(offender)) continue;
+        final evaluation = await guideline(
+          offender.guideline,
+          only: offender,
+        ).evaluate(tester);
+        if (!evaluation.passed) seenFailing.add(offender);
+      }
       if (position.pixels >= position.maxScrollExtent) break;
       position.jumpTo(
         math.min(
@@ -173,6 +231,55 @@ void main() {
       );
       await tester.pump();
     }
+    for (final offender in offenders) {
+      expect(
+        seenFailing,
+        contains(offender),
+        reason:
+            '${offender.name} passes ${offender.guideline} now — off the list',
+      );
+    }
+  }
+
+  /// A page off the kit's own vertical scroll — the first one down from it,
+  /// never the bar preview's horizontal strip inside it.
+  Finder pageScroll(Type page) => find
+      .descendant(
+        of: find.byType(page),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.down,
+        ),
+      )
+      .first;
+
+  /// The bar bloc the Markdown pages read, over the app's own database
+  /// file, loaded in real async and closed when the test ends.
+  Future<MarkdownBarBloc> loadedBarBloc(WidgetTester tester) async {
+    final bloc = (await tester.runAsync(() async {
+      final bloc = MarkdownBarBloc(
+        barService: await MarkdownBarService.getInstance(),
+      )..add(const LoadMarkdownBar());
+      await bloc.stream.firstWhere((s) => s is MarkdownBarLoaded);
+      return bloc;
+    }))!;
+    addTearDown(bloc.close);
+    return bloc;
+  }
+
+  /// Two notes for the per-note pages to list, written once into the app's
+  /// own database file, which outlives each test's singletons.
+  var notesSeeded = false;
+  Future<void> seedNotes(WidgetTester tester) async {
+    if (notesSeeded) return;
+    await tester.runAsync(() async {
+      final app = await AppDatabase.getInstance();
+      final folder = await app.folderDao.createFolder(name: 'Training');
+      await app.noteDao.createNote(folderId: folder.id, title: 'Leg day');
+      await app.noteDao.createNote(folderId: folder.id, title: 'Arm day');
+    });
+    notesSeeded = true;
   }
 
   const cells = [
@@ -328,6 +435,171 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       handle.dispose();
     });
+
+    // Sharing's two action rows at once — Sign out and Unpair, values that
+    // are the rows' taps — and the failed sign-in, whose Retry once left the
+    // title zero wide (S5).
+    for (final failed in [false, true]) {
+      testWidgets(
+        'Sharing ${failed ? 'after a failed sign-in' : 'signed in '
+                  'and paired'} meets the guidelines, ${cell.label}',
+        (tester) async {
+          final auth = failed
+              ? _OfflineAuthService()
+              : FakeAuthService(user: userA);
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          addTearDown(PairingService.reset);
+          if (!failed) {
+            gateway.seedPair(
+              [userA.uid, userB.uid],
+              {userB.uid: PairProfile.fromUser(userB)},
+            );
+          }
+          await tester.runAsync(
+            () async => PairingService.forTesting(
+              auth: auth,
+              gateway: gateway,
+              settings: await SettingsService.getInstance(),
+            ),
+          );
+          GetIt.I.registerFactory<SyncBloc>(() => SyncBloc(authService: auth));
+          GetIt.I.registerFactory<PairingBloc>(
+            () => PairingBloc(authService: auth, gateway: gateway),
+          );
+          final handle = tester.ensureSemantics();
+          setGoldenSurface(tester, cell);
+          await tester.pumpWidget(
+            goldenApp(cell, home: const SyncSettingsPage()),
+          );
+          await settle(tester);
+          if (failed) {
+            await tester.tap(
+              find.bySemanticsIdentifier(SemanticsIds.sharingSignIn),
+            );
+            await settle(tester);
+            expect(
+              find.bySemanticsIdentifier(SemanticsIds.sharingRetry),
+              findsOneWidget,
+            );
+          } else {
+            expect(
+              find.bySemanticsIdentifier(SemanticsIds.sharingUnpair),
+              findsOneWidget,
+            );
+          }
+
+          expect(tester.takeException(), isNull);
+          await meetsAll(tester);
+          await tester.pumpWidget(const SizedBox.shrink());
+          handle.dispose();
+        },
+      );
+    }
+
+    // Not on the kit (its cards move in the record's §9), so the page's own
+    // list is walked; the database list inside it is the app's own database
+    // file, which the holiday service opened in setUp.
+    testWidgets('Databases meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(cell, home: const DatabaseSettingsPage()),
+      );
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(
+        tester,
+        list: find
+            .descendant(
+              of: find.byType(DatabaseSettingsPage),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    // Off the kit too (its cards and menus are §9), walked through its own
+    // scroll view; the bars come from the app's own database file.
+    testWidgets('Markdown settings meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final barBloc = await loadedBarBloc(tester);
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        BlocProvider<MarkdownBarBloc>.value(
+          value: barBloc,
+          child: goldenPushedApp(
+            cell,
+            page: MarkdownSettingsPage(
+              allShortcuts: DefaultMarkdownShortcuts.shortcuts,
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(
+        tester,
+        list: pageScroll(MarkdownSettingsPage),
+        offenders: _markdownOffenders(cell),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    testWidgets('the per-note bars page meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await seedNotes(tester);
+      final barBloc = await loadedBarBloc(tester);
+      GetIt.I.registerSingleton<MarkdownBarService>(
+        (await tester.runAsync(MarkdownBarService.getInstance))!,
+      );
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        BlocProvider<MarkdownBarBloc>.value(
+          value: barBloc,
+          child: goldenPushedApp(cell, page: const NoteBarAssignmentPage()),
+        ),
+      );
+      await settle(tester);
+
+      expect(find.text('Leg day'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await meetsAll(
+        tester,
+        list: pageScroll(NoteBarAssignmentPage),
+        offenders: _noteBarsOffenders(cell),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    testWidgets('the per-note currency page meets the guidelines, '
+        '${cell.label}', (tester) async {
+      final handle = tester.ensureSemantics();
+      await seedNotes(tester);
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenPushedApp(cell, page: const NoteMoneyCurrencyPage()),
+      );
+      await settle(tester);
+
+      expect(find.text('Leg day'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester, list: pageScroll(NoteMoneyCurrencyPage));
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
   }
 
   // With no clear-button slot while empty the German hint is whole on the
@@ -361,8 +633,8 @@ void main() {
     });
   }
 
-  testWidgets('Permissions in German at 2.0 lays one letter per line — '
-      'known, S5', (tester) async {
+  testWidgets('Permissions in German at 2.0 keeps every row shorter than '
+      'the phone', (tester) async {
     final cell = cells.last;
     setGoldenSurface(tester, cell);
     await tester.pumpWidget(
@@ -382,9 +654,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // `PermissionTile`'s raw `trailing:` — the action button, laid out first
-    // — leaves the title no width, so the exact-alarms row is taller than the
-    // phone. S5 moves the page onto `SettingsYieldingTile`, which flips this.
+    // Pinned at S0 as one letter a line: `PermissionTile`'s raw `trailing:`
+    // — the action button, laid out first — left the title no width and the
+    // exact-alarms row taller than the phone. Since S6 the action is the
+    // row's value on `SettingsYieldingTile`, which yields to the title.
     final title = find.text(
       PermissionPresentation.titleOf(
         lookupAppLocalizations(cell.locale),
@@ -392,7 +665,8 @@ void main() {
       ),
     );
     final tile = find.ancestor(of: title, matching: find.byType(ListTile));
-    expect(tester.getSize(tile).height, greaterThan(cell.size.height));
+    expect(tester.getSize(tile).height, lessThan(cell.size.height / 2));
+    expect(tester.getSize(title).width, greaterThan(cell.size.width / 3));
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -538,6 +812,8 @@ void main() {
       required String description,
       required String value,
       bool flash = false,
+      bool enabled = true,
+      VoidCallback? onTap,
     }) async {
       Widget box(double maxWidth) => ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
@@ -569,6 +845,8 @@ void main() {
                                     child: box(maxWidth),
                                   )
                                 : box(maxWidth),
+                            onTap: onTap,
+                            enabled: enabled,
                           ),
                     ),
                   ],
@@ -598,7 +876,11 @@ void main() {
         maxLines: 1,
       )..layout();
       addTearDown(line.dispose);
-      expect(paragraph.size.height, moreOrLessEquals(line.height), reason: text);
+      expect(
+        paragraph.size.height,
+        moreOrLessEquals(line.height),
+        reason: text,
+      );
     }
 
     /// [text] is never narrower than its longest word: no word is broken.
@@ -619,6 +901,37 @@ void main() {
       textScale: 1.0,
       size: Size(360, 780),
     );
+
+    // Sharing's Unpair while a request runs: the row stays where it is.
+    for (final (label, value) in const [
+      ('beside the title', 'Off'),
+      ('under the description', 'Reminder · The day before, 9:00 AM'),
+    ]) {
+      testWidgets('disabled with its value $label, it reads disabled and '
+          'its tap does nothing', (tester) async {
+        final handle = tester.ensureSemantics();
+        var taps = 0;
+        await pumpTile(
+          tester,
+          phoneEn,
+          title: 'All-day events',
+          description: 'The alert a new all-day event starts with',
+          value: value,
+          enabled: false,
+          onTap: () => taps++,
+        );
+
+        expect(tile(tester).enabled, isFalse);
+        expect(
+          tester.getSemantics(find.byType(ListTile)),
+          isSemantics(hasEnabledState: true, isEnabled: false),
+        );
+        await tester.tap(find.byType(ListTile));
+        await tester.pump();
+        expect(taps, 0);
+        handle.dispose();
+      });
+    }
 
     testWidgets('at 1.0 on a 360 phone a value that would leave the title '
         'less than half its column goes under the description: the title '
@@ -808,52 +1121,264 @@ void main() {
 
 enum _Choice { first, second, third }
 
+/// The three guidelines `meetsAll` walks, in the order it judges them.
+enum _Guideline { tapTargets, labels, contrast }
+
+/// An account whose sign-in fails offline: the way to Sharing's Retry row.
+class _OfflineAuthService extends FakeAuthService {
+  @override
+  Future<AppUser?> signInWithGoogle() async =>
+      throw const AuthException(AuthError.offline);
+}
+
+/// A pre-existing failure of one guideline on a page off the kit, named by
+/// the widgets that draw it — a widget type, a key or its text — and left
+/// out of that guideline only. §9 of `docs/settings-rework-roadmap.md`
+/// restyles every one; until then each is pinned failing, so the restyle
+/// that fixes one flips its pin and takes it off the list.
+class _Offender {
+  const _Offender(this.guideline, this.name, this.finder);
+
+  final _Guideline guideline;
+
+  /// What the pin's failure reason calls it.
+  final String name;
+
+  /// The widgets whose semantics nodes are excused: a node inside one of
+  /// their boxes for the tap-target and label guidelines, a node reading one
+  /// of their [Text]s for the contrast guideline.
+  final Finder finder;
+}
+
+/// Markdown settings' pre-existing failures, all restyled by §9 of
+/// `docs/settings-rework-roadmap.md` (its cards, menus and FAB): the section
+/// headers' 26 dp strips, the bar profile selector's 32 dp row and the
+/// compact bar buttons under 48 dp; the switches shrunk to 0.8, too short and
+/// unlabelled beside their own text; the add-shortcut FAB, unlabelled, and in
+/// German at 2.0 drawn over the heading at the screen's foot; the vocabulary
+/// trigger's one-glyph segments, whose anti-aliasing reads under 4.5:1; and,
+/// in the light theme, the 60 % descriptions (4.28:1) and the toolbar ratio's
+/// caption (2.10:1).
+List<_Offender> _markdownOffenders(GoldenCell cell) {
+  final l10n = lookupAppLocalizations(cell.locale);
+  final shrunkSwitches = find.byWidgetPredicate(
+    (widget) =>
+        widget is Transform &&
+        widget.child is Switch &&
+        widget.transform.entry(0, 0) < 1,
+  );
+  final fab = find.byType(FloatingActionButton);
+  return [
+    // At 2.0 their text makes them tall enough.
+    if (!cell.dark) ...[
+      _Offender(
+        _Guideline.tapTargets,
+        'the section headers',
+        find.ancestor(
+          of: find.byType(AnimatedRotation),
+          matching: find.byType(InkWell),
+        ),
+      ),
+      _Offender(
+        _Guideline.tapTargets,
+        'the bar profile selector',
+        find.ancestor(
+          of: find.byIcon(Icons.unfold_more),
+          matching: find.byType(InkWell),
+        ),
+      ),
+    ],
+    _Offender(
+      _Guideline.tapTargets,
+      'the compact bar buttons',
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is IconButton &&
+            widget.visualDensity == VisualDensity.compact,
+      ),
+    ),
+    _Offender(_Guideline.tapTargets, 'the 0.8 switches', shrunkSwitches),
+    _Offender(_Guideline.labels, 'the 0.8 switches', shrunkSwitches),
+    _Offender(_Guideline.labels, 'the add-shortcut FAB', fab),
+    _Offender(
+      _Guideline.contrast,
+      'the vocabulary trigger segments',
+      find.descendant(
+        of: find.byType(SegmentedButton<String>),
+        matching: find.byType(Text),
+      ),
+    ),
+    if (cell.dark)
+      _Offender(
+        _Guideline.contrast,
+        'the heading under the FAB',
+        find.byElementPredicate((element) {
+          if (element.widget is! Text) return false;
+          final text = _box(element);
+          if (text == null) return false;
+          // The guideline reads 4 dp around the text's box.
+          return fab
+              .evaluate()
+              .map(_box)
+              .nonNulls
+              .any((cover) => cover.overlaps(text.inflate(4)));
+        }),
+      )
+    else ...[
+      for (final description in [
+        l10n.moneyLedgerEnabledDesc,
+        l10n.vocabularySuggestionsDesc,
+        l10n.utilityButtonsHint,
+      ])
+        _Offender(
+          _Guideline.contrast,
+          '"$description"',
+          find.text(description),
+        ),
+      _Offender(
+        _Guideline.contrast,
+        "the toolbar ratio's caption",
+        find.textContaining('  ·  ${l10n.utilities} '),
+      ),
+    ],
+  ];
+}
+
+/// The per-note bars page's pre-existing failure, restyled by §9 of
+/// `docs/settings-rework-roadmap.md`: in the light theme the hint above the
+/// search, at 60 % of the text colour, reads 4.28:1.
+List<_Offender> _noteBarsOffenders(GoldenCell cell) => [
+  if (!cell.dark)
+    _Offender(
+      _Guideline.contrast,
+      'the hint above the search',
+      find.text(lookupAppLocalizations(cell.locale).perNoteBarHint),
+    ),
+];
+
+/// An element's box in logical global pixels, null while it is not laid out.
+Rect? _box(Element element) => switch (element.renderObject) {
+  final RenderBox box when box.attached && box.hasSize =>
+    MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size),
+  _ => null,
+};
+
+/// A semantics node's rect in logical global pixels, as the widgets measure.
+Rect _logicalRect(SemanticsNode node, double ratio) {
+  var physical = node.rect;
+  for (SemanticsNode? n = node; n != null; n = n.parent) {
+    if (n.transform case final transform?) {
+      physical = MatrixUtils.transformRect(transform, physical);
+    }
+  }
+  return Rect.fromLTRB(
+    physical.left / ratio,
+    physical.top / ratio,
+    physical.right / ratio,
+    physical.bottom / ratio,
+  );
+}
+
+bool _within(List<Rect> areas, Rect rect) => areas.any((area) {
+  final room = area.inflate(0.5);
+  return room.contains(rect.topLeft) && room.contains(rect.bottomRight);
+});
+
 /// Android's 48 dp tap-target guideline with one accepted exception taken out
 /// by name rather than the check skipped: the bar's [LeadingNavPair], whose
 /// two 42 dp halves are an app-wide decision of their own (the pair's
 /// `halfSize`), drawn on App settings because it has a drawer. Every other
-/// node is judged as the stock guideline judges it.
+/// node is judged as the stock guideline judges it, but those [_skip] names
+/// (the walk's offenders).
 class _KitTapTargetGuideline extends MinimumTapTargetGuideline {
-  _KitTapTargetGuideline._(this._ratio, this._pairs)
+  _KitTapTargetGuideline._(this._ratio, this._pairs, this._skip)
     : super(size: _android.size, link: _android.link);
 
   static final MinimumTapTargetGuideline _android =
       androidTapTargetGuideline as MinimumTapTargetGuideline;
 
-  factory _KitTapTargetGuideline.of(WidgetTester tester) =>
-      _KitTapTargetGuideline._(tester.view.devicePixelRatio, [
-        for (final element in find.byType(LeadingNavPair).evaluate())
-          if (element.renderObject case final RenderBox box when box.hasSize)
-            box.localToGlobal(Offset.zero) & box.size,
-      ]);
+  factory _KitTapTargetGuideline.of(
+    WidgetTester tester,
+    bool Function(SemanticsNode node) skip,
+  ) => _KitTapTargetGuideline._(tester.view.devicePixelRatio, [
+    for (final element in find.byType(LeadingNavPair).evaluate())
+      if (element.renderObject case final RenderBox box when box.hasSize)
+        box.localToGlobal(Offset.zero) & box.size,
+  ], skip);
 
   final double _ratio;
 
   /// Logical pixels, as the widgets measure.
   final List<Rect> _pairs;
 
+  final bool Function(SemanticsNode node) _skip;
+
   @override
-  bool shouldSkipNode(SemanticsNode node) {
-    if (super.shouldSkipNode(node)) return true;
-    var physical = node.rect;
-    for (SemanticsNode? n = node; n != null; n = n.parent) {
-      if (n.transform case final transform?) {
-        physical = MatrixUtils.transformRect(transform, physical);
-      }
-    }
-    final rect = Rect.fromLTRB(
-      physical.left / _ratio,
-      physical.top / _ratio,
-      physical.right / _ratio,
-      physical.bottom / _ratio,
-    );
-    return _pairs.any((area) {
-      final room = area.inflate(0.5);
-      return room.contains(rect.topLeft) && room.contains(rect.bottomRight);
-    });
-  }
+  bool shouldSkipNode(SemanticsNode node) =>
+      super.shouldSkipNode(node) ||
+      _within(_pairs, _logicalRect(node, _ratio)) ||
+      _skip(node);
 
   @override
   String get description =>
       '${super.description}, the bar\'s leading pair aside';
+}
+
+/// Flutter's labelled-tap-target guideline, judged node for node as the
+/// stock one judges it — which cannot be extended, its constructor being
+/// private — but for the nodes [_skip] names.
+class _KitLabelGuideline extends AccessibilityGuideline {
+  const _KitLabelGuideline(this._skip);
+
+  final bool Function(SemanticsNode node) _skip;
+
+  @override
+  String get description => labeledTapTargetGuideline.description;
+
+  @override
+  Evaluation evaluate(WidgetTester tester) {
+    var result = const Evaluation.pass();
+    for (final view in tester.binding.renderViews) {
+      result += _traverse(view.owner!.semanticsOwner!.rootSemanticsNode!);
+    }
+    return result;
+  }
+
+  Evaluation _traverse(SemanticsNode node) {
+    var result = const Evaluation.pass();
+    node.visitChildren((child) {
+      result += _traverse(child);
+      return true;
+    });
+    if (node.isMergedIntoParent ||
+        node.isInvisible ||
+        node.flagsCollection.isHidden ||
+        node.flagsCollection.isTextField ||
+        _skip(node)) {
+      return result;
+    }
+    final data = node.getSemanticsData();
+    if (!data.hasAction(SemanticsAction.longPress) &&
+        !data.hasAction(SemanticsAction.tap)) {
+      return result;
+    }
+    if (data.label.isEmpty && data.tooltip.isEmpty) {
+      result += Evaluation.fail(
+        '$node: expected tappable node to have semantic label, '
+        'but none was found.',
+      );
+    }
+    return result;
+  }
+}
+
+/// Flutter's 4.5:1 text-contrast guideline but for the nodes [_skip] names.
+class _KitContrastGuideline extends MinimumTextContrastGuideline {
+  const _KitContrastGuideline(this._skip);
+
+  final bool Function(SemanticsData data) _skip;
+
+  @override
+  bool shouldSkipNode(SemanticsData data) =>
+      super.shouldSkipNode(data) || _skip(data);
 }

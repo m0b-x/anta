@@ -145,6 +145,13 @@ class AppDatabase extends _$AppDatabase {
   /// and none is handed an instance before its clock is seeded.
   static Future<AppDatabase>? _opening;
 
+  /// The open (or opening) instance when it is [name], else `null` — never
+  /// opens anything, so work that only wants the live connection (a WAL
+  /// checkpoint) cannot set off a switch the way [getInstance] would for a
+  /// name that is stored as active but not yet open.
+  static Future<AppDatabase>? openInstanceOf(String name) =>
+      _currentDatabaseName == name ? _opening : null;
+
   static Future<AppDatabase> getInstance({String? databaseName}) async {
     final dbManager = await DatabaseManager.getInstance();
     final activeName = databaseName ?? dbManager.getActiveDatabaseName();
@@ -359,6 +366,19 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> vacuum() async {
     await customStatement('VACUUM');
+  }
+
+  /// Folds the `-wal` sidecar back into the main file and truncates it, so a
+  /// copy of the `.db` alone holds every committed write. Throws when a
+  /// reader kept the checkpoint from finishing, rather than leave the caller
+  /// believing the main file is complete.
+  Future<void> checkpoint() async {
+    final row = await customSelect(
+      'PRAGMA wal_checkpoint(TRUNCATE)',
+    ).getSingle();
+    if (row.read<int>('busy') != 0) {
+      throw StateError('WAL checkpoint was blocked');
+    }
   }
 
   /// The HLC a migration step backfills onto rows that predate their CRDT

@@ -1,6 +1,9 @@
 # Editor and markdown (Markdown settings) through the hub, left by the bar's
 # arrow and then by system back, each landing on the hub and then on the
 # folder root (D2, D3) — the page whose arrow used to raise the drawer again.
+# On the first visit the page's list and its bar ⋮ are read, and the
+# vocabulary trigger row (S6), below the toolbar, colour and money sections
+# at 1.0, is scrolled to inside the page's own list.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -8,6 +11,9 @@ tap id:drawer-settings
 wait id:settings-bar-hub
 tap id:settings-hub-row-markdownSettings
 wait id:settings-bar-markdown
+expect id:markdown-settings-list id:markdown-bar-menu
+scroll-to id:markdown-vocabulary-trigger --in id:markdown-settings-list
+expect id:markdown-vocabulary-trigger
 tap id:nav-back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-markdown

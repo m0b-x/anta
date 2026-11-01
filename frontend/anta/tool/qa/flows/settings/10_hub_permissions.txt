@@ -1,6 +1,8 @@
 # Permissions through the hub, left by the bar's arrow and then by system
 # back, each landing on the hub and then on the folder root (D2, D3) — the
-# row the drawer's footer used to carry.
+# row the drawer's footer used to carry. On the first visit the system
+# settings row, last in the options section under the summary and the
+# permission rows, is scrolled to inside the page's list (S6).
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -8,6 +10,9 @@ tap id:drawer-settings
 wait id:settings-bar-hub
 tap id:settings-hub-row-permissions
 wait id:settings-bar-permissions
+expect id:permissions-list
+scroll-to id:permissions-system-settings --in id:permissions-list
+expect id:permissions-system-settings
 tap id:nav-back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-permissions

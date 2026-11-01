@@ -1759,6 +1759,24 @@
   "@backupContains": {
     "description": "Label before listing backup contents"
   },
+  "onboardingBackupFolders": "{count, plural, =1{1 folder} other{{count} folders}}",
+  "@onboardingBackupFolders": {
+    "description": "Onboarding's restore confirmation: how many folders the chosen backup holds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "onboardingBackupNotes": "{count, plural, =1{1 note} other{{count} notes}}",
+  "@onboardingBackupNotes": {
+    "description": "Onboarding's restore confirmation: how many notes the chosen backup holds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "onboardingHowToHint": "You can open How to use ANTA from the menu at any time",
+  "@onboardingHowToHint": {
+    "description": "Caption at the foot of the welcome screen; names the drawer row howToUseAnta"
+  },
   "exportedOn": "Exported on: {date}",
   "@exportedOn": {
     "description": "Shows when backup was exported",
@@ -3124,6 +3142,50 @@
   "@switchTo": {
     "description": "Option to switch to a database"
   },
+  "databaseSwitchConfirm": "Switch to {name}? ANTA restarts on it.",
+  "@databaseSwitchConfirm": {
+    "description": "Confirm before switching the active database; name is the database's file name",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "databaseSizeBytes": "{size} B",
+  "@databaseSizeBytes": {
+    "description": "A database file's size in bytes; size is the number, already formatted",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "databaseSizeKilobytes": "{size} KB",
+  "@databaseSizeKilobytes": {
+    "description": "A database file's size in kilobytes; size is the number, already formatted with one decimal",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "databaseSizeMegabytes": "{size} MB",
+  "@databaseSizeMegabytes": {
+    "description": "A database file's size in megabytes; size is the number, already formatted with two decimals",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "unknownValue": "Unknown",
+  "@unknownValue": {
+    "description": "Shown in place of a value that could not be read (a size, a date, a path)"
+  },
+  "databasePathError": "Could not read the storage path",
+  "@databasePathError": {
+    "description": "Shown in place of the database path when reading it failed"
+  },
   "deleteDatabaseConfirm": "Are you sure you want to delete the database \"{name}\"? This action cannot be undone.",
   "@deleteDatabaseConfirm": {
     "description": "Confirmation message for database deletion",
@@ -4114,6 +4176,10 @@
   "developerOptionsReset": "Developer options reset to defaults",
   "@developerOptionsReset": {
     "description": "Toast message when dev options are reset"
+  },
+  "developerOptionsResetConfirm": "Reset every developer option? This also locks developer mode.",
+  "@developerOptionsResetConfirm": {
+    "description": "Body of the confirmation before Developer options' Reset to defaults, which also clears the unlock"
   },
   "developerModeUnlocked": "Developer mode unlocked!",
   "@developerModeUnlocked": {
@@ -5735,6 +5801,10 @@
         "type": "String"
       }
     }
+  },
+  "signOutConfirm": "Sign out of this account?",
+  "@signOutConfirm": {
+    "description": "Body of the sign-out confirmation shown while not paired"
   },
   "pairingErrorOffline": "No connection. Pairing needs to be online.",
   "@pairingErrorOffline": {

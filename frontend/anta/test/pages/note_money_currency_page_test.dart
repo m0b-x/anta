@@ -214,26 +214,25 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    // Today's state, pinned so S6 sees it change: the menu's "Use global
-    // currency" item is a Row of an icon, a gap and an unbounded Text, and
-    // "Globale Währung verwenden" at 2.0 runs 130 dp past the width the
-    // menu gives it (measured 2026-10-31). When S6 bounds the label, this
-    // expectation flips to `isEmpty`.
-    testWidgets("de 2.0 on 360 × 780, the row menu's global item overflows "
-        'on the right (known, S6)', (tester) async {
+    // "Globale Währung verwenden" at 2.0 ran 130 dp past the width the menu
+    // gives it (measured 2026-10-31) until S6 made the label Flexible: it
+    // wraps inside the menu now.
+    testWidgets('de 2.0 on 360 × 780, no layout error with the row menu '
+        'open', (tester) async {
       await pumpSmall(tester);
       final errors = await layoutErrorsDuring(
         () => openRowMenu(tester, 'Leg day'),
       );
 
-      expect(errors, hasLength(1));
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(
-        errors.single.exceptionAsString(),
-        allOf(contains('RenderFlex overflowed'), contains('on the right')),
-      );
-      expect(
-        errors.single.toString(),
-        contains('note_money_currency_page.dart'),
+        find.descendant(
+          of: find.byType(PopupMenuItem<int>),
+          matching: find.text(
+            lookupAppLocalizations(const Locale('de')).useGlobalCurrency,
+          ),
+        ),
+        findsOneWidget,
       );
       expect(tester.takeException(), isNull);
 
@@ -243,7 +242,7 @@ void main() {
     testWidgets('de 2.0 on 360 × 780, the custom symbol dialog fits with no '
         'exception', (tester) async {
       await pumpSmall(tester);
-      // The menu's own overflow is the test above's.
+      // The menu's own layout is the test above's.
       await layoutErrorsDuring(() => openRowMenu(tester, 'Leg day'));
       final errors = await layoutErrorsDuring(() async {
         await tester.tap(find.byType(PopupMenuItem<int>).last);

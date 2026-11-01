@@ -88,9 +88,29 @@ class OnboardingRobot {
     await settle();
   }
 
-  Future<void> startFresh() => _tap(find.text(_l10n.startFresh));
+  Future<void> startFresh() =>
+      _tap(find.bySemanticsIdentifier(SemanticsIds.onboardingStartFresh));
 
-  Future<void> restoreFromBackup() => _tap(find.text(_l10n.restoreFromBackup));
+  Future<void> restoreFromBackup() =>
+      _tap(find.bySemanticsIdentifier(SemanticsIds.onboardingRestore));
+
+  /// The page's scroll position: nothing to scroll while the page fits.
+  ScrollPosition get scrollPosition => tester
+      .state<ScrollableState>(
+        find.descendant(
+          of: find.bySemanticsIdentifier(SemanticsIds.onboardingList),
+          matching: find.byType(Scrollable),
+        ),
+      )
+      .position;
+
+  /// Scrolls the page until Restore from backup is on screen.
+  Future<void> revealRestore() async {
+    await tester.ensureVisible(
+      find.bySemanticsIdentifier(SemanticsIds.onboardingRestore),
+    );
+    await settle(rounds: 2);
+  }
 
   Future<void> confirmDialog() =>
       _tap(find.bySemanticsIdentifier(SemanticsIds.sheetConfirm));

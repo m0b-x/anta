@@ -4,6 +4,7 @@ import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../config/default_markdown_shortcuts.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
@@ -16,9 +17,11 @@ import '../utils/markdown_settings_utils.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/app_loading_bar.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/markdown_bar.dart';
 import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
+import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
 import '../utils/vocabulary_trigger.dart';
@@ -890,77 +893,85 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                       onPressed: _addBarProfile,
                       visualDensity: VisualDensity.compact,
                     ),
-                    PopupMenuButton<String>(
-                      icon: const Icon(Icons.more_vert, size: 20),
-                      tooltip: '',
-                      onSelected: (action) {
-                        switch (action) {
-                          case 'rename':
-                            _renameBarProfile(_editingProfileId);
-                            break;
-                          case 'duplicate':
-                            _duplicateBarProfile(_editingProfileId);
-                            break;
-                          case 'assign':
-                            AppNavigator.toNoteBarAssignment(context);
-                            break;
-                          case 'delete':
-                            _deleteBarProfile(_editingProfileId);
-                            break;
-                        }
-                      },
-                      itemBuilder: (ctx) => [
-                        if (!editingProfile.isDefault) ...[
+                    AutomationId(
+                      identifier: SemanticsIds.markdownProfileMenu,
+                      child: PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, size: 20),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).showMenuTooltip,
+                        onSelected: (action) {
+                          switch (action) {
+                            case 'rename':
+                              _renameBarProfile(_editingProfileId);
+                              break;
+                            case 'duplicate':
+                              _duplicateBarProfile(_editingProfileId);
+                              break;
+                            case 'assign':
+                              AppNavigator.toNoteBarAssignment(context);
+                              break;
+                            case 'delete':
+                              _deleteBarProfile(_editingProfileId);
+                              break;
+                          }
+                        },
+                        itemBuilder: (ctx) => [
+                          if (!editingProfile.isDefault) ...[
+                            PopupMenuItem(
+                              value: 'rename',
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.edit, size: 18),
+                                  const SizedBox(width: 8),
+                                  Text(l10n.renameBar),
+                                ],
+                              ),
+                            ),
+                          ],
                           PopupMenuItem(
-                            value: 'rename',
+                            value: 'duplicate',
                             child: Row(
                               children: [
-                                const Icon(Icons.edit, size: 18),
+                                const Icon(Icons.copy, size: 18),
                                 const SizedBox(width: 8),
-                                Text(l10n.renameBar),
+                                Text(l10n.duplicateBar),
                               ],
                             ),
                           ),
+                          PopupMenuItem(
+                            value: 'assign',
+                            child: Semantics(
+                              identifier: SemanticsIds.markdownPerNoteBars,
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.link, size: 18),
+                                  const SizedBox(width: 8),
+                                  Text(l10n.perNoteBarAssignment),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (!editingProfile.isDefault)
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.delete,
+                                    size: 18,
+                                    color: Colors.red,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    l10n.deleteBar,
+                                    style: const TextStyle(color: Colors.red),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
-                        PopupMenuItem(
-                          value: 'duplicate',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.copy, size: 18),
-                              const SizedBox(width: 8),
-                              Text(l10n.duplicateBar),
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'assign',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.link, size: 18),
-                              const SizedBox(width: 8),
-                              Text(l10n.perNoteBarAssignment),
-                            ],
-                          ),
-                        ),
-                        if (!editingProfile.isDefault)
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.delete,
-                                  size: 18,
-                                  color: Colors.red,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  l10n.deleteBar,
-                                  style: const TextStyle(color: Colors.red),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -1326,33 +1337,34 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.vocabularyTriggerLabel),
-                          subtitle: Text(
-                            l10n.vocabularyTriggerDesc,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.6,
+                        // The five triggers under the title, not beside it:
+                        // beside, they took the row in German at 2.0 (S5).
+                        Semantics(
+                          container: true,
+                          identifier: SemanticsIds.markdownVocabularyTrigger,
+                          child: settingsChoiceRow<String>(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: FormMetrics.settingsRowVerticalPadding,
+                            ),
+                            title: Text(
+                              l10n.vocabularyTriggerLabel,
+                              style: theme.textTheme.bodyLarge,
+                            ),
+                            description: Text(
+                              l10n.vocabularyTriggerDesc,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.6,
+                                ),
                               ),
                             ),
-                          ),
-                          trailing: SegmentedButton<String>(
-                            style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            showSelectedIcon: false,
-                            segments: [
+                            value: _vocabularyTrigger,
+                            labels: {
                               for (final trigger
                                   in VocabularyTrigger.availableTriggers)
-                                ButtonSegment<String>(
-                                  value: trigger,
-                                  label: Text(trigger),
-                                ),
-                            ],
-                            selected: {_vocabularyTrigger},
-                            onSelectionChanged: (selection) {
-                              final value = selection.first;
+                                trigger: trigger,
+                            },
+                            onChanged: (value) {
                               setState(() => _vocabularyTrigger = value);
                               _saveVocabularyTrigger(value);
                             },
@@ -1479,44 +1491,20 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Start balance row
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.moneyStartBalance),
-                          subtitle: Text(
-                            l10n.moneyStartBalanceDesc,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.6,
-                              ),
-                            ),
-                          ),
-                          trailing: Text(
-                            _formatMoneyCents(_moneyStartCents),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                        _moneyValueRow(
+                          context,
+                          identifier: SemanticsIds.markdownMoneyStart,
+                          title: l10n.moneyStartBalance,
+                          description: l10n.moneyStartBalanceDesc,
+                          value: _formatMoneyCents(_moneyStartCents),
                           onTap: _editMoneyStartBalance,
                         ),
-                        // Currency symbol row
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.moneyCurrencySymbolLabel),
-                          subtitle: Text(
-                            l10n.moneyCurrencySymbolDesc,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.6,
-                              ),
-                            ),
-                          ),
-                          trailing: Text(
-                            _moneySymbol.isEmpty ? '—' : _moneySymbol,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                        _moneyValueRow(
+                          context,
+                          identifier: SemanticsIds.markdownMoneySymbol,
+                          title: l10n.moneyCurrencySymbolLabel,
+                          description: l10n.moneyCurrencySymbolDesc,
+                          value: _moneySymbol.isEmpty ? '—' : _moneySymbol,
                           onTap: _editMoneyCurrencySymbol,
                         ),
                         // Symbol-after-amount toggle row
@@ -1545,12 +1533,16 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                           ],
                         ),
                         // Per-note currency row
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.moneyPerNoteCurrency),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () =>
-                              AppNavigator.toNoteMoneyCurrency(context),
+                        Semantics(
+                          container: true,
+                          identifier: SemanticsIds.markdownPerNoteCurrency,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(l10n.moneyPerNoteCurrency),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () =>
+                                AppNavigator.toNoteMoneyCurrency(context),
+                          ),
                         ),
                       ],
                     ),
@@ -1562,6 +1554,46 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
           ),
           Divider(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
         ],
+      ),
+    );
+  }
+
+  /// A money row whose value yields to its title: beside it while both fit,
+  /// under the description once the value would squeeze the title to a
+  /// word a line (S5 — German at 2.0). The theme hands the tile the value's
+  /// style, so the tile measures the value as it draws it.
+  Widget _moneyValueRow(
+    BuildContext context, {
+    required String identifier,
+    required String title,
+    required String description,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return Semantics(
+      container: true,
+      identifier: identifier,
+      child: ListTileTheme.merge(
+        leadingAndTrailingTextStyle: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w500,
+        ),
+        child: SettingsYieldingTile(
+          contentPadding: EdgeInsetsDirectional.zero,
+          title: HighlightedText(text: title),
+          subtitle: HighlightedText(
+            text: description,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          value: value,
+          trailing: (maxWidth) => ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: Text(value),
+          ),
+          onTap: onTap,
+        ),
       ),
     );
   }
@@ -1622,51 +1654,55 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
       return Opacity(
         key: ValueKey(config.id),
         opacity: config.isVisible ? 1.0 : 0.5,
-        child: Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            minLeadingWidth: 0,
-            leading: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // No index: this list keeps `ReorderableListView`'s default
-                // drag handles, so the icon is decoration that only has to
-                // read as active or greyed.
-                ReorderHandle(enabled: !_isFilteringUtilities),
-                Icon(
-                  _utilityIcon(config.id),
-                  size: 24,
-                  color: config.isVisible
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                ),
-              ],
-            ),
-            title: Text(_utilityLabel(config.id)),
-            subtitle: Text(
-              isLocked
-                  ? l10n.alwaysVisible
-                  : (config.isVisible ? l10n.visible : l10n.hidden),
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-            trailing: isLocked
-                ? Icon(
-                    Icons.lock,
-                    size: 18,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                  )
-                : IconButton(
-                    icon: Icon(
-                      config.isVisible
-                          ? Icons.visibility
-                          : Icons.visibility_off,
-                    ),
-                    onPressed: () => _toggleUtilityVisibility(globalIndex),
-                    tooltip: config.isVisible ? l10n.hide : l10n.show,
+        child: Semantics(
+          container: true,
+          identifier: SemanticsIds.markdownUtility(config.id),
+          child: Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              minLeadingWidth: 0,
+              leading: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // No index: this list keeps `ReorderableListView`'s default
+                  // drag handles, so the icon is decoration that only has to
+                  // read as active or greyed.
+                  ReorderHandle(enabled: !_isFilteringUtilities),
+                  Icon(
+                    _utilityIcon(config.id),
+                    size: 24,
+                    color: config.isVisible
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.4),
                   ),
+                ],
+              ),
+              title: Text(_utilityLabel(config.id)),
+              subtitle: Text(
+                isLocked
+                    ? l10n.alwaysVisible
+                    : (config.isVisible ? l10n.visible : l10n.hidden),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              trailing: isLocked
+                  ? Icon(
+                      Icons.lock,
+                      size: 18,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                    )
+                  : IconButton(
+                      icon: Icon(
+                        config.isVisible
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                      onPressed: () => _toggleUtilityVisibility(globalIndex),
+                      tooltip: config.isVisible ? l10n.hide : l10n.show,
+                    ),
+            ),
           ),
         ),
       );
@@ -2057,141 +2093,160 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     final l10n = AppLocalizations.of(context)!;
     final category = shortcut.category;
 
-    final card = Opacity(
-      opacity: shortcut.isVisible ? 1.0 : 0.5,
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: ListTile(
-          minLeadingWidth: 0,
-          leading: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ReorderHandle(
-                index: reorderable ? renderIndex : null,
-                enabled: reorderable,
-              ),
-              MarkdownSettingsUtils.buildShortcutIcon(context, shortcut),
-            ],
-          ),
-          title: Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(shortcut.localizedLabel(l10n)),
-              if (shortcut.isDefault)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    l10n.defaultLabel,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
+    final card = Semantics(
+      container: true,
+      identifier: SemanticsIds.markdownShortcutRow(shortcut.id),
+      child: Opacity(
+        opacity: shortcut.isVisible ? 1.0 : 0.5,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            minLeadingWidth: 0,
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ReorderHandle(
+                  index: reorderable ? renderIndex : null,
+                  enabled: reorderable,
                 ),
-              if (category != null && category.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.secondaryContainer.withValues(
-                      alpha: 0.7,
-                    ),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    category,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          subtitle: Text(
-            MarkdownSettingsUtils.getShortcutSubtitle(context, shortcut),
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                MarkdownSettingsUtils.buildShortcutIcon(context, shortcut),
+              ],
             ),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: Icon(
-                  shortcut.isVisible ? Icons.visibility : Icons.visibility_off,
-                ),
-                onPressed: () => _toggleVisibility(globalIndex),
-                tooltip: shortcut.isVisible ? l10n.hide : l10n.show,
-              ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert),
-                onSelected: (action) {
-                  switch (action) {
-                    case 'category':
-                      _setShortcutCategory(globalIndex);
-                      break;
-                    case 'edit':
-                      _editShortcut(globalIndex);
-                      break;
-                    case 'delete':
-                      _deleteShortcut(globalIndex);
-                      break;
-                  }
-                },
-                itemBuilder: (ctx) => [
-                  PopupMenuItem(
-                    value: 'category',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.label_outline, size: 18),
-                        const SizedBox(width: 8),
-                        Text(l10n.setCategory),
-                      ],
+            title: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(shortcut.localizedLabel(l10n)),
+                if (shortcut.isDefault)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      l10n.defaultLabel,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ),
-                  if (!shortcut.isDefault) ...[
-                    PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.edit, size: 18),
-                          const SizedBox(width: 8),
-                          Text(l10n.edit),
-                        ],
+                if (category != null && category.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.secondaryContainer.withValues(
+                        alpha: 0.7,
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      category,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSecondaryContainer,
                       ),
                     ),
-                    PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.delete, size: 18, color: Colors.red),
-                          const SizedBox(width: 8),
-                          Text(
-                            l10n.delete,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
+                  ),
+              ],
+            ),
+            subtitle: Text(
+              MarkdownSettingsUtils.getShortcutSubtitle(context, shortcut),
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
-            ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AutomationId(
+                  identifier: SemanticsIds.markdownShortcutVisibility(
+                    shortcut.id,
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      shortcut.isVisible
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () => _toggleVisibility(globalIndex),
+                    tooltip: shortcut.isVisible ? l10n.hide : l10n.show,
+                  ),
+                ),
+                AutomationId(
+                  identifier: SemanticsIds.markdownShortcutMenu(shortcut.id),
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert),
+                    tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+                    onSelected: (action) {
+                      switch (action) {
+                        case 'category':
+                          _setShortcutCategory(globalIndex);
+                          break;
+                        case 'edit':
+                          _editShortcut(globalIndex);
+                          break;
+                        case 'delete':
+                          _deleteShortcut(globalIndex);
+                          break;
+                      }
+                    },
+                    itemBuilder: (ctx) => [
+                      PopupMenuItem(
+                        value: 'category',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.label_outline, size: 18),
+                            const SizedBox(width: 8),
+                            Text(l10n.setCategory),
+                          ],
+                        ),
+                      ),
+                      if (!shortcut.isDefault) ...[
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.edit, size: 18),
+                              const SizedBox(width: 8),
+                              Text(l10n.edit),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.delete,
+                                size: 18,
+                                color: Colors.red,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                l10n.delete,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2305,51 +2360,60 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   : AppLocalizations.of(context)!.expandAll,
               onPressed: () => _setAllSectionsExpanded(!_anySectionExpanded),
             ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              onSelected: (value) {
-                if (value == 'reset_all') {
-                  _showResetDialog();
-                } else if (value == 'remove_custom') {
-                  _showRemoveCustomDialog();
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'reset_all',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.refresh),
-                      const SizedBox(width: 8),
-                      Text(AppLocalizations.of(context)!.resetToDefault),
-                    ],
+            AutomationId(
+              identifier: SemanticsIds.markdownBarMenu,
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+                onSelected: (value) {
+                  if (value == 'reset_all') {
+                    _showResetDialog();
+                  } else if (value == 'remove_custom') {
+                    _showRemoveCustomDialog();
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'reset_all',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.refresh),
+                        const SizedBox(width: 8),
+                        Text(AppLocalizations.of(context)!.resetToDefault),
+                      ],
+                    ),
                   ),
-                ),
-                PopupMenuItem(
-                  value: 'remove_custom',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.delete_sweep),
-                      const SizedBox(width: 8),
-                      Text(AppLocalizations.of(context)!.removeAllCustom),
-                    ],
+                  PopupMenuItem(
+                    value: 'remove_custom',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.delete_sweep),
+                        const SizedBox(width: 8),
+                        Text(AppLocalizations.of(context)!.removeAllCustom),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
-        body: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            SliverToBoxAdapter(child: _buildProfileSelector(context)),
-            SliverToBoxAdapter(child: _buildToolbarRatioAdjuster(context)),
-            SliverToBoxAdapter(child: _buildColorsSection(context)),
-            SliverToBoxAdapter(child: _buildMoneySection(context)),
-            SliverToBoxAdapter(child: _buildVocabularySection(context)),
-            SliverToBoxAdapter(child: _buildUtilityButtonsSection(context)),
-            ..._buildShortcutSlivers(context),
-          ],
+        // The id is what a flow swipes inside (`scroll-to --in`) to reach a
+        // row below the fold.
+        body: Semantics(
+          identifier: SemanticsIds.markdownSettingsList,
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              SliverToBoxAdapter(child: _buildProfileSelector(context)),
+              SliverToBoxAdapter(child: _buildToolbarRatioAdjuster(context)),
+              SliverToBoxAdapter(child: _buildColorsSection(context)),
+              SliverToBoxAdapter(child: _buildMoneySection(context)),
+              SliverToBoxAdapter(child: _buildVocabularySection(context)),
+              SliverToBoxAdapter(child: _buildUtilityButtonsSection(context)),
+              ..._buildShortcutSlivers(context),
+            ],
+          ),
         ),
         floatingActionButton: FloatingActionButton(
           onPressed: _addShortcut,

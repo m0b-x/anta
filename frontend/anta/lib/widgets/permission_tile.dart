@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../constants/form_metrics.dart';
 import '../l10n/app_localizations.dart';
 import '../models/app_permission.dart';
+import 'settings_section_list.dart';
 
 abstract final class PermissionPresentation {
   static IconData iconOf(AppPermission permission) => switch (permission) {
@@ -55,39 +57,57 @@ class PermissionTile extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final blocking = entry.isMissing && entry.permission.isEssential;
 
-    final Widget trailing;
+    // The status, or the step that fixes it, is the row's value and the
+    // request the row's tap: a button beside the title was laid out first
+    // and squeezed it at a large text scale (S5). A missing essential keeps
+    // its weight through the error colour, on the glyph and the value.
+    final String value;
+    final VoidCallback? onTap;
+    final Color valueColor;
     switch (entry.status) {
       case PermissionStatus.granted:
-        trailing = Chip(
-          label: Text(l10n.alertsPermissionOn),
-          visualDensity: VisualDensity.compact,
-        );
+        value = l10n.alertsPermissionOn;
+        onTap = null;
+        valueColor = colorScheme.onSurfaceVariant;
       case PermissionStatus.denied:
-        final label = Text(PermissionPresentation.actionOf(l10n, entry));
-        final onPressed = busy ? null : onRequest;
-        trailing = blocking
-            ? FilledButton.tonal(onPressed: onPressed, child: label)
-            : TextButton(onPressed: onPressed, child: label);
+        value = PermissionPresentation.actionOf(l10n, entry);
+        onTap = onRequest;
+        valueColor = blocking ? colorScheme.error : colorScheme.primary;
       case PermissionStatus.unknown:
-        trailing = TextButton(
-          onPressed: busy ? null : onRequest,
-          child: Text(l10n.alertsOpenSettings),
-        );
+        value = l10n.alertsOpenSettings;
+        onTap = onRequest;
+        valueColor = colorScheme.primary;
       case PermissionStatus.notApplicable:
-        trailing = Text(
-          l10n.notSupportedOnPlatform,
-          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-        );
+        value = l10n.notSupportedOnPlatform;
+        onTap = null;
+        valueColor = colorScheme.onSurfaceVariant;
     }
+    // Only a row with something to do waits on a request in flight.
+    final enabled = onTap == null || !busy;
 
-    return ListTile(
+    return SettingsYieldingTile(
       leading: Icon(
         PermissionPresentation.iconOf(entry.permission),
         color: blocking ? colorScheme.error : colorScheme.primary,
       ),
       title: title,
       subtitle: description,
-      trailing: trailing,
+      value: value,
+      trailing: (maxWidth) => ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Text(
+          value,
+          style: TextStyle(
+            color: enabled
+                ? valueColor
+                : colorScheme.onSurface.withValues(
+                    alpha: FormMetrics.disabledOpacity,
+                  ),
+          ),
+        ),
+      ),
+      onTap: onTap,
+      enabled: enabled,
     );
   }
 }

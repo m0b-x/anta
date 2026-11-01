@@ -1,10 +1,12 @@
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
 import 'package:anta/bloc/pairing/pairing_bloc.dart';
 import 'package:anta/bloc/sync/sync_bloc.dart';
+import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -16,6 +18,7 @@ import 'package:anta/models/app_user.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/auth_error.dart';
+import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
@@ -54,13 +57,17 @@ class _RecordingPairingBloc extends PairingBloc {
     events.add(event);
     super.onEvent(event);
   }
+
+  /// Puts the page in a state the fakes pass through too fast to catch — a
+  /// request in flight.
+  void show(PairingState state) => emit(state);
 }
 
-/// The Sharing page's smoke suite (D14 of `docs/settings-rework-roadmap.md`),
-/// pinned before S5 / S6 of the settings rework touch it: it opens signed
-/// out and signed in, measures at de 2.0 on the small phone, and its two
-/// confirmations — sign out while paired, unpair — cancel with no event to
-/// either bloc and no write to the account or the gateway.
+/// The Sharing page's smoke suite (D14 of `docs/settings-rework-roadmap.md`):
+/// it opens signed out and signed in, measures at de 2.0 on the small phone,
+/// and its confirmations — sign out, paired or not, and unpair — cancel with
+/// no event to either bloc and no write to the account or the gateway. Since
+/// S6 each action is its row's tap, the action's word the row's value.
 ///
 /// The page builds its own blocs through `getIt`, so the suite registers
 /// factories that hand out recording blocs over the pairing fakes, and binds
@@ -178,14 +185,16 @@ void main() {
     expect(pairingBloc!.state, const PairingSignedOut());
     expect(find.text(l10n.signInWithGoogle), findsOneWidget);
     expect(find.text(l10n.pairingSignInFirst), findsOneWidget);
-    expect(find.widgetWithText(TextButton, l10n.signOut), findsNothing);
+    expect(find.text(l10n.signOut), findsNothing);
+    expect(find.bySemanticsIdentifier(SemanticsIds.sharingSignIn), findsOne);
+    expect(find.bySemanticsIdentifier(SemanticsIds.sharingList), findsOne);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('signed in and paired, it opens with the account, the partner '
-      'and both buttons', (tester) async {
+  testWidgets('signed in and paired, it opens with the account and the '
+      'partner, each row reading its action as its value', (tester) async {
     await boot(user: userA, paired: true);
     await pumpPage(tester);
 
@@ -193,9 +202,66 @@ void main() {
     expect(pairingBloc!.state, isA<PairingPaired>());
     expect(find.text(userA.displayName!), findsOneWidget);
     expect(find.text(l10n.pairingPairedWith(userB.displayName!)), findsOne);
-    expect(find.widgetWithText(TextButton, l10n.signOut), findsOneWidget);
-    expect(find.widgetWithText(TextButton, l10n.unpair), findsOneWidget);
+    expect(find.byType(TextButton), findsNothing);
+    for (final (id, action) in [
+      (SemanticsIds.sharingSignOut, l10n.signOut),
+      (SemanticsIds.sharingUnpair, l10n.unpair),
+    ]) {
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(id),
+          matching: find.text(action),
+        ),
+        findsOneWidget,
+      );
+    }
     expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a failed sign-in reads Retry on the account row, and its tap '
+      'asks again', (tester) async {
+    await boot(offline: true);
+    await pumpPage(tester);
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingSignIn));
+    await settle(tester);
+    expect(syncBloc!.state, const SyncFailure(AuthError.offline));
+    final before = syncBloc!.events.length;
+
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingRetry));
+    await settle(tester);
+
+    expect(syncBloc!.events.sublist(before), [const SignInRequested()]);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('while an unpair runs the row stays, disabled in place, and '
+      'its tap asks nothing', (tester) async {
+    await boot(user: userA, paired: true);
+    await pumpPage(tester);
+    final paired = pairingBloc!.state as PairingPaired;
+    pairingBloc!.show(PairingPaired(partner: paired.partner, busy: true));
+    await settle(tester);
+
+    final row = find.ancestor(
+      of: find.text(l10n.unpair),
+      matching: find.byType(ListTile),
+    );
+    expect(tester.widget<ListTile>(row).enabled, isFalse);
+    final colorScheme = Theme.of(tester.element(row)).colorScheme;
+    expect(
+      tester.widget<Text>(find.text(l10n.unpair)).style!.color,
+      colorScheme.onSurface.withValues(alpha: FormMetrics.disabledOpacity),
+    );
+    final events = [...pairingBloc!.events];
+
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingUnpair));
+    await settle(tester);
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(pairingBloc!.events, events);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -208,7 +274,7 @@ void main() {
       final syncEvents = [...syncBloc!.events];
       final pairingEvents = [...pairingBloc!.events];
 
-      await tester.tap(find.widgetWithText(TextButton, l10n.signOut));
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingSignOut));
       await settle(tester);
       expect(
         find.text(l10n.pairingSignOutConfirm(userB.displayName!)),
@@ -226,13 +292,44 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    // The whole row signs out, so it asks with no pair too.
+    testWidgets('sign out with no pair asks first; cancel sends nothing, yes '
+        'signs out', (tester) async {
+      await boot(user: userA);
+      await pumpPage(tester);
+      expect(pairingBloc!.state, isNot(isA<PairingPaired>()));
+      final syncEvents = [...syncBloc!.events];
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingSignOut));
+      await settle(tester);
+      expect(find.text(l10n.signOutConfirm), findsOneWidget);
+      await answerDialog(tester, SemanticsIds.sheetCancel);
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(syncBloc!.events, syncEvents);
+      expect(auth.currentUser, userA);
+      expect(syncBloc!.state, isA<SyncSignedIn>());
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingSignOut));
+      await settle(tester);
+      await answerDialog(tester, SemanticsIds.sheetConfirm);
+
+      expect(syncBloc!.events.sublist(syncEvents.length), [
+        const SignOutRequested(),
+      ]);
+      expect(auth.currentUser, isNull);
+      expect(syncBloc!.state, const SyncSignedOut());
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('unpair asks first; cancel sends nothing and leaves the pair '
         'active on the gateway', (tester) async {
       await boot(user: userA, paired: true);
       await pumpPage(tester);
       final pairingEvents = [...pairingBloc!.events];
 
-      await tester.tap(find.widgetWithText(TextButton, l10n.unpair));
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingUnpair));
       await settle(tester);
       expect(
         find.text(l10n.pairingUnpairConfirm(userB.displayName!)),
@@ -267,18 +364,26 @@ void main() {
           ),
         );
 
-    /// The laid-out width of the title in every row that carries a trailing
-    /// `TextButton` — the S5 pattern, which squeezes the title rather than
-    /// overflowing.
-    List<double> titleWidthsBesideButtons(WidgetTester tester) => [
-      for (final tile in tester.widgetList<ListTile>(
-        find.ancestor(
-          of: find.byType(TextButton),
-          matching: find.byType(ListTile),
-        ),
-      ))
-        tester.getSize(find.byWidget(tile.title!)).width,
-    ];
+    /// The title of every action row, laid out: its width, and whether that
+    /// width holds its longest word — a narrower one breaks mid-word.
+    List<({double width, bool wholeWords})> actionTitles(WidgetTester tester) =>
+        [
+          for (final tile in tester.widgetList<SettingsYieldingTile>(
+            find.byType(SettingsYieldingTile),
+          ))
+            for (final paragraph in tester.renderObjectList<RenderParagraph>(
+              find.descendant(
+                of: find.byWidget(tile.title),
+                matching: find.byType(RichText),
+              ),
+            ))
+              (
+                width: paragraph.size.width,
+                wholeWords:
+                    paragraph.size.width + 0.5 >=
+                    paragraph.getMinIntrinsicWidth(double.infinity),
+              ),
+        ];
 
     testWidgets('signed out, de 2.0 on 360 × 780 fits with no exception', (
       tester,
@@ -299,28 +404,24 @@ void main() {
 
       expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
-      // S5 names these two unbounded trailing buttons. Today they leave
-      // their titles about 72 and 97 dp (measured 2026-10-31): cramped, but
-      // drawn.
-      final widths = titleWidthsBesideButtons(tester);
-      expect(widths, hasLength(2));
-      expect(widths, everyElement(greaterThan(48)));
+      // The two rows S5 named for their trailing buttons, Abmelden and
+      // Kopplung aufheben, now values that yield to the title.
+      final titles = actionTitles(tester);
+      expect(titles, hasLength(2));
+      for (final title in titles) {
+        expect(title.width, greaterThan(0));
+        expect(title.wholeWords, isTrue);
+      }
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    // Today's state, pinned so S5 sees it change: "Erneut versuchen", the
-    // longest of the four trailing buttons in German, takes 235 of the
-    // tile's 320 dp at 2.0, and the ListTile gives the title what is left
-    // after the leading icon and the gaps — nothing. No overflow is
-    // reported; the title "Anmeldung fehlgeschlagen" and the error under it
-    // are laid out zero dp wide, one glyph per line, and the row grows to
-    // about 2,700 dp. When S5 bounds the trailing widget, this expectation
-    // flips to a drawn title. S1's kit rows (no card margin, a 12 dp row
-    // end) hand the title about 5 dp: still narrower than one glyph, the
-    // same defect.
-    testWidgets('a failed sign-in, de 2.0 on 360 × 780 collapses the account '
-        'title to zero width (known, S5)', (tester) async {
+    // Pinned at S0 as the title laid out zero dp wide beside "Erneut
+    // versuchen", a 235 dp trailing button, one glyph a line in a row about
+    // 2,700 dp tall (S5). The action is now the row's value, which goes
+    // under the description when the title needs the width.
+    testWidgets('a failed sign-in, de 2.0 on 360 × 780 keeps the account '
+        'title whole', (tester) async {
       await boot(offline: true);
       final errors = await layoutErrorsDuring(() async {
         await pumpPage(
@@ -336,7 +437,18 @@ void main() {
       expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
       expect(syncBloc!.state, const SyncFailure(AuthError.offline));
-      expect(titleWidthsBesideButtons(tester), [lessThan(10)]);
+      final titles = actionTitles(tester);
+      expect(titles, hasLength(1));
+      expect(titles.single.width, greaterThan(0));
+      expect(titles.single.wholeWords, isTrue);
+      final de = lookupAppLocalizations(const Locale('de'));
+      expect(find.text(de.signInFailed), findsOneWidget);
+      expect(
+        tester
+            .getSize(find.bySemanticsIdentifier(SemanticsIds.sharingRetry))
+            .height,
+        lessThan(780),
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

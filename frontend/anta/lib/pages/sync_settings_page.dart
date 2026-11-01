@@ -123,6 +123,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                     child: BlocBuilder<PairingBloc, PairingState>(
                       builder: (context, pairing) => SettingsSectionList(
                         query: _query,
+                        listIdentifier: SemanticsIds.sharingList,
                         sections: _buildSections(context, l10n, state, pairing),
                       ),
                     ),
@@ -151,6 +152,12 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             title: _titleFor(l10n, state),
             description: _descriptionFor(l10n, state),
             keywords: _keywords(l10n.sharingKeywords),
+            identifier: switch (state) {
+              SyncInitial() || SyncSignedOut() => SemanticsIds.sharingSignIn,
+              SyncSignedIn() => SemanticsIds.sharingSignOut,
+              SyncFailure() => SemanticsIds.sharingRetry,
+              _ => null,
+            },
             builder: (context, title, description) =>
                 _accountRow(context, l10n, state, pairing, title, description),
           ),
@@ -167,6 +174,13 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               title: _pairingTitleFor(l10n, pairing),
               description: _pairingDescriptionFor(l10n, pairing),
               keywords: _keywords(l10n.sharingKeywords),
+              identifier: switch (pairing) {
+                PairingUnpaired() ||
+                PairingInviting() => SemanticsIds.sharingPair,
+                PairingPaired() => SemanticsIds.sharingUnpair,
+                PairingEnded() => SemanticsIds.sharingClose,
+                _ => null,
+              },
               builder: (context, title, description) =>
                   _pairingRow(context, l10n, pairing, title, description),
             ),
@@ -202,7 +216,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     Widget? description,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    const padding = EdgeInsets.symmetric(horizontal: 16, vertical: 4);
 
     switch (state) {
       case SyncUnavailable():
@@ -214,7 +227,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ),
           title: title,
           subtitle: description,
-          contentPadding: padding,
         );
 
       case SyncSigningIn():
@@ -226,11 +238,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ),
           title: title,
           subtitle: description,
-          contentPadding: padding,
         );
 
       case SyncSignedIn(:final user):
-        return ListTile(
+        return _actionRow(
+          context,
           leading: UserAvatar(user: user),
           title: title,
           subtitle: description == null
@@ -239,24 +251,18 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                   child: description,
                 ),
-          trailing: TextButton(
-            onPressed: () => _signOut(context, l10n, pairing),
-            child: Text(l10n.signOut),
-          ),
-          contentPadding: padding,
+          action: l10n.signOut,
+          onTap: () => _signOut(context, l10n, pairing),
         );
 
       case SyncFailure():
-        return ListTile(
+        return _actionRow(
+          context,
           leading: Icon(Icons.error_outline_rounded, color: colorScheme.error),
           title: title,
           subtitle: description,
-          trailing: TextButton(
-            onPressed: () =>
-                context.read<SyncBloc>().add(const SignInRequested()),
-            child: Text(l10n.retry),
-          ),
-          contentPadding: padding,
+          action: l10n.retry,
+          onTap: () => context.read<SyncBloc>().add(const SignInRequested()),
         );
 
       case SyncInitial():
@@ -266,9 +272,46 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           title: title,
           subtitle: description,
           onTap: () => context.read<SyncBloc>().add(const SignInRequested()),
-          contentPadding: padding,
         );
     }
+  }
+
+  /// A row whose tap is its action, the action's word read as its value in
+  /// the colour a button's label had. A trailing button was laid out before
+  /// the title, and at 200 % in German "Erneut versuchen" left the title
+  /// zero wide (S5); the value yields instead, under the description when it
+  /// must. [enabled] false greys the row in place while a request runs.
+  Widget _actionRow(
+    BuildContext context, {
+    required Widget leading,
+    required Widget title,
+    Widget? subtitle,
+    required String action,
+    required VoidCallback onTap,
+    bool enabled = true,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SettingsYieldingTile(
+      leading: leading,
+      title: title,
+      subtitle: subtitle,
+      value: action,
+      trailing: (maxWidth) => ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Text(
+          action,
+          style: TextStyle(
+            color: enabled
+                ? colorScheme.primary
+                : colorScheme.onSurface.withValues(
+                    alpha: FormMetrics.disabledOpacity,
+                  ),
+          ),
+        ),
+      ),
+      onTap: onTap,
+      enabled: enabled,
+    );
   }
 
   String _pairingTitleFor(AppLocalizations l10n, PairingState state) =>
@@ -320,7 +363,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     Widget? description,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    const padding = EdgeInsets.symmetric(horizontal: 16, vertical: 4);
 
     switch (state) {
       case PairingInitial():
@@ -333,7 +375,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ),
           title: title,
           subtitle: description,
-          contentPadding: padding,
         );
 
       case PairingUnavailable():
@@ -346,27 +387,25 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ),
           title: title,
           subtitle: description,
-          contentPadding: padding,
         );
 
       case PairingEnded():
-        return ListTile(
+        return _actionRow(
+          context,
           leading: Icon(
             Icons.link_off_rounded,
             color: colorScheme.onSurfaceVariant,
           ),
           title: title,
           subtitle: description,
-          trailing: TextButton(
-            onPressed: () =>
-                context.read<PairingBloc>().add(const EndedNoticeDismissed()),
-            child: Text(l10n.close),
-          ),
-          contentPadding: padding,
+          action: l10n.close,
+          onTap: () =>
+              context.read<PairingBloc>().add(const EndedNoticeDismissed()),
         );
 
       case PairingPaired(:final partner, :final busy):
-        return ListTile(
+        return _actionRow(
+          context,
           leading: busy
               ? const SizedBox(
                   width: 24,
@@ -378,11 +417,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               : UserAvatar(user: partner.toUser()),
           title: title,
           subtitle: description,
-          trailing: TextButton(
-            onPressed: busy ? null : () => _unpair(context, l10n, state),
-            child: Text(l10n.unpair),
-          ),
-          contentPadding: padding,
+          action: l10n.unpair,
+          onTap: () => _unpair(context, l10n, state),
+          enabled: !busy,
         );
 
       case PairingUnpaired(:final busy):
@@ -398,7 +435,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           title: title,
           subtitle: description,
           onTap: () => showPairingSheet(context, context.read<PairingBloc>()),
-          contentPadding: padding,
         );
     }
   }
@@ -422,27 +458,26 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     if (confirmed) bloc.add(const UnpairRequested());
   }
 
-  /// Signing out stops sharing, which nothing on the button says — so it only
-  /// asks while a pair actually exists.
+  /// The whole account row signs out, so a stray tap must not: it always
+  /// asks, and while a pair exists it says that sharing stops too.
   Future<void> _signOut(
     BuildContext context,
     AppLocalizations l10n,
     PairingState pairing,
   ) async {
     final bloc = context.read<SyncBloc>();
-    if (pairing is PairingPaired) {
-      final confirmed = await AppDialogs.confirm(
-        context,
-        title: l10n.signOut,
-        content: l10n.pairingSignOutConfirm(
-          pairing.partner?.displayName ?? l10n.pairingPartnerUnknown,
-        ),
-        confirmText: l10n.signOut,
-        icon: Icons.logout_rounded,
-      );
-      if (!confirmed) return;
-    }
-    bloc.add(const SignOutRequested());
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.signOut,
+      content: pairing is PairingPaired
+          ? l10n.pairingSignOutConfirm(
+              pairing.partner?.displayName ?? l10n.pairingPartnerUnknown,
+            )
+          : l10n.signOutConfirm,
+      confirmText: l10n.signOut,
+      icon: Icons.logout_rounded,
+    );
+    if (confirmed) bloc.add(const SignOutRequested());
   }
 
   /// The app has no push notifications, so the first foreground after the

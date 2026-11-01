@@ -9,8 +9,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/json_keys.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
@@ -104,9 +106,14 @@ void main() {
     return rows!;
   }
 
-  /// A minimal version-7 backup with one folder and one note in it, in the
-  /// shape `BackupService.exportAllData` writes those two keys.
-  Future<String> writeBackup(WidgetTester tester) async {
+  /// A minimal version-7 backup with one folder and one note in it — or
+  /// [folders] and [notes] of them, the extra ones numbered — in the shape
+  /// `BackupService.exportAllData` writes those two keys.
+  Future<String> writeBackup(
+    WidgetTester tester, {
+    int folders = 1,
+    int notes = 1,
+  }) async {
     final path = p.join(tempDir.path, 'picked', 'anta_backup.json');
     await tester.runAsync(() async {
       final file = File(path);
@@ -121,6 +128,12 @@ void main() {
               JsonKeys.name: 'Training',
               JsonKeys.parentId: null,
             },
+            for (var i = 2; i <= folders; i++)
+              {
+                JsonKeys.id: 'f$i',
+                JsonKeys.name: 'Folder $i',
+                JsonKeys.parentId: null,
+              },
           ],
           'notes': [
             {
@@ -129,6 +142,13 @@ void main() {
               JsonKeys.title: 'Leg day',
               JsonKeys.content: 'squats',
             },
+            for (var i = 2; i <= notes; i++)
+              {
+                JsonKeys.id: 'n$i',
+                JsonKeys.folderId: 'f1',
+                JsonKeys.title: 'Note $i',
+                JsonKeys.content: '',
+              },
           ],
           'settings': <String, dynamic>{},
         }),
@@ -171,8 +191,12 @@ void main() {
 
       await robot.restoreFromBackup();
       await robot.settleUntil(() => robot.shows(l10n.confirmImport));
-      // The counts' wording is S9's; only that they are offered is pinned.
       expect(robot.shows(l10n.backupContains), isTrue);
+      // One plural each since S9, never a count glued to "Folders".
+      expect(robot.shows('• ${l10n.onboardingBackupFolders(1)}'), isTrue);
+      expect(robot.shows('• ${l10n.onboardingBackupNotes(1)}'), isTrue);
+      expect(l10n.onboardingBackupFolders(1), '1 folder');
+      expect(robot.shows(l10n.folders), isFalse);
 
       await robot.cancelDialog();
       await robot.settleUntil(() => robot.showsChoices);
@@ -186,6 +210,33 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    // Romanian counts in three forms (2 is "few", 20 "other"), German in two.
+    for (final (language, folders, notes) in [
+      ('ro', '• 2 foldere', '• 20 de notițe'),
+      ('de', '• 2 Ordner', '• 20 Notizen'),
+    ]) {
+      testWidgets('in $language the confirmation counts in its plural forms', (
+        tester,
+      ) async {
+        picker.nextPath = await writeBackup(tester, folders: 2, notes: 20);
+        final robot = OnboardingRobot(tester);
+        await robot.pump(locale: Locale(language));
+
+        await robot.restoreFromBackup();
+        await robot.settleUntil(
+          () => robot.shows(
+            lookupAppLocalizations(Locale(language)).confirmImport,
+          ),
+        );
+        expect(robot.shows(folders), isTrue, reason: folders);
+        expect(robot.shows(notes), isTrue, reason: notes);
+
+        await robot.cancelDialog();
+        await robot.settleUntil(() => robot.showsChoices);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
 
     testWidgets('confirming imports the backup, sets the flag and completes', (
       tester,
@@ -314,22 +365,30 @@ void main() {
       );
     }
 
-    // Today's state, pinned so S3 sees it change: the page is a fixed Column
-    // between two Spacers, and at de 2.0 its content (about 848 dp measured
-    // on 2026-10-31) runs 116 dp past the 732 dp the 360 × 780 surface
-    // leaves inside its padding. When S3 makes the page scroll, this
-    // expectation flips to `isEmpty`.
-    testWidgets('de 2.0 on 360 × 780 overflows at the bottom (known, S3)', (
-      tester,
-    ) async {
-      final errors = await pumpAt(tester, const Size(360, 780));
+    // Pinned at S0 as a fixed Column whose content, about 848 dp at de 2.0,
+    // ran 116 dp past the 732 dp the surface left inside its padding (S3).
+    testWidgets('de 2.0 on 360 × 780 scrolls to Restore from backup with no '
+        'overflow', (tester) async {
+      final robot = OnboardingRobot(tester);
+      final errors = await layoutErrorsDuring(() async {
+        await robot.pump(
+          size: const Size(360, 780),
+          locale: const Locale('de'),
+          textScale: 2.0,
+        );
+        await robot.revealRestore();
+      });
 
-      expect(errors, hasLength(1));
-      expect(
-        errors.single.exceptionAsString(),
-        allOf(contains('RenderFlex overflowed'), contains('on the bottom')),
-      );
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
+      expect(robot.scrollPosition.maxScrollExtent, greaterThan(0));
+      final restore = tester.getRect(
+        find.bySemanticsIdentifier(SemanticsIds.onboardingRestore),
+      );
+      expect(restore.top, greaterThanOrEqualTo(0));
+      expect(restore.bottom, lessThanOrEqualTo(780));
+      final de = lookupAppLocalizations(const Locale('de'));
+      expect(find.text(de.onboardingHowToHint), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -339,6 +398,28 @@ void main() {
 
       expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // The scroll view keeps the page as it was where it fits: nothing to
+    // scroll, the welcome block centred above the two choices.
+    testWidgets('en 1.0 on 412 × 915 fits without scrolling, the how-to line '
+        'under the choices', (tester) async {
+      final robot = OnboardingRobot(tester);
+      await robot.pump();
+
+      expect(robot.scrollPosition.maxScrollExtent, 0);
+      final restore = tester.getRect(
+        find.bySemanticsIdentifier(SemanticsIds.onboardingRestore),
+      );
+      final hint = tester.getRect(find.text(l10n.onboardingHowToHint));
+      expect(hint.top, greaterThan(restore.bottom));
+      expect(hint.bottom, lessThanOrEqualTo(915));
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.onboardingStartFresh),
+        findsOneWidget,
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

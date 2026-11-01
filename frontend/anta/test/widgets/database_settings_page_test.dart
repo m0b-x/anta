@@ -4,13 +4,21 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/repositories/folder_repository.dart';
+import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/database_manager.dart';
+import 'package:anta/services/folder_storage_service.dart';
+import 'package:anta/services/import_export_service.dart';
+import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
 
 import '../database/support/db_test_support.dart';
@@ -25,6 +33,8 @@ import 'support/settings_platform_fakes.dart';
 /// confirm before the switch. The record's rule is that these paths may be
 /// wrapped and never reordered or rewritten, and this suite is how a diff
 /// proves it — a slice that changes an assertion here says which and why.
+/// S6 changed three, each marked where it stands: the switch now asks first,
+/// a failed share keeps the page, and the row menu no longer overflows.
 ///
 /// Everything runs for real: the real `DatabaseManager` over a temporary
 /// documents directory, and the real file-backed `AppDatabase` where a path
@@ -82,9 +92,22 @@ void main() {
     settingsDb = await openTestDatabase();
     SettingsService.forTesting(settingsDb);
     picker = FakeFilePicker()..install();
+    // The share goes through the app's one share path, `shareExport`; the
+    // storage it is built over is never touched by it.
+    final notes = NoteRepository(database: settingsDb);
+    GetIt.I.registerSingleton<ImportExportService>(
+      ImportExportService(
+        noteStorage: NoteStorageService(repository: notes),
+        folderStorage: FolderStorageService(
+          repository: FolderRepository(database: settingsDb),
+        ),
+        noteRepository: notes,
+      ),
+    );
   });
 
   tearDown(() async {
+    await GetIt.I.reset();
     SettingsService.reset();
     await settingsDb.close();
   });
@@ -350,16 +373,21 @@ void main() {
   });
 
   group('switch', () {
-    testWidgets('switching writes the active name before the restart dialog, '
-        'which has no way back — today\'s S7 behaviour, no confirm yet', (
-      tester,
-    ) async {
+    // S6 changed this pin: S0 had the menu entry write the active name
+    // straight away (S7). The confirm now comes first and nothing is written
+    // before its yes; from the yes on, the path is the one S0 pinned — the
+    // write, then the restart dialog with no way back.
+    testWidgets('switching asks first; yes writes the active name before the '
+        'restart dialog, which has no way back', (tester) async {
       final platform = recordMethodCalls(SystemChannels.platform);
       final robot = DatabaseSettingsRobot(tester);
       await robot.pump();
 
       await robot.openMenu('work');
       await robot.chooseFromMenu(l10n.switchTo);
+      expect(robot.shows(l10n.databaseSwitchConfirm('work')), isTrue);
+      expect(prefs.getString(activeKey), isNull);
+      await robot.confirmDialog();
       await robot.settleUntil(() => robot.shows(l10n.restartRequiredTitle));
 
       expect(prefs.getString(activeKey), 'work');
@@ -380,6 +408,23 @@ void main() {
         hasLength(1),
       );
       expect(await filesOnDisk(tester), {'gym_notes', 'work'});
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('cancelling the switch confirm writes nothing and asks for no '
+        'restart', (tester) async {
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.openMenu('work');
+      await robot.chooseFromMenu(l10n.switchTo);
+      await robot.cancelDialog();
+
+      expect(robot.showsDialog, isFalse);
+      expect(robot.shows(l10n.restartRequiredTitle), isFalse);
+      expect(prefs.getString(activeKey), isNull);
+      expect(manager.getActiveDatabaseName(), 'gym_notes');
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -407,8 +452,46 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('a share that throws pops twice and takes the page itself '
-        'away (today, S4)', (tester) async {
+    testWidgets('sharing checkpoints the open database first and leaves the '
+        'live file in place', (tester) async {
+      final path = await pathOf('gym_notes');
+      await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        await db.folderDao.createFolder(name: 'Latest');
+      });
+      final walAtShare = <int>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(shareChannel, (call) async {
+        walAtShare.add(File('$path-wal').lengthSync());
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(shareChannel, null));
+      expect(File('$path-wal').lengthSync(), greaterThan(0));
+
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.tapButton(l10n.shareDatabase);
+      await robot.settleUntil(() => walAtShare.isNotEmpty);
+      await robot.settle();
+
+      // Folded before the share sheet read the file (S2) — and the file the
+      // sheet was handed is the app's own, which `shareExport` must not
+      // delete afterwards as it does a temp export.
+      expect(walAtShare, [0]);
+      expect(File(path).existsSync(), isTrue);
+      expect(robot.showsPage, isTrue);
+      expect(robot.shows(l10n.shareError), isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // S6 flipped this pin: S0 had the catch pop a second time and take the
+    // page itself away (S4). The loading helper now pops its own dialog
+    // once, and the page stays with the error on it.
+    testWidgets('a share that throws shows the error and keeps the page', (
+      tester,
+    ) async {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(
@@ -420,14 +503,12 @@ void main() {
       await robot.pump(overBase: true);
 
       await robot.tapButton(l10n.shareDatabase);
-      await robot.settleUntil(() => !robot.showsPage);
+      await robot.settleUntil(() => robot.shows(l10n.shareError));
 
-      // The loading dialog was already closed before the share; the catch's
-      // pop closes it again, and what it finds on top is the page.
       expect(robot.showsLoading, isFalse);
-      expect(robot.showsPage, isFalse);
-      expect(robot.shows(DatabaseSettingsRobot.baseText), isTrue);
-      expect(robot.shows(l10n.shareError), isTrue);
+      expect(robot.showsPage, isTrue);
+      expect(robot.shows(DatabaseSettingsRobot.baseText), isFalse);
+      expect(File(await pathOf('gym_notes')).existsSync(), isTrue);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -590,23 +671,110 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    // Today's state, pinned so S6 sees it change: the row menu's entries are
-    // bare Rows in the popup's 256 dp of content width, and "Zu dieser
-    // Datenbank wechseln" at 2.0 does not fit. When S6 wraps the label, this
-    // expectation flips to `isEmpty`.
-    testWidgets('the row menu overflows on its switch entry (known, S6)', (
+    // S6 flipped this pin: S0 pinned "Zu dieser Datenbank wechseln"
+    // overflowing the popup's 256 dp at 2.0 as a bare Row's text. The label
+    // is Flexible now and wraps inside the entry; the switch confirm it opens
+    // is read at the same size.
+    testWidgets('the row menu and the switch confirm fit with no overflow', (
       tester,
     ) async {
-      final robot = DatabaseSettingsRobot(tester)..captureMenuOverflows = true;
+      final robot = DatabaseSettingsRobot(tester);
       await pumpLarge(robot);
 
+      final errors = await layoutErrorsDuring(() async {
+        await robot.openMenu('work');
+        expect(robot.shows(de.switchTo), isTrue);
+        await robot.chooseFromMenu(de.switchTo);
+        expect(robot.shows(de.databaseSwitchConfirm('work')), isTrue);
+        await robot.cancelDialog();
+      });
+
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+      expect(tester.takeException(), isNull);
+      expect(prefs.getString(activeKey), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('localized values', () {
+    final de = AppLocalizationsDe();
+
+    testWidgets('sizes and dates follow the locale, never hand-built', (
+      tester,
+    ) async {
+      // 1,536 bytes: one and a half kilobytes, which German writes "1,5".
+      final modified = await tester.runAsync(() async {
+        final file = File(await pathOf('gym_notes'));
+        await file.writeAsBytes(List.filled(1536, 0));
+        return (await file.stat()).modified;
+      });
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump(locale: const Locale('de'));
+
+      expect(robot.statValue(de.size), de.databaseSizeKilobytes('1,5'));
+      expect(
+        robot.statValue(de.lastModified),
+        DateFormat.yMd('de').add_Hm().format(modified!),
+      );
+      // The empty database's row reads in bytes, in the same words.
+      expect(robot.shows(de.databaseSizeBytes('0')), isTrue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a missing file reads Unknown, not a literal', (tester) async {
+      await tester.runAsync(() async {
+        await File(await pathOf('gym_notes')).delete();
+      });
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump(locale: const Locale('de'));
+
+      expect(robot.statValue(de.size), de.unknownValue);
+      expect(robot.statValue(de.lastModified), de.unknownValue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('ids', () {
+    testWidgets('every control a flow taps carries its id', (tester) async {
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      for (final id in [
+        SemanticsIds.databasesPage,
+        SemanticsIds.databasesList,
+        SemanticsIds.databaseRow('gym_notes'),
+        SemanticsIds.databaseMore('gym_notes'),
+        SemanticsIds.databaseRow('work'),
+        SemanticsIds.databaseMore('work'),
+        SemanticsIds.databaseCreate,
+        SemanticsIds.databaseImport,
+        SemanticsIds.databasePath,
+      ]) {
+        expect(robot.showsId(id), isTrue, reason: id);
+      }
+
       await robot.openMenu('work');
-      expect(robot.shows(de.switchTo), isTrue);
+      for (final id in [
+        SemanticsIds.databaseMenuSwitch,
+        SemanticsIds.databaseMenuRename,
+        SemanticsIds.databaseMenuDelete,
+      ]) {
+        expect(robot.showsId(id), isTrue, reason: id);
+      }
       await robot.dismissMenu();
 
-      // The overflow is the switch entry's own Row, not any other.
-      expect(robot.menuOverflows, contains(contains(de.switchTo)));
-      expect(tester.takeException(), isNull);
+      // The list builds lazily; the lower cards exist once scrolled to.
+      await robot.scrollTo(l10n.deleteAllData);
+      for (final id in [
+        SemanticsIds.databaseShare,
+        SemanticsIds.databaseOptimize,
+        SemanticsIds.databaseDeleteAll,
+      ]) {
+        expect(robot.showsId(id), isTrue, reason: id);
+      }
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

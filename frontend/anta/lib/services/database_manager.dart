@@ -2,8 +2,10 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
 
 import '../core/qa/qa_mode.dart';
+import '../database/database.dart';
 
 /// Service for managing multiple SQLite databases
 class DatabaseManager {
@@ -236,6 +238,34 @@ class DatabaseManager {
       await setActiveDatabaseName(
         defaultDatabaseName(qaEnabled: QaMode.enabled),
       );
+    }
+  }
+
+  /// Folds [name]'s `-wal` sidecar back into its `.db`, so the main file alone
+  /// — what a share hands over — holds every committed write.
+  ///
+  /// The open database is checkpointed on the app's own connection. Any other
+  /// name is checkpointed only when a sidecar was left behind (the app quit
+  /// before folding it), on a short-lived connection; SQLite checkpoints once
+  /// more as that last connection closes. It opens read-write, never create:
+  /// an orphan sidecar with no `.db` beside it must not conjure an empty
+  /// database into the list. The FFI calls are synchronous on the UI isolate,
+  /// accepted for this rare branch.
+  Future<void> checkpoint(String name) async {
+    final open = AppDatabase.openInstanceOf(name);
+    if (open != null) {
+      await (await open).checkpoint();
+      return;
+    }
+    final path = await getDatabasePath(name);
+    if (!await File(path).exists()) return;
+    if (!await File('$path-wal').exists()) return;
+    final connection = sqlite3.open(path, mode: OpenMode.readWrite);
+    try {
+      final row = connection.select('PRAGMA wal_checkpoint(TRUNCATE)').single;
+      if (row['busy'] != 0) throw StateError('WAL checkpoint was blocked');
+    } finally {
+      connection.close();
     }
   }
 

@@ -1,6 +1,7 @@
 # Sharing through the hub, left by the bar's arrow and then by system back,
 # each landing on the hub and then on the folder root (D2, D3). The QA build
-# is cut off from Firebase, so the page opens signed out.
+# is cut off from Firebase, so the page opens signed out: on the first visit
+# its list shows the account row under the signed-out id (S6).
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -8,6 +9,7 @@ tap id:drawer-settings
 wait id:settings-bar-hub
 tap id:settings-hub-row-syncSettings
 wait id:settings-bar-sharing
+expect id:sharing-list id:sharing-sign-in
 tap id:nav-back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-sharing

@@ -1,13 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/pages/database_settings_page.dart';
-
-import 'layout_errors.dart';
 
 /// Drives [DatabaseSettingsPage] for its pinned suite: the suite says what the
 /// user does and reads what the page shows.
@@ -115,6 +111,10 @@ class DatabaseSettingsRobot {
         .data!;
   }
 
+  /// A node carrying the semantics [identifier] is built.
+  bool showsId(String identifier) =>
+      find.bySemanticsIdentifier(identifier).evaluate().isNotEmpty;
+
   /// The database list has a row titled [name].
   bool listsDatabase(String name) => _row(name).evaluate().isNotEmpty;
 
@@ -162,51 +162,6 @@ class DatabaseSettingsRobot {
     await settle(rounds: 2);
   }
 
-  /// Whether a row menu's overflows are kept in [menuOverflows] instead of
-  /// failing the test.
-  ///
-  /// The menu's entries are bare `Row`s inside the popup's 256 dp of content
-  /// width, so "Zu dieser Datenbank wechseln" overflows at de 2.0. That is
-  /// S6's to fix, and only the case that pins it turns this on: every other
-  /// test still fails on an overflow.
-  bool captureMenuOverflows = false;
-
-  /// The text of each row a menu overflowed on while it was open or closing,
-  /// kept only while [captureMenuOverflows] is on.
-  final List<String> menuOverflows = [];
-
-  Future<void> _inMenu(Future<void> Function() body) async {
-    if (!captureMenuOverflows) return body();
-    final errors = await layoutErrorsDuring(body);
-    for (final error in errors) {
-      // The report names the overflowing flex itself ("The specific
-      // RenderFlex in question is"); its text says which entry it is.
-      final flex = error.informationCollector
-          ?.call()
-          .whereType<DiagnosticableTreeNode>()
-          .map((node) => node.value)
-          .whereType<RenderFlex>()
-          .firstOrNull;
-      if (flex != null &&
-          error.exceptionAsString().contains('RenderFlex overflowed')) {
-        menuOverflows.add(_textUnder(flex));
-      } else {
-        FlutterError.reportError(error);
-      }
-    }
-  }
-
-  static String _textUnder(RenderObject root) {
-    final text = StringBuffer();
-    void visit(RenderObject node) {
-      if (node is RenderParagraph) text.write(node.text.toPlainText());
-      node.visitChildren(visit);
-    }
-
-    visit(root);
-    return text.toString();
-  }
-
   Future<void> openMenu(String database) async {
     // The database list is its own scroll of at most 240 dp inside the page;
     // at a large text scale only its first row is built.
@@ -218,17 +173,15 @@ class DatabaseSettingsRobot {
     }
     // Through the button's own state: at de 2.0 a row is taller than the
     // list's 240 dp, and its ⋮ can sit clipped below the list's edge.
-    await _inMenu(() async {
-      tester
-          .state<PopupMenuButtonState<String>>(
-            find.descendant(
-              of: _row(database),
-              matching: find.byType(PopupMenuButton<String>),
-            ),
-          )
-          .showButtonMenu();
-      await settle();
-    });
+    tester
+        .state<PopupMenuButtonState<String>>(
+          find.descendant(
+            of: _row(database),
+            matching: find.byType(PopupMenuButton<String>),
+          ),
+        )
+        .showButtonMenu();
+    await settle();
   }
 
   /// The open menu's entry labelled [label].
@@ -239,11 +192,10 @@ class DatabaseSettingsRobot {
     ),
   );
 
-  Future<void> chooseFromMenu(String label) =>
-      _inMenu(() => _tap(find.text(label).last));
+  Future<void> chooseFromMenu(String label) => _tap(find.text(label).last);
 
   /// Closes an open menu by tapping outside it.
-  Future<void> dismissMenu() => _inMenu(tapOutsideDialog);
+  Future<void> dismissMenu() => tapOutsideDialog();
 
   Future<void> enterName(String name) async {
     await tester.enterText(

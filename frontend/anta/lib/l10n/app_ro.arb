@@ -429,6 +429,19 @@
   "restoreFromBackup": "Restaurează din Backup",
   "confirmImport": "Confirmă Importul",
   "backupContains": "Acest backup conține:",
+  "onboardingBackupFolders": "{count, plural, =1{1 folder} few{{count} foldere} other{{count} de foldere}}",
+  "@onboardingBackupFolders": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "onboardingBackupNotes": "{count, plural, =1{1 notiță} few{{count} notițe} other{{count} de notițe}}",
+  "@onboardingBackupNotes": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "onboardingHowToHint": "Poți deschide „Cum folosești ANTA” oricând din meniu",
   "exportedOn": "Exportat la: {date}",
   "import": "Importă",
   "importSuccess": "{folders} foldere și {notes} notițe importate cu succes",
@@ -765,6 +778,40 @@
   "noDatabases": "Nicio bază de date găsită",
   "databaseOptions": "Opțiuni Bază de Date",
   "switchTo": "Comută la această bază de date",
+  "databaseSwitchConfirm": "Treci la {name}? ANTA repornește pe ea.",
+  "@databaseSwitchConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "databaseSizeBytes": "{size} B",
+  "@databaseSizeBytes": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "databaseSizeKilobytes": "{size} KB",
+  "@databaseSizeKilobytes": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "databaseSizeMegabytes": "{size} MB",
+  "@databaseSizeMegabytes": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "unknownValue": "Necunoscut",
+  "databasePathError": "Calea de stocare nu a putut fi citită",
   "deleteDatabaseConfirm": "Ești sigur că vrei să ștergi baza de date \"{name}\"? Această acțiune nu poate fi anulată.",
   "cannotDeleteActive": "Nu poți șterge baza de date activă curent. Te rugăm să comuți la altă bază de date mai întâi.",
   "databaseDeleted": "Baza de date a fost ștearsă",
@@ -1358,6 +1405,7 @@
   "pairingEndedBy": "{name} a încheiat partajarea. Notițele și evenimentele tale rămân pe acest dispozitiv.",
   "pairingEndedByPartner": "Partenerul tău a încheiat partajarea. Notițele și evenimentele tale rămân pe acest dispozitiv.",
   "pairingSignOutConfirm": "Te deconectezi? Partajarea cu {name} se oprește până te conectezi din nou.",
+  "signOutConfirm": "Te deconectezi de la acest cont?",
   "pairingErrorOffline": "Fără conexiune. Împerecherea necesită internet.",
   "pairingErrorNotSignedIn": "Conectează-te mai întâi",
   "pairingErrorUnavailable": "Împerecherea nu este disponibilă aici",
@@ -1384,6 +1432,7 @@
   "developerOptionsDesc": "Instrumente de depanare și diagnosticare",
   "developerOptionsWarning": "Aceste opțiuni sunt doar pentru depanare. Activarea lor poate afecta performanța aplicației.",
   "developerOptionsReset": "Opțiunile de dezvoltator au fost resetate la valorile implicite",
+  "developerOptionsResetConfirm": "Resetezi toate opțiunile pentru dezvoltatori? Asta blochează și modul dezvoltator.",
   "developerModeUnlocked": "Mod dezvoltator deblocat!",
   "lockDeveloperMode": "Blochează modul dezvoltator",
   "developerModeLocked": "Mod dezvoltator blocat",

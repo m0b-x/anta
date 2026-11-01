@@ -2554,6 +2554,24 @@ abstract class AppLocalizations {
   /// **'This backup contains:'**
   String get backupContains;
 
+  /// Onboarding's restore confirmation: how many folders the chosen backup holds
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 folder} other{{count} folders}}'**
+  String onboardingBackupFolders(int count);
+
+  /// Onboarding's restore confirmation: how many notes the chosen backup holds
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 note} other{{count} notes}}'**
+  String onboardingBackupNotes(int count);
+
+  /// Caption at the foot of the welcome screen; names the drawer row howToUseAnta
+  ///
+  /// In en, this message translates to:
+  /// **'You can open How to use ANTA from the menu at any time'**
+  String get onboardingHowToHint;
+
   /// Shows when backup was exported
   ///
   /// In en, this message translates to:
@@ -4426,6 +4444,42 @@ abstract class AppLocalizations {
   /// **'Switch to this database'**
   String get switchTo;
 
+  /// Confirm before switching the active database; name is the database's file name
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to {name}? ANTA restarts on it.'**
+  String databaseSwitchConfirm(String name);
+
+  /// A database file's size in bytes; size is the number, already formatted
+  ///
+  /// In en, this message translates to:
+  /// **'{size} B'**
+  String databaseSizeBytes(String size);
+
+  /// A database file's size in kilobytes; size is the number, already formatted with one decimal
+  ///
+  /// In en, this message translates to:
+  /// **'{size} KB'**
+  String databaseSizeKilobytes(String size);
+
+  /// A database file's size in megabytes; size is the number, already formatted with two decimals
+  ///
+  /// In en, this message translates to:
+  /// **'{size} MB'**
+  String databaseSizeMegabytes(String size);
+
+  /// Shown in place of a value that could not be read (a size, a date, a path)
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get unknownValue;
+
+  /// Shown in place of the database path when reading it failed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read the storage path'**
+  String get databasePathError;
+
   /// Confirmation message for database deletion
   ///
   /// In en, this message translates to:
@@ -5715,6 +5769,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Developer options reset to defaults'**
   String get developerOptionsReset;
+
+  /// Body of the confirmation before Developer options' Reset to defaults, which also clears the unlock
+  ///
+  /// In en, this message translates to:
+  /// **'Reset every developer option? This also locks developer mode.'**
+  String get developerOptionsResetConfirm;
 
   /// Toast message when developer mode is unlocked by swiping gym icon
   ///
@@ -7863,6 +7923,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sign out? Sharing with {name} stops until you sign in again.'**
   String pairingSignOutConfirm(String name);
+
+  /// Body of the sign-out confirmation shown while not paired
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out of this account?'**
+  String get signOutConfirm;
 
   /// Pairing error: the device could not reach the server
   ///

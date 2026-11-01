@@ -1478,6 +1478,32 @@ class AppLocalizationsEn extends AppLocalizations {
   String get backupContains => 'This backup contains:';
 
   @override
+  String onboardingBackupFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count folders',
+      one: '1 folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String onboardingBackupNotes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count notes',
+      one: '1 note',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get onboardingHowToHint =>
+      'You can open How to use ANTA from the menu at any time';
+
+  @override
   String exportedOn(String date) {
     return 'Exported on: $date';
   }
@@ -2542,6 +2568,32 @@ class AppLocalizationsEn extends AppLocalizations {
   String get switchTo => 'Switch to this database';
 
   @override
+  String databaseSwitchConfirm(String name) {
+    return 'Switch to $name? ANTA restarts on it.';
+  }
+
+  @override
+  String databaseSizeBytes(String size) {
+    return '$size B';
+  }
+
+  @override
+  String databaseSizeKilobytes(String size) {
+    return '$size KB';
+  }
+
+  @override
+  String databaseSizeMegabytes(String size) {
+    return '$size MB';
+  }
+
+  @override
+  String get unknownValue => 'Unknown';
+
+  @override
+  String get databasePathError => 'Could not read the storage path';
+
+  @override
   String deleteDatabaseConfirm(String name) {
     return 'Are you sure you want to delete the database \"$name\"? This action cannot be undone.';
   }
@@ -3334,6 +3386,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get developerOptionsReset => 'Developer options reset to defaults';
+
+  @override
+  String get developerOptionsResetConfirm =>
+      'Reset every developer option? This also locks developer mode.';
 
   @override
   String get developerModeUnlocked => 'Developer mode unlocked!';
@@ -4577,6 +4633,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String pairingSignOutConfirm(String name) {
     return 'Sign out? Sharing with $name stops until you sign in again.';
   }
+
+  @override
+  String get signOutConfirm => 'Sign out of this account?';
 
   @override
   String get pairingErrorOffline =>

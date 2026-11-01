@@ -41,6 +41,10 @@ class ExportResult {
   /// Number of calendar events written (calendar `.ics` exports only).
   final int eventsExported;
 
+  /// False for a file the app keeps — the live database the Databases page
+  /// shares — which [ImportExportService.cleanupExport] must never delete.
+  final bool isTemporary;
+
   const ExportResult({
     required this.filePath,
     this.format,
@@ -48,7 +52,17 @@ class ExportResult {
     this.foldersExported = 0,
     this.notesExported = 0,
     this.eventsExported = 0,
-  });
+  }) : isTemporary = true;
+
+  /// A file shared where it lives rather than written for the share, so
+  /// [ImportExportService.shareExport] leaves it in place afterwards.
+  const ExportResult.file(this.filePath)
+    : format = null,
+      isArchive = false,
+      foldersExported = 0,
+      notesExported = 0,
+      eventsExported = 0,
+      isTemporary = false;
 }
 
 /// Result of a successful import operation.
@@ -492,6 +506,7 @@ class ImportExportService {
   /// IO errors — failing to delete a temp file is never worth blocking
   /// the user on.
   Future<void> cleanupExport(ExportResult result) async {
+    if (!result.isTemporary) return;
     try {
       final file = File(result.filePath);
       if (await file.exists()) {

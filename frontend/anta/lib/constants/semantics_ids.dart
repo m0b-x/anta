@@ -167,20 +167,122 @@ abstract final class SemanticsIds {
   /// Markdown shortcuts' bar title.
   static const String settingsBarMarkdown = 'settings-bar-markdown';
 
+  /// Markdown shortcuts' scroll view, its bar's ⋮ (Reset, Remove custom),
+  /// the bar selector's ⋮ and its per-note entry, and the rows a flow reads
+  /// (S6 of the settings rework).
+  static const String markdownSettingsList = 'markdown-settings-list';
+  static const String markdownBarMenu = 'markdown-bar-menu';
+  static const String markdownProfileMenu = 'markdown-profile-menu';
+  static const String markdownPerNoteBars = 'markdown-per-note-bars';
+  static const String markdownMoneyStart = 'markdown-money-start';
+  static const String markdownMoneySymbol = 'markdown-money-symbol';
+  static const String markdownPerNoteCurrency = 'markdown-per-note-currency';
+  static const String markdownVocabularyTrigger = 'markdown-vocabulary-trigger';
+
+  /// One utility-button row, by its `UtilityButtonDefinition` id.
+  static String markdownUtility(String id) => 'markdown-utility-$id';
+
+  /// One shortcut row, its visibility toggle and its ⋮, by the shortcut's id.
+  static String markdownShortcutRow(String id) => 'markdown-shortcut-row-$id';
+  static String markdownShortcutVisibility(String id) =>
+      'markdown-shortcut-visibility-$id';
+  static String markdownShortcutMenu(String id) => 'markdown-shortcut-menu-$id';
+
+  /// The Vocabularies page's list, one vocabulary row and its switch by the
+  /// vocabulary's id, and the create button.
+  static const String vocabulariesList = 'vocabularies-list';
+  static String vocabularyRow(String id) => 'vocabulary-row-$id';
+  static String vocabularyEnabled(String id) => 'vocabulary-enabled-$id';
+  static const String vocabulariesAdd = 'vocabularies-add';
+
+  /// The per-note bar page's bar title, its list, and one note's row and ⋮
+  /// by the note's id.
+  static const String settingsBarNoteBars = 'settings-bar-note-bars';
+  static const String noteBarsList = 'note-bars-list';
+  static String noteBarRow(String noteId) => 'note-bar-row-$noteId';
+  static String noteBarMenu(String noteId) => 'note-bar-menu-$noteId';
+
+  /// The per-note currency page's bar title, its list, and one note's row
+  /// and ⋮ by the note's id.
+  static const String settingsBarNoteCurrencies =
+      'settings-bar-note-currencies';
+  static const String noteCurrenciesList = 'note-currencies-list';
+  static String noteCurrencyRow(String noteId) => 'note-currency-row-$noteId';
+  static String noteCurrencyMenu(String noteId) => 'note-currency-menu-$noteId';
+
   /// The Counters page's bar title.
   static const String settingsBarCounters = 'settings-bar-counters';
 
   /// The Sharing page's bar title.
   static const String settingsBarSharing = 'settings-bar-sharing';
 
+  /// The Sharing page's list, and its rows by the action their tap performs.
+  /// The account row and the pairing row each carry the id of the state they
+  /// are in — signed out it is [sharingSignIn], signed in [sharingSignOut] —
+  /// so a flow waits on the id of the state it expects.
+  static const String sharingList = 'sharing-list';
+  static const String sharingSignIn = 'sharing-sign-in';
+  static const String sharingSignOut = 'sharing-sign-out';
+  static const String sharingRetry = 'sharing-retry';
+  static const String sharingPair = 'sharing-pair';
+  static const String sharingUnpair = 'sharing-unpair';
+  static const String sharingClose = 'sharing-close';
+
   /// The Databases page's bar title.
   static const String settingsBarDatabases = 'settings-bar-databases';
+
+  /// The Databases page's own scroll, which a flow swipes to reach the cards
+  /// below the first screen (`scroll-to --in`).
+  static const String databasesPage = 'databases-page';
+
+  /// The Databases page's list of database files: a flow reaching a lower
+  /// row swipes inside it (`scroll-to --in`), never the page around it.
+  static const String databasesList = 'databases-list';
+
+  /// One database row and its ⋮, by the database's file name — the ⋮ under
+  /// a prefix no other id starts with, so no database's name (`menu-x`,
+  /// `delete`) can make it the row's id or a menu entry's.
+  static String databaseRow(String name) => 'database-row-$name';
+  static String databaseMore(String name) => 'database-more-$name';
+
+  /// The entries of a database row's menu.
+  static const String databaseMenuSwitch = 'database-menu-switch';
+  static const String databaseMenuRename = 'database-menu-rename';
+  static const String databaseMenuDelete = 'database-menu-delete';
+
+  /// The Databases page's buttons and the selectable path.
+  static const String databaseCreate = 'database-create';
+  static const String databaseImport = 'database-import';
+  static const String databaseShare = 'database-share';
+  static const String databaseOptimize = 'database-optimize';
+  static const String databaseDeleteAll = 'database-delete-all';
+  static const String databasePath = 'database-path';
 
   /// Developer options' bar title.
   static const String settingsBarDeveloper = 'settings-bar-developer';
 
+  /// Developer options' list; one switch row by its `DevOptions` field name
+  /// (`colorMarkdownBlocks`, `showFpsCounter`, …); the footer's two buttons.
+  static const String developerOptionsList = 'developer-options-list';
+  static String developerOption(String key) => 'developer-option-$key';
+  static const String developerOptionsReset = 'developer-options-reset';
+  static const String developerOptionsLock = 'developer-options-lock';
+
   /// The Permissions page's bar title.
   static const String settingsBarPermissions = 'settings-bar-permissions';
+
+  /// The Permissions page's list; one permission row by its `AppPermission`
+  /// name (`notifications`, `exactAlarms`, …); the launch-check switch and
+  /// the system-settings row.
+  static const String permissionsList = 'permissions-list';
+  static String permissionTile(String kind) => 'permission-$kind';
+  static const String permissionsLaunchCheck = 'permissions-launch-check';
+  static const String permissionsSystemSettings = 'permissions-system-settings';
+
+  /// The welcome screen's scroll view and its two buttons.
+  static const String onboardingList = 'onboarding-list';
+  static const String onboardingStartFresh = 'onboarding-start-fresh';
+  static const String onboardingRestore = 'onboarding-restore';
 
   /// The settings hub's bar title.
   static const String settingsBarHub = 'settings-bar-hub';
@@ -1033,8 +1135,7 @@ abstract final class SemanticsIds {
   static const String reportPeriodLastMonth = 'report-period-last-month';
   static const String reportPeriodNextMonth = 'report-period-next-month';
   static const String reportPeriodThisYear = 'report-period-this-year';
-  static const String reportPeriodLast12Months =
-      'report-period-last-12-months';
+  static const String reportPeriodLast12Months = 'report-period-last-12-months';
   static const String reportPeriodLast90Days = 'report-period-last-90-days';
   static const String reportPeriodCustom = 'report-period-custom';
   static const String reportBody = 'report-body';
