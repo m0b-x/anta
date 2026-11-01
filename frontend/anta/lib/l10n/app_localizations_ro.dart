@@ -6914,12 +6914,8 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCoachEventsOpen =>
-      'Poți deschide un eveniment atingându-l în lista de mai jos.';
-
-  @override
   String calendarGuideCoachEventsChange(String edit, String save) {
-    return 'Deschide-l, atinge „$edit” din dreapta sus, schimbă numele, apoi „$save”.';
+    return 'Atinge evenimentul de jos, apoi „$edit” din dreapta sus, schimbă numele, apoi „$save”.';
   }
 
   @override
@@ -7011,12 +7007,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuideTourPick => 'Atinge o zi cu o bară sub ea.';
 
   @override
-  String get calendarGuideTourOpen =>
-      'Acum atinge evenimentul din panoul de jos ca să-l deschizi.';
-
-  @override
   String calendarGuideTourEdit(String edit, String save) {
-    return 'Îl poți modifica cu „$edit” din dreapta sus, apoi „$save”.';
+    return 'Atinge evenimentul de jos, „$edit”, schimbă ceva, apoi „$save”.';
   }
 
   @override
@@ -7055,12 +7047,8 @@ class AppLocalizationsRo extends AppLocalizations {
       'Poarta se deschide cu două ore înainte.';
 
   @override
-  String get calendarGuideTourFilterOpen =>
-      'Atinge pâlnia din dreapta sus: ea ascunde ce nu-ți trebuie.';
-
-  @override
   String calendarGuideTourFilterCategory(String categories, String apply) {
-    return 'Atinge „$categories”, debifează una, apoi „$apply”.';
+    return 'Atinge pâlnia, apoi „$categories”, debifează una, apoi „$apply”.';
   }
 
   @override

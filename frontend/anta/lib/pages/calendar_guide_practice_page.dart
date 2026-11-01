@@ -436,8 +436,9 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   ///
   /// The tours' steps are read from what the sheet returns — it reports
   /// only on Apply — and reach the band once it is closed, as the event
-  /// trip's do. A dismissal is an action too (D49): it marks only the
-  /// opening, and clears a standing report in either lesson.
+  /// trip's do. Opening it is no step (D71: the line that sends her here
+  /// carries her on to Apply), but a dismissal is an action (D49): it
+  /// clears a standing report in either lesson.
   Future<void> _openFilters() => _sheets.run<void>(() async {
     final before = demo.filters;
     final picked = await CalendarFilterSheet.show(
@@ -447,7 +448,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     );
     if (!mounted) return;
     if (picked == null) {
-      _did('funnel');
+      _clearReport();
       return;
     }
     setState(() => demo.filters = picked);
@@ -463,7 +464,6 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
         _coach.hasDone('category') &&
         _coach.hasDone('trait');
     _mark([
-      'funnel',
       if (picked.activeCount > 0) 'filtered',
       if (hidesCategories) 'category',
       if (traits > 0) 'trait',
@@ -512,9 +512,10 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
   ///
   /// The tour steps the trip makes reach the band only when it returns: a
   /// sheet's barrier blocks the page's semantics, so a line changed under
-  /// it would never be announced.
+  /// it would never be announced. A trip that makes none still clears a
+  /// standing report: opening the event was an action (D49).
   Future<void> _eventTrip(CalendarEvent event, DateTime day) async {
-    final steps = ['opened'];
+    final steps = <String>[];
     try {
       await _eventSheets(event, day, steps);
     } finally {

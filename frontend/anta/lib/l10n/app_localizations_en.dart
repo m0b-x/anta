@@ -6803,12 +6803,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCoachEventsOpen =>
-      'You can open an event by tapping it in the list below.';
-
-  @override
   String calendarGuideCoachEventsChange(String edit, String save) {
-    return 'Open it, tap “$edit” at the top right, change the name, then “$save”.';
+    return 'Tap the event below, then “$edit” at the top right, change the name, then “$save”.';
   }
 
   @override
@@ -6900,12 +6896,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideTourPick => 'Tap a day with a bar under it.';
 
   @override
-  String get calendarGuideTourOpen =>
-      'Now tap the event in the panel below to open it.';
-
-  @override
   String calendarGuideTourEdit(String edit, String save) {
-    return 'You can change it with “$edit” at the top right, then “$save”.';
+    return 'Tap the event below, then “$edit”, change it, then “$save”.';
   }
 
   @override
@@ -6942,12 +6934,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideDemoEventFlightNote => 'Gate opens two hours before.';
 
   @override
-  String get calendarGuideTourFilterOpen =>
-      'Tap the funnel at the top right: it hides things you do not need.';
-
-  @override
   String calendarGuideTourFilterCategory(String categories, String apply) {
-    return 'Tap “$categories”, untick one, then “$apply”.';
+    return 'Tap the funnel, then “$categories”, untick one, then “$apply”.';
   }
 
   @override

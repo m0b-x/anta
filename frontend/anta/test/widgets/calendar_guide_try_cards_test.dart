@@ -1316,7 +1316,7 @@ void main() {
 
       await robot.tap(rowId('dentist'));
       expect(find.byType(EventDetailSheet), findsOneWidget);
-      // Opening is the step, marked when the trip returns.
+      // The change is the step, marked when the trip returns.
       expect(robot.line, steps[1]);
       await sheets.detailEdit();
       await sheets.typeTitle('Dentist at noon');
@@ -1324,7 +1324,7 @@ void main() {
       // The editor's Save returns to the detail sheet, as on the calendar.
       expect(sheets.detailOpen, isTrue);
       await sheets.detailClose();
-      expect(robot.line, steps[3]);
+      expect(robot.line, steps[2]);
       expect(robot.shows('Dentist at noon'), isTrue);
       note(robot);
 
@@ -1400,11 +1400,11 @@ void main() {
         findsWidgets,
       );
       await sheets.detailClose();
-      // The add, then the open the change already did: straight to delete.
+      // The add, with the change already done: straight to delete.
       await robot.tap('add');
       await sheets.typeTitle('Swim');
       await sheets.saveEditor();
-      expect(robot.line, steps[3]);
+      expect(robot.line, steps[2]);
       note(robot);
       expectOneSlotHeight();
       await expectNothingSaved();
@@ -1439,17 +1439,16 @@ void main() {
       await sheets.detailSkip();
       // A skip is no step of this card and its day is not on the stage:
       // its report alone.
-      expect(
-        robot.line,
-        en.calendarGuideDemoSkipped(
-          shortDates.format(today),
-          en.calendarGuideDemoEventYoga,
-        ),
+      final skipped = en.calendarGuideDemoSkipped(
+        shortDates.format(today),
+        en.calendarGuideDemoEventYoga,
       );
+      expect(robot.line, skipped);
 
       // The next action restores an instruction once its trip returns:
-      // opening is step 2, so the line asks for the first step not done.
+      // opening is no step (D72), so the line asks for the first step.
       await robot.tap(rowId('dentist'));
+      expect(robot.line, skipped, reason: 'under the sheet');
       await sheets.detailClose();
       expect(robot.line, steps[0]);
       await expectNothingSaved();
@@ -1467,7 +1466,7 @@ void main() {
 
       await robot.tap(rowId('dentist'));
       expect(sheets.detailOpen, isTrue);
-      expect(robot.line, steps[1], reason: 'opened, not yet applied');
+      expect(robot.line, steps[1], reason: 'opened, nothing done');
       await sheets.detailEdit();
       await sheets.typeTitle('Dentist at noon');
       await sheets.saveEditor();
@@ -1476,7 +1475,7 @@ void main() {
       expect(robot.shows('Dentist at noon'), isTrue, reason: 'the stage is');
 
       await sheets.detailClose();
-      expect(robot.line, steps[3]);
+      expect(robot.line, steps[2]);
       await expectNothingSaved();
     });
 

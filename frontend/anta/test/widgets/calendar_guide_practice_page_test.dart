@@ -290,7 +290,7 @@ void main() {
 
     await robot.pickDay(day(2));
     expect(robot.dayPanelTitles, contains(en.calendarGuideDemoEventDentist));
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
     expect(robot.canReset, isTrue, reason: 'a step of the tour is done');
     await expectNothingSaved();
   });
@@ -301,16 +301,17 @@ void main() {
   ) async {
     final robot = await open(tester);
     await robot.pickDay(day(2));
+    final edit = en.calendarGuideTourEdit(en.edit, en.save);
 
     // The trip's steps reach the band when it returns: under a sheet the
     // line would change unannounced.
     await robot.openRow('guide-demo-dentist');
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, edit);
     await robot.detailEdit();
     await robot.typeTitle('Dentist again');
     await robot.saveEditor();
     expect(robot.detailOpen, isTrue);
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, edit);
     await robot.detailClose();
     expect(robot.caption, en.calendarGuideTourAdd);
 
@@ -333,7 +334,7 @@ void main() {
     final robot = await open(tester);
 
     await robot.skip();
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
     expect(robot.canReset, isTrue, reason: 'the demo is clean, the tour not');
 
     await robot.reset();
@@ -492,7 +493,7 @@ void main() {
 
     // The next step's action takes the report away.
     await robot.pickDay(day(2));
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
     await expectNothingSaved();
   });
 
@@ -513,7 +514,7 @@ void main() {
     expect(robot.canReset, isFalse, reason: 'a report is no step');
 
     await robot.pickDay(day(2));
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
     await expectNothingSaved();
   });
 
@@ -538,18 +539,37 @@ void main() {
     await expectNothingSaved();
   });
 
-  testWidgets('a Timeline block opens the event: the band asks for the edit '
-      'once the sheet is closed', (tester) async {
+  testWidgets('a Timeline block opens the event: the edit saved moves the '
+      'band on once the sheet is closed', (tester) async {
     final robot = await open(tester);
     await robot.skip();
-    expect(robot.caption, en.calendarGuideTourOpen);
+    final edit = en.calendarGuideTourEdit(en.edit, en.save);
+    expect(robot.caption, edit);
 
     await robot.showPanel(CalendarPanelMode.timeline);
     await robot.tapTimelineEvent(en.calendarGuideDemoEventYoga);
     expect(robot.detailOpen, isTrue);
-    expect(robot.caption, en.calendarGuideTourOpen, reason: 'under the sheet');
+    await robot.detailEdit();
+    await robot.typeTitle('Yoga again');
+    await robot.saveEditor();
+    expect(robot.detailOpen, isTrue);
+    expect(robot.caption, edit, reason: 'under the sheet');
     await robot.detailClose();
-    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
+    expect(robot.caption, en.calendarGuideTourAdd);
+    await expectNothingSaved();
+  });
+
+  testWidgets("an event's sheet closed unchanged advances nothing and clears "
+      'a standing report', (tester) async {
+    final robot = await open(tester);
+    await robot.skip();
+    final edit = en.calendarGuideTourEdit(en.edit, en.save);
+
+    await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+    expect(robot.caption, en.calendarGuideWouldOpen(en.alertsTitle));
+    await robot.openRow('guide-demo-yoga');
+    await robot.detailClose();
+    expect(robot.caption, edit);
     await expectNothingSaved();
   });
 
@@ -557,7 +577,7 @@ void main() {
     tester,
   ) async {
     final robot = await open(tester);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await robot.skip();
     }
     expect(robot.caption, en.calendarGuideTourAdd);
@@ -573,7 +593,7 @@ void main() {
   testWidgets('a template picked is the add step', (tester) async {
     await seedTemplate('Haircut');
     final robot = await open(tester);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await robot.skip();
     }
 
@@ -589,7 +609,6 @@ void main() {
   testWidgets("with the edit current, the detail sheet's Skip, a format and "
       'a panel mode leave the line where it is', (tester) async {
     final robot = await open(tester);
-    await robot.skip();
     await robot.skip();
     final edit = en.calendarGuideTourEdit(en.edit, en.save);
     expect(robot.caption, edit);
@@ -650,7 +669,7 @@ void main() {
     expect(robot.canReset, isFalse, reason: 'no step is done');
 
     await robot.skip();
-    expect(robot.caption, en.calendarGuideTourOpen);
+    expect(robot.caption, en.calendarGuideTourEdit(en.edit, en.save));
     await expectNothingSaved();
   });
 
@@ -1221,7 +1240,6 @@ void main() {
 
   group('the filtering lesson', () {
     const filtering = GuidePracticeLesson.filtering;
-    final openLine = en.calendarGuideTourFilterOpen;
     final categoryLine = en.calendarGuideTourFilterCategory(
       en.calendarCategories,
       en.apply,
@@ -1286,7 +1304,7 @@ void main() {
       expect(demo.isDirty, isFalse);
 
       final robot = await open(tester, lesson: filtering);
-      expect(robot.caption, openLine);
+      expect(robot.caption, categoryLine);
       expect(
         robot.dayPanelTitles,
         containsAll([
@@ -1306,11 +1324,11 @@ void main() {
         for (final event in demo.events)
           if (event.categoryId == hidden) event.title,
       };
-      expect(robot.caption, openLine);
+      expect(robot.caption, categoryLine);
 
       await robot.openFilters();
       await robot.toggleFilterCategory(hidden);
-      expect(robot.caption, openLine, reason: 'under the sheet');
+      expect(robot.caption, categoryLine, reason: 'under the sheet');
       await robot.tapId(SemanticsIds.filterApply);
       expect(robot.caption, traitLine);
       expect(robot.filterBadge, 1);
@@ -1464,14 +1482,16 @@ void main() {
       });
     }
 
-    testWidgets('the funnel closed unapplied is the first step', (
-      tester,
-    ) async {
+    testWidgets('the funnel closed unapplied advances nothing and clears a '
+        'standing report', (tester) async {
       final robot = await open(tester, lesson: filtering);
 
+      await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+      expect(robot.caption, en.calendarGuideWouldOpen(en.alertsTitle));
       await robot.openFilters();
       await robot.tapId(SemanticsIds.filterClose);
       expect(robot.caption, categoryLine);
+      expect(robot.canReset, isFalse, reason: 'opening the funnel is no step');
       expect(robot.filterBadge, isNull);
       await expectNothingSaved();
     });
@@ -1526,7 +1546,7 @@ void main() {
       expect(robot.canReset, isTrue);
 
       await robot.reset();
-      expect(robot.caption, openLine);
+      expect(robot.caption, categoryLine);
       expect(robot.filterBadge, isNull);
       expect(robot.canReset, isFalse);
       expect(robot.barLabels, seeded);

@@ -603,7 +603,7 @@ void main() {
   // page's row is by its card's.
   for (final (lesson, word) in const [
     (GuidePracticeLesson.events, 'bar'),
-    (GuidePracticeLesson.filtering, 'need'),
+    (GuidePracticeLesson.filtering, 'untick'),
   ]) {
     testWidgets('"$word", from its first tour line, finds the '
         '${lesson.name} lesson\'s row alone', (tester) async {

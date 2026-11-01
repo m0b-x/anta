@@ -222,15 +222,18 @@ class GuideEventsDemo extends GuideCardDemo {
   ///
   /// The coach steps the trip makes reach the line only when it returns: a
   /// sheet's barrier blocks the card's semantics, so a line changed under
-  /// it would never be announced.
+  /// it would never be announced. A trip that makes none still clears a
+  /// standing report: opening the event was an action (D49).
   Future<void> _open(BuildContext context, CalendarEvent event) async {
-    final steps = ['opened'];
+    final steps = <String>[];
+    var settled = false;
     void settle() {
-      if (!context.mounted) return;
+      if (settled || !context.mounted) return;
+      settled = true;
+      if (steps.isEmpty) changed();
       for (final step in steps) {
         did(step);
       }
-      steps.clear();
     }
 
     try {

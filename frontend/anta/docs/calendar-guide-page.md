@@ -2387,6 +2387,366 @@ with the files named, then one `reviewer`, then the same implementer's
 fix pass; F4's device pass is the `qa-runner`.
 
 
+### 7.7 The owner's third review (2026-11-01) — the coach reads back, no instruction ends at a door, one screen stage, a Dentist she can see, a month she can tap — status: **PLANNED 2026-11-01, G1 dispatched**
+
+**The owner's letter (2026-11-01), after `bfdab39c`:** "we should have a
+backwards and also forwards buttons for the text to maybe read that
+again"; in Practice calendar filtering "it says to click the funnel on
+the top right to hide things you do not need, and only after you tap and
+close it it says Tap categories, untick one — this is a bit nonsensical
+because do I just open and close it randomly?"; in The calendar screen
+"I cannot change the calendar, this is bad because I'd expect to see
+overview/report and other modes — maybe we can contain them into a
+single widget, with an advanced UX/designer"; in One-time and repeating
+events "the user does not know that they should not click on the square,
+we need to have them somehow not clickable, and also because the dentist
+once is grey there is no contrast between the grey and the grey from the
+not set". Then: "do what the most advanced agent suggests" — the lead's
+recommendations below are all taken.
+
+**Decisions.** The owner's are his words; the lead's (Fable 5.1) were
+argued in the session and taken by the letter above.
+
+- **D70 (lead) The coach is a stepper.** A back and a forward button
+  around the coach line, on every "Try it" card and on the practice band.
+  Back shows an earlier step's line, muted, with a done mark; forward
+  returns toward the live line; at the live line forward *is* today's
+  skip, so the separate skip button goes and its frozen ids
+  (`practice-skip`, `try-<slug>-skip-step`) move onto the forward button
+  with the skip tooltip. Any action — a step, a report, a non-step —
+  snaps the view back to the live line. Reports are shown live only,
+  never in the read-back. The done set (D46) stays the machine: back
+  never un-does or re-runs a step; no checklist of all steps (D49 fought
+  for the slot's height). The designer renders the card line and the band
+  at de 1.3 before the build and sets the controls' size; the band's
+  pinned height (D38 / D39) is met by dropping its decorative glyph and
+  sizing the two buttons a step under the card's, net zero width — the
+  designer confirms or amends (its lettered defaults).
+- **D71 (lead) No instruction ends at a door.** The filtering tour's
+  first step was marked when the sheet closed, applied or dismissed
+  (`calendar_guide_practice_page.dart:449`), and under the sheet the band
+  sits behind the modal barrier, so "Tap “Categories”, untick one" could
+  only be read after she had left — the discovery step the owner read as
+  "open and close it randomly". Rule: every line carries her through the
+  sheet to its Apply or Save. The `funnel` step is retired and its words
+  merge into the category line (§8.5.1); three steps remain. A coach line
+  *inside* the sandboxed sheets was argued against: guide chrome in five
+  real sheets, against the owner's tech-debt rule, and the real sheet is
+  what she must learn to read without a coach.
+- **D72 (lead, owner's yes) The same merge on the events tour and the
+  events card.** The practice tour's `opened` ("Now tap the event in the
+  panel below to open it") and the events card's `opened` ("You can open
+  an event by tapping it in the list below") are the same door; both
+  retire and their words move into the `changed` line (§8.5.1). The
+  pages' `did('opened')` calls become non-step actions (they clear a
+  standing report, D49) — `GuideCoach.did` asserts the step exists.
+- **D73 (owner: one widget; lead: its shape) One screen stage.** D58's
+  three cards go. The screen page keeps its heading, lead and read rows
+  and has one "Try it" card whose stage is shaped like the screen: the
+  view's real bar on top — the title menu live and *switching* the body,
+  as in the app — over a fixed-height viewport (`GuideStageSlot`, a new
+  `GuideMetrics.screenStageHeight` the designer sets, growing with the
+  text to 1.3 as D69's) whose body is the Calendar (the grid in its
+  formats, the mode bar, the panel body), the Overview (chips, period
+  nav, body — the F2 card's wiring kept) or the Report (D74). The title
+  menu saying "would open Overview" was the one place a guide control
+  behaved unlike the app's; a switching body is one view tall, not the
+  900 px D58 feared from stacking. One linear tour, a done set as every
+  coach: `panel`, `more`, `overview`, `mode`, `period`, `report`
+  (§8.5.3); the closing line is the cards' shared one. A fourth
+  full-page lesson was argued against: the topic's read rows need the
+  topic page, and a hop from a topic page to a full page for one card is
+  a navigation pattern the guide does not have. `GuideScreenWorld` stays
+  the one demo the views share; `GuideStageSlot` hands a finger's
+  overscroll to the page as today.
+- **D74 (lead, owner's yes) The Report view is real.** The report fold is
+  a pure function over events (`CalendarReportBuilder.fold` over
+  `CalendarReportService.sampleInput(ReportRequest)`), and the body's
+  three widgets (`ReportTotalsCard`, `ReportTrendChart`,
+  `ReportGroupStack`) take plain inputs; the report page's `_buildBody`
+  (`calendar_report_page.dart:765`) and its band are lifted into one
+  widget the page and the stage both draw (D59's rule, one copy; the
+  page's behaviour and ids unchanged, the lift diffed mechanically).
+  The stage's Report shows this month over the demo's events; folds stay
+  live (a view change, D57), nothing else answers a tap. The catalogue's
+  note that a demo's numbers teach nothing was about a Report *topic*
+  card; here the lesson is that the title has three destinations and
+  what the third looks like. Its own slice, droppable: without it the
+  Report entry keeps today's "would open" report.
+- **D75 (owner: another colour; lead: which) The Dentist takes the first
+  visible coloured category**, as the practice seed's Dentist does
+  (`calendar_guide_demo.dart:440`, `categoryAt(0)`), never `Other`
+  (`0xFF757575`): the kinds card's squares were the category's grey over
+  the outline's grey at 0.45, and the painter's low-contrast outline made
+  marked and unmarked squares the same outlined grey. The avatar and the
+  squares follow the category.
+- **D76 (owner: not clickable; lead: the other way, taken) The month on
+  the kinds card answers a tap.** A grid of rounded squares laid out as
+  this month reads as tappable whatever is done to it, because the real
+  month grid is, and the coach even said "pick a day with a dot" while
+  sending her to the Date row. Tapping a square picks that day (the Date
+  row shows it; the square carries a selected mark the designer specs,
+  distinct from today's ring), Skip this day enables when the event falls
+  on it; the Date row and the real picker stay as the alternative. The
+  `skipped` line becomes "Tap a day with a dot, then “{skip}”." (§8.5.1).
+  `MonthDotMatrix` gains an optional `onDayTap` and `selectedIndex`; the
+  year tiles pass neither and paint as today. The fallback the owner can
+  still take: shrink to the tile's scale, no outline, a caption.
+
+**Designer B's defaults for the screen stage (2026-11-01), taken as
+delegated — D77–D86.** The mock, real-font renders light and dark:
+<https://claude.ai/artifact/8m2tt8GzDgZ2etqXnms3dH>. Its diagnosis of the
+three cards: about 1,690 dp of stage; the grid card's `surface` bar over
+a `pageGround` grid, which the real page never draws; the panel 300 dp
+away from the grid "at the bottom" the line names.
+
+- **D77 (Da) Height.** `GuideMetrics.screenStageHeight` = 668 at 1.0;
+  only the panel's share grows: H(s) = 668 − 128 +
+  clamp(s, 1.3) × 128 (`screenStagePanelShare` 128,
+  `screenStageMaxTextScale` 1.3) — 668 at 1.0, 706 from 1.3 up.
+  `panelStageHeight`, `panelStageMaxTextScale`, `overviewStageBodyHeight`
+  retire with their cards. From the card's top to the mode bar is 638 dp,
+  so the coach line and the mode bar it names share a 780 screen at 1.0;
+  74 % of the stage (bar + grid) takes only taps and horizontal swipes,
+  so a vertical drag there scrolls the page.
+- **D78 (Db) Calendar view.** The bar (48), the grid on
+  `ColoredBox(surface)` with `holdsMonthHeight: false`, then
+  `Expanded(GuideDemoPanel)` on its own `pageGround`: the grid stays
+  pinned and the panel takes the rest — 128 dp under the mode bar in the
+  month format, 376 in two weeks, 438 in week, as on the real page.
+- **D79 (Dc) Grounds.** Each view draws its real page's: `surface` under
+  the calendar's bar and grid, `pageGround` under the overview's and the
+  report's bars.
+- **D80 (Dd) Flush stage.** No 12 dp `stagePadding` on this stage: a new
+  `GuideCardDemo.stageFlush` (default false, true here); the hairlines
+  stay.
+- **D81 (De) One bar widget, each view's own bar.** `GuideCalendarBar`
+  gains `page` (`CalendarViewPage`), a nullable `format` /
+  `onFormatSelected` (the format group appears only in Calendar, as on
+  the real bars) and `actions: List<Widget>` in place of its three named
+  slots — the practice page's call changes mechanically, same look.
+  `primary: false`, `automaticallyImplyLeading: false`, `namesRoute:
+  false`, `excludeHeaderSemantics: true`, `AppBarMetrics` sizes. The title
+  shows and checks the shown view; picking the shown page only closes the
+  menu.
+- **D82 (Df) Live and disabled.** Live: the title menu (pages and
+  formats), grid day taps and swipes, the mode bar, the chips, mini-month
+  taps, the overview's and the report's ◄ ► Today, report folds and
+  in-place disclosures, the ⋮ in every view (its rows no-ops marking
+  `more`). Disabled, never hidden: Calendar's saved filters and funnel;
+  Overview's tune, saved views, search chip; Report's categories funnel,
+  its footer rows (Show as list / Share / Send), the "More categories"
+  cap row. Report rows inert with no chevron; no presence button (D57);
+  the report's period title gets no `onTitleTap` (the overview card's
+  precedent).
+- **D83 (Dg) The switch.** One frame, no animation; the height constant
+  across views, formats and months. Kept for the page's life: the world
+  (picked day, focused month, format, panel mode), the overview demo
+  (mode, month / year, whole month), the report view (period, folds).
+  New: entering Overview after the pick changed sets its month / year to
+  the picked day's (today `_onWorld` keeps `_month`).
+- **D84 (Dh)** The stage opens on Calendar every time the page opens.
+- **D85 (Di) The lines name where they apply.** `overview` and `report`
+  say "the title at the top" (no `{calendar}` placeholder — the title
+  reads the shown view); `mode` and `period` open with "In “{overview}”,
+  …", since forward / skip can leave her on a step while another view is
+  shown. §8.5.3 carries the texts. Only the Overview's nav marks
+  `period`, never the grid's chevrons.
+- **D86 (Dj) Ids.** Each view body is a container
+  `calendarGuideTryControl('screen', 'view-calendar' | 'view-overview' |
+  'view-report')`; kept `try-screen-saved-filters`, `try-screen-filter`,
+  `try-screen-more` (the same ⋮ id in all three views), every
+  `try-overview-*`; new `try-screen-overview-options`,
+  `try-screen-overview-views`, `try-screen-report-categories`,
+  `try-screen-report-previous` / `-next` / `-today`; retired with their
+  cards `calendar-guide-try-panel` / `-overview`, their captions,
+  `try-panel-skip-step` / `try-overview-skip-step`; `26_guide` follows.
+
+Risks the designer named for the `design-reviewer` (G6): the stage's
+size equal (±1 dp) across views, formats, 5- and 6-row months and de
+2.0; the first Day row inside the stage at 1.0 / 1.3; no overflow at
+de 2.0 in any view; the grounds in light; Overview opening on the picked
+day's month; the maximum-bars appearance (more bars raise the grid and
+eat the panel's share — `Expanded`, nothing overflows); in dark
+`pageGround` equals `surface`, so the stage's bar and the page bar are
+told apart only by the hairline and the coach line; on the device, the
+slot hand-off under a thumb with 3-button navigation (about 660 dp of
+list; the Day row ends 656 dp below the stage's top at 1.0).
+
+**Designer A's defaults for the stepper and the kinds month
+(2026-11-01), taken as delegated — D87–D100.** Measured on real fonts in
+German at 360 wide: a card's line is 240 dp beside the 48 dp skip and its
+8 dp gap; the band's line 248 dp beside a 20 dp glyph and its 12 dp gap,
+the band 72 / 111 / 111 dp at de 1.0 / 1.3 / 2.0 (D39). A 48 dp pair on
+the band made it 90 / 137 / 137 and broke D39; the 40 dp pair with the
+glyph gone keeps 72 / 111 / 111 and the 248 dp line.
+
+- **D87 (Da, Db, Dc) The pair.** Back then forward, both trailing and
+  touching, forward on the skip's exact spot (nothing moves under the
+  finger); on the card two `FormTrailingButton`s of 48 (`coachGap` 8
+  retired — the target's own inset keeps the glyph off the text; the
+  line goes 240 → 200 dp), on the band two of **40 wide × 48 tall**
+  (`GuideMetrics.bannerButtonWidth` 40; `FormTrailingButton` gains an
+  optional `width`, default `trailingButtonSize` — the one primitive
+  change, with a `form_rows_test` case) and `bannerGlyphSize` /
+  `bannerGap` retire with the glyph. `_lineInset` / `_skipInset`
+  unchanged.
+- **D88 (Dd) Glyphs.** Back `chevron_left_rounded`; forward while
+  reading back `chevron_right_rounded`; forward at the live line
+  `skip_next_rounded`. `trailingIconSize` 20, `onSurfaceVariant` on the
+  card, `onPrimaryContainer` on the band, disabled at 0.38. Back is off
+  when no done step comes before the cursor; forward is off only at the
+  live line once the tour is finished.
+- **D89 Tooltips and ids.** Back `calendarGuideStepBack`; forward while
+  reading `calendarGuideStepForward`; forward at the live line
+  `calendarGuideSkipStep`. Forward keeps `calendarGuideTrySkip(slug)` /
+  `practiceSkip`; back is `SemanticsIds.calendarGuideTryStepBack(slug)` =
+  `try-<slug>-step-back` and `SemanticsIds.practiceStepBack` =
+  `practice-step-back`.
+- **D90 (De, Df) The read-back line.** The card: paragraph style in
+  `onSurfaceVariant` (8.88:1 light, 9.56:1 dark on `rowGroup`), an inline
+  leading `WidgetSpan` (`PlaceholderAlignment.middle`) of
+  `Icons.check_rounded` at `scaler.scale(GuideMetrics.coachDoneMarkSize
+  = 14)` in `primary`, gap `scaler.scale(coachDoneMarkGap = 4)`, later
+  rows wrapping under the mark. The band: caption style in ink at
+  `GuideMetrics.bannerReadBackAlpha = 0.78` (7.88:1 / 5.10:1 on
+  `primaryContainer`), the mark at `scaler.scale(FormMetrics.captionSize)`
+  in full ink.
+- **D91 (Dg) Semantics.** One node, the same caption id; `liveRegion`
+  off while reading back, the node's `label` `calendarGuideStepDone` so it
+  reads "Done" then the line (the glyph alone carries nothing); returning
+  to the live line turns the live region back on, so the live line is
+  announced as today, pressing back is not.
+- **D92 (Dh)** A skipped step reads back with the same done mark: the
+  done set does not tell skipped from done.
+- **D93 Candidates.** The slot's list gains every step line drawn in the
+  read-back style with its mark; reports and the closing line are never
+  read back; one builder makes the child and the candidates. Measured
+  growth at de 1.0 / 1.3: kinds 60 / 100 → 80 / 100, alerts → 60 / 125,
+  fasting → 80 / 150; 2.0 stays clamped to 1.3 (D66).
+- **D94 (Di) One German line shortened.** `calendarGuideTourFilter` de
+  loses "oben" — „Der Trichter versteckt Kategorien. Probier es, dann
+  „{apply}“." — the one step line that took three rows at 1.0 behind the
+  mark and made the band 90 dp; en and ro unchanged (§8.5.1, lands in
+  G3).
+- **D95 (kinds) The category.** The first visible category, as the
+  practice seed's `categoryAt(0)` (Gym, `0xFF1E88E5`, on a fresh
+  install); the avatar and the squares follow. Marked against unmarked
+  is then hue, blue against neutral (1.86:1 light, 2.35 dark — Other's
+  grey was 2.34 / 1.88 with no hue); the Repeat row's words carry the
+  rule, so the month stays a picture. `unmarkedAlpha` and
+  `missedEventAlpha` unchanged.
+- **D96 (Dj) The selected mark.** `MonthDotMatrix.selectedIndex` and
+  `selectedColor` (the caller passes `onSurface`, 14.85:1 / 14.35:1 on
+  the ground): a detached ring outside the square,
+  `selectedRingOutset = 1.0` and `selectedRingWidth = 0.75` in the 8-unit
+  cell scale, corner radius `_radius + outset`, painted after today's
+  ring; at 4× a 3 dp stroke 2.5–5.5 dp outside the cell. Today's inner
+  `primary` ring unchanged; on today both show.
+- **D97 (Dk) The tap.** `onDayTap(int index)`: a `GestureDetector` that
+  exists only when the callback is passed; each square's hit tile is one
+  full pitch centred on it (`col = ((x + gap/2) / pitch).floor()`), 40 ×
+  40 dp at 4×, 30 × 30 at 3×, touching, no dead zones; slots outside the
+  month do nothing; no ink — the ring appearing is the feedback.
+  `CalendarGuideStageMatrix` gains `minScale`; the kinds card passes
+  `GuideMetrics.stageMatrixTapMinScale = 3` (2× would be a 20 dp pitch,
+  under WCAG 2.5.8's 24); the finding card stays at 2.
+- **D98 (Dl)** The matrix stays `ExcludeSemantics`, the squares get no
+  ids; the Date row and the real picker remain the accessible path and
+  the flows' path.
+- **D99 (Dm)** Any day in the month can be picked; tapping the picked day
+  again keeps it; Skip enables only on a day the event falls on (D76).
+- **D100 (Dn)** Painting with no tap and no selection passed is identical
+  to today's, so the year tiles do not change.
+
+Risks the designer named for the `design-reviewer` (G6): the card in
+German, light and dark, 1.0 / 1.3 / 2.0, kinds, alerts and fasting, in
+four states (first step with back off; reading back the longest step;
+live after reading back; finished with forward off); the band in German
+at the three scales, live and reading back, both lessons — pin
+72 / 111 / 111 and the 248 dp line; the kinds month light and dark at
+1.0 selected on a marked day, on today, and a missed day; the forward
+button's rect equals today's skip rect (±1 dp); the semantics node's
+label and live region in both modes; the dark card's muting is subtle
+(`onSurfaceVariant` against `onSurface`), the mark carries "done".
+
+**Must not change.** Everything §7.6's list holds, and: the coach's
+done-set semantics (`did`, `say`, `skip`, `hasDone`); the frozen ids —
+`practice-skip` and `try-<slug>-skip-step` now name the forward button,
+every `practice-*` and `try-<slug>-*` control id keeps its target; the
+band's pinned geometry (D38 / D39) and the coach clamps (D51, D66); the
+report page's behaviour, ids and suite through the lift; the overview
+page (another session's slice runs after this work — not a line of
+`calendar_overview_page.dart`, its test or `05_overview.txt`);
+`MonthDotMatrix`'s painting where no tap and no selection are passed; the
+ARB keys every flow reads (`26_guide`, `27_guide_lessons` are updated
+with their cards' ids, never the other way round).
+
+**Slices** (one `implementer` and one `reviewer` each, the gate after
+each, the owner commits; G1 needs no designer, G2 and G3 wait on
+designer A's spec, G4 on designer B's; the designers render in detached
+worktrees at `C:\Users\mobx3\AppData\Local\Temp\anta-wt-<id>` so their
+scratch goldens never meet the implementer's gate):
+
+- **G1 — the merges.** D71, D72, §8.5.1's retirements and changed lines
+  in en/de/ro, the steps in `calendar_guide_content.dart` (the filtering
+  tour, the events tour, the events card), the `opened` reports made
+  non-step in `calendar_guide_practice_page.dart` and
+  `calendar_guide_try_events.dart`, the suites' tour cases
+  (`calendar_guide_practice_page_test.dart` reads `calendarGuideTourOpen`
+  nine times and `calendarGuideTourFilterOpen` once; the try-cards suite's
+  events steps), `untranslated.txt` empty.
+  *As built 2026-11-01 (one `implementer`, one `reviewer`, no fix pass
+  needed):* the three keys retired with their `@` blocks, the three lines
+  rewritten; the filtering tour `category`, `trait`, `reset`, the events
+  tour `picked`, `changed`, `added`, `filtered`, the events card `added`,
+  `changed`, `deleted`; a dismissed funnel and an event trip that made no
+  step go through `_clearReport()` / `_mark([])`; the events card's
+  `settle()` runs once per trip (a `settled` flag — without it the
+  `finally` wiped the "Skipped" report, pinned by two cases); the hub
+  search case keys on "untick". Suites +76 / +309 / +47 / +27; the whole
+  suite +12362 ~11 −1 (the Windows-only macOS-path case). The review (no
+  bug, three low notes): the German filter line is 71 characters filled
+  — accepted; the events card's German line grew to 96 and its slot grows
+  with it (§8.5.1 allows a card's slot to grow; the design review renders
+  it); two report clears for one action on the skip and delete branches,
+  harmless. Flows 26 and 27 walked against the code, ids unchanged.
+- **G2 — the kinds card.** D75, D76 to designer A's spec: the seed's
+  category, `MonthDotMatrix.onDayTap` / `selectedIndex` with the mark,
+  the tap wired in `calendar_guide_try_kinds.dart`, the `skipped` line's
+  new placeholders, the try-cards suite (a tap picks, Skip enables only on
+  a marked day, the picker still works, the year tiles unchanged).
+- **G3 — the stepper.** D70 to designer A's spec: a reading cursor on
+  `GuideCoach` (never touching the done set), the back / forward pair on
+  `CalendarGuideTryCard` and `_PracticeBand`, the tooltips (§8.5.2), the
+  candidates list sized for the read-back lines, the suites (back shows
+  the earlier line with its mark, forward returns, forward at the live
+  line skips, an action snaps back, the band's height at de 1.3).
+- **G4 — the screen stage.** D73 to designer B's spec: one
+  `GuideCardSpec` for the screen page, the view switch in
+  `calendar_guide_try_screen.dart` over `GuideScreenWorld`, the overview
+  card's wiring moved under the switch, `GuideMetrics.screenStageHeight`,
+  §8.5.3's lines, the retired card titles, the try-cards suite (every
+  switch, the one picked day, no sheet from any tap, the height at 2.0),
+  `26_guide`'s ids.
+- **G5 — the Report view.** D74: `ReportBody` lifted out of
+  `calendar_report_page.dart` with the page drawing it unchanged (its
+  suite green before and after), the stage's Report over the demo, the
+  `report` step live.
+- **G6 — close.** The `design-reviewer` over the stepper, the kinds card
+  and the screen stage; `qa pass calendar -d emulator-5556`; the skill
+  bullet, `references/subsystems.md`'s guide paragraph, the feature doc's
+  addendum, this section's status and as-built notes.
+
+How to run it: the lead session is this one (Fable 5.1); designers A
+(the stepper and the kinds mark) and B (the screen stage) run first, in
+parallel with G1; each slice is one `implementer` (Opus 5.5, high)
+briefed from this section and §8.5 with the files named, then one
+`reviewer`, then the same implementer's fix pass; G6's device pass is the
+`qa-runner`. The session anta-a6 waits for the lead's "done" before its
+overview slice.
+
+
 ## 6. Deferred
 
 - **The finding card's Missed-only filter is empty in a month's first week** (found 2026-11-01 while gating the settings rework, confirmed with `now: 2026-11-03`): the demo lists days from the 1st of the month (`calendar_guide_try_finding.dart:68-86`) while its one missed mark is Yoga at `_offset(-7)` (`calendar_guide_demo.dart:563`), so from the 1st to the 7th the mark sits in the previous month and the list is empty — a learner following the "Missed only" step sees nothing. The suite now pins the finding topic to 2026-10-14 (`fixedNowFor`) so it no longer fails on the real clock; the demo itself is the owner's call: start the window a fortnight before today, or place the missed mark inside the current month.
@@ -2982,3 +3342,64 @@ The screen card keeps `calendarGuideCoachScreenTitle` and
 The card's own controls take the app's labels as they are: the four
 tradition names (`fastingTradition*`), `fastingAppearanceTitle`,
 `fastingScheduleTitle`, `fastingOrthodoxGreatFasts`.
+
+### 8.5 The third review's strings (§7.7; G1 lands 8.5.1's merges, G2 its `skipped` line, G3 8.5.2, G4 8.5.3)
+
+#### 8.5.1 No instruction ends at a door (D71, D72, D76)
+
+Retired, with their `@` metadata, in all three ARBs:
+`calendarGuideTourFilterOpen`, `calendarGuideTourOpen`,
+`calendarGuideCoachEventsOpen`.
+
+Changed in place (the band's lines stay under about 70 German characters
+with the labels filled in — D39's pinned height; a card's slot grows):
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideTourFilterCategory {categories} (calendarCategories) {apply} | Tap the funnel, then “{categories}”, untick one, then “{apply}”. | Tippe auf den Trichter, „{categories}“, wähle eine ab, dann „{apply}“. | Atinge pâlnia, apoi „{categories}”, debifează una, apoi „{apply}”. |
+| calendarGuideTourEdit {edit} {save} | Tap the event below, then “{edit}”, change it, then “{save}”. | Tippe unten auf das Ereignis, „{edit}“, ändere es, „{save}“. | Atinge evenimentul de jos, „{edit}”, schimbă ceva, apoi „{save}”. |
+| calendarGuideCoachEventsChange {edit} {save} | Tap the event below, then “{edit}” at the top right, change the name, then “{save}”. | Tippe unten auf das Ereignis, dann oben rechts „{edit}“, ändere den Namen, dann „{save}“. | Atinge evenimentul de jos, apoi „{edit}” din dreapta sus, schimbă numele, apoi „{save}”. |
+| calendarGuideCoachKindsSkip {skip} (eventSkipOccurrence; the `{date}` placeholder retired — G2) | Tap a day with a dot, then “{skip}”. | Tippe auf einen Tag mit Punkt, dann „{skip}“. | Atinge o zi cu punct, apoi „{skip}”. |
+
+The steps after the merges: the filtering tour `category`, `trait`,
+`reset`; the events tour `picked`, `changed`, `added`, `filtered`; the
+events card `added`, `changed`, `deleted`.
+
+Changed by D94 (lands in G3), German only: `calendarGuideTourFilter` de
+= „Der Trichter versteckt Kategorien. Probier es, dann „{apply}“." (was
+„Der Trichter oben versteckt …").
+
+#### 8.5.2 The stepper (D70, G3)
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideStepBack | Previous step | Vorheriger Schritt | Pasul anterior |
+| calendarGuideStepForward | Next step | Nächster Schritt | Pasul următor |
+| calendarGuideStepDone | Done | Erledigt | Făcut |
+
+`calendarGuideSkipStep` ("Skip this step") stays: the forward button's
+tooltip at the live line, where forward skips. `calendarGuideStepDone` is
+the read-back node's semantics label (D91): the check glyph alone carries
+nothing to a screen reader. New ids: `try-<slug>-step-back`,
+`practice-step-back` (D89).
+
+#### 8.5.3 The screen stage (D73, D74, G4, G5)
+
+Retired: `calendarGuideCardGrid`, `calendarGuideCardPanel`,
+`calendarGuideCardOverview` (the one card is titled `calendarGuideTryIt`
+as every other page's), `calendarGuideCoachScreenTitle`.
+
+The lines as designer B worded them (D85 — the title reads the shown
+view, so no `{calendar}`; `mode` and `period` name the Overview):
+
+| key | en | de | ro |
+|---|---|---|---|
+| calendarGuideCoachScreenOverview {overview} (calendarOverview) | Tap the title at the top and choose “{overview}”: the title is a menu of views. | Tippe oben auf den Titel und wähle „{overview}“: Der Titel ist ein Menü der Ansichten. | Atinge titlul de sus și alege „{overview}”: titlul e un meniu de vederi. |
+| calendarGuideCoachScreenReport {report} (reportTitle) | Tap the title at the top and choose “{report}”: it counts what happened. | Tippe oben auf den Titel und wähle „{report}“: Er zählt, was war. | Atinge titlul de sus și alege „{report}”: numără ce s-a întâmplat. |
+| calendarGuideCoachOverviewMode (changed; gains {overview} (calendarOverview) before {year} {month} {list}) | In “{overview}”, tap “{year}”, “{month}” or “{list}”: three ways to see the same events. | In „{overview}“ tippe auf „{year}“, „{month}“ oder „{list}“: drei Arten, dieselben Ereignisse zu sehen. | În „{overview}”, atinge „{year}”, „{month}” sau „{list}”: trei feluri de a vedea aceleași evenimente. |
+| calendarGuideCoachOverviewPeriod (changed; gains {overview} (calendarOverview)) | In “{overview}”, the arrows step back and forward; the button between them returns to today. | In „{overview}“ blättern die Pfeile vor und zurück; die Taste dazwischen führt zu heute zurück. | În „{overview}”, săgețile dau înainte și înapoi; butonul dintre ele te aduce la azi. |
+
+Kept as they are: `calendarGuideCoachScreenPanel` (`panel`),
+`calendarGuideCoachScreenMore` (`more`), `calendarGuideWouldOpen` for the
+Report entry until G5 lands. The tour's order: `panel`, `more`,
+`overview`, `mode`, `period`, `report`.

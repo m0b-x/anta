@@ -6862,12 +6862,8 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCoachEventsOpen =>
-      'Ein Ereignis öffnest du, indem du es in der Liste unten antippst.';
-
-  @override
   String calendarGuideCoachEventsChange(String edit, String save) {
-    return 'Öffne es, tippe oben rechts auf „$edit“, ändere den Namen, dann „$save“.';
+    return 'Tippe unten auf das Ereignis, dann oben rechts „$edit“, ändere den Namen, dann „$save“.';
   }
 
   @override
@@ -6960,12 +6956,8 @@ class AppLocalizationsDe extends AppLocalizations {
       'Tippe auf einen Tag mit einem Balken darunter.';
 
   @override
-  String get calendarGuideTourOpen =>
-      'Tippe jetzt im Bereich unten auf das Ereignis, um es zu öffnen.';
-
-  @override
   String calendarGuideTourEdit(String edit, String save) {
-    return 'Mit „$edit“ oben rechts kannst du es ändern, dann „$save“.';
+    return 'Tippe unten auf das Ereignis, „$edit“, ändere es, „$save“.';
   }
 
   @override
@@ -7004,12 +6996,8 @@ class AppLocalizationsDe extends AppLocalizations {
       'Das Gate öffnet zwei Stunden vorher.';
 
   @override
-  String get calendarGuideTourFilterOpen =>
-      'Tippe auf den Trichter oben rechts: Er versteckt, was du nicht brauchst.';
-
-  @override
   String calendarGuideTourFilterCategory(String categories, String apply) {
-    return 'Tippe auf „$categories“, wähle eine ab, dann „$apply“.';
+    return 'Tippe auf den Trichter, „$categories“, wähle eine ab, dann „$apply“.';
   }
 
   @override

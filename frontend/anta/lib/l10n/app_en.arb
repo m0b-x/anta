@@ -8782,13 +8782,9 @@
       }
     }
   },
-  "calendarGuideCoachEventsOpen": "You can open an event by tapping it in the list below.",
-  "@calendarGuideCoachEventsOpen": {
-    "description": "Calendar guide coach instruction"
-  },
-  "calendarGuideCoachEventsChange": "Open it, tap “{edit}” at the top right, change the name, then “{save}”.",
+  "calendarGuideCoachEventsChange": "Tap the event below, then “{edit}” at the top right, change the name, then “{save}”.",
   "@calendarGuideCoachEventsChange": {
-    "description": "Calendar guide coach instruction; edit and save are the detail sheet's and the editor's labels",
+    "description": "Calendar guide coach instruction covering the whole trip: open an event from the list, its detail sheet's Edit, the editor's Save; edit and save are the detail sheet's and the editor's labels",
     "placeholders": {
       "edit": {
         "type": "String"
@@ -8960,13 +8956,9 @@
   "@calendarGuideTourPick": {
     "description": "Practice calendar tour instruction"
   },
-  "calendarGuideTourOpen": "Now tap the event in the panel below to open it.",
-  "@calendarGuideTourOpen": {
-    "description": "Practice calendar tour instruction"
-  },
-  "calendarGuideTourEdit": "You can change it with “{edit}” at the top right, then “{save}”.",
+  "calendarGuideTourEdit": "Tap the event below, then “{edit}”, change it, then “{save}”.",
   "@calendarGuideTourEdit": {
-    "description": "Practice calendar tour instruction; edit and save are the detail sheet's and the editor's labels",
+    "description": "Practice calendar tour instruction covering the whole trip: open an event from the panel, its detail sheet's Edit, the editor's Save; edit and save are the detail sheet's and the editor's labels",
     "placeholders": {
       "edit": {
         "type": "String"
@@ -9021,13 +9013,9 @@
   "@calendarGuideDemoEventFlightNote": {
     "description": "Description of the Flight demo event in the calendar guide"
   },
-  "calendarGuideTourFilterOpen": "Tap the funnel at the top right: it hides things you do not need.",
-  "@calendarGuideTourFilterOpen": {
-    "description": "Practice calendar filtering tour instruction"
-  },
-  "calendarGuideTourFilterCategory": "Tap “{categories}”, untick one, then “{apply}”.",
+  "calendarGuideTourFilterCategory": "Tap the funnel, then “{categories}”, untick one, then “{apply}”.",
   "@calendarGuideTourFilterCategory": {
-    "description": "Practice calendar filtering tour instruction; categories is the filter sheet's Categories row label, apply its Apply label",
+    "description": "Practice calendar filtering tour's first instruction, covering the whole trip: open the filter sheet from the funnel, its Categories row, Apply; categories is the filter sheet's Categories row label, apply its Apply label",
     "placeholders": {
       "categories": {
         "type": "String"

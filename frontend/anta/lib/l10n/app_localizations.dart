@@ -11272,16 +11272,10 @@ abstract class AppLocalizations {
   /// **'Tap + to add an event. Give it a name, then tap “{save}”.'**
   String calendarGuideCoachEventsAdd(String save);
 
-  /// Calendar guide coach instruction
+  /// Calendar guide coach instruction covering the whole trip: open an event from the list, its detail sheet's Edit, the editor's Save; edit and save are the detail sheet's and the editor's labels
   ///
   /// In en, this message translates to:
-  /// **'You can open an event by tapping it in the list below.'**
-  String get calendarGuideCoachEventsOpen;
-
-  /// Calendar guide coach instruction; edit and save are the detail sheet's and the editor's labels
-  ///
-  /// In en, this message translates to:
-  /// **'Open it, tap “{edit}” at the top right, change the name, then “{save}”.'**
+  /// **'Tap the event below, then “{edit}” at the top right, change the name, then “{save}”.'**
   String calendarGuideCoachEventsChange(String edit, String save);
 
   /// Calendar guide coach instruction; edit and deleteEvent are the detail sheet's and the editor's labels
@@ -11390,16 +11384,10 @@ abstract class AppLocalizations {
   /// **'Tap a day with a bar under it.'**
   String get calendarGuideTourPick;
 
-  /// Practice calendar tour instruction
+  /// Practice calendar tour instruction covering the whole trip: open an event from the panel, its detail sheet's Edit, the editor's Save; edit and save are the detail sheet's and the editor's labels
   ///
   /// In en, this message translates to:
-  /// **'Now tap the event in the panel below to open it.'**
-  String get calendarGuideTourOpen;
-
-  /// Practice calendar tour instruction; edit and save are the detail sheet's and the editor's labels
-  ///
-  /// In en, this message translates to:
-  /// **'You can change it with “{edit}” at the top right, then “{save}”.'**
+  /// **'Tap the event below, then “{edit}”, change it, then “{save}”.'**
   String calendarGuideTourEdit(String edit, String save);
 
   /// Practice calendar tour instruction
@@ -11462,16 +11450,10 @@ abstract class AppLocalizations {
   /// **'Gate opens two hours before.'**
   String get calendarGuideDemoEventFlightNote;
 
-  /// Practice calendar filtering tour instruction
+  /// Practice calendar filtering tour's first instruction, covering the whole trip: open the filter sheet from the funnel, its Categories row, Apply; categories is the filter sheet's Categories row label, apply its Apply label
   ///
   /// In en, this message translates to:
-  /// **'Tap the funnel at the top right: it hides things you do not need.'**
-  String get calendarGuideTourFilterOpen;
-
-  /// Practice calendar filtering tour instruction; categories is the filter sheet's Categories row label, apply its Apply label
-  ///
-  /// In en, this message translates to:
-  /// **'Tap “{categories}”, untick one, then “{apply}”.'**
+  /// **'Tap the funnel, then “{categories}”, untick one, then “{apply}”.'**
   String calendarGuideTourFilterCategory(String categories, String apply);
 
   /// Practice calendar filtering tour instruction; onlyShow is the filter sheet's Only show row label, apply its Apply label

@@ -74,13 +74,13 @@ enum GuidePracticeLesson {
   /// for [CalendarGuideTopic.cards]' reason: the coach is built before the
   /// page has a language.
   ///
-  /// The filtering tour's first action is `funnel`, not `opened`: the page
-  /// reports every action to whichever tour is running, and `opened` is
-  /// already the events tour's word for an event's sheet.
+  /// No step is opening a sheet (D71, D72): while a sheet is open the band
+  /// sits under its barrier, so a line that ends at the door is read only
+  /// after she has left. Each line carries her through the sheet to its
+  /// Apply or Save, and the step is what that answer did.
   List<GuideCoachStep> get steps => switch (this) {
     events => [
       GuideCoachStep('picked', (l10n) => l10n.calendarGuideTourPick),
-      GuideCoachStep('opened', (l10n) => l10n.calendarGuideTourOpen),
       GuideCoachStep(
         'changed',
         (l10n) => l10n.calendarGuideTourEdit(l10n.edit, l10n.save),
@@ -92,7 +92,6 @@ enum GuidePracticeLesson {
       ),
     ],
     filtering => [
-      GuideCoachStep('funnel', (l10n) => l10n.calendarGuideTourFilterOpen),
       GuideCoachStep(
         'category',
         (l10n) => l10n.calendarGuideTourFilterCategory(
@@ -262,7 +261,6 @@ enum CalendarGuideTopic {
         'added',
         (l10n) => l10n.calendarGuideCoachEventsAdd(l10n.save),
       ),
-      GuideCoachStep('opened', (l10n) => l10n.calendarGuideCoachEventsOpen),
       GuideCoachStep(
         'changed',
         (l10n) => l10n.calendarGuideCoachEventsChange(l10n.edit, l10n.save),
